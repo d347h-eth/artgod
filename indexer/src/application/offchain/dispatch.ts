@@ -1,6 +1,9 @@
 import { logger } from "@artgod/shared/utils";
 import {
-    type ExistingOrderActivityContext,
+    admitsListingObservation,
+    retainsOffchainActivity,
+} from "@artgod/shared/market-data/storage-policy";
+import {
     normalizeOffchainActivity,
     normalizeOffchainMetadataRefresh,
     normalizeOffchainOrder,
@@ -20,6 +23,8 @@ import {
     type OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
 import type { OffchainOrderRawPayload } from "../../domain/offchain-jobs.js";
+import { offchainObservationSeconds } from "../../domain/offchain-jobs.js";
+import { admitsOrderObservation } from "../../domain/order-retention.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
@@ -35,30 +40,24 @@ export type DispatchOffchainPayloadResult = {
     upsertedOrderId: string | null;
 };
 
-export type OrderActivityLookupPort = {
-    getByOrderId(params: {
-        chainId: number;
-        orderId: string;
-    }): ExistingOrderActivityContext | null;
-};
-
 export async function dispatchOffchainPayload(
     queue: QueuePort,
     tokenSets: TokenSetRegistryPort,
-    orderActivityLookup: OrderActivityLookupPort,
     payload: OffchainOrderRawPayload,
 ): Promise<DispatchOffchainPayloadResult> {
     let handled = false;
     let upsertedOrderId: string | null = null;
-    const orderActivityContext = payload.orderId
-        ? orderActivityLookup.getByOrderId({
-              chainId: payload.chainId,
-              orderId: payload.orderId,
-          })
-        : null;
-
-    const activity = normalizeOffchainActivity(payload, orderActivityContext);
-    if (activity) {
+    // Cancellation history no longer needs to read an existing canonical payload for enrichment.
+    const activity = normalizeOffchainActivity(payload, null);
+    if (
+        activity &&
+        retainsOffchainActivity(activity.kind) &&
+        activity.orderId &&
+        admitsListingObservation(
+            activity.occurredAt,
+            Math.floor(Date.now() / 1000),
+        )
+    ) {
         const activityJob: JobEnvelope<ActivityUpsertPayload> = {
             jobId: `activities:upsert:${activity.chainId}:${activity.sourceName}:${payload.dedupeKey}`,
             kind: ACTIVITY_JOB_KIND.Upsert,
@@ -75,7 +74,18 @@ export async function dispatchOffchainPayload(
     }
 
     const normalized = normalizeOffchainOrder(payload);
-    if (normalized) {
+    const observedAt =
+        normalized?.rawSourceKind === "rest"
+            ? Math.floor(payload.receivedAt / 1000)
+            : offchainObservationSeconds(payload);
+    if (
+        normalized &&
+        admitsOrderObservation(
+            normalized.validUntil,
+            observedAt,
+            Math.floor(Date.now() / 1000),
+        )
+    ) {
         let tokenSetId: string | null = null;
         let tokenSetSchemaHash: string | null = null;
         let localTokenSetStatus =
@@ -129,6 +139,7 @@ export async function dispatchOffchainPayload(
             kind: ORDER_JOB_KIND.Upsert,
             queue: QUEUE_NAMES.OrdersUpsert,
             payload: {
+                observedAt,
                 chainId: normalized.chainId,
                 collectionId: payload.collectionId,
                 orderId: normalized.orderId,
@@ -175,6 +186,8 @@ export async function dispatchOffchainPayload(
             queue: QUEUE_NAMES.OrdersUpdateById,
             payload: {
                 chainId: updateById.chainId,
+                collectionId: payload.collectionId,
+                observedAt: offchainObservationSeconds(payload),
                 orderId: updateById.orderId,
                 reason: updateById.reason,
                 sourceStatus: updateById.sourceStatus,

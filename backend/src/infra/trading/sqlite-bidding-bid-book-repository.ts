@@ -229,7 +229,8 @@ type IndexedOrderRow = {
     currency: string | null;
     valid_from: number | null;
     valid_until: number | null;
-    seaport_data_json: string | null;
+    has_seaport_data: number;
+    protocol_address: string | null;
     created_at: string | null;
     updated_at: string | null;
 };
@@ -510,7 +511,8 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             collectionId: number;
             nowSeconds: number;
         }>(
-            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_from, valid_until, seaport_data_json, created_at, updated_at " +
+            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_from, valid_until, seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at, " +
+                "COALESCE(datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0), 'unixepoch'),updated_at) AS updated_at " +
                 "FROM orders " +
                 "WHERE chain_id = @chainId AND collection_id = @collectionId " +
                 "AND side = 'buy' AND source_status = 'active' AND fillability_status = 'fillable' " +
@@ -1367,7 +1369,7 @@ function indexedOrderRowSummarySpanAttributes(
 
     for (const row of rows) {
         tallyIndexedOrderScope(scopeCounts, row.source_scope_kind);
-        if (row.seaport_data_json) seaportJsonRows += 1;
+        if (row.has_seaport_data) seaportJsonRows += 1;
         if (row.valid_until !== null) validUntilRows += 1;
     }
 
@@ -2379,7 +2381,7 @@ function mapIndexedOrderRow(
                 quantity: row.quantity,
                 currencyAddress: row.currency,
                 currencySymbol: null,
-                protocolAddress: parseProtocolAddress(row.seaport_data_json),
+                protocolAddress: row.protocol_address,
                 validUntil: row.valid_until,
                 placedAt: indexedOrderPlacedAt(row),
                 snapshotRefreshedAtMs: null,
@@ -2784,21 +2786,6 @@ function parseRuntimeBidConstraints(
         );
     } catch {
         return [];
-    }
-}
-
-function parseProtocolAddress(value: string | null): string | null {
-    if (!value) {
-        return null;
-    }
-
-    try {
-        const parsed = JSON.parse(value) as { protocolAddress?: unknown };
-        return typeof parsed.protocolAddress === "string"
-            ? parsed.protocolAddress
-            : null;
-    } catch {
-        return null;
     }
 }
 

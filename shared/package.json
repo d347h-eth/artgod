@@ -91,6 +91,8 @@
         "./observability/rpc": "./observability/rpc.ts",
         "./queue/nats-job-stream": "./queue/nats-job-stream.ts",
         "./database": "./database/db.ts",
+        "./database/current-asks": "./database/current-asks.ts",
+        "./market-data/storage-policy": "./market-data/storage-policy.ts",
         "./migrations": "./database/migrations.ts",
         "./read-models": "./read-models/index.ts",
         "./read-models/errors": "./read-models/errors.ts",

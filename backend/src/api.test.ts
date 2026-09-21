@@ -5,6 +5,10 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    MARKET_DATA_STORAGE_POLICY,
+    listingDayIdentity,
+} from "@artgod/shared/market-data/storage-policy";
+import {
     getSettingDefault,
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
@@ -81,6 +85,7 @@ import {
 } from "@artgod/shared/types/token-attributes";
 import {
     ACTIVITY_KIND,
+    LISTING_HISTORY_POLICY,
     ACTIVITY_FEED_QUERY_PARAMS,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
@@ -3128,11 +3133,11 @@ describe("backend api routes", () => {
         );
         expect(first.payload.activities.items).toHaveLength(2);
         expect(first.payload.activities.prevCursor).toBeNull();
-        expect(first.payload.activities.totalItems).toBe(5);
+        expect(first.payload.activities.totalItems).toBe(3);
         expect(first.payload.activities.rangeStart).toBe(1);
         expect(first.payload.activities.rangeEnd).toBe(2);
         expect(first.payload.activities.currentPage).toBe(1);
-        expect(first.payload.activities.totalPages).toBe(3);
+        expect(first.payload.activities.totalPages).toBe(2);
         expect(first.payload.included.tokensById).toEqual({
             "1": {
                 tokenId: "1",
@@ -3178,47 +3183,12 @@ describe("backend api routes", () => {
             second.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
             ),
-        ).toEqual([
-            ACTIVITY_KIND.ListingCancelled,
-            ACTIVITY_KIND.ListingCreated,
-        ]);
+        ).toEqual([ACTIVITY_KIND.ListingCreated]);
         expect(second.payload.activities.prevCursor).toBeNull();
-        expect(second.payload.activities.nextCursor).toEqual(
-            expect.any(String),
-        );
+        expect(second.payload.activities.nextCursor).toBeNull();
         expect(second.payload.activities.rangeStart).toBe(3);
-        expect(second.payload.activities.rangeEnd).toBe(4);
+        expect(second.payload.activities.rangeEnd).toBe(3);
         expect(second.payload.activities.currentPage).toBe(2);
-
-        const third = await resolve(
-            "GET",
-            `/api/ethereum/milady/activity?limit=2&cursor=${encodeURIComponent(second.payload.activities.nextCursor)}`,
-        );
-
-        expect(third.statusCode).toBe(200);
-        expect(
-            third.payload.activities.items.map(
-                (activity: { kind: string }) => activity.kind,
-            ),
-        ).toEqual([ACTIVITY_KIND.BidCreated]);
-        expect(third.payload.activities.prevCursor).toEqual(expect.any(String));
-        expect(third.payload.activities.nextCursor).toBeNull();
-        expect(third.payload.activities.rangeStart).toBe(5);
-        expect(third.payload.activities.rangeEnd).toBe(5);
-        expect(third.payload.activities.currentPage).toBe(3);
-
-        const previousOfThird = await resolve(
-            "GET",
-            `/api/ethereum/milady/activity?limit=2&cursor=${encodeURIComponent(third.payload.activities.prevCursor)}`,
-        );
-        expect(
-            previousOfThird.payload.activities.items.map(
-                (activity: { kind: string }) => activity.kind,
-            ),
-        ).toEqual([
-            ACTIVITY_KIND.ListingCancelled,
-            ACTIVITY_KIND.ListingCreated,
-        ]);
     });
 
     it("filters collection activity by grouped kind", async () => {
@@ -3380,7 +3350,6 @@ describe("backend api routes", () => {
         ).toEqual([
             ACTIVITY_KIND.Sale,
             ACTIVITY_KIND.Transfer,
-            ACTIVITY_KIND.ListingCancelled,
             ACTIVITY_KIND.ListingCreated,
         ]);
         expect(
@@ -3395,19 +3364,7 @@ describe("backend api routes", () => {
             side: "sell",
             price: "500000000000000000",
             currency: ZERO_ADDRESS,
-            payload: {
-                eventType: "item_cancelled",
-            },
-        });
-        expect(result.payload.activities.items[3]).toMatchObject({
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            side: "sell",
-            price: "500000000000000000",
-            currency: ZERO_ADDRESS,
-            payload: {
-                eventType: "item_listed",
-            },
+            payload: null,
         });
 
         const listingsOnly = await resolve(
@@ -3421,230 +3378,102 @@ describe("backend api routes", () => {
         ).toEqual([ACTIVITY_KIND.ListingCreated]);
     });
 
-    it("collapses collection listings by token, maker, currency, and UTC day while leaving token listings raw", async () => {
+    it("serves stored historical prices in collection, token and filtered feeds", async () => {
         const makerA = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const makerB = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        const nativeCurrency = ZERO_ADDRESS.toLowerCase();
-        const wethCurrency = WETH_ADDRESS.toLowerCase();
-
-        insertActivityFixture({
-            collectionAddress: MILADY_ADDRESS,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind: ACTIVITY_KIND.ListingCreated,
-            tokenId: "2",
-            occurredAt: 1_726_000_900,
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            orderId: "listed-milady-2-maker-a-early",
-            maker: makerA,
-            side: "sell",
-            price: "400000000000000000",
-            currency: ZERO_ADDRESS,
-            payload: { eventType: "item_listed" },
-            dedupeKey:
-                "offchain:opensea:item_listed:listed-milady-2-maker-a-early:2",
-            isOpen: true,
-        });
-        insertActivityFixture({
-            collectionAddress: MILADY_ADDRESS,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind: ACTIVITY_KIND.ListingCreated,
-            tokenId: "2",
-            occurredAt: 1_726_001_200,
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            orderId: "listed-milady-2-maker-a-late",
-            maker: makerA,
-            side: "sell",
-            price: "420000000000000000",
-            currency: ZERO_ADDRESS,
-            payload: { eventType: "item_listed" },
-            dedupeKey:
-                "offchain:opensea:item_listed:listed-milady-2-maker-a-late:2",
-            isOpen: true,
-        });
-        insertActivityFixture({
-            collectionAddress: MILADY_ADDRESS,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind: ACTIVITY_KIND.ListingCreated,
-            tokenId: "2",
-            occurredAt: 1_726_001_100,
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            orderId: "listed-milady-2-maker-b",
-            maker: makerB,
-            side: "sell",
-            price: "410000000000000000",
-            currency: ZERO_ADDRESS,
-            payload: { eventType: "item_listed" },
-            dedupeKey: "offchain:opensea:item_listed:listed-milady-2-maker-b:2",
-            isOpen: true,
-        });
-        insertActivityFixture({
-            collectionAddress: MILADY_ADDRESS,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind: ACTIVITY_KIND.ListingCreated,
-            tokenId: "2",
-            occurredAt: 1_726_001_000,
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            orderId: "listed-milady-2-maker-a-weth",
-            maker: makerA,
-            side: "sell",
-            price: "405000000000000000",
-            currency: WETH_ADDRESS,
-            payload: { eventType: "item_listed" },
-            dedupeKey:
-                "offchain:opensea:item_listed:listed-milady-2-maker-a-weth:2",
-            isOpen: true,
-        });
-        insertActivityFixture({
-            collectionAddress: MILADY_ADDRESS,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind: ACTIVITY_KIND.ListingCreated,
-            tokenId: "2",
-            occurredAt: 1_726_088_000,
-            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
-            sourceName: "opensea",
-            orderId: "listed-milady-2-maker-a-next-day",
-            maker: makerA,
-            side: "sell",
-            price: "430000000000000000",
-            currency: ZERO_ADDRESS,
-            payload: { eventType: "item_listed" },
-            dedupeKey:
-                "offchain:opensea:item_listed:listed-milady-2-maker-a-next-day:2",
-            isOpen: true,
-        });
-
-        const collectionListings = await resolve(
+        // Fixtures are final persisted daily rows, not event history to group at request time.
+        for (const [maker, at] of [
+            [makerA, 1_726_000_900],
+            [makerB, 1_726_001_100],
+            [makerA, 1_726_012_860],
+        ] as const) {
+            insertActivityFixture({
+                collectionAddress: MILADY_ADDRESS,
+                scopeKind: ACTIVITY_SCOPE_KIND.Token,
+                kind: ACTIVITY_KIND.ListingCreated,
+                tokenId: "2",
+                occurredAt: at,
+                sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+                sourceName: "opensea",
+                maker,
+                side: "sell",
+                dedupeKey: `fixture-daily-${maker}-${at}`,
+                price: String(at),
+                currency: ZERO_ADDRESS,
+                orderId: `historical-${at}`,
+            });
+        }
+        const now = Math.floor(Date.now() / 1000);
+        for (const [id, price, currency] of [
+            ["current-eth", "400000000000000000", ZERO_ADDRESS],
+            ["current-weth", "390000000000000000", WETH_ADDRESS],
+        ]) {
+            insertOrderFixture({
+                id,
+                price,
+                currency,
+                maker: makerA,
+                side: "sell",
+                contract: MILADY_ADDRESS,
+                tokenId: "2",
+                sourceScopeKind: "token",
+                sourceStatus: "active",
+                fillabilityStatus: "fillable",
+                validFrom: now - 100,
+                validUntil: now + 3600,
+            });
+        }
+        const collection = await resolve(
             "GET",
             "/api/ethereum/milady/activity?limit=10&kind=listings",
         );
-
-        expect(collectionListings.statusCode).toBe(200);
-        expect(collectionListings.payload.activities.totalItems).toBe(5);
-        expect(collectionListings.payload.activities.items).toHaveLength(5);
-        expect(
-            collectionListings.payload.activities.items.map(
-                (activity: { kind: string }) => activity.kind,
-            ),
-        ).toEqual([
-            ACTIVITY_KIND.ListingCreated,
-            ACTIVITY_KIND.ListingCreated,
-            ACTIVITY_KIND.ListingCreated,
-            ACTIVITY_KIND.ListingCreated,
-            ACTIVITY_KIND.ListingCreated,
-        ]);
-        expect(
-            collectionListings.payload.activities.items
-                .filter(
-                    (activity: { tokenId: string | null }) =>
-                        activity.tokenId === "2",
-                )
-                .map(
-                    (activity: {
-                        maker: string | null;
-                        currency: string | null;
-                        occurredAt: number;
-                    }) => ({
-                        maker: activity.maker,
-                        currency: activity.currency,
-                        occurredAt: activity.occurredAt,
-                    }),
-                ),
-        ).toEqual([
-            {
-                maker: makerA,
-                currency: nativeCurrency,
-                occurredAt: 1_726_088_000,
-            },
-            {
-                maker: makerB,
-                currency: nativeCurrency,
-                occurredAt: 1_726_001_100,
-            },
-            {
-                maker: makerA,
-                currency: wethCurrency,
-                occurredAt: 1_726_001_000,
-            },
-            {
-                maker: makerA,
-                currency: nativeCurrency,
-                occurredAt: 1_726_000_900,
-            },
-        ]);
-
-        const collapsedSameDay =
-            collectionListings.payload.activities.items.find(
-                (activity: {
-                    tokenId: string | null;
-                    maker: string | null;
-                    currency: string | null;
-                    occurredAt: number;
-                }) =>
-                    activity.tokenId === "2" &&
-                    activity.maker === makerA &&
-                    activity.currency === nativeCurrency &&
-                    activity.occurredAt === 1_726_000_900,
-            );
-        expect(collapsedSameDay).toMatchObject({
-            tokenId: "2",
+        expect(collection.statusCode).toBe(200);
+        expect(collection.payload.activities.listingHistory).toEqual(
+            LISTING_HISTORY_POLICY,
+        );
+        expect(collection.payload.activities.totalItems).toBe(4);
+        const daily = collection.payload.activities.items.filter(
+            (row: { tokenId: string }) => row.tokenId === "2",
+        );
+        expect(daily).toHaveLength(3);
+        expect(daily[0]).toMatchObject({
             maker: makerA,
-            currency: nativeCurrency,
-            price: "400000000000000000",
+            occurredAt: 1_726_012_860,
+            price: "1726012860",
+            currency: ZERO_ADDRESS,
             isCollapsed: true,
-            collapsedEventCount: 2,
+            collapsedEventCount: null,
+        });
+        expect(daily[1]).toMatchObject({
+            maker: makerB,
+            occurredAt: 1_726_001_100,
+            price: "1726001100",
+            currency: ZERO_ADDRESS,
+            orderId: "historical-1726001100",
+        });
+        expect(daily[2]).toMatchObject({
+            maker: makerA,
+            occurredAt: 1_726_000_900,
+            price: "1726000900",
+            orderId: "historical-1726000900",
         });
         expect(
-            (
-                collapsedSameDay as {
-                    collapsedWindowStartUtc: number | null;
-                    collapsedWindowEndUtc: number | null;
-                }
-            ).collapsedWindowEndUtc! -
-                (
-                    collapsedSameDay as {
-                        collapsedWindowStartUtc: number | null;
-                        collapsedWindowEndUtc: number | null;
-                    }
-                ).collapsedWindowStartUtc!,
-        ).toBe(86_399);
+            daily[2].collapsedWindowEndUtc - daily[2].collapsedWindowStartUtc,
+        ).toBe(MARKET_DATA_STORAGE_POLICY.utcDaySeconds - 1);
 
-        const filteredCollapsedListings = await resolve(
-            "GET",
+        for (const url of [
             "/api/ethereum/milady/activity?limit=10&kind=listings&traits=Mood:Angry",
-        );
-        expect(filteredCollapsedListings.statusCode).toBe(200);
-        expect(filteredCollapsedListings.payload.activities.totalItems).toBe(4);
-        expect(
-            filteredCollapsedListings.payload.activities.items.every(
-                (activity: { tokenId: string | null }) =>
-                    activity.tokenId === "2",
-            ),
-        ).toBe(true);
-
-        const tokenListings = await resolve(
-            "GET",
             "/api/ethereum/milady/2/activity?limit=10&kind=listings",
-        );
-
-        expect(tokenListings.statusCode).toBe(200);
-        expect(tokenListings.payload.activities.totalItems).toBe(5);
-        expect(tokenListings.payload.activities.items).toHaveLength(5);
-        expect(
-            tokenListings.payload.activities.items.every(
-                (activity: {
-                    kind: string;
-                    isCollapsed: boolean;
-                    collapsedEventCount: number | null;
-                }) =>
-                    activity.kind === ACTIVITY_KIND.ListingCreated &&
-                    activity.isCollapsed === false &&
-                    activity.collapsedEventCount === null,
-            ),
-        ).toBe(true);
+        ]) {
+            const response = await resolve("GET", url);
+            expect(response.statusCode).toBe(200);
+            expect(response.payload.activities.totalItems).toBe(3);
+            expect(response.payload.activities.items).toEqual(daily);
+        }
+        // Leave later, unrelated grid tests' shared fixture unchanged.
+        db.prepare(
+            "DELETE FROM orders WHERE id IN ('current-eth','current-weth')",
+        ).run();
     });
 
     it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {
@@ -7846,10 +7675,11 @@ function insertActivityFixture(input: {
     isOpen?: boolean;
 }): void {
     const collection = getCollectionFixtureByAddress(input.collectionAddress);
+    const daily = input.kind === ACTIVITY_KIND.ListingCreated;
     db.prepare(
         "INSERT INTO activities " +
-            "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, dedupe_key, is_open, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, dedupe_key, is_open, listing_day, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     ).run(
         1,
         collection.collection_id,
@@ -7872,9 +7702,21 @@ function insertActivityFixture(input: {
         input.amount ?? null,
         input.price ?? null,
         input.currency?.toLowerCase() ?? null,
-        input.payload ? JSON.stringify(input.payload) : null,
-        input.dedupeKey,
+        !daily && input.payload ? JSON.stringify(input.payload) : null,
+        daily
+            ? listingDayIdentity(
+                  collection.collection_id,
+                  input.tokenId!,
+                  input.maker!,
+                  input.occurredAt,
+              )
+            : input.dedupeKey,
         input.isOpen ? 1 : 0,
+        daily
+            ? Math.floor(
+                  input.occurredAt / MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
+              )
+            : null,
     );
 }
 

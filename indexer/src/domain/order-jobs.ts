@@ -62,6 +62,9 @@ export type OrderUpdateByMakerPayload =
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.
 export type OrderUpdateByIdPayload = {
     chainId: number;
+    /** Present on source updates, including cancellation before its create arrives. */
+    collectionId?: number;
+    observedAt?: number;
     orderId: string;
     reason: string;
     sourceStatus?: OrderSourceStatus | null;
@@ -72,6 +75,8 @@ export type OrderUpdateByIdPayload = {
 };
 
 export type OrderUpsertPayload = {
+    /** Epoch seconds of the source observation, not the queue delivery/retry time. */
+    observedAt?: number;
     chainId: number;
     collectionId: number;
     orderId: string;

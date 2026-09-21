@@ -1,3 +1,7 @@
+import {
+    currentAskIdSql,
+    normalizedAskPriceSql,
+} from "../database/current-asks.js";
 import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { isTokenImageCachePublicPath } from "../media/token-image-cache-paths.js";
@@ -37,7 +41,10 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "../types/browse.js";
-import { TOKEN_RECORD_KIND, type TokenRecordKind } from "../types/token-records.js";
+import {
+    TOKEN_RECORD_KIND,
+    type TokenRecordKind,
+} from "../types/token-records.js";
 import {
     normalizeTraitKeyList,
     TRAIT_FILTER_DISPLAY_KIND,
@@ -273,11 +280,6 @@ const TOKEN_SORT_VALUE_SQL = "t.token_sort_value";
 const TOKEN_SORT_KEY_SQL = `(${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
 const TOKEN_ORDER_BY_ASC_SQL = `${TOKEN_SORT_BUCKET_SQL} ASC, ${TOKEN_SORT_LENGTH_SQL} ASC, ${TOKEN_SORT_VALUE_SQL} ASC, t.token_id ASC`;
 const TOKEN_ORDER_BY_DESC_SQL = `${TOKEN_SORT_BUCKET_SQL} DESC, ${TOKEN_SORT_LENGTH_SQL} DESC, ${TOKEN_SORT_VALUE_SQL} DESC, t.token_id DESC`;
-const LISTING_PRICE_IS_NUMERIC_SQL =
-    "o.price IS NOT NULL AND o.price <> '' AND o.price NOT GLOB '*[^0-9]*'";
-const LISTING_PRICE_NORMALIZED_SQL =
-    "CASE WHEN LTRIM(o.price, '0') = '' THEN '0' ELSE LTRIM(o.price, '0') END";
-const LISTING_PRICE_LENGTH_SQL = `LENGTH(${LISTING_PRICE_NORMALIZED_SQL})`;
 const LISTED_TOKEN_SORT_KEY_SQL = `(l.price_sort_length, l.price_sort_value, ${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
 const LISTED_ORDER_BY_ASC_SQL = `l.price_sort_length ASC, l.price_sort_value ASC, ${TOKEN_ORDER_BY_ASC_SQL}`;
 const LISTED_ORDER_BY_DESC_SQL = `l.price_sort_length DESC, l.price_sort_value DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
@@ -1437,14 +1439,16 @@ export class SqliteCollectionsReadModel {
         const normalizedTraits = normalizeTraitFilters(params.traits);
         const supportedTraits: TraitFilter[] = [];
         for (const trait of normalizedTraits) {
-            const supportRow = this.selectMarketplaceBiddingTraitSupportRow.get({
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
-                sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
-                key: trait.key,
-                value: trait.value,
-            }) as { supported: number } | undefined;
+            const supportRow = this.selectMarketplaceBiddingTraitSupportRow.get(
+                {
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                    sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                    key: trait.key,
+                    value: trait.value,
+                },
+            ) as { supported: number } | undefined;
             if (supportRow) {
                 supportedTraits.push(trait);
             }
@@ -1797,15 +1801,13 @@ export class SqliteCollectionsReadModel {
             params.chainId,
             params.collectionId,
         );
-        const attributeRows = this.selectTokenDetailTraitRows.all(
-            {
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-                tokenId,
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
-                sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
-            },
-        ) as TokenDetailTraitRow[];
+        const attributeRows = this.selectTokenDetailTraitRows.all({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+        }) as TokenDetailTraitRow[];
         const attributes = attributeRows.map((item) =>
             mapTokenDetailTraitRow(item, totalItems),
         );
@@ -2978,38 +2980,22 @@ function buildCheapestListingSql(
     supportedCurrencyCount: number,
     tokenIdCount = 0,
 ): string {
-    const currencyPlaceholders = new Array(supportedCurrencyCount)
-        .fill("?")
-        .join(", ");
-    const tokenIdFilter =
-        tokenIdCount > 0
-            ? `AND o.token_id IN (${new Array(tokenIdCount).fill("?").join(", ")}) `
-            : "";
+    const price = normalizedAskPriceSql("o");
     return (
-        "SELECT ranked.collection_id, ranked.token_id, ranked.price, ranked.currency, ranked.price_sort_length, ranked.price_sort_value " +
-        "FROM (" +
-        "SELECT o.collection_id, o.token_id, o.price, o.currency, " +
-        `${LISTING_PRICE_LENGTH_SQL} AS price_sort_length, ` +
-        `${LISTING_PRICE_NORMALIZED_SQL} AS price_sort_value, ` +
-        "ROW_NUMBER() OVER (" +
-        "PARTITION BY o.collection_id, o.token_id " +
-        `ORDER BY ${LISTING_PRICE_LENGTH_SQL} ASC, ${LISTING_PRICE_NORMALIZED_SQL} ASC, o.currency ASC, o.id ASC` +
-        ") AS row_number " +
-        "FROM orders o " +
-        "WHERE o.chain_id = ? " +
-        "AND o.collection_id = ? " +
-        "AND o.source_scope_kind = 'token' " +
-        "AND o.side = 'sell' " +
-        "AND o.token_id IS NOT NULL " +
-        "AND o.source_status = 'active' " +
-        "AND o.fillability_status = 'fillable' " +
-        `AND o.currency IN (${currencyPlaceholders}) ` +
-        `AND ${LISTING_PRICE_IS_NUMERIC_SQL} ` +
-        "AND (o.valid_from IS NULL OR o.valid_from <= ?) " +
-        "AND (o.valid_until IS NULL OR o.valid_until >= ?) " +
-        tokenIdFilter +
-        ") ranked " +
-        "WHERE ranked.row_number = 1"
+        "SELECT t.collection_id,t.token_id,o.price,o.currency," +
+        `LENGTH(${price}) AS price_sort_length,${price} AS price_sort_value ` +
+        "FROM (SELECT chain_id,collection_id,token_id FROM tokens WHERE chain_id=? AND collection_id=?) t " +
+        "JOIN orders o ON o.id=(" +
+        currentAskIdSql({
+            chain: "t.chain_id",
+            collection: "t.collection_id",
+            token: "t.token_id",
+            currencyCount: supportedCurrencyCount,
+        }) +
+        ")" +
+        (tokenIdCount
+            ? ` WHERE t.token_id IN (${Array(tokenIdCount).fill("?").join(",")})`
+            : "")
     );
 }
 
@@ -3037,7 +3023,8 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         standard: row.standard as CollectionListItem["standard"],
         status: row.status as CollectionListItem["status"],
         openseaSlug: row.opensea_slug,
-        openseaStatus: row.opensea_status as CollectionListItem["openseaStatus"],
+        openseaStatus:
+            row.opensea_status as CollectionListItem["openseaStatus"],
         openseaReadyAt: row.opensea_ready_at,
         openseaSnapshotRefreshedAt: row.opensea_snapshot_refreshed_at,
         openseaStreamIngestionStatus:
@@ -3050,7 +3037,9 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
     };
 }
 
-function mapCollectionTokenScope(row: CollectionRow): CollectionTokenScopeSummary {
+function mapCollectionTokenScope(
+    row: CollectionRow,
+): CollectionTokenScopeSummary {
     if (row.token_scope_kind === "token_range") {
         return {
             label: "token range",

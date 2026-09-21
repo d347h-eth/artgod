@@ -1,5 +1,6 @@
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { db } from "../database/db.js";
+import { MARKET_DATA_STORAGE_POLICY } from "../market-data/storage-policy.js";
 import {
     ARTGOD_ACTIVITY_COUNT_KIND,
     ARTGOD_SPAN_ATTRIBUTE,
@@ -12,6 +13,7 @@ import {
 } from "../observability/apm-contract.js";
 import {
     ACTIVITY_FEED_FILTER_KIND,
+    LISTING_HISTORY_POLICY,
     ACTIVITY_KIND,
     ACTIVITY_SOURCE_KIND,
     type ActivityEventMedia,
@@ -37,6 +39,7 @@ import { buildTokenCandidateWhereClauses } from "./token-candidates.js";
 
 type ActivityRow = {
     id: number;
+    listing_day: number | null;
     scope_kind: string;
     kind: string;
     contract_address: string;
@@ -57,10 +60,6 @@ type ActivityRow = {
     price: string | null;
     currency: string | null;
     payload_json: string | null;
-    is_collapsed: number | null;
-    collapsed_event_count: number | null;
-    collapsed_window_start_utc: number | null;
-    collapsed_window_end_utc: number | null;
 };
 
 type ActivityCursorKey = {
@@ -85,15 +84,9 @@ type ActivityEventMediaRow = {
 };
 
 const RAW_ACTIVITY_SELECT_COLUMNS =
-    "id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
-    "0 AS is_collapsed, NULL AS collapsed_event_count, NULL AS collapsed_window_start_utc, NULL AS collapsed_window_end_utc";
-
-const COLLAPSED_ACTIVITY_SELECT_COLUMNS =
-    "id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
-    "is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc";
-
+    "id, listing_day, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json";
 const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
-    name: "raw",
+    name: "daily_activities",
     cteSql: "",
     relationSql: "FROM activities a",
     selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
@@ -116,20 +109,23 @@ export class SqliteActivitiesReadModel {
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
-        return this.listActivities({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            limit: params.limit,
-            cursor: params.cursor,
-            kind: params.kind,
-            extensionEvent: params.extensionEvent,
-            tokenId: params.tokenId,
-            maker: params.maker,
-            contentHash: params.contentHash,
-            eventGroup: params.eventGroup,
-            traitFilters: params.traitFilters,
-            traitRangeFilters: params.traitRangeFilters,
-        });
+        return this.withHistory(
+            this.listActivities({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                limit: params.limit,
+                cursor: params.cursor,
+                kind: params.kind,
+                extensionEvent: params.extensionEvent,
+                tokenId: params.tokenId,
+                maker: params.maker,
+                contentHash: params.contentHash,
+                eventGroup: params.eventGroup,
+                traitFilters: params.traitFilters,
+                traitRangeFilters: params.traitRangeFilters,
+            }),
+            params,
+        );
     }
 
     listTokenActivities(params: {
@@ -145,14 +141,30 @@ export class SqliteActivitiesReadModel {
             throw new ReadModelBadRequestError("Invalid token_ref");
         }
 
-        return this.listActivities({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            tokenId,
-            limit: params.limit,
-            cursor: params.cursor,
-            kind: params.kind,
-        });
+        return this.withHistory(
+            this.listActivities({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId,
+                limit: params.limit,
+                cursor: params.cursor,
+                kind: params.kind,
+            }),
+            params,
+        );
+    }
+
+    private withHistory(
+        page: ActivityFeedPage,
+        params: {
+            chainId: number;
+            collectionId: number;
+            kind?: ActivityFeedFilterKind;
+        },
+    ): ActivityFeedPage {
+        return params.kind === ACTIVITY_FEED_FILTER_KIND.Listings
+            ? { ...page, listingHistory: LISTING_HISTORY_POLICY }
+            : page;
     }
 
     listCollectionActivityEventMedia(params: {
@@ -270,45 +282,8 @@ export class SqliteActivitiesReadModel {
             cursorPresent: Boolean(cursor),
             traitFilterGroups,
             traitRangeFilterGroups,
-            candidateTokenIdsCount:
-                traitTokenCandidates.candidateTokenIdsCount,
+            candidateTokenIdsCount: traitTokenCandidates.candidateTokenIdsCount,
         });
-
-        if (
-            shouldCollapseCollectionListings(
-                params.tokenId,
-                filterKind,
-                params.extensionEvent,
-                params.maker,
-                params.contentHash,
-                params.eventGroup,
-            )
-        ) {
-            const {
-                whereClauses: tokenCandidateWhereClauses,
-                values: tokenCandidateValues,
-            } = buildTokenCandidateWhereClauses({
-                tokenIds: traitTokenCandidates.tokenIds,
-                tokenColumnSql: "a.token_id",
-            });
-            return listActivitiesFromSource({
-                apm: this.apm,
-                source: buildCollapsedCollectionListingsSource([
-                    ...tokenCandidateWhereClauses,
-                ]),
-                baseWhereClauses: [],
-                baseValues: [
-                    params.chainId,
-                    params.collectionId,
-                    ACTIVITY_KIND.ListingCreated,
-                    ...tokenCandidateValues,
-                ],
-                limit,
-                cursor,
-                filterKind,
-                spanAttributes,
-            });
-        }
 
         const { whereClauses: baseWhereClauses, values: baseValues } =
             buildActivityWhereClauses({
@@ -323,6 +298,10 @@ export class SqliteActivitiesReadModel {
                 eventGroup: params.eventGroup,
             });
 
+        baseWhereClauses.push(
+            `(source_kind <> '${ACTIVITY_SOURCE_KIND.Offchain}' OR kind = '${ACTIVITY_KIND.ListingCreated}')`,
+            `(kind <> '${ACTIVITY_KIND.ListingCreated}' OR listing_day IS NOT NULL)`,
+        );
         return listActivitiesFromSource({
             apm: this.apm,
             source: RAW_ACTIVITY_SOURCE,
@@ -437,6 +416,11 @@ function buildActivityWhereClauses(params: {
         values.push(params.maker.toLowerCase());
     }
 
+    if ((params.contentHash || params.eventGroup) && !params.extensionEvent) {
+        whereClauses.push("kind = ?");
+        values.push(ACTIVITY_KIND.Custom);
+    }
+
     if (params.contentHash) {
         whereClauses.push(
             "LOWER(COALESCE(json_extract(payload_json, '$.contentHash'), '')) = ?",
@@ -483,57 +467,6 @@ function emptyActivityFeedPage(limit: number): ActivityFeedPage {
     };
 }
 
-function shouldCollapseCollectionListings(
-    tokenId: string | undefined,
-    filterKind: ActivityFeedFilterKind | null,
-    extensionEvent: ActivityExtensionEventFilter | undefined,
-    maker: string | undefined,
-    contentHash: string | undefined,
-    eventGroup: string | undefined,
-): boolean {
-    return (
-        !tokenId &&
-        !extensionEvent &&
-        !maker &&
-        !contentHash &&
-        !eventGroup &&
-        filterKind === ACTIVITY_FEED_FILTER_KIND.Listings
-    );
-}
-
-function buildCollapsedCollectionListingsSource(
-    traitWhereClauses: string[],
-): ActivityQuerySource {
-    const traitWhereSql =
-        traitWhereClauses.length === 0
-            ? ""
-            : ` AND ${traitWhereClauses.join(" AND ")}`;
-    return {
-        name: "collapsed_collection_listings",
-        cteSql:
-            "WITH filtered_listing_activities AS (" +
-            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
-            "CAST(occurred_at / 86400 AS INTEGER) AS collapsed_day_bucket " +
-            "FROM activities a " +
-            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = ?" +
-            traitWhereSql +
-            "), ranked_listing_activities AS (" +
-            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
-            "COUNT(*) OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket) AS collapsed_event_count, " +
-            "(collapsed_day_bucket * 86400) AS collapsed_window_start_utc, " +
-            "(((collapsed_day_bucket + 1) * 86400) - 1) AS collapsed_window_end_utc, " +
-            "ROW_NUMBER() OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket ORDER BY occurred_at ASC, id ASC) AS collapse_rank " +
-            "FROM filtered_listing_activities" +
-            "), collapsed_listing_activities AS (" +
-            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
-            "1 AS is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc " +
-            "FROM ranked_listing_activities WHERE collapse_rank = 1" +
-            ") ",
-        relationSql: "FROM collapsed_listing_activities",
-        selectColumnsSql: COLLAPSED_ACTIVITY_SELECT_COLUMNS,
-    };
-}
-
 function buildActivityQuerySpanAttributes(params: {
     chainId: number;
     collectionId: number;
@@ -548,8 +481,7 @@ function buildActivityQuerySpanAttributes(params: {
         [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
         [ARTGOD_SPAN_ATTRIBUTE.ActivityKind]:
             params.filterKind ?? ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
-        [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]:
-            params.cursorPresent,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]: params.cursorPresent,
         [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
             params.traitFilterGroups.length,
         [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]:
@@ -925,10 +857,18 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
         price: row.price,
         currency: row.currency?.toLowerCase() ?? null,
         payload: parsePayloadJson(row.payload_json),
-        isCollapsed: row.is_collapsed === 1,
-        collapsedEventCount: row.collapsed_event_count ?? null,
-        collapsedWindowStartUtc: row.collapsed_window_start_utc ?? null,
-        collapsedWindowEndUtc: row.collapsed_window_end_utc ?? null,
+        isCollapsed: row.listing_day !== null,
+        collapsedEventCount: null,
+        collapsedWindowStartUtc:
+            row.listing_day == null
+                ? null
+                : row.listing_day * MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
+        collapsedWindowEndUtc:
+            row.listing_day == null
+                ? null
+                : (row.listing_day + 1) *
+                      MARKET_DATA_STORAGE_POLICY.utcDaySeconds -
+                  1,
     };
 }
 

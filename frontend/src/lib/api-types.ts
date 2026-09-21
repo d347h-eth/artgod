@@ -187,6 +187,7 @@ export type ApiTokenPresentationSummary = {
 };
 
 export type ApiActivitiesPage = {
+	listingHistory?: import('@artgod/shared/types').ActivityFeedPage['listingHistory'];
 	items: ApiActivityFeedItem[];
 	prevCursor: string | null;
 	nextCursor: string | null;

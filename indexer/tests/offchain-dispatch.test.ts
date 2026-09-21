@@ -1,5 +1,13 @@
 import fs from "node:fs/promises";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
@@ -57,6 +65,8 @@ describe("offchain dispatch", () => {
     });
 
     beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-01-25T23:22:00Z"));
         db.exec(
             [
                 "DELETE FROM orders;",
@@ -72,6 +82,7 @@ describe("offchain dispatch", () => {
             ].join("\n"),
         );
     });
+    afterEach(() => vi.useRealTimers());
 
     it("persists REST collection offers even when source criteria root is zero", async () => {
         const collectionId = ensureCollection(1, CONTRACT);
@@ -95,12 +106,7 @@ describe("offchain dispatch", () => {
             payload: buildRestCollectionOfferRecord(),
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -140,12 +146,7 @@ describe("offchain dispatch", () => {
             payload: buildRestNumericTraitOfferRecord(),
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -173,17 +174,10 @@ describe("offchain dispatch", () => {
         const collectionId = ensureCollection(1, CONTRACT);
         seedAttribute(1, collectionId, CONTRACT, "Biome", "42");
         linkToken(1, collectionId, CONTRACT, "10", [["Biome", "42"]]);
-        linkToken(
-            1,
-            collectionId,
-            CONTRACT,
-            "11",
-            [["Biome", "42"]],
-            {
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
-                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
-            },
-        );
+        linkToken(1, collectionId, CONTRACT, "11", [["Biome", "42"]], {
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+        });
         linkToken(
             1,
             collectionId,
@@ -218,12 +212,7 @@ describe("offchain dispatch", () => {
             payload: restOffer,
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -277,12 +266,7 @@ describe("offchain dispatch", () => {
             payload: buildRestTokenSetOfferRecord(),
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -316,16 +300,11 @@ describe("offchain dispatch", () => {
             orderId:
                 "0xa8f60585a1aa2f7c78c1b64cc3583405d04eb288e01aebb1a76f4191525e2a87",
             runId: null,
-            sourceEventAt: 1772748246,
+            sourceEventAt: Math.floor(Date.now() / 1000),
             payload: buildStreamTraitOfferEnvelope(MISMATCH_ROOT),
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -357,16 +336,11 @@ describe("offchain dispatch", () => {
             eventType: "item_listed",
             orderId: null,
             runId: null,
-            sourceEventAt: 1_772_748_246,
+            sourceEventAt: Math.floor(Date.now() / 1000),
             payload: fixture,
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub(),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -385,7 +359,7 @@ describe("offchain dispatch", () => {
         expect(activityJob?.payload.side).toBe("sell");
     });
 
-    it("publishes a listing cancellation activity when existing order context is token-scoped", async () => {
+    it("updates cancelled orders without producing unused cancellation history", async () => {
         const collectionId = ensureCollection(1, CONTRACT);
         const queue = new QueueCapture();
         const tokenSets = new SqliteTokenSetRegistry();
@@ -406,23 +380,7 @@ describe("offchain dispatch", () => {
             payload: fixture,
         };
 
-        const result = await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            new OrderActivityLookupStub({
-                [orderId]: {
-                    side: "sell",
-                    sourceScopeKind: "token",
-                    contract: CONTRACT,
-                    tokenId: "1",
-                    maker: MAKER,
-                    taker: null,
-                    price: "24840000000000000000",
-                    currency: ZERO_ADDRESS,
-                },
-            }),
-            payload,
-        );
+        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
 
         expect(result).toEqual({
             handled: true,
@@ -432,10 +390,12 @@ describe("offchain dispatch", () => {
         const activityJob = queue.published.find(
             (job) => job.kind === ACTIVITY_JOB_KIND.Upsert,
         ) as JobEnvelope<ActivityUpsertPayload> | undefined;
-        expect(activityJob).toBeDefined();
-        expect(activityJob?.payload.kind).toBe("listing_cancelled");
-        expect(activityJob?.payload.tokenId).toBe("1");
-        expect(activityJob?.payload.side).toBe("sell");
+        expect(activityJob).toBeUndefined();
+        expect(
+            queue.published.some(
+                (job) => job.kind === ORDER_JOB_KIND.UpdateById,
+            ),
+        ).toBe(true);
     });
 });
 
@@ -458,28 +418,6 @@ class QueueCapture implements QueuePort {
     }
 
     async close(): Promise<void> {}
-}
-
-class OrderActivityLookupStub {
-    constructor(
-        private readonly rows: Record<
-            string,
-            {
-                side: "buy" | "sell" | null;
-                sourceScopeKind: string | null;
-                contract: string;
-                tokenId: string | null;
-                maker: string;
-                taker: string | null;
-                price: string | null;
-                currency: string | null;
-            }
-        > = {},
-    ) {}
-
-    getByOrderId(params: { orderId: string }) {
-        return this.rows[params.orderId] ?? null;
-    }
 }
 
 function buildRestCollectionOfferRecord(): Record<string, unknown> {

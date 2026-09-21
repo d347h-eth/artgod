@@ -18,6 +18,7 @@ import {
     type ActivityKind,
 } from "../../domain/activities.js";
 import type { ActivityUpsertPayload } from "../../domain/activity-jobs.js";
+import { offchainObservationSeconds } from "../../domain/offchain-jobs.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     normalizeOpenSeaEvent,
@@ -289,7 +290,7 @@ export function normalizeOffchainActivity(
         return null;
     }
 
-    const occurredAt = raw.sourceEventAt ?? raw.receivedAt;
+    const occurredAt = offchainObservationSeconds(raw);
     if (!Number.isFinite(occurredAt)) return null;
 
     if (

@@ -1,5 +1,12 @@
 import { db } from "@artgod/shared/database";
+import {
+    admitsListingObservation,
+    listingDayIdentity,
+    MARKET_DATA_STORAGE_POLICY,
+    retainsOffchainActivity,
+} from "@artgod/shared/market-data/storage-policy";
 import { logger } from "@artgod/shared/utils";
+import { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
 import {
     ACTIVITY_KIND,
     ACTIVITY_PROJECTION_STATE,
@@ -62,15 +69,8 @@ type CollectionExtensionEventRow = {
 
 type ActivityIdRow = {
     id: number;
-};
-
-type ActivitySourceRow = {
-    activity_id: number;
-};
-
-type OpenCreatedActivityRow = {
-    id: number;
-    price: string | null;
+    occurred_at: number;
+    listing_price_at: number | null;
 };
 
 type NormalizedActivityUpsert = {
@@ -97,11 +97,18 @@ type NormalizedActivityUpsert = {
     price: string | null;
     currency: string | null;
     payloadJson: string | null;
+    listingPriceAt?: number;
 };
 
-const COALESCE_PRICE_DELTA_WEI = 1_000_000_000_000_000n;
-
 export class SqliteActivityDomain implements ActivityDomainPort {
+    private readonly prices: SqliteDailyListingPrices;
+    constructor(
+        currencies: readonly string[],
+        private readonly nowSeconds: () => number = () =>
+            Math.floor(Date.now() / 1000),
+    ) {
+        this.prices = new SqliteDailyListingPrices(db.raw, currencies);
+    }
     private selectTransfers = db.prepare<[number, number, number]>(
         "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
@@ -164,79 +171,18 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         payloadJson: string | null;
         dedupeKey: string;
         isOpen: number;
+        listingDay: number | null;
+        listingPriceAt: number | null;
     }>(
         "INSERT OR IGNORE INTO activities " +
-            "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, dedupe_key, is_open, created_at, updated_at) " +
-            "VALUES (@chainId, @collectionId, @scopeKind, @kind, @contract, @tokenId, @occurredAt, @sourceKind, @sourceName, @orderId, @blockNumber, @txHash, @logIndex, @fromAddress, @toAddress, @maker, @taker, @side, @amount, @price, @currency, @payloadJson, @dedupeKey, @isOpen, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, dedupe_key, is_open, listing_day, listing_price_at, created_at, updated_at) " +
+            "VALUES (@chainId, @collectionId, @scopeKind, @kind, @contract, @tokenId, @occurredAt, @sourceKind, @sourceName, @orderId, @blockNumber, @txHash, @logIndex, @fromAddress, @toAddress, @maker, @taker, @side, @amount, @price, @currency, @payloadJson, @dedupeKey, @isOpen, @listingDay, @listingPriceAt, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     );
     private selectActivityIdByDedupeKey = db.prepare<{
         chainId: number;
         dedupeKey: string;
     }>(
-        "SELECT id FROM activities WHERE chain_id = @chainId AND dedupe_key = @dedupeKey LIMIT 1",
-    );
-    private selectOpenCreatedByCurrency = db.prepare<{
-        chainId: number;
-        collectionId: number;
-        kind: string;
-        contract: string;
-        tokenId: string;
-        maker: string;
-        side: string;
-        currency: string;
-    }>(
-        "SELECT id, price FROM activities " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId AND kind = @kind AND contract_address = @contract " +
-            "AND token_id = @tokenId AND maker = @maker AND side = @side AND currency = @currency AND is_open = 1 " +
-            "ORDER BY occurred_at DESC, id DESC LIMIT 1",
-    );
-    private selectOpenCreatedWithoutCurrency = db.prepare<{
-        chainId: number;
-        collectionId: number;
-        kind: string;
-        contract: string;
-        tokenId: string;
-        maker: string;
-        side: string;
-    }>(
-        "SELECT id, price FROM activities " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId AND kind = @kind AND contract_address = @contract " +
-            "AND token_id = @tokenId AND maker = @maker AND side = @side AND is_open = 1 " +
-            "ORDER BY occurred_at DESC, id DESC LIMIT 1",
-    );
-    private updateCoalescedActivity = db.prepare<{
-        activityId: number;
-        occurredAt: number;
-        orderId: string | null;
-        taker: string | null;
-        amount: string | null;
-        price: string | null;
-        currency: string | null;
-        payloadJson: string | null;
-    }>(
-        "UPDATE activities SET occurred_at = @occurredAt, order_id = @orderId, taker = @taker, amount = @amount, price = @price, currency = @currency, payload_json = @payloadJson, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE id = @activityId",
-    );
-    private closeActivity = db.prepare<{ activityId: number }>(
-        "UPDATE activities SET is_open = 0, updated_at = CURRENT_TIMESTAMP WHERE id = @activityId AND is_open = 1",
-    );
-    private selectActivitySource = db.prepare<{
-        chainId: number;
-        sourceKind: string;
-        sourceName: string;
-        sourceEventKey: string;
-    }>(
-        "SELECT activity_id FROM activity_sources WHERE chain_id = @chainId AND source_kind = @sourceKind AND source_name = @sourceName AND source_event_key = @sourceEventKey LIMIT 1",
-    );
-    private insertActivitySource = db.prepare<{
-        chainId: number;
-        sourceKind: string;
-        sourceName: string;
-        sourceEventKey: string;
-        activityId: number;
-    }>(
-        "INSERT OR IGNORE INTO activity_sources (chain_id, source_kind, source_name, source_event_key, activity_id, created_at) " +
-            "VALUES (@chainId, @sourceKind, @sourceName, @sourceEventKey, @activityId, CURRENT_TIMESTAMP)",
+        "SELECT id, occurred_at, listing_price_at FROM activities WHERE chain_id = @chainId AND dedupe_key = @dedupeKey LIMIT 1",
     );
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
@@ -275,6 +221,19 @@ export class SqliteActivityDomain implements ActivityDomainPort {
     }
 
     async handleActivityUpsert(payload: ActivityUpsertPayload): Promise<void> {
+        // Reject irrelevant or malformed history before acquiring the writer lock.
+        if (
+            payload.sourceKind === ACTIVITY_SOURCE_KIND.Offchain &&
+            (!retainsOffchainActivity(payload.kind) ||
+                !payload.orderId ||
+                !payload.tokenId ||
+                !payload.maker ||
+                !admitsListingObservation(
+                    payload.occurredAt,
+                    this.nowSeconds(),
+                ))
+        )
+            return;
         const normalized = normalizeActivityUpsert(payload);
         const run = db.writeTransaction(() =>
             this.applyActivityUpsert(normalized),
@@ -283,74 +242,47 @@ export class SqliteActivityDomain implements ActivityDomainPort {
     }
 
     private applyActivityUpsert(payload: NormalizedActivityUpsert): void {
-        // Ignore repeat delivery of the exact same upstream event.
-        const existingSource = this.selectActivitySource.get({
-            chainId: payload.chainId,
-            sourceKind: payload.sourceKind,
-            sourceName: payload.sourceName,
-            sourceEventKey: payload.sourceEventKey,
-        }) as ActivitySourceRow | undefined;
-        if (existingSource) return;
-
-        if (isCoalescibleCreateKind(payload.kind)) {
-            // Listing/bid creates may update the current open row instead of
-            // creating a new history entry when the change is insignificant.
-            const activityId = this.applyCoalescibleCreateUpsert(payload);
-            this.insertActivitySource.run({
-                chainId: payload.chainId,
-                sourceKind: payload.sourceKind,
-                sourceName: payload.sourceName,
-                sourceEventKey: payload.sourceEventKey,
-                activityId,
-            });
+        if (
+            !db
+                .prepare(
+                    "SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?",
+                )
+                .get(payload.chainId, payload.collectionId)
+        )
             return;
-        }
-
-        if (isTerminalCreateKind(payload.kind)) {
-            // Cancel rows stay as their own history entries, but first terminate
-            // the matching open create row so future reprices stop targeting it.
-            this.closeMatchingOpenCreate(payload);
-        }
-
-        // Everything else becomes an immutable historical row immediately.
-        const activityId = this.insertDirectActivity(
-            payload,
+        const daily = payload.kind === ACTIVITY_KIND.ListingCreated;
+        if (daily && (!payload.tokenId || !payload.maker)) return;
+        const now = this.nowSeconds();
+        // Late historical events retain their own historical price. Today's
+        // events use the best known current ask, even if that order began earlier.
+        const ask =
+            daily &&
+            Math.floor(
+                payload.occurredAt / MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
+            ) === Math.floor(now / MARKET_DATA_STORAGE_POLICY.utcDaySeconds)
+                ? this.prices.bestAsk(
+                      {
+                          chain_id: payload.chainId,
+                          collection_id: payload.collectionId,
+                          token_id: payload.tokenId,
+                          maker: payload.maker!,
+                      },
+                      now,
+                  )
+                : undefined;
+        this.insertDirectActivity(
+            daily
+                ? {
+                      ...payload,
+                      orderId: ask?.id ?? payload.orderId,
+                      price: ask?.price ?? payload.price,
+                      currency: ask?.currency ?? payload.currency,
+                      amount: ask?.quantity ?? payload.amount,
+                      listingPriceAt: ask ? now : payload.occurredAt,
+                      payloadJson: null,
+                  }
+                : payload,
             ACTIVITY_PROJECTION_STATE.Closed,
-        );
-        this.insertActivitySource.run({
-            chainId: payload.chainId,
-            sourceKind: payload.sourceKind,
-            sourceName: payload.sourceName,
-            sourceEventKey: payload.sourceEventKey,
-            activityId,
-        });
-    }
-
-    private applyCoalescibleCreateUpsert(
-        payload: NormalizedActivityUpsert,
-    ): number {
-        const open = this.findMatchingOpenCreate(payload, true);
-        if (open && shouldCoalescePrice(open.price, payload.price)) {
-            this.updateCoalescedActivity.run({
-                activityId: open.id,
-                occurredAt: payload.occurredAt,
-                orderId: payload.orderId,
-                taker: payload.taker,
-                amount: payload.amount,
-                price: payload.price,
-                currency: payload.currency,
-                payloadJson: payload.payloadJson,
-            });
-            return open.id;
-        }
-
-        if (open) {
-            this.closeActivity.run({ activityId: open.id });
-        }
-
-        return this.insertDirectActivity(
-            payload,
-            ACTIVITY_PROJECTION_STATE.Open,
         );
     }
 
@@ -358,11 +290,57 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         payload: NormalizedActivityUpsert,
         projectionState: ActivityProjectionState,
     ): number {
-        const dedupeKey = buildActivityDedupeKey(
-            payload.sourceKind,
-            payload.sourceName,
-            payload.sourceEventKey,
-        );
+        const dedupeKey =
+            payload.kind === ACTIVITY_KIND.ListingCreated
+                ? listingDayIdentity(
+                      payload.collectionId,
+                      payload.tokenId!,
+                      payload.maker!,
+                      payload.occurredAt,
+                  )
+                : buildActivityDedupeKey(
+                      payload.sourceKind,
+                      payload.sourceName,
+                      payload.sourceEventKey,
+                  );
+        // Duplicate delivery must not even advance AUTOINCREMENT.
+        const existing = this.selectActivityIdByDedupeKey.get({
+            chainId: payload.chainId,
+            dedupeKey,
+        }) as ActivityIdRow | undefined;
+        if (existing) {
+            // Out-of-order earlier events can correct the first time downwards;
+            // later events never promote the row, though its price may change.
+            if (
+                payload.kind === ACTIVITY_KIND.ListingCreated &&
+                payload.occurredAt < existing.occurred_at
+            ) {
+                db.prepare(
+                    "UPDATE activities SET occurred_at=? WHERE id=?",
+                ).run(payload.occurredAt, existing.id);
+            }
+            if (
+                payload.kind === ACTIVITY_KIND.ListingCreated &&
+                payload.price !== null &&
+                (payload.listingPriceAt ?? 0) >=
+                    (existing.listing_price_at ?? 0)
+            ) {
+                db.prepare(
+                    "UPDATE activities SET order_id=?,price=?,currency=?,amount=?,listing_price_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (price,currency,amount) IS NOT (?,?,?)",
+                ).run(
+                    payload.orderId,
+                    payload.price,
+                    payload.currency,
+                    payload.amount,
+                    payload.listingPriceAt,
+                    existing.id,
+                    payload.price,
+                    payload.currency,
+                    payload.amount,
+                );
+            }
+            return existing.id;
+        }
         this.insertActivity.run({
             chainId: payload.chainId,
             collectionId: payload.collectionId,
@@ -388,6 +366,14 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             payloadJson: payload.payloadJson,
             dedupeKey,
             isOpen: toStoredActivityOpenFlag(projectionState),
+            listingDay:
+                payload.kind === ACTIVITY_KIND.ListingCreated
+                    ? Math.floor(
+                          payload.occurredAt /
+                              MARKET_DATA_STORAGE_POLICY.utcDaySeconds,
+                      )
+                    : null,
+            listingPriceAt: payload.listingPriceAt ?? null,
         });
         const row = this.selectActivityIdByDedupeKey.get({
             chainId: payload.chainId,
@@ -456,6 +442,8 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 isOpen: toStoredActivityOpenFlag(
                     ACTIVITY_PROJECTION_STATE.Closed,
                 ),
+                listingDay: null,
+                listingPriceAt: null,
             });
             inserted += result.changes;
         }
@@ -471,7 +459,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         collectionId: number | null,
         fromBlock: number,
         toBlock: number,
-    ): { rows: number; inserted: number; closedOpenCreates: number } {
+    ): { rows: number; inserted: number } {
         const rows =
             collectionId === null
                 ? (this.selectFills.all(
@@ -486,7 +474,6 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                       toBlock,
                   ) as FillRow[]);
         let inserted = 0;
-        let closedOpenCreates = 0;
 
         for (const row of rows) {
             const maker = normalizeAddress(row.maker);
@@ -532,17 +519,15 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 isOpen: toStoredActivityOpenFlag(
                     ACTIVITY_PROJECTION_STATE.Closed,
                 ),
+                listingDay: null,
+                listingPriceAt: null,
             });
             inserted += result.changes;
-            if (this.closeOpenCreateForSale(chainId, row, side, maker) > 0) {
-                closedOpenCreates += 1;
-            }
         }
 
         return {
             rows: rows.length,
             inserted,
-            closedOpenCreates,
         };
     }
 
@@ -604,6 +589,8 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 isOpen: toStoredActivityOpenFlag(
                     ACTIVITY_PROJECTION_STATE.Closed,
                 ),
+                listingDay: null,
+                listingPriceAt: null,
             });
             inserted += result.changes;
         }
@@ -612,72 +599,6 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             rows: rows.length,
             inserted,
         };
-    }
-
-    private closeOpenCreateForSale(
-        chainId: number,
-        row: FillRow,
-        side: "buy" | "sell" | null,
-        maker: string | null,
-    ): number {
-        if (!side || !maker) return 0;
-        const createKind =
-            side === "sell"
-                ? ACTIVITY_KIND.ListingCreated
-                : ACTIVITY_KIND.BidCreated;
-        const open = this.selectOpenCreatedWithoutCurrency.get({
-            chainId,
-            collectionId: row.collection_id,
-            kind: createKind,
-            contract: row.contract.toLowerCase(),
-            tokenId: row.token_id,
-            maker,
-            side,
-        }) as OpenCreatedActivityRow | undefined;
-        if (!open) return 0;
-        return this.closeActivity.run({ activityId: open.id }).changes;
-    }
-
-    private closeMatchingOpenCreate(payload: NormalizedActivityUpsert): void {
-        const open = this.findMatchingOpenCreate(
-            payload,
-            Boolean(payload.currency),
-        );
-        if (!open) return;
-        this.closeActivity.run({ activityId: open.id });
-    }
-
-    private findMatchingOpenCreate(
-        payload: NormalizedActivityUpsert,
-        requireCurrency: boolean,
-    ): OpenCreatedActivityRow | undefined {
-        const createKind = toCreateKind(payload.kind);
-        if (!createKind) return undefined;
-        if (!payload.tokenId || !payload.maker || !payload.side)
-            return undefined;
-
-        if (requireCurrency && payload.currency) {
-            return this.selectOpenCreatedByCurrency.get({
-                chainId: payload.chainId,
-                collectionId: payload.collectionId,
-                kind: createKind,
-                contract: payload.contract,
-                tokenId: payload.tokenId,
-                maker: payload.maker,
-                side: payload.side,
-                currency: payload.currency,
-            }) as OpenCreatedActivityRow | undefined;
-        }
-
-        return this.selectOpenCreatedWithoutCurrency.get({
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            kind: createKind,
-            contract: payload.contract,
-            tokenId: payload.tokenId,
-            maker: payload.maker,
-            side: payload.side,
-        }) as OpenCreatedActivityRow | undefined;
     }
 }
 
@@ -717,48 +638,6 @@ function parseActivityPayloadJson(
         return parsed as Record<string, unknown>;
     } catch {
         return {};
-    }
-}
-
-function isCoalescibleCreateKind(kind: string): boolean {
-    return (
-        kind === ACTIVITY_KIND.ListingCreated ||
-        kind === ACTIVITY_KIND.BidCreated
-    );
-}
-
-function isTerminalCreateKind(kind: string): boolean {
-    return (
-        kind === ACTIVITY_KIND.ListingCancelled ||
-        kind === ACTIVITY_KIND.BidCancelled
-    );
-}
-
-function toCreateKind(kind: string): string | null {
-    switch (kind) {
-        case ACTIVITY_KIND.ListingCreated:
-        case ACTIVITY_KIND.ListingCancelled:
-            return ACTIVITY_KIND.ListingCreated;
-        case ACTIVITY_KIND.BidCreated:
-        case ACTIVITY_KIND.BidCancelled:
-            return ACTIVITY_KIND.BidCreated;
-        default:
-            return null;
-    }
-}
-
-function shouldCoalescePrice(
-    previousPrice: string | null,
-    nextPrice: string | null,
-): boolean {
-    if (!previousPrice || !nextPrice) return false;
-    try {
-        const previous = BigInt(previousPrice);
-        const next = BigInt(nextPrice);
-        const delta = previous >= next ? previous - next : next - previous;
-        return delta < COALESCE_PRICE_DELTA_WEI;
-    } catch {
-        return false;
     }
 }
 

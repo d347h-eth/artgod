@@ -41,7 +41,11 @@ export interface OrdersDomainPort {
         context?: OrderUpdateByMakerRuntimeContext,
     ): Promise<void>;
     handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
-    handleOrderUpsert(payload: OrderUpsertPayload): Promise<void>;
+    handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
+        changed: boolean;
+        validationNeeded: boolean;
+        validationRevision: number;
+    }>;
 }
 
 export interface MetadataDomainPort {

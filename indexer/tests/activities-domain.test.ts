@@ -1,4 +1,12 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -19,6 +27,8 @@ describe("activity domain", () => {
     });
 
     beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(1_700_001_000_000);
         db.exec(
             [
                 "DELETE FROM activity_sources;",
@@ -30,6 +40,7 @@ describe("activity domain", () => {
             ].join("\n"),
         );
     });
+    afterEach(() => vi.useRealTimers());
 
     it("projects collection extension event facts into custom activity rows", async () => {
         const chainId = 1;
@@ -56,7 +67,9 @@ describe("activity domain", () => {
             },
         });
 
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
         await domain.handleDomainSync({
             chainId,
             collectionId: null,
@@ -125,7 +138,9 @@ describe("activity domain", () => {
             },
         });
 
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
         await domain.handleDomainSync({
             chainId,
             collectionId: null,
@@ -138,7 +153,9 @@ describe("activity domain", () => {
         });
 
         const row = db
-            .prepare<{ chainId: number }>(
+            .prepare<{
+                chainId: number;
+            }>(
                 "SELECT scope_kind, token_id, maker, payload_json FROM activities WHERE chain_id = @chainId LIMIT 1",
             )
             .get({ chainId }) as {
@@ -200,7 +217,9 @@ describe("activity domain", () => {
             kind: "seaport",
         });
 
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
         await domain.handleDomainSync({
             chainId,
             collectionId: null,
@@ -254,11 +273,13 @@ describe("activity domain", () => {
         ]);
     });
 
-    it("coalesces repeated listing creates below the price threshold and stays idempotent per source event", async () => {
+    it("pins one daily listing per seller and ignores replay without receipt writes", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
         const collectionId = insertCollection(chainId, "alpha", contract);
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
 
         await domain.handleActivityUpsert({
             chainId,
@@ -340,18 +361,20 @@ describe("activity domain", () => {
                 id: activities[0]!.id,
                 order_id: "order-2",
                 price: "999500000000000000",
-                occurred_at: 1_700_000_260,
-                is_open: 1,
+                occurred_at: 1_700_000_200,
+                is_open: 0,
             },
         ]);
-        expect(sourceCount.count).toBe(2);
+        expect(sourceCount.count).toBe(0);
     });
 
-    it("creates a new listing row once the price delta crosses the threshold", async () => {
+    it("stores the daily historical price without moving the first timestamp", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
         const collectionId = insertCollection(chainId, "alpha", contract);
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
 
         await domain.handleActivityUpsert({
             chainId,
@@ -405,25 +428,21 @@ describe("activity domain", () => {
 
         expect(rows).toEqual([
             {
-                order_id: "order-1",
-                price: "1000000000000000000",
-                occurred_at: 1_700_000_200,
-                is_open: 0,
-            },
-            {
                 order_id: "order-2",
                 price: "998000000000000000",
-                occurred_at: 1_700_000_300,
-                is_open: 1,
+                occurred_at: 1_700_000_200,
+                is_open: 0,
             },
         ]);
     });
 
-    it("closes open listing rows on offchain cancellation and on onchain sale", async () => {
+    it("keeps the daily listing position through cancellation and sale", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
         const collectionId = insertCollection(chainId, "alpha", contract);
-        const domain = new SqliteActivityDomain();
+        const domain = new SqliteActivityDomain([
+            "0x0000000000000000000000000000000000000000",
+        ]);
 
         await domain.handleActivityUpsert({
             chainId,
@@ -524,16 +543,6 @@ describe("activity domain", () => {
         }>;
 
         expect(rows).toEqual([
-            {
-                kind: "listing_created",
-                order_id: "order-1",
-                is_open: 0,
-            },
-            {
-                kind: "listing_cancelled",
-                order_id: "order-1",
-                is_open: 0,
-            },
             {
                 kind: "listing_created",
                 order_id: "order-2",

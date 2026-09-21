@@ -66,7 +66,9 @@ describe("address normalization at indexer write boundaries", () => {
         registry.upsertCollection(record);
 
         const row = db
-            .prepare<{ address: string }>(
+            .prepare<{
+                address: string;
+            }>(
                 "SELECT address FROM collections WHERE chain_id = 1 AND slug = 'terraforms' LIMIT 1",
             )
             .get();
@@ -103,12 +105,17 @@ describe("address normalization at indexer write boundaries", () => {
         ]);
 
         const snapshot = db
-            .prepare<{ contract_address: string; owner: string }>(
+            .prepare<{
+                contract_address: string;
+                owner: string;
+            }>(
                 "SELECT contract_address, owner FROM nft_balance_snapshots LIMIT 1",
             )
             .get();
         const task = db
-            .prepare<{ contract_address: string }>(
+            .prepare<{
+                contract_address: string;
+            }>(
                 "SELECT contract_address FROM bootstrap_metadata_snapshot_tasks LIMIT 1",
             )
             .get();
@@ -123,6 +130,9 @@ describe("address normalization at indexer write boundaries", () => {
     });
 
     it("lowercases order address fields on upsert", async () => {
+        db.prepare(
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (7,1,'order-fixture','0xabcd','erc721','ready','contract_all_tokens')",
+        ).run();
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async () => ({ status: "fillable", reason: "test" }),

@@ -1,6 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { MAKER_TRIGGER_SCOPE } from "../src/domain/order-jobs.js";
@@ -41,8 +49,12 @@ describe("orders update by maker", () => {
     });
 
     beforeEach(() => {
+        // Replay the historical marketplace fixtures while their listing is still unexpired.
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-01-25T23:22:00Z"));
         db.exec(["DELETE FROM orders;", "DELETE FROM collections;"].join("\n"));
     });
+    afterEach(() => vi.useRealTimers());
 
     it("revalidates exact-token sell orders for nft-transfer instead of blindly invalidating", async () => {
         const chainId = 1;
@@ -396,8 +408,7 @@ describe("orders update by maker", () => {
         ).toBe(false);
 
         const started = logs.find(
-            (entry) =>
-                entry.msg === ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Started,
+            (entry) => entry.msg === ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Started,
         );
         expect(started).toMatchObject({
             jobId: "orders:update:maker:test",

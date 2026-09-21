@@ -1,10 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
+import { statSync } from "node:fs";
+import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import {
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_STATUS,
+    ORDER_SOURCE_STATUS,
     type OrderRecord,
     type SeaportOrderData,
 } from "../src/domain/orders.js";
@@ -59,6 +62,200 @@ describe("orders raw source selection", () => {
         expect(validatedOrder).not.toBeNull();
         if (!validatedOrder) return;
         expect(validatedOrder.seaportData).toEqual(buildSeaportData());
+    });
+
+    it("does no SQLite or WAL writes for a burst of unchanged, recently validated observations", async () => {
+        let now = 1_790_000_000;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const payload = buildOrderUpsert("rest", {});
+        ensureCollection(1, 1, payload.contract);
+        await domain.handleOrderUpsert({ ...payload, observedAt: now });
+        await domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            blockNumber: null,
+        });
+        db.raw.pragma("wal_checkpoint(TRUNCATE)");
+        const before = db.prepare("SELECT total_changes() AS n").get();
+        for (let i = 0; i < 1_000; i++) {
+            expect(
+                await domain.handleOrderUpsert({ ...payload, observedAt: now }),
+            ).toMatchObject({ changed: false, validationNeeded: false });
+        }
+        expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+        expect(statSync(`${db.raw.name}-wal`).size).toBe(0);
+        now += POLICY.orderRevalidationSeconds;
+        expect(
+            await domain.handleOrderUpsert({ ...payload, observedAt: now }),
+        ).toMatchObject({ changed: false, validationNeeded: true });
+        expect(db.prepare("SELECT observed_at FROM orders").get()).toEqual({
+            observed_at: now,
+        });
+    });
+
+    it("fences a cancellation received before create, including duplicate cancellation and delayed REST", async () => {
+        const now = 1_790_000_000;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const payload = buildOrderUpsert("stream", {});
+        ensureCollection(1, 1, payload.contract);
+        const cancel = {
+            chainId: 1,
+            collectionId: 1,
+            orderId: payload.orderId,
+            reason: "cancel",
+            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+            observedAt: now - 1,
+        };
+        await domain.handleOrderUpdateById(cancel);
+        await domain.handleOrderUpdateById(cancel);
+        expect(
+            await domain.handleOrderUpsert({ ...payload, observedAt: now }),
+        ).toMatchObject({ changed: false, validationNeeded: false });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM orders").get()).toEqual({
+            n: 0,
+        });
+        expect(
+            db.prepare("SELECT expires_at FROM market_order_retirements").get(),
+        ).toEqual({
+            expires_at: payload.validUntil! + POLICY.orderReorgGraceSeconds,
+        });
+    });
+
+    it("applies a two-day-delayed cancellation to a known unexpired order", async () => {
+        const now = 1_790_000_000;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const payload = buildOrderUpsert("rest", {});
+        ensureCollection(1, 1, payload.contract);
+        await domain.handleOrderUpsert({ ...payload, observedAt: now });
+        await domain.handleOrderUpdateById({
+            chainId: 1,
+            collectionId: 1,
+            orderId: payload.orderId,
+            reason: "cancel",
+            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+            observedAt: now - 2 * POLICY.utcDaySeconds,
+        });
+        expect(db.prepare("SELECT source_status FROM orders").get()).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Cancelled,
+        });
+        expect(
+            await domain.handleOrderUpsert({ ...payload, observedAt: now }),
+        ).toMatchObject({ changed: false });
+    });
+
+    it("rejects an old queued create after its unknown-order cancellation record expires", async () => {
+        let now = 1_790_000_000;
+        const first = now;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const payload = buildOrderUpsert("stream", {});
+        ensureCollection(1, 1, payload.contract);
+        await domain.handleOrderUpdateById({
+            chainId: 1,
+            collectionId: 1,
+            orderId: payload.orderId,
+            reason: "cancel",
+            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+            observedAt: first,
+        });
+        now += POLICY.unknownOrderLifetimeSeconds + 1;
+        expect(
+            await domain.handleOrderUpsert({
+                ...payload,
+                observedAt: first - 1,
+            }),
+        ).toMatchObject({ changed: false });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM orders").get()).toEqual({
+            n: 0,
+        });
+    });
+
+    it("rejects expired or stale queued input but admits fresh observations of valid orders", async () => {
+        const now = 1_790_000_000;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const payload = buildOrderUpsert("stream", {});
+        ensureCollection(1, 1, payload.contract);
+        for (const input of [
+            { ...payload, validUntil: now },
+            {
+                ...payload,
+                validUntil: null,
+                observedAt: now - POLICY.unknownOrderLifetimeSeconds,
+            },
+        ]) {
+            expect(await domain.handleOrderUpsert(input)).toMatchObject({
+                changed: false,
+                validationNeeded: false,
+            });
+        }
+        expect(
+            await domain.handleOrderUpsert({
+                ...payload,
+                observedAt: now - 30 * POLICY.utcDaySeconds,
+            }),
+        ).toMatchObject({ changed: false, validationNeeded: false });
+        expect(
+            await domain.handleOrderUpsert({ ...payload, observedAt: now }),
+        ).toMatchObject({ changed: true });
+        db.raw.exec("DELETE FROM orders; DELETE FROM collections");
+        expect(await domain.handleOrderUpsert(payload)).toMatchObject({
+            changed: false,
+            validationNeeded: false,
+        });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM orders").get()).toEqual({
+            n: 0,
+        });
+    });
+
+    it("does not apply an awaited validation over a newer cancellation", async () => {
+        let finish!: () => void;
+        const pending = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
+        const domain = new SqliteOrdersDomain("0xweth", async () => {
+            await pending;
+            return { status: ORDER_STATUS.Fillable, reason: "fixture" };
+        });
+        const payload = buildOrderUpsert("rest", {});
+        ensureCollection(1, 1, payload.contract);
+        await domain.handleOrderUpsert(payload);
+        const validation = domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            blockNumber: null,
+        });
+        await domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            reason: "cancel",
+            blockNumber: null,
+        });
+        finish();
+        await validation;
+        expect(getFillabilityStatus(payload.orderId)).toBe(
+            ORDER_STATUS.Cancelled,
+        );
     });
 
     it("omits raw order audit payloads by default", async () => {

@@ -31,19 +31,28 @@ type OpenSeaOrderbookApiPort = {
     ): Promise<void>;
 };
 
-type OrderSourceStatePort = {
-    markMissingOrdersInactive(
-        chainId: number,
-        collectionId: number,
-        source: string,
-        activeOrderIds: Iterable<string>,
-    ): number;
+export type OrderSourceObservation = {
+    /** False closes producer admission after collection deletion. */
+    recordActiveOrder(orderId: string): boolean;
+    complete(): Promise<number>;
+    close(): void;
 };
+
+export type OrderSourceStatePort = {
+    beginObservation(input: {
+        chainId: number;
+        collectionId: number;
+        source: string;
+        startedAt: number;
+    }): OrderSourceObservation;
+};
+
+class CollectionObservationClosed extends Error {}
 
 export class OpenSeaOrderbookSync {
     constructor(
         private readonly api: OpenSeaOrderbookApiPort,
-        private readonly queue: QueuePort,
+        private readonly queue: Pick<QueuePort, "publish">,
         private readonly sourceState: OrderSourceStatePort,
     ) {}
 
@@ -51,60 +60,73 @@ export class OpenSeaOrderbookSync {
         collection: CollectionRecord,
         kind: OpenSeaOrderbookRunKind,
         runId: number,
-    ): Promise<{ activeOrderIds: string[]; deactivatedOrders: number }> {
+    ): Promise<{ activeOrders: number; deactivatedOrders: number }> {
         if (!collection.openseaSlug) {
             throw new Error(
                 `Collection ${collection.id} missing OpenSea slug for ${kind}`,
             );
         }
 
-        const activeOrderIds: string[] = [];
-        await this.api.forEachListing(
-            collection.openseaSlug,
-            collection.address,
-            async (record) => {
-                const orderId = await this.publishRestRecord(
-                    collection,
-                    kind,
-                    runId,
-                    record,
-                );
-                if (orderId) activeOrderIds.push(orderId);
-            },
-        );
-        await this.api.forEachOffer(
-            collection.openseaSlug,
-            collection.address,
-            async (record) => {
-                const orderId = await this.publishRestRecord(
-                    collection,
-                    kind,
-                    runId,
-                    record,
-                );
-                if (orderId) activeOrderIds.push(orderId);
-            },
-        );
-
-        const deactivatedOrders = this.sourceState.markMissingOrdersInactive(
-            collection.chainId,
-            collection.id,
-            OFFCHAIN_ORDER_SOURCE.OpenSea,
-            activeOrderIds,
-        );
-
-        logger.info("OpenSea orderbook sync applied", {
-            component: "OpenSeaOrderbookSync",
-            action: "syncCollection",
+        const observation = this.sourceState.beginObservation({
             chainId: collection.chainId,
             collectionId: collection.id,
-            kind,
-            runId,
-            activeOrders: activeOrderIds.length,
-            deactivatedOrders,
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            startedAt: Math.floor(Date.now() / 1000),
         });
+        let activeOrders = 0;
+        try {
+            await this.api.forEachListing(
+                collection.openseaSlug,
+                collection.address,
+                async (record) => {
+                    if (!observation.recordActiveOrder(record.orderId))
+                        throw new CollectionObservationClosed();
+                    const orderId = await this.publishRestRecord(
+                        collection,
+                        kind,
+                        runId,
+                        record,
+                    );
+                    if (orderId) activeOrders++;
+                },
+            );
+            await this.api.forEachOffer(
+                collection.openseaSlug,
+                collection.address,
+                async (record) => {
+                    if (!observation.recordActiveOrder(record.orderId))
+                        throw new CollectionObservationClosed();
+                    const orderId = await this.publishRestRecord(
+                        collection,
+                        kind,
+                        runId,
+                        record,
+                    );
+                    if (orderId) activeOrders++;
+                },
+            );
 
-        return { activeOrderIds, deactivatedOrders };
+            const deactivatedOrders = await observation.complete();
+
+            logger.info("OpenSea orderbook sync applied", {
+                component: "OpenSeaOrderbookSync",
+                action: "syncCollection",
+                chainId: collection.chainId,
+                collectionId: collection.id,
+                kind,
+                runId,
+                activeOrders,
+                deactivatedOrders,
+            });
+
+            return { activeOrders, deactivatedOrders };
+        } catch (error) {
+            if (error instanceof CollectionObservationClosed)
+                return { activeOrders, deactivatedOrders: 0 };
+            throw error;
+        } finally {
+            observation.close();
+        }
     }
 
     private async publishRestRecord(

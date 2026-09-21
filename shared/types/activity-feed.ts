@@ -61,6 +61,7 @@ export type ActivityFeedItem = {
     occurredAt: number;
     sourceKind: ActivitySourceKind;
     sourceName: string;
+    /** Listings resolve the current best seller ask; other kinds keep their event reference. */
     orderId: string | null;
     blockNumber: number | null;
     txHash: string | null;
@@ -74,7 +75,9 @@ export type ActivityFeedItem = {
     price: string | null;
     currency: string | null;
     payload: Record<string, unknown> | null;
+    /** Compatibility field: true for a stored daily listing, including token feeds. */
     isCollapsed: boolean;
+    /** Always null for daily listings; individual event counts are not retained. */
     collapsedEventCount: number | null;
     collapsedWindowStartUtc: number | null;
     collapsedWindowEndUtc: number | null;
@@ -89,7 +92,15 @@ export type ActivityFeedCursor = {
 
 export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
     prevCursor: string | null;
+    listingHistory?: typeof LISTING_HISTORY_POLICY;
 };
+
+/** Public API vocabulary for the permanent daily feed, not order retention. */
+export const LISTING_HISTORY_POLICY = Object.freeze({
+    retention: "permanent",
+    grouping: "token-seller-utc-day",
+    pricing: "historical-daily-ask",
+} as const);
 
 export type ActivityFeedIncludes = {
     tokensById: Record<string, TokenPresentationSummary>;

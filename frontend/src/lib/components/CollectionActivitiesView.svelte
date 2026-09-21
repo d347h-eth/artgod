@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { ACTIVITY_KIND, ACTIVITY_FEED_FILTER_KIND } from '@artgod/shared/types';
 	import { goto } from '$app/navigation';
 	import type {
 		ApiActivitiesPage,
@@ -773,6 +774,11 @@
 		/>
 
 		<div class="activity-panel">
+			{#if activities.listingHistory}
+				<div class="pagination-summary muted">
+					<span>One entry per NFT and seller per UTC day. Historical prices are retained.</span>
+				</div>
+			{/if}
 			<div class="table-wrap activities-table-wrap">
 					<table class="activities-table">
 						<colgroup>
@@ -939,7 +945,7 @@
 					{/if}
 				</div>
 				<div class="pagination-summary">
-					{#if activities.prevCursor}
+					{#if activities.rangeStart > 1}
 						<a class="button-link" href={paginationHref(activities.prevCursor)}>newer</a>
 					{/if}
 					{#if activities.nextCursor}
