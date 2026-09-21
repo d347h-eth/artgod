@@ -581,6 +581,53 @@ yarn check:runtime-registry
 yarn clean:build
 ```
 
+## SQLite storage recovery verification
+
+The desktop supervisor runs logical market-data recovery before database writers
+and offers a separate best-effort startup compaction stage. `yarn dev` runs the
+logical preflight too. If starting backend/indexer separately, stop all clients
+first and run `yarn storage:recover` with the intended `ARTGOD_DB_PATH`; this is
+a mutating maintenance command, not a read-only inspection tool. For Docker, use
+the [manual deployment procedure](../deploy/01-web-hosted-read-only.md#sqlite-storage-upgrade).
+
+Maintained synthetic and copy-only verification:
+
+```sh
+mkdir -p tmp/tooling
+export TMPDIR="$PWD/tmp/tooling"
+export SQLITE_TMPDIR="$TMPDIR"
+
+# Staged resources must already have been prepared through the normal build.
+yarn test:sqlite:recovery-runtime
+
+# Explicit disposable COPY only; originals and any WAL must first be copied
+# together while quiescent. No command here chooses a real app-data path.
+yarn node --import tsx indexer/scripts/verify-sqlite-market-data-recovery.ts \
+  tmp/sqlite-storage-qa/copied-db --mutate-copy --skip-read-baseline --compact \
+  --runtime-root src-tauri/resources/runtime
+
+# EXPLAIN the actual current collection read-model statements without running them.
+yarn node --import tsx indexer/scripts/profile-collection-storage.ts \
+  tmp/sqlite-storage-qa/copied-db 1 --copied-db --plan-only
+```
+
+The runtime harness creates only synthetic data under `tmp/sqlite-storage-qa/`.
+It kills its own fixture writer to leave a committed WAL, interrupts bundled
+recovery after a committed batch, then verifies resume and a second successful
+retry. The copy verifier fingerprints all protected tables row-by-row before
+and after recovery, checks `quick_check`, records allocation/reclamation and
+times collection reads. `quick_check` is not a full index/UNIQUE consistency
+proof. The optional source mode omits `--runtime-root`; it is not a substitute
+for bundled Node/native-dependency coverage.
+
+Use `--skip-read-baseline` for legacy-scale copies: an expensive synchronous
+baseline query cannot be stopped by an in-process JavaScript timer. Run the
+separate profiler under an external time budget when actual execution is needed.
+Keep original data untouched and account for copies, WALs, VACUUM scratch space
+and build/dependency storage before starting. No harness deletes retained
+fixtures. See [measured results](04-sqlite-wal-activities-storage-investigation.md#recovery-benchmarks)
+and [remaining release checks](03-sqlite-storage-and-recovery.md#6-verification-and-remaining-work).
+
 ## NATS startup recovery regression harness
 
 ```sh

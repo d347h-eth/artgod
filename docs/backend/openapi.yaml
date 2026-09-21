@@ -350,7 +350,7 @@ paths:
                   explode: true
             responses:
                 "200":
-                    description: Collection activity feed ordered newest first with bidirectional cursor pagination; `kind=listings` returns collapsed listing rows
+                    description: Collection activity feed ordered newest first with bidirectional cursor pagination; listings use permanent daily rows with retained historical prices
                     content:
                         application/json:
                             schema:
@@ -4833,6 +4833,7 @@ components:
 
         ActivityKind:
             type: string
+            description: Wire vocabulary includes legacy kinds. Current offchain history retains only listing creation; bid-create/cancel and listing-cancel history is no longer emitted or returned by the generic feed.
             enum:
                 [
                     transfer,
@@ -4979,11 +4980,11 @@ components:
                     additionalProperties: true
                 isCollapsed:
                     type: boolean
-                    description: True when the item represents a collapsed collection-listings row rather than a single raw activity row
+                    description: True for a permanent daily listing row, in both collection and token feeds
                 collapsedEventCount:
                     type: integer
                     nullable: true
-                    description: Number of raw listing events represented by a collapsed listings row
+                    description: Always null. Individual listing-event counts are not retained
                 collapsedWindowStartUtc:
                     type: integer
                     nullable: true
@@ -5029,6 +5030,24 @@ components:
                     type: integer
                 totalPages:
                     type: integer
+                listingHistory:
+                    $ref: "#/components/schemas/ListingHistoryPolicy"
+
+        ListingHistoryPolicy:
+            type: object
+            description: Permanent daily listing history. Price, currency and orderId retain the last recorded ask for that NFT and seller within that UTC day. Expiry or cancellation does not erase the price; later days do not replace it. The first event timestamp stays pinned.
+            required: [retention, grouping, pricing]
+            additionalProperties: false
+            properties:
+                retention:
+                    type: string
+                    enum: [permanent]
+                grouping:
+                    type: string
+                    enum: [token-seller-utc-day]
+                pricing:
+                    type: string
+                    enum: [historical-daily-ask]
 
         ActivityFeedIncludes:
             type: object

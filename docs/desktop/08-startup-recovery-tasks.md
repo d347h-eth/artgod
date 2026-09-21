@@ -107,6 +107,32 @@ the next attempt inspects the resulting state, and the metadata journal handles
 an interrupted two-file update. See [queue policy](../indexer/02-queues-and-jobs.md)
 and the [native/NATS harness](../development/01-local-development.md#nats-startup-recovery-regression-harness).
 
+## SQLite Market Data as a Subsequent Task
+
+`sqliteMaintenance` runs
+`indexer/dist-desktop/sqlite-market-data-maintenance.mjs` before backend/workers.
+Its [use case](../../indexer/src/application/storage/maintain-market-data.ts)
+and [adapter](../../indexer/src/infra/storage/sqlite-market-data-maintenance.ts)
+own retention, a transactional stage/cursor journal, and the final checkpoint.
+Additive migrations are small; legacy-scale removal does not run inside the
+ordinary migrations transaction. Copy batches contain at most 500 rows and
+yield between transactions. Atomic table replacement/index recreation and
+receipt-table removal can take much longer than an individual copy batch.
+
+`sqliteCompaction` uses the same artifact with `--compact-only` and the same
+45-minute SQLite deadline. It is best effort after logical readiness, checks
+headroom and records one automatic attempt before VACUUM. Stop still cancels the
+startup attempt; other compaction failures log the gap and permit service
+startup. Neither task deletes a WAL separately or performs a destructive reset.
+Both have distinct process log names in the runtime registry and product labels
+in Admin/the lifecycle drawer.
+
+`yarn test:sqlite:recovery-runtime` uses bundled Node/native SQLite to test a
+synthetic committed WAL, hard interruption, resume, idempotent retry and preserved
+settings. The copy-only legacy verifier and measured results are documented in
+[local development](../development/01-local-development.md#sqlite-storage-recovery-verification)
+and the [storage evidence](../development/04-sqlite-wal-activities-storage-investigation.md#verification-record).
+
 There is no standalone Admin task-launch action. Tasks currently run through
 infra startup, with dependent services stopped. Running maintenance against
 active producers would require a separately designed lifecycle.
