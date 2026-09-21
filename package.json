@@ -26,6 +26,7 @@
     },
     "scripts": {
         "dev": "./scripts/dev.sh",
+        "storage:recover": "node --import tsx ./indexer/src/runtime/sqlite-market-data-maintenance.ts",
         "dev:indexer": "./scripts/indexer-dev.sh",
         "dev:composition": "yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn dev:desktop",
         "dev:desktop": "tauri dev --no-watch",
@@ -97,7 +98,8 @@
         "test:bootstrap:probe": "yarn workspace @artgod/frontend test:bootstrap:probe",
         "test:terraforms:hypercastle": "yarn workspace @artgod/frontend test:terraforms:hypercastle",
         "test:runtime:recovery": "yarn workspace @artgod/frontend test:runtime:recovery",
-        "test:nats:recovery": "yarn workspace @artgod/indexer test:nats:recovery"
+        "test:nats:recovery": "yarn workspace @artgod/indexer test:nats:recovery",
+        "test:sqlite:recovery-runtime": "node scripts/build/test-sqlite-recovery-runtime.mjs"
     },
     "dependencies": {
         "better-sqlite3": "12.10.0",

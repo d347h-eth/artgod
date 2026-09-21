@@ -10,6 +10,8 @@ import {
 export function startupAction(activity: StartupActivity): string {
 	switch (activity.phase) {
 		case STARTUP_PHASES.recovery:
+			if (activity.task === RECOVERY_TASKS.sqliteCompaction) return 'Reclaiming storage…';
+			if (activity.task === RECOVERY_TASKS.sqliteMaintenance) return 'Checking market data…';
 			return activity.task === RECOVERY_TASKS.natsMaintenance
 				? 'Checking queued work…'
 				: 'Preparing local data…';

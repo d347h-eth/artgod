@@ -11,6 +11,7 @@ import {
 } from '$lib/runtime/lifecycle/ports';
 import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
+import { MARKET_DATA_STORAGE_POLICY } from '@artgod/shared/market-data/storage-policy';
 
 import {
 	RECOVERY_HARNESS_SCENARIOS,
@@ -201,6 +202,26 @@ export function createRuntimeRecoveryFixture(
 		configPort,
 		calls,
 		status: () => status,
+		sqlite() {
+			publish({
+				startup: {
+					phase: STARTUP_PHASES.recovery,
+					task: RECOVERY_TASKS.sqliteMaintenance,
+					startedAtMs: Date.now(),
+					deadlineAtMs: Date.now() + MARKET_DATA_STORAGE_POLICY.recoveryBudgetMs
+				}
+			});
+		},
+		compact() {
+			publish({
+				startup: {
+					phase: STARTUP_PHASES.recovery,
+					task: RECOVERY_TASKS.sqliteCompaction,
+					startedAtMs: Date.now(),
+					deadlineAtMs: status.startup?.deadlineAtMs ?? Date.now()
+				}
+			});
+		},
 		services() {
 			publish({
 				startup: {
@@ -219,18 +240,19 @@ export function createRuntimeRecoveryFixture(
 			publish({
 				startup: {
 					phase: STARTUP_PHASES.cleanup,
-					task: RECOVERY_TASKS.natsMaintenance,
+					task: status.startup?.task ?? RECOVERY_TASKS.natsMaintenance,
 					startedAtMs: Date.now(),
 					deadlineAtMs: Date.now() + 60_000
 				}
 			});
 		},
 		fail(reason: RecoveryFailure['reason']) {
+			const task = status.startup?.task ?? RECOVERY_TASKS.natsMaintenance;
 			publish({
 				state: RUNTIME_STATUS_STATES.stopped,
 				startup: null,
 				lastError: 'synthetic diagnostic for logs',
-				recoveryFailure: { task: RECOVERY_TASKS.natsMaintenance, reason }
+				recoveryFailure: { task, reason }
 			});
 		},
 		finishStop() {

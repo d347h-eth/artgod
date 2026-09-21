@@ -15,7 +15,11 @@ export const STARTUP_PHASES = {
 	cleanup: 'cleanup',
 	backoff: 'backoff'
 } as const;
-export const RECOVERY_TASKS = { natsMaintenance: 'natsMaintenance' } as const;
+export const RECOVERY_TASKS = {
+	natsMaintenance: 'natsMaintenance',
+	sqliteMaintenance: 'sqliteMaintenance',
+	sqliteCompaction: 'sqliteCompaction'
+} as const;
 export const RECOVERY_FAILURE_REASONS = { failed: 'failed', timedOut: 'timedOut' } as const;
 export type StartupActivity = {
 	phase: (typeof STARTUP_PHASES)[keyof typeof STARTUP_PHASES];

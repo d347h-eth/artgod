@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -145,25 +145,33 @@ test("staging materializes isolated reviewed dependency trees", async (t) => {
         DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer,
     ]) {
         const runtimeRoot = path.join(destinationRoot, runtime.directoryName);
-        const require = createRequire(
-            path.join(runtimeRoot, runtime.issuerRelativePath),
+        // Staged production runtimes do not use PnP. Keep that boundary even
+        // when the caller's TMPDIR is correctly inside its Yarn worktree.
+        const env = { ...process.env };
+        delete env.NODE_OPTIONS;
+        delete env.NODE_PATH;
+        const esmPath = pathToFileURL(
+            path.join(
+                runtimeRoot,
+                "node_modules",
+                NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp,
+                "dist",
+                "index.mjs",
+            ),
+        ).href;
+        const probe = spawnSync(
+            process.execPath,
+            [
+                "--input-type=module",
+                "--eval",
+                `import assert from 'node:assert/strict'; import { createRequire } from 'node:module';
+             const require=createRequire(${JSON.stringify(path.join(runtimeRoot, runtime.issuerRelativePath))});
+             assert.equal(require(${JSON.stringify(NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp)}),'sharp-runtime');
+             assert.equal((await import(${JSON.stringify(esmPath)})).default,'sharp-runtime');`,
+            ],
+            { env, encoding: "utf8" },
         );
-        assert.equal(
-            require(NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp),
-            "sharp-runtime",
-        );
-        const esm = await import(
-            pathToFileURL(
-                path.join(
-                    runtimeRoot,
-                    "node_modules",
-                    NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp,
-                    "dist",
-                    "index.mjs",
-                ),
-            ).href
-        );
-        assert.equal(esm.default, "sharp-runtime");
+        assert.equal(probe.status, 0, probe.stderr || probe.error?.message);
     }
     await assert.rejects(
         lstat(

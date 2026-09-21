@@ -12,6 +12,12 @@ pub(crate) const NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME: &str =
 /// Bundled startup maintenance artifact that runs before normal queue producers.
 pub(crate) const NATS_JOB_STREAM_MAINTENANCE_ARTIFACT: &str =
     "indexer/dist-desktop/nats-job-stream-maintenance.mjs";
+/// Short-lived SQLite prerequisite; never a normal worker or wallet-bearing process.
+pub(crate) const SQLITE_MARKET_DATA_MAINTENANCE_PROCESS_NAME: &str =
+    "indexer-sqlite-market-data-maintenance";
+pub(crate) const SQLITE_MARKET_DATA_MAINTENANCE_ARTIFACT: &str =
+    "indexer/dist-desktop/sqlite-market-data-maintenance.mjs";
+pub(crate) const SQLITE_COMPACTION_PROCESS_NAME: &str = "indexer-sqlite-compaction";
 /// Supervisor-owned log process name for desktop runtime lifecycle messages.
 pub(crate) const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 
@@ -73,6 +79,8 @@ pub(crate) fn runtime_log_process_names() -> Vec<&'static str> {
     names.push(SUPERVISOR_PROCESS_NAME);
     names.push(NATS_PROCESS_NAME);
     names.push(NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME);
+    names.push(SQLITE_MARKET_DATA_MAINTENANCE_PROCESS_NAME);
+    names.push(SQLITE_COMPACTION_PROCESS_NAME);
     names.push(super::nats_store::PREPARE_STORE_PROCESS_NAME);
     names.push(BACKEND_PROCESS_NAME);
     names.extend(
@@ -95,6 +103,7 @@ mod tests {
         assert!(names.contains(&SUPERVISOR_PROCESS_NAME));
         assert!(names.contains(&NATS_PROCESS_NAME));
         assert!(names.contains(&NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME));
+        assert!(names.contains(&SQLITE_MARKET_DATA_MAINTENANCE_PROCESS_NAME));
         assert!(names.contains(&BACKEND_PROCESS_NAME));
         assert!(names.contains(&"indexer-sync-worker"));
         assert!(names.contains(&"trading-bidding-bot"));

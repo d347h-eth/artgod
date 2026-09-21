@@ -19,6 +19,8 @@ pub enum StartupPhase {
 #[serde(rename_all = "camelCase")]
 pub enum RecoveryTaskId {
     NatsMaintenance,
+    SqliteMaintenance,
+    SqliteCompaction,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -198,6 +200,18 @@ mod tests {
     const SUCCESS_FIXTURE: &str = "runtime::recovery::tests::recovery_child_success";
     const FAILURE_FIXTURE: &str = "runtime::recovery::tests::recovery_child_failure";
     const HUNG_FIXTURE: &str = "runtime::recovery::tests::recovery_child_hung";
+
+    #[test]
+    fn sqlite_task_ids_match_the_frontend_wire_contract() {
+        assert_eq!(
+            serde_json::to_value(RecoveryTaskId::SqliteMaintenance).unwrap(),
+            "sqliteMaintenance"
+        );
+        assert_eq!(
+            serde_json::to_value(RecoveryTaskId::SqliteCompaction).unwrap(),
+            "sqliteCompaction"
+        );
+    }
 
     fn spawn_fixture(entry: &str) -> Child {
         let root =
