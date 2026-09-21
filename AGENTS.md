@@ -36,6 +36,11 @@ Agent-specific guidance. Project overview and documentation navigation belong in
 
 ## Engineering judgment
 
+- Before making changes or implementation decisions not explicitly directed by
+  the user, read the relevant domain/topic documentation. Trace the affected
+  end-to-end use case and justify the change by its concrete user value or benefit
+  to the overall system design. Do not infer purpose from local code alone or
+  implement changes without that justification.
 - Evaluate requested approaches and existing patterns for concrete architectural
   or correctness problems. Explain material objections and apply corrections to
   the actual defect. Existing design can evolve as features develop.
