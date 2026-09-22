@@ -146,7 +146,8 @@ update prices immediately; they do not wait for the timer.
   maker/state changes can still trigger validation.
 - A canonical order change invalidates its previous validation timestamp.
   Retrying an upsert after a failed job publish still requests validation until
-  the changed revision has been checked.
+  the changed revision has been checked, even if a newer source observation
+  arrived before the retry.
 - Exact listing duplicates are no-ops. A newer price observation updates its
   ordering timestamp even at the same price, without moving the feed row.
 - Maker validation and REST reconciliation page through candidates instead of
@@ -156,7 +157,8 @@ update prices immediately; they do not wait for the timer.
   can discover long-lived orders. Delayed cancellations of known orders still apply.
 - Expiring order-specific markers prevent cancelled orders returning through
   delayed creation messages. They retain no canonical order payload. Explicit
-  OpenSea cancellations survive unrelated chain rollback.
+  OpenSea cancellations survive chain rollback regardless of event arrival order
+  or whether cleanup has already removed the full order.
 
 Details: [orders](../indexer/07-domain-orders.md#current-state-retention-and-replay)
 and [activities](../indexer/09-domain-activities.md#permanent-daily-listings).
@@ -201,7 +203,7 @@ Connection-wide WAL reuse is owned by
   boundaries, cancellations, indexed cleanup and migration retry.
 - Bundled recovery tests cover committed WAL, hard interruption, resume and
   repeat startup. Rendered browser tests cover listing prices and navigation.
-- The latest review fixes passed **475 indexer tests, 379 backend tests,
+- The pattern-alignment review passed **475 indexer tests, 379 backend tests,
   31 shared feed/card-read tests and 16 browser cases**, plus TypeScript,
   desktop-runtime build and documentation checks. Coverage includes online
   transaction retries, current-price ordering, resolved WAL paths and recovery

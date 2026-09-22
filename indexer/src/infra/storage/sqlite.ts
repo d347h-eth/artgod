@@ -227,7 +227,10 @@ export class SqliteStorage implements StoragePort {
         "DELETE FROM token_metadata WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
     );
     private deleteOrdersFromBlock = db.prepare<[number, number]>(
-        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
+        // Source cancellation remains definitive even when this row also has a
+        // rolled-back chain outcome. Normal cleanup retires its payload later.
+        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ? " +
+            `AND source_status<>'${ORDER_SOURCE_STATUS.Cancelled}'`,
     );
     private resetOrderFillability = db.prepare<
         [string, number, number, string, string, string, string]

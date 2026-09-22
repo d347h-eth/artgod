@@ -11,6 +11,7 @@ import {
 } from "../src/application/storage/compact-market-data.js";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { SqliteCurrentAsks } from "@artgod/shared/database/current-asks";
 import { ACTIVITY_KIND, ACTIVITY_SOURCE_KIND } from "@artgod/shared/types";
 import {
     MARKET_DATA_RECOVERY_STAGE as STAGE,
@@ -21,8 +22,11 @@ import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-
 import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SIDE,
     type OrderStatus,
 } from "../src/domain/orders.js";
+import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
 import {
     orderRetirementReason,
     ORDER_RETIREMENT_REASON,
@@ -246,6 +250,198 @@ describe("in-place SQLite market-data recovery", () => {
                 .get(),
         ).toEqual({ n: 2 });
     });
+
+    describe.each(["cancel", "fill"])(
+        "source cancellation alongside chain %s",
+        (chainReason) => {
+            it.each([
+                {
+                    scenario: "source cancellation follows the chain event",
+                    sourceFirst: false,
+                    retireFirst: false,
+                    fromBlock: 999999,
+                },
+                {
+                    scenario:
+                        "source cancellation precedes the rolled-back chain event",
+                    sourceFirst: true,
+                    retireFirst: false,
+                    fromBlock: 100,
+                },
+                {
+                    scenario:
+                        "source cancellation follows retirement of the chain event",
+                    sourceFirst: false,
+                    retireFirst: true,
+                    fromBlock: 999999,
+                },
+            ])(
+                "preserves cancellation when $scenario",
+                async ({ sourceFirst, retireFirst, fromBlock }) => {
+                    await recover();
+                    db.prepare(
+                        "UPDATE collections SET bootstrap_anchor_block=0 WHERE chain_id=1 AND collection_id=99",
+                    ).run();
+                    let now = NOW;
+                    const domain = new SqliteOrdersDomain(
+                        "0xweth",
+                        async () => {
+                            throw new Error("No validation expected");
+                        },
+                        undefined,
+                        () => now,
+                    );
+                    db.prepare(
+                        "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES (1,99,'0xcollection','1')",
+                    ).run();
+                    const payload: OrderUpsertPayload = {
+                        chainId: 1,
+                        collectionId: 99,
+                        orderId: "source-and-chain-cancelled",
+                        kind: "seaport",
+                        side: ORDER_SIDE.Sell,
+                        source: "opensea",
+                        rawSourceKind: "stream",
+                        validateAfterUpsert: true,
+                        maker: "maker",
+                        contract: "0xcollection",
+                        tokenId: "1",
+                        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
+                        price: "10",
+                        currency: "ETH",
+                        validUntil: NOW + 2 * POLICY.utcDaySeconds,
+                        observedAt: now,
+                        sourceStatus: ORDER_SOURCE_STATUS.Active,
+                    };
+                    const currentAsks = new SqliteCurrentAsks(db.raw, ["eth"]);
+                    await domain.handleOrderUpsert(payload);
+                    expect(
+                        currentAsks.forSeller(1, 99, "1", "maker", now)?.id,
+                    ).toBe(payload.orderId);
+
+                    const cancelAtSource = () =>
+                        domain.handleOrderUpdateById({
+                            chainId: 1,
+                            collectionId: 99,
+                            orderId: payload.orderId,
+                            reason: "cancel",
+                            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                            observedAt: now,
+                        });
+                    // Align SQLite's wall-clock timestamps with this fixture's clock.
+                    const ageOrder = () =>
+                        db
+                            .prepare(
+                                "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+                            )
+                            .run(
+                                now - POLICY.orderReorgGraceSeconds - 1,
+                                payload.orderId,
+                            );
+
+                    if (sourceFirst) await cancelAtSource();
+                    await domain.handleOrderUpdateById({
+                        chainId: 1,
+                        orderId: payload.orderId,
+                        reason: chainReason,
+                        blockNumber: 100,
+                    });
+                    expect(
+                        db
+                            .prepare(
+                                "SELECT fillability_status,block_number FROM orders",
+                            )
+                            .get(),
+                    ).toEqual({
+                        fillability_status:
+                            chainReason === "cancel"
+                                ? ORDER_STATUS.Cancelled
+                                : ORDER_STATUS.Filled,
+                        block_number: 100,
+                    });
+                    const expiry =
+                        payload.validUntil! + POLICY.orderReorgGraceSeconds;
+                    if (retireFirst) {
+                        ageOrder();
+                        expect(storage.maintainBatch(now)).toBe(1);
+                        expect(
+                            db
+                                .prepare(
+                                    "SELECT reason,expires_at FROM market_order_retirements",
+                                )
+                                .get(),
+                        ).toEqual({
+                            reason: ORDER_RETIREMENT_REASON.Terminal,
+                            expires_at: expiry,
+                        });
+                    }
+                    now += 1;
+                    if (!sourceFirst) await cancelAtSource();
+
+                    new SqliteStorage().rollbackFromBlock(1, fromBlock);
+                    expect(
+                        await domain.handleOrderUpsert(payload),
+                    ).toMatchObject({
+                        changed: false,
+                        validationNeeded: false,
+                    });
+                    expect(
+                        currentAsks.forSeller(1, 99, "1", "maker", now),
+                    ).toBeUndefined();
+
+                    // The normal online cleanup still releases the cancelled payload.
+                    if (!retireFirst) {
+                        ageOrder();
+                        expect(storage.maintainBatch(now)).toBe(1);
+                    }
+                    expect(db.prepare("SELECT id FROM orders").all()).toEqual(
+                        [],
+                    );
+                    expect(
+                        db
+                            .prepare(
+                                "SELECT reason,expires_at FROM market_order_retirements",
+                            )
+                            .get(),
+                    ).toEqual({
+                        reason: ORDER_RETIREMENT_REASON.SourceCancelled,
+                        expires_at: expiry,
+                    });
+                    // Neither duplicate cancellation nor weaker source evidence may
+                    // downgrade this marker or shorten its known validity deadline.
+                    await cancelAtSource();
+                    await domain.handleOrderUpdateById({
+                        chainId: 1,
+                        collectionId: 99,
+                        orderId: payload.orderId,
+                        reason: "fill",
+                        sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                        observedAt: now + 1,
+                    });
+                    new SqliteStorage().rollbackFromBlock(1, 100);
+                    expect(
+                        db
+                            .prepare(
+                                "SELECT reason,expires_at FROM market_order_retirements",
+                            )
+                            .get(),
+                    ).toEqual({
+                        reason: ORDER_RETIREMENT_REASON.SourceCancelled,
+                        expires_at: expiry,
+                    });
+                    expect(
+                        await domain.handleOrderUpsert(payload),
+                    ).toMatchObject({
+                        changed: false,
+                        validationNeeded: false,
+                    });
+                    expect(
+                        currentAsks.forSeller(1, 99, "1", "maker", now),
+                    ).toBeUndefined();
+                },
+            );
+        },
+    );
 
     it("invalidates only the reorganized chain's negative market cache when terminal block attribution is unknown", () => {
         order("terminal", NOW + 3600, ORDER_STATUS.Cancelled);

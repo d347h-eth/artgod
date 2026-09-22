@@ -111,6 +111,8 @@ repeat validation have a five-minute freshness interval; explicit maker/state
 change triggers still revalidate. A changed canonical upsert clears `validated_at`
 in the same write that advances `state_revision`. If publishing validation fails,
 an unchanged upsert retry still requests it until that revision has been validated.
+A newer source observation does not erase that obligation: an older retry leaves
+stored state untouched and requests validation of the current active revision.
 Validation commits with a state-revision and
 active-source guard, so a result obtained before an awaited RPC cannot overwrite
 a newer cancellation. No SQLite reader or writer transaction stays open across
@@ -140,7 +142,10 @@ The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
   its marker when a rejected create reveals a later validity deadline. Natural
   expiry fences its own replay without another permanent receipt archive.
 - Chain rollback invalidates uncertain chain-derived terminal state, but preserves
-  explicit OpenSea cancellations, including their compact removal records.
+  explicit OpenSea cancellations, including their compact removal records. This
+  holds whichever cancellation arrives first, including after chain-derived
+  state has been retired. Source-cancelled rows remain ineligible for current
+  asks and follow the normal cleanup policy.
   User trading intent and own orders remain separate owners.
 
 REST reconciliation streams active identities into connection-local temporary

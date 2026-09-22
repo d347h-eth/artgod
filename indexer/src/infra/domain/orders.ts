@@ -675,11 +675,17 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         )
             return { changes: 0 };
         const terminal = isTerminalSourceStatus(payload.sourceStatus);
+        const sourceCancellation =
+            payload.sourceStatus === ORDER_SOURCE_STATUS.Cancelled;
+        // Independent source cancellation must survive reversal of a chain
+        // fill/cancel. Record it even when that chain outcome arrived first.
         if (
             row &&
-            (isTerminalSourceStatus(row.source_status) ||
-                row.fillability_status === ORDER_STATUS.Filled ||
-                row.fillability_status === ORDER_STATUS.Cancelled)
+            (row.source_status === ORDER_SOURCE_STATUS.Cancelled ||
+                (!sourceCancellation &&
+                    (isTerminalSourceStatus(row.source_status) ||
+                        row.fillability_status === ORDER_STATUS.Filled ||
+                        row.fillability_status === ORDER_STATUS.Cancelled)))
         )
             return { changes: 0 };
         // A source cancellation is definitive even if a stale REST snapshot was
@@ -690,16 +696,26 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             (terminal || payload.sourceStatus === ORDER_SOURCE_STATUS.Inactive)
         ) {
             return db
-                .prepare<
-                    [number, number, string, number, number, string]
-                >("INSERT INTO market_order_retirements(chain_id,collection_id,order_id,expires_at,retired_at,reason) VALUES (?,?,?,?,?,?) " + "ON CONFLICT(chain_id,order_id) DO UPDATE SET expires_at=MAX(expires_at,excluded.expires_at),retired_at=MAX(retired_at,excluded.retired_at),reason=excluded.reason " + `WHERE market_order_retirements.reason NOT IN ('${ORDER_RETIREMENT_REASON.Terminal}','${ORDER_RETIREMENT_REASON.SourceCancelled}') AND (excluded.reason IN ('${ORDER_RETIREMENT_REASON.Terminal}','${ORDER_RETIREMENT_REASON.SourceCancelled}') OR excluded.retired_at>market_order_retirements.retired_at)`)
+                .prepare<[number, number, string, number, number, string]>(
+                    `INSERT INTO market_order_retirements(chain_id,collection_id,order_id,expires_at,retired_at,reason)
+                    VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(chain_id,order_id) DO UPDATE SET
+                        expires_at=MAX(expires_at,excluded.expires_at),
+                        retired_at=MAX(retired_at,excluded.retired_at),
+                        reason=excluded.reason
+                    WHERE market_order_retirements.reason<>'${ORDER_RETIREMENT_REASON.SourceCancelled}'
+                        AND (excluded.reason='${ORDER_RETIREMENT_REASON.SourceCancelled}'
+                            OR (market_order_retirements.reason<>'${ORDER_RETIREMENT_REASON.Terminal}'
+                                AND (excluded.reason='${ORDER_RETIREMENT_REASON.Terminal}'
+                                    OR excluded.retired_at>market_order_retirements.retired_at)))`,
+                )
                 .run(
                     payload.chainId,
                     collectionId,
                     payload.orderId,
                     now + STORAGE_POLICY.unknownOrderLifetimeSeconds,
                     at,
-                    payload.sourceStatus === ORDER_SOURCE_STATUS.Cancelled
+                    sourceCancellation
                         ? ORDER_RETIREMENT_REASON.SourceCancelled
                         : terminal
                           ? ORDER_RETIREMENT_REASON.Terminal
@@ -801,13 +817,27 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         }) as OrderRow | undefined;
         if (
             existingRow &&
-            (observedAt < existingRow.observed_at ||
-                existingRow.fillability_status === ORDER_STATUS.Filled ||
+            (existingRow.fillability_status === ORDER_STATUS.Filled ||
                 existingRow.fillability_status === ORDER_STATUS.Cancelled ||
                 existingRow.source_status === ORDER_SOURCE_STATUS.Filled ||
                 existingRow.source_status === ORDER_SOURCE_STATUS.Cancelled)
         )
             return ignored;
+        if (existingRow && observedAt < existingRow.observed_at) {
+            // Discard the older input, not pending validation of the stored
+            // revision: another queue may have advanced source freshness after
+            // its upsert committed but before validation publication retried.
+            return {
+                changed: false,
+                validationNeeded:
+                    existingRow.source_status === ORDER_SOURCE_STATUS.Active &&
+                    (existingRow.valid_until === null ||
+                        existingRow.valid_until > now) &&
+                    existingRow.validated_at <=
+                        now - STORAGE_POLICY.orderRevalidationSeconds,
+                validationRevision: existingRow.state_revision,
+            };
+        }
         const existingOrder = existingRow ? mapOrderRow(existingRow) : null;
         const mergedSeaportData = mergeSeaportData(
             existingOrder?.seaportData ?? null,

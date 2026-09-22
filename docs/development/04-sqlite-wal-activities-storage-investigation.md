@@ -663,6 +663,22 @@ the maintained browser and subprocess tests passed with those restrictions lifte
 No packages or services were installed. These results use disposable fixtures,
 not the original databases, and do not replace the remaining live/native QA.
 
+### September 22 Final Isolated Audit Follow-Up
+
+- **Validation retries:** a newer source observation no longer hides validation
+  still owed after an upsert's job publication failed. The retry leaves stored
+  order data untouched and uses its current revision.
+- **Cancellation evidence:** OpenSea cancellation is retained when a chain
+  fill/cancel arrived first, including after payload cleanup. Rollback cannot
+  erase it and let an old create restore a visible ask. Normal expiry and cleanup
+  are unchanged; no schema or background task was added.
+- **Verification:** all four independent audit reproductions failed before the
+  fixes and passed afterward. The maintained suites passed **114 focused tests**,
+  including both arrival orders, marker upgrades, payload cleanup and ownership
+  rollback. Shared/indexer TypeScript checks passed.
+- Only synthetic databases were used. This follow-up did not repeat live,
+  native desktop, packaging or deployment QA.
+
 Maintained verification commands are in
 [local development](01-local-development.md#sqlite-storage-recovery-verification).
 Local artifacts are under `tmp/sqlite-storage-qa/` and

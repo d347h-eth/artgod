@@ -97,47 +97,113 @@ describe("orders raw source selection", () => {
         });
     });
 
-    it("keeps validation required on retry after canonical enrichment commits without its validation job", async () => {
-        const now = 1_790_000_000;
-        const domain = new SqliteOrdersDomain(
-            "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
-            undefined,
-            () => now,
-        );
-        const rest = { ...buildOrderUpsert("rest", {}), observedAt: now };
-        ensureCollection(1, 1, rest.contract);
-        await domain.handleOrderUpsert(rest);
-        await domain.handleOrderUpdateById({
-            ...buildOrderUpdate(),
-            blockNumber: null,
-        });
-        const enriched = {
-            ...buildOrderUpsert("stream", {}, { signature: "0x1234" }),
-            observedAt: now,
-            validateAfterUpsert: true,
-        };
-        const committed = await domain.handleOrderUpsert(enriched);
-        expect(committed).toMatchObject({
-            changed: true,
-            validationNeeded: true,
-        });
-        // Publishing failed after commit: retry the same queue payload without validation.
-        expect(await domain.handleOrderUpsert(enriched)).toEqual({
-            changed: false,
-            validationNeeded: true,
-            validationRevision: committed.validationRevision,
-        });
-        await domain.handleOrderUpdateById({
-            ...buildOrderUpdate(),
-            blockNumber: null,
-        });
-        expect(await domain.handleOrderUpsert(enriched)).toEqual({
-            changed: false,
-            validationNeeded: false,
-            validationRevision: committed.validationRevision,
-        });
-    });
+    it.each([false, true])(
+        "keeps validation required after a failed publish (newer source observation: %s)",
+        async (interveningSourceObservation) => {
+            let now = 1_790_000_000;
+            const domain = new SqliteOrdersDomain(
+                "0xweth",
+                async () => ({
+                    status: ORDER_STATUS.Fillable,
+                    reason: "fixture",
+                }),
+                undefined,
+                () => now,
+            );
+            const rest = { ...buildOrderUpsert("rest", {}), observedAt: now };
+            ensureCollection(1, 1, rest.contract);
+            await domain.handleOrderUpsert(rest);
+            await domain.handleOrderUpdateById({
+                ...buildOrderUpdate(),
+                blockNumber: null,
+            });
+            const enriched = {
+                ...buildOrderUpsert("stream", {}, { signature: "0x1234" }),
+                observedAt: now,
+                validateAfterUpsert: true,
+            };
+            const committed = await domain.handleOrderUpsert(enriched);
+            expect(committed).toMatchObject({
+                changed: true,
+                validationNeeded: true,
+            });
+            if (interveningSourceObservation) {
+                now += 1;
+                // The update-by-id queue can advance freshness before upsert retries.
+                await domain.handleOrderUpdateById({
+                    ...buildOrderUpdate(),
+                    sourceStatus: ORDER_SOURCE_STATUS.Active,
+                    observedAt: now,
+                    blockNumber: null,
+                });
+            }
+            const beforeRetry = db.prepare("SELECT * FROM orders").get();
+            const writesBeforeRetry = db
+                .prepare("SELECT total_changes() AS n")
+                .get();
+            // Publishing failed after commit: retry the same queue payload without validation.
+            expect(await domain.handleOrderUpsert(enriched)).toEqual({
+                changed: false,
+                validationNeeded: true,
+                validationRevision: committed.validationRevision,
+            });
+            expect(db.prepare("SELECT * FROM orders").get()).toEqual(
+                beforeRetry,
+            );
+            expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(
+                writesBeforeRetry,
+            );
+            await domain.handleOrderUpdateById({
+                ...buildOrderUpdate(),
+                blockNumber: null,
+            });
+            expect(await domain.handleOrderUpsert(enriched)).toEqual({
+                changed: false,
+                validationNeeded: false,
+                validationRevision: committed.validationRevision,
+            });
+        },
+    );
+
+    it.each([
+        ORDER_SOURCE_STATUS.Inactive,
+        ORDER_SOURCE_STATUS.Filled,
+        ORDER_SOURCE_STATUS.Cancelled,
+    ])(
+        "does not request validation of a superseded upsert after the source becomes %s",
+        async (sourceStatus) => {
+            let now = 1_790_000_000;
+            const domain = new SqliteOrdersDomain(
+                "0xweth",
+                async () => {
+                    throw new Error("No validation expected");
+                },
+                undefined,
+                () => now,
+            );
+            const payload = {
+                ...buildOrderUpsert("stream", {}),
+                observedAt: now,
+            };
+            ensureCollection(1, 1, payload.contract);
+            await domain.handleOrderUpsert(payload);
+            now += 1;
+            await domain.handleOrderUpdateById({
+                ...buildOrderUpdate(),
+                sourceStatus,
+                observedAt: now,
+                blockNumber: null,
+            });
+            const beforeRetry = db.prepare("SELECT * FROM orders").get();
+            expect(await domain.handleOrderUpsert(payload)).toMatchObject({
+                changed: false,
+                validationNeeded: false,
+            });
+            expect(db.prepare("SELECT * FROM orders").get()).toEqual(
+                beforeRetry,
+            );
+        },
+    );
 
     it("fences a cancellation received before create, including duplicate cancellation and delayed REST", async () => {
         const now = 1_790_000_000;
