@@ -1,4 +1,5 @@
 import { ACTIVITY_KIND, ACTIVITY_SOURCE_KIND } from "../types/activity-feed.js";
+import recoveryRuntime from "./recovery-runtime.json" with { type: "json" };
 
 /** Market display/history budgets, not wallet, trading-intent or artwork retention. */
 export const MARKET_DATA_STORAGE_POLICY = Object.freeze({
@@ -12,10 +13,11 @@ export const MARKET_DATA_STORAGE_POLICY = Object.freeze({
     maintenancePassBudgetMs: 2_000,
     // Shared cadence for order cleanup and WAL diagnostics on the user's machine.
     maintenanceIntervalMs: 20 * 60 * 1_000,
+    // Unfinished cleanup yields for 30 seconds, rather than waiting another full cycle.
+    maintenanceContinuationDelayMs: 30 * 1_000,
     // The 52 GiB Qubes copy required about 24 minutes; leave cold-I/O headroom.
-    recoveryBudgetMs: 45 * 60 * 1_000,
+    recoveryBudgetMs: recoveryRuntime.workBudgetMs,
     recoveryMinFreeBytes: 1_024 * 1_024 * 1_024,
-    journalSizeLimitBytes: 64 * 1_024 * 1_024,
     compactionMinReclaimBytes: 1_024 * 1_024 * 1_024,
     // Early diagnostic thresholds, separate from recovery and journal reuse.
     diskFreeWarningBytes: 20 * 1_024 * 1_024 * 1_024,

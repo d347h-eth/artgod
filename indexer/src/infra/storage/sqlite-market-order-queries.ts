@@ -1,6 +1,7 @@
 import {
     ORDER_SOURCE_STATUS as SOURCE,
     ORDER_STATUS as STATUS,
+    ORDER_SIDE,
 } from "../../domain/orders.js";
 
 const terminal = `source_status IN ('${SOURCE.Filled}','${SOURCE.Cancelled}') OR fillability_status IN ('${STATUS.Filled}','${STATUS.Cancelled}')`;
@@ -18,7 +19,7 @@ CREATE INDEX IF NOT EXISTS activities_listing_day_refresh_idx ON activities(list
 DROP INDEX IF EXISTS orders_maker_revalidation_candidates_idx;
 CREATE INDEX orders_maker_revalidation_candidates_idx ON orders(chain_id,maker,source_status,id) WHERE kind='seaport' AND seaport_data_json IS NOT NULL;
 DROP INDEX IF EXISTS orders_maker_collection_revalidation_idx;
-CREATE INDEX orders_maker_collection_revalidation_idx ON orders(chain_id,maker,collection_id,source_status,id) WHERE kind='seaport' AND side='sell' AND seaport_data_json IS NOT NULL;
+CREATE INDEX orders_maker_collection_revalidation_idx ON orders(chain_id,maker,collection_id,source_status,id) WHERE kind='seaport' AND side='${ORDER_SIDE.Sell}' AND seaport_data_json IS NOT NULL;
 `;
 
 /** Separate indexed families avoid an OR across the entire active orderbook. */

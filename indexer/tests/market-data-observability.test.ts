@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
+import { SQLITE_STORAGE_POLICY } from "@artgod/shared/database/storage-policy";
 import {
     MarketDataObservability,
     SQLITE_STORAGE_METRIC as METRIC,
 } from "../src/infra/storage/market-data-observability.js";
 
 const healthy = {
-    walBytes: POLICY.journalSizeLimitBytes,
+    walBytes: SQLITE_STORAGE_POLICY.journalSizeLimitBytes,
     freeBytes: POLICY.diskFreeWarningBytes * 2,
 };
 const metrics = () => ({
@@ -61,7 +62,7 @@ describe("SQLite filesystem observability", () => {
             POLICY.recoveryMinFreeBytes,
         );
         expect(POLICY.walSizeWarningBytes).toBeGreaterThan(
-            POLICY.journalSizeLimitBytes,
+            SQLITE_STORAGE_POLICY.journalSizeLimitBytes,
         );
     });
     it("records cleanup duration independently", () => {

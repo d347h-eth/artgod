@@ -31,6 +31,7 @@ import {
     type DebugPayloadPersistenceConfig,
 } from "@artgod/shared/config/debug-payload-persistence";
 import {
+    parseAddress,
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -201,16 +202,6 @@ export type IndexerConfig = {
     apm: IndexerApmConfig;
     metrics: IndexerMetricsConfig;
 };
-
-function parseAddress(value: string | undefined, name: string): string {
-    if (!value) {
-        throw new Error(`Missing ${name}`);
-    }
-    if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
-        throw new Error(`Invalid ${name}: ${value}`);
-    }
-    return value.toLowerCase();
-}
 
 export function loadConfig(
     env: Record<string, string | undefined> = process.env,

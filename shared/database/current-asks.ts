@@ -1,4 +1,10 @@
 import type Database from "better-sqlite3";
+import {
+    ORDER_STATUS,
+    ORDER_SOURCE_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SIDE,
+} from "../market-data/orders.js";
 
 /** Integer prices are compared as decimal strings, never floating point. */
 export function normalizedAskPriceSql(alias: string): string {
@@ -8,7 +14,7 @@ export function normalizedAskPriceSql(alias: string): string {
 
 function eligibleAskSql(alias: string): string {
     const p = alias ? `${alias}.` : "";
-    return `${p}source_scope_kind='token' AND ${p}side='sell' AND ${p}source_status='active' AND ${p}fillability_status='fillable' AND ${p}token_id IS NOT NULL AND ${p}price IS NOT NULL AND ${p}price<>'' AND ${p}price NOT GLOB '*[^0-9]*'`;
+    return `${p}source_scope_kind='${ORDER_SOURCE_SCOPE_KIND.Token}' AND ${p}side='${ORDER_SIDE.Sell}' AND ${p}source_status='${ORDER_SOURCE_STATUS.Active}' AND ${p}fillability_status='${ORDER_STATUS.Fillable}' AND ${p}token_id IS NOT NULL AND ${p}price IS NOT NULL AND ${p}price<>'' AND ${p}price NOT GLOB '*[^0-9]*'`;
 }
 
 // These indexes bound a best-price lookup to one token (optionally one seller).
