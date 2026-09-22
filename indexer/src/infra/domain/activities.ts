@@ -107,7 +107,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         private readonly nowSeconds: () => number = () =>
             Math.floor(Date.now() / 1000),
     ) {
-        this.prices = new SqliteDailyListingPrices(db.raw, currencies);
+        this.prices = new SqliteDailyListingPrices(db, currencies);
     }
     private selectTransfers = db.prepare<[number, number, number]>(
         "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
@@ -325,19 +325,14 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 (payload.listingPriceAt ?? 0) >=
                     (existing.listing_price_at ?? 0)
             ) {
-                db.prepare(
-                    "UPDATE activities SET order_id=?,price=?,currency=?,amount=?,listing_price_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (price,currency,amount) IS NOT (?,?,?)",
-                ).run(
-                    payload.orderId,
-                    payload.price,
-                    payload.currency,
-                    payload.amount,
-                    payload.listingPriceAt,
-                    existing.id,
-                    payload.price,
-                    payload.currency,
-                    payload.amount,
-                );
+                this.prices.recordPrice({
+                    id: existing.id,
+                    orderId: payload.orderId,
+                    price: payload.price,
+                    currency: payload.currency,
+                    amount: payload.amount,
+                    observedAt: payload.listingPriceAt ?? 0,
+                });
             }
             return existing.id;
         }

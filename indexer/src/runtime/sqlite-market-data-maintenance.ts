@@ -1,6 +1,9 @@
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { MaintainMarketData } from "../application/storage/maintain-market-data.js";
+import { CompactMarketData } from "../application/storage/compact-market-data.js";
+import { logger } from "@artgod/shared/utils";
+import runtime from "@artgod/shared/market-data/recovery-runtime" with { type: "json" };
 import { SqliteMarketDataMaintenance } from "../infra/storage/sqlite-market-data-maintenance.js";
 import { loadSqliteMarketDataMaintenanceConfig } from "../config/sqlite-market-data-maintenance.js";
 import { mkdirSync } from "node:fs";
@@ -20,28 +23,37 @@ async function main(): Promise<void> {
     process.once("SIGINT", stop);
     try {
         await createMigrationRunner().runMigrations();
-        const storage = new SqliteMarketDataMaintenance(
-            db.raw,
-            config.databasePath,
-        );
-        if (process.argv.includes("--compact-only")) {
-            process.stdout.write(
-                `${JSON.stringify({ compaction: storage.compactIfSafe() })}\n`,
-            );
+        const storage = new SqliteMarketDataMaintenance(db);
+        const compaction = new CompactMarketData(storage);
+        const compact = () =>
+            logger.info("SQLite storage compaction completed", {
+                component: runtime.logComponent,
+                action: runtime.logActions.compacted,
+                compaction: compaction.execute(),
+            });
+        if (config.compactOnly) {
+            abort.signal.throwIfAborted();
+            compact();
             return;
         }
         const maintenance = new MaintainMarketData(storage, {
             report: (progress) =>
-                process.stdout.write(`${JSON.stringify(progress)}\n`),
+                logger.info("SQLite market-data recovery progress", {
+                    component: runtime.logComponent,
+                    action: runtime.logActions.progress,
+                    ...progress,
+                }),
         });
         const progress = await maintenance.recover(abort.signal);
-        process.stdout.write(`${JSON.stringify({ recovery: progress })}\n`);
+        logger.info("SQLite market-data recovery completed", {
+            component: runtime.logComponent,
+            action: runtime.logActions.completed,
+            recovery: progress,
+        });
         // Physical shrinking is a separate stage, never required for logical readiness.
-        if (process.argv.includes("--compact")) {
+        if (config.compact) {
             abort.signal.throwIfAborted();
-            process.stdout.write(
-                `${JSON.stringify({ compaction: storage.compactIfSafe() })}\n`,
-            );
+            compact();
         }
     } finally {
         conn.close();
@@ -51,6 +63,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-    process.stderr.write(`${String(error)}\n`);
+    logger.error("SQLite market-data maintenance failed", {
+        component: runtime.logComponent,
+        action: runtime.logActions.failed,
+        error: String(error),
+    });
     process.exitCode = 1;
 });

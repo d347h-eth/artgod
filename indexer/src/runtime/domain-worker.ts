@@ -4,6 +4,7 @@ import { zeroAddress } from "viem";
 import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
 import { SqliteMarketDataMaintenance } from "../infra/storage/sqlite-market-data-maintenance.js";
+import { startMarketDataMaintenanceLoop } from "./market-data-maintenance-loop.js";
 import {
     MarketDataObservability,
     MARKET_DATA_MAINTENANCE_ACTION,
@@ -143,7 +144,7 @@ async function main() {
         const listingCurrencies = [zeroAddress, config.tokens.wethAddress];
         const activityDomain = new SqliteActivityDomain(listingCurrencies);
         const listingPrices = new SqliteDailyListingPrices(
-            db.raw,
+            db,
             listingCurrencies,
         );
         const collectionExtensions = new SqliteCollectionExtensions(
@@ -492,53 +493,25 @@ async function main() {
             action: "main",
         });
 
-        const marketDataMaintenance = new SqliteMarketDataMaintenance(
-            db.raw,
-            config.dbPath,
-        );
+        const marketDataMaintenance = new SqliteMarketDataMaintenance(db);
         const storageObservability = new MarketDataObservability(
             runtimeMetrics.metrics,
         );
-        let maintenanceRunning = false;
         let maintenanceStopped = false;
-        const maintenanceTimer = setInterval(async () => {
-            if (maintenanceRunning || maintenanceStopped) return;
-            maintenanceRunning = true;
-            try {
-                const start = performance.now();
-                const now = Math.floor(Date.now() / 1000);
-                let ordersDone = false;
-                let pricesDone = false;
-                // Online work has an overall elapsed budget. The one-time
-                // startup rebuild is a different workflow with no live ingress.
-                while (
-                    !maintenanceStopped &&
-                    performance.now() - start <
-                        MARKET_DATA_STORAGE_POLICY.maintenancePassBudgetMs
-                ) {
-                    if (!ordersDone)
-                        ordersDone =
-                            marketDataMaintenance.maintainBatch(now) === 0;
-                    if (!pricesDone)
-                        pricesDone = listingPrices.refreshBatch(now) === 0;
-                    if (ordersDone && pricesDone) break;
-                    await new Promise<void>((resolve) => setImmediate(resolve));
-                }
-                if (maintenanceStopped) return;
-                storageObservability.observeMaintenance(
-                    performance.now() - start,
-                );
-            } catch (error) {
+        const stopMaintenance = startMarketDataMaintenanceLoop({
+            removeObsoleteOrders: (now) =>
+                marketDataMaintenance.maintainBatch(now),
+            refreshListingPrices: (now) => listingPrices.refreshBatch(now),
+            onPass: (duration) =>
+                storageObservability.observeMaintenance(duration),
+            onError: (error) => {
                 logger.warn("Market data maintenance batch failed", {
                     component: "IndexerDomainWorker",
                     action: MARKET_DATA_MAINTENANCE_ACTION,
                     error: String(error),
                 });
-            } finally {
-                maintenanceRunning = false;
-            }
-        }, MARKET_DATA_STORAGE_POLICY.maintenanceIntervalMs);
-        maintenanceTimer.unref();
+            },
+        });
 
         // Filesystem metadata only; no checkpoint or SQL on the worker event loop.
         let walObservationRunning = false;
@@ -581,7 +554,7 @@ async function main() {
 
         const shutdown = async () => {
             maintenanceStopped = true;
-            clearInterval(maintenanceTimer);
+            stopMaintenance();
             clearInterval(walObservationTimer);
             logger.info("Domain worker shutting down", {
                 component: "IndexerDomainWorker",

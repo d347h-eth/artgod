@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { statSync, statfsSync } from "node:fs";
-import { dirname, resolve, join } from "node:path";
+import { dirname, join } from "node:path";
+import { zeroAddress } from "viem";
+import { TOKEN_BROWSER_STATUS } from "@artgod/shared/types/browse";
+import runtime from "@artgod/shared/market-data/recovery-runtime" with { type: "json" };
+import { parseStorageVerificationArgs } from "./sqlite-storage-cli.js";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import {
@@ -10,33 +14,17 @@ import {
 } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { MaintainMarketData } from "../src/application/storage/maintain-market-data.js";
+import { CompactMarketData } from "../src/application/storage/compact-market-data.js";
 import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
 import { SqliteCollectionsReadModel } from "@artgod/shared/read-models/collections";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 
 /** Explicit, reusable destructive QA on a user-provided COPY, never an implicit app-data path. */
 async function main() {
-    const target = process.argv[2];
-    if (!target || !process.argv.includes("--mutate-copy"))
-        throw new Error(
-            "Usage: verify-sqlite-market-data-recovery.ts <copied-db> --mutate-copy [--compact]",
-        );
-    const databasePath = resolve(target);
+    const config = parseStorageVerificationArgs(process.argv.slice(2));
+    const { databasePath, runtimeRoot } = config;
     const started = performance.now();
     setDbPath(databasePath);
-    const runtimeFlag = process.argv.indexOf("--runtime-root");
-    const runtimeRoot =
-        runtimeFlag < 0 ? null : resolve(process.argv[runtimeFlag + 1] ?? "");
-    if (
-        runtimeFlag >= 0 &&
-        (!process.argv[runtimeFlag + 1] ||
-            process.argv[runtimeFlag + 1]!.startsWith("--"))
-    )
-        throw new Error("--runtime-root requires a staged runtime directory");
-    if (runtimeRoot && !process.argv.includes("--skip-read-baseline"))
-        throw new Error(
-            "Bundled QA requires --skip-read-baseline so its preflight remains read-only; profile baseline reads separately",
-        );
     // Resolve the QA driver's explicit root-workspace dependency. The bundled
     // child independently resolves its staged native dependency without PnP.
     const Database = createRequire(
@@ -59,8 +47,6 @@ async function main() {
             "market_data_compaction",
             "market_order_retirements",
             "market_order_observations",
-            "activity_listing_groups",
-            "activity_listing_retention",
         ]);
         const tables = (
             conn
@@ -101,12 +87,14 @@ async function main() {
         function measureCollectionReads(phase: string) {
             // Main-page dependencies, separately from activity pagination. No RPC or live services.
             const reader = new SqliteCollectionsReadModel([
-                "0x0000000000000000000000000000000000000000",
-                "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                zeroAddress,
+                config.wethAddress,
             ]);
             for (const collection of conn
-                .prepare("SELECT chain_id,collection_id,slug FROM collections")
-                .all() as {
+                .prepare(
+                    "SELECT chain_id,collection_id,slug FROM collections WHERE chain_id=?",
+                )
+                .all(config.chainId) as {
                 chain_id: number;
                 collection_id: number;
                 slug: string;
@@ -126,7 +114,7 @@ async function main() {
                             reader.listCollectionTokens({
                                 chainId: collection.chain_id,
                                 collectionId: collection.collection_id,
-                                tokenStatus: "listed",
+                                tokenStatus: TOKEN_BROWSER_STATUS.Listed,
                                 limit: 100,
                             }),
                     ],
@@ -151,24 +139,16 @@ async function main() {
         process.stdout.write(
             `${JSON.stringify({ event: "before", allocation: allocation(), preserved: before })}\n`,
         );
-        if (!process.argv.includes("--skip-read-baseline"))
-            measureCollectionReads("before");
+        if (!config.skipReadBaseline) measureCollectionReads("before");
         if (runtimeRoot) {
             // The production child is the only open SQLite connection while it
             // migrates/recovers; it uses staged dependencies, not Yarn/PnP.
             conn.close();
-            await runBundled(
-                runtimeRoot,
-                databasePath,
-                process.argv.includes("--compact"),
-            );
+            await runBundled(runtimeRoot, databasePath, config.compact);
             setDbPath(databasePath);
             conn = db.raw;
         } else {
-            const maintenance = new SqliteMarketDataMaintenance(
-                conn,
-                databasePath,
-            );
+            const maintenance = new SqliteMarketDataMaintenance(db);
             await new MaintainMarketData(maintenance, {
                 report: (progress) =>
                     process.stdout.write(
@@ -178,10 +158,10 @@ async function main() {
             process.stdout.write(
                 `${JSON.stringify({ event: "logical-recovery", allocation: allocation() })}\n`,
             );
-            if (process.argv.includes("--compact")) {
+            if (config.compact) {
                 const fs = statfsSync(dirname(databasePath));
                 process.stdout.write(
-                    `${JSON.stringify({ event: "compaction", availableBytes: fs.bavail * fs.bsize, ...maintenance.compactIfSafe() })}\n`,
+                    `${JSON.stringify({ event: "compaction", availableBytes: fs.bavail * fs.bsize, ...new CompactMarketData(maintenance).execute() })}\n`,
                 );
             }
         }
@@ -226,7 +206,7 @@ async function runBundled(
                     runtimeRoot,
                     "indexer/dist-desktop/sqlite-market-data-maintenance.mjs",
                 ),
-                ...(compact ? ["--compact"] : []),
+                ...(compact ? [runtime.arguments.compact] : []),
             ],
             { cwd: runtimeRoot, env, stdio: "inherit" },
         );

@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import Database from "better-sqlite3";
+import { createTempDbPath } from "./helpers/test-helpers.js";
+import { loadTestEnv } from "./helpers/test-env.js";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
@@ -24,6 +24,8 @@ import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
 import { MaintainMarketData } from "../src/application/storage/maintain-market-data.js";
 import { ORDER_STATUS, ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
+import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 
 const ETH = "0x0000000000000000000000000000000000000000";
 const WETH = "0x0000000000000000000000000000000000000001";
@@ -33,6 +35,7 @@ const CONTRACT = "0x3333333333333333333333333333333333333333";
 const FIRST = 1_800_057_610; // Ten seconds after a UTC day boundary.
 
 describe("permanent daily listings and current asks", () => {
+    loadTestEnv();
     let now: number;
     let storage: SqliteMarketDataMaintenance;
     let feed: SqliteActivitiesReadModel;
@@ -43,10 +46,10 @@ describe("permanent daily listings and current asks", () => {
         now = FIRST + 100;
         vi.useFakeTimers({ toFake: ["Date"] });
         vi.setSystemTime(now * 1000);
-        const path = join(mkdtempSync(join(tmpdir(), "daily-listings-")), "db");
+        const path = await createTempDbPath();
         setDbPath(path);
         await createMigrationRunner().runMigrations();
-        storage = new SqliteMarketDataMaintenance(db.raw, path);
+        storage = new SqliteMarketDataMaintenance(db);
         await new MaintainMarketData(storage, {
             nowSeconds: () => now,
         }).recover();
@@ -59,7 +62,7 @@ describe("permanent daily listings and current asks", () => {
         ).run(CONTRACT, CONTRACT);
         domain = new SqliteActivityDomain([ETH, WETH], () => now);
         feed = new SqliteActivitiesReadModel();
-        prices = new SqliteDailyListingPrices(db.raw, [ETH, WETH]);
+        prices = new SqliteDailyListingPrices(db, [ETH, WETH]);
         orders = new SqliteOrdersDomain(
             WETH,
             async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
@@ -68,6 +71,7 @@ describe("permanent daily listings and current asks", () => {
         );
     });
     afterEach(() => {
+        vi.restoreAllMocks();
         db.raw.close();
         vi.useRealTimers();
     });
@@ -111,6 +115,7 @@ describe("permanent daily listings and current asks", () => {
         maker = SELLER,
         token = "1",
         currency = ETH,
+        price = "999999",
     ) =>
         domain.handleActivityUpsert({
             chainId: 1,
@@ -126,7 +131,7 @@ describe("permanent daily listings and current asks", () => {
             sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
             sourceName: "opensea",
             sourceEventKey: id,
-            price: "999999",
+            price,
             currency,
         });
 
@@ -203,6 +208,70 @@ describe("permanent daily listings and current asks", () => {
         expect(list().items.find((r) => r.maker === SELLER)?.price).toBe("100");
     });
 
+    it("re-reads prices after a reconciliation committed before the maintenance writer lock", async () => {
+        order("cheap", "10");
+        order("remaining", "20");
+        await event("cheap");
+        const write = db.writeTransaction.bind(db);
+        vi.spyOn(db, "writeTransaction").mockImplementationOnce((operation) => {
+            // An independent reconcile can commit after candidate selection.
+            // Both observations deliberately have the same timestamp.
+            write(() => {
+                db.prepare(
+                    "UPDATE orders SET source_status=? WHERE id='cheap'",
+                ).run(ORDER_SOURCE_STATUS.Inactive);
+                prices.refreshSeller(
+                    {
+                        chain_id: 1,
+                        collection_id: 1,
+                        token_id: "1",
+                        maker: SELLER,
+                    },
+                    now,
+                );
+            })();
+            expect(list().items[0]?.price).toBe("20");
+            return write(operation);
+        });
+        prices.refreshBatch(now);
+        expect(list().items[0]?.price).toBe("20");
+    });
+
+    it("holds the writer lock while reading best asks and retries the complete price batch", async () => {
+        order("ask", "10");
+        await event("ask");
+        db.prepare("UPDATE orders SET price='20' WHERE id='ask'").run();
+        const competitor = new Database(db.raw.name, { timeout: 0 });
+        const best = prices.bestAsk.bind(prices);
+        const read = vi
+            .spyOn(prices, "bestAsk")
+            .mockImplementation((seller, at) => {
+                expect(db.raw.inTransaction).toBe(true);
+                expect(() =>
+                    competitor
+                        .prepare("UPDATE orders SET price='30' WHERE id='ask'")
+                        .run(),
+                ).toThrow(expect.objectContaining({ code: "SQLITE_BUSY" }));
+                return best(seller, at);
+            });
+        const record = prices.recordPrice.bind(prices);
+        const writes = vi
+            .spyOn(prices, "recordPrice")
+            .mockImplementationOnce((observation) => {
+                record(observation);
+                // Deliberately inject the driver's error vocabulary after a write.
+                throw new Database.SqliteError("fixture busy", "SQLITE_BUSY");
+            });
+        try {
+            prices.refreshBatch(now);
+            expect(writes).toHaveBeenCalledTimes(2);
+            expect(read).toHaveBeenCalledTimes(2);
+            expect(list().items[0]?.price).toBe("20");
+        } finally {
+            competitor.close();
+        }
+    });
+
     it("excludes expiry at the exact second, future starts, unsupported currencies and invalid prices without waiting for cleanup", async () => {
         order("boundary", "1", { until: now });
         order("future", "2", { from: now + 1 });
@@ -260,6 +329,101 @@ describe("permanent daily listings and current asks", () => {
         await event("repeat", FIRST + 80);
         expect(list().items).toHaveLength(1);
         expect(list().items[0]).toMatchObject({ id, occurredAt: FIRST });
+    });
+
+    it("retains the latest historical observation regardless of delivery order, including unchanged prices", async () => {
+        now = FIRST + 2 * POLICY.utcDaySeconds;
+        const observations = [
+            { at: FIRST, price: "10" },
+            { at: FIRST + 10, price: "20" },
+            { at: FIRST + 20, price: "10" },
+        ];
+        for (const sequence of [
+            [0, 2, 1],
+            [0, 1, 2],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ]) {
+            db.prepare("DELETE FROM activities").run();
+            for (const index of sequence) {
+                const observation = observations[index]!;
+                await event(
+                    String(index),
+                    observation.at,
+                    SELLER,
+                    "1",
+                    ETH,
+                    observation.price,
+                );
+            }
+            expect(list().items[0]).toMatchObject({
+                occurredAt: FIRST,
+                price: "10",
+            });
+            expect(
+                db.prepare("SELECT listing_price_at FROM activities").get(),
+            ).toEqual({ listing_price_at: FIRST + 20 });
+            const before = db.prepare("SELECT total_changes() AS n").get();
+            await event("duplicate", FIRST + 20, SELLER, "1", ETH, "10");
+            expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(
+                before,
+            );
+        }
+    });
+
+    it("remembers a newer unchanged current-price observation before the day becomes historical", async () => {
+        order("unchanged", "10");
+        await event("first");
+        now += 100;
+        prices.refreshOrder(1, "unchanged", now);
+        const observedAt = now;
+        now += POLICY.utcDaySeconds;
+        await event("delayed", observedAt - 1, SELLER, "1", ETH, "20");
+        expect(list().items[0]).toMatchObject({
+            occurredAt: FIRST,
+            price: "10",
+        });
+        expect(
+            db.prepare("SELECT listing_price_at FROM activities").get(),
+        ).toEqual({ listing_price_at: observedAt });
+    });
+
+    it("refreshes a seller price when REST marks the cheaper ask absent, before midnight freezes the row", async () => {
+        now = FIRST - 10 + POLICY.utcDaySeconds - 1;
+        vi.setSystemTime(now * 1000);
+        order("cheaper", "10");
+        order("remaining", "20");
+        db.prepare("UPDATE orders SET source=?,observed_at=?").run(
+            OFFCHAIN_ORDER_SOURCE.OpenSea,
+            now - 3600,
+        );
+        await event("cheaper", now - 500);
+        const pinned = list().items[0]!;
+        const observation = new SqliteOrderSourceStateStore(
+            prices,
+            () => now,
+        ).beginObservation({
+            chainId: 1,
+            collectionId: 1,
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            startedAt: now,
+        });
+        try {
+            observation.recordActiveOrder("remaining");
+            expect(await observation.complete()).toBe(1);
+        } finally {
+            observation.close();
+        }
+        expect(list().items[0]).toMatchObject({
+            id: pinned.id,
+            occurredAt: pinned.occurredAt,
+            price: "20",
+        });
+        now++;
+        prices.refreshBatch(now);
+        expect(list().items[0]).toMatchObject({ id: pinned.id, price: "20" });
     });
 
     it("uses identical daily rows for token, maker-filtered and unfiltered activity APIs", async () => {

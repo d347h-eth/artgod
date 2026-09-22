@@ -1,4 +1,5 @@
-import type { BetterSqlite3Database } from "@artgod/shared/database";
+import type { db } from "@artgod/shared/database";
+import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
 import { SqliteCurrentAsks } from "@artgod/shared/database/current-asks";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 
@@ -9,8 +10,18 @@ type Seller = {
     maker: string;
 };
 
-/** Updates only today's existing feed rows. No ask means keep the last known
- * price; a new day never rewrites previous days or creates an activity itself. */
+type PriceObservation = {
+    id: number;
+    orderId: string | null;
+    price: string;
+    currency: string | null;
+    amount: string | null;
+    observedAt: number;
+};
+
+/** Shared daily-price writes. Orderbook refreshes affect only today's existing
+ * rows; historical observations carry their own price and observation time.
+ * No current ask means keep the last known price, never create or delete a row. */
 export class SqliteDailyListingPrices {
     private readonly asks: SqliteCurrentAsks;
     private readonly row;
@@ -21,18 +32,22 @@ export class SqliteDailyListingPrices {
     private cursor = 0;
 
     constructor(
-        private readonly conn: BetterSqlite3Database,
+        private readonly database: Pick<typeof db, "raw" | "writeTransaction">,
         currencies: readonly string[],
     ) {
+        const conn = database.raw;
         this.asks = new SqliteCurrentAsks(conn, currencies);
         this.row = conn.prepare(
-            "SELECT id,order_id,price,currency,amount FROM activities WHERE chain_id=? AND collection_id=? AND token_id=? AND maker=? AND listing_day=?",
+            "SELECT id,order_id,price,currency,amount,listing_price_at FROM activities WHERE chain_id=? AND collection_id=? AND token_id=? AND maker=? AND listing_day=?",
         );
         this.update = conn.prepare(
-            "UPDATE activities SET order_id=?,price=?,currency=?,amount=?,listing_price_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            "UPDATE activities SET order_id=@orderId,price=@price,currency=@currency,amount=@amount,listing_price_at=@observedAt," +
+                "updated_at=CASE WHEN (price,currency,amount) IS NOT (@price,@currency,@amount) THEN CURRENT_TIMESTAMP ELSE updated_at END " +
+                "WHERE id=@id AND COALESCE(listing_price_at,0)<=@observedAt " +
+                "AND ((price,currency,amount) IS NOT (@price,@currency,@amount) OR COALESCE(listing_price_at,0)<@observedAt)",
         );
         this.selectOrder = conn.prepare(
-            "SELECT chain_id,collection_id,token_id,maker FROM orders WHERE chain_id=? AND id=? AND side='sell'",
+            `SELECT chain_id,collection_id,token_id,maker FROM orders WHERE chain_id=? AND id=? AND side='${ORDER_SIDE.Sell}'`,
         );
         this.selectDay = conn.prepare(
             "SELECT id,chain_id,collection_id,token_id,maker FROM activities WHERE listing_day=? AND id>? ORDER BY id LIMIT ?",
@@ -60,10 +75,16 @@ export class SqliteDailyListingPrices {
 
     refreshSeller(seller: Seller, now: number): void {
         const update = this.priceUpdate(seller, now);
-        if (update) this.update.run(...update);
+        if (update) this.recordPrice(update);
     }
 
-    private priceUpdate(seller: Seller, now: number): unknown[] | null {
+    /** Newer observations advance ordering even at the same price. Otherwise a
+     * delayed historical event could replace a more recently observed price. */
+    recordPrice(observation: PriceObservation): void {
+        this.update.run(observation);
+    }
+
+    private priceUpdate(seller: Seller, now: number): PriceObservation | null {
         if (!seller.token_id) return null;
         const row = this.row.get(
             seller.chain_id,
@@ -78,6 +99,7 @@ export class SqliteDailyListingPrices {
                   price: string | null;
                   currency: string | null;
                   amount: string | null;
+                  listing_price_at: number | null;
               }
             | undefined;
         if (!row) return null;
@@ -86,13 +108,21 @@ export class SqliteDailyListingPrices {
             !ask ||
             (row.price === ask.price &&
                 row.currency === ask.currency &&
-                row.amount === ask.quantity)
+                row.amount === ask.quantity &&
+                (row.listing_price_at ?? 0) >= now)
         )
             return null;
-        return [ask.id, ask.price, ask.currency, ask.quantity, now, row.id];
+        return {
+            id: row.id,
+            orderId: ask.id,
+            price: ask.price,
+            currency: ask.currency,
+            amount: ask.quantity,
+            observedAt: now,
+        };
     }
 
-    /** The cursor resumes next interval if the runtime's overall budget expires. */
+    /** The cursor resumes on the next bounded pass if the current one runs out of time. */
     refreshBatch(now: number): number {
         const day = Math.floor(now / POLICY.utcDaySeconds);
         if (day !== this.day) {
@@ -104,15 +134,13 @@ export class SqliteDailyListingPrices {
             this.cursor,
             POLICY.maintenanceBatchRows,
         ) as (Seller & { id: number })[];
-        const updates = rows
-            .map((row) => this.priceUpdate(row, now))
-            .filter((value): value is unknown[] => value !== null);
-        if (updates.length)
-            this.conn
-                .transaction(() => {
-                    for (const values of updates) this.update.run(...values);
-                })
-                .immediate();
+        if (rows.length)
+            this.database.writeTransaction(() => {
+                // Read the orderbook only after acquiring the writer. A REST
+                // reconciliation committed meanwhile must win, including within
+                // the same second. Retries recompute from the latest state.
+                for (const seller of rows) this.refreshSeller(seller, now);
+            })();
         this.cursor = rows.at(-1)?.id ?? 0;
         return rows.length;
     }

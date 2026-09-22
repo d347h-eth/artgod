@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import recoveryRuntime from "../../shared/market-data/recovery-runtime.json" with { type: "json" };
 
 const self = fileURLToPath(import.meta.url);
 const root = resolve(dirname(self), "../..");
@@ -68,7 +69,7 @@ if (fixtureMode) {
     delete env.NODE_OPTIONS;
     delete env.NODE_PATH;
 
-    async function run(args, interruptWhen) {
+    async function run(args, interruptWhen, expectedCode = 0) {
         return await new Promise((resolveRun, reject) => {
             const child = spawn(node, args, {
                 cwd: runtime,
@@ -111,7 +112,7 @@ if (fixtureMode) {
                 if (
                     interruptWhen
                         ? interrupted && signal === "SIGKILL"
-                        : code === 0
+                        : code === expectedCode
                 )
                     resolveRun(output);
                 else
@@ -124,8 +125,28 @@ if (fixtureMode) {
         });
     }
 
+    function recoveryLog(output, action) {
+        for (const line of output.split("\n")) {
+            try {
+                const record = JSON.parse(line);
+                if (
+                    record.component === recoveryRuntime.logComponent &&
+                    record.action === action
+                )
+                    return record;
+            } catch {
+                // Migration/dotenv output is not part of the recovery log contract.
+            }
+        }
+        assert.fail(`Missing recovery log action ${action}: ${output}`);
+    }
+
     console.log("Initializing a disposable bundled-runtime fixture");
-    await run([entry]);
+    recoveryLog(await run([entry]), recoveryRuntime.logActions.completed);
+    recoveryLog(
+        await run([entry, "--invalid-fixture-argument"], undefined, 1),
+        recoveryRuntime.logActions.failed,
+    );
     console.log("Writing committed WAL without closing its writer");
     await run(
         [self, "--fixture-writer", runtime, databasePath],
@@ -139,7 +160,12 @@ if (fixtureMode) {
     await run([entry], (line) => {
         try {
             const progress = JSON.parse(line);
-            return progress.stage === "activities" && progress.cursor > 0;
+            return (
+                progress.component === recoveryRuntime.logComponent &&
+                progress.action === recoveryRuntime.logActions.progress &&
+                progress.stage === "activities" &&
+                progress.cursor > 0
+            );
         } catch {
             return false;
         }
@@ -156,6 +182,15 @@ if (fixtureMode) {
     interrupted.close();
     await run([entry]);
     await run([entry]);
+    const compacted = recoveryLog(
+        await run([entry, recoveryRuntime.arguments.compactOnly]),
+        recoveryRuntime.logActions.compacted,
+    );
+    assert.equal(
+        compacted.compaction.compacted,
+        false,
+        "small fixtures must skip physical shrinking",
+    );
     const recovered = new Database(databasePath, {
         readonly: true,
         fileMustExist: true,

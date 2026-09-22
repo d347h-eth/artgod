@@ -1,15 +1,13 @@
-import { resolve } from "node:path";
+import { zeroAddress } from "viem";
+import { TOKEN_BROWSER_STATUS } from "@artgod/shared/types/browse";
+import { parseStorageProfileArgs } from "./sqlite-storage-cli.js";
 import { db, setDbPath } from "@artgod/shared/database";
 import { SqliteCollectionsReadModel } from "@artgod/shared/read-models/collections";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 
 /** Copy-only profiler. Wrap with an external timeout: synchronous SQLite cannot run a JS timer. */
-const [path, collectionIdValue] = process.argv.slice(2);
-if (!path || !collectionIdValue || !process.argv.includes("--copied-db"))
-    throw new Error(
-        "Usage: profile-collection-storage.ts <copy> <collection-id> --copied-db [--plan-only]",
-    );
-setDbPath(resolve(path));
+const config = parseStorageProfileArgs(process.argv.slice(2));
+setDbPath(config.databasePath);
 const conn = db.raw;
 conn.pragma("query_only=ON");
 const emit = (value: unknown) =>
@@ -31,9 +29,10 @@ const apm: ApmPort = {
     },
 };
 try {
-    if (process.argv.includes("--plan-only")) {
+    if (config.planOnly) {
         const prepare = conn.prepare.bind(conn);
         // Compile the actual production SQL/bindings, but never execute its reads.
+        // The read model uses only these methods of the statement contract.
         conn.prepare = ((sql: string) => ({
             run: () => {
                 throw new Error("Profiler cannot execute writes");
@@ -52,19 +51,16 @@ try {
                 });
                 return { count: 0 };
             },
-        })) as typeof conn.prepare;
+        })) as unknown as typeof conn.prepare;
     }
     const reader = new SqliteCollectionsReadModel(
-        [
-            "0x0000000000000000000000000000000000000000",
-            "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-        ],
+        [zeroAddress, config.wethAddress],
         apm,
     );
     const result = reader.listCollectionTokens({
-        chainId: 1,
-        collectionId: Number(collectionIdValue),
-        tokenStatus: "listed",
+        chainId: config.chainId,
+        collectionId: config.collectionId,
+        tokenStatus: TOKEN_BROWSER_STATUS.Listed,
         limit: 100,
     });
     emit({

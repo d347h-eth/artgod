@@ -10,21 +10,12 @@ export type MarketDataRecoveryProgress = {
     removedRows: number;
 };
 
-export type MarketDataCompactionResult = {
-    compacted: boolean;
-    reason?: string;
-    beforeBytes: number;
-    afterBytes: number;
-    reclaimedBytes: number;
-};
-
 /** Each batch commits its data and resume position atomically. No network work is done under the writer lock. */
 export interface MarketDataMaintenancePort {
     inspect(): MarketDataRecoveryProgress;
     recoverBatch(nowSeconds: number): MarketDataRecoveryProgress;
-    maintainBatch(nowSeconds: number): number;
-    checkpoint(): { busy: number; log: number; checkpointed: number };
-    compactIfSafe(): MarketDataCompactionResult;
+    /** Finish recovery durably or throw an actionable error. */
+    finishRecovery(): void;
 }
 
 export class MaintainMarketData {
@@ -64,12 +55,7 @@ export class MaintainMarketData {
             await (this.options.yield?.() ??
                 new Promise<void>((resolve) => setImmediate(resolve)));
         } while (true);
-        const checkpoint = this.storage.checkpoint();
-        if (checkpoint.busy || checkpoint.log !== checkpoint.checkpointed) {
-            throw new Error(
-                "SQLite recovery checkpoint is blocked by another database client. Stop that client and retry.",
-            );
-        }
+        this.storage.finishRecovery();
         return progress;
     }
 }

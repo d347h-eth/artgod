@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
@@ -9,6 +10,8 @@ import {
 } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteDailyListingPrices } from "../src/infra/storage/sqlite-daily-listing-prices.js";
+import { loadOpenSeaConfig } from "../src/config/opensea.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -17,17 +20,25 @@ const NOW = 1_800_000_000;
 
 describe("streamed orderbook reconciliation", () => {
     loadTestEnv();
+    let sourceState: SqliteOrderSourceStateStore;
     beforeEach(async () => {
+        const config = loadOpenSeaConfig();
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
         db.prepare(
             "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug) VALUES (99,1,'fixture','0xcollection','erc721','ready','contract_all_tokens','fixture')",
         ).run();
+        sourceState = new SqliteOrderSourceStateStore(
+            new SqliteDailyListingPrices(db, [
+                zeroAddress,
+                config.tokens.wethAddress,
+            ]),
+        );
     });
     afterEach(() => db.raw.close());
 
     const begin = () =>
-        new SqliteOrderSourceStateStore().beginObservation({
+        sourceState.beginObservation({
             chainId: 1,
             collectionId: 99,
             source: OFFCHAIN_ORDER_SOURCE.OpenSea,
@@ -99,6 +110,61 @@ describe("streamed orderbook reconciliation", () => {
         observation.close();
     });
 
+    it("refreshes each changed ask seller once and ignores bids and recently observed asks", async () => {
+        for (const id of ["ask-one", "ask-two", "bid", "fresh-ask"])
+            order(id, id === "fresh-ask" ? NOW + 1 : NOW - 3600);
+        db.prepare("UPDATE orders SET side='sell',token_id='1'").run();
+        db.prepare("UPDATE orders SET side='buy' WHERE id='bid'").run();
+        db.prepare("UPDATE orders SET token_id='2' WHERE id='fresh-ask'").run();
+        const refreshSeller = vi.fn();
+        sourceState = new SqliteOrderSourceStateStore(
+            { refreshSeller },
+            () => NOW,
+        );
+
+        const observation = begin();
+        expect(await observation.complete()).toBe(3);
+        expect(refreshSeller).toHaveBeenCalledTimes(1);
+        expect(refreshSeller).toHaveBeenCalledWith(
+            {
+                chain_id: 1,
+                collection_id: 99,
+                token_id: "1",
+                maker: "maker",
+            },
+            NOW,
+        );
+        expect(status("fresh-ask")).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+        });
+        observation.close();
+    });
+
+    it("rolls back order deactivation if the coupled price refresh fails", async () => {
+        order("ask");
+        db.prepare("UPDATE orders SET side='sell',token_id='1'").run();
+        sourceState = new SqliteOrderSourceStateStore(
+            {
+                refreshSeller: () => {
+                    throw new Error("fixture price failure");
+                },
+            },
+            () => NOW,
+        );
+
+        const observation = begin();
+        await expect(observation.complete()).rejects.toThrow(
+            "fixture price failure",
+        );
+        expect(status("ask")).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+        });
+        expect(
+            db.prepare("SELECT * FROM market_order_observations").all(),
+        ).toEqual([]);
+        observation.close();
+    });
+
     it("closes admission and does not recreate freshness state after collection deletion", async () => {
         const observation = begin();
         db.prepare("DELETE FROM collections WHERE collection_id=99").run();
@@ -121,7 +187,7 @@ describe("streamed orderbook reconciliation", () => {
         const sync = new OpenSeaOrderbookSync(
             api,
             { publish: vi.fn() },
-            new SqliteOrderSourceStateStore(),
+            sourceState,
         );
         const collection = new SqliteCollectionRegistry().getCollection(1, 99)!;
         await expect(
@@ -160,11 +226,7 @@ describe("streamed orderbook reconciliation", () => {
             forEachOffer: vi.fn(),
         };
         const publish = vi.fn();
-        const sync = new OpenSeaOrderbookSync(
-            api,
-            { publish },
-            new SqliteOrderSourceStateStore(),
-        );
+        const sync = new OpenSeaOrderbookSync(api, { publish }, sourceState);
         const collection = new SqliteCollectionRegistry().getCollection(1, 99)!;
         expect(
             await sync.syncCollection(

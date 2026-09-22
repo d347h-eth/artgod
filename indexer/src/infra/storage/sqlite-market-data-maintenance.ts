@@ -1,4 +1,5 @@
 import type {
+    db,
     BetterSqlite3Database,
     BetterSqlite3Statement,
 } from "@artgod/shared/database";
@@ -13,8 +14,8 @@ import {
 import type {
     MarketDataMaintenancePort,
     MarketDataRecoveryProgress,
-    MarketDataCompactionResult,
 } from "../../application/storage/maintain-market-data.js";
+import type { MarketDataCompactionPort } from "../../application/storage/compact-market-data.js";
 import {
     ORDER_RETIREMENT_REASON,
     orderRetirementReason,
@@ -49,7 +50,11 @@ const OBSOLETE_MARKET_INDEXES = new Set([
 ]);
 
 /** Only used with producers/readers stopped during rebuild. Online maintenance never changes schema. */
-export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
+export class SqliteMarketDataMaintenance
+    implements MarketDataMaintenancePort, MarketDataCompactionPort
+{
+    private readonly conn: BetterSqlite3Database;
+    private readonly databasePath: string;
     private cleanupQueries?: BetterSqlite3Statement[];
     private observationQuery?: BetterSqlite3Statement;
     private retirementInsert?: BetterSqlite3Statement;
@@ -58,10 +63,14 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
     private expiredMarkers?: BetterSqlite3Statement;
     private deleteMarker?: BetterSqlite3Statement;
     constructor(
-        private readonly conn: BetterSqlite3Database,
-        private readonly databasePath: string,
+        private readonly database: Pick<typeof db, "raw" | "writeTransaction">,
         private readonly availableBytes?: () => number,
-    ) {}
+    ) {
+        this.conn = database.raw;
+        // setDbPath already resolves workspace-relative configuration. Filesystem
+        // diagnostics must inspect this exact file, regardless of worker cwd.
+        this.databasePath = this.conn.name;
+    }
 
     inspect(): MarketDataRecoveryProgress {
         const row = this.conn
@@ -320,28 +329,22 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
             POLICY.maintenanceBatchRows,
         ) as { chain_id: number; order_id: string }[];
         if (!candidates.size && !markers.length) return 0;
-        return this.conn
-            .transaction(() => {
-                const rows = [...candidates.values()];
-                for (const row of rows) {
-                    // Recheck after acquiring the writer lock: a runtime's
-                    // reconcile may have refreshed the selected row meanwhile.
-                    const current = this.currentOrder!.get(row.id) as
-                        | SqlRow
-                        | undefined;
-                    if (current && this.retire(current, now))
-                        this.deleteOrder!.run(row.id);
-                }
-                for (const marker of markers)
-                    this.deleteMarker!.run(
-                        marker.chain_id,
-                        marker.order_id,
-                        now,
-                    );
-                // Nonzero while either family makes progress, including an empty orderbook.
-                return rows.length + markers.length;
-            })
-            .immediate();
+        return this.database.writeTransaction(() => {
+            const rows = [...candidates.values()];
+            for (const row of rows) {
+                // Recheck after acquiring the writer lock: a runtime's
+                // reconcile may have refreshed the selected row meanwhile.
+                const current = this.currentOrder!.get(row.id) as
+                    | SqlRow
+                    | undefined;
+                if (current && this.retire(current, now))
+                    this.deleteOrder!.run(row.id);
+            }
+            for (const marker of markers)
+                this.deleteMarker!.run(marker.chain_id, marker.order_id, now);
+            // Nonzero while either family makes progress, including an empty orderbook.
+            return rows.length + markers.length;
+        })();
     }
 
     private retire(row: SqlRow, now: number): boolean {
@@ -389,7 +392,15 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
         return reason !== null;
     }
 
-    checkpoint(): { busy: number; log: number; checkpointed: number } {
+    finishRecovery(): void {
+        const checkpoint = this.checkpoint();
+        if (checkpoint.busy || checkpoint.log !== checkpoint.checkpointed)
+            throw new Error(
+                "SQLite recovery checkpoint is blocked by another database client. Stop that client and retry.",
+            );
+    }
+
+    private checkpoint(): { busy: number; log: number; checkpointed: number } {
         return (
             this.conn.pragma("wal_checkpoint(TRUNCATE)") as {
                 busy: number;
@@ -399,24 +410,26 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
         )[0]!;
     }
 
-    compactIfSafe(): MarketDataCompactionResult {
-        if (this.inspect().stage !== STAGE.Complete)
-            throw new Error("Logical recovery must complete before compaction");
-        const beforeBytes = statSync(this.databasePath).size;
-        const skipped = (reason: string): MarketDataCompactionResult => ({
-            compacted: false,
-            reason,
-            beforeBytes,
-            afterBytes: beforeBytes,
-            reclaimedBytes: 0,
-        });
+    inspectCompaction() {
         const prior = this.conn
             .prepare(
                 "SELECT attempted FROM market_data_compaction WHERE singleton=1",
             )
             .get() as { attempted: number };
-        if (prior.attempted) return skipped("already-attempted");
-        if (this.checkpoint().busy) return skipped("checkpoint-busy");
+        return {
+            recoveryComplete: this.inspect().stage === STAGE.Complete,
+            attempted: !!prior.attempted,
+        };
+    }
+
+    prepareCompaction(): boolean {
+        const checkpoint = this.checkpoint();
+        return (
+            checkpoint.busy === 0 && checkpoint.log === checkpoint.checkpointed
+        );
+    }
+
+    compactionSpace() {
         const pageSize = Number(
             this.conn.pragma("page_size", { simple: true }),
         );
@@ -424,18 +437,22 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
         const free = Number(
             this.conn.pragma("freelist_count", { simple: true }),
         );
-        if (free * pageSize < POLICY.compactionMinReclaimBytes)
-            return skipped("little-reclaimable-space");
-        // Conservative live-image estimate plus WAL/temporary headroom. This is
-        // a preflight, not a reservation: SQLite may still encounter disk-full.
-        const required =
-            3 * (pages - free) * pageSize + POLICY.recoveryMinFreeBytes;
-        if (this.freeBytes() < required)
-            return skipped("insufficient-compaction-headroom");
+        return {
+            fileBytes: statSync(this.databasePath).size,
+            liveBytes: (pages - free) * pageSize,
+            reclaimableBytes: free * pageSize,
+            availableBytes: this.freeBytes(),
+        };
+    }
+
+    recordCompactionAttempt(): void {
         this.conn.exec(
             "UPDATE market_data_compaction SET attempted=1 WHERE singleton=1",
         );
-        if (this.checkpoint().busy) return skipped("checkpoint-busy");
+        this.finishRecovery();
+    }
+
+    compact(): number {
         this.conn.exec("VACUUM");
         const checkpoint = this.checkpoint();
         if (checkpoint.busy || checkpoint.log !== checkpoint.checkpointed)
@@ -447,12 +464,7 @@ export class SqliteMarketDataMaintenance implements MarketDataMaintenancePort {
             "UPDATE market_data_compaction SET completed=1 WHERE singleton=1",
         );
         this.checkpoint();
-        return {
-            compacted: true,
-            beforeBytes,
-            afterBytes,
-            reclaimedBytes: Math.max(0, beforeBytes - afterBytes),
-        };
+        return afterBytes;
     }
 
     /** Filesystem metadata only: never runs SQL or a checkpoint on the worker. */

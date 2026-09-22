@@ -1,7 +1,14 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import Database from "better-sqlite3";
+import { statSync } from "node:fs";
+import { getProjectRoot } from "@artgod/shared/utils/paths";
+import { relative } from "node:path";
+import { createTempDbPath } from "./helpers/test-helpers.js";
+import { loadTestEnv } from "./helpers/test-env.js";
+import {
+    CompactMarketData,
+    MARKET_DATA_COMPACTION_SKIP_REASON,
+} from "../src/application/storage/compact-market-data.js";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { ACTIVITY_KIND, ACTIVITY_SOURCE_KIND } from "@artgod/shared/types";
@@ -28,18 +35,22 @@ import { ACTIVITY_SCOPE_KIND } from "@artgod/shared/types";
 
 const NOW = 1_800_000_000;
 describe("in-place SQLite market-data recovery", () => {
+    loadTestEnv();
     let path: string;
     let storage: SqliteMarketDataMaintenance;
     beforeEach(async () => {
-        path = join(mkdtempSync(join(tmpdir(), "sqlite-recovery-")), "db");
+        path = await createTempDbPath();
         setDbPath(path);
         await createMigrationRunner().runMigrations();
         db.prepare(
             "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (99,1,'fixture','0xcollection','erc721','ready','contract_all_tokens')",
         ).run();
-        storage = new SqliteMarketDataMaintenance(db.raw, path);
+        storage = new SqliteMarketDataMaintenance(db);
     });
-    afterEach(() => db.raw.close());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        db.raw.close();
+    });
 
     function activity(id: number, kind: string, source: string, at = NOW - 10) {
         db.prepare(
@@ -64,6 +75,45 @@ describe("in-place SQLite market-data recovery", () => {
     }
     const recover = () =>
         new MaintainMarketData(storage, { nowSeconds: () => NOW }).recover();
+
+    it("observes the real WAL when the DB configuration is workspace-relative", async () => {
+        setDbPath(relative(getProjectRoot(), path));
+        const observer = new SqliteMarketDataMaintenance(db);
+        db.raw.pragma("wal_autocheckpoint=0");
+        activity(1, ACTIVITY_KIND.Sale, ACTIVITY_SOURCE_KIND.Onchain);
+        const expected = statSync(`${db.raw.name}-wal`).size;
+        expect(expected).toBeGreaterThan(0);
+        expect(db.raw.name).toBe(path);
+        expect(await observer.observeWal()).toMatchObject({
+            walBytes: expected,
+        });
+    });
+
+    it("rolls back an interrupted online delete batch and retries it through the shared boundary", async () => {
+        await recover();
+        order("expired", NOW - 1);
+        const prepare = db.raw.prepare.bind(db.raw);
+        let attempts = 0;
+        vi.spyOn(db.raw, "prepare").mockImplementation((sql: string) => {
+            const statement = prepare(sql);
+            if (sql === "DELETE FROM orders WHERE id=?") {
+                const run = statement.run.bind(statement);
+                statement.run = (...values: unknown[]) => {
+                    const result = run(...values);
+                    if (++attempts === 1)
+                        throw new Database.SqliteError(
+                            "fixture busy",
+                            "SQLITE_BUSY",
+                        );
+                    return result;
+                };
+            }
+            return statement;
+        });
+        expect(storage.maintainBatch(NOW)).toBe(1);
+        expect(attempts).toBe(2);
+        expect(db.prepare("SELECT id FROM orders").all()).toEqual([]);
+    });
 
     it("drains expired cancellation records even with no orders, and takes no writer lock when idle", async () => {
         await recover();
@@ -294,13 +344,6 @@ describe("in-place SQLite market-data recovery", () => {
         ).toBeUndefined();
         expect(
             db
-                .prepare(
-                    "SELECT name FROM sqlite_schema WHERE name IN ('activity_sources','activity_listing_groups','activity_listing_retention')",
-                )
-                .all(),
-        ).toEqual([]);
-        expect(
-            db
                 .prepare("SELECT value FROM app_settings WHERE key='preserve'")
                 .get(),
         ).toEqual({ value: "exact-value" });
@@ -323,7 +366,7 @@ describe("in-place SQLite market-data recovery", () => {
         storage.recoverBatch(NOW);
         expect(storage.inspect().cursor).toBe(POLICY.maintenanceBatchRows);
         setDbPath(path);
-        storage = new SqliteMarketDataMaintenance(db.raw, path);
+        storage = new SqliteMarketDataMaintenance(db);
         await recover();
         expect(
             db.prepare("SELECT COUNT(*) AS n FROM activities").get(),
@@ -433,8 +476,7 @@ describe("in-place SQLite market-data recovery", () => {
     it("refuses an under-resourced batch without advancing or mutating protected data", () => {
         activity(1, ACTIVITY_KIND.Sale, ACTIVITY_SOURCE_KIND.Onchain);
         const constrained = new SqliteMarketDataMaintenance(
-            db.raw,
-            path,
+            db,
             () => POLICY.recoveryMinFreeBytes - 1,
         );
         expect(() => constrained.recoverBatch(NOW)).toThrow("disk space");
@@ -449,8 +491,7 @@ describe("in-place SQLite market-data recovery", () => {
 
     it("allows a recovery batch at the free-space floor", () => {
         const atFloor = new SqliteMarketDataMaintenance(
-            db.raw,
-            path,
+            db,
             () => POLICY.recoveryMinFreeBytes,
         );
         expect(() => atFloor.recoverBatch(NOW)).not.toThrow();
@@ -519,9 +560,9 @@ describe("in-place SQLite market-data recovery", () => {
         expect(reclaimable).toBeLessThan(POLICY.compactionMinReclaimBytes);
         const exec = vi.spyOn(db.raw, "exec");
         try {
-            expect(storage.compactIfSafe()).toMatchObject({
+            expect(new CompactMarketData(storage).execute()).toMatchObject({
                 compacted: false,
-                reason: "little-reclaimable-space",
+                reason: MARKET_DATA_COMPACTION_SKIP_REASON.LittleReclaimableSpace,
                 reclaimedBytes: 0,
             });
             expect(exec).not.toHaveBeenCalledWith("VACUUM");
@@ -538,9 +579,9 @@ describe("in-place SQLite market-data recovery", () => {
     it("does not retry an interrupted automatic compaction on every launch", async () => {
         await recover();
         db.raw.exec("UPDATE market_data_compaction SET attempted=1");
-        expect(storage.compactIfSafe()).toMatchObject({
+        expect(new CompactMarketData(storage).execute()).toMatchObject({
             compacted: false,
-            reason: "already-attempted",
+            reason: MARKET_DATA_COMPACTION_SKIP_REASON.AlreadyAttempted,
             reclaimedBytes: 0,
         });
     });
@@ -579,7 +620,7 @@ describe("in-place SQLite market-data recovery", () => {
         storage.recoverBatch(NOW);
         expect(storage.inspect().cursor).toBe(POLICY.maintenanceBatchRows);
         setDbPath(path);
-        storage = new SqliteMarketDataMaintenance(db.raw, path);
+        storage = new SqliteMarketDataMaintenance(db);
         await recover();
         expect(
             db.prepare("SELECT * FROM activities ORDER BY id").all(),

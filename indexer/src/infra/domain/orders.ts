@@ -311,7 +311,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "raw_rest_data = COALESCE(excluded.raw_rest_data, orders.raw_rest_data), " +
             "raw_stream_data = COALESCE(excluded.raw_stream_data, orders.raw_stream_data), " +
             "observed_at = MAX(observed_at, excluded.observed_at), protocol_address=excluded.protocol_address, " +
-            "state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP " +
+            // A validation stamp belongs to the canonical revision it checked.
+            // Invalidating it with the revision keeps a failed publish retryable.
+            "state_revision = state_revision + 1, validated_at = 0, updated_at = CURRENT_TIMESTAMP " +
             "WHERE orders.chain_id=excluded.chain_id AND orders.state_revision=@expectedRevision AND " +
             "(kind,side,source,maker,taker,contract_address,token_id,source_scope_kind,source_criteria_root,source_encoded_token_ids,source_schema_json,local_token_set_status,token_set_id,token_set_schema_hash,quantity,price,currency,valid_from,valid_until,source_status,seaport_data_json,seaport_data_source_kind,raw_rest_data,raw_stream_data) IS NOT " +
             "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,excluded.quantity,excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
@@ -325,7 +327,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
-        this.listingPrices = new SqliteDailyListingPrices(db.raw, [
+        this.listingPrices = new SqliteDailyListingPrices(db, [
             zeroAddress,
             this.wethAddress,
         ]);

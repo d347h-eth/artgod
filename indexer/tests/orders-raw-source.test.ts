@@ -97,6 +97,48 @@ describe("orders raw source selection", () => {
         });
     });
 
+    it("keeps validation required on retry after canonical enrichment commits without its validation job", async () => {
+        const now = 1_790_000_000;
+        const domain = new SqliteOrdersDomain(
+            "0xweth",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            undefined,
+            () => now,
+        );
+        const rest = { ...buildOrderUpsert("rest", {}), observedAt: now };
+        ensureCollection(1, 1, rest.contract);
+        await domain.handleOrderUpsert(rest);
+        await domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            blockNumber: null,
+        });
+        const enriched = {
+            ...buildOrderUpsert("stream", {}, { signature: "0x1234" }),
+            observedAt: now,
+            validateAfterUpsert: true,
+        };
+        const committed = await domain.handleOrderUpsert(enriched);
+        expect(committed).toMatchObject({
+            changed: true,
+            validationNeeded: true,
+        });
+        // Publishing failed after commit: retry the same queue payload without validation.
+        expect(await domain.handleOrderUpsert(enriched)).toEqual({
+            changed: false,
+            validationNeeded: true,
+            validationRevision: committed.validationRevision,
+        });
+        await domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            blockNumber: null,
+        });
+        expect(await domain.handleOrderUpsert(enriched)).toEqual({
+            changed: false,
+            validationNeeded: false,
+            validationRevision: committed.validationRevision,
+        });
+    });
+
     it("fences a cancellation received before create, including duplicate cancellation and delayed REST", async () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
