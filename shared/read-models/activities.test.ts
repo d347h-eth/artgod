@@ -12,7 +12,10 @@ import {
     ACTIVITY_SOURCE_KIND,
     type ActivityKind,
 } from "../types/activity-feed.js";
-import { SqliteActivitiesReadModel } from "./activities.js";
+import {
+    ACTIVITY_QUERY_SOURCE,
+    SqliteActivitiesReadModel,
+} from "./activities.js";
 import { readFileSync } from "node:fs";
 
 const CURRENCY = "0x0000000000000000000000000000000000000000";
@@ -136,7 +139,7 @@ describe("SqliteActivitiesReadModel observability", () => {
                     name: "backend.activity.db.query_rows",
                     attributes: expect.objectContaining({
                         [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]:
-                            "daily_activities",
+                            ACTIVITY_QUERY_SOURCE,
                         [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]: 1,
                     }),
                 }),
@@ -232,7 +235,8 @@ describe("SqliteActivitiesReadModel observability", () => {
         expect(apm.spans).toContainEqual({
             name: "backend.activity.db.count",
             attributes: expect.objectContaining({
-                [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: "daily_activities",
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]:
+                    ACTIVITY_QUERY_SOURCE,
             }),
         });
     });

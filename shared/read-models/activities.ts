@@ -67,13 +67,6 @@ type ActivityCursorKey = {
     id: number;
 };
 
-type ActivityQuerySource = {
-    name: string;
-    cteSql: string;
-    relationSql: string;
-    selectColumnsSql: string;
-};
-
 type ActivityEventMediaRow = {
     activity_id: number;
     media_ref: string;
@@ -83,14 +76,9 @@ type ActivityEventMediaRow = {
     render_modes_json: string | null;
 };
 
-const RAW_ACTIVITY_SELECT_COLUMNS =
+const ACTIVITY_SELECT_COLUMNS =
     "id, listing_day, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json";
-const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
-    name: "daily_activities",
-    cteSql: "",
-    relationSql: "FROM activities a",
-    selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
-};
+export const ACTIVITY_QUERY_SOURCE = "daily_activities";
 
 export class SqliteActivitiesReadModel {
     constructor(private readonly apm: ApmPort = NOOP_APM) {}
@@ -302,9 +290,8 @@ export class SqliteActivitiesReadModel {
             `(source_kind <> '${ACTIVITY_SOURCE_KIND.Offchain}' OR kind = '${ACTIVITY_KIND.ListingCreated}')`,
             `(kind <> '${ACTIVITY_KIND.ListingCreated}' OR listing_day IS NOT NULL)`,
         );
-        return listActivitiesFromSource({
+        return listActivityPage({
             apm: this.apm,
-            source: RAW_ACTIVITY_SOURCE,
             baseWhereClauses,
             baseValues,
             limit,
@@ -494,9 +481,8 @@ function buildActivityQuerySpanAttributes(params: {
     return attributes;
 }
 
-function listActivitiesFromSource(params: {
+function listActivityPage(params: {
     apm: ApmPort;
-    source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
     limit: number;
@@ -506,7 +492,6 @@ function listActivitiesFromSource(params: {
     spanAttributes: SpanAttributes;
 }): ActivityFeedPage {
     const {
-        source,
         apm,
         baseWhereClauses,
         baseValues,
@@ -526,7 +511,6 @@ function listActivitiesFromSource(params: {
 
     const rows = queryActivityRows(
         apm,
-        source,
         whereClauses,
         values,
         limit + 1,
@@ -537,7 +521,6 @@ function listActivitiesFromSource(params: {
     const items = pageRows.map(mapActivityRow);
     const prevCursor = deriveActivityPrevCursor({
         apm,
-        source,
         baseWhereClauses,
         baseValues,
         cursor,
@@ -552,7 +535,6 @@ function listActivitiesFromSource(params: {
             ? items.length
             : countMatchingActivities(
                   apm,
-                  source,
                   baseWhereClauses,
                   baseValues,
                   ARTGOD_ACTIVITY_COUNT_KIND.Total,
@@ -561,7 +543,6 @@ function listActivitiesFromSource(params: {
     const beforeItems = cursor
         ? countMatchingActivities(
               apm,
-              source,
               [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
               [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
               ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
@@ -599,7 +580,6 @@ function listActivitiesFromSource(params: {
 
 function queryActivityRows(
     apm: ApmPort,
-    source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
     limit: number,
@@ -609,13 +589,13 @@ function queryActivityRows(
         "backend.activity.db.query_rows",
         {
             ...spanAttributes,
-            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: ACTIVITY_QUERY_SOURCE,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit,
         },
         () =>
             db.raw
                 .prepare(
-                    `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
+                    `SELECT ${ACTIVITY_SELECT_COLUMNS} FROM activities a${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
                 )
                 .all(...values, limit) as ActivityRow[],
     );
@@ -623,7 +603,6 @@ function queryActivityRows(
 
 function countMatchingActivities(
     apm: ApmPort,
-    source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
     countKind:
@@ -635,13 +614,13 @@ function countMatchingActivities(
         "backend.activity.db.count",
         {
             ...spanAttributes,
-            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: ACTIVITY_QUERY_SOURCE,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityCountKind]: countKind,
         },
         () =>
             db.raw
                 .prepare(
-                    `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
+                    `SELECT COUNT(*) AS count FROM activities a${buildWhereSql(whereClauses)}`,
                 )
                 .get(...values) as { count: number | bigint } | undefined,
     );
@@ -651,7 +630,6 @@ function countMatchingActivities(
 
 function deriveActivityPrevCursor(params: {
     apm: ApmPort;
-    source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
     cursor: ActivityFeedCursor | null;
@@ -662,7 +640,6 @@ function deriveActivityPrevCursor(params: {
     spanAttributes: SpanAttributes;
 }): string | null {
     const {
-        source,
         apm,
         baseWhereClauses,
         baseValues,
@@ -681,18 +658,16 @@ function deriveActivityPrevCursor(params: {
         "backend.activity.db.prev_cursor",
         {
             ...spanAttributes,
-            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: ACTIVITY_QUERY_SOURCE,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit + 1,
         },
         () =>
             db.raw
                 .prepare(
-                    `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql(
-                        [
-                            ...baseWhereClauses,
-                            buildActivityBeforeCursorWhereClause(),
-                        ],
-                    )} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
+                    `SELECT id, occurred_at FROM activities a${buildWhereSql([
+                        ...baseWhereClauses,
+                        buildActivityBeforeCursorWhereClause(),
+                    ])} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
                 )
                 .all(
                     ...baseValues,

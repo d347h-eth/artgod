@@ -98,6 +98,7 @@
         "test:bootstrap:probe": "yarn workspace @artgod/frontend test:bootstrap:probe",
         "test:terraforms:hypercastle": "yarn workspace @artgod/frontend test:terraforms:hypercastle",
         "test:runtime:recovery": "yarn workspace @artgod/frontend test:runtime:recovery",
+        "test:listings:history": "yarn workspace @artgod/frontend test:listings:history",
         "test:nats:recovery": "yarn workspace @artgod/indexer test:nats:recovery",
         "test:sqlite:recovery-runtime": "node scripts/build/test-sqlite-recovery-runtime.mjs"
     },

@@ -61,7 +61,7 @@ export type ActivityFeedItem = {
     occurredAt: number;
     sourceKind: ActivitySourceKind;
     sourceName: string;
-    /** Listings resolve the current best seller ask; other kinds keep their event reference. */
+    /** Daily listings retain the order reference recorded with their historical price. */
     orderId: string | null;
     blockNumber: number | null;
     txHash: string | null;

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { ACTIVITY_KIND, ACTIVITY_FEED_FILTER_KIND } from '@artgod/shared/types';
 	import { goto } from '$app/navigation';
 	import type {
 		ApiActivitiesPage,
