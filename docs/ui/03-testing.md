@@ -43,6 +43,7 @@ yarn test:bidding:automation
 yarn test:bidding:automation:public
 yarn test:bidding:authorization
 yarn test:runtime:recovery
+yarn test:listings:history
 yarn test:bootstrap:probe
 yarn test:terraforms:media
 yarn test:terraforms:hypercastle
@@ -66,6 +67,10 @@ service startup, API readiness, failure/timeout, Stop, cleanup, and retry at
 production components. No existing application database or NATS store is opened.
 The development-only route is `/e2e-harness/admin/runtime`; its dedicated Vite
 server listens on loopback port 42707.
+
+`yarn test:listings:history` uses the same isolated server, with its own
+`listing-history.spec.ts`. It checks pinned listing timestamps, retained prices,
+pagination, empty history and navigation to current asks. It does not launch infra.
 
 Screenshots and failure diagnostics are preserved under
 `tmp/runtime-recovery-playwright/`. The Rust recovery and supervisor test modules

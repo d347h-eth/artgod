@@ -121,10 +121,12 @@ each order event. REST snapshots maintain orders but never invent daily events.
   recorded price/currency/order reference for that day. No order payload archive
   or individual event count.
 - **Price updates:** today's row uses the lowest valid ask for that token and
-  seller when orders change or maintenance runs. If none remains, keep the last
-  recorded price. Never replace older days with today's price.
+  seller when orders change, REST reconciliation deactivates an ask, or maintenance
+  runs. Order mutations and their price refresh commit together. If none remains,
+  keep the last recorded price. Never replace older days with today's price.
 - **Delayed events:** an event from an earlier day carries its own historical
-  price; it must not use today's orderbook.
+  price; it must not use today's orderbook. The latest observation time wins,
+  including when that observation repeats the previous price.
 
 Source occurrence time is preferred; missing source time uses the original
 envelope's receive time. Missing token/seller, invalid time, inputs over five
@@ -143,9 +145,11 @@ There are two separate concepts:
     - `sourceKind` / `sourceName` / `sourceEventKey` in `activities.upsert`
     - identifies the incoming event; it is not a separate receipt ledger
 
-Daily identity is independent of transport aliases. Duplicate observations and
-unchanged prices do not rewrite the row or advance AUTOINCREMENT. A changed
-same-day price updates the existing row without moving its feed position.
+Daily identity is independent of transport aliases. Exact duplicates do not
+rewrite the row or advance AUTOINCREMENT. A newer observation advances
+`listing_price_at` even at the same price: dropping that timestamp would let a
+delayed older price overwrite it. A timestamp-only update leaves `updated_at`
+unchanged. Price updates never move the row's pinned feed position.
 Onchain/extension events retain their fact-derived dedupe keys.
 
 The legacy `activity_sources` table was bookkeeping for the removed mutable

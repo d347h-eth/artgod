@@ -604,12 +604,23 @@ yarn test:sqlite:recovery-runtime
 # together while quiescent. No command here chooses a real app-data path.
 yarn node --import tsx indexer/scripts/verify-sqlite-market-data-recovery.ts \
   tmp/sqlite-storage-qa/copied-db --mutate-copy --skip-read-baseline --compact \
+  --chain-id 1 --weth-address 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2 \
   --runtime-root src-tauri/resources/runtime
 
 # EXPLAIN the actual current collection read-model statements without running them.
 yarn node --import tsx indexer/scripts/profile-collection-storage.ts \
-  tmp/sqlite-storage-qa/copied-db 1 --copied-db --plan-only
+  tmp/sqlite-storage-qa/copied-db 1 --copied-db --plan-only \
+  --chain-id 1 --weth-address 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
+
+# Listing-history UI coverage is separate from runtime lifecycle coverage.
+yarn test:listings:history
 ```
+
+The CLI examples explicitly select Ethereum mainnet and collection ID 1.
+Supply the chain, WETH address and collection appropriate to your copy. These
+inputs are required; neither script derives market configuration from environment
+settings or database contents. The verifier's chain selects read measurements,
+not the scope of recovery: recovery and preservation checks still cover the whole copy.
 
 The runtime harness creates only synthetic data under `tmp/sqlite-storage-qa/`.
 It kills its own fixture writer to leave a committed WAL, interrupts bundled

@@ -33,10 +33,12 @@ cancellation handling or bidding.
 - **Pinned position:** use the day's first event time. Later events and price
   updates never move the row upward. A late earlier event can correct it downward.
 - **Today's price:** use the lowest valid, unexpired seller ask known at the last
-  update. Inbound order changes refresh an existing row in the same transaction.
+  update. Inbound order changes and REST reconciliation refresh an existing row
+  in the same transaction as the orderbook change.
 - **Historical price:** preserve the last recorded price and currency after
   expiry, cancellation or sale. Later days do not overwrite it; late historical
-  events use their own observed prices.
+  events use their own observed prices. The latest observation wins even if its
+  price was unchanged; delayed older events cannot replace it.
 - **Permanent retention:** no time limit or count-based eviction. Do not display
   “No current ask” in place of a historical price.
 - **Direct reads:** collection, token and maker feeds read the stored daily row.
@@ -110,13 +112,22 @@ to clone the database or manipulate offline storage before desktop recovery.
 
 ## 4. Maintenance During Long Uptime
 
-The **indexer-domain-worker** owns one non-overlapping, **20-minute** cycle.
+The **indexer-domain-worker** owns cleanup and price maintenance. It starts a
+cycle every **20 minutes** when caught up; unfinished work resumes sooner.
 
 ### Order Cleanup
 
 - Select obsolete orders through indexes, in batches of at most 500.
+- Use the shared SQLite retry policy. Recheck order eligibility and read current
+  prices after acquiring the writer, so maintenance cannot overwrite a newer
+  reconciliation result.
 - Yield between batches; stop starting new batches after two seconds.
   An individual synchronous batch may exceed that budget.
+- If work remains, pause **30 seconds**, then continue with the same limits.
+  Alternate order cleanup and price batches so neither starves. Once caught up,
+  wait 20 minutes again. Passes never overlap; failures use the 20-minute retry.
+  During prolonged catch-up, completed price passes become due again after
+  20 minutes, not on every continuation.
 - Remove expired orders; give terminal and source-inactive orders a one-hour
   grace. Unknown-expiry orders have a 24-hour observation lifetime.
 - Refresh today's existing listing prices as time-based validity changes.
@@ -133,6 +144,11 @@ update prices immediately; they do not wait for the timer.
   validation freshness remain separate from material state changes.
 - Routine freshness and repeat validation use five-minute intervals; explicit
   maker/state changes can still trigger validation.
+- A canonical order change invalidates its previous validation timestamp.
+  Retrying an upsert after a failed job publish still requests validation until
+  the changed revision has been checked.
+- Exact listing duplicates are no-ops. A newer price observation updates its
+  ordering timestamp even at the same price, without moving the feed row.
 - Maker validation and REST reconciliation page through candidates instead of
   materializing the entire orderbook.
 - Queued creation observations older than 24 hours are rejected. This is not a
@@ -149,8 +165,9 @@ and [activities](../indexer/09-domain-activities.md#permanent-daily-listings).
 
 ### Warnings
 
-Every 20 minutes, the same domain-worker cycle reads WAL file size and filesystem
-free space. **No SQL, checkpoint, compaction or writer lock is used.**
+Every 20 minutes, an independent domain-worker timer reads WAL file size and
+filesystem free space. Cleanup continuations do not trigger it.
+**No SQL, checkpoint, compaction or writer lock is used.**
 
 - Warn below **20 GiB free** or at **2 GiB allocated WAL**.
 - Repeat an ongoing warning at most once every **six hours**.
@@ -161,8 +178,10 @@ free space. **No SQL, checkpoint, compaction or writer lock is used.**
 
 ### Separate Storage Controls
 
-Values are owned by
+Market-data values are owned by
 [`MARKET_DATA_STORAGE_POLICY`](../../shared/market-data/storage-policy.ts).
+Connection-wide WAL reuse is owned by
+[`SQLITE_STORAGE_POLICY`](../../shared/database/storage-policy.ts).
 
 | Control                       | Current value                                             | Effect                                                                                                                               |
 | ----------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -182,10 +201,14 @@ Values are owned by
   boundaries, cancellations, indexed cleanup and migration retry.
 - Bundled recovery tests cover committed WAL, hard interruption, resume and
   repeat startup. Rendered browser tests cover listing prices and navigation.
-- The final migration cleanup passed 147 tests and backend/indexer type checks.
-  Merge preparation passed 27 storage/diagnostic tests, including free-space
-  boundaries and skipping compaction for small savings. Earlier results are in the
+- The latest review fixes passed **475 indexer tests, 379 backend tests,
+  31 shared feed/card-read tests and 16 browser cases**, plus TypeScript,
+  desktop-runtime build and documentation checks. Coverage includes online
+  transaction retries, current-price ordering, resolved WAL paths and recovery
+  logging. Earlier results are in the
   [verification record](04-sqlite-wal-activities-storage-investigation.md#verification-record).
+- Cleanup catch-up scheduling was tested with controlled batch costs; sustained
+  live-ingress capacity remains a separate release check.
 
 Original databases were not modified by implementation testing. Copy benchmarks
 predate the final review fixes; they are not final-branch native startup proof.

@@ -124,6 +124,12 @@ receipt-table removal can take much longer than an individual copy batch.
 headroom and records one automatic attempt before VACUUM. Stop still cancels the
 startup attempt; other compaction failures log the gap and permit service
 startup. Neither task deletes a WAL separately or performs a destructive reset.
+The [compaction use case](../../indexer/src/application/storage/compact-market-data.ts)
+owns eligibility and attempt ordering; its adapter owns SQLite operations.
+Both tasks use the shared structured logger, with component
+`IndexerSqliteMarketDataMaintenance` and explicit progress, completion and failure
+actions. The [runtime contract](../../shared/market-data/recovery-runtime.json)
+owns those labels and CLI arguments; a focused test checks native deadline/argument agreement.
 Both have distinct process log names in the runtime registry and product labels
 in Admin/the lifecycle drawer.
 

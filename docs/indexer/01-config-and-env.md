@@ -124,6 +124,9 @@ Backend exposes the resolved capability at `GET /api/runtime/config` so userland
 
 The OpenSea workers use a separate config loader (`indexer/src/config/opensea.ts`) and require enabled OpenSea integration:
 
+- `WETH_ADDRESS` (required): returned as `tokens.wethAddress`, matching the core
+  indexer config. Bootstrap and reconcile workers use it with native ETH for
+  daily listing-price refreshes.
 - `OPENSEA_INTEGRATION_MODE` (default: `auto`)
 - `OPENSEA_API_KEY` (required when OpenSea integration is enabled)
 - `OPENSEA_SNAPSHOT_PAGE_SIZE` (default: `100`)

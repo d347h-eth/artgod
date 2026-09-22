@@ -78,10 +78,23 @@ frontend and Rust desktop shell do not open the application database directly.
 | Shared migration runner |                    1 |                                      0 | existing immediate unit moved to the shared boundary |
 | Total                   |                   33 |                                     42 | 41 converted; 1 deliberate outlier                   |
 
-All production autocommit writes prepared through `db.prepare(...).run()` now
-receive the single-statement baseline. The only dynamic raw prepared write is the bootstrap-step
-claim update, which runs inside a protected transaction. The collection purge
-statements run inside the documented raw-transaction outlier below.
+All production autocommit writes prepared through `db.prepare(...).run()`
+receive the single-statement baseline. Dynamic raw writes such as bootstrap-step
+claims and daily listing-price updates run inside protected transactions.
+The collection purge statements run inside the documented outlier below.
+The counts above describe the original baseline audit.
+
+### Market-data maintenance additions
+
+- Online order cleanup and daily repricing use the injected shared
+  `db.writeTransaction(...)` boundary. Candidate selection may precede the
+  transaction; eligibility and prices are read again after acquiring the writer.
+  A retry recomputes those decisions.
+- Startup recovery and compaction run before app writers. Their raw SQLite
+  transactions, schema operations and checkpoints deliberately use the exclusive
+  recovery journal, not the online retry loop.
+- REST observation membership uses connection-local temporary tables. Updates
+  to persistent orders and their daily prices share one protected transaction.
 
 ## Read-Before-Write Hazards
 

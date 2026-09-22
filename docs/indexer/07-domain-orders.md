@@ -108,7 +108,10 @@ The follow-up validation job corrects `fillability_status` after protocol checks
 
 Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
 repeat validation have a five-minute freshness interval; explicit maker/state
-change triggers still revalidate. Validation commits with a state-revision and
+change triggers still revalidate. A changed canonical upsert clears `validated_at`
+in the same write that advances `state_revision`. If publishing validation fails,
+an unchanged upsert retry still requests it until that revision has been validated.
+Validation commits with a state-revision and
 active-source guard, so a result obtained before an awaited RPC cannot overwrite
 a newer cancellation. No SQLite reader or writer transaction stays open across
 that RPC.
@@ -145,7 +148,9 @@ SQLite tables. It stages missing identities once, updates 500 at a time and
 rechecks eligibility between batches. New stream observations, including their
 coalesced freshness bucket, win over older REST absence. Temporary membership
 is closed on success, failure or collection removal; no whole-orderbook JS array
-or durable reconcile receipt ledger is retained.
+or durable reconcile receipt ledger is retained. Each deactivation batch also
+refreshes today's existing listing price once per affected ask seller/NFT, in the
+same transaction. Bids and orders whose eligibility changed do not cause a refresh.
 
 Maker-update selection excludes expired orders in SQL and pages 500 candidates
 at a time. The known-maker index likewise includes current/recoverable buy orders
@@ -155,7 +160,11 @@ Startup recovery rebuilds legacy market rows before writers start; a single
 domain-worker maintenance owner selects obsolete orders through indexes every
 20 minutes. Its pass yields between 500-row batches and stops starting batches
 at a two-second elapsed budget. Already-completed startup recovery does not
-repeat that online sweep.
+repeat that online sweep. Unfinished online work resumes after a 30-second pause
+with the same limits. Cleanup and price batches alternate across passes; a
+completed price pass waits 20 minutes before becoming due again during catch-up.
+Once caught up, or after
+a failure, the next pass waits 20 minutes. Passes never overlap.
 Order cleanup does not change extension artifacts or synthetic-token retirement
 records. Synthetic unminted IDs cannot have valid orders and do not need a
 historical-order marker.

@@ -616,6 +616,53 @@ All 14 documentation-validator tests, verification of 74 Markdown files and the
 runtime-registry check passed. This did not rerun large-copy, native desktop or
 deployment QA.
 
+The independent-review follow-up passed **456 indexer tests**, excluding the
+Docker/RPC smoke test, **94 backend API tests** and **31 shared feed/card-read
+tests**. Shared/indexer/backend TypeScript checks, the desktop-runtime build,
+documentation, generated-config and runtime-registry checks also passed.
+
+New regression coverage verifies:
+
+- Bounded cleanup continuations, return to the 20-minute cadence, price refreshes
+  during prolonged backlog, failure backoff and Stop. The three 26,000-order cycles
+  use controlled batch costs; they test scheduling, not hardware throughput.
+- Validation still requested when an enriched order's upsert is retried before
+  its validation job succeeds.
+- REST deactivation and daily repricing committed together, including the
+  midnight boundary, seller deduplication and rollback on price-write failure.
+- Same-price observations retaining their ordering time, so delayed older prices
+  cannot overwrite them. Exact duplicates remain no-op writes.
+
+These checks used disposable fixtures. Neither original database was opened;
+live-load capacity, native desktop startup and deployment QA were not repeated.
+
+### September 22 Pattern-Alignment Follow-Up
+
+- **Online correctness:** price refreshes read the orderbook after acquiring the
+  writer lock. Tests reproduce a reconciliation committed before that lock,
+  including equal-second timestamps, and confirm that busy retries roll back
+  and repeat the whole cleanup or price batch.
+- **Configuration and boundaries:** CLI tools require explicit chain/currency
+  inputs; recovery still needs only its database configuration. Tests cover
+  relative database paths, compaction decisions and native/runtime contract
+  agreement.
+- **Regression results:** 475 indexer tests excluding Docker/RPC smoke,
+  379 backend tests and 31 shared read-model tests passed. The final focused
+  rerun passed 43 tests. All 16 browser cases passed, with listing history in
+  its own spec.
+- **Bundled recovery:** newly built indexer artifacts, using existing staged
+  Node/native dependencies, recovered a committed-WAL fixture after interruption
+  at cursor 500. Integrity and idempotent retry passed. Progress, completion,
+  failure and skipped-compaction log records were checked.
+- **Other checks:** shared/indexer/backend TypeScript, explicit CLI-script type
+  checks, desktop-runtime build, generated config, runtime registry, all 74
+  Markdown files and all 14 documentation-validator tests passed.
+
+Sandbox restrictions initially blocked loopback access and child-process output;
+the maintained browser and subprocess tests passed with those restrictions lifted.
+No packages or services were installed. These results use disposable fixtures,
+not the original databases, and do not replace the remaining live/native QA.
+
 Maintained verification commands are in
 [local development](01-local-development.md#sqlite-storage-recovery-verification).
 Local artifacts are under `tmp/sqlite-storage-qa/` and
