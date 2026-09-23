@@ -21,6 +21,7 @@ export function formatRfc3339(valueMs: number): string {
 }
 
 // Formats a timestamp as a compact relative delta without noisy ago/in suffixes.
+// Units below a day are lowercase; days use an uppercase D.
 export function formatCompactRelativeTime(valueMs: number, nowMs: number): string {
 	const diffSeconds = Math.round((valueMs - nowMs) / 1000);
 	const absoluteSeconds = Math.abs(diffSeconds);
@@ -28,7 +29,7 @@ export function formatCompactRelativeTime(valueMs: number, nowMs: number): strin
 	if (absoluteSeconds < 60) return `${absoluteSeconds}s`;
 	if (absoluteSeconds < 3600) return `${Math.floor(absoluteSeconds / 60)}m`;
 	if (absoluteSeconds < 86_400) return `${Math.floor(absoluteSeconds / 3600)}h`;
-	return `${Math.floor(absoluteSeconds / 86_400)}d`;
+	return `${Math.floor(absoluteSeconds / 86_400)}D`;
 }
 
 // Formats a timestamp in the selected compact UI mode.
