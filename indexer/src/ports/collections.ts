@@ -22,9 +22,14 @@ export interface CollectionRegistryPort {
         mode: CollectionSyncMode,
     ): CollectionRecord[];
     listCollectionsForOpenSeaSubscription(chainId: number): CollectionRecord[];
+    /** Live OpenSea collections, oldest successful snapshot/reconcile first (null first).
+     * Includes never-refreshed collections and completions <= completedBeforeMs.
+     * A null cutoff explicitly forces refresh; collectionId narrows worker admission.
+     */
     listCollectionsForOpenSeaReconcile(
         chainId: number,
-        staleBeforeIso: string,
+        completedBeforeMs: number | null,
+        collectionId?: number,
     ): CollectionRecord[];
     upsertCollection(input: CollectionUpsertInput): void;
     markBootstrapStarted(

@@ -2,12 +2,9 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadOpenSeaConfig } from "../config/opensea.js";
-import type { JobEnvelope } from "../domain/jobs.js";
-import {
-    OPENSEA_JOB_KIND,
-    type OpenSeaReconcileCollectionPayload,
-} from "../domain/opensea-jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
+import { OPENSEA_RECONCILE_REASON } from "../domain/opensea-jobs.js";
+import { OpenSeaReconcilePolicy } from "../domain/opensea-reconcile-policy.js";
+import { scheduleDueReconciles } from "../application/offchain/opensea-reconcile.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
@@ -40,13 +37,14 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const collections = new SqliteCollectionRegistry();
+        const freshness = new OpenSeaReconcilePolicy(config.opensea);
 
         await scheduleDueReconciles(
             queue,
             collections,
             config.chainId,
-            config.opensea.staleStartThresholdMs,
-            "startup-stale",
+            freshness,
+            OPENSEA_RECONCILE_REASON.StartupStale,
         );
 
         const timer = setInterval(() => {
@@ -54,8 +52,8 @@ async function main() {
                 queue,
                 collections,
                 config.chainId,
-                config.opensea.reconcileIntervalMs,
-                "scheduled",
+                freshness,
+                OPENSEA_RECONCILE_REASON.Scheduled,
             ).catch((error) => {
                 logger.warn("OpenSea reconcile scheduling failed", {
                     component: "OpenSeaReconcileSchedulerWorker",
@@ -95,41 +93,3 @@ async function main() {
 }
 
 main();
-
-async function scheduleDueReconciles(
-    queue: NatsJetStreamQueue,
-    collections: SqliteCollectionRegistry,
-    chainId: number,
-    staleThresholdMs: number,
-    reason: OpenSeaReconcileCollectionPayload["reason"],
-): Promise<void> {
-    const staleBeforeIso = new Date(
-        Date.now() - staleThresholdMs,
-    ).toISOString();
-    const dueCollections = collections.listCollectionsForOpenSeaReconcile(
-        chainId,
-        staleBeforeIso,
-    );
-
-    for (const collection of dueCollections) {
-        const bucket =
-            reason === "scheduled"
-                ? Math.floor(Date.now() / Math.max(staleThresholdMs, 1))
-                : Date.now();
-        const job: JobEnvelope<OpenSeaReconcileCollectionPayload> = {
-            jobId: `opensea:reconcile:${chainId}:${collection.id}:${reason}:${bucket}`,
-            kind: OPENSEA_JOB_KIND.ReconcileCollection,
-            queue: QUEUE_NAMES.OpenSeaReconcile,
-            payload: {
-                chainId,
-                collectionId: collection.id,
-                reason,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: collection.id,
-        };
-        await queue.publish(QUEUE_NAMES.OpenSeaReconcile, job);
-    }
-}

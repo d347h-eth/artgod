@@ -1,11 +1,13 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
-import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import { logger } from "@artgod/shared/utils";
 import { zeroAddress } from "viem";
 import { loadOpenSeaConfig } from "../config/opensea.js";
+import { OPENSEA_RECONCILE_WORKER_POLICY } from "../config/opensea-reconcile-worker.js";
 import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { runWorker } from "../application/worker-runner.js";
+import { handleReconcileJob } from "../application/offchain/opensea-reconcile.js";
+import { OpenSeaReconcilePolicy } from "../domain/opensea-reconcile-policy.js";
 import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-sync.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
@@ -62,13 +64,14 @@ async function main() {
             rateLimiter: config.opensea.rateLimiter,
         });
         const sync = new OpenSeaOrderbookSync(api, queue, sourceState);
+        const freshness = new OpenSeaReconcilePolicy(config.opensea);
 
         const stopWorker = await runWorker(
             queue,
             {
                 queue: QUEUE_NAMES.OpenSeaReconcile,
                 consumerName: `opensea-reconcile-${config.chainId}`,
-                maxInFlight: 1,
+                ...OPENSEA_RECONCILE_WORKER_POLICY,
             },
             async (job: JobEnvelope<OpenSeaReconcileCollectionPayload>) => {
                 if (job.kind !== OPENSEA_JOB_KIND.ReconcileCollection) return;
@@ -77,6 +80,7 @@ async function main() {
                     collections,
                     orderbookRuns,
                     sync,
+                    freshness,
                     config.opensea.retryPolicy,
                     job,
                 );
@@ -117,102 +121,3 @@ async function main() {
 }
 
 main();
-
-async function handleReconcileJob(
-    queue: NatsJetStreamQueue,
-    collections: SqliteCollectionRegistry,
-    orderbookRuns: SqliteOpenSeaOrderbookRuns,
-    sync: OpenSeaOrderbookSync,
-    retryPolicy: {
-        baseDelayMs: number;
-        maxDelayMs: number;
-    },
-    job: JobEnvelope<OpenSeaReconcileCollectionPayload>,
-): Promise<void> {
-    const collection = collections.getCollection(
-        job.payload.chainId,
-        job.payload.collectionId,
-    );
-    if (!collection || !collection.openseaSlug) {
-        logger.warn("OpenSea reconcile skipped; collection or slug missing", {
-            component: "OpenSeaReconcileWorker",
-            action: "handleReconcileJob",
-            chainId: job.payload.chainId,
-            collectionId: job.payload.collectionId,
-        });
-        return;
-    }
-
-    const runId = orderbookRuns.startRun({
-        chainId: collection.chainId,
-        collectionId: collection.id,
-        kind: "reconcile",
-    });
-
-    try {
-        collections.markOpenSeaReconcileStarted(
-            collection.chainId,
-            collection.id,
-        );
-        await sync.syncCollection(collection, "reconcile", runId);
-        collections.markOpenSeaReconcileCompleted(
-            collection.chainId,
-            collection.id,
-        );
-        collections.markOpenSeaReady(collection.chainId, collection.id);
-        orderbookRuns.completeRun(runId);
-    } catch (error) {
-        orderbookRuns.failRun(runId, String(error));
-        collections.setOpenSeaStatus(
-            collection.chainId,
-            collection.id,
-            OPENSEA_COLLECTION_STATUS.Retrying,
-            String(error),
-        );
-        await scheduleReconcileRetry(
-            queue,
-            {
-                chainId: collection.chainId,
-                collectionId: collection.id,
-                reason: "retry",
-            },
-            getRetryDelayMs(job.attempt, retryPolicy),
-        );
-        logger.warn("OpenSea reconcile retry scheduled", {
-            component: "OpenSeaReconcileWorker",
-            action: "handleReconcileJob",
-            chainId: collection.chainId,
-            collectionId: collection.id,
-            attempt: job.attempt,
-            error: String(error),
-        });
-    }
-}
-
-async function scheduleReconcileRetry(
-    queue: NatsJetStreamQueue,
-    payload: OpenSeaReconcileCollectionPayload,
-    delayMs: number,
-): Promise<void> {
-    const scheduledAt = Date.now() + delayMs;
-    const retryJob: JobEnvelope<OpenSeaReconcileCollectionPayload> = {
-        jobId: `opensea:reconcile:${payload.chainId}:${payload.collectionId}:retry:${scheduledAt}`,
-        kind: OPENSEA_JOB_KIND.ReconcileCollection,
-        queue: QUEUE_NAMES.OpenSeaReconcile,
-        payload,
-        attempt: 0,
-        scheduledAt,
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
-    };
-    await queue.publish(QUEUE_NAMES.OpenSeaReconcile, retryJob);
-}
-
-function getRetryDelayMs(
-    attempt: number,
-    retryPolicy: { baseDelayMs: number; maxDelayMs: number },
-): number {
-    const exponent = Math.max(0, attempt - 1);
-    const delay = retryPolicy.baseDelayMs * Math.pow(2, exponent);
-    return Math.min(delay, retryPolicy.maxDelayMs);
-}
