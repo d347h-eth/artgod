@@ -54,6 +54,14 @@ const SELECT_COLLECTIONS_FIELDS =
     "opensea_last_stream_event_at, opensea_last_stream_healthy_at, opensea_last_error " +
     "FROM collections ";
 
+// SQLite CURRENT_TIMESTAMP and ISO inputs both denote UTC instants. Keep this
+// conversion at the storage boundary, including fractional seconds and fallback.
+const SNAPSHOT_COMPLETED_MS =
+    "unixepoch(opensea_snapshot_completed_at, 'subsec') * 1000";
+const RECONCILE_COMPLETED_MS =
+    "unixepoch(opensea_reconcile_completed_at, 'subsec') * 1000";
+const LAST_OPENSEA_REFRESH_MS = `COALESCE(MAX(${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS}), ${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS})`;
+
 export class SqliteCollectionRegistry
     implements CollectionRegistryPort, CollectionScopeResolverPort
 {
@@ -93,15 +101,19 @@ export class SqliteCollectionRegistry
     );
     private selectOpenSeaReconcile = db.prepare<{
         chainId: number;
-        staleBeforeIso: string;
+        completedBeforeMs: number | null;
+        collectionId: number | null;
         liveStatus: CollectionStatus;
     }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId " +
             "AND status = @liveStatus " +
             "AND opensea_slug IS NOT NULL " +
+            "AND opensea_slug <> '' " +
             "AND opensea_status IS NOT NULL " +
-            "AND (opensea_reconcile_completed_at IS NULL OR opensea_reconcile_completed_at < @staleBeforeIso)",
+            "AND (@collectionId IS NULL OR collection_id = @collectionId) " +
+            `AND (@completedBeforeMs IS NULL OR ${LAST_OPENSEA_REFRESH_MS} IS NULL OR ${LAST_OPENSEA_REFRESH_MS} <= @completedBeforeMs) ` +
+            `ORDER BY ${LAST_OPENSEA_REFRESH_MS} ASC, collection_id ASC`,
     );
     private upsert = db.prepare<{
         chainId: number;
@@ -337,11 +349,13 @@ export class SqliteCollectionRegistry
 
     listCollectionsForOpenSeaReconcile(
         chainId: number,
-        staleBeforeIso: string,
+        completedBeforeMs: number | null,
+        collectionId?: number,
     ): CollectionRecord[] {
         const rows = this.selectOpenSeaReconcile.all({
             chainId,
-            staleBeforeIso,
+            completedBeforeMs,
+            collectionId: collectionId ?? null,
             liveStatus: COLLECTION_STATUS.Live,
         }) as CollectionRow[];
         return rows.map(mapRow);
@@ -592,8 +606,7 @@ export class SqliteCollectionRegistry
         return collections
             .filter(
                 (collection) =>
-                    collection.address.toLowerCase() ===
-                    contract.toLowerCase(),
+                    collection.address.toLowerCase() === contract.toLowerCase(),
             )
             .map((collection) => collection.id);
     }

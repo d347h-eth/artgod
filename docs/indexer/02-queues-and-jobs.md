@@ -115,6 +115,12 @@ Subscribing:
 - Reconciles existing durable consumer `maxAckPending` / `ackWaitMs` on worker startup so runtime config changes take effect after relaunch.
 - A simple limiter controls concurrency in-process.
 
+The OpenSea reconciliation worker explicitly uses one in-flight job, a
+30-second ACK deadline and 10-second lease renewals. Its automatic refresh
+requests are rechecked for freshness at consumption, so obsolete queued hints
+are acknowledged without another REST scan. See
+[REST reconciliation freshness](07-domain-orders.md#rest-reconciliation-freshness).
+
 ## Queue Backlog Inspection
 
 Use the read-only inspector when a JetStream consumer is backed up and the goal is to understand stored message shape without advancing a durable cursor:

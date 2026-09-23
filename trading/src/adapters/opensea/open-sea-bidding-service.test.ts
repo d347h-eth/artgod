@@ -5,7 +5,10 @@ import {
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
 import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
-import { BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from "../../config/bidding-defaults.js";
+import {
+    BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
+    BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+} from "../../config/bidding-defaults.js";
 import {
     createCollectionOfferSnapshotMetrics,
     type CollectionOfferSnapshot,
@@ -890,7 +893,7 @@ describe("OpenSeaBiddingService", () => {
         sdk.api.getOffersByNFT = async (slug, tokenId, limit, next) => {
             assert.equal(slug, collectionSlug);
             assert.equal(tokenId, "123");
-            assert.equal(limit, 100);
+            assert.equal(limit, BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE);
             assert.equal(next, undefined);
             return {
                 offers: [

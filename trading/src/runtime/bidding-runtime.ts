@@ -628,6 +628,7 @@ export async function startBiddingRuntime(
                 params.biddingConfig.openSea.snapshotSecretKey,
             ),
             {
+                offersPageSize: params.biddingConfig.openSea.snapshotPageSize,
                 retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
                 rateLimiter: new TokenBucketRateLimiter(
                     params.biddingConfig.openSea.http.rateLimiter,
@@ -669,6 +670,7 @@ export async function startBiddingRuntime(
         tokenMetadataRepository,
         offerExpirationSeconds: params.biddingConfig.offerExpirationSeconds,
         orderLookupMaxPages: params.biddingConfig.orderLookupMaxPages,
+        offersPageSize: params.biddingConfig.openSea.snapshotPageSize,
         retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
         rateLimiter: new TokenBucketRateLimiter(
             params.biddingConfig.openSea.http.rateLimiter,

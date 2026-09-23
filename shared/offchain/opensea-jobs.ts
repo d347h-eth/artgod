@@ -31,10 +31,26 @@ export type OpenSeaBootstrapCollectionPayload = {
     bootstrap?: OpenSeaBootstrapContext | null;
 };
 
+export const OPENSEA_RECONCILE_REASON = {
+    Scheduled: "scheduled",
+    StartupStale: "startup-stale",
+    Manual: "manual",
+    Retry: "retry",
+} as const;
+
+export type OpenSeaReconcileReason =
+    (typeof OPENSEA_RECONCILE_REASON)[keyof typeof OPENSEA_RECONCILE_REASON];
+
 export type OpenSeaReconcileCollectionPayload = {
     chainId: number;
     collectionId: number;
-    reason: "scheduled" | "startup-stale" | "manual" | "retry";
+    reason: OpenSeaReconcileReason;
 };
 
-export type OpenSeaOrderbookRunKind = "snapshot" | "reconcile";
+export const OPENSEA_ORDERBOOK_RUN_KIND = {
+    Snapshot: "snapshot",
+    Reconcile: "reconcile",
+} as const;
+
+export type OpenSeaOrderbookRunKind =
+    (typeof OPENSEA_ORDERBOOK_RUN_KIND)[keyof typeof OPENSEA_ORDERBOOK_RUN_KIND];

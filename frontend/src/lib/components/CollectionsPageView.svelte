@@ -725,6 +725,7 @@
 
 	.collection-opensea-snapshot-time {
 		white-space: nowrap;
+		text-transform: none;
 	}
 
 	.collection-purge-button {

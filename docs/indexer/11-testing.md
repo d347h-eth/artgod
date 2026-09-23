@@ -62,12 +62,17 @@ From `indexer/` specifically:
 yarn workspace @artgod/indexer test
 ```
 
-For the complete indexer suite except the externally configured smoke test, provide an isolated database path explicitly:
+For the complete indexer suite except the externally configured smoke test,
+verify that `ARTGOD_DB_PATH` in `.env.test` resolves under the active worktree's
+`tmp/`. `loadTestEnv()` overwrites process environment values from that file;
+setting a shell variable alone does not establish isolation. Then run:
 
 ```sh
 mkdir -p tmp
 indexer_test_dir="$(mktemp -d "$PWD/tmp/indexer-tests.XXXXXX")"
-ARTGOD_DB_PATH="$indexer_test_dir/indexer.sqlite" yarn workspace @artgod/indexer test --exclude tests/smoke.test.ts
+TMPDIR="$indexer_test_dir" SQLITE_TMPDIR="$indexer_test_dir" \
+  ARTGOD_DB_PATH="$indexer_test_dir/indexer.sqlite" \
+  yarn workspace @artgod/indexer test --exclude tests/smoke.test.ts
 ```
 
 ## Test Environment
@@ -139,6 +144,44 @@ production rate-limit behavior, endpoint ordering, or stream delivery. A
 release that changes the OpenSea dependency or adapter contract still needs a
 credentialed live integration check; those observations must not be promoted
 into ordering guarantees without an upstream contract.
+
+## OpenSea Reconciliation Regression
+
+`tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to
+verify epoch comparisons, inclusive date boundaries, snapshot fallback, separate
+startup/periodic thresholds, queue-delay admission, backlog suppression, failure
+and retry, manual refresh, collection removal and complete listings-plus-offers
+observations. `tests/worker-runner-lease.test.ts` covers long handlers, failure,
+shutdown waiting and renewal-timer cleanup. Consumer-policy updates are covered
+in `tests/nats-consumer-config.test.ts`.
+
+The maintained broker fixture is separate from the offline suite:
+
+```sh
+mkdir -p tmp
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  OPENSEA_RECONCILE_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
+  yarn workspace @artgod/indexer test:opensea:reconciliation
+```
+
+Point `OPENSEA_RECONCILE_TEST_NATS_BINARY` at an existing project-staged NATS
+binary. It must match the version in the runtime build policy. Missing inputs
+fail explicitly; this command does not install or download tooling. It starts
+only a loopback broker on an ephemeral port and keeps synthetic SQLite/NATS
+stores and results under `tmp/opensea-reconcile-nats/` in the active worktree.
+
+The real-broker test reproduces repeated handler execution without renewal,
+then tests scaled lease renewal, updates to an existing durable, graceful
+shutdown during active work, a 541-envelope backlog across eight collections,
+and interrupted work recovered after a broker/consumer restart. It asserts
+exactly eight useful scans and 533 acknowledged skips, with no extra run rows
+or raw publications from skipped work. Test-only ACK durations are shorter;
+production scheduling thresholds and concurrency are unchanged.
+
+These fixtures do not prove live OpenSea pagination, native desktop behavior,
+downstream projection convergence or a healthy live refresh cadence. Live QA
+still needs a rebuilt app, preserved queued state, at least two scheduler ticks,
+current asks/passive bids/listing-history inspection and a coordinated restart.
 
 ## Bootstrap Regression Cases
 

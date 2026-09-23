@@ -188,6 +188,43 @@ records. Synthetic unminted IDs cannot have valid orders and do not need a
 historical-order marker.
 See [storage recovery](../development/03-sqlite-storage-and-recovery.md).
 
+## REST Reconciliation Freshness
+
+`OpenSeaReconcilePolicy` owns the automatic age thresholds: periodic and retry
+requests use `OPENSEA_RECONCILE_INTERVAL_MS` (15 minutes by default); startup
+requests use `OPENSEA_STALE_START_THRESHOLD_MS` (30 minutes). A successful
+completion exactly at the cutoff is due. The SQLite collection adapter compares
+UTC epoch instants and uses the latest successful initial snapshot or
+reconciliation. Never-refreshed collections are due; starts, stream events and
+failed attempts do not advance successful freshness.
+
+The scheduler selects live collections with an OpenSea identity, oldest refresh
+first, with never-refreshed collections first and collection ID breaking ties.
+The reconciliation use case repeats the same metadata query when each job is
+consumed. Automatic envelopes mean "ensure this collection is fresh": requests
+satisfied while queued return before inserting a run, creating temporary
+membership, publishing raw orders or writing collection state. Normal worker ACKs
+drain these obsolete hints, including old retries, without a queue purge. An old
+request still runs if the collection remains stale; a previously attempted job
+ID is not evidence of success. Removed or non-live collections are ineligible.
+
+`manual` explicitly forces a refresh for an eligible collection and retains
+that intent if it fails and retries. There is no new manual-refresh UI.
+Listings and offers still complete together, with listings first. Successful
+freshness is recorded only after the full scan and source-state reconciliation
+complete. This does not imply downstream upsert/validation has finished.
+
+The worker stays serial and renews its 30-second ACK lease every 10 seconds.
+The existing durable consumer settings are reconciled on startup. Start,
+completion and retry logs include the job ID, reason, attempt, collection and
+run ID; completion/retry also include duration. Already-satisfied hints produce
+debug logs and no persisted skip history.
+
+A 15-minute scheduling tick is not an exact 15-minute completion guarantee:
+eligibility may wait until the next tick, then for serial work and API capacity.
+Execution-time suppression coalesces useful work, not physical queue envelopes.
+No schema or persisted payload change is required for existing alpha queues.
+
 ## Seaport Validation
 
 The Seaport validator lives in `indexer/src/application/offchain/seaport-validate.ts` and runs from canonical `seaport_data_json`.
