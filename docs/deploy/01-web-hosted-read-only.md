@@ -126,6 +126,10 @@ Before starting the stack:
 
 ## Build And Start
 
+Complete [SQLite storage initialization or upgrade](#sqlite-storage-upgrade)
+before the first start or an upgrade. The recovery executable also creates the
+indexes required by a fresh database.
+
 1. Copy the deploy env template:
 
 ```sh
@@ -162,11 +166,10 @@ If enabling deploy observability, also set:
 - `OBSERVABILITY_GRAFANA_HOST_BIND_PORT=42735`
 - `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value
 
-3. Build and start the stack:
-
-```sh
-docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
-```
+3. Follow [SQLite storage upgrade](#sqlite-storage-upgrade) to build the image,
+   initialize or recover the database, and start services. Include any profiles
+   selected below throughout that procedure. The following startup variants
+   assume recovery has already succeeded.
 
 To start the same stack with Loki, Alloy, Prometheus, Tempo, Pyroscope, and Grafana:
 
@@ -212,6 +215,60 @@ Both commands must print `200`. A successful root response also proves the SSR
 frontend can reach the backend through `INTERNAL_BACKEND_ORIGIN`; it is a
 stronger deployment probe than checking only that the frontend port accepts a
 connection.
+
+## SQLite Storage Upgrade
+
+Use this manual procedure for a first installation or an existing deployment's
+storage upgrade. On an existing database, it removes obsolete market data and
+old listing history while preserving current valid orders, user state and lifetime
+data. Read the
+[storage changes](../development/03-sqlite-storage-and-recovery.md#1-what-users-keep-and-lose)
+before proceeding.
+
+Use the same Compose project name, profiles, overrides and `.env.deploy` as the
+running deployment for every command. The one-off container inherits its
+`artgod-data` volume and `ARTGOD_DB_PATH` (normally `/data/sqlite/main/db`).
+Do not substitute a new project/volume or run this while app services are active.
+
+1. Check out the upgraded release and build its shared app image. This can run
+   before downtime:
+
+    ```sh
+    docker compose --env-file .env.deploy -f docker-compose.deploy.yml build backend
+    ```
+
+2. Stop the deployment, keeping its data volumes:
+
+    ```sh
+    docker compose --env-file .env.deploy -f docker-compose.deploy.yml stop
+    ```
+
+3. Run recovery in the foreground, without starting dependencies:
+
+    ```sh
+    docker compose --env-file .env.deploy -f docker-compose.deploy.yml run --rm --no-deps backend \
+      ./scripts/deploy/run-node-runtime.sh \
+      indexer/dist-desktop/sqlite-market-data-maintenance.mjs
+    ```
+
+    Wait for exit code **0** and the final `recovery` output with stage `complete`.
+    On failure, leave services stopped, inspect the error and rerun this command
+    after resolving it. Committed recovery progress is reused.
+
+4. Only after recovery succeeds, start services from the upgraded image:
+
+    ```sh
+    docker compose --env-file .env.deploy -f docker-compose.deploy.yml up -d
+    ```
+
+    Run the frontend and `/health/runtime` checks under [Build And Start](#build-and-start).
+
+This command performs logical recovery and its final checkpoint, **not** optional
+`VACUUM` compaction. Freed pages can be reused even if the main file stays large.
+Do not delete SQLite sidecars or use `down -v`. Compose does not enforce this
+sequence automatically; the operator owns it. The procedure has been checked
+against the image, wrapper and volume configuration but not executed on the
+managed deployment as part of this branch.
 
 ## Observability
 

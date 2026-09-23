@@ -662,14 +662,24 @@ Supervisor startup order:
 2. run the native store-preservation child before NATS opens its files
 3. start bundled NATS with `--addr 127.0.0.1` and wait for its listener within the recovery deadline
 4. run the jobs-stream maintenance artifact and require success: inspect stream/account/consumer state, reconcile disabled age expiry, remove only proven acknowledged leftovers, and verify a publish/delete
-5. start the backend and wait for its listener
-6. start enabled indexer workers; skip disabled OpenSea workers
-7. wait for backend semantic readiness via `GET /health/runtime`
-8. set runtime status to `running` only after semantic readiness succeeds
+5. run bundled SQLite market-data recovery before any database writers: migrate,
+   resume copying/pruning, reset legacy listing history, remove obsolete
+   receipts/indexes, and verify a quiescent WAL checkpoint
+6. run a separately presented best-effort compaction task, sharing the SQLite
+   work deadline; insufficient headroom or a failed shrink does not undo logical
+   readiness, and the task journals its one automatic VACUUM attempt
+7. start the backend and wait for its listener
+8. start enabled indexer workers; skip disabled OpenSea workers
+9. wait for backend semantic readiness via `GET /health/runtime`
+10. set runtime status to `running` only after semantic readiness succeeds
 
 The NATS task shares one deadline across native preparation, broker restore,
-and API maintenance. It runs on every start/restart. No periodic or live repair
-is scheduled. Backend/worker producers remain gated behind successful recovery.
+and API maintenance. It runs on every start/restart; it does not schedule live
+NATS repair. SQLite has a separate deadline and a domain-owned resume journal.
+Backend/worker producers remain gated behind successful logical recovery.
+Online SQLite order cleanup and filesystem-only space diagnostics are then owned
+by the domain worker, not by another supervisor recovery loop. Periodic
+diagnostics do not run checkpoints.
 
 The native preparation child only supports the desktop's single-account,
 unencrypted file store. It validates the jobs stream identity, shape and
@@ -725,12 +735,22 @@ The top-level status remains `starting` or `restarting` during recovery.
   store preparation, NATS restore, and API maintenance. No prerequisite step or
   UI handshake renews it. Large stores may still exceed the cap and require
   manual retry after cleanup.
+- SQLite recovery and optional compaction share a subsequent **45-minute**
+  monotonic deadline. Progress never renews it. Stop/retry resumes committed
+  logical batches; atomic table cutover and VACUUM are synchronous native work
+  that the supervisor may need to terminate after its graceful-stop allowance.
+  The budget was measured against the preserved 51.77 GiB snapshot; it is not a
+  completion-time guarantee for every machine. See the
+  [copy verification report](../development/04-sqlite-wal-activities-storage-investigation.md#recovery-benchmarks).
 - Recovery failure or timeout stops the maintenance child and NATS before
   publishing `stopped` with a typed `recoveryFailure`. It is terminal for that
   attempt, with **no automatic recovery retry**. `retry start` reaps the finished
   controller and starts a new operation; it cannot reuse the failed controller.
   Repeated auto-start handshakes, including a UI reload, preserve an active
   operation or its terminal recovery failure instead of retrying it.
+  Physical compaction is the explicit exception: after verified logical
+  recovery, its failure/timeout is logged and service startup may continue.
+  Stop always wins, including during that best-effort stage.
 - Stop cancels recovery and cleans up without presenting a recovery error.
   The task deadline initiates cleanup, which retains the existing 30-second
   graceful-stop allowance per child (maintenance and NATS stop serially).

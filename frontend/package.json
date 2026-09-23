@@ -34,7 +34,8 @@
 		"test:bidding:authorization": "playwright test -c playwright.bidding-authorization.config.ts e2e/bidding-authorization.spec.ts",
 		"test:bootstrap:probe": "playwright test -c playwright.bootstrap-probe.config.ts e2e/bootstrap-probe.spec.ts",
 		"test:terraforms:hypercastle": "playwright test -c playwright.terraforms-hypercastle.config.ts e2e/terraforms-hypercastle.spec.ts",
-		"test:runtime:recovery": "playwright test -c playwright.runtime-recovery.config.ts",
+		"test:runtime:recovery": "playwright test -c playwright.runtime-recovery.config.ts e2e/runtime-recovery.spec.ts",
+		"test:listings:history": "playwright test -c playwright.runtime-recovery.config.ts e2e/listing-history.spec.ts",
 		"dev:e2e:runtime-recovery": "vite dev --host 127.0.0.1 --port 42707 --strictPort",
 		"dev:e2e:config-observability": "node e2e/start-config-observability-server.mjs",
 		"test:config:observability": "playwright test -c playwright.config-observability.config.ts e2e/config-observability.spec.ts"

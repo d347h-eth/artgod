@@ -13,6 +13,7 @@ import {
 } from './attached-app';
 
 const diagnostics: PageDiagnosticsRegistry = new Map();
+
 test.beforeEach(async ({ page }, info) => {
 	captureDiagnosticsForTest(diagnostics, page, info);
 	await page.clock.install();
@@ -151,3 +152,37 @@ test('standalone lifecycle drawer offers Stop during preparation', async ({ page
 		page.getByText('Runtime stopped. Waiting for start command...', { exact: true })
 	).toBeVisible();
 });
+
+for (const scenario of [RECOVERY_HARNESS_SCENARIOS.attached, RECOVERY_HARNESS_SCENARIOS.drawer]) {
+	test(`SQLite preparation keeps Stop and manual recovery available: ${scenario}`, async ({
+		page
+	}, info) => {
+		await open(page, scenario);
+		if (scenario === RECOVERY_HARNESS_SCENARIOS.attached)
+			await page.getByRole('button', { name: 'system', exact: true }).click();
+		await page.evaluate(() => window.runtimeRecoveryFixture.sqlite());
+		await expect(page.getByText('Checking market data…', { exact: true }).first()).toBeVisible();
+		await expect(page.getByRole('button', { name: 'stop infra', exact: true })).toBeEnabled();
+		await page.clock.fastForward(60_000);
+		await surface(page, info, 'sqlite-checking');
+		await page.evaluate(
+			(reason) => window.runtimeRecoveryFixture.fail(reason),
+			RECOVERY_FAILURE_REASONS.timedOut
+		);
+		await expect(page.getByRole('button', { name: 'retry start', exact: true })).toBeEnabled();
+		await surface(page, info, 'sqlite-timeout');
+		await page.getByRole('button', { name: 'retry start', exact: true }).click();
+		await page.evaluate(() => window.runtimeRecoveryFixture.sqlite());
+		await expect(page.getByText('Checking market data…', { exact: true }).first()).toBeVisible();
+		await page.evaluate(() => window.runtimeRecoveryFixture.compact());
+		await expect(page.getByText('Reclaiming storage…', { exact: true }).first()).toBeVisible();
+		await surface(page, info, 'sqlite-compaction');
+		await page.getByRole('button', { name: 'stop infra', exact: true }).click();
+		await page.evaluate(() => window.runtimeRecoveryFixture.finishStop());
+		if (scenario === RECOVERY_HARNESS_SCENARIOS.drawer)
+			await expect(
+				page.getByText('Runtime stopped. Waiting for start command...', { exact: true })
+			).toBeVisible();
+		else await expect(page.getByRole('button', { name: 'start infra', exact: true })).toBeEnabled();
+	});
+}

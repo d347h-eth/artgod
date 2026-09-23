@@ -3,7 +3,8 @@ import { CollectionRecord } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
-import { ORDER_STATUS } from "../../domain/orders.js";
+import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
+import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
 
 type BalanceRow = { amount: string };
 type BlockHashRow = { block_hash: string };
@@ -226,12 +227,15 @@ export class SqliteStorage implements StoragePort {
         "DELETE FROM token_metadata WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
     );
     private deleteOrdersFromBlock = db.prepare<[number, number]>(
-        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
+        // Source cancellation remains definitive even when this row also has a
+        // rolled-back chain outcome. Normal cleanup retires its payload later.
+        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ? " +
+            `AND source_status<>'${ORDER_SOURCE_STATUS.Cancelled}'`,
     );
     private resetOrderFillability = db.prepare<
         [string, number, number, string, string, string, string]
     >(
-        "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
+        "UPDATE orders SET fillability_status = ?, state_revision=state_revision+1, updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = ? AND collection_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
             "AND fillability_status = ?",
     );
@@ -316,6 +320,20 @@ export class SqliteStorage implements StoragePort {
 
     rollbackFromBlock(chainId: number, fromBlock: number): void {
         const run = db.writeTransaction(() => {
+            // Invalidate uncertain chain-derived terminal state. An OpenSea
+            // cancellation is independent of this chain rollback and must stay.
+            db.prepare(
+                "DELETE FROM orders WHERE chain_id=? AND source_status<>? AND (source_status=? OR fillability_status IN (?,?))",
+            ).run(
+                chainId,
+                ORDER_SOURCE_STATUS.Cancelled,
+                ORDER_SOURCE_STATUS.Filled,
+                ORDER_STATUS.Filled,
+                ORDER_STATUS.Cancelled,
+            );
+            db.prepare<[number, string]>(
+                "DELETE FROM market_order_retirements WHERE chain_id=? AND reason=?",
+            ).run(chainId, ORDER_RETIREMENT_REASON.Terminal);
             const events = this.selectTransfersFromBlock.all(
                 chainId,
                 fromBlock,

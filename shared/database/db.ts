@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
+import { SQLITE_STORAGE_POLICY } from "./storage-policy.js";
 
 export type BetterSqlite3Database = Database.Database;
 // better-sqlite3 types only model positional (tuple) bind parameters.
@@ -52,6 +53,10 @@ function applyPragmas(conn: BetterSqlite3Database): void {
     conn.pragma("synchronous = NORMAL");
     conn.pragma("foreign_keys = ON");
     conn.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+    // Caps recycled journal allocation after a successful checkpoint, not outstanding WAL work.
+    conn.pragma(
+        `journal_size_limit = ${SQLITE_STORAGE_POLICY.journalSizeLimitBytes}`,
+    );
 }
 
 function isSqliteBusyError(error: unknown): boolean {

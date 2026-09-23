@@ -35,12 +35,20 @@ export type OffchainOrderRawPayload = {
     source: string;
     chainId: number;
     collectionId: number;
+    /** Epoch milliseconds at transport receipt. */
     receivedAt: number;
     channel: OffchainObservationChannel;
     dedupeKey: string;
     eventType: string;
     orderId?: string | null;
     runId?: number | null;
+    /** Epoch seconds supplied by the marketplace. */
     sourceEventAt?: number | null;
     payload: unknown;
 };
+
+export function offchainObservationSeconds(
+    raw: Pick<OffchainOrderRawPayload, "sourceEventAt" | "receivedAt">,
+): number {
+    return raw.sourceEventAt ?? Math.floor(raw.receivedAt / 1000);
+}

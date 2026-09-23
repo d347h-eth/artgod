@@ -13,7 +13,6 @@ import {
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteOffchainObservationStore } from "../infra/offchain/sqlite-observations.js";
-import { SqliteOrderActivityLookup } from "../infra/offchain/sqlite-order-activity-lookup.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
@@ -55,7 +54,6 @@ async function main() {
         const collections = new SqliteCollectionRegistry();
         const tokenSets = new SqliteTokenSetRegistry();
         const observations = new SqliteOffchainObservationStore();
-        const orderActivityLookup = new SqliteOrderActivityLookup();
 
         const stopIngest = await runWorker(
             queue,
@@ -100,7 +98,6 @@ async function main() {
                 const result = await dispatchOffchainPayload(
                     queue,
                     tokenSets,
-                    orderActivityLookup,
                     job.payload,
                 );
                 if (result.handled) return;

@@ -25,7 +25,8 @@ type CountRow = {
 
 // Collection-scoped tables added after the original purge path need explicit deletes.
 export const COLLECTION_PURGE_LATE_SCHEMA_TABLE = {
-    SyntheticTokenRetirements: "collection_extension_synthetic_token_retirements",
+    SyntheticTokenRetirements:
+        "collection_extension_synthetic_token_retirements",
     BiddingOrderCancellations: "trading_bidding_order_cancellations",
 } as const;
 
@@ -35,13 +36,19 @@ export class SqliteCollectionPurgeRepository {
 
     constructor() {
         this.deleteStatements = [
-            this.deleteFrom(
-                "activity_sources",
-                "DELETE FROM activity_sources " +
-                    "WHERE activity_id IN (" +
-                    "SELECT id FROM activities WHERE chain_id = @chainId AND collection_id = @collectionId" +
-                    ")",
-            ),
+            ...(db
+                .prepare<[string]>("SELECT 1 FROM sqlite_schema WHERE name=?")
+                .get("activity_sources")
+                ? [
+                      this.deleteFrom(
+                          "activity_sources",
+                          "DELETE FROM activity_sources " +
+                              "WHERE activity_id IN (" +
+                              "SELECT id FROM activities WHERE chain_id = @chainId AND collection_id = @collectionId" +
+                              ")",
+                      ),
+                  ]
+                : []),
             this.deleteFrom(
                 "trading_job_commands",
                 "DELETE FROM trading_job_commands " +
@@ -117,6 +124,8 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows("opensea_orderbook_runs"),
             this.deleteCollectionRows("offchain_order_observations"),
             this.deleteCollectionRows("activities"),
+            this.deleteCollectionRows("market_order_retirements"),
+            this.deleteCollectionRows("market_order_observations"),
             this.deleteCollectionRows("fills"),
             this.deleteCollectionRows("nft_transfer_events"),
             this.deleteCollectionRows("orders"),

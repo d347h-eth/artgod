@@ -939,7 +939,7 @@
 					{/if}
 				</div>
 				<div class="pagination-summary">
-					{#if activities.prevCursor}
+					{#if activities.rangeStart > 1}
 						<a class="button-link" href={paginationHref(activities.prevCursor)}>newer</a>
 					{/if}
 					{#if activities.nextCursor}

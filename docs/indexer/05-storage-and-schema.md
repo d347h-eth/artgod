@@ -421,6 +421,10 @@ Important column groups:
 - Seaport canonical data
     - `seaport_data_json`
     - `seaport_data_source_kind` (`stream` or `rest`)
+    - `protocol_address` scalar for passive read models
+- write/freshness lifecycle
+    - `observed_at`, `validated_at` (epoch seconds)
+    - `state_revision` (asynchronous validation commit guard)
 - audit/debug payloads
     - `raw_rest_data`
     - `raw_stream_data`
@@ -643,6 +647,37 @@ Important semantics:
 - Terraforms real-token refresh writes real extension artifacts and real-token extension traits in the same transaction that records the matching synthetic retirement
 - later synthetic publication attempts for the retired identity no-op instead of recreating the row
 
+## Market-Data Storage Lifecycle
+
+Migration `055_market_data_storage_lifecycle.sql` adds the final schema directly,
+not a legacy-scale delete/index transaction:
+
+- `market_data_recovery`: singleton stage, rowid cursor and removal count;
+  committed with each copy batch and atomic table cutover.
+- `market_data_compaction`: one automatic VACUUM attempt/completion journal;
+  distinct from logical readiness and checkpoint state.
+- `market_order_retirements`: expiring negative market cache for terminal or
+  absent orders, not retained canonical payloads.
+- `market_order_observations`: one conservative freshness observation per
+  collection reconcile, avoiding a timestamp rewrite of every unchanged order.
+- `activities.listing_day`: UTC-day identity for permanent listing rows, unique
+  with chain, collection, token and seller. Null identifies other activity or
+  pre-upgrade listing history; recovery discards the latter.
+- `activities.listing_price_at`: observation time for the stored daily price.
+  No per-event listing archive or raw-event count is stored. Same-day updates
+  retain a historical price; later days do not rewrite it.
+
+Recovery removes the old `activity_sources` receipt ledger and obsolete activity
+indexes before admitting writers. Migration 055 initializes recovery at the
+legacy-listing reset stage. Price-ordered partial ask indexes
+replace the previous sell lookup. The domain worker owns ongoing bounded
+expiry and filesystem-only WAL/free-space observation. Runtime diagnostics never
+run checkpoints; explicit startup recovery still checkpoints its own work.
+Order cleanup leaves extension artifacts and synthetic-token retirement records
+unchanged; neither requires retaining expired-order evidence. See [activity semantics](09-domain-activities.md),
+[order retention](07-domain-orders.md#current-state-retention-and-replay), and
+[recovery design](../development/03-sqlite-storage-and-recovery.md).
+
 ## Metadata Refresh Follow-Ups and Queue Outbox
 
 ### `queue_outbox`
@@ -699,6 +734,8 @@ Key operations:
 - `rollbackFromBlock()`
     - reverses balances from orphaned transfers
     - deletes transfers, fills, collection-extension events, activities, transactions, and blocks from the rollback point onward
+    - invalidates uncertain chain-derived market-order retirement markers while
+      preserving explicit OpenSea cancellation evidence
 
 ### Collection registry (`indexer/src/infra/collections/sqlite.ts`)
 
@@ -720,7 +757,10 @@ Important operations:
 
 - marks missing previously-active orders `source_status = inactive`
 - does **not** mark them `cancelled`
-- scope is `(chain_id, collection_id, source)` plus `id NOT IN (...)`
+- scope is `(chain_id, collection_id, source)` plus streamed membership in
+  connection-local temporary tables; it does not build an entire JS ID array
+- 500-row updates recheck stream freshness/admission, yield between transactions
+  and do not override observations in the coalesced freshness bucket
 
 ### Orders domain storage (`indexer/src/infra/domain/orders.ts`)
 

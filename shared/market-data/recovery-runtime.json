@@ -1,0 +1,11 @@
+{
+    "workBudgetMs": 2700000,
+    "arguments": { "compact": "--compact", "compactOnly": "--compact-only" },
+    "logComponent": "IndexerSqliteMarketDataMaintenance",
+    "logActions": {
+        "progress": "sqlite-market-data-recovery-progress",
+        "completed": "sqlite-market-data-recovery-completed",
+        "compacted": "sqlite-market-data-compaction-completed",
+        "failed": "sqlite-market-data-maintenance-failed"
+    }
+}

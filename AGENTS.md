@@ -36,6 +36,11 @@ Agent-specific guidance. Project overview and documentation navigation belong in
 
 ## Engineering judgment
 
+- Before making changes or implementation decisions not explicitly directed by
+  the user, read the relevant domain/topic documentation. Trace the affected
+  end-to-end use case and justify the change by its concrete user value or benefit
+  to the overall system design. Do not infer purpose from local code alone or
+  implement changes without that justification.
 - Evaluate requested approaches and existing patterns for concrete architectural
   or correctness problems. Explain material objections and apply corrections to
   the actual defect. Existing design can evolve as features develop.
@@ -149,8 +154,15 @@ dependency direction as the implementation evolves:
   `--c-cyan`, `--c-blue`, `--c-pink`, `--c-sand`, `--c-ice`, `--c-yellow`,
   and `--c-orange`. Do not add raw colors or feature-local palettes. Normal links
   are cyan, hover/focus yellow, and selected/active states orange.
-- Keep labels and controls compact; avoid redundant explanatory copy. Do not
-  expose placeholder or unimplemented capabilities.
+- Do not add unsolicited helper prose, feature explanations, implementation
+  notes, or redundant instructions to the UI. Prefer clear labels, units, state,
+  and controls. Explanatory copy requires an explicit user request or a concrete
+  user decision, safety need, or recovery action that those elements cannot
+  communicate. Before handoff, review every added or changed user-facing string
+  against the [mandatory UI copy check](docs/ui/00-user-perspective-and-language.md#mandatory-ui-copy-check)
+  and remove copy that fails it.
+- Keep labels and controls compact. Do not expose placeholder or unimplemented
+  capabilities.
 
 ## Verification and handoff
 

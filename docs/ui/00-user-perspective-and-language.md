@@ -45,9 +45,33 @@ whole screen in visual order rather than reviewing a new component in isolation.
 Adjacent headings, status blocks, controls, and errors form one explanation and
 must make sense end to end.
 
-Do not use helper prose to repair a vague label. Fix the label, grouping, value,
-or information order first. Add explanatory copy only when the concept genuinely
-cannot be made clear through compact product language.
+## Mandatory UI Copy Check
+
+Apply this check whenever adding or changing user-visible text, including
+tooltips, loading and empty states, and messages supplied by backend or native
+code.
+
+- **Default to no explanatory prose.** Do not add unsolicited helper paragraphs,
+  feature descriptions, implementation notes, or redundant instructions to
+  pages, feeds, grids, or forms. A code change does not require an explanation
+  on the affected screen.
+- **Fix the UI first.** Make labels, units, grouping, values, controls, and state
+  unambiguous. Do not use a paragraph to compensate for unclear presentation or
+  repeat what the surface already shows.
+- **Require a concrete need.** Add an explanation only when explicitly requested
+  by the user or necessary for a specific user decision, safe action, or error
+  recovery that compact UI elements cannot communicate. Identify that need
+  before adding the text; accuracy or possible usefulness alone is insufficient.
+  Use only the shortest text that resolves it.
+- **Review before handoff.** Inspect every added or changed user-facing string
+  in the diff and rendered surface. Remove explanatory text whose absence would
+  not impair the user's task, safety, or recovery unless explicitly requested.
+  Moving rejected copy into a tooltip, banner, or empty state does not satisfy
+  this rule.
+
+For example, `One entry per NFT and seller per UTC day. Historical prices are
+retained.` belongs in storage documentation, not above the listing feed. Keep
+useful task feedback such as `Checking market data…` and actionable errors.
 
 ## Information Order
 

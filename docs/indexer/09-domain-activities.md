@@ -12,10 +12,14 @@ Primary files:
 - `indexer/src/domain/activities.ts`
 - `indexer/src/domain/activity-jobs.ts`
 - `indexer/src/infra/domain/activities.ts`
+- `shared/market-data/storage-policy.ts`
+- `shared/database/current-asks.ts`
+- `indexer/src/infra/storage/sqlite-daily-listing-prices.ts`
 
 Schema:
 
 - `database/migrations/005_activities_schema.sql`
+- `database/migrations/055_market_data_storage_lifecycle.sql`
 
 ## Projection Role
 
@@ -58,14 +62,17 @@ on token-scoped core activity.
 
 ## Current Kinds
 
-Current core activity kinds are:
+Retained core activity kinds are:
 
 - `transfer`
 - `sale`
 - `listing_created`
-- `listing_cancelled`
-- `bid_created`
-- `bid_cancelled`
+
+The older bid-create/cancel and listing-cancel wire kinds remain recognizable
+for compatibility, but offchain dispatch no longer publishes their activity
+jobs and the projector rejects already-queued deliveries. The generic activity
+API excludes that removed offchain history too. Independent order-state
+updates still consume cancellation, invalidation and bid inputs.
 
 Custom extension activity is emitted from persisted `collection_extension_events` rows. The generic activity row keeps `kind = "custom"`, `source_kind = "extension"`, `source_name = <extension key>`, and extension-owned payload JSON.
 
@@ -99,37 +106,32 @@ Current policy:
 - snapshot / reconcile inputs update canonical order state but do not create
   historical activity rows
 
-Typical mappings:
+OpenSea listing creation records a daily `listing_created` row, not a copy of
+each order event. REST snapshots maintain orders but never invent daily events.
 
-- OpenSea list event -> `listing_created`
-- OpenSea cancel/invalidation -> `listing_cancelled`
-- OpenSea bid/offer event -> `bid_created`
-- bid invalidation -> `bid_cancelled`
+## Permanent Daily Listings
 
-## Coalescing and Open Rows
+- **Identity:** chain, collection, token, seller and UTC day. Currency and order
+  ID do not create separate daily rows.
+- **Position:** the earliest source event time in that day. A late earlier event
+  can correct the time downward; later events never promote the row.
+- **Retention:** permanent, including after cancellation, sale and expiry. No
+  age or count cap. An idle day does not create a row.
+- **Stored content:** identity, pinned time, source attribution and the last
+  recorded price/currency/order reference for that day. No order payload archive
+  or individual event count.
+- **Price updates:** today's row uses the lowest valid ask for that token and
+  seller when orders change, REST reconciliation deactivates an ask, or maintenance
+  runs. Order mutations and their price refresh commit together. If none remains,
+  keep the last recorded price. Never replace older days with today's price.
+- **Delayed events:** an event from an earlier day carries its own historical
+  price; it must not use today's orderbook. The latest observation time wins,
+  including when that observation repeats the previous price.
 
-Listings and bids can be noisy in offchain orderbooks. The projection handles
-this with open-row coalescing.
-
-Projection lifecycle state:
-
-- `open`
-    - the current active coalescible create-row
-    - still eligible for in-place repricing updates
-- `closed`
-    - historical/final row
-    - no longer mutated by the projector
-
-Current coalescing rules:
-
-- applies to `listing_created` and `bid_created`
-- same token + maker + side + currency + kind can update the current open row
-- small reprices are coalesced in place
-- explicit cancel rows remain their own historical entries
-- a later sale or cancel closes the matching open create row
-
-This keeps raw upstream history truthful while making the feed projection less
-spammy.
+Source occurrence time is preferred; missing source time uses the original
+envelope's receive time. Missing token/seller, invalid time, inputs over five
+minutes in the future and deleted collections are rejected. Older valid events
+remain admissible; they belong in permanent history.
 
 ## Source Attribution vs Idempotency
 
@@ -141,19 +143,40 @@ There are two separate concepts:
 
 2. Upstream event identity
     - `sourceKind` / `sourceName` / `sourceEventKey` in `activities.upsert`
-    - answers "did we already consume this exact upstream event?"
+    - identifies the incoming event; it is not a separate receipt ledger
 
-The `activity_sources` table exists for projector bookkeeping and idempotency.
-It is not a second user-facing source model.
+Daily identity is independent of transport aliases. Exact duplicates do not
+rewrite the row or advance AUTOINCREMENT. A newer observation advances
+`listing_price_at` even at the same price: dropping that timestamp would let a
+delayed older price overwrite it. A timestamp-only update leaves `updated_at`
+unchanged. Price updates never move the row's pinned feed position.
+Onchain/extension events retain their fact-derived dedupe keys.
+
+The legacy `activity_sources` table was bookkeeping for the removed mutable
+projector, not user-facing market information. No new receipts are written;
+startup recovery removes the table after rebuilding retained activities.
 
 ## Read-Model Note
 
-Backend/feed read models may apply additional presentation-layer grouping such as
-collapsed collection listings. That collapsing happens after projection and does
-not change the truthful activity rows stored in `activities`. Collection listing
-collapse rows are anchored to the first raw listing within each token, maker,
-currency, and UTC-day group so later same-day relists do not keep moving the
-group to the top of the feed.
+Collection, token and maker-filtered feeds read the same stored daily rows.
+There is no request-time grouping of listing history. Cursor order and exact
+totals count daily rows, not raw listing events.
+
+Daily price updates and card-grid reads share the current-ask eligibility query:
+active source, fillable token ask, supported native ETH/WETH currency, valid
+start time and strictly future expiry. Decimal integer prices are compared
+exactly, without floating point. Daily updates select within a seller; cards select
+across sellers. Card reads check validity even before order maintenance runs.
+Price-ordered token and seller indexes avoid sorting the full orderbook.
+The feed API reads its stored historical prices without an orderbook join.
+
+Migration 055 initializes startup recovery, which resets legacy listing history
+once. Daily rows created under the new model survive later recovery.
+The domain worker continuously retires obsolete orders, never daily rows.
+
+Extension content-hash/event-group queries explicitly constrain `kind=custom`
+to match the narrowed expression indexes. Three obsolete open-row/order/contract
+activity indexes are removed; feed and unique deduplication indexes remain.
 
 ## Current Limits and Future Direction
 
@@ -161,6 +184,6 @@ group to the top of the feed.
   scheduled collection owner-count projection.
 - Activity projection is intentionally facts-first. Search-specific external
   indexing or analytics fan-out is not part of the local public-alpha runtime.
-- Read-time presentation collapsing must not rewrite or erase activity rows.
-  This is separate from the projector's documented in-place updates to open
-  listing/bid rows.
+- Daily history can grow with distinct active token/seller/days; current valid
+  orders are not capped. Neither store has a fixed byte ceiling. See the
+  [product contract](../development/03-sqlite-storage-and-recovery.md#2-listings-permanent-history-current-orderbook).

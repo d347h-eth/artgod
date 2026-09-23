@@ -11,6 +11,7 @@ Schema:
 - `database/migrations/003_orders_schema.sql`
 - `database/migrations/015_opensea_offchain_schema.sql`
 - `database/migrations/016_offchain_source_scope.sql`
+- `database/migrations/055_market_data_storage_lifecycle.sql`
 
 ## Inputs
 
@@ -46,7 +47,9 @@ Important invariant:
 
 - canonical runtime logic uses normalized DTO fields and persisted `seaport_data_json`
 - `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain and are disabled by default with `PERSIST_RAW_DEBUG_PAYLOADS=false`
-- trading bid-book fallback maps normalized order scope fields and canonical Seaport data instead of reparsing raw REST/stream payloads
+- trading bid-book fallback maps normalized order scope/schema fields and the
+  scalar `protocol_address`, without parsing the full Seaport payload or raw
+  REST/stream payloads; retained validators still use canonical Seaport data
 
 ## Status Model
 
@@ -88,8 +91,12 @@ Examples:
 
 1. Offchain ingest normalizes a stream or REST record.
 2. `dispatchOffchainPayload()` publishes `orders.upsert`.
-3. Domain worker writes the canonical `orders` row.
-4. If `validateAfterUpsert = true`, domain worker publishes `orders.update-by-id` with `reason = "order"`.
+3. Domain worker admits a current observation and writes only changed canonical
+   state; observation/validation freshness is separate from material changes.
+4. If validation is requested and needed, domain worker publishes
+   `orders.update-by-id` with `reason = "order"`. Recently validated identical
+   upserts do not produce another validation. The job identity includes the
+   collection, order, state revision and five-minute validation bucket.
 5. Validation runs asynchronously from canonical order data already stored in SQLite.
 
 `orders.upsert` writes optimistic defaults:
@@ -98,6 +105,88 @@ Examples:
 - `source_status = active` (unless explicitly overridden)
 
 The follow-up validation job corrects `fillability_status` after protocol checks run.
+
+Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
+repeat validation have a five-minute freshness interval; explicit maker/state
+change triggers still revalidate. A changed canonical upsert clears `validated_at`
+in the same write that advances `state_revision`. If publishing validation fails,
+an unchanged upsert retry still requests it until that revision has been validated.
+A newer source observation does not erase that obligation: an older retry leaves
+stored state untouched and requests validation of the current active revision.
+Validation commits with a state-revision and
+active-source guard, so a result obtained before an awaited RPC cannot overwrite
+a newer cancellation. No SQLite reader or writer transaction stays open across
+that RPC.
+
+## Current-State Retention and Replay
+
+`orders` is a current passive market projection, not a lifetime order archive.
+The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
+
+- Passed `valid_until` is immediately eligible for removal. Filled/cancelled
+  state has a one-hour grace period; source-inactive rows have a one-hour grace.
+- Unknown-expiry orders have a 24-hour observation lifetime. A completed source
+  reconcile records conservative collection observation freshness once.
+- Temporary `no-balance` or `no-approval` is not terminal while the order is
+  otherwise current. No count cap silently drops valid unexpired market offers.
+- Expired orders, future timestamps beyond five minutes, missing collections
+  and source updates older than the
+  stored observation are rejected. Terminal cancellations cannot be undone by a
+  later create; source inactivity is reversible with a newer observation.
+- Queued creation observations are admitted for 24 hours, regardless of the
+  order's expiry. This does not limit valid stored orders: fresh REST observations
+  can still discover long-lived orders. Delayed cancellations of known orders
+  remain effective beyond that cutoff.
+- One `market_order_retirements` row per order protects against delayed input;
+  there is no per-message receipt archive. It stores the observation cutoff,
+  nullable order `valid_until`, and one calculated cleanup deadline, `expires_at`.
+- Inactive markers expire at the earlier of order expiry and observation cutoff
+  plus 24 hours. Cleanup or redelivery does not restart that replay window.
+- Cancellation/filled markers protect against fresh REST observations too. With
+  known expiry, they last until that deadline plus the existing one-hour grace.
+  Without it, they use a 24-hour fallback from first processing; repeat delivery
+  does not extend the fallback. This fallback is not proof of natural expiry.
+- OpenSea cancellation and sale updates carry optional `expiration_date` through
+  normalization and queueing. Missing or malformed optional expiry does not
+  discard the cancellation. Later expiry evidence can shorten or extend an
+  unknown-expiry fallback without admitting the rejected order. Conflicting
+  known deadlines conservatively retain the later expiry.
+- Known expiry is preserved when a full order is removed. Markers whose calculated
+  deadline has already passed are not inserted; normal indexed maintenance removes
+  expired markers. Natural order expiry also rejects replay directly.
+- Chain rollback invalidates uncertain chain-derived terminal state, but preserves
+  explicit OpenSea cancellations, including their compact removal records. This
+  holds whichever cancellation arrives first, including after chain-derived
+  state has been retired. Source-cancelled rows remain ineligible for current
+  asks and follow the normal cleanup policy.
+  User trading intent and own orders remain separate owners.
+
+REST reconciliation streams active identities into connection-local temporary
+SQLite tables. It stages missing identities once, updates 500 at a time and
+rechecks eligibility between batches. New stream observations, including their
+coalesced freshness bucket, win over older REST absence. Temporary membership
+is closed on success, failure or collection removal; no whole-orderbook JS array
+or durable reconcile receipt ledger is retained. Each deactivation batch also
+refreshes today's existing listing price once per affected ask seller/NFT, in the
+same transaction. Bids and orders whose eligibility changed do not cause a refresh.
+
+Maker-update selection excludes expired orders in SQL and pages 500 candidates
+at a time. The known-maker index likewise includes current/recoverable buy orders
+only and iterates rows without materializing an intermediate result array.
+
+Startup recovery rebuilds legacy market rows before writers start; a single
+domain-worker maintenance owner selects obsolete orders through indexes every
+20 minutes. Its pass yields between 500-row batches and stops starting batches
+at a two-second elapsed budget. Already-completed startup recovery does not
+repeat that online sweep. Unfinished online work resumes after a 30-second pause
+with the same limits. Cleanup and price batches alternate across passes; a
+completed price pass waits 20 minutes before becoming due again during catch-up.
+Once caught up, or after
+a failure, the next pass waits 20 minutes. Passes never overlap.
+Order cleanup does not change extension artifacts or synthetic-token retirement
+records. Synthetic unminted IDs cannot have valid orders and do not need a
+historical-order marker.
+See [storage recovery](../development/03-sqlite-storage-and-recovery.md).
 
 ## Seaport Validation
 

@@ -34,7 +34,9 @@ use crate::runtime::config::{
 };
 use crate::runtime::process_registry::{
     BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
-    NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME, NATS_PROCESS_NAME, SUPERVISOR_PROCESS_NAME,
+    NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME, NATS_PROCESS_NAME, SQLITE_COMPACTION_PROCESS_NAME,
+    SQLITE_MARKET_DATA_MAINTENANCE_ARTIFACT, SQLITE_MARKET_DATA_MAINTENANCE_PROCESS_NAME,
+    SUPERVISOR_PROCESS_NAME,
 };
 use crate::wallet::domain::BotKind;
 
@@ -57,6 +59,21 @@ const NATS_MAINTENANCE_TASK: RecoveryTask = RecoveryTask {
     artifact: NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
     budget: Duration::from_secs(15 * 60),
 };
+// A separate, non-renewing budget for resumable SQLite work before any DB producers.
+const SQLITE_MAINTENANCE_TASK: RecoveryTask = RecoveryTask {
+    id: RecoveryTaskId::SqliteMaintenance,
+    process_name: SQLITE_MARKET_DATA_MAINTENANCE_PROCESS_NAME,
+    artifact: SQLITE_MARKET_DATA_MAINTENANCE_ARTIFACT,
+    // Mirrors MARKET_DATA_STORAGE_POLICY.recoveryBudgetMs at the Node boundary.
+    budget: Duration::from_secs(45 * 60),
+};
+const SQLITE_COMPACTION_TASK: RecoveryTask = RecoveryTask {
+    id: RecoveryTaskId::SqliteCompaction,
+    process_name: SQLITE_COMPACTION_PROCESS_NAME,
+    artifact: SQLITE_MARKET_DATA_MAINTENANCE_ARTIFACT,
+    budget: SQLITE_MAINTENANCE_TASK.budget,
+};
+const SQLITE_COMPACTION_ARG: &str = "--compact-only";
 static NEXT_STARTUP_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(30);
@@ -2354,6 +2371,81 @@ fn spawn_runtime_processes(
         stop_all_processes(app, &config.logs_dir, &mut processes);
         return Err(SpawnRuntimeError::Cancelled);
     }
+    let task = &SQLITE_MAINTENANCE_TASK;
+    let deadline = Instant::now() + task.budget;
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Recovery,
+            Some(task.id),
+            task.budget,
+        ));
+    });
+    if let Err(error) = run_startup_recovery_step(
+        app,
+        config,
+        status_ref,
+        task,
+        deadline,
+        stop_rx,
+        stop_signal,
+        || spawn_node_process(app, config, task.process_name, task.artifact),
+    ) {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(if stop_requested(stop_rx, stop_signal) {
+            SpawnRuntimeError::Cancelled
+        } else {
+            error
+        });
+    }
+    if stop_requested(stop_rx, stop_signal) {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(SpawnRuntimeError::Cancelled);
+    }
+    // Shrinking shares the original SQLite deadline, but failure cannot undo
+    // verified logical readiness. The child journals its one automatic attempt.
+    let compact_task = &SQLITE_COMPACTION_TASK;
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Recovery,
+            Some(compact_task.id),
+            deadline.saturating_duration_since(Instant::now()),
+        ));
+    });
+    if let Err(error) = run_startup_recovery_step(
+        app,
+        config,
+        status_ref,
+        compact_task,
+        deadline,
+        stop_rx,
+        stop_signal,
+        || {
+            spawn_node_process_with_args(
+                app,
+                config,
+                compact_task.process_name,
+                compact_task.artifact,
+                &[SQLITE_COMPACTION_ARG],
+            )
+        },
+    ) {
+        if stop_requested(stop_rx, stop_signal) {
+            stop_all_processes(app, &config.logs_dir, &mut processes);
+            return Err(SpawnRuntimeError::Cancelled);
+        }
+        emit_supervisor_log(
+            app,
+            &config.logs_dir,
+            SUPERVISOR_LOG_LEVEL_WARN,
+            &format!(
+                "Logical market-data recovery succeeded; physical compaction did not complete: {error:?}"
+            ),
+        );
+    }
+    if stop_requested(stop_rx, stop_signal) {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(SpawnRuntimeError::Cancelled);
+    }
     update_status(status_ref, app, |status| {
         status.startup = Some(StartupActivity::new(
             StartupPhase::Services,
@@ -2534,6 +2626,16 @@ fn spawn_node_process(
     process_name: &str,
     artifact_relative_path: &str,
 ) -> Result<ManagedProcess, String> {
+    spawn_node_process_with_args(app, config, process_name, artifact_relative_path, &[])
+}
+
+fn spawn_node_process_with_args(
+    app: &AppHandle,
+    config: &DesktopRuntimeConfig,
+    process_name: &str,
+    artifact_relative_path: &str,
+    extra_args: &[&str],
+) -> Result<ManagedProcess, String> {
     let artifact_path = config.runtime_dir.join(artifact_relative_path);
     if !artifact_path.exists() {
         return Err(format!(
@@ -2542,7 +2644,8 @@ fn spawn_node_process(
         ));
     }
 
-    let args = vec![artifact_path.to_string_lossy().into_owned()];
+    let mut args = vec![artifact_path.to_string_lossy().into_owned()];
+    args.extend(extra_args.iter().map(|arg| (*arg).to_owned()));
     spawn_process(
         app,
         config,

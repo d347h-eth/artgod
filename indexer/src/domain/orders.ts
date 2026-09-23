@@ -1,14 +1,20 @@
-export const ORDER_STATUS = {
-    Fillable: "fillable",
-    Filled: "filled",
-    Cancelled: "cancelled",
-    Expired: "expired",
-    NoBalance: "no-balance",
-    NoApproval: "no-approval",
-    Invalid: "invalid",
-} as const;
-
-export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
+import {
+    ORDER_STATUS,
+    type OrderStatus,
+    type OrderSourceStatus,
+    type OrderSourceScopeKind,
+    type OrderSide,
+} from "@artgod/shared/market-data/orders";
+export {
+    ORDER_STATUS,
+    ORDER_SOURCE_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SIDE,
+    type OrderStatus,
+    type OrderSourceStatus,
+    type OrderSourceScopeKind,
+    type OrderSide,
+} from "@artgod/shared/market-data/orders";
 
 // Fillability states that maker balance, approval, ownership, or counter changes can still transition.
 export const ORDER_REVALIDATABLE_FILLABILITY_STATUS = {
@@ -56,29 +62,6 @@ export function resolveOrderValidityState(
     }
     return ORDER_VALIDITY_STATE.ActiveTimeWindow;
 }
-
-export const ORDER_SOURCE_STATUS = {
-    Active: "active",
-    Inactive: "inactive",
-    Cancelled: "cancelled",
-    Filled: "filled",
-    Invalidated: "invalidated",
-    Expired: "expired",
-    Unknown: "unknown",
-} as const;
-
-export type OrderSourceStatus =
-    (typeof ORDER_SOURCE_STATUS)[keyof typeof ORDER_SOURCE_STATUS];
-
-export const ORDER_SOURCE_SCOPE_KIND = {
-    Token: "token",
-    Collection: "collection",
-    Attribute: "attribute",
-    TokenSet: "token_set",
-} as const;
-
-export type OrderSourceScopeKind =
-    (typeof ORDER_SOURCE_SCOPE_KIND)[keyof typeof ORDER_SOURCE_SCOPE_KIND];
 
 export const ORDER_LOCAL_TOKEN_SET_STATUS = {
     None: "none",
@@ -132,7 +115,7 @@ export type OrderRecord = {
     chainId: number;
     collectionId: number;
     kind: string;
-    side?: "buy" | "sell" | null;
+    side?: OrderSide | null;
     source?: string | null;
     maker: string;
     taker?: string | null;

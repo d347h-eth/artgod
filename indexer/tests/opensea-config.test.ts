@@ -5,14 +5,32 @@ import {
 } from "@artgod/shared/config/generated-settings-defaults";
 import { loadOpenSeaConfig } from "../src/config/opensea.js";
 
+const REQUIRED_ENV = {
+    ARTGOD_DB_PATH: "database/sqlite/test/db",
+    OPENSEA_API_KEY: "test-opensea-api-key",
+    WETH_ADDRESS: getSettingDefault("WETH_ADDRESS"),
+};
+
 describe("OpenSea config", () => {
+    it.each([undefined, "", "not-an-address"])(
+        "rejects invalid required WETH configuration: %s",
+        (wethAddress) => {
+            expect(() =>
+                loadOpenSeaConfig({
+                    ...REQUIRED_ENV,
+                    WETH_ADDRESS: wethAddress,
+                }),
+            ).toThrow("WETH_ADDRESS");
+        },
+    );
+
     it("loads without fixture env vars", () => {
-        const config = loadOpenSeaConfig({
-            ARTGOD_DB_PATH: "database/sqlite/test/db",
-            OPENSEA_API_KEY: "test-opensea-api-key",
-        });
+        const config = loadOpenSeaConfig(REQUIRED_ENV);
 
         expect(config.opensea.apiKey).toBe("test-opensea-api-key");
+        expect(config.tokens.wethAddress).toBe(
+            REQUIRED_ENV.WETH_ADDRESS.toLowerCase(),
+        );
         expect(config.queue).toEqual({
             natsUrl: getSettingDefault("NATS_URL"),
             streamPrefix: getSettingDefault("NATS_STREAM_PREFIX"),
@@ -60,8 +78,7 @@ describe("OpenSea config", () => {
 
     it("parses canonical indexer observability names", () => {
         const config = loadOpenSeaConfig({
-            ARTGOD_DB_PATH: "database/sqlite/test/db",
-            OPENSEA_API_KEY: "test-opensea-api-key",
+            ...REQUIRED_ENV,
             INDEXER_APM_ENABLED: "true",
             OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
             OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
@@ -81,7 +98,8 @@ describe("OpenSea config", () => {
     it("fails when an OpenSea worker starts without enabled integration", () => {
         expect(() =>
             loadOpenSeaConfig({
-                ARTGOD_DB_PATH: "database/sqlite/test/db",
+                ...REQUIRED_ENV,
+                OPENSEA_API_KEY: undefined,
             }),
         ).toThrow(
             "OpenSea integration disabled because OPENSEA_API_KEY is not configured",

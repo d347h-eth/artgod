@@ -18,6 +18,7 @@ import {
     type ActivityKind,
 } from "../../domain/activities.js";
 import type { ActivityUpsertPayload } from "../../domain/activity-jobs.js";
+import { offchainObservationSeconds } from "../../domain/offchain-jobs.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     normalizeOpenSeaEvent,
@@ -70,6 +71,7 @@ export type NormalizedOffchainOrderUpdateById = {
     orderId: string;
     reason: "cancel" | "order" | "fill";
     sourceStatus: OrderSourceStatus;
+    validUntil?: number | null;
 };
 
 export type NormalizedOffchainOrderUpdateByMaker = {
@@ -211,6 +213,7 @@ export function normalizeOffchainOrderUpdateById(
         orderId: update.orderId,
         reason: update.reason,
         sourceStatus: update.sourceStatus,
+        validUntil: update.validUntil,
     };
 }
 
@@ -289,7 +292,7 @@ export function normalizeOffchainActivity(
         return null;
     }
 
-    const occurredAt = raw.sourceEventAt ?? raw.receivedAt;
+    const occurredAt = offchainObservationSeconds(raw);
     if (!Number.isFinite(occurredAt)) return null;
 
     if (

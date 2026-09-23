@@ -1,5 +1,14 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { setDbPath } from "@artgod/shared/database";
+import { db, setDbPath } from "@artgod/shared/database";
+import { zeroAddress } from "viem";
+import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
+import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
+import { SqliteMarketDataMaintenance } from "../infra/storage/sqlite-market-data-maintenance.js";
+import { startMarketDataMaintenanceLoop } from "./market-data-maintenance-loop.js";
+import {
+    MarketDataObservability,
+    MARKET_DATA_MAINTENANCE_ACTION,
+} from "../infra/storage/market-data-observability.js";
 import { logger } from "@artgod/shared/utils";
 import {
     isImageCachePolicyActive,
@@ -132,7 +141,12 @@ async function main() {
             config.debugPayloads,
         );
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
-        const activityDomain = new SqliteActivityDomain();
+        const listingCurrencies = [zeroAddress, config.tokens.wethAddress];
+        const activityDomain = new SqliteActivityDomain(listingCurrencies);
+        const listingPrices = new SqliteDailyListingPrices(
+            db,
+            listingCurrencies,
+        );
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
         );
@@ -212,7 +226,13 @@ async function main() {
             },
             async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.UpdateById) return;
-                await ordersDomain.handleOrderUpdateById(job.payload);
+                await ordersDomain.handleOrderUpdateById({
+                    ...job.payload,
+                    collectionId: job.payload.collectionId ?? job.collectionId,
+                    observedAt:
+                        job.payload.observedAt ??
+                        Math.floor(job.scheduledAt / 1000),
+                });
             },
             {
                 apm: runtimeApm.apm,
@@ -231,10 +251,20 @@ async function main() {
             },
             async (job: JobEnvelope<OrderUpsertPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.Upsert) return;
-                await ordersDomain.handleOrderUpsert(job.payload);
-                if (job.payload.validateAfterUpsert) {
+                const outcome = await ordersDomain.handleOrderUpsert({
+                    ...job.payload,
+                    observedAt:
+                        job.payload.observedAt ??
+                        Math.floor(job.scheduledAt / 1000),
+                });
+                if (
+                    job.payload.validateAfterUpsert &&
+                    outcome.validationNeeded
+                ) {
                     const validationJob: JobEnvelope<OrderUpdateByIdPayload> = {
-                        jobId: `orders:update:id:upsert:${job.payload.chainId}:${job.payload.orderId}:${job.jobId}`,
+                        // Broker dedupe bounds repeated observations while the first validation is pending.
+                        // A changed canonical revision always gets a different identity.
+                        jobId: `orders:update:id:upsert:${job.payload.chainId}:${job.payload.collectionId}:${job.payload.orderId}:${outcome.validationRevision}:${Math.floor(Date.now() / (MARKET_DATA_STORAGE_POLICY.orderRevalidationSeconds * 1000))}`,
                         kind: ORDER_JOB_KIND.UpdateById,
                         queue: QUEUE_NAMES.OrdersUpdateById,
                         payload: {
@@ -463,7 +493,69 @@ async function main() {
             action: "main",
         });
 
+        const marketDataMaintenance = new SqliteMarketDataMaintenance(db);
+        const storageObservability = new MarketDataObservability(
+            runtimeMetrics.metrics,
+        );
+        let maintenanceStopped = false;
+        const stopMaintenance = startMarketDataMaintenanceLoop({
+            removeObsoleteOrders: (now) =>
+                marketDataMaintenance.maintainBatch(now),
+            refreshListingPrices: (now) => listingPrices.refreshBatch(now),
+            onPass: (duration) =>
+                storageObservability.observeMaintenance(duration),
+            onError: (error) => {
+                logger.warn("Market data maintenance batch failed", {
+                    component: "IndexerDomainWorker",
+                    action: MARKET_DATA_MAINTENANCE_ACTION,
+                    error: String(error),
+                });
+            },
+        });
+
+        // Filesystem metadata only; no checkpoint or SQL on the worker event loop.
+        let walObservationRunning = false;
+        const walObservationTimer = setInterval(async () => {
+            if (maintenanceStopped || walObservationRunning) return;
+            walObservationRunning = true;
+            try {
+                const allocation = await marketDataMaintenance.observeWal();
+                if (maintenanceStopped) return;
+                if (
+                    storageObservability.observe(
+                        allocation,
+                        Math.floor(Date.now() / 1000),
+                    )
+                ) {
+                    logger.warn(
+                        "SQLite storage warning: low free disk space or large WAL allocation; inspect disk usage. WAL size alone does not establish a checkpoint failure.",
+                        {
+                            component: "IndexerDomainWorker",
+                            action: MARKET_DATA_MAINTENANCE_ACTION,
+                            ...allocation,
+                            diskFreeWarningBytes:
+                                MARKET_DATA_STORAGE_POLICY.diskFreeWarningBytes,
+                            walSizeWarningBytes:
+                                MARKET_DATA_STORAGE_POLICY.walSizeWarningBytes,
+                        },
+                    );
+                }
+            } catch (error) {
+                logger.warn("SQLite WAL observation failed", {
+                    component: "IndexerDomainWorker",
+                    action: MARKET_DATA_MAINTENANCE_ACTION,
+                    error: String(error),
+                });
+            } finally {
+                walObservationRunning = false;
+            }
+        }, MARKET_DATA_STORAGE_POLICY.maintenanceIntervalMs);
+        walObservationTimer.unref();
+
         const shutdown = async () => {
+            maintenanceStopped = true;
+            stopMaintenance();
+            clearInterval(walObservationTimer);
             logger.info("Domain worker shutting down", {
                 component: "IndexerDomainWorker",
                 action: "shutdown",

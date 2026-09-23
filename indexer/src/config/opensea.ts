@@ -1,6 +1,10 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
-import { parseNumber, parseRequiredString } from "@artgod/shared/utils/env";
+import {
+    parseAddress,
+    parseNumber,
+    parseRequiredString,
+} from "@artgod/shared/utils/env";
 import { requireOpenSeaIntegrationEnabled } from "@artgod/shared/config/opensea-integration";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import { resolveNatsRuntimeConfig } from "@artgod/shared/config/nats";
@@ -19,6 +23,9 @@ import {
 export type OpenSeaRuntimeConfig = {
     dbPath: string;
     chainId: number;
+    tokens: {
+        wethAddress: string;
+    };
     queue: {
         natsUrl: string;
         streamPrefix: string;
@@ -70,6 +77,9 @@ export function loadOpenSeaConfig(
     return {
         dbPath,
         chainId,
+        tokens: {
+            wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),
+        },
         queue,
         opensea: {
             apiKey,

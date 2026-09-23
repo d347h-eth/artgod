@@ -12,8 +12,13 @@ import {
     ACTIVITY_SOURCE_KIND,
     type ActivityKind,
 } from "../types/activity-feed.js";
-import { SqliteActivitiesReadModel } from "./activities.js";
+import {
+    ACTIVITY_QUERY_SOURCE,
+    SqliteActivitiesReadModel,
+} from "./activities.js";
+import { readFileSync } from "node:fs";
 
+const CURRENCY = "0x0000000000000000000000000000000000000000";
 const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
 
 class CapturingApm implements ApmPort {
@@ -107,10 +112,9 @@ describe("SqliteActivitiesReadModel observability", () => {
         );
     });
 
-    it("uses exact trait candidates for collapsed listing activities", () => {
+    it("uses exact trait candidates for stored daily listings", () => {
         insertActivity(1, "1", 100, ACTIVITY_KIND.ListingCreated);
         insertActivity(2, "2", 200, ACTIVITY_KIND.ListingCreated);
-        insertActivity(3, "1", 300, ACTIVITY_KIND.ListingCreated);
         insertTokenTrait("1", "Mode", "Terrain");
         insertTokenTrait("2", "Mode", "Space");
         const apm = new CapturingApm();
@@ -135,16 +139,15 @@ describe("SqliteActivitiesReadModel observability", () => {
                     name: "backend.activity.db.query_rows",
                     attributes: expect.objectContaining({
                         [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]:
-                            "collapsed_collection_listings",
-                        [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]:
-                            1,
+                            ACTIVITY_QUERY_SOURCE,
+                        [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]: 1,
                     }),
                 }),
             ]),
         );
     });
 
-    it("anchors collapsed listing rows to the first UTC-day appearance", () => {
+    it("reads retained daily prices without substituting current orderbook prices", () => {
         const makerA = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const makerB = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         insertActivity(1, "1", 100, ACTIVITY_KIND.ListingCreated, {
@@ -152,16 +155,14 @@ describe("SqliteActivitiesReadModel observability", () => {
             orderId: "first-maker-a-listing",
             price: "100",
         });
-        insertActivity(2, "1", 300, ACTIVITY_KIND.ListingCreated, {
-            maker: makerA,
-            orderId: "latest-maker-a-listing",
-            price: "300",
-        });
         insertActivity(3, "1", 200, ACTIVITY_KIND.ListingCreated, {
             maker: makerB,
             orderId: "maker-b-listing",
             price: "200",
         });
+        db.prepare(
+            "INSERT INTO orders(id,chain_id,collection_id,token_id,maker,source_scope_kind,side,source_status,fillability_status,price,currency) VALUES ('current-ask',1,1,'1',?,'token','sell','active','fillable','90',?)",
+        ).run(makerA, CURRENCY);
         const readModel = new SqliteActivitiesReadModel();
 
         const page = readModel.listCollectionActivities({
@@ -179,7 +180,7 @@ describe("SqliteActivitiesReadModel observability", () => {
             orderId: "first-maker-a-listing",
             price: "100",
             isCollapsed: true,
-            collapsedEventCount: 2,
+            collapsedEventCount: null,
         });
     });
 
@@ -207,8 +208,7 @@ describe("SqliteActivitiesReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.activity.db.query_rows",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]:
-                        1,
+                    [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]: 1,
                 }),
             }),
         );
@@ -235,7 +235,8 @@ describe("SqliteActivitiesReadModel observability", () => {
         expect(apm.spans).toContainEqual({
             name: "backend.activity.db.count",
             attributes: expect.objectContaining({
-                [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: "raw",
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]:
+                    ACTIVITY_QUERY_SOURCE,
             }),
         });
     });
@@ -243,6 +244,9 @@ describe("SqliteActivitiesReadModel observability", () => {
 
 function createSchema(): void {
     db.exec(`
+        CREATE TABLE collections(collection_id INTEGER PRIMARY KEY,chain_id INTEGER);
+        INSERT INTO collections VALUES (1,1);
+        CREATE TABLE orders(id TEXT PRIMARY KEY,chain_id INTEGER,collection_id INTEGER,token_id TEXT,maker TEXT,source_scope_kind TEXT,side TEXT,source_status TEXT,fillability_status TEXT,price TEXT,currency TEXT,quantity TEXT,valid_from INTEGER,valid_until INTEGER);
         CREATE TABLE activities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             chain_id INTEGER NOT NULL,
@@ -295,6 +299,16 @@ function createSchema(): void {
             attribute_id INTEGER NOT NULL
         );
     `);
+    // Consume the real additive migration; runtime recovery is covered with the indexer.
+    db.exec(
+        readFileSync(
+            new URL(
+                "../../database/migrations/055_market_data_storage_lifecycle.sql",
+                import.meta.url,
+            ),
+            "utf8",
+        ),
+    );
 }
 
 function insertActivity(
@@ -310,8 +324,8 @@ function insertActivity(
     } = {},
 ): void {
     db.prepare(
-        "INSERT INTO activities (id, chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, maker, price, currency, dedupe_key) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO activities (id, chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, maker, price, currency, dedupe_key, listing_day) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         id,
         1,
@@ -324,10 +338,13 @@ function insertActivity(
         ACTIVITY_SOURCE_KIND.Onchain,
         "test",
         options.orderId ?? null,
-        options.maker?.toLowerCase() ?? null,
+        options.maker?.toLowerCase() ?? "maker",
         options.price ?? null,
         options.currency?.toLowerCase() ?? null,
         `activity-${id}`,
+        kind === ACTIVITY_KIND.ListingCreated
+            ? Math.floor(occurredAt / 86400)
+            : null,
     );
 }
 

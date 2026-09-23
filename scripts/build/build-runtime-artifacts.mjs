@@ -89,6 +89,13 @@ const indexerBuildResult = await build({
             "runtime",
             "nats-job-stream-maintenance.ts",
         ),
+        "sqlite-market-data-maintenance": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "sqlite-market-data-maintenance.ts",
+        ),
         "scheduler-worker": path.join(
             rootDir,
             "indexer",

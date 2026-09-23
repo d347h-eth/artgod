@@ -1,8 +1,10 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { setDbPath } from "@artgod/shared/database";
+import { db, setDbPath } from "@artgod/shared/database";
 import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import { logger } from "@artgod/shared/utils";
+import { zeroAddress } from "viem";
 import { loadOpenSeaConfig } from "../config/opensea.js";
+import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { runWorker } from "../application/worker-runner.js";
 import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-sync.js";
 import type { JobEnvelope } from "../domain/jobs.js";
@@ -47,7 +49,12 @@ async function main() {
         });
         const collections = new SqliteCollectionRegistry();
         const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
-        const sourceState = new SqliteOrderSourceStateStore();
+        const sourceState = new SqliteOrderSourceStateStore(
+            new SqliteDailyListingPrices(db, [
+                zeroAddress,
+                config.tokens.wethAddress,
+            ]),
+        );
         const api = new OpenSeaApiAdapter({
             apiKey: config.opensea.apiKey,
             snapshotPageSize: config.opensea.snapshotPageSize,

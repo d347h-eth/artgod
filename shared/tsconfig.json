@@ -7,6 +7,10 @@
         "noEmit": false,
         "emitDeclarationOnly": true
     },
-    "include": ["**/*", "queue/nats-job-stream-policy.json"],
+    "include": [
+        "**/*",
+        "queue/nats-job-stream-policy.json",
+        "market-data/recovery-runtime.json"
+    ],
     "exclude": ["node_modules", "build"]
 }
