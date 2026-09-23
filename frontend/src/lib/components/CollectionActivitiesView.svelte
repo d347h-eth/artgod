@@ -773,11 +773,6 @@
 		/>
 
 		<div class="activity-panel">
-			{#if activities.listingHistory}
-				<div class="pagination-summary muted">
-					<span>One entry per NFT and seller per UTC day. Historical prices are retained.</span>
-				</div>
-			{/if}
 			<div class="table-wrap activities-table-wrap">
 					<table class="activities-table">
 						<colgroup>

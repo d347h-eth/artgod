@@ -31,9 +31,6 @@ test('daily listings retain historical prices and pinned timestamps after expiry
 }, info) => {
 	await page.setViewportSize({ width: 1280, height: 1024 });
 	await page.goto(LISTING_HISTORY_HARNESS.path);
-	await expect(
-		page.getByText('One entry per NFT and seller per UTC day. Historical prices are retained.')
-	).toBeVisible();
 	await expect(page.getByRole('columnheader', { name: 'price', exact: true })).toBeVisible();
 	await expect(page.getByRole('link', { name: '0.1 ETH', exact: true })).toBeVisible();
 	const pinnedTime = () =>
