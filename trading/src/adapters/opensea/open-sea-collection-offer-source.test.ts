@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { CollectionOfferSourceError } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import { BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE } from "../../config/bidding-defaults.js";
 import {
     OPEN_SEA_SNAPSHOT_OPERATION,
     OpenSeaCollectionOfferSource,
@@ -29,7 +30,7 @@ class FakeOpenSeaApiClient {
 }
 
 describe("OpenSeaCollectionOfferSource", () => {
-    it("paginates all collection offers until the cursor stops", async () => {
+    it("paginates all collection offers with the shared default page size until the cursor stops", async () => {
         const api = new FakeOpenSeaApiClient();
         api.pages = [
             {
@@ -53,7 +54,6 @@ describe("OpenSeaCollectionOfferSource", () => {
 
         const operations: string[] = [];
         const source = new OpenSeaCollectionOfferSource(api as any, {
-            offersPageSize: 100,
             observability: {
                 onOpenSeaOperationFinished: (input) =>
                     operations.push(input.operation),
@@ -77,12 +77,12 @@ describe("OpenSeaCollectionOfferSource", () => {
         assert.deepEqual(api.calls, [
             {
                 collectionSlug: "terraforms",
-                limit: 100,
+                limit: BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
                 next: undefined,
             },
             {
                 collectionSlug: "terraforms",
-                limit: 100,
+                limit: BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
                 next: "page-2",
             },
         ]);

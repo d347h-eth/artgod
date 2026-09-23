@@ -1027,7 +1027,7 @@ help = "OpenSea API key for indexer order snapshots, streams, and reconcile work
 key = "OPENSEA_SNAPSHOT_PAGE_SIZE"
 group = "opensea"
 label = "opensea snapshot page size"
-default = "100"
+default = "200"
 help = "OpenSea orderbook page size for snapshot and reconcile fetches."
 
 [[settings]]

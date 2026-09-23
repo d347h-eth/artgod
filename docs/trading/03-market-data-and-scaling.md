@@ -36,6 +36,17 @@ until the cursor ends or a cursor repeats. It retains all returned offer kinds
 that later parsing can classify or preserve: collection, trait/criteria, exact
 token, token set, and unknown.
 
+`OPENSEA_SNAPSHOT_PAGE_SIZE` controls both this traversal and the bidding lane's
+token, collection, and trait offer reads. Its default is 200 orders per page,
+the documented maximum for the [all-offers](https://docs.opensea.io/reference/list_offers_collection_all),
+[NFT-offers](https://docs.opensea.io/reference/get_offers_nft),
+[collection-offers](https://docs.opensea.io/reference/get_offers_collection), and
+[trait-offers](https://docs.opensea.io/reference/get_offers_collection_trait) endpoints.
+The same setting controls indexer snapshots and reconciliation. In desktop Admin
+it appears under Config → Advanced → OpenSea as `opensea snapshot page size`.
+Saved overrides take precedence over the default; a change takes effect when
+the affected worker or bidding bot next starts.
+
 Completed fetches record metrics, and the snapshot service logs a summary:
 
 - duration, page count, offer count, and final cursor;

@@ -14,6 +14,7 @@ import { BIDDING_CONFIG_ENV_KEY } from "@artgod/shared/config/bidding";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
+    BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
     BIDDING_RUNTIME_ENV_KEY,
 } from "./bidding-defaults.js";
@@ -127,6 +128,10 @@ describe("loadTradingConfig", () => {
             },
         });
         assert.equal(config.bidding.openSea.streamSecretKey, "stream-key");
+        assert.equal(
+            config.bidding.openSea.snapshotPageSize,
+            BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
+        );
         assert.deepEqual(
             config.bidding.openSea.http,
             getDefaultOpenSeaHttpConfig(),
@@ -238,7 +243,7 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.openSea.snapshotSecretKey, "shared-key");
     });
 
-    it("parses OpenSea HTTP settings for the bidding runtime", () => {
+    it("parses OpenSea page size and HTTP settings for the bidding runtime", () => {
         const config = loadTradingConfig(
             {
                 ...requiredBaseEnv,
@@ -246,6 +251,7 @@ describe("loadTradingConfig", () => {
                 OPENSEA_STREAM_SECRET_KEY: "stream-key",
                 OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                 OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                [BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotPageSize]: "75",
                 [OPENSEA_HTTP_ENV_KEY.RetryMaxAttempts]: "4",
                 [OPENSEA_HTTP_ENV_KEY.RetryBaseDelayMs]: "125",
                 [OPENSEA_HTTP_ENV_KEY.RetryMaxDelayMs]: "900",
@@ -264,6 +270,7 @@ describe("loadTradingConfig", () => {
             throw new Error("Expected bidding to be enabled");
         }
 
+        assert.equal(config.bidding.openSea.snapshotPageSize, 75);
         assert.deepEqual(config.bidding.openSea.http, {
             retryPolicy: {
                 maxAttempts: 4,

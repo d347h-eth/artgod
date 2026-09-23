@@ -61,6 +61,7 @@ import {
     BIDDING_DEFAULT_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES,
     BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
+    BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_SCAN_SLEEP_MS,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
@@ -125,6 +126,7 @@ export type EnabledBiddingConfig = {
         streamSecretKey: string;
         biddingSecretKey: string;
         snapshotSecretKey: string;
+        snapshotPageSize: number;
         http: OpenSeaHttpConfig;
     };
 };
@@ -386,13 +388,10 @@ export function loadTradingConfig(
     };
 }
 
-function parseOpenSeaConfig(env: Record<string, string | undefined>): {
-    streamSecretKey: string;
-    biddingSecretKey: string;
-    snapshotSecretKey: string;
-    http: OpenSeaHttpConfig;
-} {
-    const secrets = {
+function parseOpenSeaConfig(
+    env: Record<string, string | undefined>,
+): EnabledBiddingConfig["openSea"] {
+    return {
         streamSecretKey: parseRequiredString(
             env[BIDDING_RUNTIME_ENV_KEY.OpenSeaStreamSecretKey],
             BIDDING_RUNTIME_ENV_KEY.OpenSeaStreamSecretKey,
@@ -405,10 +404,13 @@ function parseOpenSeaConfig(env: Record<string, string | undefined>): {
             env[BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey],
             BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey,
         ),
+        snapshotPageSize: parseNumber(
+            env[BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotPageSize],
+            BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotPageSize,
+            BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
+        ),
         http: parseOpenSeaHttpConfig(env),
     };
-
-    return secrets;
 }
 
 function parseTradingMetricsConfig(
