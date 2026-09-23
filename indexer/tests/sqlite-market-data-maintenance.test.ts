@@ -151,6 +151,46 @@ describe("in-place SQLite market-data recovery", () => {
         writer.mockRestore();
     });
 
+    it("preserves order expiry and the observation cutoff when cleaning inactive orders", async () => {
+        await recover();
+        order("inactive-soon-expired", NOW + 600);
+        order("inactive-replay-ended", NOW + POLICY.utcDaySeconds);
+        const change = db.prepare(
+            "UPDATE orders SET source_status=?,observed_at=? WHERE id=?",
+        );
+        change.run(
+            ORDER_SOURCE_STATUS.Inactive,
+            NOW - POLICY.unknownOrderLifetimeSeconds / 2,
+            "inactive-soon-expired",
+        );
+        change.run(
+            ORDER_SOURCE_STATUS.Inactive,
+            NOW - POLICY.unknownOrderLifetimeSeconds,
+            "inactive-replay-ended",
+        );
+        expect(storage.maintainBatch(NOW)).toBe(2);
+        expect(
+            db
+                .prepare(
+                    "SELECT order_id,valid_until,retired_at,expires_at FROM market_order_retirements",
+                )
+                .all(),
+        ).toEqual([
+            {
+                order_id: "inactive-soon-expired",
+                valid_until: NOW + 600,
+                retired_at: NOW - POLICY.unknownOrderLifetimeSeconds / 2,
+                expires_at: NOW + 600,
+            },
+        ]);
+        expect(storage.maintainBatch(NOW + 600)).toBe(1);
+        expect(
+            db
+                .prepare("SELECT COUNT(*) AS n FROM market_order_retirements")
+                .get(),
+        ).toEqual({ n: 0 });
+    });
+
     it("does not run online cleanup on a completed startup, and WAL observation runs no SQL", async () => {
         await recover();
         const cleanup = vi.spyOn(storage, "maintainBatch");

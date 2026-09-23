@@ -7,6 +7,7 @@ import {
     normalizeOpenSeaOrderUpdate,
 } from "../src/application/offchain/opensea-normalize.js";
 import { resolveFixturePath } from "./helpers/fixture-paths.js";
+import { ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
 
 type Fixture = {
     event: string;
@@ -193,8 +194,25 @@ describe("opensea normalizer", () => {
                 "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792",
             reason: "cancel",
             sourceStatus: "cancelled",
+            validUntil: Date.parse("2022-05-17T04:36:50Z") / 1000,
         });
     });
+
+    it.each([undefined, null, "not-a-date"])(
+        "preserves cancellation when optional expiry is %s",
+        async (expiration_date) => {
+            const fixture = await readFixture("item_cancelled.json");
+            expect(
+                normalizeOpenSeaOrderUpdate({
+                    ...fixture,
+                    payload: { ...fixture.payload, expiration_date },
+                }),
+            ).toMatchObject({
+                sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                validUntil: null,
+            });
+        },
+    );
 
     it("normalizes order_invalidation into an order update-by-id cancel", async () => {
         const fixture = await readFixture("order_invalidation.json");
@@ -260,6 +278,7 @@ describe("opensea normalizer", () => {
                 "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
             reason: "fill",
             sourceStatus: "filled",
+            validUntil: null,
         });
     });
 

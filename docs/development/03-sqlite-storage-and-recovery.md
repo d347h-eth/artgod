@@ -156,7 +156,11 @@ update prices immediately; they do not wait for the timer.
   24-hour lifetime for valid orders or listing history: fresh REST observations
   can discover long-lived orders. Delayed cancellations of known orders still apply.
 - Expiring order-specific markers prevent cancelled orders returning through
-  delayed creation messages. They retain no canonical order payload. Explicit
+  delayed creation messages. They retain no canonical order payload. Inactive
+  markers use only the remaining 24-hour replay window, capped by known order
+  expiry. Cancellation markers use known expiry plus the existing grace period,
+  or a 24-hour fallback when expiry is unknown. Learning the actual expiry can
+  shorten that fallback; duplicate deliveries do not prolong it. Explicit
   OpenSea cancellations survive chain rollback regardless of event arrival order
   or whether cleanup has already removed the full order.
 

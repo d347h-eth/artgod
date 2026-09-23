@@ -34,6 +34,8 @@ CREATE TABLE market_order_retirements (
   chain_id INTEGER NOT NULL,
   collection_id INTEGER NOT NULL,
   order_id TEXT NOT NULL,
+  -- Original order expiry, when known; expires_at is the marker cleanup deadline.
+  valid_until INTEGER,
   expires_at INTEGER NOT NULL,
   block_number INTEGER,
   retired_at INTEGER NOT NULL,

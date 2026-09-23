@@ -24,6 +24,7 @@ import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpsertPayload,
+    type OrderUpdateByIdPayload,
 } from "../src/domain/order-jobs.js";
 import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
@@ -32,6 +33,8 @@ import {
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 import { generateMerkleRoot } from "../src/application/token-sets/utils.js";
 import type {
     QueuePort,
@@ -364,6 +367,10 @@ describe("offchain dispatch", () => {
         const queue = new QueueCapture();
         const tokenSets = new SqliteTokenSetRegistry();
         const fixture = await readFixture("item_cancelled.json");
+        const validUntil = Math.floor(Date.now() / 1000) + 600;
+        fixture.payload.expiration_date = new Date(
+            validUntil * 1000,
+        ).toISOString();
         const orderId =
             "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792";
         const payload: OffchainOrderRawPayload = {
@@ -391,11 +398,29 @@ describe("offchain dispatch", () => {
             (job) => job.kind === ACTIVITY_JOB_KIND.Upsert,
         ) as JobEnvelope<ActivityUpsertPayload> | undefined;
         expect(activityJob).toBeUndefined();
+        const update = queue.published.find(
+            (job) => job.kind === ORDER_JOB_KIND.UpdateById,
+        ) as JobEnvelope<OrderUpdateByIdPayload> | undefined;
+        expect(update?.payload).toMatchObject({
+            orderId,
+            observedAt: payload.sourceEventAt,
+            validUntil,
+        });
+        expect(update).toBeDefined();
+        const domain = new SqliteOrdersDomain(WETH, async () => {
+            throw new Error("A cancellation must not validate an absent order");
+        });
+        await domain.handleOrderUpdateById(update!.payload);
         expect(
-            queue.published.some(
-                (job) => job.kind === ORDER_JOB_KIND.UpdateById,
-            ),
-        ).toBe(true);
+            db
+                .prepare(
+                    "SELECT valid_until,expires_at FROM market_order_retirements WHERE order_id=?",
+                )
+                .get(orderId),
+        ).toEqual({
+            valid_until: validUntil,
+            expires_at: validUntil + POLICY.orderReorgGraceSeconds,
+        });
     });
 });
 

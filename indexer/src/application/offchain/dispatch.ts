@@ -188,6 +188,7 @@ export async function dispatchOffchainPayload(
                 chainId: updateById.chainId,
                 collectionId: payload.collectionId,
                 observedAt: offchainObservationSeconds(payload),
+                validUntil: updateById.validUntil,
                 orderId: updateById.orderId,
                 reason: updateById.reason,
                 sourceStatus: updateById.sourceStatus,

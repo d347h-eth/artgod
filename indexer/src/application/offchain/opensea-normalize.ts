@@ -26,6 +26,7 @@ export type OpenSeaOrderUpdate = {
     orderId: string;
     reason: "cancel" | "order" | "fill";
     sourceStatus: OrderSourceStatus;
+    validUntil?: number | null;
 };
 
 export type OpenSeaMetadataRefresh = {
@@ -75,6 +76,7 @@ export function normalizeOpenSeaOrderUpdate(
             orderId: parseOrderHash(payload),
             reason: "cancel",
             sourceStatus: "cancelled",
+            validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }
     if (
@@ -102,11 +104,23 @@ export function normalizeOpenSeaOrderUpdate(
             orderId: parseOrderHash(payload),
             reason: "fill",
             sourceStatus: "filled",
+            validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }
 
     // This event is not for the specific order update.
     return null;
+}
+
+function parseOrderUpdateExpiry(value: unknown): number | null {
+    try {
+        const expiry = parseTimestamp(value, "expiration_date");
+        return expiry !== null && expiry > 0 ? expiry : null;
+    } catch {
+        // Optional expiry must not turn a definitive cancellation into a lost
+        // update. Missing/malformed dates retain the unknown-expiry fallback.
+        return null;
+    }
 }
 
 export function normalizeOpenSeaMetadataRefresh(

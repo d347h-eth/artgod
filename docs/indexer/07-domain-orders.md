@@ -137,10 +137,23 @@ The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
   order's expiry. This does not limit valid stored orders: fresh REST observations
   can still discover long-lived orders. Delayed cancellations of known orders
   remain effective beyond that cutoff.
-- Small expiring `market_order_retirements` records fence premature terminal or
-  inactive removal. Cancellation-before-create is covered, including extending
-  its marker when a rejected create reveals a later validity deadline. Natural
-  expiry fences its own replay without another permanent receipt archive.
+- One `market_order_retirements` row per order protects against delayed input;
+  there is no per-message receipt archive. It stores the observation cutoff,
+  nullable order `valid_until`, and one calculated cleanup deadline, `expires_at`.
+- Inactive markers expire at the earlier of order expiry and observation cutoff
+  plus 24 hours. Cleanup or redelivery does not restart that replay window.
+- Cancellation/filled markers protect against fresh REST observations too. With
+  known expiry, they last until that deadline plus the existing one-hour grace.
+  Without it, they use a 24-hour fallback from first processing; repeat delivery
+  does not extend the fallback. This fallback is not proof of natural expiry.
+- OpenSea cancellation and sale updates carry optional `expiration_date` through
+  normalization and queueing. Missing or malformed optional expiry does not
+  discard the cancellation. Later expiry evidence can shorten or extend an
+  unknown-expiry fallback without admitting the rejected order. Conflicting
+  known deadlines conservatively retain the later expiry.
+- Known expiry is preserved when a full order is removed. Markers whose calculated
+  deadline has already passed are not inserted; normal indexed maintenance removes
+  expired markers. Natural order expiry also rejects replay directly.
 - Chain rollback invalidates uncertain chain-derived terminal state, but preserves
   explicit OpenSea cancellations, including their compact removal records. This
   holds whichever cancellation arrives first, including after chain-derived

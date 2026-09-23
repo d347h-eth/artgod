@@ -65,6 +65,8 @@ export type OrderUpdateByIdPayload = {
     /** Present on source updates, including cancellation before its create arrives. */
     collectionId?: number;
     observedAt?: number;
+    /** Original order expiry supplied by a source update, when available. */
+    validUntil?: number | null;
     orderId: string;
     reason: string;
     sourceStatus?: OrderSourceStatus | null;

@@ -71,6 +71,7 @@ export type NormalizedOffchainOrderUpdateById = {
     orderId: string;
     reason: "cancel" | "order" | "fill";
     sourceStatus: OrderSourceStatus;
+    validUntil?: number | null;
 };
 
 export type NormalizedOffchainOrderUpdateByMaker = {
@@ -212,6 +213,7 @@ export function normalizeOffchainOrderUpdateById(
         orderId: update.orderId,
         reason: update.reason,
         sourceStatus: update.sourceStatus,
+        validUntil: update.validUntil,
     };
 }
 

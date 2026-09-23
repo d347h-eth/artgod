@@ -19,8 +19,8 @@ import type { MarketDataCompactionPort } from "../../application/storage/compact
 import {
     ORDER_RETIREMENT_REASON,
     orderRetirementReason,
-    retirementMarkerExpiry,
 } from "../../domain/order-retention.js";
+import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
 import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 import { CURRENT_ASK_INDEX_SQL } from "@artgod/shared/database/current-asks";
 import {
@@ -57,7 +57,7 @@ export class SqliteMarketDataMaintenance
     private readonly databasePath: string;
     private cleanupQueries?: BetterSqlite3Statement[];
     private observationQuery?: BetterSqlite3Statement;
-    private retirementInsert?: BetterSqlite3Statement;
+    private readonly retirements: SqliteOrderRetirements;
     private deleteOrder?: BetterSqlite3Statement;
     private currentOrder?: BetterSqlite3Statement;
     private expiredMarkers?: BetterSqlite3Statement;
@@ -67,6 +67,7 @@ export class SqliteMarketDataMaintenance
         private readonly availableBytes?: () => number,
     ) {
         this.conn = database.raw;
+        this.retirements = new SqliteOrderRetirements(this.conn);
         // setDbPath already resolves workspace-relative configuration. Filesystem
         // diagnostics must inspect this exact file, regardless of worker cwd.
         this.databasePath = this.conn.name;
@@ -372,21 +373,23 @@ export class SqliteMarketDataMaintenance
             (reason === ORDER_RETIREMENT_REASON.Stale &&
                 row.source_status === ORDER_SOURCE_STATUS.Inactive)
         ) {
-            this.retirementInsert ??= this.conn.prepare(
-                "INSERT INTO market_order_retirements(chain_id,collection_id,order_id,expires_at,block_number,retired_at,reason) VALUES (?,?,?,?,?,?,?) ON CONFLICT(chain_id,order_id) DO NOTHING",
-            );
-            this.retirementInsert.run(
-                row.chain_id,
-                row.collection_id,
-                row.id,
-                reason === ORDER_RETIREMENT_REASON.Terminal
-                    ? retirementMarkerExpiry(input, now)
-                    : now + POLICY.unknownOrderLifetimeSeconds,
-                row.block_number,
-                input.lastObservedAt,
-                row.source_status === ORDER_SOURCE_STATUS.Cancelled
-                    ? ORDER_RETIREMENT_REASON.SourceCancelled
-                    : reason,
+            this.retirements.record(
+                {
+                    chainId: Number(row.chain_id),
+                    collectionId: Number(row.collection_id),
+                    orderId: String(row.id),
+                    validUntil: input.validUntil,
+                    retiredAt: input.lastObservedAt,
+                    blockNumber:
+                        row.block_number === null
+                            ? null
+                            : Number(row.block_number),
+                    reason:
+                        row.source_status === ORDER_SOURCE_STATUS.Cancelled
+                            ? ORDER_RETIREMENT_REASON.SourceCancelled
+                            : reason,
+                },
+                now,
             );
         }
         return reason !== null;

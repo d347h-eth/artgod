@@ -16,6 +16,20 @@ export const ORDER_RETIREMENT_REASON = {
     Stale: "stale",
 } as const;
 
+export type OrderRetirementReason =
+    (typeof ORDER_RETIREMENT_REASON)[keyof typeof ORDER_RETIREMENT_REASON];
+
+export type OrderRetirementObservation = {
+    reason: OrderRetirementReason;
+    /** Latest observation rejected by a reversible inactivity marker. */
+    retiredAt: number;
+    validUntil: number | null;
+};
+
+export type OrderRetirement = OrderRetirementObservation & {
+    expiresAt: number;
+};
+
 export function isTerminalRetirement(reason: string): boolean {
     return (
         reason === ORDER_RETIREMENT_REASON.Terminal ||
@@ -51,7 +65,7 @@ export function isTerminalSourceStatus(status: string): boolean {
 export function orderRetirementReason(
     order: OrderRetentionInput,
     now: number,
-): string | null {
+): OrderRetirementReason | null {
     if (order.validUntil !== null && order.validUntil <= now)
         return ORDER_RETIREMENT_REASON.Expired;
     const terminal =
@@ -76,13 +90,53 @@ export function orderRetirementReason(
     return null;
 }
 
-/** Expiry fences its own replay; only premature terminal removal needs a marker. */
-export function retirementMarkerExpiry(
-    order: OrderRetentionInput,
+/** Keep one order-level fence, not a receipt for every delivery. New expiry
+ * evidence can replace an unknown-expiry fallback in either direction. */
+export function mergeOrderRetirement(
+    previous: OrderRetirement | undefined,
+    observation: OrderRetirementObservation,
     now: number,
-): number {
-    return (
-        (order.validUntil ?? now + POLICY.unknownOrderLifetimeSeconds) +
-        POLICY.orderReorgGraceSeconds
+): OrderRetirement {
+    const reason =
+        previous?.reason === ORDER_RETIREMENT_REASON.SourceCancelled ||
+        observation.reason === ORDER_RETIREMENT_REASON.SourceCancelled
+            ? ORDER_RETIREMENT_REASON.SourceCancelled
+            : previous && isTerminalRetirement(previous.reason)
+              ? previous.reason
+              : observation.reason;
+    const retiredAt =
+        previous &&
+        isTerminalRetirement(previous.reason) &&
+        reason === previous.reason
+            ? previous.retiredAt
+            : Math.max(previous?.retiredAt ?? 0, observation.retiredAt);
+    // An order identity has one validity deadline. If sources disagree, do not
+    // shorten an already-known cancellation deadline using weaker evidence.
+    const knownExpiry = Math.max(
+        knownOrderExpiry(previous?.validUntil) ?? 0,
+        knownOrderExpiry(observation.validUntil) ?? 0,
     );
+    const validUntil = knownExpiry > 0 ? knownExpiry : null;
+    const fallback =
+        previous && isTerminalRetirement(previous.reason)
+            ? previous.expiresAt
+            : now + POLICY.unknownOrderLifetimeSeconds;
+    const expiresAt = isTerminalRetirement(reason)
+        ? validUntil === null
+            ? fallback
+            : validUntil + POLICY.orderReorgGraceSeconds
+        : Math.min(
+              retiredAt + POLICY.unknownOrderLifetimeSeconds,
+              validUntil ?? Infinity,
+          );
+    return { reason, retiredAt, validUntil, expiresAt };
+}
+
+/** Unknown or malformed optional expiry must never erase cancellation evidence. */
+export function knownOrderExpiry(
+    value: number | null | undefined,
+): number | null {
+    return value != null && Number.isSafeInteger(value) && value > 0
+        ? value
+        : null;
 }

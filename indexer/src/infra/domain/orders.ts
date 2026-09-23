@@ -1,12 +1,14 @@
 import { db } from "@artgod/shared/database";
 import { zeroAddress } from "viem";
 import { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
+import { SqliteOrderRetirements } from "../storage/sqlite-order-retirements.js";
 import { MARKET_DATA_STORAGE_POLICY as STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
 import {
     admitsOrderObservation,
     isTerminalSourceStatus,
     isTerminalRetirement,
     ORDER_RETIREMENT_REASON,
+    knownOrderExpiry,
 } from "../../domain/order-retention.js";
 import {
     getDefaultDebugPayloadPersistenceConfig,
@@ -205,6 +207,7 @@ const ACTIVE_REVALIDATABLE_ORDER_FILTER =
 
 export class SqliteOrdersDomain implements OrdersDomainPort {
     private readonly listingPrices: SqliteDailyListingPrices;
+    private readonly retirements: SqliteOrderRetirements;
     private readonly wethAddress: string;
     private readonly validateOrder: SeaportOrderValidator;
     private updateOrderFillabilityStatus =
@@ -327,6 +330,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
+        this.retirements = new SqliteOrderRetirements(db.raw);
         this.listingPrices = new SqliteDailyListingPrices(db, [
             zeroAddress,
             this.wethAddress,
@@ -677,6 +681,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         const terminal = isTerminalSourceStatus(payload.sourceStatus);
         const sourceCancellation =
             payload.sourceStatus === ORDER_SOURCE_STATUS.Cancelled;
+        // Keep newly supplied expiry while the full row is still retained, so
+        // its eventual marker does not fall back to an unknown deadline.
+        const expiryChanges = row
+            ? this.rememberOrderExpiry(row, payload.validUntil)
+            : 0;
         // Independent source cancellation must survive reversal of a chain
         // fill/cancel. Record it even when that chain outcome arrived first.
         if (
@@ -687,43 +696,35 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                         row.fillability_status === ORDER_STATUS.Filled ||
                         row.fillability_status === ORDER_STATUS.Cancelled)))
         )
-            return { changes: 0 };
+            return { changes: expiryChanges };
         // A source cancellation is definitive even if a stale REST snapshot was
         // received afterward. Reversible inactivity obeys observation ordering.
-        if (row && !terminal && at < row.observed_at) return { changes: 0 };
+        if (row && !terminal && at < row.observed_at)
+            return { changes: expiryChanges };
         if (
             !row &&
             (terminal || payload.sourceStatus === ORDER_SOURCE_STATUS.Inactive)
         ) {
-            return db
-                .prepare<[number, number, string, number, number, string]>(
-                    `INSERT INTO market_order_retirements(chain_id,collection_id,order_id,expires_at,retired_at,reason)
-                    VALUES (?,?,?,?,?,?)
-                    ON CONFLICT(chain_id,order_id) DO UPDATE SET
-                        expires_at=MAX(expires_at,excluded.expires_at),
-                        retired_at=MAX(retired_at,excluded.retired_at),
-                        reason=excluded.reason
-                    WHERE market_order_retirements.reason<>'${ORDER_RETIREMENT_REASON.SourceCancelled}'
-                        AND (excluded.reason='${ORDER_RETIREMENT_REASON.SourceCancelled}'
-                            OR (market_order_retirements.reason<>'${ORDER_RETIREMENT_REASON.Terminal}'
-                                AND (excluded.reason='${ORDER_RETIREMENT_REASON.Terminal}'
-                                    OR excluded.retired_at>market_order_retirements.retired_at)))`,
-                )
-                .run(
-                    payload.chainId,
-                    collectionId,
-                    payload.orderId,
-                    now + STORAGE_POLICY.unknownOrderLifetimeSeconds,
-                    at,
-                    sourceCancellation
-                        ? ORDER_RETIREMENT_REASON.SourceCancelled
-                        : terminal
-                          ? ORDER_RETIREMENT_REASON.Terminal
-                          : ORDER_RETIREMENT_REASON.Stale,
-                );
+            return {
+                changes: this.retirements.record(
+                    {
+                        chainId: payload.chainId,
+                        collectionId,
+                        orderId: payload.orderId,
+                        validUntil: payload.validUntil ?? null,
+                        retiredAt: at,
+                        reason: sourceCancellation
+                            ? ORDER_RETIREMENT_REASON.SourceCancelled
+                            : terminal
+                              ? ORDER_RETIREMENT_REASON.Terminal
+                              : ORDER_RETIREMENT_REASON.Stale,
+                    },
+                    now,
+                ),
+            };
         }
         if (!row) return { changes: 0 };
-        return db
+        const result = db
             .prepare<{
                 status: string;
                 at: number;
@@ -740,6 +741,21 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 chainId: payload.chainId,
                 orderId: payload.orderId,
             });
+        return { changes: result.changes + expiryChanges };
+    }
+
+    private rememberOrderExpiry(
+        row: OrderRow,
+        supplied: number | null | undefined,
+    ): number {
+        const validUntil = knownOrderExpiry(supplied);
+        if (row.valid_until !== null || validUntil === null) return 0;
+        // Learning a deadline does not restart the terminal/inactivity grace.
+        return db
+            .prepare<
+                [number, number, string]
+            >("UPDATE orders SET valid_until=?,state_revision=state_revision+1,validated_at=0 WHERE chain_id=? AND id=? AND valid_until IS NULL")
+            .run(validUntil, row.chain_id, row.id).changes;
     }
 
     async handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
@@ -764,7 +780,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         };
         const now = this.nowSeconds();
         const observedAt = payload.observedAt ?? now;
-        if (!admitsOrderObservation(payload.validUntil, observedAt, now))
+        const admitted = admitsOrderObservation(
+            payload.validUntil,
+            observedAt,
+            now,
+        );
+        // A rejected creation can still reveal immutable expiry for its marker.
+        // This does not admit the order or restart its observation clock.
+        if (!admitted && knownOrderExpiry(payload.validUntil) === null)
             return ignored;
         if (
             db
@@ -774,43 +797,28 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 .get(payload.chainId, payload.collectionId) === undefined
         )
             return ignored;
-        const retired = db
-            .prepare<
-                [number, string, number]
-            >("SELECT reason,retired_at,expires_at FROM market_order_retirements WHERE chain_id=? AND order_id=? AND expires_at>?")
-            .get(payload.chainId, payload.orderId, now) as
-            | { reason: string; retired_at: number; expires_at: number }
-            | undefined;
+        const retired = this.retirements.find(payload.chainId, payload.orderId);
         if (
             retired &&
+            retired.expiresAt > now &&
             (isTerminalRetirement(retired.reason) ||
-                observedAt <= retired.retired_at)
+                observedAt <= retired.retiredAt ||
+                !admitted)
         ) {
-            // A create that arrives after a cancel supplies the previously unknown
-            // validity deadline. Keep only the small negative marker until then.
-            if (
-                isTerminalRetirement(retired.reason) &&
-                payload.validUntil &&
-                payload.validUntil + STORAGE_POLICY.orderReorgGraceSeconds >
-                    retired.expires_at
-            ) {
-                db.prepare<[number, number, string]>(
-                    "UPDATE market_order_retirements SET expires_at=? WHERE chain_id=? AND order_id=?",
-                ).run(
-                    payload.validUntil + STORAGE_POLICY.orderReorgGraceSeconds,
-                    payload.chainId,
-                    payload.orderId,
-                );
-            }
+            // Learning the order's actual deadline replaces the fallback, even
+            // when it is shorter. It never resurrects the rejected order.
+            this.retirements.record(
+                {
+                    ...retired,
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                    orderId: payload.orderId,
+                    validUntil: payload.validUntil ?? null,
+                },
+                now,
+            );
             return ignored;
         }
-        const maker = payload.maker.toLowerCase();
-        const taker = payload.taker?.toLowerCase() ?? null;
-        const contract = payload.contract.toLowerCase();
-        const currency = payload.currency?.toLowerCase() ?? null;
-        const sourceScopeKind =
-            payload.sourceScopeKind ?? ORDER_SOURCE_SCOPE_KIND.Token;
-        const rawSourceKind = payload.rawSourceKind ?? "stream";
         const existingRow = this.selectOrderById.get({
             chainId: payload.chainId,
             orderId: payload.orderId,
@@ -822,7 +830,13 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 existingRow.source_status === ORDER_SOURCE_STATUS.Filled ||
                 existingRow.source_status === ORDER_SOURCE_STATUS.Cancelled)
         )
-            return ignored;
+            return {
+                ...ignored,
+                changed:
+                    this.rememberOrderExpiry(existingRow, payload.validUntil) >
+                    0,
+            };
+        if (!admitted) return ignored;
         if (existingRow && observedAt < existingRow.observed_at) {
             // Discard the older input, not pending validation of the stored
             // revision: another queue may have advanced source freshness after
@@ -838,6 +852,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 validationRevision: existingRow.state_revision,
             };
         }
+        const maker = payload.maker.toLowerCase();
+        const taker = payload.taker?.toLowerCase() ?? null;
+        const contract = payload.contract.toLowerCase();
+        const currency = payload.currency?.toLowerCase() ?? null;
+        const sourceScopeKind =
+            payload.sourceScopeKind ?? ORDER_SOURCE_SCOPE_KIND.Token;
+        const rawSourceKind =
+            payload.rawSourceKind ?? ORDER_SEAPORT_DATA_SOURCE_KIND.Stream;
         const existingOrder = existingRow ? mapOrderRow(existingRow) : null;
         const mergedSeaportData = mergeSeaportData(
             existingOrder?.seaportData ?? null,
@@ -854,8 +876,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             this.debugPayloads.persistRawDebugPayloads && payload.rawPayload
                 ? JSON.stringify(payload.rawPayload)
                 : null;
-        const rawStreamData = rawSourceKind === "stream" ? rawPayload : null;
-        const rawRestData = rawSourceKind === "rest" ? rawPayload : null;
+        const rawStreamData =
+            rawSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Stream
+                ? rawPayload
+                : null;
+        const rawRestData =
+            rawSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Rest
+                ? rawPayload
+                : null;
         const sourceSchemaJson = payload.sourceSchema
             ? JSON.stringify(payload.sourceSchema)
             : null;
@@ -909,10 +937,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 "UPDATE orders SET observed_at=? WHERE chain_id=? AND id=?",
             ).run(observedAt, payload.chainId, payload.orderId);
         }
-        if (retired)
-            db.prepare<[number, string]>(
-                "DELETE FROM market_order_retirements WHERE chain_id=? AND order_id=?",
-            ).run(payload.chainId, payload.orderId);
+        if (retired) this.retirements.forget(payload.chainId, payload.orderId);
         this.listingPrices.refreshOrder(payload.chainId, payload.orderId, now);
 
         logger.debug("Orders upsert applied", {
@@ -1253,7 +1278,7 @@ function mergeSeaportData(
     existing: SeaportOrderData | null,
     existingSourceKind: OrderSeaportDataSourceKind | null,
     incoming: SeaportOrderData | null,
-    incomingSourceKind: "stream" | "rest",
+    incomingSourceKind: OrderSeaportDataSourceKind,
 ): SeaportOrderData | null {
     if (!incoming) {
         return existing;
@@ -1278,7 +1303,7 @@ function mergeSeaportData(
 function resolveSeaportDataSourceKind(
     existing: OrderSeaportDataSourceKind | null,
     incoming: SeaportOrderData | null,
-    incomingSourceKind: "stream" | "rest",
+    incomingSourceKind: OrderSeaportDataSourceKind,
 ): OrderSeaportDataSourceKind | null {
     if (!incoming) {
         return existing;
