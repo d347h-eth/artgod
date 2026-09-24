@@ -33,6 +33,7 @@ import {
 } from "../src/domain/orders.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
+import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import type { MakerOrderProjectionPort } from "../src/ports/maker-revalidation.js";
 import {
     HEAVY_MAKER,
@@ -72,6 +73,7 @@ function workflow(
     const orders = new SqliteOrdersDomain(HEAVY_MAKER.weth, validateOrder);
     const store = new SqliteMakerRevalidations(wrap ? wrap(orders) : orders);
     const processor = new RevalidateMakerOrders({
+        admission: new FairOrderValidationAdmission(2),
         store,
         createSnapshot: createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
@@ -432,9 +434,8 @@ describe("durable maker checkpoints", () => {
             await recoverMakerRevalidations(
                 {
                     store: work.store,
-                    consumerName: origin.consumerName,
                     isPublicationPending: async () => true,
-                    replayBoundary: async () => ({ ...origin, ackFloor: 0 }),
+                    replayBoundaries: async () => [{ ...origin, ackFloor: 0 }],
                 },
                 recoveryAt,
             ),
@@ -471,9 +472,8 @@ describe("durable maker checkpoints", () => {
         });
         const deps = {
             store: work.store,
-            consumerName: origin.consumerName,
             isPublicationPending: probe,
-            replayBoundary: async () => ({ ...origin, ackFloor: 0 }),
+            replayBoundaries: async () => [{ ...origin, ackFloor: 0 }],
         };
         const recoveryAt = now + POLICY.recoveryGraceMs + 1;
         expect(await recoverMakerRevalidations(deps, recoveryAt)).toBe(0);
@@ -497,14 +497,13 @@ describe("durable maker checkpoints", () => {
             await recoverMakerRevalidations(
                 {
                     store: work.store,
-                    consumerName: origin.consumerName,
                     isPublicationPending: async () => {
                         expect(
                             work.store.claim(saved.runId, "other", recoveryAt),
                         ).not.toBeNull();
                         return false;
                     },
-                    replayBoundary: async () => ({ ...origin, ackFloor: 0 }),
+                    replayBoundaries: async () => [{ ...origin, ackFloor: 0 }],
                 },
                 recoveryAt,
             ),

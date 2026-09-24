@@ -14,6 +14,7 @@ import {
 import type { OrderUpdateByMakerPayload } from "../../domain/order-jobs.js";
 import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
 import type { OrderValidationSnapshotFactory } from "../../ports/order-validation.js";
+import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
 import type {
     QueueDeliveryOrigin,
     QueueReplayBoundary,
@@ -24,6 +25,7 @@ export class RevalidateMakerOrders {
         private readonly deps: {
             store: MakerRevalidationStore;
             createSnapshot: OrderValidationSnapshotFactory;
+            admission: OrderValidationAdmissionPort;
             replayBoundary?: (
                 consumerName: string,
             ) => Promise<QueueReplayBoundary>;
@@ -98,7 +100,8 @@ export class RevalidateMakerOrders {
                 throw new MakerRevalidationConflict(
                     "Maker execution lost its lease",
                 );
-            run = await this.step(run, now);
+            const claimed = run;
+            run = await this.deps.admission.run(() => this.step(claimed, now));
         } catch (error) {
             store.release(run, now(), error);
             logger.warn(LOG.Retry, {

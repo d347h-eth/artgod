@@ -34,6 +34,7 @@ import type {
     OrderUpdateByMakerPayload,
     OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
+import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
 import type {
     DomainSyncContext,
     OrderUpdateByMakerRuntimeContext,
@@ -640,7 +641,7 @@ export class SqliteOrdersDomain
         }
 
         let finalStatus: OrderStatus = status;
-        if (payload.reason === "order") {
+        if (payload.reason === ORDER_UPDATE_REASON.Validation) {
             const orderRow =
                 row ??
                 (this.selectOrderById.get({
@@ -1531,11 +1532,11 @@ function statusFromReason(
     reason: OrderUpdateByIdPayload["reason"],
 ): OrderStatus | null {
     switch (reason) {
-        case "fill":
+        case ORDER_UPDATE_REASON.Fill:
             return ORDER_STATUS.Filled;
-        case "cancel":
+        case ORDER_UPDATE_REASON.Cancel:
             return ORDER_STATUS.Cancelled;
-        case "order":
+        case ORDER_UPDATE_REASON.Validation:
             return ORDER_STATUS.Fillable;
         default:
             return null;

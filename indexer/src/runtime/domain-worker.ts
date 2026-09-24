@@ -45,6 +45,14 @@ import {
 } from "../domain/domain-jobs.js";
 import { METADATA_REFRESH_RUN_ID_SCOPE } from "../domain/metadata-refresh-followups.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
+import {
+    makerUpdateQueue,
+    orderUpdateQueue,
+    orderConsumerName,
+    ORDER_PROCESSING_POLICY,
+} from "../domain/order-processing.js";
+import { FairOrderValidationAdmission } from "../infra/orders/fair-validation-admission.js";
+import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
@@ -83,7 +91,6 @@ import type { QueuePort } from "../ports/queue.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import {
     ORDER_JOB_KIND,
-    ORDER_UPDATE_REASON,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
@@ -162,14 +169,24 @@ async function main() {
             conduits,
             conduitController: config.seaport.conduitController,
         });
+        const validationAdmission = new FairOrderValidationAdmission(
+            ORDER_PROCESSING_POLICY.concurrentValidations,
+        );
+        const applyOrderUpdate = new ApplyOrderUpdate({
+            chainId: config.chainId,
+            validation: admitOrderValidation,
+            lifecycle: ordersDomain,
+        });
         const orderValidation = new ValidateOrderDemand({
             chainId: config.chainId,
             store: orderValidationStore,
             createSnapshot: createOrderSnapshot,
+            admission: validationAdmission,
         });
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
             createSnapshot: createOrderSnapshot,
+            admission: validationAdmission,
             replayBoundary: (consumerName) =>
                 queue.getReplayBoundary(consumerName),
         });
@@ -218,7 +235,10 @@ async function main() {
             maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
             fetchResilience: config.httpFetch,
         });
-        const orderUpdateByMakerConsumerName = `orders-update-by-maker-${config.chainId}`;
+        const makerQueues = [
+            QUEUE_NAMES.OrdersUpdateByMaker,
+            QUEUE_NAMES.OrdersUpdateByToken,
+        ] as const;
 
         const stopOrders = await runWorker(
             queue,
@@ -239,75 +259,116 @@ async function main() {
             },
         );
 
-        const stopOrderUpdatesByMaker = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.OrdersUpdateByMaker,
-                consumerName: orderUpdateByMakerConsumerName,
-                maxInFlight: 1,
-                extendLeaseMs: ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS,
-                maxAttempts: 5,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<OrderUpdateByMakerPayload>, origin) => {
-                if (job.kind !== ORDER_JOB_KIND.UpdateByMaker) return;
-                await makerRevalidations.execute({
-                    jobId: job.jobId,
-                    payload: job.payload,
-                    requiredAt: job.scheduledAt,
-                    origin,
-                });
-            },
-            {
-                apm: runtimeApm.apm,
-                spanName: "worker.ordersUpdateByMaker.consume",
-            },
-        );
+        const stopMakerConsumers: Array<() => Promise<void>> = [];
+        for (const queueName of makerQueues)
+            stopMakerConsumers.push(
+                await runWorker(
+                    queue,
+                    {
+                        queue: queueName,
+                        consumerName: orderConsumerName(
+                            queueName,
+                            config.chainId,
+                        ),
+                        maxInFlight: 1,
+                        extendLeaseMs: ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS,
+                        maxAttempts: 5,
+                        deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                    },
+                    async (
+                        job: JobEnvelope<OrderUpdateByMakerPayload>,
+                        origin,
+                    ) => {
+                        if (
+                            job.kind !== ORDER_JOB_KIND.UpdateByMaker ||
+                            job.chainId !== config.chainId ||
+                            job.payload.chainId !== config.chainId ||
+                            (queueName === QUEUE_NAMES.OrdersUpdateByToken &&
+                                makerUpdateQueue(job.payload) !== queueName)
+                        )
+                            throw new Error("Unsupported maker queue envelope");
+                        await makerRevalidations.execute({
+                            jobId: job.jobId,
+                            payload: job.payload,
+                            requiredAt: job.scheduledAt,
+                            origin,
+                        });
+                    },
+                    {
+                        apm: runtimeApm.apm,
+                        spanName:
+                            queueName === QUEUE_NAMES.OrdersUpdateByMaker
+                                ? "worker.ordersUpdateByMaker.consume"
+                                : "worker.ordersUpdateByToken.consume",
+                    },
+                ),
+            );
 
         const stopMakerRecovery = startMakerRevalidationRecovery({
             store: makerRevalidationStore,
-            consumerName: orderUpdateByMakerConsumerName,
-            isPublicationPending: (publication, consumer) =>
-                queue.isPublicationPending(publication, consumer),
-            replayBoundary: (consumer) => queue.getReplayBoundary(consumer),
+            isPublicationPending: (publication, queueName) =>
+                queue.isPublicationPending(
+                    publication,
+                    orderConsumerName(queueName, config.chainId),
+                ),
+            replayBoundaries: () =>
+                Promise.all(
+                    makerQueues.map((queueName) =>
+                        queue.getReplayBoundary(
+                            orderConsumerName(queueName, config.chainId),
+                        ),
+                    ),
+                ),
         });
 
-        const stopOrderUpdatesById = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.OrdersUpdateById,
-                consumerName: `orders-update-by-id-${config.chainId}`,
-                maxInFlight: 1,
-                maxAttempts: 5,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
-                if (job.kind !== ORDER_JOB_KIND.UpdateById) return;
-                if (
-                    !job.payload.sourceStatus &&
-                    job.payload.reason === ORDER_UPDATE_REASON.Validation
-                ) {
-                    admitOrderValidation.execute({
-                        chainId: job.payload.chainId,
-                        orderId: job.payload.orderId,
-                        requiredAt: job.scheduledAt,
-                        minimumBlock: job.payload.blockNumber ?? null,
-                    });
-                    return;
-                }
-                await ordersDomain.handleOrderUpdateById({
-                    ...job.payload,
-                    collectionId: job.payload.collectionId ?? job.collectionId,
-                    observedAt:
-                        job.payload.observedAt ??
-                        Math.floor(job.scheduledAt / 1000),
-                });
-            },
-            {
-                apm: runtimeApm.apm,
-                spanName: "worker.ordersUpdateById.consume",
-            },
-        );
+        const stopIdConsumers: Array<() => Promise<void>> = [];
+        for (const queueName of [
+            QUEUE_NAMES.OrdersUpdateById,
+            QUEUE_NAMES.OrderLifecycle,
+        ] as const)
+            stopIdConsumers.push(
+                await runWorker(
+                    queue,
+                    {
+                        queue: queueName,
+                        consumerName: orderConsumerName(
+                            queueName,
+                            config.chainId,
+                        ),
+                        maxInFlight: 1,
+                        maxAttempts: 5,
+                        deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                    },
+                    async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
+                        if (
+                            job.kind !== ORDER_JOB_KIND.UpdateById ||
+                            job.chainId !== config.chainId ||
+                            (queueName === QUEUE_NAMES.OrderLifecycle &&
+                                orderUpdateQueue(job.payload) !== queueName)
+                        )
+                            throw new Error("Unsupported order queue envelope");
+                        await applyOrderUpdate.execute(
+                            {
+                                ...job.payload,
+                                collectionId:
+                                    job.payload.collectionId ??
+                                    job.collectionId,
+                                observedAt:
+                                    job.payload.observedAt ??
+                                    Math.floor(job.scheduledAt / 1000),
+                            },
+                            job.scheduledAt,
+                        );
+                    },
+                    {
+                        apm: runtimeApm.apm,
+                        spanName:
+                            queueName === QUEUE_NAMES.OrdersUpdateById
+                                ? "worker.ordersUpdateById.consume"
+                                : "worker.orderLifecycle.consume",
+                    },
+                ),
+            );
 
         const stopOrderValidation = startOrderValidationDemand(orderValidation);
         const stopOrderUpserts = await runWorker(
@@ -608,8 +669,8 @@ async function main() {
             await stopMakerRecovery();
             await stopOrderValidation();
             await stopOrders();
-            await stopOrderUpdatesByMaker();
-            await stopOrderUpdatesById();
+            for (const stop of stopMakerConsumers) await stop();
+            for (const stop of stopIdConsumers) await stop();
             await stopOrderUpserts();
             await stopMetadata();
             await stopMetadataRefresh();

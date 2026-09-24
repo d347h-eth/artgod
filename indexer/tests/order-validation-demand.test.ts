@@ -12,6 +12,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
+import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import {
     AdmitOrderValidation,
     ValidateOrderDemand,
@@ -55,6 +56,7 @@ function workflow() {
     });
     const store = new SqliteOrderValidationDemand(domain);
     const processor = new ValidateOrderDemand({
+        admission: new FairOrderValidationAdmission(2),
         chainId: HEAVY_MAKER.chainId,
         store,
         createSnapshot: createSeaportOrderValidationFactory({

@@ -203,11 +203,23 @@ opens app-data storage. It proves that small-maker and token work completes
 after the heavy maker's first 100 validations, all 9,339 finish without consuming
 failure attempts, and 200 additional old maker hints add no validation pass or
 run rows. At most one outbox continuation exists for the run. It
+also holds both shared validation permits on RPC, applies a lifecycle fill while
+they are held, and verifies targeted token work finishes before the broad sweep.
+The maximum stays at two active validations. It
 then kills its child while the second context is awaiting RPC, restarts NATS
 against the same synthetic store, and resumes the remaining 410 of 510 orders.
 The recovery fixture advances its injected clock past the persisted lease;
 it does not wait two real minutes. Results use deterministic fake RPC, so they
 establish scheduling/replay behavior rather than live throughput or native QA.
+
+`tests/order-processing.test.ts` covers FIFO admission, error release and the
+lifecycle boundary. The backend's `integration/order-lifecycle.test.ts` uses real
+migrations, domain transitions, read models and HTTP adapters: a processed sale
+removes the ask while the already-applied owner and sale activity remain intact.
+Run it with `yarn workspace @artgod/backend test integration/order-lifecycle.test.ts`.
+`yarn workspace @artgod/frontend test:listings:history` exercises the maintained
+rendered fixture for sold-token asks and retained daily history. That fixture is
+separate from native/live queue qualification.
 
 ## Ordinary Order Validation Demand
 

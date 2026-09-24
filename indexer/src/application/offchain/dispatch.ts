@@ -27,6 +27,7 @@ import { offchainObservationSeconds } from "../../domain/offchain-jobs.js";
 import { admitsOrderObservation } from "../../domain/order-retention.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
+import { orderUpdateQueue } from "../../domain/order-processing.js";
 import type { QueuePort } from "../../ports/queue.js";
 import type { TokenSetRegistryPort } from "../../ports/token-sets.js";
 import type { MetadataRefreshPayload } from "../../domain/domain-jobs.js";
@@ -183,7 +184,7 @@ export async function dispatchOffchainPayload(
         const updateJob: JobEnvelope<OrderUpdateByIdPayload> = {
             jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus}`,
             kind: ORDER_JOB_KIND.UpdateById,
-            queue: QUEUE_NAMES.OrdersUpdateById,
+            queue: orderUpdateQueue(updateById),
             payload: {
                 chainId: updateById.chainId,
                 collectionId: payload.collectionId,
@@ -199,7 +200,7 @@ export async function dispatchOffchainPayload(
             collectionId: payload.collectionId,
             traceId: payload.source ?? payload.receivedAt.toString(),
         };
-        await queue.publish(QUEUE_NAMES.OrdersUpdateById, updateJob);
+        await queue.publish(updateJob.queue, updateJob);
         handled = true;
     }
 
@@ -209,7 +210,7 @@ export async function dispatchOffchainPayload(
         const makerJob: JobEnvelope<OrderUpdateByMakerPayload> = {
             jobId: `orders:update:maker:offchain:${updateByMaker.chainId}:${updateByMaker.maker}:${collectionId}:${updateByMaker.tokenId}:${payload.receivedAt}`,
             kind: ORDER_JOB_KIND.UpdateByMaker,
-            queue: QUEUE_NAMES.OrdersUpdateByMaker,
+            queue: QUEUE_NAMES.OrdersUpdateByToken,
             payload: {
                 chainId: updateByMaker.chainId,
                 scope: MAKER_TRIGGER_SCOPE.Token,
@@ -225,7 +226,7 @@ export async function dispatchOffchainPayload(
             collectionId: payload.collectionId,
             traceId: payload.source ?? payload.receivedAt.toString(),
         };
-        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, makerJob);
+        await queue.publish(makerJob.queue, makerJob);
         handled = true;
     }
 

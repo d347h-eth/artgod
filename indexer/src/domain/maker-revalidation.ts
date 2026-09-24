@@ -3,7 +3,8 @@ import type { OrderRecord, OrderValidationResult } from "./orders.js";
 import type { QueueDeliveryOrigin } from "./jobs.js";
 import type { JobEnvelope, QueuePublication } from "./jobs.js";
 import { ORDER_JOB_KIND } from "./order-jobs.js";
-import { QUEUE_NAMES } from "./queues.js";
+import type { QueueName } from "./queues.js";
+import { makerUpdateQueue } from "./order-processing.js";
 import type { QueueOutboxStatus } from "./queue-outbox.js";
 import {
     MAKER_TRIGGER_SCOPE,
@@ -172,6 +173,7 @@ export type MakerWakeup = {
     run: MakerRevalidationRun;
     outboxStatus: QueueOutboxStatus | null;
     publication?: QueuePublication;
+    queueName: QueueName | null;
 };
 
 export function makerContinuationJob(
@@ -181,7 +183,7 @@ export function makerContinuationJob(
     return {
         jobId: `orders:update:maker:continue:${run.runId}:${run.step}:${run.wakeupGeneration}`,
         kind: ORDER_JOB_KIND.UpdateByMaker,
-        queue: QUEUE_NAMES.OrdersUpdateByMaker,
+        queue: makerUpdateQueue(run.payload),
         chainId: run.chainId,
         payload: {
             ...run.payload,

@@ -6,6 +6,7 @@ import {
 } from "../../domain/order-validation-demand.js";
 import type { OrderValidationDemandPort } from "../../ports/order-validation-demand.js";
 import type { OrderValidationSnapshotFactory } from "../../ports/order-validation.js";
+import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
 
 export class AdmitOrderValidation {
     constructor(
@@ -26,6 +27,7 @@ export class ValidateOrderDemand {
             chainId: number;
             store: OrderValidationDemandPort;
             createSnapshot: OrderValidationSnapshotFactory;
+            admission: OrderValidationAdmissionPort;
             now?: () => number;
         },
     ) {}
@@ -47,13 +49,15 @@ export class ValidateOrderDemand {
         }, POLICY.renewEveryMs);
         timer.unref?.();
         try {
-            const snapshot = await this.deps.createSnapshot({
-                chainId: claim.demand.chainId,
-                minimumBlock: claim.demand.minimumBlock,
+            await this.deps.admission.run(async () => {
+                const snapshot = await this.deps.createSnapshot({
+                    chainId: claim.demand.chainId,
+                    minimumBlock: claim.demand.minimumBlock,
+                });
+                const result = await snapshot.validate(claim.candidate.order);
+                await snapshot.finish();
+                this.deps.store.complete(claim, result, snapshot.proof, now());
             });
-            const result = await snapshot.validate(claim.candidate.order);
-            await snapshot.finish();
-            this.deps.store.complete(claim, result, snapshot.proof, now());
         } catch (error) {
             this.deps.store.fail(claim, error, now());
             logger.warn("Order validation demand failed", {

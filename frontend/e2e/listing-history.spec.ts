@@ -66,3 +66,21 @@ test('daily listings retain historical prices and pinned timestamps after expiry
 	await expect(page.getByRole('link', { name: '0.1 ETH', exact: true })).toBeVisible();
 	expect(await pinnedTime()).toBe(timestamp);
 });
+
+test('a sold token leaves asks and remains browsable without its old price', async ({
+	page
+}, info) => {
+	await page.setViewportSize({ width: 1280, height: 1024 });
+	const base = BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH;
+	await page.goto(base);
+	await expect(page.getByRole('link', { name: '0.9 ETH', exact: true })).toBeVisible();
+	await page.goto(`${base}?${LISTING_HISTORY_HARNESS.soldKey}=1`);
+	await expect(page.getByRole('link', { name: '0.85 ETH', exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: '101', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('link', { name: '0.9 ETH', exact: true })).toHaveCount(0);
+	await surface(page, info, 'asks-after-sale');
+	await page.goto(`${base}?${LISTING_HISTORY_HARNESS.soldKey}=1&token_status=all`);
+	await expect(page.getByRole('link', { name: '101', exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: '0.9 ETH', exact: true })).toHaveCount(0);
+	await surface(page, info, 'sold-token-still-browsable');
+});

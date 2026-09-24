@@ -11,11 +11,22 @@ import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drai
 import { runWorker } from "../../src/application/worker-runner.js";
 import { SqliteOrdersDomain } from "../../src/infra/domain/orders.js";
 import { SqliteMakerRevalidations } from "../../src/infra/orders/sqlite-maker-revalidations.js";
+import { FairOrderValidationAdmission } from "../../src/infra/orders/fair-validation-admission.js";
+import { SqliteOrderValidationDemand } from "../../src/infra/orders/sqlite-order-validation-demand.js";
+import { ApplyOrderUpdate } from "../../src/application/orders/apply-order-update.js";
+import {
+    AdmitOrderValidation,
+    ValidateOrderDemand,
+    startOrderValidationDemand,
+} from "../../src/application/orders/validate-order-demand.js";
+import type { OrderValidationAdmissionPort } from "../../src/ports/order-validation-admission.js";
+import { ORDER_PROCESSING_POLICY } from "../../src/domain/order-processing.js";
 import { SqliteQueueOutbox } from "../../src/infra/queue/sqlite-queue-outbox.js";
 import { NatsJetStreamQueue } from "../../src/infra/queue/nats.js";
 import { MAKER_REVALIDATION_STATUS } from "../../src/domain/maker-revalidation.js";
 import {
     ORDER_JOB_KIND,
+    type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
 } from "../../src/domain/order-jobs.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
@@ -30,6 +41,7 @@ const config = JSON.parse(await readFile(process.argv[2]!, "utf8")) as {
     prefix: string;
     clockMs: number;
     holdAtRead: number | null;
+    holdOrderIds?: string[];
 };
 if (
     !path
@@ -45,7 +57,16 @@ logger.info = () => {};
 setDbPath(config.dbPath);
 const rpc = new HeavyMakerRpc();
 rpc.blockTimestamp = Math.floor(config.clockMs / 1_000);
-rpc.onRead = async ({ functionName }) => {
+const releaseRpc = Promise.withResolvers<void>();
+const heldOrderIds = new Set(config.holdOrderIds ?? []);
+rpc.onRead = async ({ functionName, args }) => {
+    if (
+        functionName === "getOrderStatus" &&
+        heldOrderIds.delete(String(args?.[0]))
+    ) {
+        process.send?.({ phase: "rpc-held", orderId: args?.[0] });
+        await releaseRpc.promise;
+    }
     if (
         functionName === "getOrderStatus" &&
         rpc.reads.getOrderStatus === config.holdAtRead
@@ -63,98 +84,190 @@ const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
     );
 const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validateOrder);
 const store = new SqliteMakerRevalidations(domain);
+const demandStore = new SqliteOrderValidationDemand(domain);
 const queue = await NatsJetStreamQueue.connect({
     natsUrl: config.natsUrl,
     streamPrefix: config.prefix,
 });
 const consumerName = "maker-healing-fixture";
+const tokenConsumerName = "token-healing-fixture";
+const makerQueues = [
+    { queueName: QUEUE_NAMES.OrdersUpdateByMaker, consumerName },
+    {
+        queueName: QUEUE_NAMES.OrdersUpdateByToken,
+        consumerName: tokenConsumerName,
+    },
+];
+const sharedAdmission = new FairOrderValidationAdmission(
+    ORDER_PROCESSING_POLICY.concurrentValidations,
+);
+let activeValidations = 0;
+let maximumValidations = 0;
+const admission: OrderValidationAdmissionPort = {
+    run: (work) =>
+        sharedAdmission.run(async () => {
+            activeValidations++;
+            maximumValidations = Math.max(
+                maximumValidations,
+                activeValidations,
+            );
+            try {
+                return await work();
+            } finally {
+                activeValidations--;
+            }
+        }),
+};
+const createSnapshot = createSeaportOrderValidationFactory({
+    chainId: HEAVY_MAKER.chainId,
+    rpc,
+    conduits: warmConduits,
+    conduitController: HEAVY_MAKER.controller,
+});
 const processor = new RevalidateMakerOrders({
+    admission,
     store,
-    createSnapshot: createSeaportOrderValidationFactory({
-        chainId: HEAVY_MAKER.chainId,
-        rpc,
-        conduits: warmConduits,
-        conduitController: HEAVY_MAKER.controller,
-    }),
+    createSnapshot,
 });
 let maximumAttempt = 0;
 let maximumOutbox = 0;
-const stopWorker = await runWorker<OrderUpdateByMakerPayload>(
-    queue,
-    {
-        queue: QUEUE_NAMES.OrdersUpdateByMaker,
-        consumerName,
-        maxInFlight: 1,
-        ackWaitMs: 1_000,
-        extendLeaseMs: 100,
-        maxAttempts: 5,
-        deadLetterQueue: QUEUE_NAMES.DeadLetter,
-    },
-    async (job, origin) => {
-        if (job.kind !== ORDER_JOB_KIND.UpdateByMaker)
-            throw new Error("Unexpected fixture job kind");
-        maximumAttempt = Math.max(maximumAttempt, job.attempt);
-        await processor.execute({
-            jobId: job.jobId,
-            payload: job.payload,
-            requiredAt: job.scheduledAt,
-            origin,
-        });
-        const rowCount = db
-            .prepare("SELECT COUNT(*) AS count FROM queue_outbox")
-            .get() as { count: number };
-        maximumOutbox = Math.max(maximumOutbox, rowCount.count);
-        // Reporting must not admit a second independent run for a coalesced hint.
-        const identity =
-            job.payload.continuation ??
-            (db
-                .prepare(
-                    "SELECT run_id AS runId FROM maker_order_revalidation_runs WHERE chain_id=? AND source_job_id=?",
-                )
-                .get(job.chainId, job.jobId) as { runId: string } | undefined);
-        const run = identity ? store.get(identity.runId) : undefined;
-        if (!run) return;
-        if (run.status === MAKER_REVALIDATION_STATUS.Completed) {
-            const heavy = db
-                .prepare(
-                    "SELECT resolved_orders AS resolved FROM maker_order_revalidation_runs WHERE source_job_id=?",
-                )
-                .get("heavy") as { resolved: number } | undefined;
-            process.send?.({
-                phase: "complete",
-                jobId: run.sourceJobId,
-                heavyResolved: heavy?.resolved,
-                reads: rpc.reads,
-                maximumAttempt,
-                maximumOutbox,
-                runRows: (
-                    db
+const stopWorkers: Array<() => Promise<void>> = [];
+for (const subscription of makerQueues)
+    stopWorkers.push(
+        await runWorker<OrderUpdateByMakerPayload>(
+            queue,
+            {
+                queue: subscription.queueName,
+                consumerName: subscription.consumerName,
+                maxInFlight: 1,
+                ackWaitMs: 1_000,
+                extendLeaseMs: 100,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job, origin) => {
+                if (job.kind !== ORDER_JOB_KIND.UpdateByMaker)
+                    throw new Error("Unexpected fixture job kind");
+                maximumAttempt = Math.max(maximumAttempt, job.attempt);
+                await processor.execute({
+                    jobId: job.jobId,
+                    payload: job.payload,
+                    requiredAt: job.scheduledAt,
+                    origin,
+                });
+                const rowCount = db
+                    .prepare("SELECT COUNT(*) AS count FROM queue_outbox")
+                    .get() as { count: number };
+                maximumOutbox = Math.max(maximumOutbox, rowCount.count);
+                // Reporting must not admit a second independent run for a coalesced hint.
+                const identity =
+                    job.payload.continuation ??
+                    (db
                         .prepare(
-                            "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                            "SELECT run_id AS runId FROM maker_order_revalidation_runs WHERE chain_id=? AND source_job_id=?",
                         )
-                        .get() as { count: number }
-                ).count,
-            });
-        }
-    },
+                        .get(job.chainId, job.jobId) as
+                        | { runId: string }
+                        | undefined);
+                const run = identity ? store.get(identity.runId) : undefined;
+                if (!run) return;
+                if (run.status === MAKER_REVALIDATION_STATUS.Completed) {
+                    const heavy = db
+                        .prepare(
+                            "SELECT resolved_orders AS resolved FROM maker_order_revalidation_runs WHERE source_job_id=?",
+                        )
+                        .get("heavy") as { resolved: number } | undefined;
+                    process.send?.({
+                        phase: "complete",
+                        jobId: run.sourceJobId,
+                        heavyResolved: heavy?.resolved,
+                        reads: rpc.reads,
+                        maximumAttempt,
+                        maximumOutbox,
+                        maximumValidations,
+                        runRows: (
+                            db
+                                .prepare(
+                                    "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                                )
+                                .get() as { count: number }
+                        ).count,
+                    });
+                }
+            },
+        ),
+    );
+const applyUpdate = new ApplyOrderUpdate({
+    chainId: HEAVY_MAKER.chainId,
+    validation: new AdmitOrderValidation(HEAVY_MAKER.chainId, demandStore),
+    lifecycle: domain,
+});
+for (const queueName of [
+    QUEUE_NAMES.OrdersUpdateById,
+    QUEUE_NAMES.OrderLifecycle,
+])
+    stopWorkers.push(
+        await runWorker<OrderUpdateByIdPayload>(
+            queue,
+            {
+                queue: queueName,
+                consumerName: `id-${queueName}-fixture`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job) => {
+                if (job.kind !== ORDER_JOB_KIND.UpdateById)
+                    throw new Error("Unexpected fixture update kind");
+                await applyUpdate.execute(job.payload, job.scheduledAt);
+                process.send?.({
+                    phase: "update",
+                    jobId: job.jobId,
+                    activeValidations,
+                    maximumValidations,
+                });
+            },
+        ),
+    );
+const stopValidation = startOrderValidationDemand(
+    new ValidateOrderDemand({
+        chainId: HEAVY_MAKER.chainId,
+        store: demandStore,
+        createSnapshot,
+        admission,
+    }),
 );
 const stopOutbox = startQueueOutboxDrainer(new SqliteQueueOutbox(), queue, {
     pollMs: 10,
 });
 const stopRecovery = startMakerRevalidationRecovery({
     store,
-    consumerName,
-    isPublicationPending: (publication, consumer) =>
-        queue.isPublicationPending(publication, consumer),
-    replayBoundary: (consumer) => queue.getReplayBoundary(consumer),
+    isPublicationPending: (publication, queueName) => {
+        const consumer = makerQueues.find(
+            (subscription) => subscription.queueName === queueName,
+        );
+        if (!consumer) throw new Error("Unexpected fixture publication queue");
+        return queue.isPublicationPending(publication, consumer.consumerName);
+    },
+    replayBoundaries: () =>
+        Promise.all(
+            makerQueues.map((subscription) =>
+                queue.getReplayBoundary(subscription.consumerName),
+            ),
+        ),
 });
 let stopping = false;
 process.on("message", (message) => {
+    if (message === "release-rpc") {
+        releaseRpc.resolve();
+        return;
+    }
     if (message !== "stop" || stopping) return;
     stopping = true;
     void (async () => {
         await stopRecovery();
-        await stopWorker();
+        await stopValidation();
+        for (const stop of stopWorkers) await stop();
         await stopOutbox();
         await queue.close();
         db.raw.close();

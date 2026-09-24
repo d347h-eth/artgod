@@ -11,9 +11,17 @@ import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import {
     ORDER_JOB_KIND,
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
 } from "../src/domain/order-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
+import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
+import {
+    ORDER_PROCESSING_POLICY,
+    makerUpdateQueue,
+    orderUpdateQueue,
+} from "../src/domain/order-processing.js";
 import {
     MAKER_REVALIDATION_POLICY,
     MAKER_REVALIDATION_STATUS,
@@ -39,6 +47,9 @@ type WorkerReport = {
     maximumAttempt?: number;
     maximumOutbox?: number;
     runRows?: number;
+    orderId?: string;
+    activeValidations?: number;
+    maximumValidations?: number;
 };
 
 it("services small work between real-broker steps and recovers after killing a worker and restarting NATS", async () => {
@@ -60,6 +71,7 @@ it("services small work between real-broker steps and recovers after killing a w
         prefix: string,
         clockMs: number,
         holdAtRead: number | null,
+        holdOrderIds: string[] = [],
     ) {
         const configPath = path.join(
             artifacts,
@@ -73,6 +85,7 @@ it("services small work between real-broker steps and recovers after killing a w
                 prefix,
                 clockMs,
                 holdAtRead,
+                holdOrderIds,
             }),
         );
         const child = spawn(process.execPath, [workerArtifact, configPath], {
@@ -148,10 +161,12 @@ it("services small work between real-broker steps and recovers after killing a w
             );
             return consumer.num_pending === 0 && consumer.num_ack_pending === 0;
         }, "all maker messages acknowledged");
-        const stream = await manager.streams.info(
-            resolveNatsJobStreamName(prefix),
+        await waitForFixture(
+            async () =>
+                (await manager.streams.info(resolveNatsJobStreamName(prefix)))
+                    .state.messages === 0,
+            "all routed messages acknowledged",
         );
-        expect(stream.state.messages).toBe(0);
     }
 
     try {
@@ -197,6 +212,137 @@ it("services small work between real-broker steps and recovers after killing a w
             coalescedMakerHints: 200,
             localMs: Math.round(performance.now() - start),
         };
+
+        setDbPath(dbPath);
+        db.exec(
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+        );
+        const mixed = seedHeavyMaker(510);
+        const first = db
+            .prepare("SELECT id FROM orders WHERE maker=? ORDER BY id LIMIT 1")
+            .get(HEAVY_MAKER.maker) as { id: string };
+        db.raw.close();
+        await publish("routing", [{ id: "heavy", payload: heavyMakerHint() }]);
+        const routingQueue = await NatsJetStreamQueue.connect({
+            natsUrl: broker.url,
+            streamPrefix: "routing",
+        });
+        queues.add(routingQueue);
+        const publishUpdate = async (
+            id: string,
+            payload: OrderUpdateByIdPayload,
+        ) => {
+            const queueName = orderUpdateQueue(payload);
+            await routingQueue.publish(queueName, {
+                jobId: id,
+                kind: ORDER_JOB_KIND.UpdateById,
+                queue: queueName,
+                payload,
+                chainId: 1,
+                scheduledAt: HEAVY_MAKER.now * 1_000,
+                attempt: 0,
+            });
+        };
+        await publishUpdate("ordinary", {
+            chainId: 1,
+            orderId: mixed.small.id,
+            reason: ORDER_UPDATE_REASON.Validation,
+        });
+        const routed = await worker("routing", HEAVY_MAKER.now * 1_000, null, [
+            first.id,
+            mixed.small.id,
+        ]);
+        await routed.wait(
+            () =>
+                routed.reports.filter((r) => r.phase === "rpc-held").length ===
+                2,
+            "maker and ordinary RPC hold both shared permits",
+        );
+        const urgentStart = performance.now();
+        await publishUpdate("fill", {
+            chainId: 1,
+            collectionId: mixed.small.collectionId,
+            orderId: mixed.small.id,
+            reason: ORDER_UPDATE_REASON.Fill,
+            sourceStatus: ORDER_SOURCE_STATUS.Filled,
+            observedAt: HEAVY_MAKER.now,
+        });
+        const tokenPayload = tokenSaleHint(mixed.sale);
+        const tokenQueue = makerUpdateQueue(tokenPayload);
+        await routingQueue.publish(tokenQueue, {
+            jobId: "token",
+            kind: ORDER_JOB_KIND.UpdateByMaker,
+            queue: tokenQueue,
+            payload: tokenPayload,
+            chainId: 1,
+            scheduledAt: HEAVY_MAKER.now * 1_000,
+            attempt: 0,
+        });
+        await routed.wait(
+            () =>
+                routed.reports.some(
+                    (r) => r.phase === "update" && r.jobId === "fill",
+                ),
+            "fill bypasses blocked validation",
+        );
+        const fill = routed.reports.find(
+            (r) => r.phase === "update" && r.jobId === "fill",
+        )!;
+        expect(fill.activeValidations).toBe(
+            ORDER_PROCESSING_POLICY.concurrentValidations,
+        );
+        expect(routed.reports.some((r) => r.phase === "complete")).toBe(false);
+        const lifecycleMs = Math.round(performance.now() - urgentStart);
+        routed.child.send("release-rpc");
+        await routed.wait(
+            () =>
+                routed.reports.filter((r) => r.phase === "complete").length ===
+                2,
+            "targeted and broad work settle",
+        );
+        await drained("routing");
+        await routed.stop();
+        const routedCompletions = routed.reports.filter(
+            (r) => r.phase === "complete",
+        );
+        expect(routedCompletions.map((r) => r.jobId)).toEqual([
+            "token",
+            "heavy",
+        ]);
+        expect(
+            routedCompletions.every(
+                (r) =>
+                    r.maximumValidations ===
+                    ORDER_PROCESSING_POLICY.concurrentValidations,
+            ),
+        ).toBe(true);
+        setDbPath(dbPath);
+        expect(
+            db
+                .prepare("SELECT source_status FROM orders WHERE id=?")
+                .get(mixed.small.id),
+        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Filled });
+        expect(
+            db
+                .prepare("SELECT fillability_status FROM orders WHERE id=?")
+                .get(mixed.sale.id),
+        ).toEqual({ fillability_status: ORDER_STATUS.NoBalance });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM order_validation_demand WHERE pending=1",
+                )
+                .get(),
+        ).toEqual({ count: 0 });
+        db.raw.close();
+        results.routing = {
+            lifecycleMs,
+            activeValidationsAtFill: fill.activeValidations,
+            maximumValidations: fill.maximumValidations,
+            completionOrder: routedCompletions.map((r) => r.jobId),
+        };
+        await routingQueue.close();
+        queues.delete(routingQueue);
 
         setDbPath(dbPath);
         db.exec(

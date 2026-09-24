@@ -148,9 +148,19 @@ it; this does not claim complete WETH event coverage.
 This schema/worker pair requires aligned runtime artifacts. An older binary does
 not drain the new demand table. Native downgrade is not qualified; use a stopped
 runtime and a paired pre-upgrade SQLite/NATS backup if rollback is required.
-Maker hints use the separate scoped pass model below. Shared admission between
-validation paths is a later increment; ordinary demand alone does not prove total
-backlog convergence.
+Maker hints use the separate scoped pass model below. All three validation paths
+(broad maker, token-scoped and ordinary demand) share two FIFO admission permits.
+Explicit fill/cancel/source transitions have a separate queue and do not need a
+validation permit. Legacy queues retain their old handlers and durable names.
+This scheduling boundary does not itself establish total backlog convergence.
+
+Migration 060 retains one high-water delivery receipt per maker run and consumer.
+A token scope can be reached through the legacy maker queue and the new token
+queue; cleanup therefore requires replay proof from both consumers, not just the
+last delivery. New deliveries invalidate older ACK proof. ACK advancement and
+scope cleanup are independently bounded, so alternating consumers cannot starve
+each other's cleanup pages. Outbox recovery checks the publication's stored
+queue, including continuations produced by an older binary.
 
 ## Current-State Retention and Replay
 

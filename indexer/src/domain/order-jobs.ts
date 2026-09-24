@@ -23,6 +23,8 @@ export const ORDER_UPDATE_REASON = {
     Fill: "fill",
     Cancel: "cancel",
 } as const;
+export type OrderUpdateReason =
+    (typeof ORDER_UPDATE_REASON)[keyof typeof ORDER_UPDATE_REASON];
 export { MAKER_TRIGGER_SCOPE };
 export type OrderUpdateByMakerReason = MakerTriggerReason;
 

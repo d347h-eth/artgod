@@ -10,15 +10,15 @@ import type {
     QueueReplayBoundary,
 } from "../../domain/jobs.js";
 import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
+import type { QueueName } from "../../domain/queues.js";
 
 type MakerRecoveryDependencies = {
     store: MakerRevalidationStore;
-    consumerName: string;
     isPublicationPending(
         publication: QueuePublication,
-        consumerName: string,
+        queueName: QueueName,
     ): Promise<boolean>;
-    replayBoundary(consumerName: string): Promise<QueueReplayBoundary>;
+    replayBoundaries(): Promise<QueueReplayBoundary[]>;
 };
 
 /** Checks execution evidence as well as outbox status; sent does not mean completed. */
@@ -35,9 +35,10 @@ export async function recoverMakerRevalidations(
             if (wakeup.outboxStatus === QUEUE_OUTBOX_STATUS.Sent) {
                 needed =
                     !wakeup.publication ||
+                    !wakeup.queueName ||
                     !(await deps.isPublicationPending(
                         wakeup.publication,
-                        deps.consumerName,
+                        wakeup.queueName,
                     ));
             }
             if (needed && deps.store.recoverWakeup(wakeup, now)) recovered++;
@@ -49,10 +50,8 @@ export async function recoverMakerRevalidations(
             });
         }
     }
-    deps.store.cleanup(
-        await deps.replayBoundary(deps.consumerName),
-        POLICY.cleanupRows,
-    );
+    for (const boundary of await deps.replayBoundaries())
+        deps.store.cleanup(boundary, POLICY.cleanupRows);
     return recovered;
 }
 

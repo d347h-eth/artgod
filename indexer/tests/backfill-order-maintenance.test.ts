@@ -128,6 +128,10 @@ describe("backfill order maintenance", () => {
         );
 
         const makerPayloads = orderUpdateByMakerPayloads(queue);
+        expect(queue.published.map(({ queue }) => queue)).toEqual([
+            QUEUE_NAMES.OrdersUpdateByToken,
+            QUEUE_NAMES.OrdersUpdateByMaker,
+        ]);
         expect(makerPayloads).toHaveLength(2);
         expect(makerPayloads[0]).toMatchObject({
             scope: MAKER_TRIGGER_SCOPE.Token,
@@ -258,7 +262,8 @@ function orderUpdateByMakerPayloads(
     return queue.published
         .filter(
             (entry) =>
-                entry.queue === QUEUE_NAMES.OrdersUpdateByMaker &&
+                (entry.queue === QUEUE_NAMES.OrdersUpdateByMaker ||
+                    entry.queue === QUEUE_NAMES.OrdersUpdateByToken) &&
                 entry.message.kind === ORDER_JOB_KIND.UpdateByMaker,
         )
         .map((entry) => entry.message.payload as OrderUpdateByMakerPayload);

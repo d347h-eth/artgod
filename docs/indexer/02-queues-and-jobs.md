@@ -17,7 +17,9 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `orders-domain`
 - `orders-upsert`
 - `order-updates-by-maker`
+- `order-updates-by-token`
 - `order-updates-by-id`
+- `order-lifecycle-updates`
 - `activity-upsert`
 - `collection-extension-artifacts`
 - `token-image-cache`
@@ -226,6 +228,21 @@ demand in their own transaction without another queue envelope. A separate
 bounded poller validates captured revisions/generations and resumes expired
 leases after restart. Explicit fill/cancel/source updates retain their domain
 handlers. See [coalesced validation](07-domain-orders.md#coalesced-ordinary-validation).
+
+New token-scoped hints and their continuations use `order-updates-by-token`;
+collection/global sweeps use `order-updates-by-maker`. New explicit fill/cancel
+and OpenSea source observations use `order-lifecycle-updates`. Both legacy
+consumers remain active and accept their original mixed payloads. No queue reset
+or bulk republish is part of this upgrade.
+
+Lifecycle handling applies existing domain transitions without RPC. Broad maker,
+targeted token and ordinary-demand validation share FIFO admission with at most
+two active contexts per chain worker, preserving the previous aggregate capacity.
+Each consumer/poller is single-flight. SQLite transactions remain synchronous
+and short; no transaction is held while waiting for RPC or an admission permit.
+Unknown order job kinds/reasons fail visibly through normal retry/DLQ handling.
+The new routes protect newly produced work; they do not let an old buried fill
+jump ahead of its legacy consumer's durable cursor.
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`
