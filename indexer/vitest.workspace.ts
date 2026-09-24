@@ -7,6 +7,7 @@ const dbBackedTests = [
     "tests/offchain-dispatch.test.ts",
     "tests/orders-raw-source.test.ts",
     "tests/orders-update-by-maker.test.ts",
+    "tests/orders-heavy-maker.test.ts",
 ];
 
 export default defineWorkspace([

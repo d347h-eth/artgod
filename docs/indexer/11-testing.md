@@ -145,6 +145,27 @@ release that changes the OpenSea dependency or adapter contract still needs a
 credentialed live integration check; those observations must not be promoted
 into ordering guarantees without an upstream contract.
 
+## Heavy-maker Order Workload
+
+`tests/orders-heavy-maker.test.ts` seeds a migrated disposable database with
+9,339 synthetic WETH bids across two collections, a small maker, and a sold
+token. It exercises the real candidate queries, validator and result writes
+with deterministic fake RPC replies. The fixture generates one order at a time;
+it does not copy a production orderbook or access an RPC endpoint.
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/orders-heavy-maker.test.ts
+```
+
+The baseline reports contract reads by purpose, virtual wire time (10 ms/read),
+local validation time and remaining SQLite/orchestration time. It verifies that
+the original serial handler finishes the entire maker before following token
+work, and replays the first page after interruption. Compare later changes on
+the same fixture and virtual latency; wall time is local synthetic evidence,
+not a live recovery ETA. Queue depth and useful validation count are separate
+measurements. No inspector extension is needed for this offline baseline.
+
 ## OpenSea Reconciliation Regression
 
 `tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to
