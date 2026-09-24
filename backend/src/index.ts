@@ -46,6 +46,9 @@ import {
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetCollectionTraitCatalogUseCase } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
+import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
+import { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
 import {
     GetTokenPreviewUseCase,
     type GetTokenPreviewPort,
@@ -450,6 +453,16 @@ export function createBackendApp(
         extensionAwareCollectionCustomization,
         backendObservability.apm,
     );
+    const getPriceHistoryUseCase = new GetPriceHistoryUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        new SqlitePriceHistoryRead([
+            ZERO_ADDRESS,
+            config.wethAddress,
+            ...(config.defaultChainId === 1 ? [BLUR_BETH_ADDRESS] : []),
+        ]),
+    );
     const getCollectionTraitCatalogUseCase =
         new GetCollectionTraitCatalogUseCase(
             config.defaultChainId,
@@ -731,6 +744,7 @@ export function createBackendApp(
         getCollectionTraitCatalogUseCase,
         collectionDetail.port,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
         getTokenDetailUseCase,
         tokenPreview.port,
         getTokenUriUseCase,

@@ -4,6 +4,27 @@ This document captures the current onchain fill-decoding rules for ArtGod. It ex
 
 The indexer should treat chain/protocol facts as the source of truth at the raw `fills` layer. Product-facing summaries can collapse or relabel those facts later, but the decoder should avoid mutating one protocol event with values from another protocol event.
 
+## Single-token price eligibility
+
+`fills.price_nft_count` records the NFT quantity covered by the quoted price.
+Seaport counts NFT units on both sides of the original execution event before
+filtering to tracked contracts or collection token ranges. A bundle retains its
+gross price on every attributed fill and a count greater than one, including
+when only one of its NFTs is tracked. Blur V2 quotes a token-specific listing
+price for each exchange, including exchanges within batch calls.
+
+The realized-price PoC includes only quantity-one fills with a verified price
+count of one. Legacy Blur V2 rows remain eligible because their existing decoder
+already has that price contract. Legacy Seaport rows with a NULL count are
+excluded: persisted sibling rows alone cannot rule out an untracked bundle NFT.
+An explicit replay enriches the count on existing fill identities; no automatic
+receipt fetching or historical replay is introduced. Reorg rollback removes the
+fill and its eligibility metadata together.
+
+The chart read contract maps ETH, configured WETH, and Ethereum BETH 1:1 to ETH
+and discards original currency identity. Raw protocol fills retain their currency
+for other consumers. Price queries never allocate bundle prices.
+
 Primary files:
 
 - `indexer/src/application/fills/seaport.ts`

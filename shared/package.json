@@ -109,6 +109,8 @@
         "./database/current-asks": "./database/current-asks.ts",
         "./database/storage-policy": "./database/storage-policy.ts",
         "./market-data/orders": "./market-data/orders.ts",
+        "./market-data/fills": "./market-data/fills.ts",
+        "./types/price-history": "./types/price-history.ts",
         "./market-data/recovery-runtime": "./market-data/recovery-runtime.json",
         "./market-data/storage-policy": "./market-data/storage-policy.ts",
         "./migrations": "./database/migrations.ts",

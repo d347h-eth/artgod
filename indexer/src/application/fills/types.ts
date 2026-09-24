@@ -11,6 +11,8 @@ export type DecodedFillEvent = {
     amount?: string;
     price?: string;
     currency?: string;
+    // Includes untracked NFTs sharing the quoted execution price.
+    priceNftCount?: string;
     blockNumber: number;
     blockHash: string;
     txHash: string;

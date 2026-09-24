@@ -7,6 +7,8 @@ import {
 import type { EnhancedTransaction } from "../../domain/onchain.js";
 import type { Hex, RpcLog } from "../../ports/rpc.js";
 import type { DecodedFillEvent, OrderSide } from "./types.js";
+import { BLUR_BETH_ADDRESS, FILL_KIND } from "@artgod/shared/market-data/fills";
+export { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
 
 type BlurOrder = {
     trader: Hex;
@@ -68,8 +70,6 @@ export const BLUR_EXCHANGE_V2_ADDRESSES = new Set(
         address.toLowerCase(),
     ),
 );
-
-export const BLUR_BETH_ADDRESS = "0x0000000000a39bb272e79075ade125fd351887ac";
 
 const BLUR_EXCHANGE_V2_ABI = [
     {
@@ -287,7 +287,7 @@ function toBlurFill(
 
     return [
         {
-            kind: "blur-v2",
+            kind: FILL_KIND.BlurV2,
             orderSide: input.orderSide,
             maker: input.order.trader.toLowerCase(),
             taker: input.taker,
@@ -295,6 +295,8 @@ function toBlurFill(
             tokenId,
             amount: input.exchange.taker.amount.toString(),
             price: input.exchange.listing.price.toString(),
+            // Blur V2 listing.price is specific to this token, also in batch calls.
+            priceNftCount: "1",
             currency: input.currency,
             blockNumber: tx.blockNumber,
             blockHash: tx.blockHash,

@@ -183,11 +183,16 @@ export class SqliteStorage
             number,
             string,
             number,
+            string | null,
         ]
     >(
-        "INSERT OR IGNORE INTO fills " +
-            "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO fills " +
+            "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index, price_nft_count) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            // An explicit replay can enrich legacy rows without replacing their identity.
+            "ON CONFLICT(chain_id, tx_hash, log_index, collection_id, token_id, kind) " +
+            "DO UPDATE SET price_nft_count = excluded.price_nft_count " +
+            "WHERE excluded.price_nft_count IS NOT NULL AND fills.price_nft_count IS NOT excluded.price_nft_count",
     );
     private insertCollectionExtensionEvent = db.prepare<{
         chainId: number;
@@ -736,6 +741,7 @@ export class SqliteStorage
                 blockTimestamp,
                 fill.txHash,
                 fill.logIndex,
+                fill.priceNftCount ?? null,
             );
         }
     }
