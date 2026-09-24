@@ -322,8 +322,11 @@ without treating the scheduling wait as an execution failure.
 Restart reacquires a fresh RPC snapshot and resumes after the last committed
 cursor. Completion before ACK is recognizable on redelivery. Completed receipts
 are deleted in bounded batches only when the matching stream incarnation and
-consumer ACK floor prove the recorded delivery cannot be replayed by that
-consumer. Coalesced live-scope coverage remains while that scope has candidate
+every contributing consumer's ACK floor prove its deliveries cannot be replayed.
+One high-water receipt per consumer records that proof; a newer delivery clears
+its acknowledgement proof. Legacy inline origins migrate lazily when touched.
+Consumer proofs advance independently from rotating scope cleanup, so disjoint
+pages cannot starve acknowledgement bookkeeping. Coalesced live-scope coverage remains while that scope has candidate
 orders; a bounded rotating cleanup checks both empty scope and replay boundary.
 Missing broker origin does not expire by time. Fresh publications after receipt
 cleanup are new admissions; they never skip current validation.

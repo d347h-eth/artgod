@@ -706,6 +706,110 @@ describe("durable maker checkpoints", () => {
         expect(work.store.cleanup({ ...origin, ackFloor: 10 }, 1)).toBe(1);
     });
 
+    it("requires every contributing consumer ACK floor and invalidates proof for a newer delivery", async () => {
+        seedHeavyMaker(0);
+        const work = workflow();
+        await work.processor.execute(request);
+        const other = {
+            ...origin,
+            consumerName: "targeted-fixture",
+            sequence: 20,
+        };
+        await work.processor.execute({ ...request, origin: other });
+        expect(
+            work.store.cleanup(
+                {
+                    streamId: origin.streamId,
+                    consumerName: origin.consumerName,
+                    ackFloor: 10,
+                },
+                100,
+            ),
+        ).toBe(0);
+        expect(
+            work.store.cleanup(
+                {
+                    streamId: other.streamId,
+                    consumerName: other.consumerName,
+                    ackFloor: 19,
+                },
+                100,
+            ),
+        ).toBe(0);
+        await work.processor.execute({
+            ...request,
+            origin: { ...origin, sequence: 11 },
+        });
+        expect(
+            work.store.cleanup(
+                {
+                    streamId: other.streamId,
+                    consumerName: other.consumerName,
+                    ackFloor: 20,
+                },
+                100,
+            ),
+        ).toBe(0);
+        expect(
+            work.store.cleanup(
+                {
+                    streamId: origin.streamId,
+                    consumerName: origin.consumerName,
+                    ackFloor: 11,
+                },
+                100,
+            ),
+        ).toBe(1);
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM maker_validation_delivery_origins",
+                )
+                .get(),
+        ).toEqual({ count: 0 });
+    });
+
+    it("advances independent consumer proofs even when bounded cleanup scans different pages", async () => {
+        seedHeavyMaker(0);
+        const work = workflow();
+        const second = {
+            ...origin,
+            consumerName: "second-consumer",
+            sequence: 30,
+        };
+        for (let i = 0; i < 4; i++) {
+            const input = { ...request, jobId: `origins-${i}` };
+            await work.processor.execute(input);
+            await work.processor.execute({ ...input, origin: second });
+        }
+        for (let round = 0; round < 8; round++) {
+            vi.mocked(Date.now).mockReturnValue(now + round);
+            work.store.cleanup(
+                {
+                    streamId: origin.streamId,
+                    consumerName: origin.consumerName,
+                    ackFloor: 100,
+                },
+                1,
+            );
+            work.store.cleanup(
+                {
+                    streamId: second.streamId,
+                    consumerName: second.consumerName,
+                    ackFloor: 100,
+                },
+                1,
+            );
+        }
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                )
+                .get(),
+        ).toEqual({ count: 0 });
+    });
+
     it("fences an expired executor and defers duplicate delivery without advancing progress", async () => {
         seedHeavyMaker(3);
         const work = workflow();

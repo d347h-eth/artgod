@@ -135,6 +135,10 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
 
     private recordOrigin(runId: string, origin?: QueueDeliveryOrigin): void {
         if (!origin) return;
+        this.retainLegacyOrigin(runId);
+        db.prepare(
+            "INSERT INTO maker_validation_delivery_origins (run_id,consumer_name,stream_id,maximum_sequence) VALUES (?,?,?,?) ON CONFLICT(run_id,consumer_name) DO UPDATE SET acknowledged=CASE WHEN stream_id=excluded.stream_id AND maximum_sequence>=excluded.maximum_sequence THEN acknowledged ELSE 0 END,maximum_sequence=CASE WHEN stream_id=excluded.stream_id THEN MAX(maximum_sequence,excluded.maximum_sequence) ELSE excluded.maximum_sequence END,stream_id=excluded.stream_id",
+        ).run(runId, origin.consumerName, origin.streamId, origin.sequence);
         db.prepare(
             "UPDATE maker_order_revalidation_runs SET origin_sequence=CASE WHEN origin_stream_id=? AND origin_consumer=? THEN MAX(COALESCE(origin_sequence,0),?) ELSE ? END,origin_stream_id=?,origin_consumer=? WHERE run_id=?",
         ).run(
@@ -146,6 +150,12 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
             origin.consumerName,
             runId,
         );
+    }
+
+    private retainLegacyOrigin(runId: string): void {
+        db.prepare(
+            "INSERT INTO maker_validation_delivery_origins (run_id,consumer_name,stream_id,maximum_sequence) SELECT run_id,origin_consumer,origin_stream_id,origin_sequence FROM maker_order_revalidation_runs WHERE run_id=? AND origin_consumer IS NOT NULL AND origin_stream_id IS NOT NULL AND origin_sequence IS NOT NULL ON CONFLICT(run_id,consumer_name) DO NOTHING",
+        ).run(runId);
     }
 
     claim(
@@ -374,29 +384,53 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
     cleanup(boundary: QueueReplayBoundary, limit: number): number {
         // A missing origin or a different broker incarnation is never age-expired.
         return db.writeTransaction(() => {
+            // Advance each consumer's proof independently of the rotating scope scan.
+            // Otherwise alternating consumers can repeatedly inspect disjoint pages.
+            db.prepare(
+                "UPDATE maker_validation_delivery_origins SET acknowledged=1 WHERE (run_id,consumer_name) IN (SELECT run_id,consumer_name FROM maker_validation_delivery_origins WHERE consumer_name=? AND stream_id=? AND maximum_sequence<=? AND acknowledged=0 ORDER BY maximum_sequence LIMIT ?)",
+            ).run(
+                boundary.consumerName,
+                boundary.streamId,
+                boundary.ackFloor,
+                limit,
+            );
             const rows = db
                 .prepare(
                     SELECT_RUN +
-                        "WHERE status=? AND origin_stream_id=? AND origin_consumer=? AND origin_sequence<=? ORDER BY recovery_checked_at,origin_sequence LIMIT ?",
+                        "WHERE status=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
                 )
-                .all(
-                    STATUS.Completed,
-                    boundary.streamId,
-                    boundary.consumerName,
-                    boundary.ackFloor,
-                    limit,
-                ) as RunRow[];
+                .all(STATUS.Completed, limit) as RunRow[];
             let removed = 0;
             for (const row of rows) {
                 const run = mapRun(row);
+                this.retainLegacyOrigin(run.runId);
+                db.prepare(
+                    "UPDATE maker_validation_delivery_origins SET acknowledged=1 WHERE run_id=? AND consumer_name=? AND stream_id=? AND maximum_sequence<=? AND acknowledged=0",
+                ).run(
+                    run.runId,
+                    boundary.consumerName,
+                    boundary.streamId,
+                    boundary.ackFloor,
+                );
+                const origins = db
+                    .prepare(
+                        "SELECT COUNT(*) AS count,SUM(acknowledged) AS acknowledged FROM maker_validation_delivery_origins WHERE run_id=?",
+                    )
+                    .get(run.runId) as {
+                    count: number;
+                    acknowledged: number | null;
+                };
+                const replaySafe =
+                    origins.count > 0 && origins.acknowledged === origins.count;
                 if (
-                    run.scopeKey !== null &&
-                    this.orders.selectMakerCandidates(
-                        run.payload,
-                        "",
-                        this.orders.captureMakerPass(),
-                        1,
-                    ).length
+                    !replaySafe ||
+                    (run.scopeKey !== null &&
+                        this.orders.selectMakerCandidates(
+                            run.payload,
+                            "",
+                            this.orders.captureMakerPass(),
+                            1,
+                        ).length)
                 ) {
                     // A live scope's compact coverage proof survives individual delivery ACKs.
                     db.prepare(
