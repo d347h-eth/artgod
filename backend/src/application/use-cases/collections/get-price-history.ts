@@ -26,7 +26,7 @@ export type GetPriceHistoryPort = {
     getPriceHistory(input: GetPriceHistoryInput): PriceHistory;
 };
 export type PriceHistoryReadPort = {
-    // Only verified single-NFT ETH-equivalent fills, with original currency discarded.
+    // Only verified single-NFT ETH-equivalent fills, retaining execution currency.
     // The iterator bounds allocations and includes one extra row to detect overflow.
     iterateSingleTokenSales(input: {
         chainId: number;

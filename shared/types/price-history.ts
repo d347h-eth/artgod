@@ -31,7 +31,14 @@ export const PRICE_HISTORY_LIMITS = {
     fills: 100_000,
     buckets: 30_000,
 } as const;
-export const PRICE_HISTORY_UNIT = "ETH";
+export const PRICE_HISTORY_CURRENCY_SYMBOL = {
+    Eth: "ETH",
+    Weth: "WETH",
+    Beth: "BETH",
+} as const;
+export type PriceHistoryCurrencySymbol =
+    (typeof PRICE_HISTORY_CURRENCY_SYMBOL)[keyof typeof PRICE_HISTORY_CURRENCY_SYMBOL];
+export const PRICE_HISTORY_UNIT = PRICE_HISTORY_CURRENCY_SYMBOL.Eth;
 
 export type PriceHistoryRequest = {
     bucket: PriceHistoryBucket;
@@ -39,12 +46,14 @@ export type PriceHistoryRequest = {
     tokenId?: string;
 };
 // Exact base-unit prices survive transport; only the renderer converts to floats.
-// Source ETH/WETH/BETH identity is intentionally absent from this read contract.
+// Sales retain their execution currency; aggregate prices use the 1:1 ETH unit.
 export type RealizedSale = {
     id: string;
     timestamp: number;
     tokenId: string;
     priceWei: string;
+    currencyAddress: string;
+    currencySymbol: PriceHistoryCurrencySymbol;
     txHash: string;
 };
 export type RealizedPriceBucket = {

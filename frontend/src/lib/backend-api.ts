@@ -82,6 +82,11 @@ import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
 import {
+	buildPriceHistoryPath,
+	type PriceHistoryRequest,
+	type PriceHistory
+} from '@artgod/shared/types/price-history';
+import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingBidBookOwnStateFilter,
@@ -145,6 +150,18 @@ export class BackendApiError extends Error {
 
 export async function getDefaultChain(fetchFn: typeof fetch): Promise<DefaultChainResponse> {
 	return requestJson<DefaultChainResponse>(fetchFn, RUNTIME_API_ROUTES.DefaultChain);
+}
+
+export async function getPriceHistory(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	input: PriceHistoryRequest,
+	signal?: AbortSignal
+): Promise<PriceHistory> {
+	return requestJson<PriceHistory>(fetchFn, buildPriceHistoryPath(chainRef, collectionRef, input), {
+		signal
+	});
 }
 
 export async function getRuntimeConfig(fetchFn: typeof fetch): Promise<RuntimeConfigApiResponse> {
@@ -1011,6 +1028,7 @@ async function requestJsonResponse<T>(
 		try {
 			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`, init, output);
 		} catch (cause) {
+			if (init?.signal?.aborted) throw cause;
 			const mapped = toBackendApiError(cause);
 			if (output || !isRetryableStartupError(mapped) || Date.now() >= deadline) {
 				throw mapped;

@@ -30,7 +30,8 @@ paths:
             operationId: getPriceHistory
             description: |
                 Reads locally stored fills and aggregates in memory. ETH, WETH,
-                and BETH are equivalent display units; original currency is omitted.
+                and BETH map 1:1 to ETH for aggregation; each sale retains its
+                original currency address and symbol.
                 Bundles, quantities other than one, and unknown legacy Seaport
                 executions are excluded. Empty UTC buckets are omitted.
                 Requests over 100000 eligible fills or 30000 buckets return 400.
@@ -2431,12 +2432,16 @@ components:
                     type: array
                     items:
                         type: object
-                        required: [id, timestamp, tokenId, priceWei, txHash]
+                        required: [id, timestamp, tokenId, priceWei, currencyAddress, currencySymbol, txHash]
                         properties:
                             id: { type: string }
                             timestamp: { type: integer }
                             tokenId: { type: string }
                             priceWei: { type: string }
+                            currencyAddress:
+                                type: string
+                                description: Original execution currency address; zero address for ETH
+                            currencySymbol: { type: string, enum: [ETH, WETH, BETH] }
                             txHash: { type: string }
                 buckets:
                     type: array

@@ -22,8 +22,8 @@ receipt fetching or historical replay is introduced. Reorg rollback removes the
 fill and its eligibility metadata together.
 
 The chart read contract maps ETH, configured WETH, and Ethereum BETH 1:1 to ETH
-and discards original currency identity. Raw protocol fills retain their currency
-for other consumers. Price queries never allocate bundle prices.
+for aggregation and rendering, while retaining the original currency address
+and symbol on every sale. Price queries never allocate bundle prices.
 
 Primary files:
 

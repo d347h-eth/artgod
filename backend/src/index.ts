@@ -49,6 +49,7 @@ import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-t
 import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
 import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
 import { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
+import { PRICE_HISTORY_CURRENCY_SYMBOL } from "@artgod/shared/types/price-history";
 import {
     GetTokenPreviewUseCase,
     type GetTokenPreviewPort,
@@ -458,9 +459,22 @@ export function createBackendApp(
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         new SqlitePriceHistoryRead([
-            ZERO_ADDRESS,
-            config.wethAddress,
-            ...(config.defaultChainId === 1 ? [BLUR_BETH_ADDRESS] : []),
+            {
+                address: ZERO_ADDRESS,
+                symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Eth,
+            },
+            {
+                address: config.wethAddress,
+                symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
+            },
+            ...(config.defaultChainId === 1
+                ? [
+                      {
+                          address: BLUR_BETH_ADDRESS,
+                          symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Beth,
+                      },
+                  ]
+                : []),
         ]),
     );
     const getCollectionTraitCatalogUseCase =
