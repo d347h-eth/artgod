@@ -166,6 +166,15 @@ the same fixture and virtual latency; wall time is local synthetic evidence,
 not a live recovery ETA. Queue depth and useful validation count are separate
 measurements. No inspector extension is needed for this offline baseline.
 
+The same migrated workload also exercises bounded WETH snapshots: with 100
+orders per context, 94 contexts perform 9,339 order-status reads and 282 shared
+wallet reads. `tests/seaport-validation-batch.test.ts` covers scope isolation,
+in-flight sharing, early/terminal decisions, changing balances, count/time
+bounds, RPC failures, stale heads and branch changes. Database interleavings
+verify that failed contexts leave prior state intact and newer source/anchor
+changes win. The RPC adapter test checks that canonicality reads bypass its
+general block cache. These are deterministic local proofs, not native QA.
+
 ## OpenSea Reconciliation Regression
 
 `tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to

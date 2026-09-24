@@ -50,6 +50,11 @@ import type {
     OrderStatus,
 } from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
+import type {
+    MakerValidationBatch,
+    MakerValidationBatchFactory,
+    OrderValidator,
+} from "../../ports/order-validation.js";
 import {
     ORDER_UPDATE_BY_MAKER_LOG_CONTEXT,
     ORDER_UPDATE_BY_MAKER_LOG_MESSAGE,
@@ -96,9 +101,7 @@ type CollectionAnchorRow = {
     bootstrap_anchor_block: number | null;
 };
 
-type SeaportOrderValidator = (
-    order: OrderRecord,
-) => Promise<{ status: OrderStatus; reason: string }>;
+type SeaportOrderValidator = OrderValidator;
 
 type OrderIdentityParams = {
     chainId: number;
@@ -327,6 +330,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         validateOrder: SeaportOrderValidator,
         private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
         private readonly nowSeconds = () => Math.floor(Date.now() / 1000),
+        private readonly createValidationBatch?: MakerValidationBatchFactory,
     ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
@@ -411,18 +415,58 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         let validatedOrders = 0;
         let lastProgressLogAt = startedAt;
         const validationSummary = createValidationSummary();
+        let batch: MakerValidationBatch | undefined;
+        let pending: Array<{ row: OrderRow; status: OrderStatus }> = [];
+        const flush = async () => {
+            if (!batch) return;
+            // No transaction or pinned SQLite reader spans these remote checks.
+            await batch.finish();
+            updated += db.writeTransaction(() => {
+                let changes = 0;
+                for (const result of pending) {
+                    if (
+                        this.canMutateCurrentStateForCollection(
+                            payload.chainId,
+                            result.row.collection_id,
+                            payload.blockNumber,
+                        )
+                    ) {
+                        changes += this.applyValidation(
+                            result.row,
+                            result.status,
+                        ).changes;
+                    }
+                }
+                return changes;
+            })();
+            pending = [];
+            batch = undefined;
+        };
         for (let index = 0; index < rows.length; index += 1) {
             const row = rows[index]!;
+            const useBatch =
+                this.createValidationBatch &&
+                row.side === "buy" &&
+                row.currency?.toLowerCase() === this.wethAddress;
+            if (batch && (!useBatch || !batch.canAccept())) await flush();
+            if (useBatch && !batch) {
+                batch = await this.createValidationBatch!({
+                    chainId: payload.chainId,
+                    minimumBlock: payload.blockNumber ?? null,
+                });
+            }
             const validation = await this.revalidateSeaportOrderWithReporting(
                 row,
                 logContext,
                 index + 1,
                 rows.length,
                 startedAt,
+                batch?.validate,
             );
-            const result = this.applyValidation(row, validation.status);
+            if (batch) pending.push({ row, status: validation.status });
+            else
+                updated += this.applyValidation(row, validation.status).changes;
             validatedOrders += 1;
-            updated += result.changes;
             recordValidation(validationSummary, row, validation);
 
             const now = Date.now();
@@ -445,6 +489,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 });
             }
         }
+        await flush();
 
         logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
             ...logContext,
@@ -1072,6 +1117,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         orderPosition: number,
         orderCount: number,
         jobStartedAt: number,
+        validate: OrderValidator = this.validateOrder,
     ): Promise<TimedOrderValidation> {
         const startedAt = Date.now();
         const slowTimer = setInterval(() => {
@@ -1094,7 +1140,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         unrefTimer(slowTimer);
 
         try {
-            const validation = await this.revalidateSeaportOrder(row);
+            const validation = await validate(mapOrderRow(row));
             return {
                 ...validation,
                 durationMs: Date.now() - startedAt,

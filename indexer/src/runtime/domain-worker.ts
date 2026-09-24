@@ -64,6 +64,7 @@ import {
 } from "../infra/rpc/observability.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
+import { createSeaportValidationBatchFactory } from "../application/offchain/seaport-validation-batch.js";
 import type { MetadataUpdatedToken } from "../domain/metadata.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { QueuePort } from "../ports/queue.js";
@@ -122,6 +123,14 @@ async function main() {
             config.tokens.wethAddress,
             validateOrder,
             config.debugPayloads,
+            undefined,
+            createSeaportValidationBatchFactory({
+                chainId: config.chainId,
+                wethAddress: config.tokens.wethAddress,
+                rpc,
+                conduits,
+                conduitController: config.seaport.conduitController,
+            }),
         );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,

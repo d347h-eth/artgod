@@ -12,6 +12,8 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { validateSeaportOrder } from "../src/application/offchain/seaport-validate.js";
+import { createSeaportValidationBatchFactory } from "../src/application/offchain/seaport-validation-batch.js";
+import { ORDER_VALIDATION_BATCH_POLICY } from "../src/domain/order-validation-policy.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import {
     ORDER_SOURCE_STATUS,
@@ -41,6 +43,132 @@ describe("heavy-maker workload", () => {
         db.exec("DELETE FROM orders; DELETE FROM collections;");
     });
     afterEach(() => vi.restoreAllMocks());
+
+    function batchedDomain(rpc: HeavyMakerRpc) {
+        return new SqliteOrdersDomain(
+            HEAVY_MAKER.weth,
+            (order) =>
+                validateSeaportOrder(
+                    rpc,
+                    warmConduits,
+                    { conduitController: HEAVY_MAKER.controller },
+                    order,
+                ),
+            undefined,
+            undefined,
+            createSeaportValidationBatchFactory({
+                chainId: HEAVY_MAKER.chainId,
+                wethAddress: HEAVY_MAKER.weth,
+                rpc,
+                conduits: warmConduits,
+                conduitController: HEAVY_MAKER.controller,
+            }),
+        );
+    }
+
+    it("shares wallet reads across bounded contexts for the full migrated workload", async () => {
+        seedHeavyMaker();
+        const rpc = new HeavyMakerRpc();
+        const start = performance.now();
+        await batchedDomain(rpc).handleOrderUpdateByMaker(heavyMakerHint());
+        const contexts = Math.ceil(
+            HEAVY_MAKER.count / ORDER_VALIDATION_BATCH_POLICY.maxOrders,
+        );
+        expect(rpc.reads).toEqual({
+            getOrderStatus: HEAVY_MAKER.count,
+            getCounter: contexts,
+            allowance: contexts,
+            balanceOf: contexts,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM orders WHERE validated_at>0 AND fillability_status=?",
+                )
+                .get(ORDER_STATUS.Fillable),
+        ).toEqual({ count: HEAVY_MAKER.count });
+        process.stdout.write(
+            JSON.stringify({
+                scenario: "heavy-maker-batched-fake-rpc",
+                contexts,
+                contractReads: Object.values(rpc.reads).reduce(
+                    (a, b) => a + b,
+                    0,
+                ),
+                syntheticRpcMs: rpc.virtualMs,
+                makerMs: Math.round(performance.now() - start),
+            }) + "\n",
+        );
+    }, 60_000);
+
+    it.each(["rpc", "reorg"])(
+        "does not persist a partial batch when %s invalidates its snapshot",
+        async (fault) => {
+            seedHeavyMaker(3);
+            vi.spyOn(logger, "error").mockImplementation(() => {});
+            const rpc = new HeavyMakerRpc();
+            rpc.onRead = ({ functionName }) => {
+                if (functionName !== "balanceOf") return;
+                if (fault === "rpc") throw new Error("unavailable");
+                rpc.blockHash = `0x${"cd".repeat(32)}`;
+            };
+            await expect(
+                batchedDomain(rpc).handleOrderUpdateByMaker(heavyMakerHint()),
+            ).rejects.toThrow();
+            expect(
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS count FROM orders WHERE validated_at>0 OR fillability_status<>?",
+                    )
+                    .get(ORDER_STATUS.Fillable),
+            ).toEqual({ count: 0 });
+        },
+    );
+
+    it("does not overwrite a source cancellation or a changed bootstrap anchor during RPC", async () => {
+        seedHeavyMaker(3);
+        const first = db
+            .prepare("SELECT id FROM orders WHERE maker=? ORDER BY id LIMIT 1")
+            .get(HEAVY_MAKER.maker) as { id: string };
+        const rpc = new HeavyMakerRpc();
+        const domain = batchedDomain(rpc);
+        rpc.balance = 0n;
+        rpc.onRead = async ({ functionName }) => {
+            if (functionName === "balanceOf")
+                await domain.handleOrderUpdateById({
+                    chainId: HEAVY_MAKER.chainId,
+                    orderId: first.id,
+                    reason: "cancel",
+                    sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                    observedAt: HEAVY_MAKER.now,
+                });
+        };
+        await domain.handleOrderUpdateByMaker(heavyMakerHint());
+        expect(
+            db
+                .prepare(
+                    "SELECT source_status,fillability_status FROM orders WHERE id=?",
+                )
+                .get(first.id),
+        ).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Cancelled,
+            fillability_status: ORDER_STATUS.Fillable,
+        });
+        rpc.balance = 10n ** 24n;
+        rpc.onRead = () => {
+            db.prepare("UPDATE collections SET bootstrap_anchor_block=?").run(
+                HEAVY_MAKER.blockNumber + 1,
+            );
+        };
+        await domain.handleOrderUpdateByMaker(heavyMakerHint());
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM orders WHERE maker=? AND fillability_status=?",
+                )
+                .get(HEAVY_MAKER.maker, ORDER_STATUS.NoBalance),
+        ).toEqual({ count: 2 });
+    });
 
     it("measures the whole-envelope baseline with 9,339 real validations and a sale behind it", async () => {
         const { small, sale } = seedHeavyMaker();

@@ -115,8 +115,13 @@ export class ViemRpcProvider implements RpcProviderPort {
         return toSafeNumber(value, "blockNumber");
     }
 
-    async getBlock(blockNumber: number): Promise<RpcBlock> {
-        const cached = this.cache?.get<RpcBlock>("block", String(blockNumber));
+    async getBlock(
+        blockNumber: number,
+        options?: { fresh: boolean },
+    ): Promise<RpcBlock> {
+        const cached = options?.fresh
+            ? undefined
+            : this.cache?.get<RpcBlock>("block", String(blockNumber));
         if (cached) return cached;
 
         const block = await this.executeRpc("getBlock", (client) =>

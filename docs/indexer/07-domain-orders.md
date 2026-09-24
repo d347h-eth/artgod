@@ -243,7 +243,29 @@ Current validation flow:
 7. Resolve conduit approvals via ConduitController + local conduit cache.
 8. Check sell-side ownership/approvals or buy-side balance/allowance.
 
-RPC-dependent validation steps are guarded with `try/catch`. Hard RPC/helper failures are logged and converted into `invalid`, not left to DLQ by default.
+Singleton RPC-dependent validation retains its existing `try/catch` behavior:
+hard RPC/helper failures are logged and converted into `invalid`.
+
+Maker WETH bids use `createSeaportValidationBatchFactory` through the injected
+`MakerValidationBatchFactory` port. Full validation remains per order, but
+counter, allowance and balance reads share successful/in-flight results within
+one chain snapshot. Keys include block identity, contract, function and arguments;
+allowances remain distinct by spender. Order status, terms, hash and optional
+signature checks are retained. Existing conduit-cache behavior is unchanged.
+
+`ORDER_VALIDATION_BATCH_POLICY` caps a context at 100 orders and stops admitting
+orders after five seconds. A context pins every contract read to a current block
+at least as recent as the trigger. Before committing the bounded results, the
+worker fetches that block afresh and checks its hash, the head, and lifetime:
+30 seconds maximum context lifetime, a block no more than 60 seconds old, and
+head advancement of at most two blocks. The next context starts afresh. RPC,
+stale-head and reorg failures discard the uncommitted context and retry the job;
+they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
+decisions still apply. Writes retain revision, active-source and bootstrap-anchor
+guards, with no SQLite transaction spanning RPC calls.
+
+This optimization does not yet release the maker consumer between contexts or
+persist its cursor. Non-WETH and singleton callers retain their current path.
 
 ## Source Scope and Token Sets
 

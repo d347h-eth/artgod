@@ -50,7 +50,10 @@ export type RpcLog = {
 
 export interface RpcProviderPort {
     getBlockNumber(): Promise<number>;
-    getBlock(blockNumber: number): Promise<RpcBlock>;
+    getBlock(
+        blockNumber: number,
+        options?: { fresh: boolean },
+    ): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
     getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;

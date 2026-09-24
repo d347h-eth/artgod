@@ -4,6 +4,7 @@ import {
     type ViemRpcClientFactory,
     ViemRpcProvider,
 } from "../src/infra/rpc/viem.js";
+import { InMemoryCache } from "../src/infra/cache/memory.js";
 
 const TEST_RETRY_POLICY = {
     maxAttempts: 2,
@@ -40,6 +41,33 @@ const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
 describe("ViemRpcProvider RPC resilience", () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it("bypasses the block cache for validation canonicality checks", async () => {
+        let hash = `0x${"ab".repeat(32)}`;
+        const getBlock = vi.fn(async () => ({
+            number: BigInt(TEST_BLOCK_NUMBER),
+            hash,
+            parentHash: hash,
+            timestamp: 1_790_208_000n,
+            transactions: [],
+        }));
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            cache: new InMemoryCache({ maxEntries: 2, ttlMs: 60_000 }),
+            createClient: () =>
+                ({ getBlock }) as unknown as ReturnType<ViemRpcClientFactory>,
+        });
+        const original = await provider.getBlock(TEST_BLOCK_NUMBER);
+        hash = `0x${"cd".repeat(32)}`;
+        expect(await provider.getBlock(TEST_BLOCK_NUMBER)).toEqual(original);
+        expect(
+            (await provider.getBlock(TEST_BLOCK_NUMBER, { fresh: true })).hash,
+        ).toBe(hash);
+        expect(getBlock).toHaveBeenCalledTimes(2);
     });
 
     it("retries failed reads through the next weighted endpoint", async () => {
