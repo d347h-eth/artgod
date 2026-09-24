@@ -148,8 +148,9 @@ it; this does not claim complete WETH event coverage.
 This schema/worker pair requires aligned runtime artifacts. An older binary does
 not drain the new demand table. Native downgrade is not qualified; use a stopped
 runtime and a paired pre-upgrade SQLite/NATS backup if rollback is required.
-Maker hint coalescing and shared admission between validation paths are separate
-increments; ordinary demand alone does not prove total backlog convergence.
+Maker hints use the separate scoped pass model below. Shared admission between
+validation paths is a later increment; ordinary demand alone does not prove total
+backlog convergence.
 
 ## Current-State Retention and Replay
 
@@ -279,8 +280,9 @@ Current validation flow:
 Singleton RPC-dependent validation retains its existing `try/catch` behavior:
 hard RPC/helper failures are logged and converted into `invalid`.
 
-Maker WETH bids use `createSeaportValidationBatchFactory` through the injected
-`MakerValidationBatchFactory` port. Full validation remains per order, but
+Runtime maker passes use `createSeaportOrderValidationFactory` through the injected
+snapshot port. The WETH-only batch factory remains for legacy callers and the
+original benchmark. Full validation remains per order, but
 counter, allowance and balance reads share successful/in-flight results within
 one chain snapshot. Keys include block identity, contract, function and arguments;
 allowances remain distinct by spender. Order status, terms, hash and optional
@@ -297,7 +299,8 @@ they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
 decisions still apply. Writes retain revision, active-source and bootstrap-anchor
 guards, with no SQLite transaction spanning RPC calls.
 
-Non-WETH and singleton validation retain their current RPC path.
+Runtime snapshots cover sell and non-WETH orders too, including pinned native
+balances. Standalone legacy callers retain their existing singleton path.
 
 ### Durable maker progress
 
@@ -306,8 +309,7 @@ the original job identity and broker delivery origin. An additive
 `maker_order_revalidation_runs` table owns the request, finite pass boundary,
 cursor, completed count, failures and lease/version fence. Candidate pages use
 the existing indexed queries; the initial maximum order ID and rowid exclude
-later admissions. New canonical orders retain their own validation follow-up;
-a later maker trigger starts its own pass, including orders behind an older cursor.
+later admissions. New canonical orders retain their own validation demand.
 
 Each bounded context commits its order effects and cursor in one SQLite write
 transaction. Removed, expired, source-terminal and anchor-ineligible candidates
@@ -321,8 +323,26 @@ Restart reacquires a fresh RPC snapshot and resumes after the last committed
 cursor. Completion before ACK is recognizable on redelivery. Completed receipts
 are deleted in bounded batches only when the matching stream incarnation and
 consumer ACK floor prove the recorded delivery cannot be replayed by that
-consumer. Missing broker origin does not expire by time. Fresh publications
-after receipt cleanup are new admissions; they never skip current validation.
+consumer. Coalesced live-scope coverage remains while that scope has candidate
+orders; a bounded rotating cleanup checks both empty scope and replay boundary.
+Missing broker origin does not expire by time. Fresh publications after receipt
+cleanup are new admissions; they never skip current validation.
+
+Trusted enqueue time enables coalescing into one scope record per chain, maker
+and selection: WETH bids, all Seaport orders, collection sells or exact-token
+sells. Chain-gated and unanchored hints remain separate because their bootstrap
+eligibility differs. Equivalent balance/allowance hints share full WETH validation.
+Original job IDs are preserved for replay attribution, never parsed for meaning.
+Requests without trusted enqueue time and pre-upgrade runs stay independent.
+
+Older hints covered by a pass's start time and minimum trigger block add no scan.
+Newer coverage records a generation while the current finite pass continues.
+At its final checkpoint, the transaction captures a new finite boundary, resets
+the cursor and commits one continuation for the entire follow-up pass. Changes
+behind the old cursor are revisited; many newer hints require only one pending
+follow-up. Block/hash disagreements conservatively require a fresh pass. A later
+request can reopen a completed scope through the same fenced state and one durable
+continuation, preserving bounded metadata across repeated observation buckets.
 
 Each delivery admits at most 100 candidates and five seconds of new validation
 work, then finishes its in-flight RPC under the provider timeout. The checkpoint

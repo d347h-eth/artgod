@@ -17,7 +17,7 @@ import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { OrderUpdateByMakerPayload } from "../src/domain/order-jobs.js";
-import { createSeaportValidationBatchFactory } from "../src/application/offchain/seaport-validation-batch.js";
+import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { validateSeaportOrder } from "../src/application/offchain/seaport-validate.js";
 import {
     MAKER_REVALIDATION_POLICY as POLICY,
@@ -25,6 +25,7 @@ import {
     MakerRevalidationConflict,
 } from "../src/domain/maker-revalidation.js";
 import { JobDeferred } from "../src/domain/job-deferred.js";
+import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
 import {
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
@@ -72,11 +73,8 @@ function workflow(
     const store = new SqliteMakerRevalidations(wrap ? wrap(orders) : orders);
     const processor = new RevalidateMakerOrders({
         store,
-        validateOrder,
-        wethAddress: HEAVY_MAKER.weth,
-        createValidationBatch: createSeaportValidationBatchFactory({
+        createSnapshot: createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
-            wethAddress: HEAVY_MAKER.weth,
             rpc,
             conduits: warmConduits,
             conduitController: HEAVY_MAKER.controller,
@@ -198,6 +196,214 @@ describe("durable maker checkpoints", () => {
         await work.stepProcessor.execute(request);
         expect(work.store.admit({ ...request, now }).resolvedOrders).toBe(1);
         expect(continuation(work).attempt).toBe(0);
+    });
+
+    it("coalesces compatible hints across delivery buckets and retains one live-scope proof after ACK", async () => {
+        seedHeavyMaker(250);
+        const work = workflow();
+        const input = { ...request, requiredAt: now - 1_000 };
+        await work.stepProcessor.execute(input);
+        for (let i = 0; i < 2_000; i++)
+            await work.stepProcessor.execute({
+                ...input,
+                jobId: `old-hint-${i}`,
+                requiredAt: now - 500,
+                payload: {
+                    ...heavyMakerHint(),
+                    reason: GLOBAL_MAKER_TRIGGER_REASON.ApprovalChange,
+                } as OrderUpdateByMakerPayload,
+                origin: { ...origin, sequence: origin.sequence + i + 1 },
+            });
+        expect(work.rpc.reads.getOrderStatus).toBe(100);
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                )
+                .get(),
+        ).toEqual({ count: 1 });
+        await work.processor.execute(input);
+        expect(work.rpc.reads.getOrderStatus).toBe(250);
+        expect(work.store.admit({ ...input, now })).toMatchObject({
+            generation: 1,
+            passGeneration: 1,
+            status: STATUS.Completed,
+        });
+        const boundary = {
+            streamId: origin.streamId,
+            consumerName: origin.consumerName,
+            ackFloor: 10_000,
+        };
+        expect(work.store.cleanup(boundary, 100)).toBe(0);
+        await work.stepProcessor.execute({
+            ...input,
+            jobId: "old-after-ACK",
+            origin: { ...origin, sequence: 3_000 },
+        });
+        expect(work.rpc.reads.getOrderStatus).toBe(250);
+        db.prepare("DELETE FROM orders WHERE maker=?").run(HEAVY_MAKER.maker);
+        expect(work.store.cleanup(boundary, 100)).toBe(1);
+    });
+
+    it("persists one complete follow-up for newer hints behind the cursor, including restart at the pass boundary", async () => {
+        seedHeavyMaker(205);
+        let work = workflow();
+        const input = { ...request, requiredAt: now - 1_000 };
+        await work.stepProcessor.execute(input);
+        const staleContinuation = continuation(work);
+        vi.mocked(Date.now).mockReturnValue(now + 1_000);
+        work.rpc.balance = 0n;
+        work.rpc.blockNumber = HEAVY_MAKER.blockNumber + 1;
+        const newer = {
+            ...input,
+            jobId: "newer-hint",
+            requiredAt: now + 1_000,
+            payload: {
+                ...heavyMakerHint(),
+                blockNumber: HEAVY_MAKER.blockNumber + 1,
+            },
+        };
+        for (let i = 0; i < 100; i++)
+            await work.stepProcessor.execute({
+                ...newer,
+                jobId: `newer-hint-${i}`,
+            });
+        expect(work.store.admit({ ...input, now: Date.now() })).toMatchObject({
+            generation: 2,
+            passGeneration: 1,
+            resolvedOrders: 100,
+        });
+        for (let step = 0; step < 2; step++) {
+            const job = continuation(work);
+            await work.stepProcessor.execute({
+                jobId: job.jobId,
+                payload: job.payload,
+                origin,
+            });
+        }
+        const boundary = work.store.admit({ ...input, now: Date.now() });
+        expect(boundary).toMatchObject({
+            status: STATUS.Pending,
+            passGeneration: 2,
+            afterId: "",
+            resolvedOrders: 205,
+        });
+        db.raw.close();
+        setDbPath(dbPath);
+        work = workflow();
+        work.rpc.balance = 0n;
+        work.rpc.blockNumber = HEAVY_MAKER.blockNumber + 1;
+        await work.stepProcessor.execute({
+            jobId: staleContinuation.jobId,
+            payload: staleContinuation.payload,
+            origin,
+        });
+        expect(work.rpc.reads.getOrderStatus).toBeUndefined();
+        await work.processor.execute(input);
+        expect(work.rpc.reads.getOrderStatus).toBe(205);
+        expect(work.store.admit({ ...input, now: Date.now() })).toMatchObject({
+            status: STATUS.Completed,
+            generation: 2,
+            passGeneration: 2,
+            resolvedOrders: 410,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM orders WHERE maker=? AND fillability_status=?",
+                )
+                .get(HEAVY_MAKER.maker, ORDER_STATUS.NoBalance),
+        ).toEqual({ count: 205 });
+    });
+
+    it("reopens a completed scope through one durable continuation and fences prior steps", async () => {
+        seedHeavyMaker(50);
+        const work = workflow();
+        const input = { ...request, requiredAt: now - 1_000 };
+        await work.processor.execute(input);
+        const first = work.store.admit({ ...input, now });
+        vi.mocked(Date.now).mockReturnValue(now + 1_000);
+        await work.stepProcessor.execute({
+            ...input,
+            jobId: "fresh-hint",
+            requiredAt: now + 1_000,
+        });
+        const next = work.store.get(first.runId)!;
+        expect(next).toMatchObject({
+            status: STATUS.Pending,
+            generation: 2,
+            passGeneration: 2,
+        });
+        expect(next.step).toBeGreaterThan(first.step);
+        expect(next.wakeupOutboxId).not.toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                )
+                .get(),
+        ).toEqual({ count: 1 });
+        await work.processor.execute(input);
+        expect(work.rpc.reads.getOrderStatus).toBe(100);
+        expect(work.store.get(first.runId)?.status).toBe(STATUS.Completed);
+    });
+
+    it("keeps chain, maker, selector and bootstrap-gating modes separate, with conservative legacy runs", () => {
+        seedHeavyMaker(1);
+        const work = workflow();
+        const admit = (
+            jobId: string,
+            payload: OrderUpdateByMakerPayload,
+            requiredAt: number | undefined = now,
+        ) => work.store.admit({ jobId, payload, requiredAt, now });
+        const base = admit("base", heavyMakerHint());
+        expect(
+            admit("allowance", {
+                ...heavyMakerHint(),
+                reason: GLOBAL_MAKER_TRIGGER_REASON.ApprovalChange,
+            } as OrderUpdateByMakerPayload).runId,
+        ).toBe(base.runId);
+        const separate = [
+            admit("counter", {
+                ...heavyMakerHint(),
+                reason: GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
+            } as OrderUpdateByMakerPayload),
+            admit("other-chain", { ...heavyMakerHint(), chainId: 2 }),
+            admit("other-maker", heavyMakerHint(HEAVY_MAKER.smallMaker)),
+            admit("unanchored", { ...heavyMakerHint(), blockNumber: null }),
+            work.store.admit({
+                jobId: "legacy-without-time",
+                payload: heavyMakerHint(),
+                now,
+            }),
+        ];
+        expect(
+            new Set([base.runId, ...separate.map((run) => run.runId)]).size,
+        ).toBe(6);
+    });
+
+    it("records newer demand while the first step is still in flight before an outbox exists", async () => {
+        seedHeavyMaker(50);
+        const work = workflow();
+        const input = { ...request, requiredAt: now - 1_000 };
+        work.rpc.onRead = async () => {
+            work.rpc.onRead = undefined;
+            vi.mocked(Date.now).mockReturnValue(now + 1);
+            await work.stepProcessor.execute({
+                ...input,
+                jobId: "during-first-step",
+                requiredAt: now + 1,
+            });
+        };
+        await work.stepProcessor.execute(input);
+        expect(work.store.admit({ ...input, now })).toMatchObject({
+            status: STATUS.Pending,
+            generation: 2,
+            passGeneration: 2,
+        });
+        vi.mocked(Date.now).mockReturnValue(now + 1);
+        await work.processor.execute(input);
+        expect(work.rpc.reads.getOrderStatus).toBe(100);
     });
 
     it("recovers publication exhaustion including publish-success followed by a failed sent write", async () => {

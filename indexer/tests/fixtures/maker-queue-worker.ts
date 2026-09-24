@@ -5,7 +5,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { RevalidateMakerOrders } from "../../src/application/orders/revalidate-maker.js";
 import { startMakerRevalidationRecovery } from "../../src/application/orders/recover-maker-revalidations.js";
-import { createSeaportValidationBatchFactory } from "../../src/application/offchain/seaport-validation-batch.js";
+import { createSeaportOrderValidationFactory } from "../../src/application/offchain/seaport-validation-batch.js";
 import { validateSeaportOrder } from "../../src/application/offchain/seaport-validate.js";
 import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drainer.js";
 import { runWorker } from "../../src/application/worker-runner.js";
@@ -70,11 +70,8 @@ const queue = await NatsJetStreamQueue.connect({
 const consumerName = "maker-healing-fixture";
 const processor = new RevalidateMakerOrders({
     store,
-    validateOrder,
-    wethAddress: HEAVY_MAKER.weth,
-    createValidationBatch: createSeaportValidationBatchFactory({
+    createSnapshot: createSeaportOrderValidationFactory({
         chainId: HEAVY_MAKER.chainId,
-        wethAddress: HEAVY_MAKER.weth,
         rpc,
         conduits: warmConduits,
         conduitController: HEAVY_MAKER.controller,
@@ -100,19 +97,22 @@ const stopWorker = await runWorker<OrderUpdateByMakerPayload>(
         await processor.execute({
             jobId: job.jobId,
             payload: job.payload,
+            requiredAt: job.scheduledAt,
             origin,
         });
         const rowCount = db
             .prepare("SELECT COUNT(*) AS count FROM queue_outbox")
             .get() as { count: number };
         maximumOutbox = Math.max(maximumOutbox, rowCount.count);
-        const run = job.payload.continuation
-            ? store.get(job.payload.continuation.runId)
-            : store.admit({
-                  jobId: job.jobId,
-                  payload: job.payload,
-                  now: Date.now(),
-              });
+        // Reporting must not admit a second independent run for a coalesced hint.
+        const identity =
+            job.payload.continuation ??
+            (db
+                .prepare(
+                    "SELECT run_id AS runId FROM maker_order_revalidation_runs WHERE chain_id=? AND source_job_id=?",
+                )
+                .get(job.chainId, job.jobId) as { runId: string } | undefined);
+        const run = identity ? store.get(identity.runId) : undefined;
         if (!run) return;
         if (run.status === MAKER_REVALIDATION_STATUS.Completed) {
             const heavy = db
@@ -127,6 +127,13 @@ const stopWorker = await runWorker<OrderUpdateByMakerPayload>(
                 reads: rpc.reads,
                 maximumAttempt,
                 maximumOutbox,
+                runRows: (
+                    db
+                        .prepare(
+                            "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                        )
+                        .get() as { count: number }
+                ).count,
             });
         }
     },

@@ -36,7 +36,7 @@ export const MAKER_REVALIDATION_STEP_END = {
     Completed: MAKER_REVALIDATION_STATUS.Completed,
     Count: "count_budget",
     Time: "time_budget",
-    Scope: "validation_scope",
+    Followup: "followup_generation",
 } as const;
 
 export type MakerPassBoundary = { upperOrderId: string; upperRowId: number };
@@ -55,8 +55,106 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     failures: number;
     wakeupOutboxId: number | null;
     wakeupGeneration: number;
+    scopeKey: string | null;
+    generation: number;
+    passGeneration: number;
+    passStartedAt: number;
+    requestedAt: number;
+    requestedPayload: OrderUpdateByMakerPayload;
     origin?: QueueDeliveryOrigin;
 };
+
+const MAKER_VALIDATION_SCOPE = {
+    WethBids: "weth-bids",
+    AllSeaport: "all-seaport",
+    TokenSells: "token-sells",
+    CollectionSells: "collection-sells",
+} as const;
+
+/** Only hints selecting the same orders and bootstrap-gating mode can share a pass. */
+export function makerValidationScopeKey(
+    input: OrderUpdateByMakerPayload,
+): string {
+    const payload = canonicalMakerRequest(input);
+    const kind =
+        payload.scope === MAKER_TRIGGER_SCOPE.Global
+            ? payload.reason === GLOBAL_MAKER_TRIGGER_REASON.OrderCounter
+                ? MAKER_VALIDATION_SCOPE.AllSeaport
+                : MAKER_VALIDATION_SCOPE.WethBids
+            : payload.scope === MAKER_TRIGGER_SCOPE.Token
+              ? MAKER_VALIDATION_SCOPE.TokenSells
+              : MAKER_VALIDATION_SCOPE.CollectionSells;
+    return JSON.stringify([
+        payload.chainId,
+        payload.maker,
+        kind,
+        payload.blockNumber == null,
+        payload.scope === MAKER_TRIGGER_SCOPE.Global
+            ? null
+            : payload.collectionId,
+        payload.scope === MAKER_TRIGGER_SCOPE.Token ? payload.tokenId : null,
+    ]);
+}
+
+function makerCoverageIncludes(
+    payload: OrderUpdateByMakerPayload,
+    at: number,
+    required: OrderUpdateByMakerPayload,
+    requiredAt: number,
+): boolean {
+    return (
+        at >= requiredAt &&
+        (payload.blockNumber ?? -1) >= (required.blockNumber ?? -1) &&
+        !(
+            payload.blockNumber === required.blockNumber &&
+            payload.blockHash &&
+            required.blockHash &&
+            payload.blockHash !== required.blockHash
+        )
+    );
+}
+
+/** Requests arriving behind a running cursor need one complete follow-up generation. */
+export function advancesMakerDemand(
+    run: MakerRevalidationRun,
+    payload: OrderUpdateByMakerPayload,
+    requiredAt: number,
+): boolean {
+    if (
+        makerCoverageIncludes(
+            run.payload,
+            run.passStartedAt,
+            payload,
+            requiredAt,
+        )
+    )
+        return false;
+    return (
+        run.generation === run.passGeneration ||
+        !makerCoverageIncludes(
+            run.requestedPayload,
+            run.requestedAt,
+            payload,
+            requiredAt,
+        )
+    );
+}
+
+export function mergeMakerCoverage(
+    run: MakerRevalidationRun,
+    payload: OrderUpdateByMakerPayload,
+    requiredAt: number,
+): OrderUpdateByMakerPayload {
+    const previous = run.requestedPayload;
+    if ((payload.blockNumber ?? -1) > (previous.blockNumber ?? -1))
+        return payload;
+    if (
+        (payload.blockNumber ?? -1) === (previous.blockNumber ?? -1) &&
+        requiredAt >= run.requestedAt
+    )
+        return payload;
+    return previous;
+}
 export type MakerValidationCandidate = {
     order: OrderRecord;
     revision: number;

@@ -38,6 +38,7 @@ type WorkerReport = {
     reads?: Record<string, number>;
     maximumAttempt?: number;
     maximumOutbox?: number;
+    runRows?: number;
 };
 
 it("services small work between real-broker steps and recovers after killing a worker and restarting NATS", async () => {
@@ -163,6 +164,10 @@ it("services small work between real-broker steps and recovers after killing a w
             { id: "heavy", payload: heavyMakerHint() },
             { id: "small", payload: heavyMakerHint(small.maker) },
             { id: "sale", payload: tokenSaleHint(sale) },
+            ...Array.from({ length: 200 }, (_, i) => ({
+                id: `heavy-hint-${i}`,
+                payload: heavyMakerHint(),
+            })),
         ]);
         const start = performance.now();
         const fair = await worker("fairness", HEAVY_MAKER.now * 1_000, null);
@@ -184,9 +189,12 @@ it("services small work between real-broker steps and recovers after killing a w
         expect(completed[2]!.heavyResolved).toBe(HEAVY_MAKER.count);
         expect(completed[2]!.maximumAttempt).toBe(1);
         expect(completed[2]!.maximumOutbox).toBe(1);
+        expect(completed[2]!.runRows).toBe(3);
+        expect(completed[2]!.reads?.getOrderStatus).toBe(HEAVY_MAKER.count + 2);
         results.fairness = {
             ...completed[2],
             completionOrder: completed.map((r) => r.jobId),
+            coalescedMakerHints: 200,
             localMs: Math.round(performance.now() - start),
         };
 

@@ -6,6 +6,9 @@ import {
     MakerRevalidationConflict,
     canonicalMakerRequest,
     makerContinuationJob,
+    makerValidationScopeKey,
+    advancesMakerDemand,
+    mergeMakerCoverage,
     type MakerRevalidationRun,
     type MakerValidationResolution,
     type MakerWakeup,
@@ -14,17 +17,25 @@ import type {
     MakerOrderProjectionPort,
     MakerRevalidationStore,
 } from "../../ports/maker-revalidation.js";
-import type { QueueReplayBoundary } from "../../ports/queue.js";
+import type {
+    QueueReplayBoundary,
+    QueueDeliveryOrigin,
+} from "../../ports/queue.js";
 import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 
-type RunRow = Omit<MakerRevalidationRun, "payload" | "origin"> & {
+type RunRow = Omit<
+    MakerRevalidationRun,
+    "payload" | "origin" | "requestedPayload"
+> & {
     payloadJson: string;
+    sourcePayloadJson: string | null;
+    requestedPayloadJson: string | null;
     originStreamId: string | null;
     originConsumer: string | null;
     originSequence: number | null;
 };
 const SELECT_RUN =
-    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
+    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,source_payload_json AS sourcePayloadJson,requested_payload_json AS requestedPayloadJson,scope_key AS scopeKey,generation,pass_generation AS passGeneration,pass_started_at AS passStartedAt,requested_at AS requestedAt,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
 
 /** Shares the projection's connection so order effects and progress have one commit boundary. */
 export class SqliteMakerRevalidations implements MakerRevalidationStore {
@@ -42,46 +53,99 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
         input: Parameters<MakerRevalidationStore["admit"]>[0],
     ): MakerRevalidationRun {
         return db.writeTransaction(() => {
-            const row = db
+            if (
+                input.requiredAt !== undefined &&
+                (!Number.isSafeInteger(input.requiredAt) ||
+                    input.requiredAt < 0)
+            )
+                throw new Error("Invalid maker demand time");
+            let row = db
                 .prepare(SELECT_RUN + "WHERE chain_id=? AND source_job_id=?")
                 .get(input.payload.chainId, input.jobId) as RunRow | undefined;
-            const payloadJson = JSON.stringify(
-                canonicalMakerRequest(input.payload),
-            );
-            if (row && row.payloadJson !== payloadJson)
+            const payload = canonicalMakerRequest(input.payload);
+            const payloadJson = JSON.stringify(payload);
+            if (
+                row &&
+                (row.sourcePayloadJson ?? row.payloadJson) !== payloadJson
+            )
                 throw new MakerRevalidationConflict(
                     "Maker request identity reused with different payload",
                 );
+            const scopeKey =
+                input.requiredAt === undefined
+                    ? null
+                    : makerValidationScopeKey(payload);
+            if (!row && scopeKey !== null) {
+                row = db
+                    .prepare(SELECT_RUN + "WHERE chain_id=? AND scope_key=?")
+                    .get(payload.chainId, scopeKey) as RunRow | undefined;
+                if (
+                    row &&
+                    advancesMakerDemand(mapRun(row), payload, input.requiredAt!)
+                ) {
+                    const requested = mergeMakerCoverage(
+                        mapRun(row),
+                        payload,
+                        input.requiredAt!,
+                    );
+                    db.prepare(
+                        "UPDATE maker_order_revalidation_runs SET generation=generation+1,requested_payload_json=?,requested_at=MAX(requested_at,?) WHERE run_id=?",
+                    ).run(
+                        JSON.stringify(requested),
+                        input.requiredAt,
+                        row.runId,
+                    );
+                    if (row.status === STATUS.Completed) {
+                        const boundary = this.orders.captureMakerPass();
+                        db.prepare(
+                            "UPDATE maker_order_revalidation_runs SET status=?,after_id='',payload_json=requested_payload_json,pass_generation=generation,pass_started_at=?,upper_order_id=?,upper_rowid=?,step=step+1,updated_at=? WHERE run_id=?",
+                        ).run(
+                            STATUS.Pending,
+                            input.now,
+                            boundary.upperOrderId,
+                            boundary.upperRowId,
+                            input.now,
+                            row.runId,
+                        );
+                        this.replaceWakeup(this.get(row.runId)!, input.now);
+                    }
+                }
+            }
             const runId = row?.runId ?? randomUUID();
             if (!row) {
                 const boundary = this.orders.captureMakerPass();
                 db.prepare<Record<string, unknown>>(
-                    "INSERT INTO maker_order_revalidation_runs (run_id,chain_id,source_job_id,payload_json,status,upper_order_id,upper_rowid,created_at,updated_at) VALUES (@runId,@chainId,@jobId,@payloadJson,@status,@upperOrderId,@upperRowId,@now,@now)",
+                    "INSERT INTO maker_order_revalidation_runs (run_id,chain_id,source_job_id,payload_json,source_payload_json,requested_payload_json,scope_key,requested_at,pass_started_at,status,upper_order_id,upper_rowid,created_at,updated_at) VALUES (@runId,@chainId,@jobId,@payloadJson,@payloadJson,@payloadJson,@scopeKey,@requiredAt,@now,@status,@upperOrderId,@upperRowId,@now,@now)",
                 ).run({
                     runId,
                     chainId: input.payload.chainId,
                     jobId: input.jobId,
                     payloadJson,
+                    scopeKey,
+                    requiredAt: input.requiredAt ?? input.now,
                     status: STATUS.Pending,
                     ...boundary,
                     now: input.now,
                 });
             }
-            if (input.origin) {
-                db.prepare(
-                    "UPDATE maker_order_revalidation_runs SET origin_sequence=CASE WHEN origin_stream_id=? AND origin_consumer=? THEN MAX(COALESCE(origin_sequence,0),?) ELSE ? END,origin_stream_id=?,origin_consumer=? WHERE run_id=?",
-                ).run(
-                    input.origin.streamId,
-                    input.origin.consumerName,
-                    input.origin.sequence,
-                    input.origin.sequence,
-                    input.origin.streamId,
-                    input.origin.consumerName,
-                    runId,
-                );
-            }
+            this.recordOrigin(runId, input.origin);
             return this.get(runId)!;
         })();
+    }
+
+    private recordOrigin(runId: string, origin?: QueueDeliveryOrigin): void {
+        if (!origin) return;
+        db.prepare(
+            "UPDATE maker_order_revalidation_runs SET origin_sequence=CASE WHEN origin_stream_id=? AND origin_consumer=? THEN MAX(COALESCE(origin_sequence,0),?) ELSE ? END,origin_stream_id=?,origin_consumer=? WHERE run_id=?",
+        ).run(
+            origin.streamId,
+            origin.consumerName,
+            origin.sequence,
+            origin.sequence,
+            origin.streamId,
+            origin.consumerName,
+            runId,
+        );
     }
 
     claim(
@@ -118,12 +182,8 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                 );
             if (run.status === STATUS.Completed || input.step < run.step)
                 return null;
-            return this.admit({
-                jobId: run.sourceJobId,
-                payload: run.payload,
-                origin: input.origin,
-                now: Date.now(),
-            });
+            this.recordOrigin(run.runId, input.origin);
+            return this.get(run.runId)!;
         })();
     }
 
@@ -170,17 +230,31 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                 this.orders.applyMakerResolution(run.payload, resolution);
                 afterId = order.id;
             }
+            const followup =
+                complete && current.generation > run.passGeneration;
+            const finished = complete && !followup;
             db.prepare(
                 "UPDATE maker_order_revalidation_runs SET after_id=?,status=?,step=step+1,resolved_orders=resolved_orders+?,failures=0,last_error=NULL,lease_owner=?,lease_until=?,updated_at=? WHERE run_id=?",
             ).run(
                 afterId,
-                complete ? STATUS.Completed : STATUS.Pending,
+                finished ? STATUS.Completed : STATUS.Pending,
                 resolutions.length,
-                complete ? null : run.leaseOwner,
-                complete ? 0 : now + POLICY.leaseMs,
+                finished ? null : run.leaseOwner,
+                finished ? 0 : now + POLICY.leaseMs,
                 now,
                 run.runId,
             );
+            if (followup) {
+                const boundary = this.orders.captureMakerPass();
+                db.prepare(
+                    "UPDATE maker_order_revalidation_runs SET after_id='',payload_json=requested_payload_json,pass_generation=generation,pass_started_at=?,upper_order_id=?,upper_rowid=? WHERE run_id=?",
+                ).run(
+                    now,
+                    boundary.upperOrderId,
+                    boundary.upperRowId,
+                    run.runId,
+                );
+            }
             const updated = this.get(run.runId)!;
             this.replaceWakeup(updated, now);
             return this.get(run.runId)!;
@@ -299,23 +373,52 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
 
     cleanup(boundary: QueueReplayBoundary, limit: number): number {
         // A missing origin or a different broker incarnation is never age-expired.
-        return db
-            .prepare(
-                "DELETE FROM maker_order_revalidation_runs WHERE run_id IN (SELECT run_id FROM maker_order_revalidation_runs WHERE status=? AND origin_stream_id=? AND origin_consumer=? AND origin_sequence<=? ORDER BY origin_sequence LIMIT ?)",
-            )
-            .run(
-                STATUS.Completed,
-                boundary.streamId,
-                boundary.consumerName,
-                boundary.ackFloor,
-                limit,
-            ).changes;
+        return db.writeTransaction(() => {
+            const rows = db
+                .prepare(
+                    SELECT_RUN +
+                        "WHERE status=? AND origin_stream_id=? AND origin_consumer=? AND origin_sequence<=? ORDER BY recovery_checked_at,origin_sequence LIMIT ?",
+                )
+                .all(
+                    STATUS.Completed,
+                    boundary.streamId,
+                    boundary.consumerName,
+                    boundary.ackFloor,
+                    limit,
+                ) as RunRow[];
+            let removed = 0;
+            for (const row of rows) {
+                const run = mapRun(row);
+                if (
+                    run.scopeKey !== null &&
+                    this.orders.selectMakerCandidates(
+                        run.payload,
+                        "",
+                        this.orders.captureMakerPass(),
+                        1,
+                    ).length
+                ) {
+                    // A live scope's compact coverage proof survives individual delivery ACKs.
+                    db.prepare(
+                        "UPDATE maker_order_revalidation_runs SET recovery_checked_at=? WHERE run_id=?",
+                    ).run(Date.now(), run.runId);
+                } else
+                    removed += db
+                        .prepare(
+                            "DELETE FROM maker_order_revalidation_runs WHERE run_id=?",
+                        )
+                        .run(run.runId).changes;
+            }
+            return removed;
+        })();
     }
 }
 
 function mapRun(row: RunRow): MakerRevalidationRun {
     const {
         payloadJson,
+        sourcePayloadJson: _sourcePayloadJson,
+        requestedPayloadJson,
         originStreamId,
         originConsumer,
         originSequence,
@@ -324,6 +427,7 @@ function mapRun(row: RunRow): MakerRevalidationRun {
     return {
         ...run,
         payload: JSON.parse(payloadJson),
+        requestedPayload: JSON.parse(requestedPayloadJson ?? payloadJson),
         origin:
             originStreamId && originConsumer && originSequence !== null
                 ? {

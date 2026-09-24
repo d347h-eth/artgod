@@ -156,21 +156,20 @@ async function main() {
             config.chainId,
             orderValidationStore,
         );
+        const createOrderSnapshot = createSeaportOrderValidationFactory({
+            chainId: config.chainId,
+            rpc,
+            conduits,
+            conduitController: config.seaport.conduitController,
+        });
         const orderValidation = new ValidateOrderDemand({
             chainId: config.chainId,
             store: orderValidationStore,
-            createSnapshot: createSeaportOrderValidationFactory({
-                chainId: config.chainId,
-                rpc,
-                conduits,
-                conduitController: config.seaport.conduitController,
-            }),
+            createSnapshot: createOrderSnapshot,
         });
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
-            validateOrder,
-            createValidationBatch,
-            wethAddress: config.tokens.wethAddress,
+            createSnapshot: createOrderSnapshot,
             replayBoundary: (consumerName) =>
                 queue.getReplayBoundary(consumerName),
         });
@@ -255,6 +254,7 @@ async function main() {
                 await makerRevalidations.execute({
                     jobId: job.jobId,
                     payload: job.payload,
+                    requiredAt: job.scheduledAt,
                     origin,
                 });
             },

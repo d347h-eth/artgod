@@ -183,7 +183,10 @@ test checks delivery-origin mapping and deferred lease waits. Broker-origin
 and restart integration is a separate real-NATS gate; these SQLite tests do
 not establish broker or native runtime behavior. They also exercise elapsed
 budgets, duplicate continuations, terminal outbox failures, missing wakeups,
-recovery races and bounded rotating recovery pages.
+recovery races and bounded rotating recovery pages. Maker coalescing cases cover
+2,000 old hints sharing a pass, live-scope coverage after ACK, distinct chain/
+selection/anchor modes, demand arriving before the first checkpoint, and restart
+at a full follow-up pass boundary with no missed earlier orders.
 
 Run the maintained queue fixture with an existing staged NATS binary:
 
@@ -198,7 +201,8 @@ dependency, starts the pinned NATS version on loopback, and keeps all stores
 under worktree `tmp/order-queue-healing-nats/`. It downloads nothing and never
 opens app-data storage. It proves that small-maker and token work completes
 after the heavy maker's first 100 validations, all 9,339 finish without consuming
-failure attempts, and at most one outbox continuation exists for the run. It
+failure attempts, and 200 additional old maker hints add no validation pass or
+run rows. At most one outbox continuation exists for the run. It
 then kills its child while the second context is awaiting RPC, restarts NATS
 against the same synthetic store, and resumes the remaining 410 of 510 orders.
 The recovery fixture advances its injected clock past the persisted lease;

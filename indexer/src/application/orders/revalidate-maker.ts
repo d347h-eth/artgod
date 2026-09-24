@@ -13,10 +13,7 @@ import {
 } from "../../domain/maker-revalidation.js";
 import type { OrderUpdateByMakerPayload } from "../../domain/order-jobs.js";
 import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
-import type {
-    MakerValidationBatchFactory,
-    OrderValidator,
-} from "../../ports/order-validation.js";
+import type { OrderValidationSnapshotFactory } from "../../ports/order-validation.js";
 import type {
     QueueDeliveryOrigin,
     QueueReplayBoundary,
@@ -26,9 +23,7 @@ export class RevalidateMakerOrders {
     constructor(
         private readonly deps: {
             store: MakerRevalidationStore;
-            validateOrder: OrderValidator;
-            createValidationBatch: MakerValidationBatchFactory;
-            wethAddress: string;
+            createSnapshot: OrderValidationSnapshotFactory;
             replayBoundary?: (
                 consumerName: string,
             ) => Promise<QueueReplayBoundary>;
@@ -40,6 +35,7 @@ export class RevalidateMakerOrders {
         jobId: string;
         payload: OrderUpdateByMakerPayload;
         origin?: QueueDeliveryOrigin;
+        requiredAt?: number;
     }): Promise<void> {
         const { store } = this.deps;
         const now = this.deps.now ?? Date.now;
@@ -67,13 +63,21 @@ export class RevalidateMakerOrders {
               })
             : store.admit({ ...input, payload, now: now() });
         if (!admitted) return;
-        if (JSON.stringify(admitted.payload) !== JSON.stringify(payload))
+        if (
+            continuation &&
+            JSON.stringify(admitted.payload) !== JSON.stringify(payload)
+        )
             throw new MakerRevalidationConflict(
                 "Maker continuation payload changed",
             );
         if (admitted.status === STATUS.Completed) return;
         // A redelivered origin can ACK once the atomic checkpoint/outbox owns the rest.
-        if (!continuation && admitted.wakeupOutboxId !== null) return;
+        if (
+            !continuation &&
+            (admitted.wakeupOutboxId !== null ||
+                admitted.sourceJobId !== input.jobId)
+        )
+            return;
         let run = store.claim(admitted.runId, randomUUID(), now());
         if (!run)
             throw new JobDeferred(
@@ -122,12 +126,8 @@ export class RevalidateMakerOrders {
         const first = candidates.find(
             (candidate) => candidate.currentAtTrigger,
         );
-        const useBatch =
-            first?.order.side === "buy" &&
-            first.order.currency?.toLowerCase() ===
-                this.deps.wethAddress.toLowerCase();
-        const batch = useBatch
-            ? await this.deps.createValidationBatch({
+        const batch = first
+            ? await this.deps.createSnapshot({
                   chainId: run.chainId,
                   minimumBlock: run.payload.blockNumber ?? null,
               })
@@ -138,21 +138,11 @@ export class RevalidateMakerOrders {
                 break;
             }
             if (candidate.currentAtTrigger) {
-                const isWethBid =
-                    candidate.order.side === "buy" &&
-                    candidate.order.currency?.toLowerCase() ===
-                        this.deps.wethAddress.toLowerCase();
-                if (
-                    resolutions.length &&
-                    (!!batch !== isWethBid || (batch && !batch.canAccept()))
-                ) {
-                    stepEnd =
-                        !!batch !== isWethBid ? STEP_END.Scope : STEP_END.Time;
+                if (resolutions.length && !batch!.canAccept()) {
+                    stepEnd = STEP_END.Time;
                     break;
                 }
-                const validation = await (batch
-                    ? batch.validate(candidate.order)
-                    : this.deps.validateOrder(candidate.order));
+                const validation = await batch!.validate(candidate.order);
                 resolutions.push({ candidate, validation });
             } else resolutions.push({ candidate, validation: null });
         }
@@ -185,7 +175,13 @@ export class RevalidateMakerOrders {
                 (resolution) => resolution.validation !== null,
             ).length,
             contractReads: batch?.readCounts() ?? null,
-            stepEnd: complete ? STEP_END.Completed : stepEnd,
+            stepEnd: complete
+                ? next.status === STATUS.Completed
+                    ? STEP_END.Completed
+                    : STEP_END.Followup
+                : stepEnd,
+            generation: next.generation,
+            passGeneration: next.passGeneration,
             priorFailures: run.failures,
             wakeupGeneration: next.wakeupGeneration,
         });

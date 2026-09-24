@@ -28,6 +28,8 @@ export interface MakerRevalidationStore {
         jobId: string;
         payload: OrderUpdateByMakerPayload;
         origin?: QueueDeliveryOrigin;
+        /** Trusted enqueue time enables conservative scope coalescing; absent means an independent pass. */
+        requiredAt?: number;
         now: number;
     }): MakerRevalidationRun;
     claim(
