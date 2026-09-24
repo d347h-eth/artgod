@@ -183,7 +183,7 @@ if (fixtureMode) {
     await run([entry]);
     await run([entry]);
     const compacted = recoveryLog(
-        await run([entry, recoveryRuntime.arguments.compactOnly]),
+        await run([entry, recoveryRuntime.cliArguments.compactOnly]),
         recoveryRuntime.logActions.compacted,
     );
     assert.equal(

@@ -16,8 +16,8 @@ export function loadSqliteMarketDataMaintenanceConfig(
     compactOnly: boolean;
     compact: boolean;
 } {
-    const compactKey = runtime.arguments.compact.slice(2);
-    const onlyKey = runtime.arguments.compactOnly.slice(2);
+    const compactKey = runtime.cliArguments.compact.slice(2);
+    const onlyKey = runtime.cliArguments.compactOnly.slice(2);
     const { values } = parseArgs({
         args,
         options: {

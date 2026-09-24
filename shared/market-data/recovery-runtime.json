@@ -1,6 +1,6 @@
 {
     "workBudgetMs": 2700000,
-    "arguments": { "compact": "--compact", "compactOnly": "--compact-only" },
+    "cliArguments": { "compact": "--compact", "compactOnly": "--compact-only" },
     "logComponent": "IndexerSqliteMarketDataMaintenance",
     "logActions": {
         "progress": "sqlite-market-data-recovery-progress",

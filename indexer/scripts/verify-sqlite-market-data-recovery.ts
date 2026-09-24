@@ -206,7 +206,7 @@ async function runBundled(
                     runtimeRoot,
                     "indexer/dist-desktop/sqlite-market-data-maintenance.mjs",
                 ),
-                ...(compact ? [runtime.arguments.compact] : []),
+                ...(compact ? [runtime.cliArguments.compact] : []),
             ],
             { cwd: runtimeRoot, env, stdio: "inherit" },
         );

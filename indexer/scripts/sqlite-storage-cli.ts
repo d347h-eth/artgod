@@ -58,7 +58,7 @@ export function parseStorageProfileArgs(args: string[]) {
 }
 
 export function parseStorageVerificationArgs(args: string[]) {
-    const compactKey = runtime.arguments.compact.slice(2);
+    const compactKey = runtime.cliArguments.compact.slice(2);
     const { values, positionals } = parseArgs({
         args,
         allowPositionals: true,
