@@ -21,6 +21,11 @@ import {
 } from "@artgod/shared/queue/nats-job-stream";
 import type { QueueName } from "../../domain/queues.js";
 import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
+import { logger } from "@artgod/shared/utils";
+import {
+    UNSUPPORTED_JOB_POLICY,
+    UNSUPPORTED_JOB_LOG,
+} from "../../domain/unsupported-job.js";
 import type {
     QueueMessage,
     QueueReplayBoundary,
@@ -138,13 +143,41 @@ export class NatsJetStreamQueue implements QueuePort {
                     let data: JobEnvelope<TPayload>;
                     try {
                         data = codec.decode(msg.data);
+                        if (
+                            !data ||
+                            typeof data !== "object" ||
+                            typeof data.jobId !== "string" ||
+                            !data.jobId ||
+                            typeof data.kind !== "string" ||
+                            !data.kind ||
+                            data.queue !== queue ||
+                            !Number.isSafeInteger(data.chainId) ||
+                            data.chainId <= 0 ||
+                            !Number.isSafeInteger(data.scheduledAt) ||
+                            data.scheduledAt < 0
+                        )
+                            throw new Error("Invalid queue envelope");
+                        if (
+                            data.attempt != null &&
+                            (!Number.isSafeInteger(data.attempt) ||
+                                data.attempt < 0)
+                        )
+                            throw new Error("Invalid queue attempt");
                         data.attempt = Math.max(
                             data.attempt ?? 0,
                             // The SDK's legacy redeliveryCount is also one-based.
                             msg.info.deliveryCount,
                         );
-                    } catch {
-                        msg.term();
+                    } catch (error) {
+                        logger.error(UNSUPPORTED_JOB_LOG, {
+                            queue,
+                            consumer: options.consumerName,
+                            streamSequence: msg.info.streamSequence,
+                            reason: String(error),
+                        });
+                        // Keep the original bytes. The log-only DLQ cannot preserve an
+                        // unknown envelope, and TERM would make it unrecoverable.
+                        msg.nak(UNSUPPORTED_JOB_POLICY.retryMs);
                         return;
                     }
 

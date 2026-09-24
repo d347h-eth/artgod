@@ -47,12 +47,14 @@ import { METADATA_REFRESH_RUN_ID_SCOPE } from "../domain/metadata-refresh-follow
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
     makerUpdateQueue,
-    orderUpdateQueue,
     orderConsumerName,
     ORDER_PROCESSING_POLICY,
+    ORDER_UPDATE_WORKER_POLICY,
 } from "../domain/order-processing.js";
 import { FairOrderValidationAdmission } from "../infra/orders/fair-validation-admission.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
+import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
+import { UnsupportedJob } from "../domain/unsupported-job.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
@@ -91,7 +93,6 @@ import type { QueuePort } from "../ports/queue.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import {
     ORDER_JOB_KIND,
-    type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
@@ -282,11 +283,14 @@ async function main() {
                         if (
                             job.kind !== ORDER_JOB_KIND.UpdateByMaker ||
                             job.chainId !== config.chainId ||
+                            !job.payload ||
                             job.payload.chainId !== config.chainId ||
                             (queueName === QUEUE_NAMES.OrdersUpdateByToken &&
                                 makerUpdateQueue(job.payload) !== queueName)
                         )
-                            throw new Error("Unsupported maker queue envelope");
+                            throw new UnsupportedJob(
+                                "Unsupported maker queue envelope",
+                            );
                         await makerRevalidations.execute({
                             jobId: job.jobId,
                             payload: job.payload,
@@ -335,31 +339,13 @@ async function main() {
                             queueName,
                             config.chainId,
                         ),
-                        maxInFlight: 1,
-                        maxAttempts: 5,
-                        deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                        ...ORDER_UPDATE_WORKER_POLICY,
                     },
-                    async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
-                        if (
-                            job.kind !== ORDER_JOB_KIND.UpdateById ||
-                            job.chainId !== config.chainId ||
-                            (queueName === QUEUE_NAMES.OrderLifecycle &&
-                                orderUpdateQueue(job.payload) !== queueName)
-                        )
-                            throw new Error("Unsupported order queue envelope");
-                        await applyOrderUpdate.execute(
-                            {
-                                ...job.payload,
-                                collectionId:
-                                    job.payload.collectionId ??
-                                    job.collectionId,
-                                observedAt:
-                                    job.payload.observedAt ??
-                                    Math.floor(job.scheduledAt / 1000),
-                            },
-                            job.scheduledAt,
-                        );
-                    },
+                    orderUpdateHandler({
+                        chainId: config.chainId,
+                        queueName,
+                        apply: applyOrderUpdate,
+                    }),
                     {
                         apm: runtimeApm.apm,
                         spanName:

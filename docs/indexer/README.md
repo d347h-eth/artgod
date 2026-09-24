@@ -36,5 +36,6 @@ the overview first, then follow the branch that owns the question.
 
 - [Observability and metrics](10-observability-and-metrics.md)
 - [Testing](11-testing.md)
+- [Order queue recovery](18-order-queue-recovery.md)
 - [RPC interaction catalog](../rpc/01-http-rpc-interaction-catalog.md)
 - [Backlog and status history](../planning/01-unified-backlog.md)

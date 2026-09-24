@@ -1,6 +1,12 @@
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
 import { JobDeferred } from "../domain/job-deferred.js";
+import {
+    UnsupportedJob,
+    UNSUPPORTED_JOB_POLICY,
+    UNSUPPORTED_JOB_LOG,
+} from "../domain/unsupported-job.js";
+import { logger } from "@artgod/shared/utils";
 import type { QueueDeliveryOrigin } from "../ports/queue.js";
 import type { QueueMessage, QueuePort } from "../ports/queue.js";
 import {
@@ -17,6 +23,7 @@ export type WorkerOptions = {
     extendLeaseMs?: number;
     maxAttempts?: number;
     deadLetterQueue?: QueueName;
+    retryDelayMs?: number;
 };
 
 export type WorkerRuntimeHooks = {
@@ -68,6 +75,18 @@ export async function runWorker<TPayload>(
                         await handler(message.data, message.origin);
                         await message.ack();
                     } catch (err) {
+                        if (err instanceof UnsupportedJob) {
+                            logger.error(UNSUPPORTED_JOB_LOG, {
+                                queue: options.queue,
+                                consumer: options.consumerName,
+                                jobId: message.data.jobId,
+                                reason: err.message,
+                            });
+                            await message.nack({
+                                delayMs: UNSUPPORTED_JOB_POLICY.retryMs,
+                            });
+                            return;
+                        }
                         if (err instanceof JobDeferred) {
                             await message.nack({ delayMs: err.delayMs });
                             return;
@@ -100,7 +119,19 @@ export async function runWorker<TPayload>(
                             return;
                         }
 
-                        await message.nack({ reason: String(err) });
+                        if (options.retryDelayMs !== undefined)
+                            logger.warn("Queue work failed; retry retained", {
+                                queue: options.queue,
+                                jobId: message.data.jobId,
+                                attempt,
+                                reason: String(err),
+                            });
+                        await message.nack({
+                            reason: String(err),
+                            ...(options.retryDelayMs !== undefined
+                                ? { delayMs: options.retryDelayMs }
+                                : {}),
+                        });
                     } finally {
                         if (leaseTimer) clearInterval(leaseTimer);
                     }

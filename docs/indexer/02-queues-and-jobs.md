@@ -142,6 +142,10 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
 
 - If a job's `scheduledAt` is in the future, the worker nacks with delay.
 - If a handler throws, the message is nacked.
+- By-ID/lifecycle consumers retain their original envelopes on application
+  failure with a one-second retry delay; they have no attempt-based transfer to
+  the log-only DLQ. Unsupported order jobs and malformed queue envelopes remain
+  in their original queue with a 60-second retry delay and a visible error.
 - The NATS adapter uses the SDK's one-based `deliveryCount` for `attempt` (the
   first delivery is attempt 1). Successful maker continuations are separate
   step messages; many successful steps do not exhaust a retry limit.
@@ -240,9 +244,15 @@ targeted token and ordinary-demand validation share FIFO admission with at most
 two active contexts per chain worker, preserving the previous aggregate capacity.
 Each consumer/poller is single-flight. SQLite transactions remain synchronous
 and short; no transaction is held while waiting for RPC or an admission permit.
-Unknown order job kinds/reasons fail visibly through normal retry/DLQ handling.
+Unknown order job kinds/reasons fail visibly and retain their original envelope.
 The new routes protect newly produced work; they do not let an old buried fill
 jump ahead of its legacy consumer's durable cursor.
+
+Legacy by-ID admission is paced at one envelope per five milliseconds (at most
+200/second before processing cost). Durable demand is bounded by live identities,
+not a fixed pending-row limit that would block later mixed-queue terminal facts.
+See the [operator procedure](18-order-queue-recovery.md) for bounded inspection,
+pause/resume, unknown input and useful-work measurements.
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`

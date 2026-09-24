@@ -6,11 +6,18 @@ import {
 } from "./order-jobs.js";
 import { ORDER_SOURCE_STATUS } from "./orders.js";
 import { QUEUE_NAMES, type QueueName } from "./queues.js";
+import { UnsupportedJob } from "./unsupported-job.js";
 
 // Before targeted routing, one maker worker and one by-ID validator could run.
 // Preserve that aggregate order-validation capacity across all three paths.
 export const ORDER_PROCESSING_POLICY = Object.freeze({
     concurrentValidations: 2,
+});
+// Lifecycle facts must survive transient storage failures; the log-only DLQ is
+// not a durable handoff. These consumers keep retrying their original envelope.
+export const ORDER_UPDATE_WORKER_POLICY = Object.freeze({
+    maxInFlight: 1,
+    retryDelayMs: 1_000,
 });
 
 export function makerUpdateQueue(
@@ -23,13 +30,19 @@ export function makerUpdateQueue(
 
 /** Definitive/source observations never enter coalescible validation demand. */
 export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
+    if (
+        !Object.values(ORDER_UPDATE_REASON).some(
+            (reason) => reason === payload.reason,
+        )
+    )
+        throw new UnsupportedJob("Unsupported order update reason");
     if (payload.sourceStatus != null) {
         if (
             !Object.values(ORDER_SOURCE_STATUS).some(
                 (status) => status === payload.sourceStatus,
             )
         )
-            throw new Error("Unsupported order source status");
+            throw new UnsupportedJob("Unsupported order source status");
         return QUEUE_NAMES.OrderLifecycle;
     }
     switch (payload.reason) {
@@ -39,7 +52,7 @@ export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
         case ORDER_UPDATE_REASON.Validation:
             return QUEUE_NAMES.OrdersUpdateById;
         default:
-            throw new Error("Unsupported order update reason");
+            throw new UnsupportedJob("Unsupported order update reason");
     }
 }
 

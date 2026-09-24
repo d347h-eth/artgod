@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "@artgod/shared/utils";
 import { JobDeferred } from "../../domain/job-deferred.js";
+import { UnsupportedJob } from "../../domain/unsupported-job.js";
 import {
     MAKER_REVALIDATION_LOG as LOG,
     MAKER_REVALIDATION_POLICY as POLICY,
@@ -48,7 +49,12 @@ export class RevalidateMakerOrders {
             );
         if (!input.jobId)
             throw new Error("Maker request job identity is required");
-        const payload = canonicalMakerRequest(input.payload);
+        let payload: OrderUpdateByMakerPayload;
+        try {
+            payload = canonicalMakerRequest(input.payload);
+        } catch (error) {
+            throw new UnsupportedJob(String(error));
+        }
         const continuation = input.payload.continuation;
         if (
             continuation &&
@@ -56,7 +62,7 @@ export class RevalidateMakerOrders {
                 !Number.isSafeInteger(continuation.step) ||
                 continuation.step < 0)
         )
-            throw new Error("Invalid maker continuation");
+            throw new UnsupportedJob("Invalid maker continuation");
         const admitted = continuation
             ? store.resume({
                   chainId: payload.chainId,

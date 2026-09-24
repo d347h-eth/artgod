@@ -221,6 +221,30 @@ Run it with `yarn workspace @artgod/backend test integration/order-lifecycle.tes
 rendered fixture for sold-token asks and retained daily history. That fixture is
 separate from native/live queue qualification.
 
+The same `test:orders:queues` command runs `integration/order-backlog.test.ts`:
+10,002 legacy envelopes (7,719 validation hints, 2,281 cancellations and two fill
+facts), plus 1,000 arriving hints across 50 additional orders. It uses the actual
+paced legacy handler, stops and resumes its child, verifies committed domain
+state and bounds demand rows without a per-envelope outbox. Malformed bytes and
+an unsupported future update remain stored through broker restart. Its concise
+result and bounded progress samples are under `tmp/order-backlog-nats/`.
+
+The September 24 synthetic run completed 11,002 supported envelopes in 64.4 s:
+170.9 completions/s against 44.2 arriving hints/s, 281 full validations and 1,124
+contract reads with a 2 ms fake delay per read. Demand peaked at 250 identities;
+there were no validation outbox rows. Worker CPU totaled 17.4 s, admission/domain
+SQLite work 6.0 s, peak worker RSS 143.7 MiB, and total allocated database growth
+228 KiB (including canonical updates and indexes, not metadata alone). Sampled
+unsatisfied demand age settled to zero. The oldest terminal input began 18 hours
+old and was applied about 64 s later. These costs include fixture instrumentation;
+they are neither real-provider throughput nor a six-million-message ETA.
+
+`tests/legacy-order-admission.test.ts` injects demand/terminal transaction failures
+and failed ACKs, checks retained retries beyond the normal ceiling, and verifies
+explicit no-RPC admission. `tests/order-processing-inspection.test.ts` verifies
+the read-only progress tool's explicit inputs, bounded samples and unchanged
+SQLite data version. Full counts require the operator's `--counts` opt-in.
+
 ## Ordinary Order Validation Demand
 
 `tests/order-validation-demand.test.ts` uses migrated SQLite and strict full-order
