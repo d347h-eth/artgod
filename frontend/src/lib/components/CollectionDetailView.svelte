@@ -53,6 +53,7 @@
 	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import RealizedPriceChart from '$lib/components/RealizedPriceChart.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
@@ -512,6 +513,9 @@
 		/>
 	{/if}
 
+	{#if chain && collection}
+		<RealizedPriceChart chainRef={chain.slug} collectionRef={collection.slug} />
+	{/if}
 	<TokenBrowserView
 		chain={chain}
 		collection={collection}

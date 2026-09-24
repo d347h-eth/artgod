@@ -14,6 +14,7 @@ import {
     PRICE_HISTORY_RANGE as RANGE,
     PRICE_HISTORY_LIMITS,
     PRICE_HISTORY_ROUTE,
+    PRICE_HISTORY_CURRENCY_SYMBOL,
     buildPriceHistoryPath,
     priceBucketStart,
 } from "@artgod/shared/types/price-history";
@@ -49,7 +50,14 @@ beforeAll(async () => {
             .prepare("SELECT slug FROM collections WHERE collection_id = ?")
             .get(collectionId) as { slug: string }
     ).slug;
-    reader = new SqlitePriceHistoryRead(CURRENCIES);
+    reader = new SqlitePriceHistoryRead([
+        { address: ETH, symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Eth },
+        { address: WETH, symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth },
+        {
+            address: BLUR_BETH_ADDRESS,
+            symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Beth,
+        },
+    ]);
     useCase = new GetPriceHistoryUseCase(
         1,
         new SqliteChainsReadModel(),
@@ -122,7 +130,15 @@ it("excludes bundles, unknown legacy Seaport, quantities, malformed prices and o
     expect(history.sales).toHaveLength(4);
     expect(history.unit).toBe("ETH");
     expect(history.buckets[0]!.volume).toBe(4);
-    expect(JSON.stringify(history)).not.toMatch(/currency|WETH|BETH|c02aaa/i);
+    expect(
+        history.sales.map((sale) => [sale.currencyAddress, sale.currencySymbol]),
+    ).toEqual([
+        [ETH, PRICE_HISTORY_CURRENCY_SYMBOL.Eth],
+        [WETH, PRICE_HISTORY_CURRENCY_SYMBOL.Weth],
+        [BLUR_BETH_ADDRESS, PRICE_HISTORY_CURRENCY_SYMBOL.Beth],
+        [ETH, PRICE_HISTORY_CURRENCY_SYMBOL.Eth],
+    ]);
+    expect(history.buckets[0]!.turnoverWei).toBe("4000000000000000004");
     expect(
         history.sales.every((sale) => sale.priceWei === "1000000000000000001"),
     ).toBe(true);
@@ -200,7 +216,7 @@ it("uses half-open requested ranges and rejects unsafe allocations or invalid in
 });
 
 it("maps HTTP scope and query through the use case and SQLite adapter", async () => {
-    fill({ token: "7" });
+    fill({ token: "7", currency: WETH });
     fill({ token: "8" });
     const app = Fastify();
     const adapter = new GetPriceHistoryHttpAdapter(useCase);
@@ -228,6 +244,11 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
                 .sales.map((sale: { tokenId: string }) => sale.tokenId),
         ).toEqual(["7"]);
         expect(response.json().bucketSeconds).toBe(3600);
+        expect(response.json().sales[0]).toMatchObject({
+            currencyAddress: WETH,
+            currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
+            priceWei: "1000000000000000001",
+        });
         const invalid = await app.inject(
             buildPriceHistoryPath("1", collectionRef, {
                 bucket: BUCKET.Day,
