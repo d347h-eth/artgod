@@ -20,7 +20,7 @@ import {
     resolveNatsJobSubject,
 } from "@artgod/shared/queue/nats-job-stream";
 import type { QueueName } from "../../domain/queues.js";
-import type { JobEnvelope } from "../../domain/jobs.js";
+import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
 import type {
     QueueMessage,
     QueueReplayBoundary,
@@ -90,13 +90,18 @@ export class NatsJetStreamQueue implements QueuePort {
     async publish<TPayload>(
         queue: QueueName,
         message: JobEnvelope<TPayload>,
-    ): Promise<void> {
+    ): Promise<QueuePublication> {
         await this.ensureStream();
         const subject = this.subjectForQueue(queue);
         const codec = JSONCodec<JobEnvelope<TPayload>>();
-        await this.js.publish(subject, codec.encode(message), {
-            msgID: message.jobId,
-        });
+        const published = await this.js.publish(
+            subject,
+            codec.encode(message),
+            {
+                msgID: message.jobId,
+            },
+        );
+        return { streamId: this.streamId, sequence: published.seq };
     }
 
     async subscribe<TPayload>(
@@ -133,11 +138,10 @@ export class NatsJetStreamQueue implements QueuePort {
                     let data: JobEnvelope<TPayload>;
                     try {
                         data = codec.decode(msg.data);
-                        const deliveryCount =
-                            (msg as any)?.info?.redeliveryCount ?? 0;
                         data.attempt = Math.max(
                             data.attempt ?? 0,
-                            deliveryCount + 1,
+                            // The SDK's legacy redeliveryCount is also one-based.
+                            msg.info.deliveryCount,
                         );
                     } catch {
                         msg.term();
@@ -208,6 +212,25 @@ export class NatsJetStreamQueue implements QueuePort {
             consumerName,
             ackFloor: consumer.ack_floor.stream_seq,
         };
+    }
+
+    /** ACK evidence wins over physically retained messages on older brokers. */
+    async isPublicationPending(
+        publication: QueuePublication,
+        consumerName: string,
+    ): Promise<boolean> {
+        if (publication.streamId !== this.streamId) return false;
+        const boundary = await this.getReplayBoundary(consumerName);
+        if (boundary.ackFloor >= publication.sequence) return false;
+        try {
+            await this.jsm.streams.getMessage(this.streamName, {
+                seq: publication.sequence,
+            });
+            return true;
+        } catch (error) {
+            if (isStreamNotFound(error)) return false;
+            throw error;
+        }
     }
 
     private async ensureStream(): Promise<void> {

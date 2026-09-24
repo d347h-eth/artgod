@@ -28,6 +28,8 @@ type OrderUpdateByMakerAttribution = {
     blockHash?: string | null;
     txHash?: string | null;
     logIndex?: number | null;
+    /** Full original payload lets older workers conservatively process a continuation. */
+    continuation?: { runId: string; step: number };
 };
 
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.

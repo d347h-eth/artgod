@@ -106,6 +106,9 @@ Publishing:
 
 - Each job is published to a subject derived from the queue name.
 - `msgID` is set to the jobId for broker-level dedupe.
+- Publication can return a stream-incarnation/sequence receipt. Durable maker
+  continuations record it in the outbox so recovery can distinguish pending
+  broker work from a publication whose delivery has already been acknowledged.
 
 Subscribing:
 
@@ -137,7 +140,10 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
 
 - If a job's `scheduledAt` is in the future, the worker nacks with delay.
 - If a handler throws, the message is nacked.
-- The NATS adapter updates `attempt` based on redelivery count.
+- The NATS adapter uses the SDK's one-based `deliveryCount` for `attempt` (the
+  first delivery is attempt 1). Successful maker continuations are separate
+  step messages; many successful steps do not exhaust a retry limit.
+- A deferred maker lease wait nacks with delay without entering the DLQ path.
 - If `attempt >= maxAttempts` and a `deadLetterQueue` is configured:
     - A dead-letter job is published with the original job and error info.
     - The original message is acked (removed from the stream).
@@ -207,6 +213,12 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 - token-scoped updates include `scope = token`, `collectionId`, and `tokenId`
 - collection-scoped updates include `scope = collection` and `collectionId`
 - global updates include `scope = global` and omit collection/token attribution
+
+Maker continuation envelopes retain that full payload and add a run/step
+reference. Each delivery resolves a bounded step, commits its results, cursor
+and next outbox wakeup atomically, then ACKs. A bounded recovery poll checks
+unfinished runs and broker publication evidence. See
+[durable maker progress](07-domain-orders.md#durable-maker-progress).
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`

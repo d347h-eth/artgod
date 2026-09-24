@@ -1,5 +1,5 @@
 import { logger } from "@artgod/shared/utils";
-import type { JobEnvelope } from "../../domain/jobs.js";
+import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
 import type { QueueName } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
 
@@ -13,7 +13,7 @@ export type QueueOutboxDrainRecord = {
 // QueueOutboxDrainPort is the application boundary for persisted publications.
 export interface QueueOutboxDrainPort {
     listDue(nowMs: number, limit: number): QueueOutboxDrainRecord[];
-    markSent(outboxId: number): void;
+    markSent(outboxId: number, publication?: QueuePublication): void;
     markFailed(input: {
         outboxId: number;
         attempts: number;
@@ -113,8 +113,8 @@ export async function drainQueueOutbox(
         const attempts = row.attempts + 1;
         try {
             const job = JSON.parse(row.jobJson) as JobEnvelope<unknown>;
-            await queue.publish(row.queueName, job);
-            outbox.markSent(row.outboxId);
+            const publication = await queue.publish(row.queueName, job);
+            outbox.markSent(row.outboxId, publication ?? undefined);
             published += 1;
         } catch (error) {
             const terminal =

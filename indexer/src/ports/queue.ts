@@ -1,5 +1,9 @@
 import type { QueueName } from "../domain/queues.js";
-import type { JobEnvelope, QueueDeliveryOrigin } from "../domain/jobs.js";
+import type {
+    JobEnvelope,
+    QueueDeliveryOrigin,
+    QueuePublication,
+} from "../domain/jobs.js";
 export type {
     QueueDeliveryOrigin,
     QueueReplayBoundary,
@@ -23,7 +27,7 @@ export interface QueuePort {
     publish<TPayload>(
         queue: QueueName,
         message: JobEnvelope<TPayload>,
-    ): Promise<void>;
+    ): Promise<void | QueuePublication>;
     subscribe<TPayload>(
         queue: QueueName,
         handler: (message: QueueMessage<TPayload>) => Promise<void>,

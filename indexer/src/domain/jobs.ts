@@ -12,6 +12,9 @@ export type QueueReplayBoundary = {
     ackFloor: number;
 };
 
+/** Broker evidence for a durable publication, scoped to one stream incarnation. */
+export type QueuePublication = { streamId: string; sequence: number };
+
 export type JobEnvelope<TPayload = unknown> = {
     jobId: string;
     kind: string;

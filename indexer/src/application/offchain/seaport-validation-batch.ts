@@ -52,6 +52,7 @@ export function createSeaportValidationBatchFactory(input: {
         };
         checkLifetime();
         const cache = new Map<string, Promise<unknown>>();
+        const counts = { perOrder: 0, shared: 0, other: 0 };
         let failure: unknown;
         let orders = 0;
         let closed = false;
@@ -87,6 +88,10 @@ export function createSeaportValidationBatchFactory(input: {
                     const shared = SHARED_READS.has(params.functionName);
                     let pending = shared ? cache.get(key) : undefined;
                     if (!pending) {
+                        if (shared) counts.shared++;
+                        else if (params.functionName === "getOrderStatus")
+                            counts.perOrder++;
+                        else counts.other++;
                         pending = rpc.readContract({
                             ...params,
                             blockNumber: number,
@@ -113,6 +118,7 @@ export function createSeaportValidationBatchFactory(input: {
             now() - startedAt < POLICY.admissionBudgetMs;
         return {
             canAccept,
+            readCounts: () => ({ ...counts }),
             async validate(order: OrderRecord) {
                 if (closed || failure || orders >= POLICY.maxOrders)
                     throw new OrderValidationSnapshotUnavailable(

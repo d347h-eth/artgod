@@ -291,11 +291,30 @@ consumer ACK floor prove the recorded delivery cannot be replayed by that
 consumer. Missing broker origin does not expire by time. Fresh publications
 after receipt cleanup are new admissions; they never skip current validation.
 
-The runtime still holds one maker envelope for the complete pass in this
-increment. Legacy standalone `SqliteOrdersDomain.handleOrderUpdateByMaker`
-remains for existing callers and baseline tests; runtime checkpoint behavior is
-owned by the application use case. No queue payload changes or live migration
-of NATS messages are required at this stage.
+Each delivery admits at most 100 candidates and five seconds of new validation
+work, then finishes its in-flight RPC under the provider timeout. The checkpoint
+transaction also replaces the run's single outbox continuation. The next step
+joins the same queue behind ready work; the current delivery can ACK because
+unfinished work already has durable ownership. Step identity and lease fences
+make duplicate publication/delivery harmless. Successful steps start with a fresh
+delivery attempt; only failed execution/publication contributes to retry state.
+
+A five-second recovery poll rotates through at most 25 idle pending runs, after
+a 30-second grace period. It repairs absent or terminally failed outbox entries.
+For sent entries it checks the broker stream incarnation, publication sequence
+and consumer ACK floor: sent alone is not proof of pending or completed work.
+An active lease or changed step prevents a stale recovery decision from replacing
+newer work. The outbox holds at most one continuation per unfinished run; completed
+receipts still use the replay-boundary cleanup above, not a short TTL.
+
+Continuations retain `orders.update-by-maker` and the complete original payload,
+adding only `continuation: { runId, step }`. Older consumers can conservatively
+perform the original scan; they cannot resume the saved cursor. This is a source
+compatibility bridge, not verified native downgrade support. Keep SQLite/NATS
+backups and deployed worker artifacts aligned; do not restore either store alone.
+Legacy standalone `SqliteOrdersDomain.handleOrderUpdateByMaker` remains for
+existing callers and baseline tests; runtime scheduling belongs to the application
+use case. The separate by-ID backlog is not accelerated by these maker changes.
 
 ## Source Scope and Token Sets
 

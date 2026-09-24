@@ -9,6 +9,8 @@ export interface MakerValidationBatch {
     canAccept(): boolean;
     validate: OrderValidator;
     finish(): Promise<void>;
+    /** Contract-read port calls, excluding transport retries and block lookups. */
+    readCounts(): { perOrder: number; shared: number; other: number };
 }
 
 export type MakerValidationBatchFactory = (input: {

@@ -5,14 +5,17 @@ import {
     MAKER_REVALIDATION_STATUS as STATUS,
     MakerRevalidationConflict,
     canonicalMakerRequest,
+    makerContinuationJob,
     type MakerRevalidationRun,
     type MakerValidationResolution,
+    type MakerWakeup,
 } from "../../domain/maker-revalidation.js";
 import type {
     MakerOrderProjectionPort,
     MakerRevalidationStore,
 } from "../../ports/maker-revalidation.js";
 import type { QueueReplayBoundary } from "../../ports/queue.js";
+import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 
 type RunRow = Omit<MakerRevalidationRun, "payload" | "origin"> & {
     payloadJson: string;
@@ -21,10 +24,11 @@ type RunRow = Omit<MakerRevalidationRun, "payload" | "origin"> & {
     originSequence: number | null;
 };
 const SELECT_RUN =
-    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,failures,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
+    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
 
 /** Shares the projection's connection so order effects and progress have one commit boundary. */
 export class SqliteMakerRevalidations implements MakerRevalidationStore {
+    private readonly outbox = new SqliteQueueOutbox();
     constructor(private readonly orders: MakerOrderProjectionPort) {}
 
     get(runId: string): MakerRevalidationRun | undefined {
@@ -102,6 +106,27 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
         })();
     }
 
+    resume(
+        input: Parameters<MakerRevalidationStore["resume"]>[0],
+    ): MakerRevalidationRun | null {
+        return db.writeTransaction(() => {
+            const run = this.get(input.runId);
+            if (!run) return null; // An old continuation never recreates an already cleaned run.
+            if (input.chainId !== run.chainId || input.step > run.step)
+                throw new MakerRevalidationConflict(
+                    "Invalid maker continuation identity",
+                );
+            if (run.status === STATUS.Completed || input.step < run.step)
+                return null;
+            return this.admit({
+                jobId: run.sourceJobId,
+                payload: run.payload,
+                origin: input.origin,
+                now: Date.now(),
+            });
+        })();
+    }
+
     next(run: MakerRevalidationRun, limit: number) {
         return this.orders.selectMakerCandidates(
             run.payload,
@@ -156,7 +181,88 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                 now,
                 run.runId,
             );
+            const updated = this.get(run.runId)!;
+            this.replaceWakeup(updated, now);
             return this.get(run.runId)!;
+        })();
+    }
+
+    private replaceWakeup(run: MakerRevalidationRun, now: number): void {
+        if (run.wakeupOutboxId !== null)
+            db.prepare("DELETE FROM queue_outbox WHERE outbox_id=?").run(
+                run.wakeupOutboxId,
+            );
+        if (run.status !== STATUS.Pending) return;
+        const id = this.outbox.enqueueJob(makerContinuationJob(run, now));
+        db.prepare(
+            "UPDATE maker_order_revalidation_runs SET wakeup_outbox_id=?,updated_at=? WHERE run_id=?",
+        ).run(id, now, run.runId);
+    }
+
+    listWakeups(now: number, limit: number): MakerWakeup[] {
+        return db.writeTransaction(() => {
+            const rows = db
+                .prepare(
+                    SELECT_RUN +
+                        "WHERE status=? AND lease_until<=? AND updated_at<=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
+                )
+                .all(
+                    STATUS.Pending,
+                    now,
+                    now - POLICY.recoveryGraceMs,
+                    limit,
+                ) as RunRow[];
+            return rows.map((row) => {
+                // Round-robin inspection prevents healthy pending deliveries starving lost ones.
+                db.prepare(
+                    "UPDATE maker_order_revalidation_runs SET recovery_checked_at=? WHERE run_id=?",
+                ).run(now, row.runId);
+                const outbox =
+                    row.wakeupOutboxId === null
+                        ? undefined
+                        : (db
+                              .prepare(
+                                  "SELECT status,publication_stream_id AS streamId,publication_sequence AS sequence FROM queue_outbox WHERE outbox_id=?",
+                              )
+                              .get(row.wakeupOutboxId) as
+                              | {
+                                    status: MakerWakeup["outboxStatus"];
+                                    streamId: string | null;
+                                    sequence: number | null;
+                                }
+                              | undefined);
+                return {
+                    run: mapRun(row),
+                    outboxStatus: outbox?.status ?? null,
+                    publication:
+                        outbox?.streamId && outbox.sequence !== null
+                            ? {
+                                  streamId: outbox.streamId,
+                                  sequence: outbox.sequence,
+                              }
+                            : undefined,
+                };
+            });
+        })();
+    }
+
+    recoverWakeup(wakeup: MakerWakeup, now: number): boolean {
+        return db.writeTransaction(() => {
+            const run = this.get(wakeup.run.runId);
+            if (
+                !run ||
+                run.status !== STATUS.Pending ||
+                run.leaseUntil > now ||
+                run.step !== wakeup.run.step ||
+                run.wakeupGeneration !== wakeup.run.wakeupGeneration ||
+                run.wakeupOutboxId !== wakeup.run.wakeupOutboxId
+            )
+                return false;
+            db.prepare(
+                "UPDATE maker_order_revalidation_runs SET wakeup_generation=wakeup_generation+1,lease_owner=NULL,lease_until=0 WHERE run_id=?",
+            ).run(run.runId);
+            this.replaceWakeup(this.get(run.runId)!, now);
+            return true;
         })();
     }
 

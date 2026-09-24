@@ -66,6 +66,7 @@ import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
 import { createSeaportValidationBatchFactory } from "../application/offchain/seaport-validation-batch.js";
 import { RevalidateMakerOrders } from "../application/orders/revalidate-maker.js";
+import { startMakerRevalidationRecovery } from "../application/orders/recover-maker-revalidations.js";
 import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
 import type { MetadataUpdatedToken } from "../domain/metadata.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
@@ -135,8 +136,11 @@ async function main() {
             undefined,
             createValidationBatch,
         );
+        const makerRevalidationStore = new SqliteMakerRevalidations(
+            ordersDomain,
+        );
         const makerRevalidations = new RevalidateMakerOrders({
-            store: new SqliteMakerRevalidations(ordersDomain),
+            store: makerRevalidationStore,
             validateOrder,
             createValidationBatch,
             wethAddress: config.tokens.wethAddress,
@@ -232,6 +236,14 @@ async function main() {
                 spanName: "worker.ordersUpdateByMaker.consume",
             },
         );
+
+        const stopMakerRecovery = startMakerRevalidationRecovery({
+            store: makerRevalidationStore,
+            consumerName: orderUpdateByMakerConsumerName,
+            isPublicationPending: (publication, consumer) =>
+                queue.isPublicationPending(publication, consumer),
+            replayBoundary: (consumer) => queue.getReplayBoundary(consumer),
+        });
 
         const stopOrderUpdatesById = await runWorker(
             queue,
@@ -578,6 +590,7 @@ async function main() {
                 component: "IndexerDomainWorker",
                 action: "shutdown",
             });
+            await stopMakerRecovery();
             await stopOrders();
             await stopOrderUpdatesByMaker();
             await stopOrderUpdatesById();

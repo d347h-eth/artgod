@@ -1,6 +1,10 @@
 import type { OrderUpdateByMakerPayload } from "./order-jobs.js";
 import type { OrderRecord, OrderValidationResult } from "./orders.js";
 import type { QueueDeliveryOrigin } from "./jobs.js";
+import type { JobEnvelope, QueuePublication } from "./jobs.js";
+import { ORDER_JOB_KIND } from "./order-jobs.js";
+import { QUEUE_NAMES } from "./queues.js";
+import type { QueueOutboxStatus } from "./queue-outbox.js";
 import {
     MAKER_TRIGGER_SCOPE,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
@@ -17,10 +21,22 @@ export const MAKER_REVALIDATION_POLICY = Object.freeze({
     leaseMs: 120_000,
     renewEveryMs: 30_000,
     cleanupRows: 100,
+    stepBudgetMs: 5_000,
+    recoveryPollMs: 5_000,
+    recoveryGraceMs: 30_000,
+    recoveryRows: 25,
 });
 export const MAKER_REVALIDATION_LOG = {
     Component: "MakerRevalidation",
     Checkpoint: "Maker revalidation checkpoint",
+    Retry: "Maker revalidation step failed",
+} as const;
+
+export const MAKER_REVALIDATION_STEP_END = {
+    Completed: MAKER_REVALIDATION_STATUS.Completed,
+    Count: "count_budget",
+    Time: "time_budget",
+    Scope: "validation_scope",
 } as const;
 
 export type MakerPassBoundary = { upperOrderId: string; upperRowId: number };
@@ -37,6 +53,8 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     step: number;
     resolvedOrders: number;
     failures: number;
+    wakeupOutboxId: number | null;
+    wakeupGeneration: number;
     origin?: QueueDeliveryOrigin;
 };
 export type MakerValidationCandidate = {
@@ -51,6 +69,30 @@ export type MakerValidationResolution = {
 };
 
 export class MakerRevalidationConflict extends Error {}
+
+export type MakerWakeup = {
+    run: MakerRevalidationRun;
+    outboxStatus: QueueOutboxStatus | null;
+    publication?: QueuePublication;
+};
+
+export function makerContinuationJob(
+    run: MakerRevalidationRun,
+    now: number,
+): JobEnvelope<OrderUpdateByMakerPayload> {
+    return {
+        jobId: `orders:update:maker:continue:${run.runId}:${run.step}:${run.wakeupGeneration}`,
+        kind: ORDER_JOB_KIND.UpdateByMaker,
+        queue: QUEUE_NAMES.OrdersUpdateByMaker,
+        chainId: run.chainId,
+        payload: {
+            ...run.payload,
+            continuation: { runId: run.runId, step: run.step },
+        },
+        attempt: 0,
+        scheduledAt: now,
+    };
+}
 
 /** Stable request identity ignores JSON property order and normalizes wallet casing. */
 export function canonicalMakerRequest(

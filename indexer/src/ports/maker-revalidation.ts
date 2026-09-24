@@ -4,6 +4,7 @@ import type {
     MakerRevalidationRun,
     MakerValidationCandidate,
     MakerValidationResolution,
+    MakerWakeup,
 } from "../domain/maker-revalidation.js";
 import type { QueueDeliveryOrigin, QueueReplayBoundary } from "./queue.js";
 
@@ -34,6 +35,12 @@ export interface MakerRevalidationStore {
         owner: string,
         now: number,
     ): MakerRevalidationRun | null;
+    resume(input: {
+        chainId: number;
+        runId: string;
+        step: number;
+        origin?: QueueDeliveryOrigin;
+    }): MakerRevalidationRun | null;
     next(run: MakerRevalidationRun, limit: number): MakerValidationCandidate[];
     /** Effects and cursor/terminal transition must commit atomically, guarded by the lease fence. */
     checkpoint(
@@ -45,4 +52,6 @@ export interface MakerRevalidationStore {
     renew(run: MakerRevalidationRun, now: number): boolean;
     release(run: MakerRevalidationRun, now: number, error?: unknown): void;
     cleanup(boundary: QueueReplayBoundary, limit: number): number;
+    listWakeups(now: number, limit: number): MakerWakeup[];
+    recoverWakeup(wakeup: MakerWakeup, now: number): boolean;
 }
