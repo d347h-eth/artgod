@@ -1,6 +1,5 @@
-import type { OrderRecord, OrderStatus } from "../domain/orders.js";
-
-export type OrderValidationResult = { status: OrderStatus; reason: string };
+import type { OrderRecord, OrderValidationResult } from "../domain/orders.js";
+export type { OrderValidationResult } from "../domain/orders.js";
 export type OrderValidator = (
     order: OrderRecord,
 ) => Promise<OrderValidationResult>;

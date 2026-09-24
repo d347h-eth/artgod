@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runWorker } from "../src/application/worker-runner.js";
+import { JobDeferred } from "../src/domain/job-deferred.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { OPENSEA_RECONCILE_WORKER_POLICY as POLICY } from "../src/config/opensea-reconcile-worker.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
 import {
@@ -11,6 +13,58 @@ import {
 describe("worker acknowledgement renewal", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
+
+    it("passes broker origin to the handler and defers lease contention without ACK or DLQ", async () => {
+        let deliver!: (message: QueueMessage<unknown>) => Promise<void>;
+        const publish = vi.fn();
+        const queue: QueuePort = {
+            publish,
+            async subscribe(_queue, handler) {
+                deliver = handler as typeof deliver;
+                return async () => {};
+            },
+            close: vi.fn(),
+        };
+        const origin = {
+            streamId: "fixture-stream",
+            consumerName: "fixture-maker",
+            sequence: 12,
+        };
+        const handler = vi.fn(async (_job, receivedOrigin) => {
+            expect(receivedOrigin).toEqual(origin);
+            throw new JobDeferred("lease still held", 1_000);
+        });
+        const stop = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                consumerName: origin.consumerName,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            handler,
+        );
+        const message: QueueMessage<unknown> = {
+            origin,
+            data: {
+                jobId: "fixture",
+                kind: "fixture",
+                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                payload: {},
+                attempt: 20,
+                scheduledAt: 0,
+                chainId: 1,
+            },
+            ack: vi.fn(),
+            nack: vi.fn(),
+            touch: vi.fn(),
+        };
+        await deliver(message);
+        expect(message.nack).toHaveBeenCalledWith({ delayMs: 1_000 });
+        expect(message.ack).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
+        await stop();
+    });
 
     it.each([false, true])(
         "renews through several ACK deadlines and clears timers on failure=%s",

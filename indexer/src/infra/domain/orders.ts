@@ -56,6 +56,13 @@ import type {
     OrderValidator,
 } from "../../ports/order-validation.js";
 import {
+    MakerRevalidationConflict,
+    type MakerPassBoundary,
+    type MakerValidationCandidate,
+    type MakerValidationResolution,
+} from "../../domain/maker-revalidation.js";
+import type { MakerOrderProjectionPort } from "../../ports/maker-revalidation.js";
+import {
     ORDER_UPDATE_BY_MAKER_LOG_CONTEXT,
     ORDER_UPDATE_BY_MAKER_LOG_MESSAGE,
     ORDER_UPDATE_BY_MAKER_REPORTING_BUCKET,
@@ -140,6 +147,8 @@ type ActiveRevalidatableOrderParams = {
     nowSeconds: number;
     afterId: string;
     batchLimit: number;
+    upperOrderId: string;
+    upperRowId: number;
     sourceStatus: OrderSourceStatus;
     fillableStatus: OrderStatus;
     noBalanceStatus: OrderStatus;
@@ -206,9 +215,12 @@ const SELECT_ORDER_FIELDS =
 const ACTIVE_REVALIDATABLE_ORDER_FILTER =
     "AND source_status = @sourceStatus " +
     "AND (valid_until IS NULL OR valid_until > @nowSeconds) AND id > @afterId " +
+    "AND id <= @upperOrderId AND rowid <= @upperRowId " +
     "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
 
-export class SqliteOrdersDomain implements OrdersDomainPort {
+export class SqliteOrdersDomain
+    implements OrdersDomainPort, MakerOrderProjectionPort
+{
     private readonly listingPrices: SqliteDailyListingPrices;
     private readonly retirements: SqliteOrderRetirements;
     private readonly wethAddress: string;
@@ -1010,6 +1022,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private selectMakerUpdateCandidates(
         payload: OrderUpdateByMakerPayload,
         afterId = "",
+        boundary: MakerPassBoundary = {
+            upperOrderId: "\uffff",
+            upperRowId: Number.MAX_SAFE_INTEGER,
+        },
+        limit: number = STORAGE_POLICY.maintenanceBatchRows,
     ): OrderRow[] {
         const maker = payload.maker.toLowerCase();
         if (payload.scope === MAKER_TRIGGER_SCOPE.Token) {
@@ -1021,7 +1038,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 ...activeRevalidatableOrderParams(),
                 nowSeconds: this.nowSeconds(),
                 afterId,
-                batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                ...boundary,
+                batchLimit: limit,
             }) as OrderRow[];
         }
         if (payload.scope === MAKER_TRIGGER_SCOPE.Collection) {
@@ -1032,7 +1050,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 ...activeRevalidatableOrderParams(),
                 nowSeconds: this.nowSeconds(),
                 afterId,
-                batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                ...boundary,
+                batchLimit: limit,
             }) as OrderRow[];
         }
 
@@ -1046,7 +1065,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     ...activeRevalidatableOrderParams(),
                     nowSeconds: this.nowSeconds(),
                     afterId,
-                    batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                    ...boundary,
+                    batchLimit: limit,
                 }) as OrderRow[];
             case GLOBAL_MAKER_TRIGGER_REASON.OrderCounter:
                 return this.selectMakerSeaportOrders.all({
@@ -1055,9 +1075,77 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     ...activeRevalidatableOrderParams(),
                     nowSeconds: this.nowSeconds(),
                     afterId,
-                    batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                    ...boundary,
+                    batchLimit: limit,
                 }) as OrderRow[];
         }
+    }
+
+    captureMakerPass(): MakerPassBoundary {
+        const row = db
+            .prepare(
+                "SELECT COALESCE((SELECT MAX(id) FROM orders), '') AS upperOrderId, COALESCE((SELECT MAX(rowid) FROM orders), 0) AS upperRowId",
+            )
+            .get() as MakerPassBoundary;
+        return row;
+    }
+
+    selectMakerCandidates(
+        payload: OrderUpdateByMakerPayload,
+        afterId: string,
+        boundary: MakerPassBoundary,
+        limit: number,
+    ): MakerValidationCandidate[] {
+        return this.selectMakerUpdateCandidates(
+            payload,
+            afterId,
+            boundary,
+            limit,
+        ).map((row) => ({
+            order: mapOrderRow(row),
+            revision: row.state_revision,
+            currentAtTrigger: this.canMutateCurrentStateForCollection(
+                payload.chainId,
+                row.collection_id,
+                payload.blockNumber,
+            ),
+        }));
+    }
+
+    applyMakerResolution(
+        payload: OrderUpdateByMakerPayload,
+        resolution: MakerValidationResolution,
+    ): void {
+        const row = this.selectOrderById.get({
+            chainId: payload.chainId,
+            orderId: resolution.candidate.order.id,
+        }) as OrderRow | undefined;
+        if (
+            !row ||
+            row.source_status !== ORDER_SOURCE_STATUS.Active ||
+            (row.valid_until !== null &&
+                row.valid_until <= this.nowSeconds()) ||
+            !Object.values(ORDER_REVALIDATABLE_FILLABILITY_STATUS).some(
+                (status) => status === row.fillability_status,
+            ) ||
+            !this.canMutateCurrentStateForCollection(
+                payload.chainId,
+                row.collection_id,
+                payload.blockNumber,
+            )
+        )
+            return;
+        // Do not advance past a still-actionable revision we did not validate. The
+        // outer checkpoint transaction rolls back and retry rereads this candidate.
+        if (
+            row.state_revision !== resolution.candidate.revision ||
+            !resolution.validation
+        ) {
+            throw new MakerRevalidationConflict(
+                "Maker validation revision changed",
+            );
+        }
+        this.applyValidation(row, resolution.validation.status);
     }
 
     private filterCurrentStateRows(
@@ -1195,7 +1283,7 @@ function parseSeaportDataJson(value: string | null): SeaportOrderData | null {
 
 function activeRevalidatableOrderParams(): Omit<
     ActiveRevalidatableOrderParams,
-    "nowSeconds" | "afterId" | "batchLimit"
+    "nowSeconds" | "afterId" | "batchLimit" | "upperOrderId" | "upperRowId"
 > {
     return {
         sourceStatus: ORDER_SOURCE_STATUS.Active,

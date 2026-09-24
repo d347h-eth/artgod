@@ -175,6 +175,14 @@ verify that failed contexts leave prior state intact and newer source/anchor
 changes win. The RPC adapter test checks that canonicality reads bypass its
 general block cache. These are deterministic local proofs, not native QA.
 
+`tests/maker-revalidation-checkpoint.test.ts` reopens migrated SQLite after an
+interruption, exercises the actual atomic result/cursor transaction (including
+SQLite busy retry), and checks lease fencing, changed/deleted orders, finite
+admission, completion before ACK and ACK-boundary receipt cleanup. The worker
+test checks delivery-origin mapping and deferred lease waits. Broker-origin
+and restart integration is a separate real-NATS gate; these SQLite tests do
+not establish broker or native runtime behavior.
+
 ## OpenSea Reconciliation Regression
 
 `tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to

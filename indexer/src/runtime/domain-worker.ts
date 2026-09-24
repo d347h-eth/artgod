@@ -65,6 +65,8 @@ import {
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
 import { createSeaportValidationBatchFactory } from "../application/offchain/seaport-validation-batch.js";
+import { RevalidateMakerOrders } from "../application/orders/revalidate-maker.js";
+import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
 import type { MetadataUpdatedToken } from "../domain/metadata.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { QueuePort } from "../ports/queue.js";
@@ -119,19 +121,28 @@ async function main() {
         const validateOrder = (
             order: Parameters<typeof validateSeaportOrder>[3],
         ) => validateSeaportOrder(rpc, conduits, config.seaport, order);
+        const createValidationBatch = createSeaportValidationBatchFactory({
+            chainId: config.chainId,
+            wethAddress: config.tokens.wethAddress,
+            rpc,
+            conduits,
+            conduitController: config.seaport.conduitController,
+        });
         const ordersDomain = new SqliteOrdersDomain(
             config.tokens.wethAddress,
             validateOrder,
             config.debugPayloads,
             undefined,
-            createSeaportValidationBatchFactory({
-                chainId: config.chainId,
-                wethAddress: config.tokens.wethAddress,
-                rpc,
-                conduits,
-                conduitController: config.seaport.conduitController,
-            }),
+            createValidationBatch,
         );
+        const makerRevalidations = new RevalidateMakerOrders({
+            store: new SqliteMakerRevalidations(ordersDomain),
+            validateOrder,
+            createValidationBatch,
+            wethAddress: config.tokens.wethAddress,
+            replayBoundary: (consumerName) =>
+                queue.getReplayBoundary(consumerName),
+        });
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
@@ -208,14 +219,12 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<OrderUpdateByMakerPayload>) => {
+            async (job: JobEnvelope<OrderUpdateByMakerPayload>, origin) => {
                 if (job.kind !== ORDER_JOB_KIND.UpdateByMaker) return;
-                await ordersDomain.handleOrderUpdateByMaker(job.payload, {
+                await makerRevalidations.execute({
                     jobId: job.jobId,
-                    attempt: job.attempt ?? 0,
-                    scheduledAt: job.scheduledAt,
-                    traceId: job.traceId ?? null,
-                    consumerName: orderUpdateByMakerConsumerName,
+                    payload: job.payload,
+                    origin,
                 });
             },
             {

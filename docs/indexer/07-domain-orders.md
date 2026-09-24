@@ -264,8 +264,38 @@ they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
 decisions still apply. Writes retain revision, active-source and bootstrap-anchor
 guards, with no SQLite transaction spanning RPC calls.
 
-This optimization does not yet release the maker consumer between contexts or
-persist its cursor. Non-WETH and singleton callers retain their current path.
+Non-WETH and singleton validation retain their current RPC path.
+
+### Durable maker progress
+
+The domain runtime invokes the `RevalidateMakerOrders` application use case with
+the original job identity and broker delivery origin. An additive
+`maker_order_revalidation_runs` table owns the request, finite pass boundary,
+cursor, completed count, failures and lease/version fence. Candidate pages use
+the existing indexed queries; the initial maximum order ID and rowid exclude
+later admissions. New canonical orders retain their own validation follow-up;
+a later maker trigger starts its own pass, including orders behind an older cursor.
+
+Each bounded context commits its order effects and cursor in one SQLite write
+transaction. Removed, expired, source-terminal and anchor-ineligible candidates
+are intentionally resolved. A still-actionable changed revision rejects the
+checkpoint, preserving the previous cursor for fresh validation on retry. RPC
+awaits stay outside database transactions. A two-minute lease, renewed every
+30 seconds, fences duplicate executors; lease contention defers the delivery
+without treating the scheduling wait as an execution failure.
+
+Restart reacquires a fresh RPC snapshot and resumes after the last committed
+cursor. Completion before ACK is recognizable on redelivery. Completed receipts
+are deleted in bounded batches only when the matching stream incarnation and
+consumer ACK floor prove the recorded delivery cannot be replayed by that
+consumer. Missing broker origin does not expire by time. Fresh publications
+after receipt cleanup are new admissions; they never skip current validation.
+
+The runtime still holds one maker envelope for the complete pass in this
+increment. Legacy standalone `SqliteOrdersDomain.handleOrderUpdateByMaker`
+remains for existing callers and baseline tests; runtime checkpoint behavior is
+owned by the application use case. No queue payload changes or live migration
+of NATS messages are required at this stage.
 
 ## Source Scope and Token Sets
 

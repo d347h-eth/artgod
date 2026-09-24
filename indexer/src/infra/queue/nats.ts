@@ -23,6 +23,7 @@ import type { QueueName } from "../../domain/queues.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import type {
     QueueMessage,
+    QueueReplayBoundary,
     QueuePort,
     SubscribeOptions,
 } from "../../ports/queue.js";
@@ -66,6 +67,7 @@ export function resolveNatsConsumerConfigUpdate(
 export class NatsJetStreamQueue implements QueuePort {
     private readonly streamName: string;
     private streamReady?: Promise<void>;
+    private streamId = "";
 
     private constructor(
         private readonly nc: NatsConnection,
@@ -144,6 +146,11 @@ export class NatsJetStreamQueue implements QueuePort {
 
                     const wrapped: QueueMessage<TPayload> = {
                         data,
+                        origin: {
+                            streamId: this.streamId,
+                            consumerName: options.consumerName,
+                            sequence: msg.info.streamSequence,
+                        },
                         ack: async () => {
                             msg.ack();
                         },
@@ -184,6 +191,25 @@ export class NatsJetStreamQueue implements QueuePort {
         await this.nc.drain();
     }
 
+    /** Completed receipt cleanup is bounded by broker ACK evidence, never a guessed TTL. */
+    async getReplayBoundary(
+        consumerName: string,
+    ): Promise<QueueReplayBoundary> {
+        const stream = await this.jsm.streams.info(this.streamName);
+        const streamId = `${stream.config.name}:${stream.created}`;
+        if (streamId !== this.streamId)
+            throw new Error("Job stream incarnation changed");
+        const consumer = await this.jsm.consumers.info(
+            this.streamName,
+            consumerName,
+        );
+        return {
+            streamId,
+            consumerName,
+            ackFloor: consumer.ack_floor.stream_seq,
+        };
+    }
+
     private async ensureStream(): Promise<void> {
         if (!this.streamReady) {
             this.streamReady = this.ensureStreamInner();
@@ -200,6 +226,7 @@ export class NatsJetStreamQueue implements QueuePort {
         }
 
         if (existing) {
+            this.streamId = `${existing.config.name}:${existing.created}`;
             if (existing.config.max_age !== NATS_JOB_STREAM_MAX_AGE_NANOS) {
                 await this.jsm.streams.update(this.streamName, {
                     max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
@@ -208,7 +235,7 @@ export class NatsJetStreamQueue implements QueuePort {
             return;
         }
 
-        await this.jsm.streams.add({
+        const created = await this.jsm.streams.add({
             name: this.streamName,
             subjects: [
                 resolveNatsJobStreamSubjectFilter(this.config.streamPrefix),
@@ -217,6 +244,7 @@ export class NatsJetStreamQueue implements QueuePort {
             storage: StorageType.File,
             max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
         });
+        this.streamId = `${created.config.name}:${created.created}`;
     }
 
     private subjectForQueue(queue: QueueName): string {

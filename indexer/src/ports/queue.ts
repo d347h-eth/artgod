@@ -1,8 +1,13 @@
 import type { QueueName } from "../domain/queues.js";
-import type { JobEnvelope } from "../domain/jobs.js";
+import type { JobEnvelope, QueueDeliveryOrigin } from "../domain/jobs.js";
+export type {
+    QueueDeliveryOrigin,
+    QueueReplayBoundary,
+} from "../domain/jobs.js";
 
 export type QueueMessage<TPayload> = {
     data: JobEnvelope<TPayload>;
+    origin?: QueueDeliveryOrigin;
     ack: () => Promise<void>;
     nack: (opts?: { delayMs?: number; reason?: string }) => Promise<void>;
     touch: () => Promise<void>;

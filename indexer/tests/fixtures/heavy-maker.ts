@@ -205,6 +205,7 @@ export class HeavyMakerRpc implements RpcProviderPort {
     allowance = 10n ** 24n;
     counter = 0n;
     blockNumber: number = HEAVY_MAKER.blockNumber;
+    blockTimestamp: number = HEAVY_MAKER.now;
     blockHash: `0x${string}` = `0x${"ab".repeat(32)}`;
     onRead?: (
         params: Parameters<RpcProviderPort["readContract"]>[0],
@@ -239,7 +240,7 @@ export class HeavyMakerRpc implements RpcProviderPort {
             number,
             hash: this.blockHash,
             parentHash: this.blockHash,
-            timestamp: HEAVY_MAKER.now,
+            timestamp: this.blockTimestamp,
             transactions: [],
         };
     }

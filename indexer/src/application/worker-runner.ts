@@ -1,5 +1,7 @@
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
+import { JobDeferred } from "../domain/job-deferred.js";
+import type { QueueDeliveryOrigin } from "../ports/queue.js";
 import type { QueueMessage, QueuePort } from "../ports/queue.js";
 import {
     DEAD_LETTER_KIND,
@@ -25,7 +27,10 @@ export type WorkerRuntimeHooks = {
 export async function runWorker<TPayload>(
     queue: QueuePort,
     options: WorkerOptions,
-    handler: (job: JobEnvelope<TPayload>) => Promise<void>,
+    handler: (
+        job: JobEnvelope<TPayload>,
+        origin?: QueueDeliveryOrigin,
+    ) => Promise<void>,
     runtimeHooks?: WorkerRuntimeHooks,
 ): Promise<() => Promise<void>> {
     return queue.subscribe<TPayload>(
@@ -60,9 +65,13 @@ export async function runWorker<TPayload>(
                     }
 
                     try {
-                        await handler(message.data);
+                        await handler(message.data, message.origin);
                         await message.ack();
                     } catch (err) {
+                        if (err instanceof JobDeferred) {
+                            await message.nack({ delayMs: err.delayMs });
+                            return;
+                        }
                         const maxAttempts = options.maxAttempts;
                         const deadLetterQueue = options.deadLetterQueue;
                         const attempt = message.data.attempt ?? 1;

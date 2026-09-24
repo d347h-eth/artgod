@@ -141,3 +141,5 @@ export type OrderRecord = {
     txHash?: string | null;
     logIndex?: number | null;
 };
+
+export type OrderValidationResult = { status: OrderStatus; reason: string };

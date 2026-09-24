@@ -246,6 +246,7 @@ describe("in-place SQLite market-data recovery", () => {
                 currency: "0xweth",
                 nowSeconds: NOW,
                 afterId: "",
+                ...domain.captureMakerPass(),
                 batchLimit: 500,
                 sourceStatus: ORDER_SOURCE_STATUS.Active,
                 fillableStatus: ORDER_STATUS.Fillable,
