@@ -432,6 +432,12 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
         );
+    const getPriceHistoryUseCase = new GetPriceHistoryUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        new SqlitePriceHistoryRead([]),
+    );
     const getTokenDetailUseCase =
         new tokenDetailUseCaseModule.GetTokenDetailUseCase(
             1,
@@ -1089,6 +1095,7 @@ beforeAll(async () => {
         getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -1152,6 +1159,7 @@ beforeAll(async () => {
         getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -1558,6 +1566,27 @@ describe("backend api routes", () => {
             }
         },
     );
+
+    it("serves price history behind the same public collection scope guard", async () => {
+        const allowed = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/price-history",
+        );
+        expect(allowed.statusCode).toBe(200);
+        expect(allowed.payload.unit).toBe("ETH");
+        expect(
+            (await resolvePublic("GET", "/api/ethereum/milady/price-history"))
+                .statusCode,
+        ).toBe(404);
+        expect(
+            (
+                await resolve(
+                    "GET",
+                    "/api/ethereum/terraforms/price-history?bucket=invalid",
+                )
+            ).statusCode,
+        ).toBe(400);
+    });
 
     it("returns null for tokens without a job", async () => {
         clearTradingJobFixtures();
@@ -8805,3 +8834,5 @@ function getCollectionFixtureByAddress(
     }
     return row;
 }
+import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
+import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";

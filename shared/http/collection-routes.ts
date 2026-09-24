@@ -1,5 +1,6 @@
 // Collection action API route templates registered by the backend.
 export const COLLECTION_API_ROUTE_TEMPLATE = {
+    PriceHistory: "/api/:chain_ref/:collection_ref/price-history",
     StartBootstrap: "/api/:chain_ref/:collection_ref/bootstrap/start",
     ProbeOpenSeaSlug: "/api/:chain_ref/:collection_ref/opensea/slug-probe",
     StartOpenSeaSync: "/api/:chain_ref/:collection_ref/opensea/sync",

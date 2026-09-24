@@ -88,6 +88,10 @@ import type {
 } from "./http/handlers/collections/get-collection-detail.js";
 import { getCollectionDetailSpanAttributes } from "./http/handlers/collections/get-collection-detail.js";
 import type {
+    GetPriceHistoryHttpAdapter,
+    GetPriceHistoryRoute,
+} from "./http/handlers/collections/get-price-history.js";
+import type {
     GetCollectionHoldersHttpAdapter,
     GetCollectionHoldersRoute,
 } from "./http/handlers/collections/get-collection-holders.js";
@@ -310,6 +314,7 @@ export function registerApiRoutes(
     getCollectionTraitCatalogAdapter: GetCollectionTraitCatalogHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
+    getPriceHistoryAdapter: GetPriceHistoryHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     getTokenUriAdapter: GetTokenUriHttpAdapter,
@@ -447,6 +452,13 @@ export function registerApiRoutes(
         {
             preHandler: publicCollectionScopeGuard,
         },
+    );
+    registerObservedGet<GetPriceHistoryRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.PriceHistory,
+        getPriceHistoryAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
     );
     registerObservedGet<GetTokenActivityRoute>(
         app,

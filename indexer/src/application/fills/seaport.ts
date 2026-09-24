@@ -1,4 +1,5 @@
 import { logger } from "@artgod/shared/utils";
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import type {
     EnhancedEvent,
@@ -138,11 +139,18 @@ function decodeOrderFulfilled(
         if (!currency) return [];
 
         const price = sumAmounts(currencyItems.map((item) => item.startAmount));
+        // Count both sides before tracking filters. NFT-for-NFT legs must not
+        // masquerade as a single-token monetary sale either.
+        const priceNftCount = sumAmounts(
+            [...offer, ...consideration]
+                .filter((item) => item.itemType >= 2 && item.itemType <= 5)
+                .map((item) => item.startAmount),
+        ).toString();
 
         return nfts.flatMap((nft) => {
             return [
                 {
-                    kind: "seaport",
+                    kind: FILL_KIND.Seaport,
                     orderId: decoded.args.orderHash as Hex,
                     orderSide,
                     maker: offerer,
@@ -152,6 +160,7 @@ function decodeOrderFulfilled(
                     amount: nft.amount,
                     price: price.toString(),
                     currency,
+                    priceNftCount,
                     blockNumber: tx.blockNumber,
                     blockHash: tx.blockHash,
                     txHash: tx.txHash,
