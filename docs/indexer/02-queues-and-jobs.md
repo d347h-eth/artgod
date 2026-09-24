@@ -220,6 +220,13 @@ and next outbox wakeup atomically, then ACKs. A bounded recovery poll checks
 unfinished runs and broker publication evidence. See
 [durable maker progress](07-domain-orders.md#durable-maker-progress).
 
+Ordinary by-ID validation hints admit one durable demand per current order before
+ACK; they no longer hold the mixed consumer across RPC. Upserts persist that
+demand in their own transaction without another queue envelope. A separate
+bounded poller validates captured revisions/generations and resumes expired
+leases after restart. Explicit fill/cancel/source updates retain their domain
+handlers. See [coalesced validation](07-domain-orders.md#coalesced-ordinary-validation).
+
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`
     - `opensea.collection.reconcile`

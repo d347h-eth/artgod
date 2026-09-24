@@ -1,7 +1,10 @@
 import type { OrderRecord } from "../../domain/orders.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../../domain/order-validation-policy.js";
 import type { ConduitRegistryPort } from "../../ports/conduits.js";
-import type { MakerValidationBatchFactory } from "../../ports/order-validation.js";
+import type {
+    MakerValidationBatchFactory,
+    OrderValidationSnapshotFactory,
+} from "../../ports/order-validation.js";
 import type { RpcProviderPort } from "../../ports/rpc.js";
 import { validateSeaportOrder } from "./seaport-validate.js";
 
@@ -15,15 +18,37 @@ export class OrderValidationSnapshotUnavailable extends Error {
 
 const SHARED_READS = new Set(["getCounter", "allowance", "balanceOf"]);
 
-/** Full WETH validation with shared reads confined to one fresh chain snapshot. */
-export function createSeaportValidationBatchFactory(input: {
+type SnapshotDependencies = {
     chainId: number;
-    wethAddress: string;
     rpc: RpcProviderPort;
     conduits: ConduitRegistryPort;
     conduitController: string;
     now?: () => number;
-}): MakerValidationBatchFactory {
+};
+
+/** Full WETH validation with shared reads confined to one fresh chain snapshot. */
+export function createSeaportValidationBatchFactory(
+    input: SnapshotDependencies & { wethAddress: string },
+): MakerValidationBatchFactory {
+    return createValidationSnapshotFactory(
+        input,
+        (order) =>
+            order.side === "buy" &&
+            order.currency?.toLowerCase() === input.wethAddress.toLowerCase(),
+    );
+}
+
+/** Full by-ID validation uses the same strict snapshot/error boundary for every order type. */
+export function createSeaportOrderValidationFactory(
+    input: SnapshotDependencies,
+): OrderValidationSnapshotFactory {
+    return createValidationSnapshotFactory(input, () => true);
+}
+
+function createValidationSnapshotFactory(
+    input: SnapshotDependencies,
+    admits: (order: OrderRecord) => boolean,
+): OrderValidationSnapshotFactory {
     const { rpc } = input;
     const now = input.now ?? Date.now;
     return async ({ chainId, minimumBlock }) => {
@@ -62,8 +87,23 @@ export function createSeaportValidationBatchFactory(input: {
             getLogs: (filter) => rpc.getLogs(filter),
             getTransaction: (hash) => rpc.getTransaction(hash),
             getTransactionReceipt: (hash) => rpc.getTransactionReceipt(hash),
-            getBalance: async () => {
-                throw new Error("Native validation cannot use a WETH snapshot");
+            getBalance: async (address) => {
+                try {
+                    checkLifetime();
+                    counts.other++;
+                    const balance = await rpc.getBalance(address, {
+                        blockNumber: number,
+                    });
+                    if (typeof balance !== "bigint")
+                        throw new Error("Invalid native balance response");
+                    return balance;
+                } catch (error) {
+                    failure = new OrderValidationSnapshotUnavailable(
+                        "Validation snapshot balance read failed",
+                        error,
+                    );
+                    throw failure;
+                }
             },
             async readContract<T>(
                 params: Parameters<RpcProviderPort["readContract"]>[0],
@@ -118,18 +158,14 @@ export function createSeaportValidationBatchFactory(input: {
             now() - startedAt < POLICY.admissionBudgetMs;
         return {
             canAccept,
+            proof: { observedAt: startedAt, blockNumber: number },
             readCounts: () => ({ ...counts }),
             async validate(order: OrderRecord) {
                 if (closed || failure || orders >= POLICY.maxOrders)
                     throw new OrderValidationSnapshotUnavailable(
                         "Validation batch is closed",
                     );
-                if (
-                    order.chainId !== chainId ||
-                    order.side !== "buy" ||
-                    order.currency?.toLowerCase() !==
-                        input.wethAddress.toLowerCase()
-                ) {
+                if (order.chainId !== chainId || !admits(order)) {
                     throw new Error(
                         "Validation snapshot requires WETH bids on its chain",
                     );

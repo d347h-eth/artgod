@@ -239,10 +239,14 @@ export class ViemRpcProvider implements RpcProviderPort {
         return result as T;
     }
 
-    async getBalance(address: Hex): Promise<bigint> {
+    async getBalance(
+        address: Hex,
+        options?: { blockNumber: number },
+    ): Promise<bigint> {
         return this.executeRpc("getBalance", (client) =>
             client.getBalance({
                 address: address as `0x${string}`,
+                blockNumber: options ? BigInt(options.blockNumber) : undefined,
             }),
         );
     }

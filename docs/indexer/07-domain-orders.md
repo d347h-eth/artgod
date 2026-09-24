@@ -93,11 +93,11 @@ Examples:
 2. `dispatchOffchainPayload()` publishes `orders.upsert`.
 3. Domain worker admits a current observation and writes only changed canonical
    state; observation/validation freshness is separate from material changes.
-4. If validation is requested and needed, domain worker publishes
-   `orders.update-by-id` with `reason = "order"`. Recently validated identical
-   upserts do not produce another validation. The job identity includes the
-   collection, order, state revision and five-minute validation bucket.
-5. Validation runs asynchronously from canonical order data already stored in SQLite.
+4. If validation is requested and needed, the same write transaction admits
+   durable `order_validation_demand` for the canonical revision and observation.
+   Recently validated identical upserts do not produce another validation.
+5. The application-owned demand worker performs full validation asynchronously
+   from current canonical data, with a fenced lease and captured generation.
 
 `orders.upsert` writes optimistic defaults:
 
@@ -109,14 +109,47 @@ The follow-up validation job corrects `fillability_status` after protocol checks
 Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
 repeat validation have a five-minute freshness interval; explicit maker/state
 change triggers still revalidate. A changed canonical upsert clears `validated_at`
-in the same write that advances `state_revision`. If publishing validation fails,
-an unchanged upsert retry still requests it until that revision has been validated.
+in the same write that advances `state_revision` and commits its validation demand.
+There is no post-commit broker publication on this path. An unchanged upsert retry
+retains its original observation requirement instead of advancing it to retry time.
 A newer source observation does not erase that obligation: an older retry leaves
 stored state untouched and requests validation of the current active revision.
 Validation commits with a state-revision and
 active-source guard, so a result obtained before an awaited RPC cannot overwrite
 a newer cancellation. No SQLite reader or writer transaction stays open across
 that RPC.
+
+### Coalesced ordinary validation
+
+Migration 058 stores at most one demand/coverage row per current order; deleting
+the order deletes its demand. Legacy `reason = "order"` envelopes admit current
+state using their explicit trigger block and enqueue time, without parsing job
+IDs. Missing, expired, source-terminal, protocol-terminal and pre-anchor work is
+resolved before RPC. An old `validated_at` value alone never establishes coverage.
+
+Demand records canonical revision, generation and required observation/block
+coverage. A full validator snapshot pins contract and native-balance reads to a
+fresh block at least as recent as the trigger, then rechecks canonicality before
+committing. RPC uncertainty retries the durable obligation; it cannot be recorded
+as a protocol failure. Completion commits the order result and its resulting
+revision together, including a revision change caused by its own fillability write.
+Newer generations or changed canonical revisions remain pending. An unanchored
+canonical observation remains independently actionable when coalesced with an
+older chain trigger; it does not inherit that trigger's bootstrap rejection.
+
+The worker polls every second, admits at most 25 orders or five seconds of new
+work per tick, and processes one at a time. Persisted two-minute leases renew
+every 30 seconds; expired leases are reclaimable after restart. Failed work uses
+bounded exponential retry delay up to 60 seconds. Pending rows themselves are the
+durable wakeup, so no per-order outbox publication or sent-state recovery is needed.
+Full validation still runs periodically when fresh ordinary observations require
+it; this does not claim complete WETH event coverage.
+
+This schema/worker pair requires aligned runtime artifacts. An older binary does
+not drain the new demand table. Native downgrade is not qualified; use a stopped
+runtime and a paired pre-upgrade SQLite/NATS backup if rollback is required.
+Maker hint coalescing and shared admission between validation paths are separate
+increments; ordinary demand alone does not prove total backlog convergence.
 
 ## Current-State Retention and Replay
 
@@ -377,9 +410,12 @@ Used for:
 
 - explicit fill/cancel status changes
 - offchain source-status changes (`cancelled`, `filled`, `invalidated`, `active`)
-- post-upsert validation (`reason = "order"`)
+- legacy post-upsert and explicit chain validation hints (`reason = "order"`)
 
-For `reason = "order"`, the handler loads the canonical `orders` row and validates it as a Seaport order if `seaport_data_json` exists.
+For `reason = "order"`, runtime admission commits coalesced validation demand
+before ACK. The separate demand worker performs the RPC work. Legacy standalone
+`SqliteOrdersDomain.handleOrderUpdateById` callers retain their original behavior;
+the runtime uses the application-owned demand path.
 
 ### `orders.update-by-maker`
 

@@ -43,6 +43,25 @@ describe("ViemRpcProvider RPC resilience", () => {
         vi.unstubAllGlobals();
     });
 
+    it("forwards a native balance snapshot block without changing unpinned callers", async () => {
+        const getBalance = vi.fn(async () => 1n);
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            createClient: () =>
+                ({ getBalance }) as unknown as ReturnType<ViemRpcClientFactory>,
+        });
+        const address = "0x1111111111111111111111111111111111111111";
+        await provider.getBalance(address, { blockNumber: TEST_BLOCK_NUMBER });
+        await provider.getBalance(address);
+        expect(getBalance.mock.calls).toEqual([
+            [{ address, blockNumber: BigInt(TEST_BLOCK_NUMBER) }],
+            [{ address, blockNumber: undefined }],
+        ]);
+    });
+
     it("bypasses the block cache for validation canonicality checks", async () => {
         let hash = `0x${"ab".repeat(32)}`;
         const getBlock = vi.fn(async () => ({

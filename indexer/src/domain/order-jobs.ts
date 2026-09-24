@@ -18,6 +18,11 @@ export const ORDER_JOB_KIND = {
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
+export const ORDER_UPDATE_REASON = {
+    Validation: "order",
+    Fill: "fill",
+    Cancel: "cancel",
+} as const;
 export { MAKER_TRIGGER_SCOPE };
 export type OrderUpdateByMakerReason = MakerTriggerReason;
 

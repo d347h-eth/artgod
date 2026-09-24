@@ -1,8 +1,8 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { zeroAddress } from "viem";
-import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
+import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
 import { SqliteMarketDataMaintenance } from "../infra/storage/sqlite-market-data-maintenance.js";
 import { startMarketDataMaintenanceLoop } from "./market-data-maintenance-loop.js";
 import {
@@ -64,7 +64,16 @@ import {
 } from "../infra/rpc/observability.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
-import { createSeaportValidationBatchFactory } from "../application/offchain/seaport-validation-batch.js";
+import {
+    createSeaportValidationBatchFactory,
+    createSeaportOrderValidationFactory,
+} from "../application/offchain/seaport-validation-batch.js";
+import {
+    AdmitOrderValidation,
+    ValidateOrderDemand,
+    startOrderValidationDemand,
+} from "../application/orders/validate-order-demand.js";
+import { SqliteOrderValidationDemand } from "../infra/orders/sqlite-order-validation-demand.js";
 import { RevalidateMakerOrders } from "../application/orders/revalidate-maker.js";
 import { startMakerRevalidationRecovery } from "../application/orders/recover-maker-revalidations.js";
 import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
@@ -74,6 +83,7 @@ import type { QueuePort } from "../ports/queue.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import {
     ORDER_JOB_KIND,
+    ORDER_UPDATE_REASON,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
@@ -139,6 +149,23 @@ async function main() {
         const makerRevalidationStore = new SqliteMakerRevalidations(
             ordersDomain,
         );
+        const orderValidationStore = new SqliteOrderValidationDemand(
+            ordersDomain,
+        );
+        const admitOrderValidation = new AdmitOrderValidation(
+            config.chainId,
+            orderValidationStore,
+        );
+        const orderValidation = new ValidateOrderDemand({
+            chainId: config.chainId,
+            store: orderValidationStore,
+            createSnapshot: createSeaportOrderValidationFactory({
+                chainId: config.chainId,
+                rpc,
+                conduits,
+                conduitController: config.seaport.conduitController,
+            }),
+        });
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
             validateOrder,
@@ -256,6 +283,18 @@ async function main() {
             },
             async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.UpdateById) return;
+                if (
+                    !job.payload.sourceStatus &&
+                    job.payload.reason === ORDER_UPDATE_REASON.Validation
+                ) {
+                    admitOrderValidation.execute({
+                        chainId: job.payload.chainId,
+                        orderId: job.payload.orderId,
+                        requiredAt: job.scheduledAt,
+                        minimumBlock: job.payload.blockNumber ?? null,
+                    });
+                    return;
+                }
                 await ordersDomain.handleOrderUpdateById({
                     ...job.payload,
                     collectionId: job.payload.collectionId ?? job.collectionId,
@@ -270,6 +309,7 @@ async function main() {
             },
         );
 
+        const stopOrderValidation = startOrderValidationDemand(orderValidation);
         const stopOrderUpserts = await runWorker(
             queue,
             {
@@ -281,37 +321,12 @@ async function main() {
             },
             async (job: JobEnvelope<OrderUpsertPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.Upsert) return;
-                const outcome = await ordersDomain.handleOrderUpsert({
+                await ordersDomain.handleOrderUpsert({
                     ...job.payload,
                     observedAt:
                         job.payload.observedAt ??
                         Math.floor(job.scheduledAt / 1000),
                 });
-                if (
-                    job.payload.validateAfterUpsert &&
-                    outcome.validationNeeded
-                ) {
-                    const validationJob: JobEnvelope<OrderUpdateByIdPayload> = {
-                        // Broker dedupe bounds repeated observations while the first validation is pending.
-                        // A changed canonical revision always gets a different identity.
-                        jobId: `orders:update:id:upsert:${job.payload.chainId}:${job.payload.collectionId}:${job.payload.orderId}:${outcome.validationRevision}:${Math.floor(Date.now() / (MARKET_DATA_STORAGE_POLICY.orderRevalidationSeconds * 1000))}`,
-                        kind: ORDER_JOB_KIND.UpdateById,
-                        queue: QUEUE_NAMES.OrdersUpdateById,
-                        payload: {
-                            chainId: job.payload.chainId,
-                            orderId: job.payload.orderId,
-                            reason: "order",
-                        },
-                        attempt: 0,
-                        scheduledAt: Date.now(),
-                        chainId: job.payload.chainId,
-                        traceId: job.traceId ?? job.jobId,
-                    };
-                    await queue.publish(
-                        QUEUE_NAMES.OrdersUpdateById,
-                        validationJob,
-                    );
-                }
             },
             {
                 apm: runtimeApm.apm,
@@ -591,6 +606,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopMakerRecovery();
+            await stopOrderValidation();
             await stopOrders();
             await stopOrderUpdatesByMaker();
             await stopOrderUpdatesById();

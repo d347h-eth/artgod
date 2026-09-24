@@ -205,6 +205,17 @@ The recovery fixture advances its injected clock past the persisted lease;
 it does not wait two real minutes. Results use deterministic fake RPC, so they
 establish scheduling/replay behavior rather than live throughput or native QA.
 
+## Ordinary Order Validation Demand
+
+`tests/order-validation-demand.test.ts` uses migrated SQLite and strict full-order
+snapshots. It covers 2,000 old hints coalescing to one validation, bounded receipt
+storage, newer trigger generations/canonical revisions during RPC, cancellation
+precedence, expiry/anchor checks, own-result revision handling, dead leases,
+atomic upsert rollback and restart without a publication. The candidate query
+plan uses the chain/due index without a temporary sort. Native-balance snapshot
+pinning and failure propagation have validator and RPC-adapter coverage. The
+existing failed-publish/unchanged-upsert tests still enforce no redundant writes.
+
 ## OpenSea Reconciliation Regression
 
 `tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to

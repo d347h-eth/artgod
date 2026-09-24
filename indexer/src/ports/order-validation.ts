@@ -17,3 +17,13 @@ export type MakerValidationBatchFactory = (input: {
     chainId: number;
     minimumBlock: number | null;
 }) => Promise<MakerValidationBatch>;
+
+/** A full-order snapshot whose successful finish proves trigger coverage. */
+export type OrderValidationSnapshotFactory = (input: {
+    chainId: number;
+    minimumBlock: number | null;
+}) => Promise<
+    MakerValidationBatch & {
+        proof: { observedAt: number; blockNumber: number };
+    }
+>;

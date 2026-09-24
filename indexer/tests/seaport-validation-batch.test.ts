@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
+import { zeroAddress } from "viem";
 import { computeSeaportOrderHash } from "../src/application/offchain/seaport-protocol.js";
 import {
     createSeaportValidationBatchFactory,
+    createSeaportOrderValidationFactory,
     OrderValidationSnapshotUnavailable,
 } from "../src/application/offchain/seaport-validation-batch.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../src/domain/order-validation-policy.js";
@@ -44,6 +46,52 @@ describe("bounded Seaport validation snapshots", () => {
         vi.spyOn(Date, "now").mockReturnValue(HEAVY_MAKER.now * 1_000),
     );
     afterEach(() => vi.restoreAllMocks());
+
+    it("pins native balance and sell checks in full-order snapshots, propagating native RPC failure", async () => {
+        vi.spyOn(logger, "error").mockImplementation(() => {});
+        const rpc = new HeavyMakerRpc();
+        const getBalance = vi.spyOn(rpc, "getBalance");
+        const create = createSeaportOrderValidationFactory({
+            chainId: HEAVY_MAKER.chainId,
+            rpc,
+            conduits: warmConduits,
+            conduitController: HEAVY_MAKER.controller,
+        });
+        const native = heavyMakerOrder(5, { currency: zeroAddress });
+        native.seaportData!.offer[0] = {
+            ...native.seaportData!.offer[0]!,
+            itemType: "0",
+            token: zeroAddress,
+        };
+        native.id = computeSeaportOrderHash(native.seaportData!);
+        const context = await create(scope);
+        expect((await context.validate(native)).status).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getBalance).toHaveBeenCalledWith(native.maker, {
+            blockNumber: HEAVY_MAKER.blockNumber,
+        });
+        const sell = heavyMakerOrder(6, {
+            side: "sell",
+            maker: HEAVY_MAKER.smallMaker,
+        });
+        expect((await context.validate(sell)).status).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        await context.finish();
+        expect(context.proof).toEqual({
+            observedAt: HEAVY_MAKER.now * 1_000,
+            blockNumber: HEAVY_MAKER.blockNumber,
+        });
+        getBalance.mockRejectedValueOnce(new Error("native RPC unavailable"));
+        const failed = await create(scope);
+        await expect(failed.validate(native)).rejects.toThrow(
+            OrderValidationSnapshotUnavailable,
+        );
+        await expect(failed.finish()).rejects.toThrow(
+            OrderValidationSnapshotUnavailable,
+        );
+    });
 
     it("shares in-flight wallet reads while retaining each order status and pinning every read", async () => {
         const rpc = new HeavyMakerRpc();

@@ -62,6 +62,13 @@ import {
     type MakerValidationResolution,
 } from "../../domain/maker-revalidation.js";
 import type { MakerOrderProjectionPort } from "../../ports/maker-revalidation.js";
+import type { OrderValidationProjectionPort } from "../../ports/order-validation-demand.js";
+import {
+    needsCurrentOrderValidation,
+    type OrderValidationRequest,
+    type ClaimedOrderValidation,
+} from "../../domain/order-validation-demand.js";
+import { SqliteOrderValidationDemand } from "../orders/sqlite-order-validation-demand.js";
 import {
     ORDER_UPDATE_BY_MAKER_LOG_CONTEXT,
     ORDER_UPDATE_BY_MAKER_LOG_MESSAGE,
@@ -219,12 +226,16 @@ const ACTIVE_REVALIDATABLE_ORDER_FILTER =
     "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
 
 export class SqliteOrdersDomain
-    implements OrdersDomainPort, MakerOrderProjectionPort
+    implements
+        OrdersDomainPort,
+        MakerOrderProjectionPort,
+        OrderValidationProjectionPort
 {
     private readonly listingPrices: SqliteDailyListingPrices;
     private readonly retirements: SqliteOrderRetirements;
     private readonly wethAddress: string;
     private readonly validateOrder: SeaportOrderValidator;
+    private readonly validationDemand = new SqliteOrderValidationDemand(this);
     private updateOrderFillabilityStatus =
         db.prepare<OrderFillabilityStatusParams>(
             "UPDATE orders SET fillability_status = @fillabilityStatus, state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP " +
@@ -822,7 +833,26 @@ export class SqliteOrdersDomain
     }> {
         // Admission, tombstone checks and mutation share the writer snapshot.
         // There is no network work inside this transaction.
-        return db.writeTransaction(() => this.applyOrderUpsert(payload))();
+        return db.writeTransaction(() => {
+            const outcome = this.applyOrderUpsert(payload);
+            if (payload.validateAfterUpsert && outcome.validationNeeded) {
+                const now = this.nowSeconds() * 1_000;
+                this.validationDemand.admit(
+                    {
+                        chainId: payload.chainId,
+                        orderId: payload.orderId,
+                        // Replay keeps its observation requirement; retry time is not new demand.
+                        requiredAt: Math.min(
+                            now,
+                            (payload.observedAt ?? now / 1_000) * 1_000,
+                        ),
+                        minimumBlock: null,
+                    },
+                    now,
+                );
+            }
+            return outcome;
+        })();
     }
 
     private applyOrderUpsert(payload: OrderUpsertPayload): {
@@ -1079,6 +1109,49 @@ export class SqliteOrdersDomain
                     batchLimit: limit,
                 }) as OrderRow[];
         }
+    }
+
+    validationCandidate(request: OrderValidationRequest) {
+        const row = this.selectOrderById.get({
+            chainId: request.chainId,
+            orderId: request.orderId,
+        }) as OrderRow | undefined;
+        if (!row) return null;
+        const order = mapOrderRow(row);
+        if (
+            !needsCurrentOrderValidation(order, this.nowSeconds()) ||
+            !this.canMutateCurrentStateForCollection(
+                row.chain_id,
+                row.collection_id,
+                request.minimumBlock,
+            )
+        )
+            return null;
+        return { order, revision: row.state_revision };
+    }
+
+    applyDemandValidation(
+        claim: ClaimedOrderValidation,
+        result: Awaited<ReturnType<OrderValidator>>,
+    ): number | null {
+        const current = this.validationCandidate({
+            ...claim.demand,
+            minimumBlock: claim.demand.anchorIndependent
+                ? null
+                : claim.demand.minimumBlock,
+        });
+        if (!current || current.revision !== claim.candidate.revision)
+            return null;
+        const row = this.selectOrderById.get({
+            chainId: claim.demand.chainId,
+            orderId: claim.demand.orderId,
+        }) as OrderRow;
+        this.applyValidation(row, result.status);
+        const updated = this.selectOrderById.get({
+            chainId: claim.demand.chainId,
+            orderId: claim.demand.orderId,
+        }) as OrderRow;
+        return updated.state_revision;
     }
 
     captureMakerPass(): MakerPassBoundary {
