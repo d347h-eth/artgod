@@ -211,6 +211,9 @@ yarn test:terraforms:media
 # Run deterministic Terraforms Hypercastle page checks with browser probing and screenshot artifacts.
 yarn test:terraforms:hypercastle
 
+# Run realized-price collection/token chart checks with synthetic sales.
+yarn test:prices:history
+
 # Start the local app before running attached smoke tests against live local data.
 yarn dev
 

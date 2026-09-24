@@ -46,6 +46,7 @@ yarn test:bidding:automation:public
 yarn test:bidding:authorization
 yarn test:runtime:recovery
 yarn test:listings:history
+yarn test:prices:history
 yarn test:bootstrap:probe
 yarn test:terraforms:media
 yarn test:terraforms:hypercastle
