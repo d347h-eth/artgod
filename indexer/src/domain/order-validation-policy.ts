@@ -5,4 +5,5 @@ export const ORDER_VALIDATION_BATCH_POLICY = Object.freeze({
     snapshotLifetimeMs: 30_000,
     maxBlockAgeSeconds: 60,
     maxHeadAdvance: 2,
+    statusBatchRetryAfterMs: 60_000,
 });

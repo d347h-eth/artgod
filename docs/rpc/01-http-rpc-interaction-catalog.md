@@ -161,6 +161,7 @@ It supports:
 - `getTransaction`
 - `getTransactionReceipt`
 - `readContract`
+- `readContracts` (bounded, pinned, deployless multicall for caller-independent views)
 - `getBalance`
 
 It has the strongest HTTP JSON-RPC resilience coverage in the project:
@@ -236,6 +237,13 @@ request attempt; the retry policy still bounds the total number of attempts.
 - RPC method paths: Seaport order status, Seaport counters, conduit state,
   ownership, approvals, WETH allowance/balance, and native ETH balance.
 - Resilience: full indexer HTTP adapter coverage.
+
+Maker validation lazily aggregates up to 20 unique Seaport statuses at a pinned
+block, using the adapter's `readContracts` path. No global HTTP batching is
+enabled. Per-item failures fall back on demand; a failed/unsupported aggregate
+starts a 60-second cooldown before probing again. Individual fallback failure
+retries the uncommitted context. Fresh block/hash checks still precede result
+writes; see [orders](../indexer/07-domain-orders.md#bounded-status-aggregates).
 
 ### Reorg Worker
 

@@ -7,6 +7,7 @@ import type {
 } from "../../ports/order-validation.js";
 import type { RpcProviderPort } from "../../ports/rpc.js";
 import { validateSeaportOrder } from "./seaport-validate.js";
+import { createSeaportStatusReader } from "./seaport-status-reader.js";
 
 /** Infrastructure uncertainty cannot be recorded as a protocol-invalid order. */
 export class OrderValidationSnapshotUnavailable extends Error {
@@ -51,7 +52,8 @@ function createValidationSnapshotFactory(
 ): OrderValidationSnapshotFactory {
     const { rpc } = input;
     const now = input.now ?? Date.now;
-    return async ({ chainId, minimumBlock }) => {
+    let statusBatchUnavailableUntil = 0;
+    return async ({ chainId, minimumBlock, candidates = [] }) => {
         if (chainId !== input.chainId)
             throw new Error("Validation batch chain mismatch");
         const startedAt = now();
@@ -77,7 +79,19 @@ function createValidationSnapshotFactory(
         };
         checkLifetime();
         const cache = new Map<string, Promise<unknown>>();
-        const counts = { perOrder: 0, shared: 0, other: 0 };
+        const counts = { perOrder: 0, shared: 0, other: 0, statusBatches: 0 };
+        const readStatus = createSeaportStatusReader({
+            rpc,
+            chainId,
+            blockNumber: number,
+            candidates: candidates.filter(admits),
+            canBatch: () => now() >= statusBatchUnavailableUntil,
+            batchFailed: () => {
+                statusBatchUnavailableUntil =
+                    now() + POLICY.statusBatchRetryAfterMs;
+            },
+            counts,
+        });
         let failure: unknown;
         let orders = 0;
         let closed = false;
@@ -110,6 +124,8 @@ function createValidationSnapshotFactory(
             ): Promise<T> {
                 try {
                     checkLifetime();
+                    if (params.functionName === "getOrderStatus")
+                        return (await readStatus(params)) as T;
                     const key = JSON.stringify(
                         [
                             chainId,
@@ -129,8 +145,6 @@ function createValidationSnapshotFactory(
                     let pending = shared ? cache.get(key) : undefined;
                     if (!pending) {
                         if (shared) counts.shared++;
-                        else if (params.functionName === "getOrderStatus")
-                            counts.perOrder++;
                         else counts.other++;
                         pending = rpc.readContract({
                             ...params,

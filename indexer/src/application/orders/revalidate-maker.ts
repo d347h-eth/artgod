@@ -139,6 +139,9 @@ export class RevalidateMakerOrders {
             ? await this.deps.createSnapshot({
                   chainId: run.chainId,
                   minimumBlock: run.payload.blockNumber ?? null,
+                  candidates: candidates
+                      .filter((candidate) => candidate.currentAtTrigger)
+                      .map((candidate) => candidate.order),
               })
             : undefined;
         for (const candidate of candidates) {

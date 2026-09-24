@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from "vitest";
+import { performance } from "node:perf_hooks";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
@@ -38,6 +39,7 @@ import type { MakerOrderProjectionPort } from "../src/ports/maker-revalidation.j
 import {
     HEAVY_MAKER,
     HeavyMakerRpc,
+    BatchedHeavyMakerRpc,
     heavyMakerHint,
     heavyMakerOrder,
     seedHeavyMaker,
@@ -139,6 +141,79 @@ describe("durable maker checkpoints", () => {
             .get(run.wakeupOutboxId) as { job_json: string };
         return JSON.parse(row.job_json);
     }
+
+    it("validates all 9,339 bids through durable steps with bounded status aggregates", async () => {
+        seedHeavyMaker();
+        const rpc = new BatchedHeavyMakerRpc();
+        const work = workflow(rpc);
+        const started = performance.now();
+        await work.processor.execute(request);
+        const contexts = Math.ceil(HEAVY_MAKER.count / POLICY.batchOrders);
+        expect(work.store.admit({ ...request, now }).resolvedOrders).toBe(
+            HEAVY_MAKER.count,
+        );
+        expect(rpc.reads).toEqual({
+            getOrderStatus: HEAVY_MAKER.count,
+            getCounter: contexts,
+            allowance: contexts,
+            balanceOf: contexts,
+        });
+        expect(rpc.batches).toHaveLength(467);
+        expect(rpc.virtualMs).toBe(7_490);
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM orders WHERE validated_at>0 AND fillability_status=?",
+                )
+                .get(ORDER_STATUS.Fillable),
+        ).toEqual({ count: HEAVY_MAKER.count });
+        process.stdout.write(
+            JSON.stringify({
+                scenario: "heavy-maker-status-batched-durable-fake-rpc",
+                orders: HEAVY_MAKER.count,
+                contexts,
+                logicalContractReads: Object.values(rpc.reads).reduce(
+                    (a, b) => a + b,
+                    0,
+                ),
+                statusBatches: rpc.batches.length,
+                contractRpcCalls: rpc.virtualMs / 10,
+                syntheticRpcMs: rpc.virtualMs,
+                localMs: Math.round(performance.now() - started),
+            }) + "\n",
+        );
+    }, 60_000);
+
+    it.each(["fallback", "reorg"])(
+        "keeps the prior checkpoint when a status aggregate has a %s failure",
+        async (failure) => {
+            seedHeavyMaker(3);
+            const rpc = new BatchedHeavyMakerRpc();
+            if (failure === "fallback") {
+                vi.spyOn(rpc, "readContracts").mockRejectedValue(
+                    new Error("aggregate unavailable"),
+                );
+                rpc.onRead = () => {
+                    throw new Error("individual read unavailable");
+                };
+            } else
+                rpc.onRead = () => {
+                    rpc.blockHash = `0x${"cd".repeat(32)}`;
+                };
+            const work = workflow(rpc);
+            await expect(work.stepProcessor.execute(request)).rejects.toThrow();
+            expect(work.store.admit({ ...request, now }).resolvedOrders).toBe(
+                0,
+            );
+            expect(
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS count FROM orders WHERE validated_at>0 OR fillability_status<>?",
+                    )
+                    .get(ORDER_STATUS.Fillable),
+            ).toEqual({ count: 0 });
+        },
+    );
 
     it("yields after 100 orders and services a small maker and token before the heavy pass finishes", async () => {
         const { small, sale } = seedHeavyMaker(250);

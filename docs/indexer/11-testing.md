@@ -175,6 +175,24 @@ verify that failed contexts leave prior state intact and newer source/anchor
 changes win. The RPC adapter test checks that canonicality reads bypass its
 general block cache. These are deterministic local proofs, not native QA.
 
+`tests/seaport-status-batch.test.ts` covers bounded lazy status aggregates,
+per-item failure and malformed-result fallback, provider rejection/cooldown,
+block/protocol isolation and reorg rejection. The RPC adapter test exercises
+real Viem encoding/decoding against stubbed HTTP responses, including endpoint
+retry after a failed aggregate. It does not contact an external provider.
+The checkpoint suite runs all 9,339 bids through actual durable steps with the
+batch-capable fake: 467 status aggregates plus 282 shared wallet calls = 749
+contract RPC calls, versus 9,621 after wallet sharing alone. Logical reads remain
+9,621; virtual wire time becomes 7,490 ms at 10 ms per aggregate/single call.
+These counts exclude block lookups, provider retries and cold conduits. The fake
+does not measure deployless execution gas, billing or live endpoint support.
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/seaport-status-batch.test.ts \
+  tests/maker-revalidation-checkpoint.test.ts tests/rpc-provider-resilience.test.ts
+```
+
 `tests/maker-revalidation-checkpoint.test.ts` reopens migrated SQLite after an
 interruption, exercises the actual atomic result/cursor transaction (including
 SQLite busy retry), and checks lease fencing, changed/deleted orders, finite

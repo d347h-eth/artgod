@@ -17,7 +17,11 @@ import {
     GLOBAL_MAKER_TRIGGER_REASON,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../../src/domain/maker-triggers.js";
-import type { RpcBlock, RpcProviderPort } from "../../src/ports/rpc.js";
+import type {
+    RpcBlock,
+    RpcProviderPort,
+    RpcContractReadResult,
+} from "../../src/ports/rpc.js";
 import type { ConduitRegistryPort } from "../../src/ports/conduits.js";
 
 // Synthetic identities and amounts; the shape mirrors the investigated workload.
@@ -255,5 +259,33 @@ export class HeavyMakerRpc implements RpcProviderPort {
     }
     async getTransactionReceipt(): Promise<never> {
         throw new Error("Unexpected getTransactionReceipt");
+    }
+}
+
+/** Same logical answers, with virtual wire latency paid once per status aggregate. */
+export class BatchedHeavyMakerRpc extends HeavyMakerRpc {
+    readonly batches: Array<
+        Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0]
+    > = [];
+
+    async readContracts(
+        input: Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0],
+    ): Promise<RpcContractReadResult[]> {
+        this.batches.push(input);
+        const results: RpcContractReadResult[] = [];
+        for (const contract of input.contracts) {
+            try {
+                results.push({
+                    value: await super.readContract({
+                        ...contract,
+                        blockNumber: input.blockNumber,
+                    }),
+                });
+            } catch (error) {
+                results.push({ error });
+            }
+        }
+        this.virtualMs -= (input.contracts.length - 1) * 10;
+        return results;
     }
 }

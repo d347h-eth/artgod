@@ -312,6 +312,87 @@ guards, with no SQLite transaction spanning RPC calls.
 Runtime snapshots cover sell and non-WETH orders too, including pinned native
 balances. Standalone legacy callers retain their existing singleton path.
 
+### Bounded status aggregates
+
+Maker steps provide their bounded candidate page to the snapshot. When the RPC
+adapter supports `readContracts`, the first needed status lazily reads up to 20
+unique `(protocol, order hash)` statuses in one deployless multicall at the pinned
+block. Seaport's status view is independent of the caller; other validator calls
+do not use this aggregation path. No contract deployment or transaction occurs.
+One snapshot retains at most its 100-candidate lookahead, and stops admitting
+orders under the same count/time budgets. Unused prefetched statuses do not
+advance the cursor or satisfy validation demand. Hash/signature/time checks and
+all other full-validation decisions still run for each consumed order.
+
+Positional item errors or malformed tuples fall back to individual pinned reads
+only when that order is actually validated. Whole-batch failure disables further
+batch attempts for 60 seconds across that factory's contexts; each needed status
+then gets one individual port call, subject to the existing adapter retry policy.
+Adapters without batching and single-order contexts use individual reads.
+An individual failure poisons the context: results and progress remain uncommitted.
+The normal hash/head/lifetime check still precedes every checkpoint. Batches do
+not cache status across snapshots or weaken source/revision/anchor guards.
+
+The Viem adapter caps requests at 20 contracts and uses one `eth_call` per
+aggregate through its existing endpoint, rate, retry and circuit policies.
+Providers rejecting deployless calls or their gas/payload size use the fallback;
+no deployment-address or provider capability is assumed. Checkpoint logs count
+logical `perOrder` reads (including fallbacks) and `statusBatches` separately.
+Block lookups and transport retries are outside those counts. The reduction in
+wire requests does not imply a corresponding reduction in provider compute billing.
+
+### Independent validation facts: design boundary
+
+Runtime still performs full validation. A funding-only fast path is **not
+implemented**. Before introducing one, the orders domain needs separate facts
+with provenance and coverage, rather than a newer balance overwriting the single
+derived fillability status. The intended responsibilities are:
+
+| Fact                                    | Required identity and coverage                                                            | Events that invalidate or supersede it                                                             |
+| --------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Immutable terms and signature proof     | Canonical parameters, signature or explicit absence, chain, protocol and verifier version | Changed canonical parameters/signature or verifier behavior                                        |
+| Protocol status and maker counter       | Order/protocol or maker/protocol, block number/hash, canonical revision and generation    | Fill, cancel, counter change, reorg or new canonical order                                         |
+| Marketplace activity                    | Source identity, observation ordering and independent cancellation/retirement evidence    | New source observation or reconciliation; explicit terminal evidence dominates later create/replay |
+| NFT ownership and approvals             | Chain, asset/token, owner, operator/conduit and pinned block                              | Transfer, token approval, operator approval, conduit/channel change or reorg                       |
+| Funding                                 | Chain, currency, maker and pinned block; compare each order's current amount separately   | Transfer, native balance change, WETH Deposit/Withdrawal, reorg or freshness expiry                |
+| Allowance and conduit/channel authority | Chain, currency, owner, spender/channel and pinned block                                  | Approval, conduit/channel change, reorg or freshness expiry                                        |
+| Time and amount eligibility             | Canonical validity window and price curve evaluated at decision time                      | Time passage or changed terms; not reusable as an immutable proof                                  |
+
+Every partial completion must capture the canonical revision, invalidated fact
+generation, trigger block and observation requirement. A transaction may cover
+only that captured generation; newer invalidations remain pending. Positive
+fillability requires all applicable facts to be current and compatible. Unknown
+or failed reads remain pending and cannot become negative protocol evidence.
+Funding recovery can replace only the funding fact: it cannot clear source
+cancellation, protocol terminal state, ownership loss or insufficient approval.
+Source activity remains a separate condition for current asks, not a synonym for
+protocol executability. A reorg invalidates affected chain proofs while preserving
+independent explicit marketplace cancellations and retirement protection.
+
+An incremental implementation should first record facts alongside full validation
+and compare derived decisions without changing serving behavior. Only then may a
+single trigger use partial reads, with atomic fact/result/coverage writes, full
+fallback for unknown/stale facts, and tests for trigger races, rollback and
+funding recovery after cancellation. It must not introduce a per-message facts
+archive: current facts are bounded by current orders and shared wallet scopes.
+
+Periodic OpenSea reconciliation remains enabled. Its fresh ordinary observations
+request full validation once the existing five-minute validation freshness
+interval has elapsed; maker hints also retain full validation. This is not a
+source-independent periodic sweep or a guarantee that all stored orders refresh
+on a fixed schedule. Orders omitted by a source, unavailable RPC and backlog can
+still delay coverage. WETH Deposit/Withdrawal are not decoded yet (`BKL-033`), so
+Transfer/Approval alone cannot justify indefinite reuse of funding facts.
+
+An immutable hash/signature cache is also deferred. The current 9,339-order
+fixture mostly has no signatures: it establishes RPC savings, not representative
+signature CPU savings or an immutable-cache hit rate. Its local validation timing
+also does not isolate hash computation from other work. Before adding a bounded cache, profile real signature
+shapes and repeated revisions, use the complete immutable key above (including
+verifier version), and prove that changed terms/signatures never reuse proof.
+Neither optimization changes bidding concurrency; indexer validation retains two
+shared FIFO permits.
+
 ### Durable maker progress
 
 The domain runtime invokes the `RevalidateMakerOrders` application use case with
