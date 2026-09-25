@@ -7,7 +7,7 @@ sales as dots and supports panning, zooming, fit, and configurable indicators.
 
 The workspace fills the remaining viewport below collection navigation and its
 compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
-keeps a 190px minimum for readable sale rows at smaller widths. Range and bucket
+keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
 are URL state. Indicator settings and pinned selection reset on a full reload.
 
 ## Sales and selection
@@ -22,11 +22,16 @@ preview. Other hovers leave the pinned card and sidebar unchanged. A single left
 click on empty chart space, the same dot group, or `unpin` releases both.
 Dragging to pan never changes the pinned selection.
 
-Right-aligned sidebar rows show relative time, a borderless 16px token image, the price in its original
-currency, seller, and buyer. Time and price link to the configured transaction
-explorer; time hover shows absolute UTC. Seller/buyer links open collection owner
-pages. Token image hover opens the same ephemeral preview; clicking opens token
-detail. Fifty rows render at a time, including large coincident-sale groups.
+Right-aligned, vertically centered sidebar rows show relative time, a borderless
+16px token image, the price in its original currency, seller, and buyer. Amounts
+round to at most three decimal places; price hover retains the exact amount.
+Amount and currency share a baseline, with extra space before the seller column.
+Time and price link to the configured transaction explorer; time hover shows
+absolute UTC. Seller/buyer links open collection owner pages. Token image hover
+opens its own ephemeral preview, including while a chart card is pinned, without
+changing the pinned card or sales. This sidebar preview never pins; clicking the
+image opens token detail. Fifty rows render at a time, including large
+coincident-sale groups.
 
 Seller/buyer roles follow the fill's order side: maker sells an ask and buys an
 accepted offer. Unknown sides or participants stay unknown instead of creating
@@ -38,6 +43,8 @@ add no border, caption, or scaling. Cards stay within the viewport; short
 viewports can scroll the card without shrinking it. Unpinned cards take no
 pointer or keyboard input and disappear on exit, even after a late response.
 Pinned cards accept pointer and keyboard input.
+At phone widths a full-size pinned card can cover sidebar rows; those thumbnail
+links remain reachable by keyboard, or after unpinning the card.
 
 `GET /api/:chain_ref/:collection_ref/:token_ref/card` reuses the collection card
 reader and effective trait template, including extension media preferences and
@@ -115,7 +122,9 @@ Relevant checks:
 
 The maintained Playwright harness mounts production views with synthetic fills.
 It covers navigation, layout, indicators, pan/zoom, pin/unpin, original currencies,
-explorer/owner/token links, reused interactive cards, stale card completion,
+explorer/owner/token links, compact price formatting and alignment, independent
+sidebar previews alongside pinned cards, reused interactive cards, stale card
+completion,
 loading/empty/error/retry, token scope, browser history, and 50,000-sale rendering
 with bounded sidebar rows. Screenshots stay under the active worktree's
 `tmp/runtime-recovery-playwright/`. This is local synthetic browser evidence,
