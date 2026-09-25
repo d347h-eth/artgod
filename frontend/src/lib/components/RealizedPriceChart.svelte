@@ -11,9 +11,9 @@
 		type RealizedSale
 	} from '@artgod/shared/types/price-history';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-	import type { ApiCollectionMediaState } from '$lib/api-types';
+	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
-	import { BackendApiError, getPriceHistory, getTokenPreview } from '$lib/backend-api';
+	import { BackendApiError, getPriceHistory, getTokenCard } from '$lib/backend-api';
 	import { buildTokenMediaQuery } from '$lib/media-mode';
 	import { COLLECTION_CHART_TOKEN_QUERY } from '$lib/price-chart/routing';
 	import {
@@ -32,21 +32,23 @@
 	} from '$lib/price-chart/media';
 	import type { PriceChartController } from '$lib/price-chart/renderer';
 	import SaleHistorySidebar from './SaleHistorySidebar.svelte';
-	import SaleMediaPreview from './SaleMediaPreview.svelte';
+	import SaleCardPreview from './SaleCardPreview.svelte';
 
 	let {
-		chainRef,
-		collectionRef,
+		chain,
+		collection,
 		media,
 		basePath,
 		blockExplorer
 	}: {
-		chainRef: string;
-		collectionRef: string;
+		chain: ApiChain;
+		collection: ApiCollection;
 		media: ApiCollectionMediaState;
 		basePath: string;
 		blockExplorer: BlockExplorerConfig;
 	} = $props();
+	const chainRef = $derived(chain.slug),
+		collectionRef = $derived(collection.slug);
 	let bucket = $state<PriceHistoryBucket>(PRICE_HISTORY_BUCKET.Day);
 	let range = $state<PriceHistoryRange>(PRICE_HISTORY_RANGE.All);
 	let tokenId = $state<string | undefined>();
@@ -69,6 +71,7 @@
 	let hoveredSales = $state.raw<RealizedSale[]>([]);
 	let pinnedSales = $state.raw<RealizedSale[]>([]);
 	let preview = $state.raw<SalePreviewTarget | null>(null);
+	let pinnedPreview = $state.raw<SalePreviewTarget | null>(null);
 	let press: { x: number; y: number } | null = null;
 	const recentSales = $derived(history ? [...history.sales].reverse() : []);
 	const sidebarSales = $derived(
@@ -145,8 +148,9 @@
 			mediaPreference: media.preference,
 			mediaVariant: null
 		});
+		revision; // Refresh the current ask and card presentation with the history.
 		const instance = createSaleMediaLoader(
-			async (id, signal) => (await getTokenPreview(fetch, chain, collection, id, query, signal)).token
+			async (id, signal) => (await getTokenCard(fetch, chain, collection, id, query, signal)).token
 		);
 		loader = instance;
 		return () => instance.dispose();
@@ -160,6 +164,7 @@
 		history = null;
 		hoveredSales = [];
 		pinnedSales = [];
+		pinnedPreview = null;
 		preview = null;
 		void getPriceHistory(
 			fetch,
@@ -215,6 +220,11 @@
 		hoveredSales = [];
 		preview = null;
 	}
+	function clearPin() {
+		pinnedSales = [];
+		pinnedPreview = null;
+		leaveChart();
+	}
 	function hover(event: MouseEvent) {
 		if (event.buttons) {
 			leaveChart();
@@ -226,9 +236,7 @@
 			sales.some((sale, i) => sale.id !== hoveredSales[i]?.id)
 		)
 			hoveredSales = sales;
-		preview = sales.length
-			? { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY, count: sales.length }
-			: null;
+		preview = sales.length ? { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY } : null;
 	}
 	function pin(event: MouseEvent) {
 		// A completed pan must never turn its release point into a selection.
@@ -241,16 +249,18 @@
 		)
 			return;
 		const sales = controller?.salesAt(event.clientX, event.clientY) ?? [];
-		if (!sales.length) return;
+		if (!sales.length) return clearPin();
 		const pinnedIds = new Set(pinnedSales.map((sale) => sale.id));
 		const same = sales.length === pinnedSales.length && sales.every((sale) => pinnedIds.has(sale.id));
-		pinnedSales = same ? [] : sales;
+		if (same) return clearPin();
+		pinnedSales = sales;
+		pinnedPreview = { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY };
+		preview = null;
 	}
 </script>
 
 <section class="realized-price" bind:this={root} style:height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
 	<div class="price-toolbar">
-		<h2>sale prices · ETH</h2>
 		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
 		<label>bucket <select class="bootstrap-control-select" aria-label="Time bucket" value={bucket} onchange={(event) => setQuery(PRICE_CHART_QUERY.Bucket, event.currentTarget.value)}>
 			{#each Object.values(PRICE_HISTORY_BUCKET) as value}<option value={value}>{value}</option>{/each}
@@ -303,9 +313,11 @@
 			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; preview = null; }}
 			onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} clearPin={() => { pinnedSales = []; hoveredSales = []; }} {basePath} {blockExplorer} {loader} onpreview={(target) => preview = target} />{/if}
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => preview = target} />{/if}
 	</div>
-	{#if preview && loader}<SaleMediaPreview target={preview} {loader} />{/if}
+	{#if loader && (pinnedPreview || preview)}
+		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
+	{/if}
 </section>
 
 <style>
@@ -323,11 +335,6 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.55rem;
-	}
-	.price-toolbar h2 {
-		font-size: 0.85rem;
-		margin: 0;
-		color: var(--c-sand);
 	}
 	label {
 		display: inline-flex;

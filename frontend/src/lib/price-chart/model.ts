@@ -24,7 +24,7 @@ export const PRICE_INDICATOR_LABEL: Record<PriceIndicatorKind, string> = {
 	EMA: 'EMA',
 	MACD: 'MACD',
 	RSI: 'RSI',
-	VOL: 'Volume (NFTs)'
+	VOL: 'Volume'
 };
 export const PRICE_INDICATOR_PARAMETERS: Record<PriceIndicatorKind, string[]> = {
 	MA: ['Length'],
@@ -50,7 +50,28 @@ export function validIndicatorParameters(kind: PriceIndicatorKind, params: numbe
 	);
 }
 
-export type SaleBar = KLineData & { sales: RealizedSale[]; populated: boolean };
+export type SaleBar = KLineData & {
+	sales: RealizedSale[];
+	populated: boolean;
+	turnoverWei: string | null;
+};
+
+/** Both values refer to the same UTC bucket. Preserve the exact ETH sum for
+ * the readout rather than converting it through canvas floating point values. */
+export function saleVolumeTooltip(bar: SaleBar | undefined) {
+	return {
+		name: PRICE_INDICATOR_LABEL.VOL,
+		calcParamsText: '',
+		features: [],
+		legends: [
+			{ title: 'NFTs: ', value: bar?.populated ? String(bar.volume) : '—' },
+			{
+				title: 'ETH: ',
+				value: bar?.populated && bar.turnoverWei !== null ? ethText(bar.turnoverWei) : '—'
+			}
+		]
+	};
+}
 export function ethValue(wei: string): number {
 	return Number(wei) / 1e18;
 }
@@ -84,7 +105,8 @@ export function saleBars(history: PriceHistory): SaleBar[] {
 			low: bar ? ethValue(bar.lowWei) : NaN,
 			close: bar ? ethValue(bar.closeWei) : NaN,
 			volume: bar?.volume ?? 0,
-			turnover: bar ? ethValue(bar.turnoverWei) : 0
+			turnover: bar ? ethValue(bar.turnoverWei) : 0,
+			turnoverWei: bar?.turnoverWei ?? null
 		});
 	}
 	return bars;

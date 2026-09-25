@@ -46,6 +46,7 @@ import {
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetCollectionTraitCatalogUseCase } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import { GetTokenCardUseCase } from "./application/use-cases/collections/get-token-card.js";
 import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
 import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
 import { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
@@ -537,6 +538,12 @@ export function createBackendApp(
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
     );
+    const getTokenCardUseCase = new GetTokenCardUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
+    );
     const getTokenActivityUseCase = new GetTokenActivityUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -759,6 +766,7 @@ export function createBackendApp(
         collectionDetail.port,
         getCollectionHoldersUseCase,
         getPriceHistoryUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         tokenPreview.port,
         getTokenUriUseCase,

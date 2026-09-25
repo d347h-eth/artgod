@@ -8,16 +8,32 @@ import {
 import { COLLECTION_CHART_TOKEN_QUERY } from '../src/lib/price-chart/routing';
 import { PRICE_CHART_QUERY } from '../src/lib/price-chart/model';
 import { PRICE_HISTORY_E2E, priceHistoryFixture } from './price-history-fixtures';
+import { TEST_IDS } from '../src/lib/test-ids';
+import { COLLECTION_API_ROUTE_TEMPLATE } from '@artgod/shared/http/collection-routes';
 
-const PREVIEW_API = '**/api/*/*/*/preview?*';
+const CARD_API = '**' + COLLECTION_API_ROUTE_TEMPLATE.TokenCard.replace(/:[a-z_]+/g, '*') + '?*';
 const IMAGE =
 	'data:image/svg+xml,' +
 	encodeURIComponent(
 		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#93d1de"/><circle cx="32" cy="32" r="22" fill="#ec7e15"/></svg>'
 	);
-function mediaResponse(url: string) {
+function cardResponse(url: string) {
 	const tokenId = new URL(url).pathname.split('/').at(-2)!;
-	return { token: { tokenId, image: IMAGE, animationUrl: null } };
+	return {
+		token: {
+			tokenId,
+			image: IMAGE,
+			animationUrl: null,
+			name: 'Token ' + tokenId,
+			traitSummary: 'Terrain / 7\nCustom template',
+			attributes: [],
+			marketplaceBiddingSupported: true,
+			listingPrice: '1500000000000000000',
+			listingCurrency: '0x0000000000000000000000000000000000000000',
+			hasMetadata: true,
+			metadataUpdatedAt: null
+		}
+	};
 }
 test.beforeEach(async ({ page }) => {
 	await page.route(PRICE_HISTORY_E2E.apiPattern, async (route) => {
@@ -29,8 +45,8 @@ test.beforeEach(async ({ page }) => {
 			)
 		});
 	});
-	await page.route(PREVIEW_API, (route) =>
-		route.fulfill({ json: mediaResponse(route.request().url()) })
+	await page.route(CARD_API, (route) =>
+		route.fulfill({ json: cardResponse(route.request().url()) })
 	);
 });
 async function surface(page: Page, info: TestInfo, name: string) {
@@ -91,6 +107,12 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 	page.on('pageerror', (error) => errors.push(error.message));
 	await page.goto('/e2e-harness/collection');
 	await expect(chart(page)).toHaveCount(0);
+	const gridMediaHeight = await page
+		.getByTestId(TEST_IDS.TokenCard)
+		.first()
+		.locator('.token-grid-media')
+		.evaluate((el) => el.getBoundingClientRect().height);
+	expect(gridMediaHeight).toBe(400);
 	const explore = page.locator('.runtime-tab-group').first().locator('.runtime-tab-group-items');
 	await expect(explore.locator('a, .runtime-tab-active')).toHaveText([
 		'asks',
@@ -101,6 +123,7 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 	await explore.getByRole('link', { name: 'chart', exact: true }).click();
 	await expect(page).toHaveURL(new RegExp(PRICE_HISTORY_E2E.path + '(\\?|$)'));
 	await loaded(page);
+	await expect(chart(page).getByRole('heading')).toHaveCount(0);
 	await expect(page.locator('.runtime-tab-active').filter({ hasText: /^chart$/ })).toBeVisible();
 	await expect(chart(page).getByRole('button', { name: /^(dots|line|candles)$/ })).toHaveCount(0);
 	const bounds = (await chart(page).boundingBox())!;
@@ -170,10 +193,18 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	const point = (await salePoint(page))!;
 	await page.mouse.move(point.x, point.y);
 	await expect(page.getByRole('tooltip')).toBeVisible();
-	await expect(page.getByRole('tooltip').locator('iframe')).toHaveAttribute(
-		'sandbox',
-		'allow-scripts'
+	const floatingCard = page.locator('.sale-card-preview');
+	await expect(floatingCard.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
+	await expect(floatingCard.locator('.token-grid-traits')).toHaveText(
+		'Terrain / 7\nCustom template'
 	);
+	expect(
+		await floatingCard
+			.locator('.token-grid-media')
+			.evaluate((el) => el.getBoundingClientRect().height)
+	).toBe(400);
+	expect(await floatingCard.evaluate((el) => getComputedStyle(el).borderWidth)).toBe('0px');
+	await expect(floatingCard.locator('iframe')).toHaveCount(0);
 	for (const [id, currency] of [
 		['103', PRICE_HISTORY_CURRENCY_SYMBOL.Beth],
 		['99', PRICE_HISTORY_CURRENCY_SYMBOL.Weth],
@@ -187,21 +218,23 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await surface(page, info, 'dot-preview');
 	await page.mouse.click(point.x, point.y);
 	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
-	await page.mouse.click(point.x, point.y);
-	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'false');
-	await page.mouse.click(point.x, point.y);
-	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+	await expect(floatingCard).toHaveAttribute('role', 'region');
+	const pinnedPosition = await floatingCard.boundingBox();
 	const pinnedIds = await rows(page).evaluateAll((items) =>
 		items.map((el) => el.getAttribute('data-sale-id'))
 	);
 	await page.mouse.move(2, 2);
-	await expect(page.getByRole('tooltip')).toHaveCount(0);
+	await expect(floatingCard).toBeVisible();
 	expect(
 		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
 	).toEqual(pinnedIds);
 	const other = (await salePoint(page, false))!;
 	await page.mouse.move(other.x, other.y);
-	await expect(page.getByRole('tooltip')).toBeVisible();
+	await expect(floatingCard.getByTestId(TEST_IDS.TokenCard)).toHaveAttribute(
+		'data-token-id',
+		'103'
+	);
+	expect(await floatingCard.boundingBox()).toEqual(pinnedPosition);
 	expect(
 		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
 	).toEqual(pinnedIds);
@@ -216,16 +249,36 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	const thumb = row.locator('.sale-thumbnail');
 	await expect(thumb.locator('img')).toBeVisible();
 	expect((await thumb.boundingBox())!.width).toBe(16);
-	await thumb.hover();
-	const iframe = page.getByRole('tooltip').locator('iframe');
-	await expect(iframe).toBeVisible();
-	await expect(iframe).toHaveAttribute('referrerpolicy', 'no-referrer');
-	await surface(page, info, 'pinned-row-preview');
-	await page.mouse.move(2, 2);
-	await expect(page.getByRole('tooltip')).toHaveCount(0);
-	await page.getByRole('button', { name: 'unpin', exact: true }).click();
+	expect(await thumb.evaluate((el) => getComputedStyle(el).borderWidth)).toBe('0px');
+	expect(
+		await row
+			.locator(':scope > span')
+			.evaluateAll((els) => els.every((el) => getComputedStyle(el).textAlign === 'right'))
+	).toBe(true);
+	const market = floatingCard.locator('.token-price-link');
+	await expect(market).toHaveAttribute('href', /opensea.io\/item\/ethereum\/.+\/103$/);
+	await expect(market).toHaveAttribute('target', '_blank');
+	await market.hover();
+	await surface(page, info, 'pinned-card');
+	await page
+		.context()
+		.route('https://opensea.io/**', (route) => route.fulfill({ body: 'Marketplace fixture' }));
+	const opened = page.waitForEvent('popup');
+	await market.click();
+	const marketPage = await opened;
+	await expect(marketPage).toHaveURL(/opensea.io\/item\/ethereum\/.+\/103$/);
+	await marketPage.close();
+	// Empty chart space dismisses both the pinned group and its interactive card.
+	const canvasBox = (await page.locator('.price-canvas').boundingBox())!;
+	await page.mouse.click(canvasBox.x + 8, canvasBox.y + canvasBox.height - 8);
 	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'false');
+	await expect(floatingCard).toHaveCount(0);
 	await expect(rows(page)).toHaveCount(50);
+	await thumb.hover();
+	await expect(floatingCard.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
+	await surface(page, info, 'row-card-preview');
+	await page.mouse.move(2, 2);
+	await expect(floatingCard).toHaveCount(0);
 	await expect(thumb).toHaveAttribute('href', /\/\d+$/);
 	// Native link activation stays intact for the tiny token thumbnail.
 	const tokenHref = await rows(page).first().locator('.sale-thumbnail').getAttribute('href');
@@ -233,12 +286,26 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect(page).toHaveURL(new RegExp(tokenHref! + '$'));
 });
 
+test('the pinned grid card keeps token navigation usable', async ({ page }) => {
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const point = (await salePoint(page))!;
+	await page.mouse.click(point.x, point.y);
+	const link = page.locator('.sale-card-preview .token-grid-id');
+	await expect(link).toBeVisible();
+	const href = await link.getAttribute('href');
+	await page.mouse.move(2, 2);
+	await link.click();
+	await expect(page).toHaveURL(new RegExp(href! + '$'));
+});
+
 test('slow and failed media cannot leave a stale popup after pointer exit', async ({
 	page
 }, info) => {
 	let release!: () => void;
 	const barrier = new Promise<void>((resolve) => (release = resolve));
-	await page.route(PREVIEW_API, async (route) => {
+	await page.route(CARD_API, async (route) => {
 		await barrier;
 		await route.fulfill({ status: 404, json: { message: 'No preview' } });
 	});
@@ -255,13 +322,17 @@ test('slow and failed media cannot leave a stale popup after pointer exit', asyn
 	await page.mouse.move(point.x, point.y);
 	await expect(page.getByRole('tooltip').getByText('hover again to retry')).toBeVisible();
 	await surface(page, info, 'preview-error');
+	await page.mouse.click(point.x, point.y);
 	await page.mouse.move(2, 2);
 	await expect(page.getByRole('tooltip')).toHaveCount(0);
-	await page.route(PREVIEW_API, (route) =>
-		route.fulfill({ json: mediaResponse(route.request().url()) })
+	const pinned = page.locator('.sale-card-preview');
+	await expect(pinned.getByRole('button', { name: 'retry', exact: true })).toBeVisible();
+	await surface(page, info, 'pinned-card-error');
+	await page.route(CARD_API, (route) =>
+		route.fulfill({ json: cardResponse(route.request().url()) })
 	);
-	await page.mouse.move(point.x, point.y);
-	await expect(page.getByRole('tooltip').locator('iframe')).toBeVisible();
+	await pinned.getByRole('button', { name: 'retry', exact: true }).click();
+	await expect(pinned.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
 });
 
 test('loading, empty, failure and retry preserve the chart page controls', async ({
@@ -299,10 +370,7 @@ test('token history uses the dedicated page and bucket navigation survives brows
 }, info) => {
 	await page.goto(PRICE_HISTORY_E2E.tokenPath);
 	await expect(chart(page)).toHaveCount(0);
-	await expect(page.getByRole('link', { name: 'sale chart', exact: true })).toHaveAttribute(
-		'href',
-		/chart\?token_id=101$/
-	);
+	await expect(page.getByRole('link', { name: 'sale chart', exact: true })).toHaveCount(0);
 	const requested: string[] = [];
 	page.on('request', (request) => {
 		if (request.url().includes('/price-history?')) requested.push(request.url());

@@ -22,6 +22,8 @@ import type { GetCollectionDetailPort } from "./application/use-cases/collection
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetCollectionTraitCatalogPort } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import type { GetTokenCardUseCase } from "./application/use-cases/collections/get-token-card.js";
+import { GetTokenCardHttpAdapter } from "./http/handlers/collections/get-token-card.js";
 import type { GetPriceHistoryPort } from "./application/use-cases/collections/get-price-history.js";
 import { GetPriceHistoryHttpAdapter } from "./http/handlers/collections/get-price-history.js";
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
@@ -186,6 +188,7 @@ export function createApiApp(
     getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getPriceHistoryUseCase: GetPriceHistoryPort,
+    getTokenCardUseCase: GetTokenCardUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
     getTokenPreviewUseCase: GetTokenPreviewPort,
     getTokenUriUseCase: GetTokenUriUseCase,
@@ -343,6 +346,7 @@ export function createApiApp(
     const getTokenDetailAdapter = new GetTokenDetailHttpAdapter(
         getTokenDetailUseCase,
     );
+    const getTokenCardAdapter = new GetTokenCardHttpAdapter(getTokenCardUseCase);
     const getPriceHistoryAdapter = new GetPriceHistoryHttpAdapter(
         getPriceHistoryUseCase,
     );
@@ -467,6 +471,7 @@ export function createApiApp(
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getPriceHistoryAdapter,
+        getTokenCardAdapter,
         getTokenDetailAdapter,
         getTokenPreviewAdapter,
         getTokenUriAdapter,

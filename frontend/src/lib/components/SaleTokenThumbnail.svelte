@@ -24,7 +24,7 @@
 	});
 	function preview(event: MouseEvent | FocusEvent) {
 		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-		onpreview({ tokenId, x: rect.left, y: rect.bottom, count: 1 });
+		onpreview({ tokenId, x: rect.left, y: rect.bottom });
 	}
 </script>
 
@@ -38,7 +38,6 @@
 		justify-content: center;
 		width: 16px;
 		height: 16px;
-		border: 1px solid var(--c-blue);
 		overflow: hidden;
 	}
 	img {

@@ -137,6 +137,7 @@ import {
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
     buildUpdateCollectionOpenSeaStreamIngestionPath,
+    buildTokenCardPath,
 } from "@artgod/shared/http/collection-routes";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -269,6 +270,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
+    const { GetTokenCardUseCase } =
+        await import("./application/use-cases/collections/get-token-card.js");
     const tokenPreviewUseCaseModule =
         await import("./application/use-cases/collections/get-token-preview.js");
     const tokenUriUseCaseModule =
@@ -445,6 +448,12 @@ beforeAll(async () => {
             collectionsReadModel,
             customizationReadModel,
         );
+    const getTokenCardUseCase = new GetTokenCardUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        customizationReadModel,
+    );
     const getTokenPreviewUseCase =
         new tokenPreviewUseCaseModule.GetTokenPreviewUseCase(
             1,
@@ -1096,6 +1105,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getPriceHistoryUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -1160,6 +1170,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getPriceHistoryUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -4184,6 +4195,58 @@ describe("backend api routes", () => {
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
     });
 
+    it("returns the same single card as the asks grid, with current listing and traits", async () => {
+        const grid = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=listed&limit=10",
+        );
+        const card = await resolve(
+            "GET",
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef: "milady",
+                tokenRef: "1",
+            }),
+        );
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token).toEqual(
+            grid.payload.tokens.items.find(
+                (token: { tokenId: string }) => token.tokenId === "1",
+            ),
+        );
+        expect(card.payload.token.listingPrice).toBe("500000000000000000");
+        expect(card.payload.media).toEqual(grid.payload.media);
+    });
+
+    it("keeps single-card reads scoped and returns 404 for absent tokens", async () => {
+        const path = (collectionRef: string, tokenRef: string) =>
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef,
+                tokenRef,
+            });
+        expect(
+            (await resolve("GET", path("milady", "999999"))).statusCode,
+        ).toBe(404);
+        expect(
+            (await resolvePublic("GET", path("milady", "1"))).statusCode,
+        ).toBe(404);
+        const card = await resolvePublic("GET", path("terraforms", "7710"));
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token.image).toBe(
+            "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+        const canonical = await resolvePublic(
+            "GET",
+            path("terraforms", "7710") +
+                `?${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
+        );
+        expect(canonical.statusCode).toBe(200);
+        expect(canonical.payload.token.image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+    });
+
     it("matches owner-scoped token queries against mixed-case owner refs", async () => {
         clearNftBalances(MILADY_ADDRESS);
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
@@ -5036,6 +5099,17 @@ describe("backend api routes", () => {
         expect(detail.statusCode).toBe(200);
         expect(detail.payload.tokens.items[0].traitSummary).toBe("P7");
         expect(detail.payload.tokens.items[1].traitSummary).toBe("P2");
+
+        const card = await resolve(
+            "GET",
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef: "milady",
+                tokenRef: "1",
+            }),
+        );
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token.traitSummary).toBe("P7");
 
         const activity = await resolve(
             "GET",

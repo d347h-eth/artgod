@@ -76,6 +76,7 @@ import type {
 	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
 	TokenPreviewApiResponse,
+	TokenCardApiResponse,
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
@@ -106,6 +107,7 @@ import {
 import {
 	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
+	buildTokenCardPath,
 	buildStartCollectionOpenSeaSyncPath,
 	buildUpdateCollectionOpenSeaStreamIngestionPath
 } from '@artgod/shared/http/collection-routes';
@@ -823,6 +825,22 @@ export async function getTokenDetail(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`,
 		tokenMediaRequestInit(params)
+	);
+}
+
+export async function getTokenCard(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string,
+	params?: URLSearchParams,
+	signal?: AbortSignal
+): Promise<TokenCardApiResponse> {
+	const query = params?.toString();
+	return requestJson<TokenCardApiResponse>(
+		fetchFn,
+		buildTokenCardPath({ chainRef, collectionRef, tokenRef }) + (query ? `?${query}` : ''),
+		{ ...tokenMediaRequestInit(params), signal }
 	);
 }
 

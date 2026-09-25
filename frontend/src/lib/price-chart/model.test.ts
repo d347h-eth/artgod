@@ -10,6 +10,7 @@ import {
 import {
 	ethText,
 	saleBars,
+	saleVolumeTooltip,
 	standardMacd,
 	withSaleGaps,
 	validIndicatorParameters,
@@ -52,6 +53,11 @@ it('keeps gaps and every same-time sale without fabricating a close', () => {
 	expect(bars[0].sales.map((sale) => sale.id)).toEqual(['0', '1']);
 	expect(bars.flatMap((bar) => bar.sales)).toEqual(history.sales);
 	expect(ethText(history.sales[0].priceWei)).toBe('1.000000000000000001');
+	expect(saleVolumeTooltip(bars[0]).legends).toEqual([
+		{ title: 'NFTs: ', value: '2' },
+		{ title: 'ETH: ', value: '3.000000000000000001' }
+	]);
+	expect(saleVolumeTooltip(bars[1]).legends.map((legend) => legend.value)).toEqual(['—', '—']);
 });
 
 it('calculates on populated buckets and restores blank indicator results', async () => {

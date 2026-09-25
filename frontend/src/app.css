@@ -23,6 +23,8 @@
 		'Mathcastles Remix', 'Noto Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
+	/* Grid cards and floating chart cards use the same natural media size. */
+	--token-grid-media-height: 400px;
 	/* Shared width for collection and OpenSea slug inputs. */
 	--bootstrap-input-slug-width: 36ch;
 	/* Shared fill for own bid rows and bid-book update flashes. */
@@ -3063,7 +3065,6 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-grid-media {
-	--token-grid-media-height: 400px;
 	background: var(--c-bg);
 	height: var(--token-grid-media-height);
 	min-height: var(--token-grid-media-height);

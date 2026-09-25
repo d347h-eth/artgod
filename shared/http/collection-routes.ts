@@ -1,6 +1,7 @@
 // Collection action API route templates registered by the backend.
 export const COLLECTION_API_ROUTE_TEMPLATE = {
     PriceHistory: "/api/:chain_ref/:collection_ref/price-history",
+    TokenCard: "/api/:chain_ref/:collection_ref/:token_ref/card",
     StartBootstrap: "/api/:chain_ref/:collection_ref/bootstrap/start",
     ProbeOpenSeaSlug: "/api/:chain_ref/:collection_ref/opensea/slug-probe",
     StartOpenSeaSync: "/api/:chain_ref/:collection_ref/opensea/sync",
@@ -10,6 +11,17 @@ export const COLLECTION_API_ROUTE_TEMPLATE = {
 
 const COLLECTION_API_CHAIN_REF_PARAM = ":chain_ref";
 const COLLECTION_API_COLLECTION_REF_PARAM = ":collection_ref";
+
+export function buildTokenCardPath(input: {
+    chainRef: string;
+    collectionRef: string;
+    tokenRef: string;
+}): string {
+    return buildCollectionRoute(
+        COLLECTION_API_ROUTE_TEMPLATE.TokenCard,
+        input,
+    ).replace(":token_ref", encodeURIComponent(input.tokenRef));
+}
 
 // Query keys accepted by collection action endpoints.
 export const COLLECTION_API_QUERY_PARAM = {

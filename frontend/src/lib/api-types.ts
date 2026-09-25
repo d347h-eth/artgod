@@ -876,6 +876,11 @@ export type TokenPreviewApiResponse = {
 	token: ApiTokenPreview;
 };
 
+export type TokenCardApiResponse = {
+	media: ApiCollectionMediaState;
+	token: ApiTokenCard;
+};
+
 export type ActivityEventPreviewApiResponse = {
 	media: ApiCollectionMediaState;
 	token: ApiTokenPreview;
