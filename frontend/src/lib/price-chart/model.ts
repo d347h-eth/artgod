@@ -12,13 +12,12 @@ export const SALE_CURRENCY_LABEL = {
 	[PRICE_HISTORY_CURRENCY_SYMBOL.Weth]: 'W',
 	[PRICE_HISTORY_CURRENCY_SYMBOL.Beth]: 'B'
 } as const;
-export const SALE_ACTION_PRESENTATION = {
-	[REALIZED_SALE_ACTION.TakeAsk]: { label: 'take ask', color: 'cyan' },
-	[REALIZED_SALE_ACTION.TakeOffer]: { label: 'take offer', color: 'pink' }
+const SALE_ACTION_COLOR = {
+	[REALIZED_SALE_ACTION.TakeAsk]: 'cyan',
+	[REALIZED_SALE_ACTION.TakeOffer]: 'pink'
 } as const;
-export const UNKNOWN_SALE_PRESENTATION = { label: 'unknown', color: 'sand' } as const;
-export function saleActionPresentation(action: RealizedSaleAction | null) {
-	return action ? SALE_ACTION_PRESENTATION[action] : UNKNOWN_SALE_PRESENTATION;
+export function saleActionColor(action: RealizedSaleAction | null) {
+	return action ? SALE_ACTION_COLOR[action] : 'sand';
 }
 
 export const PRICE_CHART_QUERY = {

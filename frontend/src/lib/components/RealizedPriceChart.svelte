@@ -21,8 +21,6 @@
 		PRICE_INDICATOR,
 		PRICE_INDICATOR_LABEL,
 		PRICE_INDICATOR_PARAMETERS,
-		SALE_ACTION_PRESENTATION,
-		UNKNOWN_SALE_PRESENTATION,
 		defaultPriceIndicators,
 		validIndicatorParameters,
 		type PriceIndicatorKind
@@ -200,7 +198,7 @@
 		controller?.setIndicators(indicators);
 	});
 	$effect(() => {
-		controller?.setSelection(pinnedSales);
+		controller?.setSelection([...pinnedSales, ...hoveredSales]);
 	});
 
 	function setParameter(id: string, index: number, event: Event) {
@@ -279,14 +277,6 @@
 		<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>
 		<button class="facet-panel-action-button" disabled={!history?.sales.length || !controller} onclick={() => controller?.fit()}>fit</button>
 		<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>
-		<div class="sale-legend" aria-label="Sale types">
-			{#each Object.values(SALE_ACTION_PRESENTATION) as action}
-				<span><i style:background={`var(--c-${action.color})`} aria-hidden="true"></i>{action.label}</span>
-			{/each}
-			{#if history?.sales.some((sale) => sale.action === null)}
-				<span><i style:background={`var(--c-${UNKNOWN_SALE_PRESENTATION.color})`} aria-hidden="true"></i>{UNKNOWN_SALE_PRESENTATION.label}</span>
-			{/if}
-		</div>
 	</div>
 	{#if indicatorsOpen}
 		<div class="price-indicators">
@@ -354,22 +344,6 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.55rem;
-	}
-	.sale-legend,
-	.sale-legend span {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-	}
-	.sale-legend {
-		gap: 0.75rem;
-		font-size: 0.7rem;
-		color: var(--c-sand);
-	}
-	.sale-legend i {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
 	}
 	label {
 		display: inline-flex;
