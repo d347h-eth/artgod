@@ -123,6 +123,90 @@ retain their existing precision.
 - Lengths count populated buckets; calculations use all loaded populated history,
   then restore blank gaps on the time grid. Panning does not alter the values.
 
+## Interactive QA data
+
+The chart toolbar accepts `test dots` (1–100,000) and a repeatable random `seed`.
+`generate` replaces the displayed history with positive ETH prices following a
+sine wave plus noise. Timestamps spread across the selected range; the selected
+bucket controls OHLC, count, turnover, and indicator inputs. For `all`, a `years`
+input supplies the duration (default three, maximum ten). The existing 30,000
+bucket limit still applies; reduce the years/range or enlarge the bucket to
+recover. Invalid submitted generator settings keep the current chart.
+
+Changing range or bucket regenerates from the applied count, seed, and fixed
+end time. Editing the inputs takes effect on `generate`. Generated rows are
+labelled `generated`; they have no token media, ownership, or transaction links.
+Hover, pinning, pagination, pan/zoom, and indicators use their normal chart path.
+`stored sales` restores database-backed history for the current range and bucket.
+A full page reload also restores stored sales.
+
+Generation is browser-local and does not write to the database or make chart or
+token-card requests. It exercises frontend preparation/rendering, not SQLite,
+HTTP serialization, network transfer, or media loading performance.
+
+## Current pipeline and internal production work
+
+The implemented request path is:
+
+1. Indexer fill decoding stores protocol facts in `fills`, with a unique
+   chain/transaction/log/collection/token/kind identity. Explicit replay can
+   enrich price eligibility; reorg rollback deletes orphaned fills.
+2. `SqlitePriceHistoryRead` selects eligible fills for the collection and range.
+   Migration 056 adds `(chain_id, collection_id, block_timestamp)` indexing.
+   Its iterator limits returned rows, but the use case retains every accepted
+   fill and the SQL does not request chronological ordering.
+3. `GetPriceHistoryUseCase` calls `buildRealizedPriceHistory` synchronously in
+   the request process. Each request sorts all accepted fills, aggregates exact
+   OHLC/count/turnover, and returns every sale plus populated buckets as JSON.
+4. The frontend expands the full returned UTC grid, including empty buckets,
+   and loads it into KLineCharts. Each enabled indicator calculates over all
+   loaded populated buckets. Drawing and hit testing visit only visible
+   buckets; sidebar DOM is bounded to fifty rows. Token cards load separately.
+5. Range/bucket changes and refresh repeat the full request and replacement.
+   There is no projection cache, history cursor, or incremental update protocol.
+
+Before treating multi-year history as production-ready, the internal work is:
+
+- **Bound both sales and time span.** Provide explicit time windows and a stable
+  chronological cursor for dots, with a bounded frontend cache and bucket
+  loading. Never silently sample away individual sales. Five years of hourly
+  buckets is about 43,800 entries and exceeds today's 30,000 limit even with
+  very few sales. A larger response cap alone does not resolve this.
+- **Define the sale read model once.** Preserve eligibility, original currency,
+  exact prices, participants, and canonical execution ordering. Use a durable
+  fill identity rather than the current SQLite row ID for cross-refresh cursors
+  and selections. Verify query plans and timings on representative histories;
+  an indexed ordered reader may suffice for thousands of sales. Persisted
+  bucket projections are an optimization to justify with those measurements,
+  not a prerequisite by themselves.
+- **Make any projection/cache rebuildable and revision-aware.** Late backfills,
+  replayed eligibility, new fills, and reorg deletion can all change old
+  buckets. Recompute affected buckets (including open/close), publish data and
+  progress atomically, and expose a consistent revision across dots and
+  aggregates. Retain raw fills and test restart/retry/rebuild equivalence. An
+  append-only high-water mark cannot represent these changes on its own.
+- **Separate display range from calculation history.** Preserve the accepted
+  empty-gap and populated-period semantics. Fetch complete boundary buckets
+  and pre-range indicator warmup; define consistent initialization/checkpoints
+  for recursive EMA/MACD/RSI. Today panning within loaded data is stable, but
+  changing the requested range changes the initial input and can change the
+  same indicator value at the same timestamp.
+- **Bound request work and update cost.** Measure synchronous SQLite iteration,
+  sorting, aggregation, JSON size/serialization, and browser parsing and
+  calculation separately. Use bounded reads or a worker when measured work
+  blocks the backend's event loop. Add revision-aware refresh/invalidation and
+  incremental changes without resetting the user's viewport or selection.
+- **Prove the whole path on disposable data.** Exercise multi-year sparse and
+  dense histories, same-coordinate clusters, concurrent ingestion, backfill,
+  duplicate replay, eligibility changes, and reorgs through real migrations,
+  reader, HTTP, and browser. Measure latency, memory, long tasks and pan/hover
+  responsiveness on the intended device. Generated browser dots alone cannot
+  establish database or end-to-end readiness.
+
+These are production follow-ups, not implemented projection or API guarantees.
+They retain the PoC's currency, bundle, and missing-sale assumptions and do not
+address public-hosting load.
+
 ## Licensing and verification
 
 The static frontend distributes KLineChart's Apache-2.0 license, NOTICE including
@@ -146,6 +230,8 @@ hover-to-pin media, order-side colors, price precision below the axis-label
 resolution, independent sidebar previews alongside pinned cards, reused
 interactive cards, stale card completion, loading/empty/error/retry, token scope,
 browser history, and 50,000-sale rendering
-with bounded sidebar rows. Screenshots stay under the active worktree's
+with bounded sidebar rows. Generator coverage includes three-year histories,
+100,000 dots, bucket/range changes, validation/recovery, and a late stored-data
+response during generation. Screenshots stay under the active worktree's
 `tmp/runtime-recovery-playwright/`. This is local synthetic browser evidence,
 not a packaged Tauri or live SQLite performance result.

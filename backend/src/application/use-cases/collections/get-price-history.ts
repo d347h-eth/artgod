@@ -5,6 +5,7 @@ import type {
 import {
     PRICE_HISTORY_BUCKET,
     PRICE_HISTORY_RANGE,
+    PRICE_HISTORY_RANGE_DAYS,
     PRICE_HISTORY_LIMITS,
     type PriceHistory,
     type PriceHistoryRequest,
@@ -100,14 +101,7 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
                     : BigInt(input.tokenId).toString(),
         } as PriceHistoryRequest;
         const to = this.now() + 1;
-        const days =
-            range === PRICE_HISTORY_RANGE.Month
-                ? 30
-                : range === PRICE_HISTORY_RANGE.Quarter
-                  ? 90
-                  : range === PRICE_HISTORY_RANGE.Year
-                    ? 365
-                    : null;
+        const days = PRICE_HISTORY_RANGE_DAYS[request.range];
         const fills: PricedFill[] = [];
         for (const fill of this.prices.iterateSingleTokenSales({
             chainId: chain.publicChainId,

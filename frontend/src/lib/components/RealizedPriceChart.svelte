@@ -5,6 +5,7 @@
 	import {
 		PRICE_HISTORY_BUCKET,
 		PRICE_HISTORY_RANGE,
+		PRICE_HISTORY_LIMITS,
 		type PriceHistory,
 		type PriceHistoryBucket,
 		type PriceHistoryRange,
@@ -31,6 +32,13 @@
 		type SalePreviewTarget
 	} from '$lib/price-chart/media';
 	import type { PriceChartController } from '$lib/price-chart/renderer';
+	import {
+		GENERATED_SALES_DEFAULTS,
+		GENERATED_SALES_LIMITS,
+		generateSaleHistory,
+		generatedSalesError,
+		type GeneratedSaleSettings
+	} from '$lib/price-chart/generated-sales';
 	import SaleHistorySidebar from './SaleHistorySidebar.svelte';
 	import SaleCardPreview from './SaleCardPreview.svelte';
 
@@ -69,6 +77,11 @@
 		parameterError = $state('');
 	let movingAverageKind = $state<PriceIndicatorKind>(PRICE_INDICATOR.Sma);
 	let movingAverageNumber = 0;
+	let dotCount = $state<number | undefined>(GENERATED_SALES_DEFAULTS.count);
+	let seed = $state<number | undefined>(GENERATED_SALES_DEFAULTS.seed);
+	let years = $state<number | undefined>(GENERATED_SALES_DEFAULTS.years);
+	let generationError = $state('');
+	let generated = $state.raw<{ settings: GeneratedSaleSettings; now: number } | null>(null);
 	let hoveredSales = $state.raw<RealizedSale[]>([]);
 	let pinnedSales = $state.raw<RealizedSale[]>([]);
 	let preview = $state.raw<SalePreviewTarget | null>(null);
@@ -142,7 +155,10 @@
 		};
 	});
 	$effect(() => {
-		if (!ready) return;
+		if (!ready || generated) {
+			loader = null;
+			return;
+		}
 		const chain = chainRef,
 			collection = collectionRef;
 		const query = buildTokenMediaQuery({
@@ -160,6 +176,7 @@
 	$effect(() => {
 		if (!ready) return;
 		const scope = { chainRef, collectionRef, tokenId, bucket, range, revision };
+		const sample = generated;
 		const abort = new AbortController();
 		loading = true;
 		error = '';
@@ -170,6 +187,14 @@
 		pinnedPreview = null;
 		preview = null;
 		sidebarPreview = null;
+		if (sample) {
+			const request = { bucket: scope.bucket, range: scope.range };
+			const problem = generatedSalesError(sample.settings, request, sample.now);
+			error = problem ?? '';
+			if (!problem) history = generateSaleHistory(sample.settings, request, sample.now);
+			loading = false;
+			return;
+		}
 		void getPriceHistory(
 			fetch,
 			scope.chainRef,
@@ -202,6 +227,13 @@
 	$effect(() => {
 		controller?.setSelection([...pinnedSales, ...hoveredSales]);
 	});
+
+	function generate() {
+		const settings = { count: dotCount ?? NaN, seed: seed ?? NaN, years: years ?? NaN };
+		const now = Date.now();
+		generationError = generatedSalesError(settings, { bucket, range }, now) ?? '';
+		if (!generationError) generated = { settings, now };
+	}
 
 	function setParameter(id: string, index: number, event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -241,7 +273,10 @@
 			sales.some((sale, i) => sale.id !== hoveredSales[i]?.id)
 		)
 			hoveredSales = sales;
-		preview = sales.length ? { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY } : null;
+		preview =
+			!generated && sales.length
+				? { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY }
+				: null;
 	}
 	function pin(event: MouseEvent) {
 		// A completed pan must never turn its release point into a selection.
@@ -259,6 +294,7 @@
 		const same = sales.length === pinnedSales.length && sales.every((sale) => pinnedIds.has(sale.id));
 		if (same) return clearPin();
 		pinnedSales = sales;
+		if (generated) return;
 		pinnedPreview =
 			preview?.tokenId === sales[0].tokenId
 				? preview
@@ -278,8 +314,16 @@
 		</select></label>
 		<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>
 		<button class="facet-panel-action-button" disabled={!history?.sales.length || !controller} onclick={() => controller?.fit()}>fit</button>
-		<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>
+		{#if generated}<button class="facet-panel-action-button" onclick={() => { generated = null; generationError = ''; }}>stored sales</button>
+		{:else}<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>{/if}
+		<form class="price-generator" aria-label="Generate test sales" novalidate onsubmit={(event) => { event.preventDefault(); generate(); }}>
+			<label>test dots <input class="bootstrap-control" type="number" min="1" max={PRICE_HISTORY_LIMITS.fills} step="1" bind:value={dotCount} /></label>
+			<label>seed <input class="bootstrap-control" type="number" min="0" max={GENERATED_SALES_LIMITS.seed} step="1" bind:value={seed} /></label>
+			{#if range === PRICE_HISTORY_RANGE.All}<label>years <input class="bootstrap-control years" type="number" min="1" max={GENERATED_SALES_LIMITS.years} step="1" bind:value={years} /></label>{/if}
+			<button class="facet-panel-action-button" class:facet-collapse-button-active={!!generated} type="submit">generate</button>
+		</form>
 	</div>
+	{#if generationError}<p role="alert">{generationError}</p>{/if}
 	{#if indicatorsOpen}
 		<div class="price-indicators">
 			{#each indicators as indicator (indicator.id)}
@@ -311,7 +355,7 @@
 	{/if}
 
 	{#if loading}<p class="muted" role="status">loading sales…</p>
-	{:else if error}<p role="alert">{error} <button class="facet-panel-action-button" onclick={() => revision++}>retry</button></p>
+	{:else if error}<p role="alert">{error} {#if !generated}<button class="facet-panel-action-button" onclick={() => revision++}>retry</button>{/if}</p>
 	{:else if history?.sales.length === 0}<p class="muted" role="status">no single-token sales</p>{/if}
 	{#if chartError}<p role="alert">{chartError}</p>{/if}
 	<div class="price-workspace" hidden={loading || !!error || !!chartError || !history?.sales.length}>
@@ -329,7 +373,7 @@
 				</button>
 			{/if}
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
+		<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} synthetic={!!generated} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />
 	</div>
 	{#if loader && (pinnedPreview || preview)}
 		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
@@ -349,6 +393,7 @@
 		gap: 0.5rem;
 	}
 	.price-toolbar,
+	.price-generator,
 	.price-indicator {
 		display: flex;
 		flex-wrap: wrap;
@@ -379,6 +424,12 @@
 	}
 	.price-indicator input {
 		width: 6ch;
+	}
+	.price-generator input {
+		width: 9ch;
+	}
+	.price-generator .years {
+		width: 5ch;
 	}
 	.price-workspace {
 		display: grid;

@@ -2,6 +2,8 @@ import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import {
 	PRICE_HISTORY_QUERY,
 	PRICE_HISTORY_BUCKET,
+	PRICE_HISTORY_RANGE,
+	PRICE_HISTORY_LIMITS,
 	type PriceHistoryBucket
 } from '@artgod/shared/types/price-history';
 import { COLLECTION_CHART_TOKEN_QUERY } from '../src/lib/price-chart/routing';
@@ -53,9 +55,9 @@ test.beforeEach(async ({ page }) => {
 		route.fulfill({ json: cardResponse(route.request().url()) })
 	);
 });
-async function surface(page: Page, info: TestInfo, name: string) {
+async function surface(page: Page, info: TestInfo, name: string, fullPage = true) {
 	const path = info.outputPath(name + '.png');
-	await page.screenshot({ path, fullPage: true });
+	await page.screenshot({ path, fullPage });
 	await info.attach(name, { path, contentType: 'image/png' });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
@@ -521,7 +523,9 @@ test('one small arrow reveals higher sales using the same scale reset as the pri
 	expect((await arrow.locator('svg').boundingBox())!.width).toBe(12);
 	expect(Math.abs(arrowBox.x + arrowBox.width / 2 - (main.x + main.width / 2))).toBeLessThan(1);
 	expect(arrowBox.y - main.y).toBeLessThanOrEqual(4);
-	await surface(page, info, 'sales-above-arrow');
+	// Full-page capture temporarily resizes the responsive canvas and can move
+	// the outlier outside a narrow time window before the reversible pan below.
+	await surface(page, info, 'sales-above-arrow', false);
 	// A sale outside the time window must not keep the vertical hint visible.
 	const pan = async (direction: number) => {
 		const { main } = await pricePaneBounds(page);
@@ -553,7 +557,7 @@ test('one small arrow reveals higher sales using the same scale reset as the pri
 	// Comparing the whole chart checks price scale, time zoom/scroll, and the
 	// independent Volume pane against the native double-click result.
 	await expect.poll(async () => (await canvas.screenshot()).equals(nativeReset)).toBe(true);
-	await surface(page, info, 'sales-above-reset');
+	await surface(page, info, 'sales-above-reset', false);
 	// Keyboard activation also works; resetting the scale keeps a desktop pin.
 	let pinnedIds: Array<string | null> = [];
 	if (desktop) {
@@ -707,4 +711,115 @@ test('50,000 sales stay bounded in the sidebar and overlapping pins paginate', a
 	await expect(rows(page).first()).not.toHaveAttribute('data-sale-id', firstId!);
 	await surface(page, info, 'dense-sale-dots');
 	expect(errors).toEqual([]);
+});
+
+test('generated multi-year dots use the chart interactions and return to stored sales', async ({
+	page
+}, info) => {
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
+	const errors: string[] = [];
+	page.on('pageerror', (error) => errors.push(error.message));
+	let historyRequests = 0,
+		cardRequests = 0;
+	page.on('request', (request) => {
+		if (request.url().includes('/price-history?')) historyRequests++;
+		if (request.url().includes('/card?')) cardRequests++;
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	const form = page.getByRole('form', { name: 'Generate test sales' });
+	await form.getByRole('spinbutton', { name: 'test dots', exact: true }).fill('10000');
+	await form.getByRole('spinbutton', { name: 'seed', exact: true }).fill('42');
+	await form.getByRole('spinbutton', { name: 'years', exact: true }).fill('3');
+	await form.getByRole('button', { name: 'generate', exact: true }).click();
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('generated · 10000');
+	const cardsBefore = cardRequests;
+	await loaded(page);
+	await expect(rows(page)).toHaveCount(50);
+	await expect(rows(page).locator('a[href]')).toHaveCount(0);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const point = (await salePoint(page))!;
+	await page.mouse.click(point.x, point.y);
+	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+	await expect(page.getByTestId(TEST_IDS.TokenCard)).toHaveCount(0);
+	await page.getByRole('button', { name: 'unpin', exact: true }).click();
+	await page.mouse.move(2, 2);
+	await page.getByRole('button', { name: 'indicators', exact: true }).click();
+	await page.getByRole('button', { name: 'RSI', exact: true }).click();
+	await page.getByRole('button', { name: 'MACD', exact: true }).click();
+	await page.getByRole('button', { name: 'indicators', exact: true }).click();
+	await page.getByRole('button', { name: 'fit', exact: true }).click();
+	await surface(page, info, 'generated-three-year-sales');
+	await page.getByRole('combobox', { name: 'Time bucket' }).selectOption(PRICE_HISTORY_BUCKET.Hour);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('generated · 10000');
+	await loaded(page);
+	await page
+		.getByRole('combobox', { name: 'History range' })
+		.selectOption(PRICE_HISTORY_RANGE.Month);
+	await expect(form.getByRole('spinbutton', { name: 'years', exact: true })).toHaveCount(0);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('generated · 10000');
+	const timestamps = await rows(page)
+		.locator('.sale-time')
+		.evaluateAll((cells) => cells.map((cell) => Date.parse(cell.getAttribute('title')!)));
+	expect(
+		timestamps.every((time) => time <= Date.now() && time >= Date.now() - 30 * 86400_000)
+	).toBe(true);
+	expect(historyRequests).toBe(1);
+	expect(cardRequests).toBe(cardsBefore);
+	await page.getByRole('button', { name: 'stored sales', exact: true }).click();
+	await expect(page.locator('.sale-sidebar-heading')).toContainText('sales ·');
+	await loaded(page);
+	await expect(rows(page).first().locator('a.sale-time')).toHaveAttribute('href', /\/tx\//);
+	expect(historyRequests).toBe(2);
+	expect(errors).toEqual([]);
+});
+
+test('generated data validates bounds, recovers, and survives a late stored response', async ({
+	page
+}, info) => {
+	let release!: () => void;
+	const pending = new Promise<void>((resolve) => (release = resolve));
+	let completed = false;
+	await page.route(PRICE_HISTORY_E2E.apiPattern, async (route) => {
+		await pending;
+		await route.fulfill({ json: priceHistoryFixture() });
+		completed = true;
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await expect(page.getByText('loading sales…', { exact: true })).toBeVisible();
+	const form = page.getByRole('form', { name: 'Generate test sales' });
+	const dots = form.getByRole('spinbutton', { name: 'test dots', exact: true });
+	await dots.fill(String(PRICE_HISTORY_LIMITS.fills + 1));
+	await form.getByRole('button', { name: 'generate', exact: true }).click();
+	await expect(chart(page).getByRole('alert')).toContainText('dot count');
+	await dots.fill(String(PRICE_HISTORY_LIMITS.fills));
+	await form.getByRole('button', { name: 'generate', exact: true }).click();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText(
+		`generated · ${PRICE_HISTORY_LIMITS.fills}`
+	);
+	release();
+	await expect.poll(() => completed).toBe(true);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText(
+		`generated · ${PRICE_HISTORY_LIMITS.fills}`
+	);
+	await expect(rows(page)).toHaveCount(50);
+	await page.getByRole('button', { name: 'Next sales', exact: true }).click();
+	await expect(rows(page).first()).toHaveAttribute('data-sale-id', /generated-1-99949/);
+	await page.getByRole('combobox', { name: 'Time bucket' }).selectOption(PRICE_HISTORY_BUCKET.Hour);
+	await form.getByRole('spinbutton', { name: 'years', exact: true }).fill('4');
+	await form.getByRole('button', { name: 'generate', exact: true }).click();
+	await expect(chart(page).getByRole('alert')).toContainText('Choose a larger time bucket');
+	await expect(page.locator('.price-workspace')).toBeVisible();
+	await surface(page, info, 'generated-validation');
+	await page.getByRole('combobox', { name: 'Time bucket' }).selectOption(PRICE_HISTORY_BUCKET.Day);
+	await form.getByRole('button', { name: 'generate', exact: true }).click();
+	await expect(chart(page).getByRole('alert')).toHaveCount(0);
+	await page.getByRole('combobox', { name: 'Time bucket' }).selectOption(PRICE_HISTORY_BUCKET.Hour);
+	await expect(chart(page).getByRole('alert')).toContainText('Choose a larger time bucket');
+	await page
+		.getByRole('combobox', { name: 'History range' })
+		.selectOption(PRICE_HISTORY_RANGE.Year);
+	await loaded(page);
+	await expect(chart(page).getByRole('alert')).toHaveCount(0);
 });
