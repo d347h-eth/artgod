@@ -1,8 +1,8 @@
 # Realized Price History PoC
 
 The fourth Explore tab, `chart`, opens the dedicated collection sale chart.
-Token detail links open the same page with `token_id` in the URL. Inline charts
-and line/candle display modes have been removed. The chart plots individual
+There is no chart link on token detail. Inline charts and line/candle display
+modes have been removed. The chart plots individual
 sales as dots and supports panning, zooming, fit, and configurable indicators.
 
 The workspace fills the remaining viewport below collection navigation and its
@@ -13,13 +13,16 @@ are URL state. Indicator settings and pinned selection reset on a full reload.
 ## Sales and selection
 
 The sidebar normally shows the newest loaded sales first. Hovering a dot shows
-all fills under that point and an ephemeral token-media popup. Leaving the dot
+all fills under that point and an ephemeral token-card popup. Leaving the dot
 immediately removes the popup and restores recent sales. Clicking pins that sale
-group and highlights its dots in the shared orange selection color. Other hover
-previews can open without changing the pinned sidebar. Click the same group or
-use `unpin` to release it. Dragging to pan does not pin a dot.
+group, highlights its dots in the shared orange selection color, and pins its
+card in place. The pinned card remains interactive: its token and marketplace
+links retain native navigation, and its media opens the shared fullscreen
+preview. Other hovers leave the pinned card and sidebar unchanged. A single left
+click on empty chart space, the same dot group, or `unpin` releases both.
+Dragging to pan never changes the pinned selection.
 
-Sidebar rows show relative time, a 16px token image, the price in its original
+Right-aligned sidebar rows show relative time, a borderless 16px token image, the price in its original
 currency, seller, and buyer. Time and price link to the configured transaction
 explorer; time hover shows absolute UTC. Seller/buyer links open collection owner
 pages. Token image hover opens the same ephemeral preview; clicking opens token
@@ -29,12 +32,20 @@ Seller/buyer roles follow the fill's order side: maker sells an ask and buys an
 accepted offer. Unknown sides or participants stay unknown instead of creating
 guessed ownership links.
 
-Preview media uses `TokenMediaFrame.svelte`, the same `sandbox="allow-scripts"`
-iframe boundary used by fullscreen preview. Popups take no pointer events and
-never survive pointer exit, even if a request completes later. Thumbnail and
-popup requests share a bounded snapshot cache (256 tokens), at most four active
-requests and 100 queued requests. Hover takes priority over queued thumbnails.
-Navigation cancels requests; failed requests are retryable by hovering again.
+Popups render the same `TokenCardTile.svelte` as the asks/tokens grid, with its
+normal 400px media height, configured trait summary, and current ask link. They
+add no border, caption, or scaling. Cards stay within the viewport; short
+viewports can scroll the card without shrinking it. Unpinned cards take no
+pointer or keyboard input and disappear on exit, even after a late response.
+Pinned cards accept pointer and keyboard input.
+
+`GET /api/:chain_ref/:collection_ref/:token_ref/card` reuses the collection card
+reader and effective trait template, including extension media preferences and
+the public collection scope guard. Thumbnail and popup requests share a bounded
+snapshot-card cache (256 tokens), at most four active requests and 100 queued
+requests. Hover takes priority over queued thumbnails. Refresh clears the card
+cache; navigation cancels requests. Failed requests can retry by hovering again
+or with `retry` on a pinned card.
 
 ## Data contract
 
@@ -80,7 +91,9 @@ Missing internal OHLC values are NaNs, excluded from ranges and calculations.
 - Multiple independently configurable SMA/EMA instances overlay the price pane.
 - MACD defaults to 12/26/9. Its histogram is MACD minus signal.
 - RSI defaults to 14.
-- Volume counts NFTs, not ETH turnover.
+- Volume bars count NFTs. The readout shows both the NFT count and exact ETH
+  turnover for the same bucket, using the original integer sum. Empty buckets
+  keep blank readouts; ETH/WETH/BETH remain normalized 1:1.
 - Lengths count populated buckets; calculations use all loaded populated history,
   then restore blank gaps on the time grid. Panning does not alter the values.
 
@@ -93,6 +106,7 @@ TradingView attribution, and bundled Lightweight Charts license in
 Relevant checks:
 
 - `yarn workspace @artgod/backend test src/infra/collections/sqlite-price-history-read.test.ts`
+- `yarn workspace @artgod/backend test src/api.test.ts`
 - `yarn workspace @artgod/frontend test src/lib/price-chart src/lib/collection-navigation.test.ts`
 - `yarn workspace @artgod/frontend check`
 - `yarn test:prices:history`
@@ -101,7 +115,7 @@ Relevant checks:
 
 The maintained Playwright harness mounts production views with synthetic fills.
 It covers navigation, layout, indicators, pan/zoom, pin/unpin, original currencies,
-explorer/owner/token links, sandboxed previews, stale media completion,
+explorer/owner/token links, reused interactive cards, stale card completion,
 loading/empty/error/retry, token scope, browser history, and 50,000-sale rendering
 with bounded sidebar rows. Screenshots stay under the active worktree's
 `tmp/runtime-recovery-playwright/`. This is local synthetic browser evidence,
