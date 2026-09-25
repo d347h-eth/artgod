@@ -1,5 +1,25 @@
 import type { KLineData, IndicatorCalcCallback, Indicator } from 'klinecharts';
-import type { PriceHistory, RealizedSale } from '@artgod/shared/types/price-history';
+import {
+	PRICE_HISTORY_CURRENCY_SYMBOL,
+	REALIZED_SALE_ACTION,
+	type PriceHistory,
+	type RealizedSale,
+	type RealizedSaleAction
+} from '@artgod/shared/types/price-history';
+
+export const SALE_CURRENCY_LABEL = {
+	[PRICE_HISTORY_CURRENCY_SYMBOL.Eth]: 'E',
+	[PRICE_HISTORY_CURRENCY_SYMBOL.Weth]: 'W',
+	[PRICE_HISTORY_CURRENCY_SYMBOL.Beth]: 'B'
+} as const;
+export const SALE_ACTION_PRESENTATION = {
+	[REALIZED_SALE_ACTION.TakeAsk]: { label: 'take ask', color: 'cyan' },
+	[REALIZED_SALE_ACTION.TakeOffer]: { label: 'take offer', color: 'pink' }
+} as const;
+export const UNKNOWN_SALE_PRESENTATION = { label: 'unknown', color: 'sand' } as const;
+export function saleActionPresentation(action: RealizedSaleAction | null) {
+	return action ? SALE_ACTION_PRESENTATION[action] : UNKNOWN_SALE_PRESENTATION;
+}
 
 export const PRICE_CHART_QUERY = {
 	Bucket: 'chart_bucket',

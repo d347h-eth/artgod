@@ -2,6 +2,7 @@ import {
     PRICE_HISTORY_BUCKET_SECONDS,
     PRICE_HISTORY_LIMITS,
     PRICE_HISTORY_UNIT,
+    REALIZED_SALE_ACTION,
     priceBucketStart,
     type PriceHistory,
     type PriceHistoryRequest,
@@ -11,16 +12,26 @@ import {
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
 
-/** Maker is the seller of an ask and the buyer of an offer. Unknown sides
- * cannot establish either role, so never invent ownership links for them. */
-export function realizedSaleParticipants(
+/** Maker sells an ask and buys an accepted offer. Preserve unknown order sides
+ * without guessing the execution action or ownership roles. */
+export function realizedSaleExecution(
     side: string | null,
     maker: string | null,
     taker: string | null,
-): Pick<RealizedSale, "seller" | "buyer"> {
-    if (side === ORDER_SIDE.Sell) return { seller: maker, buyer: taker };
-    if (side === ORDER_SIDE.Buy) return { seller: taker, buyer: maker };
-    return { seller: null, buyer: null };
+): Pick<RealizedSale, "action" | "seller" | "buyer"> {
+    if (side === ORDER_SIDE.Sell)
+        return {
+            action: REALIZED_SALE_ACTION.TakeAsk,
+            seller: maker,
+            buyer: taker,
+        };
+    if (side === ORDER_SIDE.Buy)
+        return {
+            action: REALIZED_SALE_ACTION.TakeOffer,
+            seller: taker,
+            buyer: maker,
+        };
+    return { action: null, seller: null, buyer: null };
 }
 
 export type PricedFill = RealizedSale & {

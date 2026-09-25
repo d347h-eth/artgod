@@ -40,6 +40,13 @@ export type PriceHistoryCurrencySymbol =
     (typeof PRICE_HISTORY_CURRENCY_SYMBOL)[keyof typeof PRICE_HISTORY_CURRENCY_SYMBOL];
 export const PRICE_HISTORY_UNIT = PRICE_HISTORY_CURRENCY_SYMBOL.Eth;
 
+export const REALIZED_SALE_ACTION = {
+    TakeAsk: "take-ask",
+    TakeOffer: "take-offer",
+} as const;
+export type RealizedSaleAction =
+    (typeof REALIZED_SALE_ACTION)[keyof typeof REALIZED_SALE_ACTION];
+
 export type PriceHistoryRequest = {
     bucket: PriceHistoryBucket;
     range: PriceHistoryRange;
@@ -54,6 +61,8 @@ export type RealizedSale = {
     priceWei: string;
     currencyAddress: string;
     currencySymbol: PriceHistoryCurrencySymbol;
+    // The executed order side, not an inference from currency or price movement.
+    action: RealizedSaleAction | null;
     seller: string | null;
     buyer: string | null;
     txHash: string;

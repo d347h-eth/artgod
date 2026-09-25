@@ -6,6 +6,7 @@ import {
 	PRICE_HISTORY_BUCKET,
 	PRICE_HISTORY_RANGE,
 	PRICE_HISTORY_CURRENCY_SYMBOL,
+	REALIZED_SALE_ACTION,
 	type PriceHistoryBucket
 } from '@artgod/shared/types/price-history';
 import { BLUR_BETH_ADDRESS } from '@artgod/shared/market-data/fills';
@@ -28,7 +29,8 @@ const CURRENCIES = [
 export const PRICE_HISTORY_E2E = {
 	path: '/e2e-harness/collection/chart',
 	tokenPath: '/e2e-harness/collection/101',
-	apiPattern: '**/api/*/*/price-history?*'
+	apiPattern: '**/api/*/*/price-history?*',
+	canvasTextKey: '__priceChartCanvasText'
 } as const;
 export function priceHistoryFixture(
 	bucket = PRICE_HISTORY_BUCKET.Day as PriceHistoryBucket,
@@ -48,6 +50,7 @@ export function priceHistoryFixture(
 				timestamp: start + day * 86400 + (sale === 1 ? 18000 : 30000),
 				tokenId: String(sale + 101),
 				priceWei: value.toString(),
+				action: sale === 1 ? REALIZED_SALE_ACTION.TakeOffer : REALIZED_SALE_ACTION.TakeAsk,
 				seller: '0x' + '29'.repeat(20),
 				buyer: '0x' + 'ab'.repeat(20),
 				...CURRENCIES[sale],
@@ -62,6 +65,7 @@ export function priceHistoryFixture(
 	fills.push({
 		...last,
 		...CURRENCIES[1],
+		action: REALIZED_SALE_ACTION.TakeOffer,
 		id: 'same-time-sale',
 		tokenId: '99',
 		txHash: '0x' + 'ff'.repeat(32)
@@ -69,6 +73,7 @@ export function priceHistoryFixture(
 	fills.push({
 		...last,
 		...CURRENCIES[0],
+		action: null,
 		id: 'same-time-eth-sale',
 		tokenId: '98',
 		txHash: '0x' + 'ee'.repeat(32)
@@ -85,5 +90,22 @@ export function priceHistoryFixture(
 		tokenId ? expanded.filter((fill) => fill.tokenId === tokenId) : expanded,
 		{ bucket, range: PRICE_HISTORY_RANGE.All, tokenId },
 		start + 200 * 86400
+	);
+}
+
+export function priceHistoryPrecisionFixture() {
+	const history = priceHistoryFixture();
+	const actions = [REALIZED_SALE_ACTION.TakeAsk, REALIZED_SALE_ACTION.TakeOffer, null];
+	return buildRealizedPriceHistory(
+		history.sales.slice(-3).map((sale, i) => ({
+			...sale,
+			timestamp: history.from + i * 86400,
+			priceWei: i === 1 ? '1234568890000000000' : '1234567890000000000',
+			action: actions[i],
+			blockNumber: i,
+			logIndex: i
+		})),
+		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
+		history.to
 	);
 }

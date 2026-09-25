@@ -6,7 +6,7 @@
 	import { blockExplorerTransactionHref } from '$lib/marketplace-links';
 	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import { joinPath } from '$lib/route-paths';
-	import { ethText, salePriceText } from '$lib/price-chart/model';
+	import { ethText, salePriceText, SALE_CURRENCY_LABEL } from '$lib/price-chart/model';
 	import SaleTokenThumbnail from './SaleTokenThumbnail.svelte';
 	let {
 		sales,
@@ -73,7 +73,7 @@
 				<div class="sale-row" role="row" data-sale-id={sale.id}>
 					<span role="cell"><a class="sale-time" href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={new Date(sale.timestamp * 1000).toISOString()}>{relativeTime(sale.timestamp)}</a></span>
 					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId })} {loader} {onpreview} /></span>
-					<span role="cell" class="sale-price"><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{salePriceText(sale.priceWei)}</span><small>{sale.currencySymbol}</small></a></span>
+					<span role="cell" class="sale-price"><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{salePriceText(sale.priceWei)}</span><small aria-label={sale.currencySymbol}>{SALE_CURRENCY_LABEL[sale.currencySymbol]}</small></a></span>
 					<span role="cell">{#if sale.seller}<a class="sale-seller" href={ownerHref(sale.seller)} title={sale.seller}>{sale.seller.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 					<span role="cell">{#if sale.buyer}<a class="sale-buyer" href={ownerHref(sale.buyer)} title={sale.buyer}>{sale.buyer.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 				</div>
@@ -115,11 +115,17 @@
 		flex: 1;
 		min-height: 0;
 	}
+	.sales-table {
+		display: grid;
+		grid-template-columns: 4ch 16px minmax(0, max-content) 6ch 6ch;
+		column-gap: 8px;
+		justify-content: space-between;
+	}
 	.sale-row {
 		display: grid;
-		grid-template-columns: 4ch 16px minmax(0, 1fr) 6ch 6ch;
+		grid-column: 1 / -1;
+		grid-template-columns: subgrid;
 		align-items: center;
-		gap: 3px;
 		height: 22px;
 		line-height: 1;
 	}
@@ -154,6 +160,7 @@
 	.sale-row small {
 		font-size: 8px;
 		flex-shrink: 0;
+		width: 1ch;
 	}
 	.sale-price {
 		padding-right: 12px;

@@ -2,6 +2,7 @@ import {
 	init,
 	dispose,
 	registerIndicator,
+	registerYAxis,
 	type IndicatorDrawParams,
 	type DeepPartial,
 	type Styles,
@@ -13,6 +14,7 @@ import {
 	PRICE_INDICATOR_LABEL,
 	saleBars,
 	saleVolumeTooltip,
+	saleActionPresentation,
 	ethValue,
 	withSaleGaps,
 	standardMacd,
@@ -21,6 +23,7 @@ import {
 } from './model';
 
 const PRICE_LAYER = 'artgod-realized-sales';
+const PRICE_AXIS = 'artgod-sale-price';
 const CANDLE_PANE = 'candle_pane'; // KLineChart's public price-pane ID.
 const NO_AREA_VALUE = 'artgod_no_area_value';
 const HIT_SIZE = 12;
@@ -45,6 +48,8 @@ let registered = false;
 function registerPriceLayer() {
 	if (registered) return;
 	registered = true;
+	// Only text changes. Keep price precision, axis transforms, ranges and data intact.
+	registerYAxis({ name: PRICE_AXIS, displayValueToText: (value) => value.toFixed(4) });
 	registerIndicator<unknown>({
 		name: PRICE_LAYER,
 		shortName: '',
@@ -123,6 +128,10 @@ function drawPrices({
 	const bars = chart.getDataList() as SaleBar[];
 	const { from, to } = chart.getVisibleRange();
 	const p = drawing.palette;
+	const points = new Map<
+		string,
+		{ x: number; y: number; colors: Set<string>; selected: boolean }
+	>();
 	ctx.save();
 	ctx.lineWidth = 1;
 	for (let i = Math.max(0, from - 1); i < Math.min(bars.length, to + 1); i++) {
@@ -135,15 +144,40 @@ function drawPrices({
 			const sx = xAxis.convertToPixel(index);
 			const y = yAxis.convertToPixel(ethValue(sale.priceWei));
 			const selected = drawing.selected.has(sale.id);
-			ctx.fillStyle = selected ? p.orange : p.cyan;
-			ctx.beginPath();
-			ctx.arc(sx, y, selected ? 5 : 3, 0, Math.PI * 2);
-			ctx.fill();
+			const coordinate = sx + ':' + y;
+			const point = points.get(coordinate) ?? {
+				x: sx,
+				y,
+				colors: new Set<string>(),
+				selected: false
+			};
+			point.colors.add(p[saleActionPresentation(sale.action).color]);
+			point.selected ||= selected;
+			points.set(coordinate, point);
 			const key = hitKey(sx, y);
 			const hits = drawing.hits.get(key) ?? [];
 			hits.push({ x: sx, y, sale });
 			drawing.hits.set(key, hits);
 		}
+	}
+	for (const point of points.values()) {
+		// Exact overlaps can include both order sides. Show each observed type as
+		// a sector instead of letting the last fill hide the other type's color.
+		const colors = point.selected ? [p.orange] : [...point.colors];
+		colors.forEach((color, i) => {
+			ctx.fillStyle = color;
+			ctx.beginPath();
+			if (colors.length > 1) ctx.moveTo(point.x, point.y);
+			ctx.arc(
+				point.x,
+				point.y,
+				point.selected ? 5 : 3,
+				(i / colors.length) * Math.PI * 2,
+				((i + 1) / colors.length) * Math.PI * 2
+			);
+			ctx.closePath();
+			ctx.fill();
+		});
 	}
 	ctx.restore();
 }
@@ -178,6 +212,7 @@ export function createPriceChart(element: HTMLElement) {
 		{ name: PRICE_LAYER, paneId: CANDLE_PANE, extendData: () => drawing },
 		true
 	)!;
+	chart.overrideYAxis({ paneId: CANDLE_PANE, name: PRICE_AXIS });
 	const observer = new ResizeObserver(() => chart.resize());
 	observer.observe(element);
 
