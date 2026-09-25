@@ -55,6 +55,7 @@
 	let root: HTMLElement;
 	let element: HTMLDivElement;
 	let height = $state(600);
+	let salesAboveX = $state<number | null>(null);
 	let controller = $state.raw<PriceChartController | null>(null);
 	let loader = $state.raw<SaleMediaLoader | null>(null);
 	let history = $state.raw<PriceHistory | null>(null);
@@ -125,7 +126,7 @@
 		ready = true;
 		void import('$lib/price-chart/renderer')
 			.then(({ createPriceChart }) => {
-				if (!stopped) controller = createPriceChart(element);
+				if (!stopped) controller = createPriceChart(element, (centerX) => (salesAboveX = centerX));
 			})
 			.catch((cause) => {
 				console.error('Price chart initialization failed', cause);
@@ -163,6 +164,7 @@
 		loading = true;
 		error = '';
 		history = null;
+		salesAboveX = null;
 		hoveredSales = [];
 		pinnedSales = [];
 		pinnedPreview = null;
@@ -313,11 +315,19 @@
 	{:else if history?.sales.length === 0}<p class="muted" role="status">no single-token sales</p>{/if}
 	{#if chartError}<p role="alert">{chartError}</p>{/if}
 	<div class="price-workspace" hidden={loading || !!error || !!chartError || !history?.sales.length}>
-		<div class="price-canvas" bind:this={element} data-chart-ready={!!controller && !loading}
-			role="group" aria-label="Interactive sale price chart"
-			onmousemove={hover} onmouseleave={leaveChart}
-			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; }}
-			onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
+		<div class="price-plot">
+			<div class="price-canvas" bind:this={element} data-chart-ready={!!controller && !loading}
+				role="group" aria-label="Interactive sale price chart"
+				onmousemove={hover} onmouseleave={leaveChart}
+				onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; }}
+				onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
+			</div>
+			{#if salesAboveX !== null}
+				<button type="button" class="facet-panel-action-button facet-reset-button sales-above"
+					style:left={salesAboveX + 'px'} aria-label="Show higher sales" onclick={() => controller?.resetPriceScale()}>
+					<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 5 6 2 9 5M6 2v8" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+				</button>
+			{/if}
 		</div>
 		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
 	</div>
@@ -381,11 +391,29 @@
 	.price-workspace[hidden] {
 		display: none;
 	}
+	.price-plot {
+		position: relative;
+		min-width: 0;
+		min-height: 0;
+	}
 	.price-canvas {
+		position: absolute;
+		inset: 0;
+		isolation: isolate;
 		width: 100%;
 		height: 100%;
 		min-width: 0;
 		min-height: 0;
 		background: var(--c-bg);
+	}
+	.sales-above {
+		position: absolute;
+		z-index: 1;
+		top: 3px;
+		transform: translateX(-50%);
+		width: 20px;
+		padding: 0;
+		border: 0;
+		background: transparent;
 	}
 </style>

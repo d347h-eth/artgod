@@ -24,6 +24,12 @@ unchanged. A single left click on empty chart space, the same dot group, or `unp
 releases both.
 Dragging to pan never changes the pinned selection.
 
+A single small upward arrow appears at the top center of the price pane when
+sales within the current horizontal window are above the visible price range.
+It updates during pan, zoom, and resize. Clicking it restores automatic price
+scaling, like double-clicking the price-axis labels, and keeps the time window
+and pinned selection. The arrow disappears when no higher sales remain offscreen.
+
 Right-aligned, vertically centered sidebar rows show relative time, a borderless
 16px token image, the price in its original currency, seller, and buyer. Time,
 image, and price use content-sized columns with consistent spacing. The currency

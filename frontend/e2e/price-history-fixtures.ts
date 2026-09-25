@@ -109,3 +109,22 @@ export function priceHistoryPrecisionFixture() {
 		history.to
 	);
 }
+
+export function priceHistoryOutlierFixture() {
+	const history = priceHistoryFixture();
+	const last = history.sales.at(-1)!;
+	return buildRealizedPriceHistory(
+		[
+			...history.sales,
+			...[10n, 11n, 12n].map((price, i) => ({
+				...last,
+				id: 'outlier-' + i,
+				timestamp: last.timestamp + 1200 * (i + 1),
+				priceWei: (price * 10n ** 18n).toString(),
+				action: REALIZED_SALE_ACTION.TakeAsk
+			}))
+		].map((sale, i) => ({ ...sale, blockNumber: i, logIndex: i })),
+		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
+		history.to
+	);
+}

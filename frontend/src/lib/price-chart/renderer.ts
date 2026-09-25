@@ -43,6 +43,7 @@ type PriceDrawing = {
 	seconds: number;
 	palette: Palette;
 	hits: Map<string, Hit[]>;
+	onSalesAboveView: (centerX: number | null) => void;
 };
 let registered = false;
 function registerPriceLayer() {
@@ -119,6 +120,7 @@ function drawPrices({
 	ctx,
 	chart,
 	indicator,
+	bounding,
 	xAxis,
 	yAxis
 }: IndicatorDrawParams<unknown, unknown, unknown>) {
@@ -128,6 +130,7 @@ function drawPrices({
 	const bars = chart.getDataList() as SaleBar[];
 	const { from, to } = chart.getVisibleRange();
 	const p = drawing.palette;
+	let salesAboveView = false;
 	const points = new Map<
 		string,
 		{ x: number; y: number; colors: Set<string>; selected: boolean }
@@ -143,6 +146,8 @@ function drawPrices({
 			const index = i - 0.5 + (sale.timestamp - bar.timestamp / 1000) / drawing.seconds;
 			const sx = xAxis.convertToPixel(index);
 			const y = yAxis.convertToPixel(ethValue(sale.priceWei));
+			// Use exact dot positions, including partial buckets at either time edge.
+			if (sx >= 0 && sx <= bounding.width && y < 0) salesAboveView = true;
 			const selected = drawing.selected.has(sale.id);
 			const coordinate = sx + ':' + y;
 			const point = points.get(coordinate) ?? {
@@ -180,12 +185,16 @@ function drawPrices({
 		});
 	}
 	ctx.restore();
+	drawing.onSalesAboveView(salesAboveView ? bounding.left + bounding.width / 2 : null);
 }
 function hitKey(x: number, y: number): string {
 	return Math.floor(x / HIT_SIZE) + ':' + Math.floor(y / HIT_SIZE);
 }
 
-export function createPriceChart(element: HTMLElement) {
+export function createPriceChart(
+	element: HTMLElement,
+	onSalesAboveView: (centerX: number | null) => void
+) {
 	registerPriceLayer();
 	const colors = palette(element);
 	const chart = init(element, {
@@ -199,7 +208,8 @@ export function createPriceChart(element: HTMLElement) {
 		selected: new Set(),
 		seconds: 86400,
 		palette: colors,
-		hits: new Map()
+		hits: new Map(),
+		onSalesAboveView
 	};
 	let currentHistory: PriceHistory | null = null;
 	const active = new Map<string, { id: string; kind: PriceIndicator['kind'] }>();
@@ -314,6 +324,11 @@ export function createPriceChart(element: HTMLElement) {
 				Math.max(1, Math.min(40, (size.width - 30) / Math.max(1, chart.getDataList().length)))
 			);
 			chart.scrollToRealTime();
+		},
+		resetPriceScale() {
+			// Reapplying the axis restores automatic range calculation, as a
+			// double-click on its labels does, without changing time zoom or scroll.
+			chart.overrideYAxis({ paneId: CANDLE_PANE, name: PRICE_AXIS });
 		},
 		salesAt(clientX: number, clientY: number): RealizedSale[] {
 			const rect = chart.getDom(CANDLE_PANE, 'main')?.getBoundingClientRect();
