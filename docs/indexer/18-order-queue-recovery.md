@@ -39,9 +39,12 @@ The database path and chain are required explicit inputs. This tool opens SQLite
 read-only with `query_only`; it runs no recovery or migrations and preserves WAL
 semantics. It samples pending demand in scheduler order and unfinished maker
 passes in recovery order. Reported ages belong to that sample, not the global
-oldest work. `--counts` opts into full aggregate counts; omit it on an unassessed
-large store. Schema errors mean the inspected file/version is wrong, not that
-there is no pending work. Never delete a WAL manually.
+oldest work. `--counts` opts into full aggregates, including due/leased/backoff
+counts, failure counts and the global oldest pending requirement age; omit it on
+an unassessed large store. Requirements may predate DB admission. A due row can
+still become unnecessary before validation. Schema errors mean the inspected
+file/version is wrong, not that there is no pending work. Never delete a WAL
+manually.
 
 ## Start, observe, stop
 
@@ -82,6 +85,15 @@ Valid orderbooks and incoming distinct work can still grow; there is no fixed
 maximum database size or guarantee of recovery at every arrival rate.
 
 ## Failure and progress interpretation
+
+Use the ten-second `Order validation demand progress` reports alongside DB
+snapshots. `covered` records durable completion; `resolvedUnneeded` records
+current-state skips. `validated` alone includes results rejected before commit.
+For example, successful checks followed by a reorg increment `validated` and
+`retried`, with no `applied` or `covered` effects. See
+[field definitions](10-observability-and-metrics.md#order-validation-demand-progress).
+Compare pending count and oldest age across a complete reconciliation cycle;
+brief startup drainage or growth is not a steady-state throughput measurement.
 
 | Observation                                   | Meaning and next action                                                                                                                                                                                                                         |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

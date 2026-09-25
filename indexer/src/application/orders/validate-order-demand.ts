@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
+    ORDER_VALIDATION_DEMAND_LOG as LOG,
     validationProofSatisfies,
     type OrderValidationRequest,
     type OrderValidationCompletion,
@@ -41,6 +42,12 @@ export type OrderValidationBatchReport = {
     durationMs: number;
     contractReads: ReturnType<MakerValidationBatch["readCounts"]> | null;
 };
+
+/** Runtime reporting remains bounded and separate from validation persistence. */
+export interface OrderValidationDemandReporter {
+    record(report: OrderValidationBatchReport | undefined): void;
+    flush(): void;
+}
 
 /** Polling persisted demand is also restart recovery; no publish/ACK gap owns liveness. */
 export class ValidateOrderDemand {
@@ -157,7 +164,8 @@ export class ValidateOrderDemand {
             );
         } catch (error) {
             report.retried += this.deps.store.fail(batch.claims, error, now());
-            logger.warn("Order validation demand failed", {
+            logger.warn(LOG.BatchFailed, {
+                component: LOG.Component,
                 chainId: this.deps.chainId,
                 claimed: report.claimed,
                 error: String(error),
@@ -173,6 +181,7 @@ export class ValidateOrderDemand {
 
 export function startOrderValidationDemand(
     processor: Pick<ValidateOrderDemand, "executeBatch">,
+    reporter?: OrderValidationDemandReporter,
 ): () => Promise<void> {
     const controller = new AbortController();
     const waits = new Set<() => void>();
@@ -193,10 +202,13 @@ export function startOrderValidationDemand(
         while (!controller.signal.aborted) {
             let busy = false;
             try {
-                busy = !!(await processor.executeBatch(controller.signal));
+                const report = await processor.executeBatch(controller.signal);
+                busy = !!report;
+                reporter?.record(report);
             } catch (error) {
                 if (!controller.signal.aborted)
-                    logger.warn("Order validation demand poll failed", {
+                    logger.warn(LOG.PollFailed, {
+                        component: LOG.Component,
                         error: String(error),
                     });
             }
@@ -213,5 +225,6 @@ export function startOrderValidationDemand(
         controller.abort();
         for (const resume of waits) resume();
         await Promise.all(active);
+        reporter?.flush();
     };
 }

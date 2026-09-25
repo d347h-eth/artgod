@@ -174,6 +174,20 @@ time-budget release, concurrent claims, lost leases, source/revision/generation
 changes, reorgs, failed SQL commits and graceful stop verify durability. These
 call counts and virtual latency are synthetic evidence, not live throughput.
 
+Its sustained-admission case drives the production demand scheduler against
+disposable SQLite with 10 ms simulated latency per RPC port call, including
+block/head checks. It drains an initial 1,000 orders while accepting another 30
+per simulated second for ten seconds. All 1,300 are covered by the 11-second
+cutoff, with two RPC calls active at most; lifecycle work and a waiting competing
+validation request both proceed. This controlled workload does not qualify a
+live provider or predict native catch-up time.
+
+`tests/order-validation-demand-scheduler.test.ts` covers continuous draining,
+idle/error backoff, FIFO sharing with maker/token work, and shutdown while queued
+or active. Reporting tests distinguish checks from durable effects and verify
+bounded window aggregation; inspector tests distinguish scheduler samples from
+opt-in global age/lease/retry aggregates.
+
 The same migrated workload also exercises bounded WETH snapshots: with 100
 orders per context, 94 contexts perform 9,339 order-status reads and 282 shared
 wallet reads. `tests/seaport-validation-batch.test.ts` covers scope isolation,

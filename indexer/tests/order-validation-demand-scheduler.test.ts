@@ -59,14 +59,19 @@ describe("continuous fair demand scheduling", () => {
                   }
                 : undefined,
         );
-        stop = startOrderValidationDemand({ executeBatch });
+        const reporter = { record: vi.fn(), flush: vi.fn() };
+        stop = startOrderValidationDemand({ executeBatch }, reporter);
         await vi.advanceTimersByTimeAsync(20);
         expect(executeBatch).toHaveBeenCalledTimes(8);
+        expect(
+            reporter.record.mock.calls.filter(([report]) => report),
+        ).toHaveLength(6);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs - 30);
         expect(executeBatch).toHaveBeenCalledTimes(8);
         await vi.advanceTimersByTimeAsync(30);
         expect(executeBatch).toHaveBeenCalledTimes(10);
         await stop();
+        expect(reporter.flush).toHaveBeenCalledOnce();
         expect(vi.getTimerCount()).toBe(0);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 2);
         expect(executeBatch).toHaveBeenCalledTimes(10);

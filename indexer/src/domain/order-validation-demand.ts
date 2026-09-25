@@ -21,6 +21,13 @@ export const ORDER_VALIDATION_DEMAND_OUTCOME = {
     Pending: "pending",
 } as const;
 
+export const ORDER_VALIDATION_DEMAND_LOG = {
+    Component: "OrderValidationDemand",
+    Progress: "Order validation demand progress",
+    BatchFailed: "Order validation demand failed",
+    PollFailed: "Order validation demand poll failed",
+} as const;
+
 export type OrderValidationRequest = {
     chainId: number;
     orderId: string;

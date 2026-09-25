@@ -11,6 +11,7 @@ const dbBackedTests = [
     "tests/maker-revalidation-checkpoint.test.ts",
     "tests/order-validation-demand.test.ts",
     "tests/order-validation-demand-batch.test.ts",
+    "tests/order-processing-inspection.test.ts",
 ];
 
 export default defineWorkspace([

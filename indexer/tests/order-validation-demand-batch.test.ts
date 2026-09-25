@@ -10,7 +10,12 @@ import {
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
-import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
+import {
+    ValidateOrderDemand,
+    startOrderValidationDemand,
+    type OrderValidationBatchReport,
+} from "../src/application/orders/validate-order-demand.js";
+import type { RpcProviderPort } from "../src/ports/rpc.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { ORDER_VALIDATION_DEMAND_POLICY as POLICY } from "../src/domain/order-validation-demand.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../src/domain/order-validation-policy.js";
@@ -39,9 +44,12 @@ const request = (
     minimumBlock,
 });
 
-function workflow(count: number) {
+function workflow(
+    count: number,
+    options: { rpc?: BatchedHeavyMakerRpc; admitted?: number } = {},
+) {
     const other = seedHeavyMaker(count);
-    const rpc = new BatchedHeavyMakerRpc();
+    const rpc = options.rpc ?? new BatchedHeavyMakerRpc();
     const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
         throw new Error("Unexpected singleton validation");
     });
@@ -63,9 +71,51 @@ function workflow(count: number) {
     });
     const ids = Array.from({ length: count }, (_, i) => heavyMakerOrder(i).id);
     db.writeTransaction(() => {
-        for (const id of ids) store.admit(request(id), now);
+        for (const id of ids.slice(0, options.admitted ?? count))
+            store.admit(request(id), now);
     })();
-    return { rpc, domain, store, processor, ids, other, createSnapshot };
+    return {
+        rpc,
+        domain,
+        store,
+        processor,
+        ids,
+        other,
+        createSnapshot,
+        admission,
+    };
+}
+
+/** Synthetic RPC latency per port call, including block checks, driven by fake time. */
+class DelayedBatchRpc extends BatchedHeavyMakerRpc {
+    active = 0;
+    maximumActive = 0;
+    private async delay() {
+        this.active++;
+        this.maximumActive = Math.max(this.maximumActive, this.active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        this.active--;
+    }
+    override async readContract<T>(
+        input: Parameters<RpcProviderPort["readContract"]>[0],
+    ): Promise<T> {
+        await this.delay();
+        return super.readContract<T>(input);
+    }
+    override async readContracts(
+        input: Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0],
+    ) {
+        await this.delay();
+        return super.readContracts(input);
+    }
+    override async getBlockNumber() {
+        await this.delay();
+        return super.getBlockNumber();
+    }
+    override async getBlock(number: number) {
+        await this.delay();
+        return super.getBlock(number);
+    }
 }
 
 describe("bounded demand validation batches", () => {
@@ -396,5 +446,99 @@ describe("bounded demand validation batches", () => {
             POLICY.batchOrders,
         ]);
         expect(work.rpc.reads.getOrderStatus).toBe(POLICY.batchOrders * 2);
+    });
+
+    it("drains an initial backlog while accepting 30 new demands per second and serving lifecycle work", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(now);
+        const rpc = new DelayedBatchRpc();
+        const work = workflow(1_300, { rpc, admitted: 1_000 });
+        const reports: OrderValidationBatchReport[] = [];
+        const stop = startOrderValidationDemand(work.processor, {
+            record: (report) => {
+                if (report) reports.push(report);
+            },
+            flush: () => {},
+        });
+        let admitted = 1_000;
+        let producedTicks = 0;
+        const producer = setInterval(() => {
+            if (producedTicks === 10) return;
+            producedTicks++;
+            for (let i = 0; i < 30; i++)
+                work.store.admit(
+                    {
+                        ...request(work.ids[admitted++]!),
+                        requiredAt: Date.now(),
+                    },
+                    Date.now(),
+                );
+        }, 1_000);
+        try {
+            await vi.advanceTimersByTimeAsync(20);
+            await work.domain.handleOrderUpdateById({
+                chainId: 1,
+                collectionId: work.other.sale.collectionId,
+                orderId: work.other.sale.id,
+                reason: "fixture-fill",
+                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                observedAt: HEAVY_MAKER.now,
+            });
+            expect(
+                db
+                    .prepare("SELECT source_status FROM orders WHERE id=?")
+                    .get(work.other.sale.id),
+            ).toEqual({ source_status: ORDER_SOURCE_STATUS.Filled });
+            let competingFinished = false;
+            const competing = work.admission.run(async () => {
+                competingFinished = true;
+            });
+            await vi.advanceTimersByTimeAsync(980);
+            await competing;
+            expect(competingFinished).toBe(true);
+            expect(
+                reports.reduce((n, r) => n + r.covered, 0),
+            ).toBeGreaterThanOrEqual(1_000);
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(admitted).toBe(1_300);
+            expect(reports.reduce((n, r) => n + r.covered, 0)).toBe(1_300);
+            expect(reports.reduce((n, r) => n + r.retried, 0)).toBe(0);
+            expect(
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS count FROM order_validation_demand WHERE pending=1",
+                    )
+                    .get(),
+            ).toEqual({ count: 0 });
+            expect(rpc.maximumActive).toBe(2);
+            expect(work.rpc.reads.getOrderStatus).toBe(1_300);
+            const calls =
+                rpc.batches.length +
+                (rpc.reads.getCounter ?? 0) +
+                (rpc.reads.allowance ?? 0) +
+                (rpc.reads.balanceOf ?? 0);
+            expect(calls).toBeLessThan(200);
+            process.stdout.write(
+                JSON.stringify({
+                    fixture: "sustained-demand",
+                    initialBacklog: 1_000,
+                    admittedDuringRun: 300,
+                    arrivalPerSecond: 30,
+                    validated: 1_300,
+                    pending: 0,
+                    simulatedMs: 11_000,
+                    statusAggregates: rpc.batches.length,
+                    contractPortCalls: calls,
+                    snapshotCount: work.createSnapshot.mock.calls.length,
+                    maximumConcurrentRpc: rpc.maximumActive,
+                }) + "\n",
+            );
+        } finally {
+            clearInterval(producer);
+            const stopping = stop();
+            await vi.advanceTimersByTimeAsync(1_000);
+            await stopping;
+            vi.useRealTimers();
+        }
     });
 });

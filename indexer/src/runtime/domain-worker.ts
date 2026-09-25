@@ -52,6 +52,7 @@ import {
     ORDER_UPDATE_WORKER_POLICY,
 } from "../domain/order-processing.js";
 import { FairOrderValidationAdmission } from "../infra/orders/fair-validation-admission.js";
+import { OrderValidationDemandProgress } from "../infra/orders/order-validation-demand-reporting.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
@@ -356,7 +357,10 @@ async function main() {
                 ),
             );
 
-        const stopOrderValidation = startOrderValidationDemand(orderValidation);
+        const stopOrderValidation = startOrderValidationDemand(
+            orderValidation,
+            new OrderValidationDemandProgress(config.chainId),
+        );
         const stopOrderUpserts = await runWorker(
             queue,
             {

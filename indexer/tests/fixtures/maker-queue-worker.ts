@@ -124,7 +124,7 @@ const sharedAdmission = new FairOrderValidationAdmission(
 let activeValidations = 0;
 let maximumValidations = 0;
 const admission: OrderValidationAdmissionPort = {
-    run: (work) =>
+    run: (work, signal) =>
         sharedAdmission.run(async () => {
             activeValidations++;
             maximumValidations = Math.max(
@@ -136,7 +136,7 @@ const admission: OrderValidationAdmissionPort = {
             } finally {
                 activeValidations--;
             }
-        }),
+        }, signal),
 };
 const snapshotFactory = createSeaportOrderValidationFactory({
     chainId: HEAVY_MAKER.chainId,

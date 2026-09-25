@@ -32,6 +32,41 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Components and Wiring
 
+### Order validation demand progress
+
+The domain worker emits `Order validation demand progress` through the ordinary
+structured logger, including in desktop builds. One bounded aggregate covers a
+ten-second window; idle polls can flush a final partial window, and graceful stop
+flushes remaining observations. It holds counters only, without per-order or
+per-wallet arrays. `chainId` and `component = OrderValidationDemand` identify it.
+
+- `scanned` / `claimed`: bounded DB selection and acquired order leases.
+- `validated`: full per-order checks returned a result; snapshot verification or
+  the DB commit may still reject it. This is not a durable-completion counter.
+- `applied`: validation effects committed, including those with newer follow-up
+  demand. `covered`: the captured demand completed without a follow-up.
+- `resolvedUnneeded`: current-state skips, including expiry, cancellation and
+  anchor changes. These can occur before RPC or at guarded completion.
+- `followup`, `retried`, `released`, `lostClaims`: work retained for newer state,
+  retry after failure/uncovered trigger, unused budget/shutdown claims, and results
+  rejected by ownership fences respectively. Applied/follow-up counts can overlap.
+- `contractReads`: logical `perOrder`, shared wallet, other reads and status
+  aggregates. Logical status reads are not a count of HTTP requests; block/head
+  lookups, adapter retries and provider billing are outside these counters.
+- `windowMs`: wall time for rates. `batchDurationMs` sums concurrent batch
+  durations and can exceed that window; `maximumBatchDurationMs` is one batch.
+- `oldestSampledRequiredAt`: oldest requirement among the scanned rows in that
+  window, not the global oldest pending request or its DB admission time.
+
+`inspect:orders --counts` additionally reports pending demand's due/leased/backoff
+counts, rows with failures, and global oldest requirement timestamp/age. Due work
+can still be resolved without RPC after current-state eligibility is rechecked.
+The default bounded inspector sample does not run these aggregate queries.
+Compare these snapshots with durable completion and skip counts over a full
+reconciliation cycle. Net pending-row change alone is not an admission or
+validation execution counter; maker coverage, re-admission and retirement can
+also change it.
+
 ### Docker Compose
 
 `docker-compose.yml` defines:

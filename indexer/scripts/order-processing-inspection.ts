@@ -94,6 +94,39 @@ export function inspectOrderProcessing(
                                   "SELECT pending,COUNT(*) AS count FROM order_validation_demand WHERE chain_id=? GROUP BY pending",
                               )
                               .all(config.chainId),
+                          // Full aggregate is deliberately opt-in; the default sample
+                          // cannot establish global age or how much work is immediately due.
+                          pendingDemand: (() => {
+                              const row = conn
+                                  .prepare(
+                                      "SELECT COUNT(*) AS count,COALESCE(SUM(next_attempt_at<=? AND lease_until<=?),0) AS due,COALESCE(SUM(lease_until>?),0) AS leased,COALESCE(SUM(next_attempt_at>? AND lease_until<=?),0) AS backoff,COALESCE(SUM(failures>0),0) AS withFailures,MIN(required_at) AS oldestRequiredAt FROM order_validation_demand WHERE pending=1 AND chain_id=?",
+                                  )
+                                  .get(
+                                      now,
+                                      now,
+                                      now,
+                                      now,
+                                      now,
+                                      config.chainId,
+                                  ) as {
+                                  count: number;
+                                  due: number;
+                                  leased: number;
+                                  backoff: number;
+                                  withFailures: number;
+                                  oldestRequiredAt: number | null;
+                              };
+                              return {
+                                  ...row,
+                                  oldestRequiredAgeMs:
+                                      row.oldestRequiredAt === null
+                                          ? null
+                                          : Math.max(
+                                                0,
+                                                now - row.oldestRequiredAt,
+                                            ),
+                              };
+                          })(),
                           makers: conn
                               .prepare(
                                   "SELECT status,COUNT(*) AS count FROM maker_order_revalidation_runs WHERE chain_id=? GROUP BY status",
