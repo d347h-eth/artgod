@@ -81,6 +81,13 @@ export function ethText(wei: string): string {
 	return padded.slice(0, -18) + (fraction ? '.' + fraction : '');
 }
 
+/** Round sale-row amounts to three decimals without losing precision through Number. */
+export function salePriceText(wei: string): string {
+	const incrementWei = 10n ** 15n;
+	const roundedWei = ((BigInt(wei) + incrementWei / 2n) / incrementWei) * incrementWei;
+	return ethText(roundedWei.toString());
+}
+
 /** Keep equal UTC spacing. NaNs are internal missing values, never serialized,
  * drawn, or passed to a built-in indicator calculator. */
 export function saleBars(history: PriceHistory): SaleBar[] {

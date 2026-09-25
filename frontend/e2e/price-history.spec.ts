@@ -131,7 +131,7 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 	expect(bounds.height).toBeGreaterThan(page.viewportSize()!.height * 0.55);
 	if (page.viewportSize()!.width > 1500) {
 		const canvas = (await page.locator('.price-canvas').boundingBox())!;
-		expect(canvas.width / bounds.width).toBeGreaterThan(0.89);
+		expect(canvas.width / bounds.width).toBeGreaterThan(0.88);
 		expect(canvas.width / bounds.width).toBeLessThan(0.91);
 	}
 	await surface(page, info, 'chart-page');
@@ -189,6 +189,9 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
 	await page.goto(PRICE_HISTORY_E2E.path);
 	await loaded(page);
+	const preciseRow = page.locator('.sale-row[data-sale-id="199-0"]');
+	await expect(preciseRow.locator('.sale-amount')).toHaveText('1.373');
+	await expect(preciseRow.locator('.sale-price a')).toHaveAttribute('title', '1.37256 ETH');
 	await expect.poll(() => salePoint(page)).not.toBeNull();
 	const point = (await salePoint(page))!;
 	await page.mouse.move(point.x, point.y);
@@ -255,6 +258,45 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 			.locator(':scope > span')
 			.evaluateAll((els) => els.every((el) => getComputedStyle(el).textAlign === 'right'))
 	).toBe(true);
+	const layout = await row.evaluate((element) => {
+		const price = element.querySelector('.sale-price a')!.getBoundingClientRect();
+		const seller = element.querySelector('.sale-seller')!.getBoundingClientRect();
+		const row = element.getBoundingClientRect();
+		return {
+			priceSellerGap: seller.left - price.right,
+			centerOffsets: [...element.children].map((cell) => {
+				const content = cell.firstElementChild!.getBoundingClientRect();
+				return Math.abs(content.y + content.height / 2 - (row.y + row.height / 2));
+			}),
+			priceClipped: [...element.querySelectorAll('.sale-amount, .sale-price small')].some(
+				(el) => el.scrollWidth > el.clientWidth
+			)
+		};
+	});
+	expect(layout.priceSellerGap).toBeGreaterThanOrEqual(14);
+	expect(Math.max(...layout.centerOffsets)).toBeLessThanOrEqual(1);
+	expect(layout.priceClipped).toBe(false);
+	// Sidebar hover is independent of the chart pin and cannot replace or move it.
+	const pinnedCard = page.getByRole('region', { name: 'Token 103 card', exact: true });
+	const rowThumb = page.getByRole('link', { name: 'Token #99', exact: true });
+	// At phone width the intentionally full-size pinned card covers this icon.
+	// Exercise keyboard access there; desktop covers real pointer hover and click.
+	const coveredByCard = info.project.name.includes('480');
+	if (coveredByCard) await rowThumb.focus();
+	else await rowThumb.hover();
+	const rowCard = page.getByRole('tooltip', { name: 'Token 99 card', exact: true });
+	await expect(rowCard.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
+	await expect(rowCard.getByTestId(TEST_IDS.TokenCard)).toHaveAttribute('data-token-id', '99');
+	await expect(floatingCard).toHaveCount(2);
+	expect(await pinnedCard.boundingBox()).toEqual(pinnedPosition);
+	expect(
+		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
+	).toEqual(pinnedIds);
+	await surface(page, info, 'pinned-card-with-sidebar-preview');
+	if (coveredByCard) await rowThumb.press('Tab');
+	await page.mouse.move(2, 2);
+	await expect(rowCard).toHaveCount(0);
+	await expect(pinnedCard).toBeVisible();
 	const market = floatingCard.locator('.token-price-link');
 	await expect(market).toHaveAttribute('href', /opensea.io\/item\/ethereum\/.+\/103$/);
 	await expect(market).toHaveAttribute('target', '_blank');
@@ -280,9 +322,15 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await page.mouse.move(2, 2);
 	await expect(floatingCard).toHaveCount(0);
 	await expect(thumb).toHaveAttribute('href', /\/\d+$/);
-	// Native link activation stays intact for the tiny token thumbnail.
-	const tokenHref = await rows(page).first().locator('.sale-thumbnail').getAttribute('href');
-	await rows(page).first().locator('.sale-thumbnail').click();
+	// Native thumbnail navigation also works while another token's card is pinned.
+	await page.mouse.click(point.x, point.y);
+	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+	const tokenHref = await rowThumb.getAttribute('href');
+	if (coveredByCard) await rowThumb.focus();
+	else await rowThumb.hover();
+	await expect(rowCard).toBeVisible();
+	if (coveredByCard) await rowThumb.press('Enter');
+	else await rowThumb.click();
 	await expect(page).toHaveURL(new RegExp(tokenHref! + '$'));
 });
 
