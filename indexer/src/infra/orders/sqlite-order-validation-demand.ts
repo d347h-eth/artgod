@@ -5,12 +5,15 @@ import {
     assertOrderValidationRequest,
     validationProofCovers,
     advancesValidationDemand,
+    validationProofSatisfies,
     type ClaimedOrderValidation,
     type OrderValidationDemand,
     type OrderValidationProof,
     type OrderValidationRequest,
+    type OrderValidationClaimBatch,
+    type OrderValidationCompletion,
+    type OrderValidationCompletionCounts,
 } from "../../domain/order-validation-demand.js";
-import type { OrderValidationResult } from "../../domain/orders.js";
 import type {
     OrderValidationDemandPort,
     OrderValidationProjectionPort,
@@ -87,11 +90,11 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         })();
     }
 
-    claimNext(
+    claimBatch(
         chainId: number,
         owner: string,
         now: number,
-    ): ClaimedOrderValidation | null {
+    ): OrderValidationClaimBatch {
         return db.writeTransaction(() => {
             // Retired/ineligible rows cannot make one tick scan an unbounded backlog.
             const rows = db
@@ -100,6 +103,14 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                         "WHERE chain_id=? AND pending=1 AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
                 )
                 .all(chainId, now, now, POLICY.batchOrders) as DemandRow[];
+            const batch: OrderValidationClaimBatch = {
+                claims: [],
+                scanned: rows.length,
+                resolvedUnneeded: 0,
+                oldestRequiredAt: rows.length
+                    ? Math.min(...rows.map((row) => row.requiredAt))
+                    : null,
+            };
             for (const row of rows) {
                 const candidate = this.orders.validationCandidate({
                     ...row,
@@ -111,6 +122,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     db.prepare(
                         "UPDATE order_validation_demand SET pending=0,lease_owner=NULL,lease_until=0,proof_revision=NULL,proof_at=NULL,proof_block=NULL,updated_at=? WHERE order_id=?",
                     ).run(now, row.orderId);
+                    batch.resolvedUnneeded++;
                     continue;
                 }
                 db.prepare(
@@ -123,9 +135,12 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     now,
                     row.orderId,
                 );
-                return { demand: this.get(chainId, row.orderId)!, candidate };
+                batch.claims.push({
+                    demand: this.get(chainId, row.orderId)!,
+                    candidate,
+                });
             }
-            return null;
+            return batch;
         })();
     }
 
@@ -146,61 +161,130 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         );
     }
 
-    complete(
-        claim: ClaimedOrderValidation,
-        result: OrderValidationResult,
+    completeBatch(
+        completions: readonly OrderValidationCompletion[],
         proof: OrderValidationProof,
         now: number,
-    ): void {
-        db.writeTransaction(() => {
-            const current = this.get(
-                claim.demand.chainId,
-                claim.demand.orderId,
-            );
-            if (!this.owns(current, claim, now)) return;
-            if (
-                proof.observedAt < claim.demand.requiredAt ||
-                (claim.demand.minimumBlock !== null &&
-                    proof.blockNumber < claim.demand.minimumBlock)
-            )
-                throw new Error(
-                    "Validation snapshot does not cover captured demand",
+    ): OrderValidationCompletionCounts {
+        // One bounded commit follows snapshot verification; RPC never holds this transaction.
+        return db.writeTransaction(() => {
+            const counts: OrderValidationCompletionCounts = {
+                applied: 0,
+                covered: 0,
+                resolvedUnneeded: 0,
+                followup: 0,
+                lostClaims: 0,
+            };
+            for (const { claim, result } of completions) {
+                const current = this.get(
+                    claim.demand.chainId,
+                    claim.demand.orderId,
                 );
-            const revision = this.orders.applyDemandValidation(claim, result);
-            const newerDemand = current!.generation !== claim.demand.generation;
-            // The validator's own status transition can advance state_revision. Record its
-            // resulting revision, so it does not invalidate its own completion proof forever.
-            db.prepare(
-                "UPDATE order_validation_demand SET pending=?,revision=COALESCE(?,revision),proof_revision=?,proof_at=?,proof_block=?,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=? WHERE order_id=?",
-            ).run(
-                revision === null || newerDemand ? 1 : 0,
-                revision,
-                revision,
-                revision === null ? null : proof.observedAt,
-                revision === null ? null : proof.blockNumber,
-                now,
-                claim.demand.orderId,
-            );
+                if (!this.owns(current, claim, now)) {
+                    counts.lostClaims++;
+                    continue;
+                }
+                if (!validationProofSatisfies(proof, claim.demand))
+                    throw new Error(
+                        "Validation snapshot does not cover captured demand",
+                    );
+                const revision = this.orders.applyDemandValidation(
+                    claim,
+                    result,
+                );
+                // A terminal source/expiry/anchor change can resolve this obligation now.
+                // A changed but still actionable revision or generation must remain pending.
+                const unneeded =
+                    revision === null &&
+                    !this.orders.validationCandidate({
+                        ...current!,
+                        minimumBlock: current!.anchorIndependent
+                            ? null
+                            : current!.minimumBlock,
+                    });
+                const pending =
+                    !unneeded &&
+                    (revision === null ||
+                        current!.generation !== claim.demand.generation);
+                db.prepare(
+                    "UPDATE order_validation_demand SET pending=?,revision=COALESCE(?,revision),proof_revision=?,proof_at=?,proof_block=?,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=? WHERE order_id=?",
+                ).run(
+                    pending ? 1 : 0,
+                    revision,
+                    revision,
+                    revision === null ? null : proof.observedAt,
+                    revision === null ? null : proof.blockNumber,
+                    now,
+                    claim.demand.orderId,
+                );
+                if (revision !== null) counts.applied++;
+                if (unneeded) counts.resolvedUnneeded++;
+                else if (pending) counts.followup++;
+                else counts.covered++;
+            }
+            return counts;
         })();
     }
 
-    fail(claim: ClaimedOrderValidation, error: unknown, now: number): void {
+    release(claims: readonly ClaimedOrderValidation[], now: number): number {
+        if (!claims.length) return 0;
+        return db.writeTransaction(() => {
+            let released = 0;
+            for (const { demand } of claims)
+                released += db
+                    .prepare(
+                        "UPDATE order_validation_demand SET lease_owner=NULL,lease_until=0,updated_at=? WHERE order_id=? AND chain_id=? AND lease_owner=? AND lease_version=? AND lease_until>?",
+                    )
+                    .run(
+                        now,
+                        demand.orderId,
+                        demand.chainId,
+                        demand.leaseOwner,
+                        demand.leaseVersion,
+                        now,
+                    ).changes;
+            return released;
+        })();
+    }
+
+    fail(
+        claims: readonly ClaimedOrderValidation[],
+        error: unknown,
+        now: number,
+    ): number {
+        if (!claims.length) return 0;
+        return db.writeTransaction(() => {
+            let failed = 0;
+            for (const claim of claims)
+                failed += this.failClaim(claim, error, now);
+            return failed;
+        })();
+    }
+
+    private failClaim(
+        claim: ClaimedOrderValidation,
+        error: unknown,
+        now: number,
+    ): number {
         const failures = claim.demand.failures + 1;
         const retryMs = Math.min(
             POLICY.retryMaxMs,
             POLICY.retryBaseMs * 2 ** Math.min(failures - 1, 16),
         );
-        db.prepare(
-            "UPDATE order_validation_demand SET lease_owner=NULL,lease_until=0,failures=failures+1,last_error=?,next_attempt_at=?,updated_at=? WHERE order_id=? AND chain_id=? AND lease_owner=? AND lease_version=?",
-        ).run(
-            String(error).slice(0, 1_000),
-            now + retryMs,
-            now,
-            claim.demand.orderId,
-            claim.demand.chainId,
-            claim.demand.leaseOwner,
-            claim.demand.leaseVersion,
-        );
+        return db
+            .prepare(
+                "UPDATE order_validation_demand SET lease_owner=NULL,lease_until=0,failures=failures+1,last_error=?,next_attempt_at=?,updated_at=? WHERE order_id=? AND chain_id=? AND lease_owner=? AND lease_version=? AND lease_until>?",
+            )
+            .run(
+                String(error).slice(0, 1_000),
+                now + retryMs,
+                now,
+                claim.demand.orderId,
+                claim.demand.chainId,
+                claim.demand.leaseOwner,
+                claim.demand.leaseVersion,
+                now,
+            ).changes;
     }
 
     private owns(

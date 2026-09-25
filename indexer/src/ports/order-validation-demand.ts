@@ -4,6 +4,9 @@ import type {
     OrderValidationDemand,
     OrderValidationProof,
     OrderValidationRequest,
+    OrderValidationClaimBatch,
+    OrderValidationCompletion,
+    OrderValidationCompletionCounts,
     ORDER_VALIDATION_DEMAND_OUTCOME,
 } from "../domain/order-validation-demand.js";
 import type { OrderValidationResult } from "../domain/orders.js";
@@ -27,18 +30,23 @@ export interface OrderValidationDemandPort {
     ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
     get(chainId: number, orderId: string): OrderValidationDemand | null;
     /** Selects/claims bounded work atomically; only one executor owns each revision/generation. */
-    claimNext(
+    claimBatch(
         chainId: number,
         owner: string,
         now: number,
-    ): ClaimedOrderValidation | null;
+    ): OrderValidationClaimBatch;
     renew(claim: ClaimedOrderValidation, now: number): boolean;
     /** Commits order effects and captured-generation coverage together. New demand survives. */
-    complete(
-        claim: ClaimedOrderValidation,
-        result: OrderValidationResult,
+    completeBatch(
+        completions: readonly OrderValidationCompletion[],
         proof: OrderValidationProof,
         now: number,
-    ): void;
-    fail(claim: ClaimedOrderValidation, error: unknown, now: number): void;
+    ): OrderValidationCompletionCounts;
+    /** Release unconsumed claims without inventing validation coverage or a failure. */
+    release(claims: readonly ClaimedOrderValidation[], now: number): number;
+    fail(
+        claims: readonly ClaimedOrderValidation[],
+        error: unknown,
+        now: number,
+    ): number;
 }

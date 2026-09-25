@@ -137,8 +137,15 @@ Newer generations or changed canonical revisions remain pending. An unanchored
 canonical observation remains independently actionable when coalesced with an
 older chain trigger; it does not inherit that trigger's bootstrap rejection.
 
-The worker polls every second, admits at most 25 orders or five seconds of new
-work per tick, and processes one at a time. Persisted two-minute leases renew
+The worker polls every second and claims a bounded page of at most 100 orders
+after acquiring fair validation capacity. The page shares one fresh snapshot,
+including wallet reads and lazy status aggregates. Each order retains its own
+revision, generation and observation/block requirement; demands ahead of the
+snapshot retry independently while covered orders proceed. After five seconds
+of new validation, the batch verifies its snapshot and commits bounded results
+together. Unconsumed claims are released without coverage. Missing, expired or
+terminal pages report cheap progress without opening an RPC snapshot.
+Persisted two-minute leases renew
 every 30 seconds; expired leases are reclaimable after restart. Failed work uses
 bounded exponential retry delay up to 60 seconds. Pending rows themselves are the
 durable wakeup, so no per-order outbox publication or sent-state recovery is needed.
@@ -314,7 +321,7 @@ balances. Standalone legacy callers retain their existing singleton path.
 
 ### Bounded status aggregates
 
-Maker steps provide their bounded candidate page to the snapshot. When the RPC
+Maker steps and demand batches provide their bounded candidates to the snapshot. When the RPC
 adapter supports `readContracts`, the first needed status lazily reads up to 20
 unique `(protocol, order hash)` statuses in one deployless multicall at the pinned
 block. Seaport's status view is independent of the caller; other validator calls

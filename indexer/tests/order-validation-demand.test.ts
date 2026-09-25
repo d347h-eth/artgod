@@ -124,7 +124,7 @@ describe("durable ordinary validation demand", () => {
                 )
                 .get(),
         ).toEqual({ count: 1 });
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
         for (let bucket = 0; bucket < 2_000; bucket++)
             expect(
@@ -133,7 +133,7 @@ describe("durable ordinary validation demand", () => {
                     now,
                 ),
             ).toBe(OUTCOME.Covered);
-        expect(await work.processor.executeNext()).toBe(false);
+        expect(await work.processor.executeBatch()).toBeUndefined();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
             proofRevision: 0,
@@ -149,7 +149,7 @@ describe("durable ordinary validation demand", () => {
         );
         const work = workflow();
         expect(work.store.admit(request, now)).toBe(OUTCOME.Pending);
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
     });
 
@@ -157,14 +157,14 @@ describe("durable ordinary validation demand", () => {
         const work = workflow();
         work.rpc.balance = 0n;
         work.store.admit(request, now);
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
             revision: 1,
             proofRevision: 1,
         });
         expect(work.store.admit(request, now)).toBe(OUTCOME.Covered);
-        expect(await work.processor.executeNext()).toBe(false);
+        expect(await work.processor.executeBatch()).toBeUndefined();
         expect(
             db
                 .prepare("SELECT fillability_status FROM orders WHERE id=?")
@@ -181,12 +181,12 @@ describe("durable ordinary validation demand", () => {
             triggered = true;
             work.store.admit({ ...request, requiredAt: now }, now);
         };
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: true,
             generation: 2,
         });
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(2);
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
             false,
@@ -204,12 +204,12 @@ describe("durable ordinary validation demand", () => {
                 "UPDATE orders SET state_revision=state_revision+1,validated_at=0 WHERE id=?",
             ).run(order.id);
         };
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: true,
             proofRevision: null,
         });
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(2);
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
@@ -230,8 +230,8 @@ describe("durable ordinary validation demand", () => {
                 observedAt: HEAVY_MAKER.now + 1,
             });
         };
-        await work.processor.executeNext();
-        expect(await work.processor.executeNext()).toBe(false);
+        await work.processor.executeBatch();
+        expect(await work.processor.executeBatch()).toBeUndefined();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
         expect(
             db
@@ -287,7 +287,7 @@ describe("durable ordinary validation demand", () => {
         db.raw.close();
         setDbPath(dbPath);
         const restarted = workflow();
-        await restarted.processor.executeNext();
+        await restarted.processor.executeBatch();
         expect(restarted.rpc.reads.getOrderStatus).toBe(1);
         expect(
             restarted.store.get(request.chainId, request.orderId)?.pending,
@@ -296,7 +296,7 @@ describe("durable ordinary validation demand", () => {
             ...upsert(),
             observedAt: HEAVY_MAKER.now - 1,
         });
-        expect(await restarted.processor.executeNext()).toBe(false);
+        expect(await restarted.processor.executeBatch()).toBeUndefined();
     });
 
     it("retries RPC failure durably without recording a protocol failure", async () => {
@@ -305,7 +305,7 @@ describe("durable ordinary validation demand", () => {
         work.rpc.onRead = () => {
             throw new Error("fixture RPC outage");
         };
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: true,
             failures: 1,
@@ -316,10 +316,10 @@ describe("durable ordinary validation demand", () => {
                 .prepare("SELECT fillability_status FROM orders WHERE id=?")
                 .get(order.id),
         ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
-        expect(await work.processor.executeNext()).toBe(false);
+        expect(await work.processor.executeBatch()).toBeUndefined();
         vi.mocked(Date.now).mockReturnValue(now + POLICY.retryBaseMs);
         work.rpc.onRead = undefined;
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
             failures: 0,
@@ -329,23 +329,32 @@ describe("durable ordinary validation demand", () => {
     it("reclaims a persisted dead executor and fences its late completion", async () => {
         let work = workflow();
         work.store.admit(request, now);
-        const old = work.store.claimNext(request.chainId, "old", now)!;
+        const old = work.store.claimBatch(request.chainId, "old", now)
+            .claims[0]!;
         db.raw.close();
         setDbPath(dbPath);
         work = workflow();
-        expect(work.store.claimNext(request.chainId, "early", now + 1)).toBe(
-            null,
-        );
-        const resumed = work.store.claimNext(
+        expect(
+            work.store.claimBatch(request.chainId, "early", now + 1).claims,
+        ).toEqual([]);
+        const resumed = work.store.claimBatch(
             request.chainId,
             "new",
             now + POLICY.leaseMs + 1,
-        )!;
-        work.store.complete(old, fillable, proof, now + POLICY.leaseMs + 2);
+        ).claims[0]!;
+        work.store.completeBatch(
+            [{ claim: old, result: fillable }],
+            proof,
+            now + POLICY.leaseMs + 2,
+        );
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
             true,
         );
-        work.store.complete(resumed, fillable, proof, now + POLICY.leaseMs + 2);
+        work.store.completeBatch(
+            [{ claim: resumed, result: fillable }],
+            proof,
+            now + POLICY.leaseMs + 2,
+        );
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
             false,
         );
@@ -389,7 +398,7 @@ describe("durable ordinary validation demand", () => {
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(HEAVY_MAKER.blockNumber + 1, order.collectionId);
         work.store.admit({ ...request, minimumBlock: null }, now);
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
@@ -407,13 +416,13 @@ describe("durable ordinary validation demand", () => {
                     "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
                 )
                 .run(HEAVY_MAKER.blockNumber + 1, order.collectionId);
-        await work.processor.executeNext();
+        await work.processor.executeBatch();
         expect(
             db
                 .prepare("SELECT fillability_status FROM orders WHERE id=?")
                 .get(order.id),
         ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
-        expect(await work.processor.executeNext()).toBe(false);
+        expect(await work.processor.executeBatch()).toBeUndefined();
     });
 
     it("uses the chain/due index without a temporary sort for bounded polling", () => {

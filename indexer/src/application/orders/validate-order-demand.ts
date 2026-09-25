@@ -2,10 +2,15 @@ import { randomUUID } from "node:crypto";
 import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
+    validationProofSatisfies,
     type OrderValidationRequest,
+    type OrderValidationCompletion,
 } from "../../domain/order-validation-demand.js";
 import type { OrderValidationDemandPort } from "../../ports/order-validation-demand.js";
-import type { OrderValidationSnapshotFactory } from "../../ports/order-validation.js";
+import type {
+    OrderValidationSnapshotFactory,
+    MakerValidationBatch,
+} from "../../ports/order-validation.js";
 import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
 
 export class AdmitOrderValidation {
@@ -20,6 +25,22 @@ export class AdmitOrderValidation {
     }
 }
 
+export type OrderValidationBatchReport = {
+    scanned: number;
+    claimed: number;
+    validated: number;
+    applied: number;
+    covered: number;
+    resolvedUnneeded: number;
+    followup: number;
+    retried: number;
+    released: number;
+    lostClaims: number;
+    oldestRequiredAt: number | null;
+    durationMs: number;
+    contractReads: ReturnType<MakerValidationBatch["readCounts"]> | null;
+};
+
 /** Polling persisted demand is also restart recovery; no publish/ACK gap owns liveness. */
 export class ValidateOrderDemand {
     constructor(
@@ -32,44 +53,119 @@ export class ValidateOrderDemand {
         },
     ) {}
 
-    async executeNext(): Promise<boolean> {
+    async executeBatch(
+        shouldStop: () => boolean = () => false,
+    ): Promise<OrderValidationBatchReport | undefined> {
+        // Acquire fair capacity before claiming rows or aging a chain snapshot.
+        return this.deps.admission.run(async () => {
+            if (shouldStop()) return undefined;
+            return this.validateBatch(shouldStop);
+        });
+    }
+
+    private async validateBatch(
+        shouldStop: () => boolean,
+    ): Promise<OrderValidationBatchReport | undefined> {
         const now = this.deps.now ?? Date.now;
-        const claim = this.deps.store.claimNext(
+        const startedAt = now();
+        const batch = this.deps.store.claimBatch(
             this.deps.chainId,
             randomUUID(),
             now(),
         );
-        if (!claim) return false;
+        if (!batch.scanned) return undefined;
+        const report: OrderValidationBatchReport = {
+            scanned: batch.scanned,
+            claimed: batch.claims.length,
+            validated: 0,
+            applied: 0,
+            covered: 0,
+            resolvedUnneeded: batch.resolvedUnneeded,
+            followup: 0,
+            retried: 0,
+            released: 0,
+            lostClaims: 0,
+            oldestRequiredAt: batch.oldestRequiredAt,
+            durationMs: 0,
+            contractReads: null,
+        };
+        if (!batch.claims.length) {
+            report.durationMs = now() - startedAt;
+            return report;
+        }
         const timer = setInterval(() => {
             try {
-                this.deps.store.renew(claim, now());
+                for (const claim of batch.claims)
+                    this.deps.store.renew(claim, now());
             } catch {
                 /* The commit fence remains authoritative. */
             }
         }, POLICY.renewEveryMs);
         timer.unref?.();
+        let snapshot:
+            | Awaited<ReturnType<OrderValidationSnapshotFactory>>
+            | undefined;
         try {
-            await this.deps.admission.run(async () => {
-                const snapshot = await this.deps.createSnapshot({
-                    chainId: claim.demand.chainId,
-                    minimumBlock: claim.demand.minimumBlock,
-                });
-                const result = await snapshot.validate(claim.candidate.order);
-                await snapshot.finish();
-                this.deps.store.complete(claim, result, snapshot.proof, now());
+            snapshot = await this.deps.createSnapshot({
+                chainId: this.deps.chainId,
+                // Different demands have different trigger blocks. Check each against the
+                // fresh snapshot below so one future trigger cannot block unrelated work.
+                minimumBlock: null,
+                candidates: batch.claims.map((claim) => claim.candidate.order),
             });
+            const ready = batch.claims.filter((claim) =>
+                validationProofSatisfies(snapshot!.proof, claim.demand),
+            );
+            const uncovered = batch.claims.filter(
+                (claim) =>
+                    !validationProofSatisfies(snapshot!.proof, claim.demand),
+            );
+            report.retried += this.deps.store.fail(
+                uncovered,
+                new Error(
+                    "Snapshot does not yet cover demand observation or trigger block",
+                ),
+                now(),
+            );
+            const completions: OrderValidationCompletion[] = [];
+            for (const claim of ready) {
+                if (
+                    shouldStop() ||
+                    (completions.length > 0 && !snapshot.canAccept())
+                )
+                    break;
+                const result = await snapshot.validate(claim.candidate.order);
+                report.validated++;
+                completions.push({ claim, result });
+            }
+            await snapshot.finish();
+            const completed = this.deps.store.completeBatch(
+                completions,
+                snapshot.proof,
+                now(),
+            );
+            report.applied = completed.applied;
+            report.covered = completed.covered;
+            report.followup = completed.followup;
+            report.lostClaims = completed.lostClaims;
+            report.resolvedUnneeded += completed.resolvedUnneeded;
+            report.released = this.deps.store.release(
+                ready.slice(completions.length),
+                now(),
+            );
         } catch (error) {
-            this.deps.store.fail(claim, error, now());
+            report.retried += this.deps.store.fail(batch.claims, error, now());
             logger.warn("Order validation demand failed", {
-                chainId: claim.demand.chainId,
-                orderId: claim.demand.orderId,
-                generation: claim.demand.generation,
+                chainId: this.deps.chainId,
+                claimed: report.claimed,
                 error: String(error),
             });
         } finally {
             clearInterval(timer);
+            report.contractReads = snapshot?.readCounts() ?? null;
+            report.durationMs = now() - startedAt;
         }
-        return true;
+        return report;
     }
 }
 
@@ -81,15 +177,7 @@ export function startOrderValidationDemand(
     const tick = () => {
         if (stopped || active) return;
         active = (async () => {
-            const start = Date.now();
-            for (
-                let count = 0;
-                !stopped &&
-                count < POLICY.batchOrders &&
-                Date.now() - start < POLICY.budgetMs;
-                count++
-            )
-                if (!(await processor.executeNext())) break;
+            await processor.executeBatch(() => stopped);
         })()
             .catch((error) =>
                 logger.warn("Order validation demand poll failed", {

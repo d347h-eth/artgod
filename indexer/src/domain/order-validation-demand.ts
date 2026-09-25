@@ -2,14 +2,15 @@ import {
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
     type OrderRecord,
+    type OrderValidationResult,
 } from "./orders.js";
+import { ORDER_VALIDATION_BATCH_POLICY } from "./order-validation-policy.js";
 
 export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     leaseMs: 120_000,
     renewEveryMs: 30_000,
     pollMs: 1_000,
-    batchOrders: 25,
-    budgetMs: 5_000,
+    batchOrders: ORDER_VALIDATION_BATCH_POLICY.maxOrders,
     retryBaseMs: 1_000,
     retryMaxMs: 60_000,
 });
@@ -47,6 +48,37 @@ export type ClaimedOrderValidation = {
     candidate: OrderValidationCandidate;
 };
 export type OrderValidationProof = { observedAt: number; blockNumber: number };
+
+export type OrderValidationClaimBatch = {
+    claims: ClaimedOrderValidation[];
+    scanned: number;
+    resolvedUnneeded: number;
+    oldestRequiredAt: number | null;
+};
+
+export type OrderValidationCompletion = {
+    claim: ClaimedOrderValidation;
+    result: OrderValidationResult;
+};
+
+export type OrderValidationCompletionCounts = {
+    applied: number;
+    covered: number;
+    resolvedUnneeded: number;
+    followup: number;
+    lostClaims: number;
+};
+
+export function validationProofSatisfies(
+    proof: OrderValidationProof,
+    request: OrderValidationRequest,
+): boolean {
+    return (
+        proof.observedAt >= request.requiredAt &&
+        (request.minimumBlock === null ||
+            proof.blockNumber >= request.minimumBlock)
+    );
+}
 
 /** A recovered balance never revives source/protocol terminal state. */
 export function needsCurrentOrderValidation(
