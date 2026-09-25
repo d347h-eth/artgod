@@ -2432,7 +2432,7 @@ components:
                     type: array
                     items:
                         type: object
-                        required: [id, timestamp, tokenId, priceWei, currencyAddress, currencySymbol, txHash]
+                        required: [id, timestamp, tokenId, priceWei, currencyAddress, currencySymbol, seller, buyer, txHash]
                         properties:
                             id: { type: string }
                             timestamp: { type: integer }
@@ -2442,6 +2442,8 @@ components:
                                 type: string
                                 description: Original execution currency address; zero address for ETH
                             currencySymbol: { type: string, enum: [ETH, WETH, BETH] }
+                            seller: { type: [string, "null"] }
+                            buyer: { type: [string, "null"] }
                             txHash: { type: string }
                 buckets:
                     type: array
