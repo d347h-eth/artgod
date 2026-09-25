@@ -40,7 +40,7 @@ Shared structure:
 
 Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and currently exposes:
 
-- grouped `explore`: `asks`, `offers`, `tokens`
+- grouped `explore`: `asks`, `offers`, `tokens`, `chart`
 - standalone `bidding`
 - grouped `events`: `sales`, `listings`, `transfers`
 - `holders`
@@ -135,6 +135,9 @@ spinners when an established ArtGod control family already exists.
 scrolling and resizing, while preserving its placement beside the trigger.
 Clicking or tapping keeps help open after pointer focus is released. Selecting
 another control, clicking or tapping elsewhere, or pressing `Escape` dismisses it.
+
+Never show native increment/decrement spinners on numeric inputs by default.
+Use the shared `app.css` rule; retain number validation and keyboard stepping.
 
 ### Admin setting summaries
 

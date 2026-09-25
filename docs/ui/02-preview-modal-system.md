@@ -239,6 +239,12 @@ choices.
   It also supports inert text inspection with `allowScripts={false}`. The
   bootstrap JSON inspector uses that stricter sandbox, escaped text, and a CSP
   denying network access. Token media retains its existing script allowance.
+- The chart's `SaleMediaPreview.svelte` reuses that same iframe boundary for
+  ephemeral dot/thumbnail previews. Its popup has no backdrop, takes no pointer
+  events, stays within the viewport, and unmounts immediately on pointer exit.
+  A bounded snapshot-media cache supplies the popup and 16px sidebar images;
+  stale responses cannot reopen a dismissed popup. Pinning a sale group keeps
+  only the chart selection and sidebar rows, never the popup.
 - `frontend/src/app.css` owns viewport, contain-fit, controls, and request-state
   styling through the shared chrome color contract.
 

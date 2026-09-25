@@ -1,106 +1,108 @@
 # Realized Price History PoC
 
-The collection browser and token detail view share `RealizedPriceChart.svelte`.
-The user can inspect individual sale dots, bucket-close lines, or OHLC candles;
-pan, zoom, fit the loaded history, and toggle/configure indicators. Range,
-bucket, and mode are URL state. Indicator settings are local to the mounted
-chart; they reset on a full reload.
+The fourth Explore tab, `chart`, opens the dedicated collection sale chart.
+Token detail links open the same page with `token_id` in the URL. Inline charts
+and line/candle display modes have been removed. The chart plots individual
+sales as dots and supports panning, zooming, fit, and configurable indicators.
+
+The workspace fills the remaining viewport below collection navigation and its
+compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
+keeps a 190px minimum for readable sale rows at smaller widths. Range and bucket
+are URL state. Indicator settings and pinned selection reset on a full reload.
+
+## Sales and selection
+
+The sidebar normally shows the newest loaded sales first. Hovering a dot shows
+all fills under that point and an ephemeral token-media popup. Leaving the dot
+immediately removes the popup and restores recent sales. Clicking pins that sale
+group and highlights its dots in the shared orange selection color. Other hover
+previews can open without changing the pinned sidebar. Click the same group or
+use `unpin` to release it. Dragging to pan does not pin a dot.
+
+Sidebar rows show relative time, a 16px token image, the price in its original
+currency, seller, and buyer. Time and price link to the configured transaction
+explorer; time hover shows absolute UTC. Seller/buyer links open collection owner
+pages. Token image hover opens the same ephemeral preview; clicking opens token
+detail. Fifty rows render at a time, including large coincident-sale groups.
+
+Seller/buyer roles follow the fill's order side: maker sells an ask and buys an
+accepted offer. Unknown sides or participants stay unknown instead of creating
+guessed ownership links.
+
+Preview media uses `TokenMediaFrame.svelte`, the same `sandbox="allow-scripts"`
+iframe boundary used by fullscreen preview. Popups take no pointer events and
+never survive pointer exit, even if a request completes later. Thumbnail and
+popup requests share a bounded snapshot cache (256 tokens), at most four active
+requests and 100 queued requests. Hover takes priority over queued thumbnails.
+Navigation cancels requests; failed requests are retryable by hovering again.
 
 ## Data contract
 
 `GET /api/:chain_ref/:collection_ref/price-history` accepts `bucket`
 (`1h`, `4h`, `1d`, `1w`), `range` (`30d`, `90d`, `1y`, `all`),
 and optional `token_id`. Defaults are all stored history and daily buckets.
-The endpoint follows the usual public collection scope guard. Runtime WETH
-configuration limits this PoC to the configured chain.
+The endpoint follows the public collection scope guard. Runtime WETH configuration
+limits this PoC to the configured chain.
 
-The use case reads eligible fills through a SQLite iterator, sorts in memory
-by timestamp, block number, log index, and stable fill identity, then computes
-OHLC, NFT volume and turnover with bigint prices. Its response includes raw
-sales for dots and populated buckets for all three modes. Each sale retains its
-original `currencyAddress` and `currencySymbol` (ETH, WETH, or BETH); each maps
-1:1 to ETH for chart coordinates, OHLC, and indicators. Dot hover shows the
-exact price in the original currency. Other currencies are excluded.
+Eligible fills are read through a SQLite iterator, sorted in memory by timestamp,
+block number, log index, and stable identity. OHLC, NFT volume, and turnover use
+bigint prices. Buckets remain the inputs to technical indicators even though
+only individual sale dots are rendered.
+
+Each sale retains its original currency address and symbol (ETH, WETH, or BETH);
+all map 1:1 to ETH for coordinates and calculations. Other currencies are excluded.
+Exact base-unit prices survive aggregation and hover; canvas coordinates and
+indicators use floating-point ETH approximations.
 
 Only quantity-one, single-NFT prices are eligible. Seaport executions must have
 the original NFT count captured before tracking filters. Legacy Seaport fills
-with unknown counts are excluded, even if only one sibling row exists. Legacy
-Blur V2 fills remain eligible because each exchange already has a token-specific
-price. This deliberately reduces historical coverage until an explicit replay;
-there is no automatic RPC fetch or replay. See
+with unknown counts are excluded; legacy Blur V2 fills remain eligible because
+their exchange price is token-specific. There is no automatic RPC replay. See
 [fill decoding](../indexer/15-fill-decoding.md#single-token-price-eligibility).
 
-All buckets use UTC; weekly buckets start Monday. The response spans the first
-through last eligible sale bucket. Missing interior buckets stay blank: no price
-interpolation, carried close, or fake zero candle. No separate sync-coverage
-classification is attempted. Open orders and unrealized prices are out of scope.
+All buckets use UTC; weeks start Monday. The response spans first through last
+eligible sale buckets. Missing buckets remain blank, without interpolated or
+carried prices. No sync-coverage classification is attempted. Unrealized prices
+and open orders are out of scope.
 
 Requests are capped at 100,000 eligible fills and 30,000 time buckets. Exceeding
-either returns an actionable 400 response, never a silently truncated chart.
-The date index narrows collection reads. There is no persisted candle projection,
-automatic refresh, or historical pagination in this PoC.
+either returns an actionable 400 response, never silent truncation. There is no
+persisted candle projection, automatic refresh, or historical fetch pagination.
 
 ## Rendering and indicators
 
-KLineChart 10.0.2 supplies canvas layout, axes, pointer pan/zoom, resizable panes
-and indicator calculations. It is pinned because it satisfies the repository's
-30-day dependency age policy.
+KLineChart 10.0.2 supplies canvas layout, axes, pointer interactions, resizable
+indicator panes, and calculations. A custom drawing callback plots visible sale
+dots with fractional bucket coordinates, preserving sub-bucket timestamps and
+coincident fills. A spatial map provides hit testing without a DOM node per sale.
+Missing internal OHLC values are NaNs, excluded from ranges and calculations.
 
-The native price layer assumes dense numeric candles and can join missing
-points. A custom indicator drawing callback therefore renders prices while
-the adapter expands an evenly spaced bucket grid. Missing prices are internal
-NaNs, excluded from price ranges and indicator calculations. No library source
-is patched. Only visible buckets and their sale dots are drawn. A spatial map
-supports hover lookup without one DOM element or overlay per sale.
+- Multiple independently configurable SMA/EMA instances overlay the price pane.
+- MACD defaults to 12/26/9. Its histogram is MACD minus signal.
+- RSI defaults to 14.
+- Volume counts NFTs, not ETH turnover.
+- Lengths count populated buckets; calculations use all loaded populated history,
+  then restore blank gaps on the time grid. Panning does not alter the values.
 
-Dots use fractional bucket coordinates so individual timestamps are retained.
-Fills at identical time/price coordinates remain distinct; hover lists their
-identities, with pages of ten for large overlap groups. Line mode breaks at gaps
-and marks isolated closes. Candle mode uses each bucket's open, high, low and
-close. The time grid and indicator inputs stay the same in every mode.
+## Licensing and verification
 
-- SMA uses KLineChart's arithmetic `MA` calculation; EMA uses `EMA`.
-  Multiple independent instances have configurable lengths.
-- MACD defaults to 12/26/9 and exposes all three lengths. KLineChart's doubled
-  histogram is divided by two to show MACD minus signal.
-- RSI defaults to 14 with configurable length.
-- Volume counts NFTs sold, not ETH turnover.
-- All lengths count **populated buckets**. Calculations run on all loaded
-  populated history, then results are mapped back to the original time grid.
-  Gaps and warmup remain blank. Panning does not change indicator values.
+The static frontend distributes KLineChart's Apache-2.0 license, NOTICE including
+TradingView attribution, and bundled Lightweight Charts license in
+`frontend/static/licenses/`. No paid service or runtime license server is used.
 
-Prices stay exact base-unit strings through aggregation and hover inspection.
-The canvas and indicators use floating-point ETH values. This is a charting
-approximation, not an execution-price calculation.
+Relevant checks:
 
-## License distribution
-
-KLineChart is Apache-2.0. The static frontend assets include its license, NOTICE
-(including the TradingView attribution), and bundled Lightweight Charts license:
-
-- `frontend/static/licenses/klinecharts-LICENSE.txt`
-- `frontend/static/licenses/klinecharts-NOTICE.txt`
-- `frontend/static/licenses/klinecharts-lightweight-charts-LICENSE.txt`
-
-They are included in frontend build output under `/licenses/`. No runtime
-license server or paid chart service is used.
-
-## Verification
-
-- `yarn workspace @artgod/indexer test tests/fill-price-nft-count.test.ts tests/decode-fill-fixtures.test.ts tests/decode-seaport-fills.test.ts`
-- `yarn workspace @artgod/backend test src/infra/collections/sqlite-price-history-read.test.ts src/api.test.ts`
-- `yarn workspace @artgod/frontend test src/lib/price-chart/model.test.ts`
+- `yarn workspace @artgod/backend test src/infra/collections/sqlite-price-history-read.test.ts`
+- `yarn workspace @artgod/frontend test src/lib/price-chart src/lib/collection-navigation.test.ts`
 - `yarn workspace @artgod/frontend check`
 - `yarn test:prices:history`
 - `yarn build:userland`
 - `yarn check:docs`
 
-The maintained Playwright harness mounts the production collection and token
-views with synthetic price responses. It covers display modes, indicators,
-pan/zoom, bucket requests, loading/empty/error/retry, dot hover and browser history.
-It also renders a 50,000-sale fixture and checks zoom plus pagination through
-coincident dots; the attached load-to-render timing is synthetic browser evidence,
-not a frame-rate guarantee or a live SQLite benchmark.
-Its screenshots are retained under the active worktree's
-`tmp/runtime-recovery-playwright/` for rendered review. This does not establish
-packaged Tauri or live database performance.
+The maintained Playwright harness mounts production views with synthetic fills.
+It covers navigation, layout, indicators, pan/zoom, pin/unpin, original currencies,
+explorer/owner/token links, sandboxed previews, stale media completion,
+loading/empty/error/retry, token scope, browser history, and 50,000-sale rendering
+with bounded sidebar rows. Screenshots stay under the active worktree's
+`tmp/runtime-recovery-playwright/`. This is local synthetic browser evidence,
+not a packaged Tauri or live SQLite performance result.
