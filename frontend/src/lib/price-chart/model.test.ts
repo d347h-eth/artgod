@@ -9,6 +9,7 @@ import {
 } from '@artgod/shared/types/price-history';
 import {
 	ethText,
+	salePriceText,
 	saleBars,
 	saleVolumeTooltip,
 	standardMacd,
@@ -16,6 +17,19 @@ import {
 	validIndicatorParameters,
 	PRICE_INDICATOR
 } from './model';
+
+it.each([
+	['0', '0'],
+	['1', '0'],
+	['223000000000000000', '0.223'],
+	['223499999999999999', '0.223'],
+	['223500000000000000', '0.224'],
+	['999500000000000000', '1'],
+	['1200000000000000000', '1.2'],
+	['9007199254740993223500000000000000', '9007199254740993.224']
+])('rounds sale rows to at most three decimals: %s', (wei, expected) => {
+	expect(salePriceText(wei)).toBe(expected);
+});
 
 it('keeps gaps and every same-time sale without fabricating a close', () => {
 	const history: PriceHistory = {

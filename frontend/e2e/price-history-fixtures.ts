@@ -41,7 +41,8 @@ export function priceHistoryFixture(
 		if (day >= 140 && day < 150) continue; // Visible blank time in all modes.
 		for (let sale = 0; sale < 3; sale++) {
 			const value =
-				BigInt(1000 + Math.round(Math.sin(day / 9) * 220) + day * 2 + sale * 40) * 10n ** 15n;
+				BigInt(1000 + Math.round(Math.sin(day / 9) * 220) + day * 2 + sale * 40) * 10n ** 15n +
+				(day === 199 && sale === 0 ? 560000000000000n : 0n);
 			fills.push({
 				id: `${day}-${sale}`,
 				timestamp: start + day * 86400 + (sale === 1 ? 18000 : 30000),

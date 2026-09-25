@@ -6,7 +6,7 @@
 	import { blockExplorerTransactionHref } from '$lib/marketplace-links';
 	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import { joinPath } from '$lib/route-paths';
-	import { ethText } from '$lib/price-chart/model';
+	import { ethText, salePriceText } from '$lib/price-chart/model';
 	import SaleTokenThumbnail from './SaleTokenThumbnail.svelte';
 	let {
 		sales,
@@ -33,6 +33,7 @@
 		sales;
 		pageIndex = 0;
 		if (scroller) scroller.scrollTop = 0;
+		onpreview(null);
 	});
 	onMount(() => {
 		const timer = setInterval(() => (now = Date.now()), 30_000);
@@ -66,13 +67,13 @@
 	<div class="sale-sidebar-heading"><span>sales · {sales.length}</span>{#if pinned}<button class="facet-panel-action-button" onclick={clearPin}>unpin</button>{/if}</div>
 	<div class="sales-scroll" bind:this={scroller} onscroll={() => onpreview(null)}>
 		<div class="sales-table" role="table" aria-label="Realized sales">
-			<div class="sale-row sale-head" role="row"><span role="columnheader">time</span><span role="columnheader" aria-label="Token">NFT</span><span role="columnheader">price</span><span role="columnheader">seller</span><span role="columnheader">buyer</span></div>
+			<div class="sale-row sale-head" role="row"><span role="columnheader">time</span><span role="columnheader" aria-label="Token">NFT</span><span role="columnheader" class="sale-price">price</span><span role="columnheader">seller</span><span role="columnheader">buyer</span></div>
 			{#each sales.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE) as sale (sale.id)}
 				{@const txHref = blockExplorerTransactionHref(sale.txHash, blockExplorer)}
 				<div class="sale-row" role="row" data-sale-id={sale.id}>
 					<span role="cell"><a class="sale-time" href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={new Date(sale.timestamp * 1000).toISOString()}>{relativeTime(sale.timestamp)}</a></span>
 					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId })} {loader} {onpreview} /></span>
-					<span role="cell" class="sale-price"><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{ethText(sale.priceWei)}</span><small>{sale.currencySymbol}</small></a></span>
+					<span role="cell" class="sale-price"><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{salePriceText(sale.priceWei)}</span><small>{sale.currencySymbol}</small></a></span>
 					<span role="cell">{#if sale.seller}<a class="sale-seller" href={ownerHref(sale.seller)} title={sale.seller}>{sale.seller.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 					<span role="cell">{#if sale.buyer}<a class="sale-buyer" href={ownerHref(sale.buyer)} title={sale.buyer}>{sale.buyer.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 				</div>
@@ -120,6 +121,7 @@
 		align-items: center;
 		gap: 3px;
 		height: 22px;
+		line-height: 1;
 	}
 	.sale-head {
 		position: sticky;
@@ -132,6 +134,10 @@
 		font-size: 8px;
 	}
 	.sale-row > span {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		height: 100%;
 		text-align: right;
 		min-width: 0;
 		overflow: hidden;
@@ -144,15 +150,17 @@
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
-		vertical-align: middle;
 	}
 	.sale-row small {
 		font-size: 8px;
 		flex-shrink: 0;
 	}
+	.sale-price {
+		padding-right: 12px;
+	}
 	.sale-price a {
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		justify-content: flex-end;
 		gap: 2px;
 	}

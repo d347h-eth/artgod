@@ -72,6 +72,7 @@
 	let pinnedSales = $state.raw<RealizedSale[]>([]);
 	let preview = $state.raw<SalePreviewTarget | null>(null);
 	let pinnedPreview = $state.raw<SalePreviewTarget | null>(null);
+	let sidebarPreview = $state.raw<SalePreviewTarget | null>(null);
 	let press: { x: number; y: number } | null = null;
 	const recentSales = $derived(history ? [...history.sales].reverse() : []);
 	const sidebarSales = $derived(
@@ -166,6 +167,7 @@
 		pinnedSales = [];
 		pinnedPreview = null;
 		preview = null;
+		sidebarPreview = null;
 		void getPriceHistory(
 			fetch,
 			scope.chainRef,
@@ -313,10 +315,13 @@
 			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; preview = null; }}
 			onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => preview = target} />{/if}
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
 	</div>
 	{#if loader && (pinnedPreview || preview)}
 		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
+	{/if}
+	{#if loader && sidebarPreview}
+		<SaleCardPreview target={sidebarPreview} pinned={false} {loader} {chain} {collection} {media} {basePath} />
 	{/if}
 </section>
 
@@ -363,7 +368,7 @@
 	}
 	.price-workspace {
 		display: grid;
-		grid-template-columns: minmax(0, 9fr) minmax(190px, 1fr);
+		grid-template-columns: minmax(0, 9fr) minmax(208px, 1fr);
 		gap: 0.4rem;
 		flex: 1;
 		min-height: 0;
