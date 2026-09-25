@@ -2,11 +2,10 @@ import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import {
 	PRICE_HISTORY_QUERY,
 	PRICE_HISTORY_BUCKET,
-	PRICE_HISTORY_CURRENCY_SYMBOL,
 	type PriceHistoryBucket
 } from '@artgod/shared/types/price-history';
 import { COLLECTION_CHART_TOKEN_QUERY } from '../src/lib/price-chart/routing';
-import { PRICE_CHART_QUERY } from '../src/lib/price-chart/model';
+import { PRICE_CHART_QUERY, saleActionColor } from '../src/lib/price-chart/model';
 import {
 	PRICE_HISTORY_E2E,
 	priceHistoryFixture,
@@ -91,16 +90,36 @@ async function salePoint(page: Page, fromRight = true) {
 						pixels[offset + 2] === color[2] &&
 						pixels[offset + 3] === 255
 					) {
-						return {
+						const point = {
 							x: rect.x + (x * rect.width) / canvas.width,
 							y: rect.y + (y * rect.height) / canvas.height
 						};
+						// Full-size pinned cards can cover dots at narrow widths.
+						if (element.contains(document.elementFromPoint(point.x, point.y))) return point;
 					}
 				}
 			}
 		}
 		return null;
 	}, fromRight);
+}
+
+async function dotHighlighted(page: Page, point: { x: number; y: number }) {
+	return page.locator('.price-canvas').evaluate((element, point) => {
+		const sample = document.createElement('canvas').getContext('2d')!;
+		sample.fillStyle = getComputedStyle(element).getPropertyValue('--c-orange');
+		sample.fillRect(0, 0, 1, 1);
+		const orange = sample.getImageData(0, 0, 1, 1).data;
+		return [...element.querySelectorAll('canvas')].some((canvas) => {
+			const box = canvas.getBoundingClientRect();
+			if (box.height < 150 || box.width < 40) return false;
+			const x = Math.round(((point.x - box.x) * canvas.width) / box.width);
+			const y = Math.round(((point.y - box.y) * canvas.height) / box.height);
+			if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
+			const pixel = canvas.getContext('2d')!.getImageData(x, y, 1, 1).data;
+			return orange.every((channel, i) => pixel[i] === channel);
+		});
+	}, point);
 }
 
 test('dedicated dots page is fourth in Explore and fills the viewport with configurable indicators', async ({
@@ -128,6 +147,7 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 	await expect(page).toHaveURL(new RegExp(PRICE_HISTORY_E2E.path + '(\\?|$)'));
 	await loaded(page);
 	await expect(chart(page).getByRole('heading')).toHaveCount(0);
+	await expect(chart(page).locator('.sale-legend')).toHaveCount(0);
 	await expect(page.locator('.runtime-tab-active').filter({ hasText: /^chart$/ })).toBeVisible();
 	await expect(chart(page).getByRole('button', { name: /^(dots|line|candles)$/ })).toHaveCount(0);
 	const bounds = (await chart(page).boundingBox())!;
@@ -199,7 +219,13 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect.poll(() => salePoint(page)).not.toBeNull();
 	const point = (await salePoint(page))!;
 	await page.mouse.move(point.x, point.y);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
 	await expect(page.getByRole('tooltip')).toBeVisible();
+	await page.mouse.move(2, 2);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(false);
+	await expect(page.getByRole('tooltip')).toHaveCount(0);
+	await page.mouse.move(point.x, point.y);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
 	const floatingCard = page.locator('.sale-card-preview');
 	await expect(floatingCard.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
 	await expect(floatingCard.locator('.token-grid-traits')).toHaveText(
@@ -212,16 +238,23 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	).toBe(400);
 	expect(await floatingCard.evaluate((el) => getComputedStyle(el).borderWidth)).toBe('0px');
 	await expect(floatingCard.locator('iframe')).toHaveCount(0);
-	for (const [id, currency] of [
-		['103', PRICE_HISTORY_CURRENCY_SYMBOL.Beth],
-		['99', PRICE_HISTORY_CURRENCY_SYMBOL.Weth],
-		['98', PRICE_HISTORY_CURRENCY_SYMBOL.Eth]
-	]) {
+	for (const sale of priceHistoryFixture().sales.slice(-3)) {
 		const row = rows(page).filter({
-			has: page.getByRole('link', { name: 'Token #' + id, exact: true })
+			has: page.getByRole('link', { name: 'Token #' + sale.tokenId, exact: true })
 		});
-		await expect(row.locator('.sale-price a')).toHaveAttribute('title', '1.452 ' + currency);
-		await expect(row.locator('.sale-price small')).toHaveText(currency[0]);
+		await expect(row.locator('.sale-price a')).toHaveAttribute(
+			'title',
+			'1.452 ' + sale.currencySymbol
+		);
+		await expect(row.locator('.sale-price small')).toHaveText(sale.currencySymbol[0]);
+		const color = await row.evaluate((element, name) => {
+			const sample = document.createElement('canvas').getContext('2d')!;
+			sample.fillStyle = getComputedStyle(element).getPropertyValue('--c-' + name);
+			sample.fillRect(0, 0, 1, 1);
+			const [r, g, b] = sample.getImageData(0, 0, 1, 1).data;
+			return `rgb(${r}, ${g}, ${b})`;
+		}, saleActionColor(sale.action));
+		await expect(row.locator('.sale-price a')).toHaveCSS('color', color);
 	}
 	const amountEdges = await page
 		.locator('.sale-amount')
@@ -253,12 +286,15 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 		items.map((el) => el.getAttribute('data-sale-id'))
 	);
 	await page.mouse.move(2, 2);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
 	await expect(floatingCard).toBeVisible();
 	expect(
 		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
 	).toEqual(pinnedIds);
 	const other = (await salePoint(page, false))!;
 	await page.mouse.move(other.x, other.y);
+	await expect.poll(() => dotHighlighted(page, other)).toBe(true);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
 	await expect(floatingCard.getByTestId(TEST_IDS.TokenCard)).toHaveAttribute(
 		'data-token-id',
 		'103'
@@ -268,6 +304,8 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
 	).toEqual(pinnedIds);
 	await page.mouse.move(2, 2);
+	await expect.poll(() => dotHighlighted(page, other)).toBe(false);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
 	const row = rows(page).first();
 	await expect(row.locator('.sale-time')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2}T/);
 	await expect(row.locator('.sale-time')).toHaveText(/^\d+(s|m|h|d|mo|y)$/);

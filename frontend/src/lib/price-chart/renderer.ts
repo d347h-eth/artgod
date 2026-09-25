@@ -14,7 +14,7 @@ import {
 	PRICE_INDICATOR_LABEL,
 	saleBars,
 	saleVolumeTooltip,
-	saleActionPresentation,
+	saleActionColor,
 	ethValue,
 	withSaleGaps,
 	standardMacd,
@@ -151,7 +151,7 @@ function drawPrices({
 				colors: new Set<string>(),
 				selected: false
 			};
-			point.colors.add(p[saleActionPresentation(sale.action).color]);
+			point.colors.add(p[saleActionColor(sale.action)]);
 			point.selected ||= selected;
 			points.set(coordinate, point);
 			const key = hitKey(sx, y);

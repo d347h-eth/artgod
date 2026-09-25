@@ -12,15 +12,16 @@ are URL state. Indicator settings and pinned selection reset on a full reload.
 
 ## Sales and selection
 
-The sidebar normally shows the newest loaded sales first. Hovering a dot shows
-all fills under that point and an ephemeral token-card popup. Leaving the dot
-immediately removes the popup and restores recent sales. Clicking pins that sale
-group, highlights its dots in the shared orange selection color, and pins its
-card in place without remounting its media during the click. The pinned card
-remains interactive: its token and marketplace links retain native navigation,
-and its media opens the shared fullscreen
-preview. Other hovers leave the pinned card and sidebar unchanged. A single left
-click on empty chart space, the same dot group, or `unpin` releases both.
+The sidebar normally shows the newest loaded sales first. Hovering a dot highlights
+its group in the shared orange selection color and shows all fills under that
+point and an ephemeral token-card popup. Leaving the dot removes the temporary
+highlight and popup and restores recent sales. Clicking pins that sale group,
+its highlight, and its card in place without remounting its media during the click.
+The pinned card remains interactive: its token and marketplace links retain native
+navigation, and its media opens the shared fullscreen preview. Other hovers
+highlight their dots while leaving the pinned highlight, card, and sidebar
+unchanged. A single left click on empty chart space, the same dot group, or `unpin`
+releases both.
 Dragging to pan never changes the pinned selection.
 
 Right-aligned, vertically centered sidebar rows show relative time, a borderless
@@ -40,11 +41,11 @@ coincident-sale groups.
 Seller/buyer roles and the sale action follow the fill's stored order side:
 `sell` means `take-ask` (maker sells), and `buy` means `take-offer` (maker buys).
 The API retains the action per sale; unknown sides produce a null action and
-unknown participants instead of guessed ownership links. Colors distinguish
-take ask (cyan) and take offer (pink), with sand for unknown sides and orange
-for pinned dots. Exact coordinate overlaps split the dot into sectors for each
-observed action; the sectors identify types, not relative fill counts. This
-describes the executed order side, not an inference about trader sentiment.
+unknown participants instead of guessed ownership links. Dots and sidebar prices
+use the same colors: take ask (cyan), take offer (pink), and unknown sides (sand).
+Hovered and pinned dots use orange. Exact coordinate overlaps split the dot into
+sectors for each observed action; the sectors identify types, not relative fill
+counts. This describes the executed order side, not an inference about trader sentiment.
 
 Popups render the same `TokenCardTile.svelte` as the asks/tokens grid, with its
 normal 400px media height, configured trait summary, and current ask link. They
