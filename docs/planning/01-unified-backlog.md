@@ -109,6 +109,13 @@ implemented boundary; this file only prioritizes changes to it.
 | `BKL-058` | P3       | Partial | Extend price tiers only through explicit dynamic-anchor kinds and transactional multi-row ordering when product need is proven.                      | Fixed and relative tiers plus one-row ordering exist; the retained boundary is in [bidding capabilities](../trading/02-bidding-automation-capabilities.md#current-limits-and-future-direction).                                                                                                                                                                                                                                                                             |
 | `BKL-068` | P3       | Open    | Centralize desktop embedded build inputs and remove parent-relative source paths from runtime modules.                                               | Settings, validation rules, NATS policy and readiness routes currently use direct source-relative includes. Keep canonical data ownership and compiled runtime inputs; see [embedded build inputs](../desktop/01-tauri-build-and-runtime.md#embedded-build-inputs).                                                                                                                                                                                                         |
 
+## Trait Bidding Competition
+
+Status: Partial. Extend ordinary trait jobs with inclusive target-trait
+competition and persisted extra key/value or whole-key selectors. The
+[development plan](../trading/04-trait-competition-development.md) owns the
+iteration checklist and verification evidence for this active change.
+
 ## Maintenance Rules
 
 1. Do not add design essays here. Add current technical context to the owning
