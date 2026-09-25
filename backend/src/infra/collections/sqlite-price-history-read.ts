@@ -3,7 +3,7 @@ import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import type { PriceHistoryCurrencySymbol } from "@artgod/shared/types/price-history";
 import type { PriceHistoryReadPort } from "../../application/use-cases/collections/get-price-history.js";
 import {
-    realizedSaleParticipants,
+    realizedSaleExecution,
     type PricedFill,
 } from "../../domain/realized-price-history.js";
 
@@ -79,11 +79,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
                 currencyAddress: row.currency,
                 // The SQL whitelist guarantees this configured execution symbol.
                 currencySymbol: this.currencies.get(row.currency)!,
-                ...realizedSaleParticipants(
-                    row.order_side,
-                    row.maker,
-                    row.taker,
-                ),
+                ...realizedSaleExecution(row.order_side, row.maker, row.taker),
                 txHash: row.tx_hash,
             };
         }

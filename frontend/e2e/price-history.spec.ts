@@ -7,7 +7,11 @@ import {
 } from '@artgod/shared/types/price-history';
 import { COLLECTION_CHART_TOKEN_QUERY } from '../src/lib/price-chart/routing';
 import { PRICE_CHART_QUERY } from '../src/lib/price-chart/model';
-import { PRICE_HISTORY_E2E, priceHistoryFixture } from './price-history-fixtures';
+import {
+	PRICE_HISTORY_E2E,
+	priceHistoryFixture,
+	priceHistoryPrecisionFixture
+} from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { COLLECTION_API_ROUTE_TEMPLATE } from '@artgod/shared/http/collection-routes';
 
@@ -217,12 +221,34 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 			has: page.getByRole('link', { name: 'Token #' + id, exact: true })
 		});
 		await expect(row.locator('.sale-price a')).toHaveAttribute('title', '1.452 ' + currency);
+		await expect(row.locator('.sale-price small')).toHaveText(currency[0]);
 	}
-	await surface(page, info, 'dot-preview');
-	await page.mouse.click(point.x, point.y);
+	const amountEdges = await page
+		.locator('.sale-amount')
+		.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().right));
+	expect(Math.max(...amountEdges) - Math.min(...amountEdges)).toBeLessThan(1);
+	// Keep the hover-to-click gesture uninterrupted by screenshot capture, and
+	// hold pointer-down long enough to expose a transient unmount/loading state.
+	const cardNode = await floatingCard.elementHandle();
+	const mediaNode = await floatingCard.locator('.token-grid-media img').elementHandle();
+	const hoverPosition = await floatingCard.boundingBox();
+	await page.mouse.down();
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+			)
+	);
+	expect(await cardNode!.evaluate((el) => el.isConnected)).toBe(true);
+	expect(await mediaNode!.evaluate((el) => el.isConnected)).toBe(true);
+	await expect(floatingCard.locator('.sale-card-pending')).toHaveCount(0);
+	await page.mouse.up();
 	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
 	await expect(floatingCard).toHaveAttribute('role', 'region');
+	expect(await cardNode!.evaluate((el) => el.isConnected)).toBe(true);
+	expect(await mediaNode!.evaluate((el) => el.isConnected)).toBe(true);
 	const pinnedPosition = await floatingCard.boundingBox();
+	expect(pinnedPosition).toEqual(hoverPosition);
 	const pinnedIds = await rows(page).evaluateAll((items) =>
 		items.map((el) => el.getAttribute('data-sale-id'))
 	);
@@ -261,8 +287,12 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	const layout = await row.evaluate((element) => {
 		const price = element.querySelector('.sale-price a')!.getBoundingClientRect();
 		const seller = element.querySelector('.sale-seller')!.getBoundingClientRect();
+		const time = element.querySelector('.sale-time')!.getBoundingClientRect();
+		const thumbnail = element.querySelector('.sale-thumbnail')!.getBoundingClientRect();
 		const row = element.getBoundingClientRect();
 		return {
+			timeNftGap: thumbnail.left - time.right,
+			nftPriceGap: price.left - thumbnail.right,
 			priceSellerGap: seller.left - price.right,
 			centerOffsets: [...element.children].map((cell) => {
 				const content = cell.firstElementChild!.getBoundingClientRect();
@@ -274,6 +304,7 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 		};
 	});
 	expect(layout.priceSellerGap).toBeGreaterThanOrEqual(14);
+	expect(Math.abs(layout.timeNftGap - layout.nftPriceGap)).toBeLessThan(1);
 	expect(Math.max(...layout.centerOffsets)).toBeLessThanOrEqual(1);
 	expect(layout.priceClipped).toBe(false);
 	// Sidebar hover is independent of the chart pin and cannot replace or move it.
@@ -323,7 +354,9 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect(floatingCard).toHaveCount(0);
 	await expect(thumb).toHaveAttribute('href', /\/\d+$/);
 	// Native thumbnail navigation also works while another token's card is pinned.
-	await page.mouse.click(point.x, point.y);
+	// Re-read the canvas after full-page screenshots have resized it.
+	const repin = (await salePoint(page))!;
+	await page.mouse.click(repin.x, repin.y);
 	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
 	const tokenHref = await rowThumb.getAttribute('href');
 	if (coveredByCard) await rowThumb.focus();
@@ -332,6 +365,74 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	if (coveredByCard) await rowThumb.press('Enter');
 	else await rowThumb.click();
 	await expect(page).toHaveURL(new RegExp(tokenHref! + '$'));
+});
+
+test('price labels use four decimals while close sale prices retain distinct positions and side colors', async ({
+	page
+}, info) => {
+	await page.setViewportSize({ width: 1280, height: 1024 });
+	await page.addInitScript((key) => {
+		const labels = new WeakMap<HTMLCanvasElement, Set<string>>();
+		(window as unknown as Record<string, unknown>)[key] = labels;
+		const original = CanvasRenderingContext2D.prototype.fillText;
+		CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+			const values = labels.get(this.canvas) ?? new Set<string>();
+			values.add(text);
+			labels.set(this.canvas, values);
+			original.call(this, text, x, y, maxWidth);
+		};
+	}, PRICE_HISTORY_E2E.canvasTextKey);
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
+		route.fulfill({ json: priceHistoryPrecisionFixture() })
+	);
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const labels = await page.locator('.price-canvas').evaluate((element, key) => {
+		const recorded = (window as unknown as Record<string, unknown>)[key] as WeakMap<
+			HTMLCanvasElement,
+			Set<string>
+		>;
+		return [...element.querySelectorAll('canvas')].flatMap((canvas) => {
+			const bounds = canvas.getBoundingClientRect();
+			return bounds.height > 150 && bounds.width < 150
+				? [...(recorded.get(canvas) ?? [])].filter((text) => /^\d+\.\d+$/.test(text))
+				: [];
+		});
+	}, PRICE_HISTORY_E2E.canvasTextKey);
+	expect(labels.length).toBeGreaterThan(0);
+	expect(labels.every((text) => /^\d+\.\d{4}$/.test(text))).toBe(true);
+	const positions = await page.locator('.price-canvas').evaluate((element) => {
+		const css = getComputedStyle(element);
+		const sample = document.createElement('canvas').getContext('2d')!;
+		const colors = ['cyan', 'pink', 'sand'].map((name) => {
+			sample.fillStyle = css.getPropertyValue('--c-' + name);
+			sample.fillRect(0, 0, 1, 1);
+			return [...sample.getImageData(0, 0, 1, 1).data];
+		});
+		const rows: number[][] = colors.map(() => []);
+		for (const canvas of element.querySelectorAll('canvas')) {
+			const box = canvas.getBoundingClientRect();
+			if (box.width < 150 || box.height < 150) continue;
+			const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+			for (let i = 0; i < pixels.length; i += 4) {
+				const color = colors.findIndex((rgba) =>
+					rgba.every((value, channel) => pixels[i + channel] === value)
+				);
+				if (color >= 0)
+					rows[color].push(box.y + (Math.floor(i / 4 / canvas.width) * box.height) / canvas.height);
+			}
+		}
+		return rows.map((values) => ({
+			count: values.length,
+			y: values.reduce((a, b) => a + b, 0) / values.length
+		}));
+	});
+	expect(positions.every((point) => point.count > 0)).toBe(true);
+	// The prices differ by one millionth of ETH, well below displayed precision.
+	expect(Math.abs(positions[0].y - positions[1].y)).toBeGreaterThan(50);
+	expect(Math.abs(positions[0].y - positions[2].y)).toBeLessThan(2);
+	await surface(page, info, 'precise-sale-types');
 });
 
 test('the pinned grid card keeps token navigation usable', async ({ page }) => {

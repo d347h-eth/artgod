@@ -21,6 +21,8 @@
 		PRICE_INDICATOR,
 		PRICE_INDICATOR_LABEL,
 		PRICE_INDICATOR_PARAMETERS,
+		SALE_ACTION_PRESENTATION,
+		UNKNOWN_SALE_PRESENTATION,
 		defaultPriceIndicators,
 		validIndicatorParameters,
 		type PriceIndicatorKind
@@ -229,7 +231,8 @@
 	}
 	function hover(event: MouseEvent) {
 		if (event.buttons) {
-			leaveChart();
+			// Keep the card mounted during a click; dismiss only once movement becomes a pan.
+			if (!press || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5) leaveChart();
 			return;
 		}
 		const sales = controller?.salesAt(event.clientX, event.clientY) ?? [];
@@ -256,7 +259,10 @@
 		const same = sales.length === pinnedSales.length && sales.every((sale) => pinnedIds.has(sale.id));
 		if (same) return clearPin();
 		pinnedSales = sales;
-		pinnedPreview = { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY };
+		pinnedPreview =
+			preview?.tokenId === sales[0].tokenId
+				? preview
+				: { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY };
 		preview = null;
 	}
 </script>
@@ -273,6 +279,14 @@
 		<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>
 		<button class="facet-panel-action-button" disabled={!history?.sales.length || !controller} onclick={() => controller?.fit()}>fit</button>
 		<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>
+		<div class="sale-legend" aria-label="Sale types">
+			{#each Object.values(SALE_ACTION_PRESENTATION) as action}
+				<span><i style:background={`var(--c-${action.color})`} aria-hidden="true"></i>{action.label}</span>
+			{/each}
+			{#if history?.sales.some((sale) => sale.action === null)}
+				<span><i style:background={`var(--c-${UNKNOWN_SALE_PRESENTATION.color})`} aria-hidden="true"></i>{UNKNOWN_SALE_PRESENTATION.label}</span>
+			{/if}
+		</div>
 	</div>
 	{#if indicatorsOpen}
 		<div class="price-indicators">
@@ -312,7 +326,7 @@
 		<div class="price-canvas" bind:this={element} data-chart-ready={!!controller && !loading}
 			role="group" aria-label="Interactive sale price chart"
 			onmousemove={hover} onmouseleave={leaveChart}
-			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; preview = null; }}
+			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; }}
 			onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
 		</div>
 		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
@@ -340,6 +354,22 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.55rem;
+	}
+	.sale-legend,
+	.sale-legend span {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.sale-legend {
+		gap: 0.75rem;
+		font-size: 0.7rem;
+		color: var(--c-sand);
+	}
+	.sale-legend i {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
 	}
 	label {
 		display: inline-flex;

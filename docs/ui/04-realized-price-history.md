@@ -16,15 +16,19 @@ The sidebar normally shows the newest loaded sales first. Hovering a dot shows
 all fills under that point and an ephemeral token-card popup. Leaving the dot
 immediately removes the popup and restores recent sales. Clicking pins that sale
 group, highlights its dots in the shared orange selection color, and pins its
-card in place. The pinned card remains interactive: its token and marketplace
-links retain native navigation, and its media opens the shared fullscreen
+card in place without remounting its media during the click. The pinned card
+remains interactive: its token and marketplace links retain native navigation,
+and its media opens the shared fullscreen
 preview. Other hovers leave the pinned card and sidebar unchanged. A single left
 click on empty chart space, the same dot group, or `unpin` releases both.
 Dragging to pan never changes the pinned selection.
 
 Right-aligned, vertically centered sidebar rows show relative time, a borderless
-16px token image, the price in its original currency, seller, and buyer. Amounts
-round to at most three decimal places; price hover retains the exact amount.
+16px token image, the price in its original currency, seller, and buyer. Time,
+image, and price use content-sized columns with consistent spacing. The currency
+uses a fixed-width `E`, `W`, or `B` label for ETH, WETH, or BETH, preserving the
+vertical amount alignment. The hover text retains the full currency symbol.
+Amounts round to at most three decimal places; price hover retains the exact amount.
 Amount and currency share a baseline, with extra space before the seller column.
 Time and price link to the configured transaction explorer; time hover shows
 absolute UTC. Seller/buyer links open collection owner pages. Token image hover
@@ -33,9 +37,14 @@ changing the pinned card or sales. This sidebar preview never pins; clicking the
 image opens token detail. Fifty rows render at a time, including large
 coincident-sale groups.
 
-Seller/buyer roles follow the fill's order side: maker sells an ask and buys an
-accepted offer. Unknown sides or participants stay unknown instead of creating
-guessed ownership links.
+Seller/buyer roles and the sale action follow the fill's stored order side:
+`sell` means `take-ask` (maker sells), and `buy` means `take-offer` (maker buys).
+The API retains the action per sale; unknown sides produce a null action and
+unknown participants instead of guessed ownership links. Colors distinguish
+take ask (cyan) and take offer (pink), with sand for unknown sides and orange
+for pinned dots. Exact coordinate overlaps split the dot into sectors for each
+observed action; the sectors identify types, not relative fill counts. This
+describes the executed order side, not an inference about trader sentiment.
 
 Popups render the same `TokenCardTile.svelte` as the asks/tokens grid, with its
 normal 400px media height, configured trait summary, and current ask link. They
@@ -94,6 +103,9 @@ indicator panes, and calculations. A custom drawing callback plots visible sale
 dots with fractional bucket coordinates, preserving sub-bucket timestamps and
 coincident fills. A spatial map provides hit testing without a DOM node per sale.
 Missing internal OHLC values are NaNs, excluded from ranges and calculations.
+Price-axis and price-crosshair labels show four decimal places. Only the axis
+text formatter changes; sale values, coordinates, ranges, and indicator inputs
+retain their existing precision.
 
 - Multiple independently configurable SMA/EMA instances overlay the price pane.
 - MACD defaults to 12/26/9. Its histogram is MACD minus signal.
@@ -122,10 +134,11 @@ Relevant checks:
 
 The maintained Playwright harness mounts production views with synthetic fills.
 It covers navigation, layout, indicators, pan/zoom, pin/unpin, original currencies,
-explorer/owner/token links, compact price formatting and alignment, independent
-sidebar previews alongside pinned cards, reused interactive cards, stale card
-completion,
-loading/empty/error/retry, token scope, browser history, and 50,000-sale rendering
+explorer/owner/token links, compact price formatting and alignment, uninterrupted
+hover-to-pin media, order-side colors, price precision below the axis-label
+resolution, independent sidebar previews alongside pinned cards, reused
+interactive cards, stale card completion, loading/empty/error/retry, token scope,
+browser history, and 50,000-sale rendering
 with bounded sidebar rows. Screenshots stay under the active worktree's
 `tmp/runtime-recovery-playwright/`. This is local synthetic browser evidence,
 not a packaged Tauri or live SQLite performance result.

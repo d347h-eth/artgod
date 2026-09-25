@@ -53,6 +53,7 @@ it('keeps gaps and every same-time sale without fabricating a close', () => {
 			timestamp,
 			tokenId: String(i),
 			priceWei: '1000000000000000001',
+			action: null,
 			currencyAddress: '0x0000000000000000000000000000000000000000',
 			currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Eth,
 			seller: null,

@@ -16,6 +16,7 @@ import {
     PRICE_HISTORY_LIMITS,
     PRICE_HISTORY_ROUTE,
     PRICE_HISTORY_CURRENCY_SYMBOL,
+    REALIZED_SALE_ACTION,
     buildPriceHistoryPath,
     priceBucketStart,
 } from "@artgod/shared/types/price-history";
@@ -154,22 +155,28 @@ it("excludes bundles, unknown legacy Seaport, quantities, malformed prices and o
     ).toBe(true);
 });
 
-it("resolves seller and buyer for asks and offers, retaining unknown participants as null", () => {
+it("retains executed order actions and participants without guessing unknown sides", () => {
     const maker = "0x" + "11".repeat(20),
         taker = "0x" + "22".repeat(20);
     fill({ side: ORDER_SIDE.Sell });
     fill({ side: ORDER_SIDE.Buy });
     fill({ side: null });
     fill({ side: ORDER_SIDE.Buy, taker: null });
+    fill({ side: "unsupported" });
     expect(
         useCase
             .getPriceHistory(input())
-            .sales.map(({ seller, buyer }) => ({ seller, buyer })),
+            .sales.map(({ action, seller, buyer }) => ({
+                action,
+                seller,
+                buyer,
+            })),
     ).toEqual([
-        { seller: maker, buyer: taker },
-        { seller: taker, buyer: maker },
-        { seller: null, buyer: null },
-        { seller: null, buyer: maker },
+        { action: REALIZED_SALE_ACTION.TakeAsk, seller: maker, buyer: taker },
+        { action: REALIZED_SALE_ACTION.TakeOffer, seller: taker, buyer: maker },
+        { action: null, seller: null, buyer: null },
+        { action: REALIZED_SALE_ACTION.TakeOffer, seller: null, buyer: maker },
+        { action: null, seller: null, buyer: null },
     ]);
 });
 
@@ -274,6 +281,7 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
             currencyAddress: WETH,
             currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
             priceWei: "1000000000000000001",
+            action: REALIZED_SALE_ACTION.TakeAsk,
         });
         const invalid = await app.inject(
             buildPriceHistoryPath("1", collectionRef, {
