@@ -21,6 +21,15 @@ export const PRICE_HISTORY_RANGE = {
 } as const;
 export type PriceHistoryRange =
     (typeof PRICE_HISTORY_RANGE)[keyof typeof PRICE_HISTORY_RANGE];
+export const PRICE_HISTORY_RANGE_DAYS: Record<
+    PriceHistoryRange,
+    number | null
+> = {
+    [PRICE_HISTORY_RANGE.Month]: 30,
+    [PRICE_HISTORY_RANGE.Quarter]: 90,
+    [PRICE_HISTORY_RANGE.Year]: 365,
+    [PRICE_HISTORY_RANGE.All]: null,
+};
 export const PRICE_HISTORY_QUERY = {
     Bucket: "bucket",
     Range: "range",
