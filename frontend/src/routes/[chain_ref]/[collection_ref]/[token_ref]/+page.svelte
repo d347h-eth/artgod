@@ -1,5 +1,5 @@
 <script lang="ts">
-	import RealizedPriceChart from '$lib/components/RealizedPriceChart.svelte';
+	import { buildCollectionChartHref } from '$lib/price-chart/routing';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -835,11 +835,7 @@
 		</section>
 
 		{#if data?.chain && data.collection}
-			<RealizedPriceChart
-				chainRef={data.chain.slug}
-				collectionRef={data.collection.slug}
-				tokenId={displayedToken.tokenId}
-			/>
+			<a class="token-sale-chart-link" href={buildCollectionChartHref(collectionTokensBasePath(), displayedToken.tokenId)}>sale chart</a>
 		{/if}
 		{@const extensionSections = tokenDetailExtensionSections()}
 		{#if data?.chain && data.collection && extensionSections.length > 0}

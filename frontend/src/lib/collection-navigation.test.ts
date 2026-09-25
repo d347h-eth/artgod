@@ -64,6 +64,9 @@ describe('buildCollectionNavigation', () => {
 		expect(navigation.hrefs.holders).toBe(
 			'/ethereum/milady/holders?media_mode=snapshot&media_preference=disabled'
 		);
+		expect(navigation.hrefs.chart).toBe(
+			'/ethereum/milady/chart?media_mode=snapshot&media_preference=disabled'
+		);
 		expect(navigation.hrefs.customization).toBe(
 			'/ethereum/milady/customization?media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain'
 		);

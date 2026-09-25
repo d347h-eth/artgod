@@ -6,6 +6,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
 import { BLUR_BETH_ADDRESS, FILL_KIND } from "@artgod/shared/market-data/fills";
+import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
 import { SqliteChainsReadModel } from "@artgod/shared/read-models/chains";
 import { SqliteCollectionsReadModel } from "@artgod/shared/read-models/collections";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
@@ -85,6 +86,9 @@ function fill(
         count: string | null;
         kind: string;
         tx: string;
+        side: string | null;
+        maker: string | null;
+        taker: string | null;
     }> = {},
 ) {
     const n = ++serial;
@@ -101,11 +105,14 @@ function fill(
         count: "1",
         kind: FILL_KIND.Seaport,
         tx: "0x" + n,
+        side: ORDER_SIDE.Sell,
+        maker: "0x" + "11".repeat(20),
+        taker: "0x" + "22".repeat(20),
         ...overrides,
     };
     db.prepare(
-        `INSERT INTO fills(chain_id,collection_id,kind,contract_address,token_id,amount,price,currency,block_number,block_hash,block_timestamp,tx_hash,log_index,price_nft_count)
-        VALUES (@chain,@collection,@kind,'contract',@token,@amount,@price,@currency,@block,'hash',@timestamp,@tx,@log,@count)`,
+        `INSERT INTO fills(chain_id,collection_id,kind,contract_address,token_id,amount,price,currency,block_number,block_hash,block_timestamp,tx_hash,log_index,price_nft_count,order_side,maker,taker)
+        VALUES (@chain,@collection,@kind,'contract',@token,@amount,@price,@currency,@block,'hash',@timestamp,@tx,@log,@count,@side,@maker,@taker)`,
     ).run(value);
 }
 const input = () => ({
@@ -131,7 +138,10 @@ it("excludes bundles, unknown legacy Seaport, quantities, malformed prices and o
     expect(history.unit).toBe("ETH");
     expect(history.buckets[0]!.volume).toBe(4);
     expect(
-        history.sales.map((sale) => [sale.currencyAddress, sale.currencySymbol]),
+        history.sales.map((sale) => [
+            sale.currencyAddress,
+            sale.currencySymbol,
+        ]),
     ).toEqual([
         [ETH, PRICE_HISTORY_CURRENCY_SYMBOL.Eth],
         [WETH, PRICE_HISTORY_CURRENCY_SYMBOL.Weth],
@@ -142,6 +152,25 @@ it("excludes bundles, unknown legacy Seaport, quantities, malformed prices and o
     expect(
         history.sales.every((sale) => sale.priceWei === "1000000000000000001"),
     ).toBe(true);
+});
+
+it("resolves seller and buyer for asks and offers, retaining unknown participants as null", () => {
+    const maker = "0x" + "11".repeat(20),
+        taker = "0x" + "22".repeat(20);
+    fill({ side: ORDER_SIDE.Sell });
+    fill({ side: ORDER_SIDE.Buy });
+    fill({ side: null });
+    fill({ side: ORDER_SIDE.Buy, taker: null });
+    expect(
+        useCase
+            .getPriceHistory(input())
+            .sales.map(({ seller, buyer }) => ({ seller, buyer })),
+    ).toEqual([
+        { seller: maker, buyer: taker },
+        { seller: taker, buyer: maker },
+        { seller: null, buyer: null },
+        { seller: null, buyer: maker },
+    ]);
 });
 
 it("sorts executions deterministically and aggregates exact OHLC/volume without filling gaps", () => {
@@ -222,12 +251,9 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
     const adapter = new GetPriceHistoryHttpAdapter(useCase);
     app.get(PRICE_HISTORY_ROUTE, adapter.handle);
     app.setErrorHandler((error, _request, reply) =>
-        reply
-            .code(error instanceof ReadModelBadRequestError ? 400 : 500)
-            .send({
-                message:
-                    error instanceof Error ? error.message : "Unknown error",
-            }),
+        reply.code(error instanceof ReadModelBadRequestError ? 400 : 500).send({
+            message: error instanceof Error ? error.message : "Unknown error",
+        }),
     );
     try {
         const response = await app.inject(

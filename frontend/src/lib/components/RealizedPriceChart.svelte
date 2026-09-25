@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, pushState } from '$app/navigation';
-	import type { Crosshair } from 'klinecharts';
 	import {
 		PRICE_HISTORY_BUCKET,
 		PRICE_HISTORY_RANGE,
@@ -11,62 +10,78 @@
 		type PriceHistoryRange,
 		type RealizedSale
 	} from '@artgod/shared/types/price-history';
-	import { BackendApiError, getPriceHistory } from '$lib/backend-api';
+	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import type { ApiCollectionMediaState } from '$lib/api-types';
+	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+	import { BackendApiError, getPriceHistory, getTokenPreview } from '$lib/backend-api';
+	import { buildTokenMediaQuery } from '$lib/media-mode';
+	import { COLLECTION_CHART_TOKEN_QUERY } from '$lib/price-chart/routing';
 	import {
-		PRICE_CHART_MODE,
 		PRICE_CHART_QUERY,
 		PRICE_INDICATOR,
 		PRICE_INDICATOR_LABEL,
 		PRICE_INDICATOR_PARAMETERS,
 		defaultPriceIndicators,
 		validIndicatorParameters,
-		ethText,
-		type PriceChartMode,
 		type PriceIndicatorKind
 	} from '$lib/price-chart/model';
+	import {
+		createSaleMediaLoader,
+		type SaleMediaLoader,
+		type SalePreviewTarget
+	} from '$lib/price-chart/media';
 	import type { PriceChartController } from '$lib/price-chart/renderer';
+	import SaleHistorySidebar from './SaleHistorySidebar.svelte';
+	import SaleMediaPreview from './SaleMediaPreview.svelte';
 
 	let {
 		chainRef,
 		collectionRef,
-		tokenId
-	}: { chainRef: string; collectionRef: string; tokenId?: string } = $props();
+		media,
+		basePath,
+		blockExplorer
+	}: {
+		chainRef: string;
+		collectionRef: string;
+		media: ApiCollectionMediaState;
+		basePath: string;
+		blockExplorer: BlockExplorerConfig;
+	} = $props();
 	let bucket = $state<PriceHistoryBucket>(PRICE_HISTORY_BUCKET.Day);
 	let range = $state<PriceHistoryRange>(PRICE_HISTORY_RANGE.All);
-	let mode = $state<PriceChartMode>(PRICE_CHART_MODE.Candles);
+	let tokenId = $state<string | undefined>();
+	let root: HTMLElement;
 	let element: HTMLDivElement;
+	let height = $state(600);
 	let controller = $state.raw<PriceChartController | null>(null);
+	let loader = $state.raw<SaleMediaLoader | null>(null);
 	let history = $state.raw<PriceHistory | null>(null);
-	let ready = $state(false);
-	let loading = $state(true);
-	let error = $state('');
-	let chartError = $state('');
-	let revision = $state(0);
-	let indicatorsOpen = $state(false);
-	let indicators = $state(defaultPriceIndicators());
-	let parameterError = $state('');
+	let ready = $state(false),
+		loading = $state(true);
+	let error = $state(''),
+		chartError = $state('');
+	let revision = $state(0),
+		indicatorsOpen = $state(false);
+	let indicators = $state(defaultPriceIndicators()),
+		parameterError = $state('');
 	let movingAverageKind = $state<PriceIndicatorKind>(PRICE_INDICATOR.Sma);
 	let movingAverageNumber = 0;
 	let hoveredSales = $state.raw<RealizedSale[]>([]);
-	let hoverPage = $state(0);
-	let hoveredBucket = $state<number | null>(null);
-	const PAGE_SIZE = 10;
-	const panes = $derived(
-		indicators.filter(
-			(i) => i.enabled && i.kind !== PRICE_INDICATOR.Sma && i.kind !== PRICE_INDICATOR.Ema
-		).length
-	);
-	const bucketsByTime = $derived(new Map(history?.buckets.map((bar) => [bar.timestamp, bar]) ?? []));
-	const bucketDetail = $derived(
-		hoveredBucket === null ? undefined : bucketsByTime.get(hoveredBucket)
+	let pinnedSales = $state.raw<RealizedSale[]>([]);
+	let preview = $state.raw<SalePreviewTarget | null>(null);
+	let press: { x: number; y: number } | null = null;
+	const recentSales = $derived(history ? [...history.sales].reverse() : []);
+	const sidebarSales = $derived(
+		pinnedSales.length ? pinnedSales : hoveredSales.length ? hoveredSales : recentSales
 	);
 
 	function choice<T extends string>(value: string | null, values: T[], fallback: T): T {
 		return values.includes(value as T) ? (value as T) : fallback;
 	}
-	function setQuery(key: string, value: string) {
+	function setQuery(key: string, value: string | null) {
 		const url = new URL(window.location.href);
-		url.searchParams.set(key, value);
+		if (value === null) url.searchParams.delete(key);
+		else url.searchParams.set(key, value);
 		pushState(url, page.state);
 		readQuery(url);
 	}
@@ -81,33 +96,32 @@
 			Object.values(PRICE_HISTORY_RANGE),
 			PRICE_HISTORY_RANGE.All
 		);
-		mode = choice(
-			url.searchParams.get(PRICE_CHART_QUERY.Mode),
-			Object.values(PRICE_CHART_MODE),
-			PRICE_CHART_MODE.Candles
-		);
+		tokenId = url.searchParams.get(COLLECTION_CHART_TOKEN_QUERY) || undefined;
 	}
 	afterNavigate(({ to }) => {
 		if (to) readQuery(to.url);
 	});
-	function timestamp(seconds: number) {
-		return new Date(seconds * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
-	}
 
 	onMount(() => {
 		let stopped = false;
 		const onPopState = () => readQuery(new URL(window.location.href));
+		const measure = () => {
+			height = Math.max(
+				240,
+				(window.visualViewport?.height ?? window.innerHeight) - root.getBoundingClientRect().top - 12
+			);
+		};
 		onPopState();
+		measure();
 		window.addEventListener('popstate', onPopState);
+		window.addEventListener('resize', measure);
+		window.visualViewport?.addEventListener('resize', measure);
+		const observer = new ResizeObserver(measure);
+		observer.observe(root.parentElement!);
 		ready = true;
 		void import('$lib/price-chart/renderer')
 			.then(({ createPriceChart }) => {
-				if (stopped) return;
-				controller = createPriceChart(element);
-				controller.onCrosshair((raw) => {
-					const crosshair = raw as Crosshair;
-					hoveredBucket = crosshair.kLineData ? crosshair.kLineData.timestamp / 1000 : null;
-				});
+				if (!stopped) controller = createPriceChart(element);
 			})
 			.catch((cause) => {
 				console.error('Price chart initialization failed', cause);
@@ -115,9 +129,27 @@
 			});
 		return () => {
 			stopped = true;
+			observer.disconnect();
 			window.removeEventListener('popstate', onPopState);
+			window.removeEventListener('resize', measure);
+			window.visualViewport?.removeEventListener('resize', measure);
 			controller?.dispose();
 		};
+	});
+	$effect(() => {
+		if (!ready) return;
+		const chain = chainRef,
+			collection = collectionRef;
+		const query = buildTokenMediaQuery({
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaPreference: media.preference,
+			mediaVariant: null
+		});
+		const instance = createSaleMediaLoader(
+			async (id, signal) => (await getTokenPreview(fetch, chain, collection, id, query, signal)).token
+		);
+		loader = instance;
+		return () => instance.dispose();
 	});
 	$effect(() => {
 		if (!ready) return;
@@ -127,16 +159,13 @@
 		error = '';
 		history = null;
 		hoveredSales = [];
-		hoveredBucket = null;
+		pinnedSales = [];
+		preview = null;
 		void getPriceHistory(
 			fetch,
 			scope.chainRef,
 			scope.collectionRef,
-			{
-				tokenId: scope.tokenId,
-				bucket: scope.bucket as PriceHistoryBucket,
-				range: scope.range as PriceHistoryRange
-			},
+			{ tokenId: scope.tokenId, bucket: scope.bucket, range: scope.range },
 			abort.signal
 		)
 			.then((result) => {
@@ -159,11 +188,10 @@
 		if (controller && history) controller.setHistory(history);
 	});
 	$effect(() => {
-		controller?.setMode(mode as PriceChartMode);
-		hoveredSales = [];
+		controller?.setIndicators(indicators);
 	});
 	$effect(() => {
-		controller?.setIndicators(indicators);
+		controller?.setSelection(pinnedSales);
 	});
 
 	function setParameter(id: string, index: number, event: Event) {
@@ -183,29 +211,47 @@
 			indicator.id === id ? { ...indicator, params } : indicator
 		);
 	}
+	function leaveChart() {
+		hoveredSales = [];
+		preview = null;
+	}
 	function hover(event: MouseEvent) {
-		if (mode !== PRICE_CHART_MODE.Dots || (event.target as HTMLElement).closest('.sale-inspection'))
+		if (event.buttons) {
+			leaveChart();
 			return;
+		}
 		const sales = controller?.salesAt(event.clientX, event.clientY) ?? [];
 		if (
-			sales.length &&
-			(sales[0]?.id !== hoveredSales[0]?.id || sales.length !== hoveredSales.length)
-		) {
+			sales.length !== hoveredSales.length ||
+			sales.some((sale, i) => sale.id !== hoveredSales[i]?.id)
+		)
 			hoveredSales = sales;
-			hoverPage = 0;
-		}
+		preview = sales.length
+			? { tokenId: sales[0].tokenId, x: event.clientX, y: event.clientY, count: sales.length }
+			: null;
+	}
+	function pin(event: MouseEvent) {
+		// A completed pan must never turn its release point into a selection.
+		const start = press;
+		press = null;
+		if (
+			!start ||
+			event.button !== 0 ||
+			Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5
+		)
+			return;
+		const sales = controller?.salesAt(event.clientX, event.clientY) ?? [];
+		if (!sales.length) return;
+		const pinnedIds = new Set(pinnedSales.map((sale) => sale.id));
+		const same = sales.length === pinnedSales.length && sales.every((sale) => pinnedIds.has(sale.id));
+		pinnedSales = same ? [] : sales;
 	}
 </script>
 
-<section class="realized-price" aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
+<section class="realized-price" bind:this={root} style:height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
 	<div class="price-toolbar">
 		<h2>sale prices · ETH</h2>
-		<div class="secondary-tabs" aria-label="Price chart mode">
-			{#each Object.values(PRICE_CHART_MODE) as value}
-				{#if mode === value}<span class="secondary-tab-active" aria-current="true">{value}</span>
-				{:else}<button type="button" class="facet-panel-action-button" onclick={() => setQuery(PRICE_CHART_QUERY.Mode, value)}>{value}</button>{/if}
-			{/each}
-		</div>
+		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
 		<label>bucket <select class="bootstrap-control-select" aria-label="Time bucket" value={bucket} onchange={(event) => setQuery(PRICE_CHART_QUERY.Bucket, event.currentTarget.value)}>
 			{#each Object.values(PRICE_HISTORY_BUCKET) as value}<option value={value}>{value}</option>{/each}
 		</select></label>
@@ -245,44 +291,31 @@
 			{#if parameterError}<span role="alert">{parameterError}</span>{/if}
 		</div>
 	{/if}
+
 	{#if loading}<p class="muted" role="status">loading sales…</p>
 	{:else if error}<p role="alert">{error} <button class="facet-panel-action-button" onclick={() => revision++}>retry</button></p>
 	{:else if history?.sales.length === 0}<p class="muted" role="status">no single-token sales</p>{/if}
 	{#if chartError}<p role="alert">{chartError}</p>{/if}
-	<div class="price-surface" hidden={loading || !!error || !!chartError || !history?.sales.length}
-		onmousemove={hover} role="group" aria-label="Interactive sale price chart">
-		<div class="price-canvas" bind:this={element} style:height={`${390 + panes * 110}px`} data-chart-ready={!!controller && !loading}></div>
-		<div class="price-readout mono" aria-live="off">
-			{#if mode === PRICE_CHART_MODE.Dots && hoveredSales.length}
-				<div class="sale-inspection">
-					{#each hoveredSales.slice(hoverPage * PAGE_SIZE, (hoverPage + 1) * PAGE_SIZE) as sale (sale.id)}
-						<div class="sale-row">
-						    <span>{timestamp(sale.timestamp)}</span><span>token #{sale.tokenId}</span>
-						    <span>{ethText(sale.priceWei)} {sale.currencySymbol}</span><span title={sale.txHash}>tx {sale.txHash.slice(0, 10)}…</span>
-						</div>
-					{/each}
-					{#if hoveredSales.length > PAGE_SIZE}
-						<div class="price-toolbar">
-						    <button class="button-link" disabled={hoverPage === 0} onclick={() => hoverPage--}>previous sales</button>
-						    <span>{hoverPage * PAGE_SIZE + 1}–{Math.min((hoverPage + 1) * PAGE_SIZE, hoveredSales.length)} of {hoveredSales.length}</span>
-						    <button class="button-link" disabled={(hoverPage + 1) * PAGE_SIZE >= hoveredSales.length} onclick={() => hoverPage++}>next sales</button>
-						</div>
-					{/if}
-				</div>
-			{:else if bucketDetail}
-				<span>{timestamp(bucketDetail.timestamp)} · O {ethText(bucketDetail.openWei)} · H {ethText(bucketDetail.highWei)} · L {ethText(bucketDetail.lowWei)} · C {ethText(bucketDetail.closeWei)} ETH · {bucketDetail.volume} NFTs</span>
-			{:else if history}
-				<span class="muted">{history.sales.length} sales · UTC</span>
-			{/if}
+	<div class="price-workspace" hidden={loading || !!error || !!chartError || !history?.sales.length}>
+		<div class="price-canvas" bind:this={element} data-chart-ready={!!controller && !loading}
+			role="group" aria-label="Interactive sale price chart"
+			onmousemove={hover} onmouseleave={leaveChart}
+			onpointerdown={(event) => { press = { x: event.clientX, y: event.clientY }; preview = null; }}
+			onpointerup={pin} onwheel={() => { preview = null; hoveredSales = []; }}>
 		</div>
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} clearPin={() => { pinnedSales = []; hoveredSales = []; }} {basePath} {blockExplorer} {loader} onpreview={(target) => preview = target} />{/if}
 	</div>
+	{#if preview && loader}<SaleMediaPreview target={preview} {loader} />{/if}
 </section>
 
 <style>
 	.realized-price {
-		width: min(calc(100% - 1rem), 1100px);
+		position: relative;
+		width: 100%;
 		min-width: 0;
-		margin: 1rem auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 	}
 	.price-toolbar,
 	.price-indicator {
@@ -304,36 +337,39 @@
 		color: var(--c-sand);
 	}
 	.price-indicators {
+		position: absolute;
+		z-index: 40;
+		top: 2.8rem;
+		left: 0;
 		display: grid;
 		gap: 0.35rem;
-		width: fit-content;
-		margin: 0.6rem 0;
+		padding: 0.65rem;
+		width: max-content;
+		max-width: 100%;
+		max-height: 80%;
+		overflow: auto;
+		border: 1px solid var(--c-blue);
+		background: var(--c-bg);
 	}
 	.price-indicator input {
 		width: 6ch;
 	}
-	.price-surface {
-		margin-top: 0.5rem;
+	.price-workspace {
+		display: grid;
+		grid-template-columns: minmax(0, 9fr) minmax(190px, 1fr);
+		gap: 0.4rem;
+		flex: 1;
+		min-height: 0;
+		min-width: 0;
+	}
+	.price-workspace[hidden] {
+		display: none;
 	}
 	.price-canvas {
 		width: 100%;
+		height: 100%;
+		min-width: 0;
+		min-height: 0;
 		background: var(--c-bg);
-	}
-	.price-readout {
-		min-height: 2rem;
-		font-size: 0.75rem;
-		color: var(--c-ice);
-		padding-top: 0.3rem;
-		overflow-wrap: anywhere;
-	}
-	.sale-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.65rem;
-		padding: 0.15rem 0;
-	}
-	.sale-inspection {
-		max-height: 13rem;
-		overflow: auto;
 	}
 </style>

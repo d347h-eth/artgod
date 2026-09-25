@@ -57,6 +57,17 @@ a:hover {
 	color: var(--c-yellow);
 }
 
+/* Numeric inputs retain keyboard stepping, without browser spinner chrome. */
+input[type='number'] {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
 .panel {
 	margin: 1rem;
 	background: var(--c-bg);

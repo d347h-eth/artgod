@@ -1,4 +1,5 @@
 import { goto } from '$app/navigation';
+import { buildCollectionChartHref } from '$lib/price-chart/routing';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import {
@@ -86,6 +87,7 @@ export type CollectionNavigation = {
 		asks: string;
 		offers: string | null;
 		tokens: string;
+		chart: string;
 		holders: string;
 		blockspace: string | null;
 		customization: string;
@@ -197,6 +199,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			asks: tokenStatusHref('listed'),
 			offers: offersHref,
 			tokens: tokenStatusHref('all'),
+			chart: buildCollectionChartHref(normalizedBasePath, undefined, holdersQuery),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
 			blockspace: showBlockspace ? blockspaceHref : null,
 			customization: buildCollectionCustomizationHref({

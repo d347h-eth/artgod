@@ -2,7 +2,6 @@ import {
 	init,
 	dispose,
 	registerIndicator,
-	type Chart,
 	type IndicatorDrawParams,
 	type DeepPartial,
 	type Styles,
@@ -10,7 +9,6 @@ import {
 } from 'klinecharts';
 import type { PriceHistory, RealizedSale } from '@artgod/shared/types/price-history';
 import {
-	PRICE_CHART_MODE,
 	PRICE_INDICATOR,
 	PRICE_INDICATOR_LABEL,
 	saleBars,
@@ -18,7 +16,6 @@ import {
 	withSaleGaps,
 	standardMacd,
 	type SaleBar,
-	type PriceChartMode,
 	type PriceIndicator
 } from './model';
 
@@ -38,7 +35,7 @@ type Palette = {
 	orange: string;
 };
 type PriceDrawing = {
-	mode: PriceChartMode;
+	selected: Set<string>;
 	seconds: number;
 	palette: Palette;
 	hits: Map<string, Hit[]>;
@@ -52,7 +49,7 @@ function registerPriceLayer() {
 		shortName: '',
 		series: 'price',
 		precision: 8,
-		// These figures establish the full sale-price range even in line mode.
+		// Invisible figures establish the full sale-price range for the dot layer.
 		figures: [
 			{ key: 'high', type: 'line' },
 			{ key: 'low', type: 'line' }
@@ -124,60 +121,27 @@ function drawPrices({
 	drawing.hits.clear();
 	const bars = chart.getDataList() as SaleBar[];
 	const { from, to } = chart.getVisibleRange();
-	const { gapBar: width } = chart.getBarSpace();
 	const p = drawing.palette;
 	ctx.save();
 	ctx.lineWidth = 1;
 	for (let i = Math.max(0, from - 1); i < Math.min(bars.length, to + 1); i++) {
 		const bar = bars[i];
 		if (!bar.populated) continue;
-		const x = xAxis.convertToPixel(i);
-		if (drawing.mode === PRICE_CHART_MODE.Dots) {
-			ctx.fillStyle = p.cyan;
-			for (const sale of bar.sales) {
-				// Fractional indices retain sub-bucket time, including identical
-				// timestamps. No jitter, deduplication, or timestamp overwrite.
-				const index = i - 0.5 + (sale.timestamp - bar.timestamp / 1000) / drawing.seconds;
-				const sx = xAxis.convertToPixel(index);
-				const y = yAxis.convertToPixel(ethValue(sale.priceWei));
-				ctx.beginPath();
-				ctx.arc(sx, y, 3, 0, Math.PI * 2);
-				ctx.fill();
-				const key = hitKey(sx, y);
-				const hits = drawing.hits.get(key) ?? [];
-				hits.push({ x: sx, y, sale });
-				drawing.hits.set(key, hits);
-			}
-		} else if (drawing.mode === PRICE_CHART_MODE.Line) {
-			ctx.strokeStyle = p.cyan;
-			ctx.fillStyle = p.cyan;
-			const y = yAxis.convertToPixel(bar.close);
-			const previous = bars[i - 1];
-			if (previous?.populated) {
-				ctx.beginPath();
-				ctx.moveTo(xAxis.convertToPixel(i - 1), yAxis.convertToPixel(previous.close));
-				ctx.lineTo(x, y);
-				ctx.stroke();
-			}
+		for (const sale of bar.sales) {
+			// Fractional indices retain sub-bucket time, including identical
+			// timestamps. No jitter, deduplication, or timestamp overwrite.
+			const index = i - 0.5 + (sale.timestamp - bar.timestamp / 1000) / drawing.seconds;
+			const sx = xAxis.convertToPixel(index);
+			const y = yAxis.convertToPixel(ethValue(sale.priceWei));
+			const selected = drawing.selected.has(sale.id);
+			ctx.fillStyle = selected ? p.orange : p.cyan;
 			ctx.beginPath();
-			ctx.arc(x, y, 2, 0, Math.PI * 2);
+			ctx.arc(sx, y, selected ? 5 : 3, 0, Math.PI * 2);
 			ctx.fill();
-		} else {
-			ctx.strokeStyle = bar.close >= bar.open ? p.cyan : p.pink;
-			ctx.fillStyle = ctx.strokeStyle;
-			ctx.beginPath();
-			ctx.moveTo(x, yAxis.convertToPixel(bar.high));
-			ctx.lineTo(x, yAxis.convertToPixel(bar.low));
-			ctx.stroke();
-			const open = yAxis.convertToPixel(bar.open),
-				close = yAxis.convertToPixel(bar.close);
-			const bodyWidth = Math.max(1, width);
-			ctx.fillRect(
-				x - bodyWidth / 2,
-				Math.min(open, close),
-				bodyWidth,
-				Math.max(1, Math.abs(close - open))
-			);
+			const key = hitKey(sx, y);
+			const hits = drawing.hits.get(key) ?? [];
+			hits.push({ x: sx, y, sale });
+			drawing.hits.set(key, hits);
 		}
 	}
 	ctx.restore();
@@ -197,7 +161,7 @@ export function createPriceChart(element: HTMLElement) {
 	});
 	if (!chart) throw new Error('Chart initialization failed');
 	const drawing: PriceDrawing = {
-		mode: PRICE_CHART_MODE.Candles,
+		selected: new Set(),
 		seconds: 86400,
 		palette: colors,
 		hits: new Map()
@@ -233,9 +197,8 @@ export function createPriceChart(element: HTMLElement) {
 				getBars: ({ type, callback }) => callback(type === 'init' ? bars : [], false)
 			});
 		},
-		setMode(mode: PriceChartMode) {
-			drawing.mode = mode;
-			drawing.hits.clear();
+		setSelection(sales: RealizedSale[]) {
+			drawing.selected = new Set(sales.map((sale) => sale.id));
 			chart.overrideIndicator({ name: PRICE_LAYER, id: priceId, extendData: () => drawing });
 		},
 		setIndicators(indicators: PriceIndicator[]) {
@@ -321,9 +284,6 @@ export function createPriceChart(element: HTMLElement) {
 			return hits
 				.sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))
 				.map((hit) => hit.sale);
-		},
-		onCrosshair(callback: Parameters<Chart['subscribeAction']>[1]) {
-			chart.subscribeAction('onCrosshairChange', callback);
 		},
 		dispose() {
 			observer.disconnect();
