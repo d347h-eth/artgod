@@ -66,8 +66,9 @@ there is no pending work. Never delete a WAL manually.
 The legacy by-ID consumer is single-flight and spaces admission by at least 5 ms
 (at most 200 envelopes/second before processing cost). Time spent in SQLite makes
 it slower. This bounds ingestion work while two FIFO permits bound RPC across
-individual-order demand, broad-maker and token validation. A demand poll claims
-at most 100 orders and shares a pinned snapshot, stopping new validation after
+individual-order demand, broad-maker and token validation. Two demand executors
+continue after yielding while work remains and poll every second when idle.
+Each claims at most 100 orders and shares a pinned snapshot, stopping new validation after
 five seconds and releasing unconsumed claims. Maker steps admit at most 100 orders or
 five seconds and atomically publish their next continuation through the outbox.
 These are count/admission budgets, not deadlines for an in-flight RPC call.

@@ -346,17 +346,19 @@ describe("bounded demand validation batches", () => {
 
     it("finishes an admitted order and releases the rest on graceful stop", async () => {
         const work = workflow(3);
-        let stopped = false;
+        const controller = new AbortController();
         work.rpc.onRead = () => {
-            stopped = true;
+            controller.abort();
         };
-        expect(await work.processor.executeBatch(() => stopped)).toMatchObject({
+        expect(
+            await work.processor.executeBatch(controller.signal),
+        ).toMatchObject({
             validated: 1,
             covered: 1,
             released: 2,
         });
         expect(
-            await work.processor.executeBatch(() => stopped),
+            await work.processor.executeBatch(controller.signal),
         ).toBeUndefined();
         expect(
             db

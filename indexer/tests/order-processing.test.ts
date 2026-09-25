@@ -174,7 +174,7 @@ describe("order processing boundaries", () => {
             },
             HEAVY_MAKER.now * 1_000,
         );
-        const active = validator.executeNext();
+        const active = validator.executeBatch();
         await started.promise;
         await processor.execute(
             {

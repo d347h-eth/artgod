@@ -137,8 +137,13 @@ Newer generations or changed canonical revisions remain pending. An unanchored
 canonical observation remains independently actionable when coalesced with an
 older chain trigger; it does not inherit that trigger's bootstrap rejection.
 
-The worker polls every second and claims a bounded page of at most 100 orders
-after acquiring fair validation capacity. The page shares one fresh snapshot,
+Two demand executors each claim a bounded page of at most 100 orders after
+acquiring one of the existing shared FIFO validation permits. Busy executors
+yield to the event loop and rejoin admission for another batch promptly; idle or
+failed polls wait one second. Queued admission is cancellable on shutdown before
+any rows are claimed; active work finishes its admitted order and releases the
+unconsumed claims. Maker and token work retain FIFO access to the same two permits.
+The page shares one fresh snapshot,
 including wallet reads and lazy status aggregates. Each order retains its own
 revision, generation and observation/block requirement; demands ahead of the
 snapshot retry independently while covered orders proceed. After five seconds

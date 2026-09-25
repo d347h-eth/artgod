@@ -242,7 +242,10 @@ or bulk republish is part of this upgrade.
 Lifecycle handling applies existing domain transitions without RPC. Broad maker,
 targeted token and ordinary-demand validation share FIFO admission with at most
 two active contexts per chain worker, preserving the previous aggregate capacity.
-Each consumer/poller is single-flight. SQLite transactions remain synchronous
+Maker/token consumers are single-flight. Two bounded demand executors may use
+idle validation capacity; each yields and rejoins FIFO admission after its batch.
+Admission waits occur before claiming demand, and shutdown cancels queued waits.
+SQLite transactions remain synchronous
 and short; no transaction is held while waiting for RPC or an admission permit.
 Unknown order job kinds/reasons fail visibly and retain their original envelope.
 The new routes protect newly produced work; they do not let an old buried fill

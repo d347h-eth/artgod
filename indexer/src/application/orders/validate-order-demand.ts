@@ -12,6 +12,7 @@ import type {
     MakerValidationBatch,
 } from "../../ports/order-validation.js";
 import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
+import { ORDER_PROCESSING_POLICY } from "../../domain/order-processing.js";
 
 export class AdmitOrderValidation {
     constructor(
@@ -54,13 +55,14 @@ export class ValidateOrderDemand {
     ) {}
 
     async executeBatch(
-        shouldStop: () => boolean = () => false,
+        signal?: AbortSignal,
     ): Promise<OrderValidationBatchReport | undefined> {
         // Acquire fair capacity before claiming rows or aging a chain snapshot.
+        if (signal?.aborted) return undefined;
         return this.deps.admission.run(async () => {
-            if (shouldStop()) return undefined;
-            return this.validateBatch(shouldStop);
-        });
+            if (signal?.aborted) return undefined;
+            return this.validateBatch(() => signal?.aborted ?? false);
+        }, signal);
     }
 
     private async validateBatch(
@@ -170,30 +172,46 @@ export class ValidateOrderDemand {
 }
 
 export function startOrderValidationDemand(
-    processor: ValidateOrderDemand,
+    processor: Pick<ValidateOrderDemand, "executeBatch">,
 ): () => Promise<void> {
-    let active: Promise<void> | undefined;
-    let stopped = false;
-    const tick = () => {
-        if (stopped || active) return;
-        active = (async () => {
-            await processor.executeBatch(() => stopped);
-        })()
-            .catch((error) =>
-                logger.warn("Order validation demand poll failed", {
-                    error: String(error),
-                }),
-            )
-            .finally(() => {
-                active = undefined;
-            });
+    const controller = new AbortController();
+    const waits = new Set<() => void>();
+    const pause = (busy: boolean) =>
+        new Promise<void>((resolve) => {
+            const resume = () => {
+                clearTimeout(timer);
+                waits.delete(resume);
+                resolve();
+            };
+            // Yield to broker/lifecycle work after a batch; poll only when idle or failed.
+            const timer = setTimeout(resume, busy ? 0 : POLICY.pollMs);
+            timer.unref?.();
+            waits.add(resume);
+            if (controller.signal.aborted) resume();
+        });
+    const run = async () => {
+        while (!controller.signal.aborted) {
+            let busy = false;
+            try {
+                busy = !!(await processor.executeBatch(controller.signal));
+            } catch (error) {
+                if (!controller.signal.aborted)
+                    logger.warn("Order validation demand poll failed", {
+                        error: String(error),
+                    });
+            }
+            if (!controller.signal.aborted) await pause(busy);
+        }
     };
-    const timer = setInterval(tick, POLICY.pollMs);
-    timer.unref?.();
-    tick();
+    // Demand can use both existing permits when other paths are idle. It queues
+    // at most these two executors and rejoins FIFO admission after every batch.
+    const active = Array.from(
+        { length: ORDER_PROCESSING_POLICY.concurrentValidations },
+        run,
+    );
     return async () => {
-        stopped = true;
-        clearInterval(timer);
-        await active;
+        controller.abort();
+        for (const resume of waits) resume();
+        await Promise.all(active);
     };
 }
