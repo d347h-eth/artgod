@@ -831,14 +831,15 @@ export async function getTokenPreview(
 	chainRef: string,
 	collectionRef: string,
 	tokenRef: string,
-	params?: URLSearchParams
+	params?: URLSearchParams,
+	signal?: AbortSignal
 ): Promise<TokenPreviewApiResponse> {
 	const query = params?.toString() ?? '';
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenPreviewApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/preview${suffix}`,
-		tokenMediaRequestInit(params)
+		{ ...tokenMediaRequestInit(params), signal }
 	);
 }
 

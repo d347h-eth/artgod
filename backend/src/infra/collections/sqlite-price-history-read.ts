@@ -2,7 +2,10 @@ import { db } from "@artgod/shared/database";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import type { PriceHistoryCurrencySymbol } from "@artgod/shared/types/price-history";
 import type { PriceHistoryReadPort } from "../../application/use-cases/collections/get-price-history.js";
-import type { PricedFill } from "../../domain/realized-price-history.js";
+import {
+    realizedSaleParticipants,
+    type PricedFill,
+} from "../../domain/realized-price-history.js";
 
 type FillRow = {
     id: number;
@@ -12,6 +15,9 @@ type FillRow = {
     token_id: string;
     price: string;
     currency: string;
+    order_side: string | null;
+    maker: string | null;
+    taker: string | null;
     tx_hash: string;
 };
 
@@ -41,7 +47,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         // Legacy Seaport rows cannot prove a single NFT: an untracked sibling
         // leaves no fill row. Blur V2 has always quoted each exchange separately.
         const query = db.prepare(
-            `SELECT id, block_timestamp, block_number, log_index, token_id, price, currency, tx_hash
+            `SELECT id, block_timestamp, block_number, log_index, token_id, price, currency, tx_hash, order_side, maker, taker
              FROM fills
              WHERE chain_id = ? AND collection_id = ?
                AND block_timestamp >= ? AND block_timestamp < ?
@@ -60,11 +66,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
             input.to,
         ];
         if (input.tokenId !== undefined) args.push(input.tokenId);
-        args.push(
-            FILL_KIND.BlurV2,
-            ...this.currencies.keys(),
-            input.limit,
-        );
+        args.push(FILL_KIND.BlurV2, ...this.currencies.keys(), input.limit);
         for (const raw of query.iterate(...args)) {
             const row = raw as FillRow;
             yield {
@@ -77,6 +79,11 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
                 currencyAddress: row.currency,
                 // The SQL whitelist guarantees this configured execution symbol.
                 currencySymbol: this.currencies.get(row.currency)!,
+                ...realizedSaleParticipants(
+                    row.order_side,
+                    row.maker,
+                    row.taker,
+                ),
                 txHash: row.tx_hash,
             };
         }

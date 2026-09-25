@@ -9,6 +9,19 @@ import {
     type RealizedSale,
 } from "@artgod/shared/types/price-history";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
+import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
+
+/** Maker is the seller of an ask and the buyer of an offer. Unknown sides
+ * cannot establish either role, so never invent ownership links for them. */
+export function realizedSaleParticipants(
+    side: string | null,
+    maker: string | null,
+    taker: string | null,
+): Pick<RealizedSale, "seller" | "buyer"> {
+    if (side === ORDER_SIDE.Sell) return { seller: maker, buyer: taker };
+    if (side === ORDER_SIDE.Buy) return { seller: taker, buyer: maker };
+    return { seller: null, buyer: null };
+}
 
 export type PricedFill = RealizedSale & {
     blockNumber: number;

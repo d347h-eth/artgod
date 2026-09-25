@@ -54,6 +54,8 @@ export type RealizedSale = {
     priceWei: string;
     currencyAddress: string;
     currencySymbol: PriceHistoryCurrencySymbol;
+    seller: string | null;
+    buyer: string | null;
     txHash: string;
 };
 export type RealizedPriceBucket = {

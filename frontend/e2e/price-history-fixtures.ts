@@ -26,7 +26,7 @@ const CURRENCIES = [
 ];
 
 export const PRICE_HISTORY_E2E = {
-	path: '/e2e-harness/collection',
+	path: '/e2e-harness/collection/chart',
 	tokenPath: '/e2e-harness/collection/101',
 	apiPattern: '**/api/*/*/price-history?*'
 } as const;
@@ -47,6 +47,8 @@ export function priceHistoryFixture(
 				timestamp: start + day * 86400 + (sale === 1 ? 18000 : 30000),
 				tokenId: String(sale + 101),
 				priceWei: value.toString(),
+				seller: '0x' + '29'.repeat(20),
+				buyer: '0x' + 'ab'.repeat(20),
 				...CURRENCIES[sale],
 				blockNumber: day * 3 + sale,
 				logIndex: sale,

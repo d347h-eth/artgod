@@ -1,10 +1,7 @@
 import type { KLineData, IndicatorCalcCallback, Indicator } from 'klinecharts';
 import type { PriceHistory, RealizedSale } from '@artgod/shared/types/price-history';
 
-export const PRICE_CHART_MODE = { Dots: 'dots', Line: 'line', Candles: 'candles' } as const;
-export type PriceChartMode = (typeof PRICE_CHART_MODE)[keyof typeof PRICE_CHART_MODE];
 export const PRICE_CHART_QUERY = {
-	Mode: 'chart_mode',
 	Bucket: 'chart_bucket',
 	Range: 'chart_range'
 } as const;

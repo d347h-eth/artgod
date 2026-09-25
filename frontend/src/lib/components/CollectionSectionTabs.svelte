@@ -24,6 +24,7 @@
 		navigation: CollectionNavigation;
 		active:
 			| 'tokens'
+			| 'chart'
 			| 'activities'
 			| 'holders'
 			| 'customization'
@@ -112,6 +113,7 @@
 				{@render navItem('offers', navigation.hrefs.offers ?? '#', active === 'bidding')}
 			{/if}
 			{@render navItem('tokens', tokenStatusHref('all'), active === 'tokens' && activeTokenStatus === 'all')}
+			{@render navItem('chart', navigation.hrefs.chart, active === 'chart')}
 		</div>
 	</div>
 	<div class="runtime-tab-group">
