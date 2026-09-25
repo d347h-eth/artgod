@@ -1423,10 +1423,97 @@ describe("OpenSeaBiddingService", () => {
 
         assert.ok(ids.includes("0xcollectionwide"));
         assert.ok(ids.includes("0xmulti-match"));
-        assert.ok(!ids.includes("0xsingle-only"));
+        assert.ok(ids.includes("0xsingle-only"));
         assert.ok(!ids.includes("0xmulti-miss"));
         assert.ok(!ids.includes("0xexplicit-item"));
         assert.equal(liveCollectionOfferCalls, 0);
+    });
+
+    it("paginates all scopes for trait competition when the snapshot is missing and rejects partial traversal", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const mode = { type: "Mode", value: "Terrain" };
+        const zone = { type: "Zone", value: "Kairo" };
+        const job = {
+            id: "trait-fallback",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+                traits: [mode, zone],
+            },
+            config: { floor: 1n, ceiling: 10n, delta: 1n },
+            state: {},
+        };
+        const requests: Array<string | undefined> = [];
+        sdk.api.getCollectionOffers = async () => {
+            throw new Error("collection-only endpoint loses trait competition");
+        };
+        sdk.api.getAllOffers = async (_slug, _limit, cursor) => {
+            requests.push(cursor);
+            return cursor
+                ? {
+                      offers: [
+                          makeOffer("zone", "other", "4", collectionAddress, {
+                              trait: zone,
+                          }),
+                          makeOffer(
+                              "narrower",
+                              "other",
+                              "9",
+                              collectionAddress,
+                              {
+                                  traits: [
+                                      mode,
+                                      zone,
+                                      { type: "Biome", value: "91" },
+                                  ],
+                              },
+                          ),
+                          makeOffer("mode", "other", "3", collectionAddress, {
+                              trait: mode,
+                          }),
+                      ],
+                  }
+                : {
+                      offers: [
+                          makeOffer(
+                              "collection",
+                              "other",
+                              "1",
+                              collectionAddress,
+                              { encoded_token_ids: "*" },
+                          ),
+                          makeOffer("exact", "other", "2", collectionAddress, {
+                              traits: [mode, zone],
+                          }),
+                          makeOffer("mode", "other", "3", collectionAddress, {
+                              trait: mode,
+                          }),
+                      ],
+                      next: "page2",
+                  };
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+        assert.deepEqual(
+            (await service.getActiveOffers(job)).map((offer) => offer.id),
+            ["zone", "mode", "exact", "collection"],
+        );
+        assert.deepEqual(requests, [undefined, "page2"]);
+        sdk.api.getAllOffers = async () => ({ offers: [], next: "repeat" });
+        await assert.rejects(
+            service.getActiveOffers(job),
+            /Incomplete trait competition/,
+        );
+        sdk.api.getAllOffers = async () => {
+            throw new Error("page unavailable");
+        };
+        await assert.rejects(service.getActiveOffers(job), /page unavailable/);
     });
 
     it("uses cached token snapshot discovery for collection-wide and applicable criteria offers", async () => {

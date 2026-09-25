@@ -25,15 +25,15 @@ the [unified backlog](../planning/01-unified-backlog.md#trait-bidding-competitio
   selectors, and preserves edits, reset, existing-job lookup, price-tier reapply,
   and read-only/public restrictions.
 
-Extra selectors provisionally match any trait offer containing the selected
-key/value or key. The requested clarification will settle whether this includes
-multi-trait offers before that behavior is finalized.
+Extra selectors match single-trait offers only, as confirmed by the user.
+Selecting a key/value does not include multi-trait offers containing that pair;
+selecting a whole key includes standalone trait offers for all its values.
 
 ## Iterations and Acceptance Evidence
 
 1. [x] Read project guidance and trace the ordinary trait-job path; create a
        feature worktree from local `main` and record this plan.
-2. [ ] Implement inclusive default competition in an owning domain policy and
+2. [x] Implement inclusive default competition in an owning domain policy and
        both snapshot and fallback discovery. Verify single traits, full matches,
        subsets, unrelated and narrower combinations, duplicate criteria, and
        unchanged collection-only behavior.
@@ -68,3 +68,8 @@ release. Local checks are not remote CI or live OpenSea evidence.
   management independently requires exact equality and must retain that rule.
 - Worktree dependencies installed with the immutable lockfile and lifecycle
   scripts disabled.
+- Iteration 2: domain policy and OpenSea adapter suites pass, 27 tests. Snapshot
+  selection includes matching single traits; fallback paginates all offer scopes
+  and rejects repeated cursors or failed pages. Exact own-order matching remains
+  separate. OpenSea documents [all offers](https://docs.opensea.io/reference/list_offers_collection_all)
+  separately from [collection offers](https://docs.opensea.io/reference/get_offers_collection).
