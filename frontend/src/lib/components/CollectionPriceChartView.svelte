@@ -36,5 +36,5 @@
 		{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}<a href={'/' + chain.slug}>collections</a><span class="breadcrumbs-separator">/</span>{/if}
 		<a href={basePath}>{collection.slug}</a>
 	{/snippet}
-	<RealizedPriceChart chainRef={chain.slug} collectionRef={collection.slug} {media} {basePath} {blockExplorer} />
+	<RealizedPriceChart {chain} {collection} {media} {basePath} {blockExplorer} />
 </CollectionPageLayout>

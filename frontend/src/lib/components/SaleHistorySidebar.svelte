@@ -126,10 +126,13 @@
 		top: 0;
 		background: var(--c-bg);
 		color: var(--c-sand);
-		font-size: 8px;
 		border-bottom: 1px solid var(--c-blue);
 	}
+	.sale-head > span {
+		font-size: 8px;
+	}
 	.sale-row > span {
+		text-align: right;
 		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
@@ -150,6 +153,7 @@
 	.sale-price a {
 		display: flex;
 		align-items: center;
+		justify-content: flex-end;
 		gap: 2px;
 	}
 	.sale-amount {

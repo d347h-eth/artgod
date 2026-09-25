@@ -1,12 +1,12 @@
-import type { getTokenPreview } from '$lib/backend-api';
+import type { ApiTokenCard } from '$lib/api-types';
 
-export type SaleMedia = Awaited<ReturnType<typeof getTokenPreview>>['token'];
-export type SalePreviewTarget = { tokenId: string; x: number; y: number; count: number };
+export type SaleMedia = ApiTokenCard;
+export type SalePreviewTarget = { tokenId: string; x: number; y: number };
 const MAX_CONCURRENT = 4;
 const MAX_CACHED = 256;
 const MAX_QUEUED = 100;
 
-/** One bounded snapshot cache shared by row thumbnails and the ephemeral preview.
+/** One bounded snapshot card cache shared by row thumbnails and the floating card.
  * Hover requests move ahead of queued thumbnails; navigation aborts all work. */
 export function createSaleMediaLoader(
 	fetchMedia: (tokenId: string, signal: AbortSignal) => Promise<SaleMedia>

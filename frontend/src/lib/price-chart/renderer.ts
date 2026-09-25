@@ -12,6 +12,7 @@ import {
 	PRICE_INDICATOR,
 	PRICE_INDICATOR_LABEL,
 	saleBars,
+	saleVolumeTooltip,
 	ethValue,
 	withSaleGaps,
 	standardMacd,
@@ -237,6 +238,16 @@ export function createPriceChart(element: HTMLElement) {
 						name: setting.kind,
 						id,
 						calc: withSaleGaps(calc),
+						...(setting.kind === PRICE_INDICATOR.Volume
+							? {
+									createTooltipDataSource: ({ chart, crosshair }) =>
+										saleVolumeTooltip(
+											(chart.getDataList() as SaleBar[])[
+												crosshair.dataIndex ?? chart.getDataList().length - 1
+											]
+										)
+								}
+							: {}),
 						styles: inPricePane
 							? {
 									lines: [

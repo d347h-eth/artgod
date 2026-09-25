@@ -17,6 +17,10 @@ import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
 import { RUNTIME_API_ROUTES } from "@artgod/shared/http/runtime-routes";
 import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
 import { COLLECTION_API_ROUTE_TEMPLATE } from "@artgod/shared/http/collection-routes";
+import type {
+    GetTokenCardHttpAdapter,
+    GetTokenCardRoute,
+} from "./http/handlers/collections/get-token-card.js";
 import { TRADING_API_ROUTE_TEMPLATE } from "@artgod/shared/http/trading-routes";
 import type {
     CreateBootstrapRunHttpAdapter,
@@ -315,6 +319,7 @@ export function registerApiRoutes(
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getPriceHistoryAdapter: GetPriceHistoryHttpAdapter,
+    getTokenCardAdapter: GetTokenCardHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     getTokenUriAdapter: GetTokenUriHttpAdapter,
@@ -487,6 +492,13 @@ export function registerApiRoutes(
         {
             preHandler: publicCollectionScopeGuard,
         },
+    );
+    registerObservedGet<GetTokenCardRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.TokenCard,
+        getTokenCardAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
     );
     registerObservedGet<GetTokenUriRoute>(
         app,

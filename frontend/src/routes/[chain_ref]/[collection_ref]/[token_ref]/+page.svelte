@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { buildCollectionChartHref } from '$lib/price-chart/routing';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -834,9 +833,6 @@
 			</div>
 		</section>
 
-		{#if data?.chain && data.collection}
-			<a class="token-sale-chart-link" href={buildCollectionChartHref(collectionTokensBasePath(), displayedToken.tokenId)}>sale chart</a>
-		{/if}
 		{@const extensionSections = tokenDetailExtensionSections()}
 		{#if data?.chain && data.collection && extensionSections.length > 0}
 			<div class="token-detail-extension-sections">
