@@ -9,7 +9,8 @@ import { PRICE_CHART_QUERY, saleActionColor } from '../src/lib/price-chart/model
 import {
 	PRICE_HISTORY_E2E,
 	priceHistoryFixture,
-	priceHistoryPrecisionFixture
+	priceHistoryPrecisionFixture,
+	priceHistoryOutlierFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { COLLECTION_API_ROUTE_TEMPLATE } from '@artgod/shared/http/collection-routes';
@@ -120,6 +121,28 @@ async function dotHighlighted(page: Page, point: { x: number; y: number }) {
 			return orange.every((channel, i) => pixel[i] === channel);
 		});
 	}, point);
+}
+
+async function pricePaneBounds(page: Page) {
+	return page.locator('.price-canvas').evaluate((element) => {
+		const panes = [...element.querySelectorAll('canvas')]
+			.map((canvas) => canvas.getBoundingClientRect())
+			.filter((box) => box.height > 150);
+		const main = panes.reduce((largest, box) => (box.width > largest.width ? box : largest));
+		const axis = panes.find((box) => box.x >= main.right && box.height === main.height)!;
+		return { main: main.toJSON(), axis: axis.toJSON() };
+	});
+}
+
+async function zoomPriceIn(page: Page) {
+	const { axis } = await pricePaneBounds(page);
+	const x = axis.x + axis.width / 2;
+	const startY = axis.y + axis.height - 16;
+	await page.mouse.move(x, startY);
+	await page.mouse.down();
+	await page.mouse.move(x, Math.max(axis.y + 25, startY / 2), { steps: 8 });
+	await page.mouse.up();
+	await page.mouse.move(2, 2);
 }
 
 test('dedicated dots page is fourth in Explore and fills the viewport with configurable indicators', async ({
@@ -471,6 +494,89 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	expect(Math.abs(positions[0].y - positions[1].y)).toBeGreaterThan(50);
 	expect(Math.abs(positions[0].y - positions[2].y)).toBeLessThan(2);
 	await surface(page, info, 'precise-sale-types');
+});
+
+test('one small arrow reveals higher sales using the same scale reset as the price axis', async ({
+	page
+}, info) => {
+	const desktop = info.project.name.includes('768');
+	if (desktop) await page.setViewportSize({ width: 1920, height: 1080 });
+	let historyRequests = 0;
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) => {
+		historyRequests++;
+		return route.fulfill({ json: priceHistoryOutlierFixture() });
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const arrow = page.getByRole('button', { name: 'Show higher sales', exact: true });
+	await expect(arrow).toHaveCount(0);
+	await zoomPriceIn(page);
+	await expect(arrow).toBeVisible();
+	await expect(arrow).toHaveCount(1);
+	const arrowBox = (await arrow.boundingBox())!;
+	const { main } = await pricePaneBounds(page);
+	expect(arrowBox.width).toBeLessThanOrEqual(20);
+	expect(arrowBox.height).toBeLessThanOrEqual(20);
+	expect((await arrow.locator('svg').boundingBox())!.width).toBe(12);
+	expect(Math.abs(arrowBox.x + arrowBox.width / 2 - (main.x + main.width / 2))).toBeLessThan(1);
+	expect(arrowBox.y - main.y).toBeLessThanOrEqual(4);
+	await surface(page, info, 'sales-above-arrow');
+	// A sale outside the time window must not keep the vertical hint visible.
+	const pan = async (direction: number) => {
+		const { main } = await pricePaneBounds(page);
+		const distance = Math.min(100, main.width * 0.6);
+		const left = main.x + main.width * 0.2;
+		const y = main.y + main.height / 2;
+		const start = direction > 0 ? left : left + distance;
+		await page.mouse.move(start, y);
+		await page.mouse.down();
+		await page.mouse.move(start + direction * distance, y, { steps: 8 });
+		await page.mouse.up();
+		await page.mouse.move(2, 2);
+	};
+	await pan(1);
+	await expect(arrow).toHaveCount(0);
+	await pan(-1);
+	await expect(arrow).toBeVisible();
+	const { axis } = await pricePaneBounds(page);
+	await page.mouse.dblclick(axis.x + axis.width / 2, axis.y + axis.height / 2);
+	await page.mouse.move(2, 2);
+	await expect(arrow).toHaveCount(0);
+	const canvas = page.locator('.price-canvas');
+	const nativeReset = await canvas.screenshot();
+	await zoomPriceIn(page);
+	await expect(arrow).toBeVisible();
+	await arrow.click();
+	await page.mouse.move(2, 2);
+	await expect(arrow).toHaveCount(0);
+	// Comparing the whole chart checks price scale, time zoom/scroll, and the
+	// independent Volume pane against the native double-click result.
+	await expect.poll(async () => (await canvas.screenshot()).equals(nativeReset)).toBe(true);
+	await surface(page, info, 'sales-above-reset');
+	// Keyboard activation also works; resetting the scale keeps a desktop pin.
+	let pinnedIds: Array<string | null> = [];
+	if (desktop) {
+		const point = (await salePoint(page))!;
+		await page.mouse.click(point.x, point.y);
+		await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+		pinnedIds = await rows(page).evaluateAll((items) =>
+			items.map((el) => el.getAttribute('data-sale-id'))
+		);
+	}
+	await zoomPriceIn(page);
+	await expect(arrow).toBeVisible();
+	await arrow.focus();
+	await arrow.press('Enter');
+	await expect(arrow).toHaveCount(0);
+	if (desktop) {
+		await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+		expect(
+			await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
+		).toEqual(pinnedIds);
+		await expect(page.locator('.sale-card-preview')).toBeVisible();
+	}
+	expect(historyRequests).toBe(1);
 });
 
 test('the pinned grid card keeps token navigation usable', async ({ page }) => {
