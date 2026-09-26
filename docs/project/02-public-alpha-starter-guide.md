@@ -198,30 +198,36 @@ Start with one collection bootstrap at a time. Multiple runs share the same RPC 
 
 ## Adding a Collection
 
-After the contract-safety acknowledgement, the sample, metadata source, and
-scope controls are available without a separate manual-editing gate. You can
-stage the inputs before submitting; typing or clearing a field sends no probe.
+The form has five numbered sections and a progress list that links to each one.
+Fields stay editable; typing or clearing a field sends no probe. Required setup
+can be completed manually even when optional network checks fail.
 
-1. Enter the contract address and a **Sample token ID** from the collection you
-   want. The sample is one existing NFT used for preview and optional OpenSea
-   lookup; it does not have to be the first token. If you only have an address,
-   you can probe it first, but review the candidate carefully on shared contracts.
-2. Choose the collection scope. Enable **Use ERC721Enumerable token
-   enumeration** only when you want every token on that contract and the probe
-   confirms support. Otherwise, enter the first token ID and total supply, or
-   use an explicit token list. For a range, the last ID is
-   `first + supply - 1`. The default first ID of `1` is editable, not a
-   detected fact.
-3. Press **Probe**. Use **Apply detected fields** if you want to accept the
-   suggested sample and media fields, and review the local **Collection slug**.
-   You can edit image/animation source fields and probe again. Clearing the
-   image field does not hide or clear the sample; a nonempty animation field
-   must resolve, or you can clear it to skip animation capture.
-4. Resolve the optional **OpenSea slug** using that same sample, then review
-   the settings and queue bootstrap. A successful explicit sample probe also
-   starts this optional lookup when OpenSea is enabled. If you accepted an
-   address-only candidate afterward, press **resolve** yourself. A staged slug
-   must match the sample's OpenSea collection.
+1. **Contract:** enter the address and confirm it is authentic. You may enter a
+   **Sample token ID** for checks or leave it blank for **Probe** to find one.
+   Probe is optional; its progress and errors appear next to these controls.
+   The sample is one existing NFT, not necessarily the first token in the scope.
+2. **Token scope:** choose a range or token ID list. For a range, set **First
+   token ID** and **Token count**; the last ID is `first + count - 1`. The default
+   first ID of `1` is editable, not a detected fact. Choose **Entire contract
+   (ERC721Enumerable)** only when you want every token on that contract, including
+   all projects if the contract is shared. Unconfirmed support produces a warning.
+3. **Collection details:** set the local **Collection slug** and required **Image
+   source field**. Animation is optional. Each available **Apply "value"** button
+   previews and accepts only that field's suggestion. You can also enter known
+   fields manually. To check edited sample/media fields, press **Probe** again.
+4. **Image cache (optional):** choose whether to cache images locally and their
+   maximum dimension. **estimate** checks one image and projects storage for the
+   selected scope. An unavailable or failed estimate does not prevent queueing.
+5. **OpenSea (optional):** resolve a slug using a sample inside the selected scope,
+   or set it up later. A successful explicit sample probe also starts this lookup
+   when scope is defined and OpenSea is enabled. If you apply an address-only
+   sample afterward, press **resolve** yourself. A staged slug must match the
+   sample's OpenSea collection.
+
+Once the required sections are complete, press **queue bootstrap**. The entered
+scope and media fields are used even if metadata is rate-limited, missing, or
+could not be checked. Worker chain checks still apply, and unavailable metadata
+or images may remain missing. Optional checks do not promise a successful run.
 
 For a partially minted collection, use the intended published range rather
 than shortening it to the current minted count. For example, first ID `1`

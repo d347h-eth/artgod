@@ -263,8 +263,6 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
     - `TraitFacetPanel.svelte`
     - `trait-facet-panel-controller.ts`
 - Base action class: `.facet-panel-action-button`
-- Value previews inside actions use `code` to preserve their spelling. The shared
-  button keeps its compact minimum height and grows when a label wraps.
 
 Specific controls:
 
@@ -344,6 +342,33 @@ Rules:
 - active/selected navigation controls must be visually selected but inert, with no pointer cursor and no hover affordance
 - stateful toggles such as `filter`, `tiers`, and `traits` remain clickable while active and should keep the normal hover/focus color behavior
 - reset or clear-state controls must use `.facet-panel-action-button.facet-reset-button`; they are pink by default and must not use orange, which is reserved for selected or active toggle and enum states
+
+### Bootstrap setup
+
+The creation form uses ordered sections with a progress list: Contract, Token
+scope, Collection details, Image cache, and OpenSea. Required sections show
+completion independently of optional network checks. Field errors and recovery
+instructions belong in their section; Probe feedback stays beside the contract
+controls. Optional check failures never gate a complete manual definition.
+
+The form is explicitly left aligned and wider than the compact-form default.
+Every section shares one three-column grid: label, input, action/status. All scalar
+inputs fill the same input column. Actions use the standard form button and
+`.action-button-positive` family, including Probe, per-field Apply, estimate,
+resolve, preview toggles, and queue bootstrap. Action widths follow their shared
+column; their labels do not wrap. Long suggested values use the shared
+`.action-button-value` clipping treatment with a complete accessible name and
+hover title. Narrow screens stack label, input, then action without squeezing
+controls or causing horizontal form overflow.
+
+Detailed probe results and media previews open on request. Scope choices remain
+editable without probing. A whole-contract choice is explicit and carries a
+warning when support is unconfirmed. It never follows automatically from a
+contract-wide capability or supply read.
+
+The logical groups, progress links, and explicit optional stages follow the
+[W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,
+colors and controls remain ArtGod's existing visual system.
 
 ## Trait Panel Behavior
 

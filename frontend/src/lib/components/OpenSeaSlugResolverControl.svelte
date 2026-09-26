@@ -33,6 +33,8 @@
 		sampleTokenId = null,
 		initialSlug = '',
 		inputName = 'openseaSlug',
+		inputId,
+		gridLayout = false,
 		inputClass = 'bootstrap-control bootstrap-input-slug',
 		openSeaEnabled,
 		disabledReason = null,
@@ -45,6 +47,8 @@
 		sampleTokenId?: string | null;
 		initialSlug?: string | null;
 		inputName?: string;
+		inputId?: string;
+		gridLayout?: boolean;
 		inputClass?: string;
 		openSeaEnabled: boolean;
 		disabledReason?: string | null;
@@ -101,7 +105,9 @@
 		untrack(invalidate);
 	});
 
-	onDestroy(() => { probeRequestId += 1; });
+	onDestroy(() => {
+		probeRequestId += 1;
+	});
 
 	$effect(() => {
 		const state: OpenSeaSlugResolverState = {
@@ -170,9 +176,10 @@
 	}
 </script>
 
-<div class="bootstrap-input-with-note">
+<div class="bootstrap-input-with-note" class:bootstrap-resolver-grid={gridLayout}>
 	<div class="bootstrap-input-status-row">
 		<input
+			id={inputId}
 			bind:value={slugValue}
 			class={inputClass}
 			type="text"
@@ -181,28 +188,34 @@
 			oninput={invalidate}
 			onkeydown={onSlugKeydown}
 		/>
-		{#if slugResolved}
-			<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
-				resolved
-			</span>
-		{:else if slugIncorrect}
-			<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
-				incorrect
-			</span>
-		{:else if probePending}
-			<span class="muted">
-				<span class="bootstrap-inline-progress">
-					<span>resolving</span>
-					<LoadingBladeBar ariaLabel="resolving OpenSea slug" barLength={2} />
-				</span>
-			</span>
-		{:else}
-			<button type="button" disabled={!canResolve} onclick={() => void resolveSlug()}>
+		<div class:bootstrap-row-actions={gridLayout} class:bootstrap-resolver-actions={!gridLayout}>
+			<button
+				type="button"
+				class="action-button-positive"
+				disabled={!canResolve || probePending}
+				onclick={() => void resolveSlug()}
+			>
 				resolve
 			</button>
-		{/if}
+			{#if slugResolved}
+				<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge'}>
+					resolved
+				</span>
+			{:else if slugIncorrect}
+				<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge'}>
+					incorrect
+				</span>
+			{:else if probePending}
+				<span class="muted">
+					<span class="bootstrap-inline-progress">
+						<span>resolving</span>
+						<LoadingBladeBar ariaLabel="resolving OpenSea slug" barLength={2} />
+					</span>
+				</span>
+			{/if}
+		</div>
 	</div>
 	{#if probeMessage}
-		<span class="muted bootstrap-opensea-slug-note">{probeMessage}</span>
+		<span class="muted bootstrap-opensea-slug-note" class:bootstrap-row-note={gridLayout}>{probeMessage}</span>
 	{/if}
 </div>

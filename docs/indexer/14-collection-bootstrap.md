@@ -81,25 +81,44 @@ yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-bl
 
 ## Manual-First Probe Form
 
-All request fields are available after the contract-safety acknowledgement:
-address, sample token, image/animation source fields, local/OpenSea slugs, scope,
-and cache settings. Edits do not make network requests. Press **Probe**, beside
-the contract address, to submit the staged metadata inputs. Each detected sample,
-image field, animation field, and collection slug has its own **Apply "value"**
-button beside the input. The button previews the suggestion and changes only that
-input; a matching value disables it. Neither probing nor applying a suggestion
-silently replaces the configured scope. The form stays compact and left aligned.
+The form has five ordered sections: Contract, Token scope, Collection details,
+Image cache, and OpenSea. The first three are required; the last two are optional
+settings. A progress list links to each section and identifies incomplete setup.
+All fields remain editable. The contract-safety acknowledgement gates probing and
+queueing, not editing.
+
+Each section uses the same label/input/action grid. Inputs and action buttons have
+stable widths, with single-line **Apply "value"** suggestions in the action column.
+Long suggestions are clipped and expose their complete value through the button's
+title and accessible name. The form is left aligned and uses more horizontal space;
+narrow viewports stack each row in label, input, action order.
+
+Edits do not make network requests. **Probe**, beside the address, checks the
+staged sample and metadata fields. Its pending state, errors and retry guidance
+stay in the Contract section. Each detected sample, image field, animation field,
+and collection slug has an independent Apply action. It changes only that input;
+a matching value disables it. Neither probing nor applying a suggestion silently
+replaces the configured scope. Previews and detailed checks open on request.
+
+Queue eligibility depends on the declared address, local slug, image source field,
+token scope, and valid cache settings. Animation is optional. A sample, successful
+probe, metadata fetch, image-cache estimate, or OpenSea lookup is not required.
+The request uses the entered media fields, including when they could not be
+checked. Input format, size limits, scope-overlap checks, and worker chain checks
+remain enforced. Queueing does not guarantee metadata or images can be recovered.
 
 The first token ID (editable default `1`) and total supply define the inclusive
 scope `first .. first + supply - 1`, not the currently minted inventory.
-A sample is one existing token inside that scope; it need not be the first ID.
+A sample is one existing token for optional checks; it need not be the first ID.
 ERC721Enumerable support is a diagnostic, not permission to select every project
-on a shared contract. Whole-contract enumeration requires an explicit checkbox.
+on a shared contract. **Token scope** offers a range, explicit token list, or
+**Entire contract (ERC721Enumerable)**. All choices are available without a probe.
+Unconfirmed Enumerable support produces a local warning, not a disabled control.
 
 The short preflight reads contract capabilities and validates sample ownership
 through Ethereum JSON-RPC before fetching tokenURI metadata over HTTP/IPFS.
 It does not scan the range, paginate a marketplace, or read historical events.
-When a supplied sample resolves and OpenSea is enabled, the explicit Probe
+When a supplied sample resolves, belongs to the declared scope, and OpenSea is enabled, the explicit Probe
 action also starts the optional single-NFT slug lookup. An unresolved or
 unavailable slug does not block onchain setup: queueing omits that slug and
 bidding remains unavailable until late OpenSea setup succeeds.
@@ -119,13 +138,15 @@ that universe by walking tokens. Keep these facts separate:
   boundary. A missing low ID may be unminted, burned, or not yet migrated. Do not
   shift the requested range to the first token that happens to have an owner.
 - Explicit token IDs are the fallback when a collection cannot be represented
-  by a reasonable bounded interval. The form and CLI check that their resolved
-  sample belongs to the selected manual range/list. Run creation separately
+  by a reasonable bounded interval. The form warns when a sample is outside the
+  selected range/list and omits its OpenSea slug when queueing; the declared
+  bootstrap scope remains valid. The CLI still requires a sample within its
+  selected scope. Run creation separately
   validates the scope and rejects overlap with existing collections.
 
-Manual scope does not bypass sample/metadata validation, range limits, or
-unrecognized contract failures. It also does not add collection-specific
-heuristics to the generic probe. See the [regression cases](11-testing.md#bootstrap-regression-cases)
+Manual form submission does not require successful sample/metadata checks. It
+does not bypass range limits or turn worker RPC failures into absent tokens, and
+it adds no collection-specific heuristics to the generic probe. See the [regression cases](11-testing.md#bootstrap-regression-cases)
 for shared-contract and partially minted examples.
 
 ### Probe Data Sources and Guarantees
@@ -169,8 +190,9 @@ and UI/CLI changes together.
 ### Metadata and Image Failure Recovery
 
 Sample ownership is independent of metadata availability. A confirmed owner keeps
-the sample marked resolved when metadata download or parsing fails; the form shows
-that failure and keeps queueing blocked until a successful Probe. It must not label
+the sample marked **owner confirmed** when metadata download or parsing fails;
+the form shows that failure beside Probe and allows queueing a complete definition.
+It must not label
 an owned token incorrect merely because its metadata host returned HTTP 429/404,
 timed out, or returned unreadable metadata. Contract and supply diagnostics remain
 available, and the entered sample, scope, and source fields remain intact.
@@ -178,9 +200,10 @@ available, and the entered sample, scope, and source fields remain intact.
 Expected image download/processing failures return HTTP 502 with a safe recovery
 message; upstream status codes remain visible, while raw error details go to logs.
 A failed image-cache estimate can be retried with **estimate**. Changing the sample,
-source, cache settings, or collection scope invalidates the old estimate; queueing
-with caching enabled still requires a successful estimate for the current inputs.
-Switching **Image cache mode** to **off** skips the estimate requirement.
+source, cache settings, or collection scope invalidates the old estimate and ignores
+pending stale responses. Caching can remain enabled when an estimate fails or was
+never run. Estimate failures do not change the submitted cache policy. Switching
+**Image cache mode** to **off** disables local image caching.
 
 For IPFS download failures, check `COMMON_IPFS_GATEWAY_ORIGIN` in Admin config,
 restart infra after changing it, and repeat Probe/estimate. Metadata and image

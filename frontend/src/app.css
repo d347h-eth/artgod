@@ -292,22 +292,9 @@ a:hover {
 .bootstrap-create-form {
 	display: block;
 	margin-inline: 0;
-	width: min(46rem, 100%);
+	width: min(76rem, 100%);
 	max-width: 100%;
 	margin-bottom: 4.5rem;
-}
-
-.bootstrap-create-layout {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-	align-items: start;
-	gap: 1.35rem;
-	width: 100%;
-	max-width: 100%;
-}
-
-.bootstrap-hidden-form {
-	display: none;
 }
 
 .bootstrap-form-fields {
@@ -387,29 +374,10 @@ a:hover {
 	cursor: pointer;
 }
 
-.bootstrap-contract-probe-fields {
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-
-.bootstrap-contract-probe-fields:disabled {
-	opacity: 0.58;
-}
-
 .bootstrap-form-feedback {
 	display: grid;
 	gap: 0.2rem;
 	width: fit-content;
-}
-
-.bootstrap-form-actions {
-	display: grid;
-	gap: 0.35rem;
-	justify-items: center;
-	width: 100%;
-	text-align: center;
 }
 
 .bootstrap-form-row {
@@ -429,18 +397,193 @@ a:hover {
 	grid-template-columns: 10.5rem max-content;
 }
 
+.bootstrap-create-form {
+	/* One column contract for every section, independent of button/value lengths. */
+	--bootstrap-setup-columns: minmax(9rem, 0.7fr) minmax(0, 1.3fr) minmax(12rem, 0.9fr);
+}
+
+.bootstrap-create-form .bootstrap-form-row,
+.bootstrap-step-heading,
+.bootstrap-setup-submit {
+	display: grid;
+	grid-template-columns: var(--bootstrap-setup-columns);
+	column-gap: 1rem;
+	row-gap: 0.4rem;
+	width: 100%;
+}
+
 .bootstrap-create-form .bootstrap-form-row {
-	grid-template-columns: minmax(13rem, 17.5rem) minmax(0, 1fr);
-	width: 100%;
+	align-items: start;
 }
 
-.bootstrap-create-form .bootstrap-form-checkbox-row {
-	grid-template-columns: minmax(13rem, 17.5rem) max-content;
+.bootstrap-create-form .bootstrap-form-row > label,
+.bootstrap-create-form .bootstrap-form-row > .bootstrap-form-label-cell,
+.bootstrap-create-form .bootstrap-form-row > .bootstrap-read-value {
+	padding-top: 0.5rem;
 }
 
-.bootstrap-create-form .bootstrap-probe-warning-row {
-	grid-template-columns: minmax(13rem, 17.5rem) minmax(0, 1fr);
+.bootstrap-create-form .bootstrap-form-row > .bootstrap-control,
+.bootstrap-resolver-grid .bootstrap-control {
 	width: 100%;
+	min-width: 0;
+}
+
+.bootstrap-step-heading {
+	align-items: baseline;
+	padding-bottom: 0.6rem;
+	margin-bottom: 0.25rem;
+	border-bottom: 1px solid var(--c-blue);
+}
+
+.bootstrap-step-heading h3 {
+	grid-column: 1 / 3;
+	margin: 0;
+	font-size: 0.85rem;
+	color: var(--c-yellow);
+	text-transform: uppercase;
+}
+
+.bootstrap-step-heading h3 .muted {
+	font-size: 0.7rem;
+	margin-inline-start: 0.6rem;
+}
+
+.bootstrap-step-status,
+.bootstrap-row-status {
+	color: var(--c-sand);
+	font-size: 0.72rem;
+	line-height: 1.4;
+}
+
+.bootstrap-step-incomplete,
+.bootstrap-check-warning {
+	color: var(--c-yellow);
+}
+
+.bootstrap-row-actions {
+	display: grid;
+	gap: 0.35rem;
+	align-content: center;
+	min-width: 0;
+}
+
+.bootstrap-row-actions > button,
+.bootstrap-setup-submit > button {
+	width: 100%;
+	min-width: 0;
+	min-height: 2.15rem;
+}
+
+/* Value actions use the normal button family; only long labels are clipped. */
+.action-button-value {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.action-button-value code {
+	font: inherit;
+	text-transform: none;
+}
+
+.bootstrap-row-note {
+	grid-column: 2 / 4;
+	margin: 0;
+	font-size: 0.75rem;
+	line-height: 1.5;
+	text-transform: none;
+}
+
+.bootstrap-section-note {
+	margin: 0;
+	font-size: 0.75rem;
+	line-height: 1.5;
+}
+
+.bootstrap-section-note p {
+	margin: 0.25rem 0;
+}
+
+.bootstrap-read-value {
+	min-width: 0;
+	font-size: 0.8rem;
+	overflow-wrap: anywhere;
+}
+
+.bootstrap-setup-intro {
+	margin-bottom: 1rem;
+}
+
+.bootstrap-setup-intro p,
+.bootstrap-setup-submit p {
+	font-size: 0.78rem;
+}
+
+.bootstrap-setup-progress {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem 1.5rem;
+	padding: 0;
+	list-style: none;
+	font-size: 0.8rem;
+}
+
+.bootstrap-setup-progress a {
+	display: grid;
+	gap: 0.3rem;
+}
+
+.bootstrap-setup-progress a[aria-current='step'] {
+	color: var(--c-orange);
+}
+
+.bootstrap-setup-progress .muted {
+	font-size: 0.68rem;
+}
+
+.bootstrap-create-form .bootstrap-form-section {
+	gap: 0.8rem;
+	scroll-margin-top: 1rem;
+}
+
+.bootstrap-setup-submit {
+	align-items: center;
+	padding: 0.75rem;
+}
+
+.bootstrap-setup-submit > p {
+	grid-column: 1 / 3;
+	margin: 0;
+}
+
+.bootstrap-setup-submit > .bootstrap-section-note {
+	grid-column: 1 / -1;
+}
+
+.bootstrap-create-form .bootstrap-resolver-grid,
+.bootstrap-create-form .bootstrap-resolver-grid .bootstrap-input-status-row {
+	display: contents;
+}
+
+.bootstrap-create-form .bootstrap-resolver-grid .bootstrap-opensea-slug-note {
+	max-width: none;
+}
+
+.bootstrap-resolver-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.bootstrap-setup-preview {
+	width: min(18rem, 100%);
+	justify-self: center;
+}
+
+.bootstrap-setup-preview p {
+	font-size: 0.75rem;
 }
 
 .bootstrap-form label {
@@ -592,130 +735,6 @@ a:hover {
 	min-width: 2ch;
 }
 
-.bootstrap-probe-section {
-	gap: 0.85rem;
-	width: 100%;
-	max-width: 100%;
-	overflow-x: visible;
-}
-
-.bootstrap-probe-status {
-	color: var(--c-cyan);
-}
-
-.bootstrap-probe-status-action-required {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.35rem;
-	padding: 0 0.25rem;
-	background: color-mix(in srgb, var(--c-pink) 22%, transparent);
-	color: var(--c-pink);
-}
-
-.bootstrap-probe-status-tooltip.info-tooltip-warning {
-	color: var(--c-pink);
-}
-
-.bootstrap-probe-status-tooltip.info-tooltip-warning .info-tooltip-popup {
-	border-color: var(--c-pink);
-}
-
-.bootstrap-probe-chip-grid {
-	display: grid;
-	grid-template-columns: max-content max-content;
-	column-gap: 1.8rem;
-	row-gap: 1rem;
-	align-items: stretch;
-	width: max-content;
-	max-width: 100%;
-}
-
-.bootstrap-probe-chip {
-	display: grid;
-	align-content: start;
-	gap: 0.45rem;
-	padding: 0.25rem 0;
-	background: transparent;
-}
-
-.bootstrap-probe-chip-title {
-	color: var(--c-yellow);
-	font-size: 0.68rem;
-	text-transform: uppercase;
-}
-
-.bootstrap-probe-chip-body {
-	display: grid;
-	gap: 0.42rem;
-}
-
-.bootstrap-probe-chip .bootstrap-form-row {
-	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
-	align-items: baseline;
-	gap: 0.8rem;
-	width: 100%;
-}
-
-.bootstrap-probe-chip .bootstrap-form-label-cell {
-	max-width: none;
-}
-
-.bootstrap-probe-chip .bootstrap-form-row > .mono {
-	min-width: 0;
-	max-width: 100%;
-	text-align: right;
-	white-space: nowrap;
-	overflow-wrap: normal;
-}
-
-.bootstrap-estimate-highlight {
-	justify-self: end;
-	padding: 0 0.25rem;
-	background: var(--bid-book-own-row-background);
-}
-
-.bootstrap-image-estimate-chip {
-	width: 100%;
-}
-
-.bootstrap-token-preview-section {
-	justify-items: center;
-}
-
-.bootstrap-cache-preview-block {
-	display: grid;
-	gap: 0.65rem;
-	justify-items: center;
-	justify-self: center;
-	width: min(25rem, 100%);
-	max-width: 25rem;
-}
-
-.bootstrap-cache-preview-block > .muted {
-	max-width: 25rem;
-	white-space: normal;
-	text-transform: none;
-}
-
-.bootstrap-probe-warning-row {
-	align-items: start;
-}
-
-.bootstrap-probe-warnings {
-	display: grid;
-	gap: 0.2rem;
-	max-width: 26rem;
-}
-
-.bootstrap-probe-media-empty {
-	display: grid;
-	place-items: center;
-	width: 12rem;
-	aspect-ratio: 1;
-	border: 1px solid var(--c-blue);
-	font-size: 0.75rem;
-}
-
 .bootstrap-token-card-pane {
 	display: grid;
 	align-content: start;
@@ -748,14 +767,6 @@ a:hover {
 	height: 100%;
 	border: 0;
 	overflow: hidden;
-}
-
-.bootstrap-manual-edit-control {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.55rem;
-	flex-wrap: wrap;
-	max-width: 24rem;
 }
 
 .bootstrap-input-slug {
@@ -1088,6 +1099,30 @@ a:hover {
 
 .blockspace-actions-selection {
 	gap: 1.75rem;
+}
+
+@media (max-width: 640px) {
+	.bootstrap-create-form {
+		--bootstrap-setup-columns: minmax(0, 1fr);
+	}
+
+	.bootstrap-create-form .bootstrap-form-row {
+		row-gap: 0.5rem;
+	}
+
+	.bootstrap-step-heading h3,
+	.bootstrap-row-note,
+	.bootstrap-setup-submit > p {
+		grid-column: 1;
+	}
+
+	.bootstrap-row-actions {
+		justify-items: stretch;
+	}
+
+	.bootstrap-create-form .bootstrap-form-section {
+		gap: 1rem;
+	}
 }
 
 @media (max-width: 900px) {
@@ -1560,9 +1595,9 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	height: auto;
+	height: 20px;
 	min-height: 20px;
-	padding: 0.1rem 0.45rem;
+	padding: 0 0.45rem;
 	border: 1px solid var(--c-blue);
 	background: var(--c-bg);
 	color: var(--c-cyan);
@@ -1575,13 +1610,6 @@ th {
 	transition:
 		border-color 120ms ease,
 		color 120ms ease;
-}
-
-/* Actions can preview values while retaining their spelling and fitting narrow controls. */
-.facet-panel-action-button code {
-	font: inherit;
-	text-transform: none;
-	overflow-wrap: anywhere;
 }
 
 .facet-collapse-button {
@@ -4457,29 +4485,8 @@ th {
 		grid-template-columns: 1fr;
 	}
 
-	.bootstrap-create-layout {
-		grid-template-columns: minmax(0, 1fr);
-		width: 100%;
-	}
-
-	.bootstrap-create-form .bootstrap-form-row,
-	.bootstrap-create-form .bootstrap-form-checkbox-row {
-		grid-template-columns: minmax(0, 1fr);
-		gap: 0.35rem;
-		width: min(28rem, 100%);
-	}
-
 	.bootstrap-form-label-cell {
 		max-width: 100%;
-	}
-
-	.bootstrap-probe-chip-grid {
-		grid-template-columns: minmax(0, 1fr);
-		width: 100%;
-	}
-
-	.bootstrap-probe-chip .bootstrap-form-row {
-		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.bootstrap-token-card-pane {
