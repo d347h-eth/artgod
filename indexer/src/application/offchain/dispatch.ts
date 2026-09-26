@@ -2,7 +2,7 @@ import { logger } from "@artgod/shared/utils";
 import {
     getOpenSeaSaleDiagnosticContext,
     OPENSEA_SALE_LOG,
-} from "./opensea-sale.js";
+} from "./opensea-sale-diagnostics.js";
 import {
     admitsListingObservation,
     retainsOffchainActivity,

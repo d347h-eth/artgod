@@ -216,6 +216,13 @@ queue, including continuations produced by an older binary.
 
 ## OpenSea Sale Hints
 
+`shared/opensea/payload.ts` owns OpenSea envelope and identity decoding. Stream
+routing, order normalization, deduplication, diagnostics and the trading market
+event adapter use that owner. Generic normalization helpers live in
+`shared/offchain/normalizer-utils.ts`; address and hash checks use viem. NFT IDs
+have one decoder for the exact `chain/contract/uint256` format. Queue recovery
+decisions and job diagnostic formatting remain in the indexer.
+
 An OpenSea `item_sold` event normally produces an exact-order filled update and
 a seller/token revalidation hint. The
 [locked Stream SDK contract](https://github.com/ProjectOpenSea/stream-js/blob/v0.4.0/src/types.ts)

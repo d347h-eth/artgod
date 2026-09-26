@@ -16,7 +16,7 @@ import {
     assertAddress,
     assertString,
     toBigInt,
-} from "./normalizer-utils.js";
+} from "@artgod/shared/offchain/normalizer-utils";
 import {
     computeSeaportOrderHash,
     recoverSeaportSigner,

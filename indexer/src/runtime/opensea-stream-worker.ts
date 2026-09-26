@@ -16,7 +16,7 @@ import {
     getOpenSeaEventType,
     getOpenSeaOrderId,
     getOpenSeaSourceEventAt,
-} from "../application/offchain/opensea-envelope.js";
+} from "@artgod/shared/opensea/payload";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { getOpenSeaStreamDedupeKey } from "../application/offchain/opensea-stream-identity.js";
 import { OpenSeaStreamAdapter } from "../infra/offchain/opensea-stream.js";

@@ -29,6 +29,10 @@ import {
 } from "./opensea-normalize.js";
 import { normalizeOpenSeaRestOrder } from "./opensea-rest-normalize.js";
 import {
+    getOpenSeaPayload,
+    OPENSEA_STREAM_EVENT_TYPE,
+} from "@artgod/shared/opensea/payload";
+import {
     asObject,
     assertAddress,
     assertSide,
@@ -36,7 +40,7 @@ import {
     parseOptionalAddress,
     parseOptionalNumber,
     parseOptionalString,
-} from "./normalizer-utils.js";
+} from "@artgod/shared/offchain/normalizer-utils";
 
 export type RawOrderPayload = {
     orderId: string;
@@ -297,9 +301,9 @@ export function normalizeOffchainActivity(
     if (!Number.isFinite(occurredAt)) return null;
 
     if (
-        raw.eventType === "item_listed" ||
-        raw.eventType === "item_received_bid" ||
-        raw.eventType === "item_received_offer"
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemListed ||
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid ||
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedOffer
     ) {
         const order = normalizeOffchainOrder(raw);
         if (
@@ -341,9 +345,9 @@ export function normalizeOffchainActivity(
     }
 
     if (
-        raw.eventType === "item_cancelled" ||
-        raw.eventType === "order_invalidate" ||
-        raw.eventType === "order_invalidation"
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemCancelled ||
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidate ||
+        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidation
     ) {
         if (
             !existingOrder ||
@@ -395,9 +399,7 @@ function normalizeOpenSeaOrderPayload(
 }
 
 function parseStreamQuantity(rawPayload: unknown): string | null {
-    const envelope = asObject(rawPayload, "payload");
-    const payload = asObject(envelope.payload, "payload.payload");
-    const quantity = payload.quantity;
+    const quantity = getOpenSeaPayload(rawPayload).quantity;
     if (quantity === undefined || quantity === null) return null;
     if (typeof quantity === "string" && quantity.trim() !== "") return quantity;
     if (typeof quantity === "number" && Number.isFinite(quantity)) {

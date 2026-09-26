@@ -9,7 +9,7 @@ import {
     assertString,
     parseOptionalString,
     toBigInt,
-} from "./normalizer-utils.js";
+} from "@artgod/shared/offchain/normalizer-utils";
 
 const NFT_ITEM_TYPES = new Set(["2", "3", "4", "5"]);
 const PAYMENT_ITEM_TYPES = new Set(["0", "1"]);

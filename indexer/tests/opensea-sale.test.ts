@@ -8,10 +8,12 @@ import {
 } from "../src/application/offchain/opensea-normalize.js";
 import {
     getOpenSeaSaleDiagnosticContext,
-    OPENSEA_SALE_EVENT_TYPE,
-    OPENSEA_SALE_HASH_STATUS,
     OPENSEA_SALE_LOG,
-} from "../src/application/offchain/opensea-sale.js";
+} from "../src/application/offchain/opensea-sale-diagnostics.js";
+import {
+    OPENSEA_STREAM_EVENT_TYPE,
+    OPENSEA_ORDER_HASH_STATUS,
+} from "@artgod/shared/opensea/payload";
 import { getOpenSeaStreamDedupeKey } from "../src/application/offchain/opensea-stream-identity.js";
 import {
     OFFCHAIN_OBSERVATION_CHANNEL,
@@ -45,7 +47,7 @@ const tokenSets: TokenSetRegistryPort = {
 // Synthetic incomplete event; none of the six historical raw payloads survived.
 function sale(payload: Record<string, unknown> = {}) {
     return {
-        event_type: OPENSEA_SALE_EVENT_TYPE,
+        event_type: OPENSEA_STREAM_EVENT_TYPE.ItemSold,
         payload: {
             item: { nft_id: `ethereum/${CONTRACT}/832` },
             maker: { address: SELLER },
@@ -243,7 +245,7 @@ describe("sale identity and diagnostics", () => {
                 RECEIVED_AT,
             ),
         ).toBe(
-            `${OFFCHAIN_OBSERVATION_CHANNEL.Stream}:${OPENSEA_SALE_EVENT_TYPE}:${ORDER_HASH}:${RECEIVED_AT / 1_000}`,
+            `${OFFCHAIN_OBSERVATION_CHANNEL.Stream}:${OPENSEA_STREAM_EVENT_TYPE.ItemSold}:${ORDER_HASH}:${RECEIVED_AT / 1_000}`,
         );
         expect(
             getOpenSeaStreamDedupeKey(
@@ -283,7 +285,7 @@ describe("sale identity and diagnostics", () => {
             collectionId: 9,
             sourceEventAt: RECEIVED_AT / 1_000,
             orderId: null,
-            orderHashStatus: OPENSEA_SALE_HASH_STATUS.Invalid,
+            orderHashStatus: OPENSEA_ORDER_HASH_STATUS.Invalid,
             nftChain: "ethereum",
             contract: CONTRACT,
             tokenId: "832",
@@ -299,7 +301,7 @@ describe("sale identity and diagnostics", () => {
             }),
         ).toBeNull();
         expect(getOpenSeaSaleDiagnosticContext(observation())).toMatchObject({
-            orderHashStatus: OPENSEA_SALE_HASH_STATUS.Missing,
+            orderHashStatus: OPENSEA_ORDER_HASH_STATUS.Missing,
         });
     });
 });

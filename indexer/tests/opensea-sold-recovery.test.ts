@@ -12,7 +12,7 @@ import { SqliteCurrentAsks } from "@artgod/shared/database/current-asks";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
-import { OPENSEA_SALE_EVENT_TYPE } from "../src/application/offchain/opensea-sale.js";
+import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
 import { getOpenSeaStreamDedupeKey } from "../src/application/offchain/opensea-stream-identity.js";
@@ -136,7 +136,7 @@ describe("hashless sale recovery", () => {
             close: async () => {},
         };
         const raw = {
-            event_type: OPENSEA_SALE_EVENT_TYPE,
+            event_type: OPENSEA_STREAM_EVENT_TYPE.ItemSold,
             payload: {
                 item: { nft_id: `ethereum/${sale.contract}/${sale.tokenId}` },
                 maker: { address: sale.maker },
@@ -157,7 +157,7 @@ describe("hashless sale recovery", () => {
                 receivedAt: Date.now(),
                 channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
                 dedupeKey: getOpenSeaStreamDedupeKey(raw, Date.now()),
-                eventType: OPENSEA_SALE_EVENT_TYPE,
+                eventType: OPENSEA_STREAM_EVENT_TYPE.ItemSold,
                 payload: raw,
             },
         );

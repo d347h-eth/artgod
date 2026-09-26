@@ -4,11 +4,9 @@ import {
     getOpenSeaEventType,
     getOpenSeaOrderId,
     getOpenSeaSourceEventAt,
-} from "./opensea-envelope.js";
-import {
-    getOpenSeaSaleIdentifiers,
-    OPENSEA_SALE_EVENT_TYPE,
-} from "./opensea-sale.js";
+    getOpenSeaEventIdentifiers,
+    OPENSEA_STREAM_EVENT_TYPE,
+} from "@artgod/shared/opensea/payload";
 
 export function getOpenSeaStreamDedupeKey(
     raw: unknown,
@@ -16,8 +14,8 @@ export function getOpenSeaStreamDedupeKey(
 ): string {
     const eventType = getOpenSeaEventType(raw);
     let identity = getOpenSeaOrderId(raw) ?? "na";
-    if (eventType === OPENSEA_SALE_EVENT_TYPE) {
-        const sale = getOpenSeaSaleIdentifiers(raw);
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemSold) {
+        const sale = getOpenSeaEventIdentifiers(raw);
         if (!sale.orderId) {
             // Distinct tokens/transactions must not share the old `na` key in
             // the same second. Identical token hints can safely coalesce.

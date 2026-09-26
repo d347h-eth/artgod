@@ -12,7 +12,7 @@ import { QUEUE_NAMES } from "../domain/queues.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import { OFFCHAIN_JOB_KIND } from "../domain/offchain-jobs.js";
-import { getOpenSeaSaleDiagnosticContext } from "../application/offchain/opensea-sale.js";
+import { getOpenSeaSaleDiagnosticContext } from "../application/offchain/opensea-sale-diagnostics.js";
 
 async function main() {
     try {

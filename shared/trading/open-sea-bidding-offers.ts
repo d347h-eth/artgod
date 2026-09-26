@@ -6,6 +6,8 @@ import {
     type TradingTraitCriterion,
 } from "../types/trading.js";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "./open-sea-mainnet-security-policy.js";
+import { getOpenSeaOrderHash } from "../opensea/payload.js";
+import { asRecord } from "../offchain/normalizer-utils.js";
 
 export type OpenSeaBiddingOfferScope =
     | "item"
@@ -514,15 +516,6 @@ export function getOpenSeaProtocolEnvelope(rawOrder: unknown):
         | undefined;
 }
 
-export function getOpenSeaOrderHash(rawOffer: unknown): string | null {
-    const record = asRecord(rawOffer);
-    return (
-        stringOrUndefined(record.orderHash) ??
-        stringOrUndefined(record.order_hash) ??
-        null
-    );
-}
-
 // Returns the NFT contract address targeted by the OpenSea offer, when present.
 export function getOpenSeaCollectionAddress(
     rawOffer: unknown,
@@ -905,12 +898,6 @@ function toRfc3339Seconds(ms: number): string {
 
 function asArray(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
 }
 
 function recordOrUndefined(

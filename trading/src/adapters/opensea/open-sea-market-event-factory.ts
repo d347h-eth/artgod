@@ -4,24 +4,41 @@ import {
     TraitCriterion,
     Type,
 } from "../../domain/market/event.js";
+import {
+    getOpenSeaEventNft,
+    getOpenSeaEventType,
+    getOpenSeaOrderHash,
+    getOpenSeaPayload as getPayload,
+    OPENSEA_STREAM_EVENT_TYPE,
+} from "@artgod/shared/opensea/payload";
+import {
+    asRecord,
+    tryParseAddress,
+} from "@artgod/shared/offchain/normalizer-utils";
 
 // OpenSeaMarketEventFactory translates raw OpenSea stream payloads into the stable MarketEvent shape.
 export class OpenSeaMarketEventFactory {
-    private static readonly PATTERN_ID = /.*\/.*\/(?<id>\d+)/;
-
-    private readonly eventTypeMapping: Record<string, (event: unknown) => MarketEvent> =
-        {
-            collection_offer: (event) => this.mapCollectionOfferEvent(event),
-            item_listed: (event) => this.mapItemListedEvent(event),
-            item_received_bid: (event) => this.mapItemReceivedBidEvent(event),
-            item_sold: (event) => this.mapItemSoldEvent(event),
-            item_transferred: (event) => this.mapItemTransferredEvent(event),
-            trait_offer: (event) => this.mapTraitOfferEvent(event),
-        };
+    private readonly eventTypeMapping: Record<
+        string,
+        (event: unknown) => MarketEvent
+    > = {
+        [OPENSEA_STREAM_EVENT_TYPE.CollectionOffer]: (event) =>
+            this.mapCollectionOfferEvent(event),
+        [OPENSEA_STREAM_EVENT_TYPE.ItemListed]: (event) =>
+            this.mapItemListedEvent(event),
+        [OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid]: (event) =>
+            this.mapItemReceivedBidEvent(event),
+        [OPENSEA_STREAM_EVENT_TYPE.ItemSold]: (event) =>
+            this.mapItemSoldEvent(event),
+        [OPENSEA_STREAM_EVENT_TYPE.ItemTransferred]: (event) =>
+            this.mapItemTransferredEvent(event),
+        [OPENSEA_STREAM_EVENT_TYPE.TraitOffer]: (event) =>
+            this.mapTraitOfferEvent(event),
+    };
 
     public newMarketEvent(event: unknown): MarketEvent | null {
-        const eventType = asRecord(event).event_type;
-        if (typeof eventType !== "string") {
+        const eventType = getOpenSeaEventType(event);
+        if (!eventType) {
             return null;
         }
 
@@ -40,7 +57,9 @@ export class OpenSeaMarketEventFactory {
             "",
             this.extractTraitCriteria(event),
         );
-        marketEvent.setTotalPrice(bigintInputOrZero(getPayload(event).base_price));
+        marketEvent.setTotalPrice(
+            bigintInputOrZero(getPayload(event).base_price),
+        );
         return marketEvent;
     }
 
@@ -50,7 +69,9 @@ export class OpenSeaMarketEventFactory {
             Scope.Unknown,
             this.mapIdentifier(event),
         );
-        marketEvent.setTotalPrice(bigintInputOrZero(getPayload(event).base_price));
+        marketEvent.setTotalPrice(
+            bigintInputOrZero(getPayload(event).base_price),
+        );
         return marketEvent;
     }
 
@@ -60,7 +81,9 @@ export class OpenSeaMarketEventFactory {
             Scope.Item,
             this.mapIdentifier(event),
         );
-        marketEvent.setTotalPrice(bigintInputOrZero(getPayload(event).base_price));
+        marketEvent.setTotalPrice(
+            bigintInputOrZero(getPayload(event).base_price),
+        );
         return marketEvent;
     }
 
@@ -70,7 +93,9 @@ export class OpenSeaMarketEventFactory {
             Scope.Unknown,
             this.mapIdentifier(event),
         );
-        marketEvent.setTotalPrice(bigintInputOrZero(getPayload(event).sale_price));
+        marketEvent.setTotalPrice(
+            bigintInputOrZero(getPayload(event).sale_price),
+        );
         return marketEvent;
     }
 
@@ -81,7 +106,9 @@ export class OpenSeaMarketEventFactory {
             "",
             this.extractTraitCriteria(event),
         );
-        marketEvent.setTotalPrice(bigintInputOrZero(getPayload(event).base_price));
+        marketEvent.setTotalPrice(
+            bigintInputOrZero(getPayload(event).base_price),
+        );
         return marketEvent;
     }
 
@@ -111,11 +138,11 @@ export class OpenSeaMarketEventFactory {
         const paymentToken = asRecord(payload.payment_token);
         return new MarketEvent(
             stringOrEmpty(payload.event_timestamp),
-            stringOrEmpty(asRecord(event).event_type) as Type,
-            stringOrEmpty(payload.order_hash),
+            (getOpenSeaEventType(event) ?? "") as Type,
+            getOpenSeaOrderHash(payload) ?? "",
             getCollectionSlug(event),
             itemId,
-            stringOrEmpty(asRecord(payload.maker).address),
+            tryParseAddress(payload.maker) ?? "",
             numberOrZero(payload.quantity),
             stringOrEmpty(paymentToken.symbol),
             numberOrZero(paymentToken.decimals),
@@ -145,8 +172,7 @@ export class OpenSeaMarketEventFactory {
         const type =
             stringOrUndefined(record.type) ??
             stringOrUndefined(record.trait_type);
-        const value =
-            record.value ?? record.trait_value ?? record.trait_name;
+        const value = record.value ?? record.trait_value ?? record.trait_name;
         if (typeof type === "string" && value !== undefined && value !== null) {
             return [{ type, value: String(value) }];
         }
@@ -179,24 +205,8 @@ export class OpenSeaMarketEventFactory {
     }
 
     private mapIdentifier(event: unknown): string {
-        const nftId = asRecord(getPayload(event).item).nft_id;
-        if (typeof nftId !== "string") {
-            return "";
-        }
-
-        const match = nftId.match(OpenSeaMarketEventFactory.PATTERN_ID);
-        return match?.groups?.id ?? "";
+        return getOpenSeaEventNft(event)?.tokenId ?? "";
     }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
-}
-
-function getPayload(event: unknown): Record<string, unknown> {
-    return asRecord(asRecord(event).payload);
 }
 
 function getCollectionSlug(event: unknown): string {
