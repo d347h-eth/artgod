@@ -8,16 +8,15 @@ import type {
 import type { RpcProviderPort } from "../../ports/rpc.js";
 import { validateSeaportOrder } from "./seaport-validate.js";
 import { createSeaportStatusReader } from "./seaport-status-reader.js";
-
-/** Infrastructure uncertainty cannot be recorded as a protocol-invalid order. */
-export class OrderValidationSnapshotUnavailable extends Error {
-    constructor(message: string, cause?: unknown) {
-        super(message, { cause });
-        this.name = "OrderValidationSnapshotUnavailable";
-    }
-}
+import {
+    OrderValidationSnapshotUnavailable,
+    OrderValidationReadUnavailable,
+} from "../../domain/order-validation-failure.js";
 
 const SHARED_READS = new Set(["getCounter", "allowance", "balanceOf"]);
+// These Seaport/ERC721 calls depend on one order/token. This classifies the read,
+// not the provider's health or the order's validity; failed work remains retryable.
+const ORDER_READS = new Set(["getOrderStatus", "ownerOf", "getApproved"]);
 
 type SnapshotDependencies = {
     chainId: number;
@@ -93,6 +92,7 @@ function createValidationSnapshotFactory(
             counts,
         });
         let failure: unknown;
+        let currentOrderId: string | undefined;
         let orders = 0;
         let closed = false;
         // The validator also catches conduit-registry errors. Preserve their infrastructure
@@ -180,10 +180,19 @@ function createValidationSnapshotFactory(
                         throw new Error("Empty contract response");
                     return result as T;
                 } catch (error) {
-                    failure = new OrderValidationSnapshotUnavailable(
-                        "Validation snapshot read failed",
-                        error,
-                    );
+                    failure =
+                        error instanceof OrderValidationSnapshotUnavailable
+                            ? error
+                            : currentOrderId &&
+                                ORDER_READS.has(params.functionName)
+                              ? new OrderValidationReadUnavailable(
+                                    currentOrderId,
+                                    error,
+                                )
+                              : new OrderValidationSnapshotUnavailable(
+                                    "Validation snapshot read failed",
+                                    error,
+                                );
                     throw failure;
                 }
             },
@@ -209,16 +218,21 @@ function createValidationSnapshotFactory(
                 }
                 checkLifetime();
                 orders++;
-                const result = await validateSeaportOrder(
-                    pinnedRpc,
-                    conduits,
-                    { conduitController: input.conduitController },
-                    order,
-                );
-                // A failed dependency poisons this snapshot, even if the validator
-                // translated the infrastructure error into a protocol result.
-                if (failure) throw failure;
-                return result;
+                currentOrderId = order.id;
+                try {
+                    const result = await validateSeaportOrder(
+                        pinnedRpc,
+                        conduits,
+                        { conduitController: input.conduitController },
+                        order,
+                    );
+                    // A failed dependency poisons this snapshot, even if the validator
+                    // translated the infrastructure error into a protocol result.
+                    if (failure) throw failure;
+                    return result;
+                } finally {
+                    currentOrderId = undefined;
+                }
             },
             async finish() {
                 if (closed)

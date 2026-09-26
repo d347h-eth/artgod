@@ -5,8 +5,11 @@ import { computeSeaportOrderHash } from "../src/application/offchain/seaport-pro
 import {
     createSeaportValidationBatchFactory,
     createSeaportOrderValidationFactory,
-    OrderValidationSnapshotUnavailable,
 } from "../src/application/offchain/seaport-validation-batch.js";
+import {
+    OrderValidationSnapshotUnavailable,
+    OrderValidationReadUnavailable,
+} from "../src/domain/order-validation-failure.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../src/domain/order-validation-policy.js";
 import { ORDER_STATUS, type OrderRecord } from "../src/domain/orders.js";
 import type { ConduitRegistryPort } from "../src/ports/conduits.js";
@@ -46,6 +49,55 @@ describe("bounded Seaport validation snapshots", () => {
         vi.spyOn(Date, "now").mockReturnValue(HEAVY_MAKER.now * 1_000),
     );
     afterEach(() => vi.restoreAllMocks());
+
+    it.each([
+        "getOrderStatus",
+        "ownerOf",
+        "getCounter",
+        "balanceOf",
+        "allowance",
+        "isApprovedForAll",
+    ])(
+        "classifies %s read failures without allowing poisoned snapshot completion",
+        async (functionName) => {
+            vi.spyOn(logger, "error").mockImplementation(() => {});
+            const rpc = new HeavyMakerRpc();
+            const sell =
+                functionName === "ownerOf" ||
+                functionName === "isApprovedForAll";
+            const order = heavyMakerOrder(
+                0,
+                sell ? { side: "sell", maker: HEAVY_MAKER.smallMaker } : {},
+            );
+            const cause = new Error("fixture dependency failure");
+            rpc.onRead = (params) => {
+                if (params.functionName === functionName) throw cause;
+            };
+            const create = createSeaportOrderValidationFactory({
+                chainId: HEAVY_MAKER.chainId,
+                rpc,
+                conduits: warmConduits,
+                conduitController: HEAVY_MAKER.controller,
+            });
+            const batch = await create(scope);
+            const failure = await batch
+                .validate(order)
+                .catch((error: unknown) => error);
+            expect(failure).toBeInstanceOf(OrderValidationSnapshotUnavailable);
+            if (
+                functionName === "getOrderStatus" ||
+                functionName === "ownerOf"
+            ) {
+                expect(failure).toBeInstanceOf(OrderValidationReadUnavailable);
+                expect(failure).toMatchObject({ orderId: order.id, cause });
+            } else {
+                expect(failure).not.toBeInstanceOf(
+                    OrderValidationReadUnavailable,
+                );
+            }
+            await expect(batch.finish()).rejects.toBe(failure);
+        },
+    );
 
     it("pins native balance and sell checks in full-order snapshots, propagating native RPC failure", async () => {
         vi.spyOn(logger, "error").mockImplementation(() => {});
