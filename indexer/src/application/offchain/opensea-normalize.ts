@@ -26,6 +26,12 @@ import {
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
 import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
+import {
+    getOpenSeaSaleIdentifiers,
+    OPENSEA_SALE_EVENT_TYPE,
+    requireOpenSeaSaleToken,
+} from "./opensea-sale.js";
+import { TOKEN_SCOPED_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
 
 export type OpenSeaOrderUpdate = {
     orderId: string;
@@ -104,9 +110,13 @@ export function normalizeOpenSeaOrderUpdate(
             sourceStatus: ORDER_SOURCE_STATUS.Active,
         };
     }
-    if (eventType === "item_sold") {
+    if (eventType === OPENSEA_SALE_EVENT_TYPE) {
+        const { orderId } = getOpenSeaSaleIdentifiers(raw);
+        // An incomplete sale can still trigger token revalidation, but cannot
+        // identify an order to mark filled. Do not derive an id from other terms.
+        if (!orderId) return null;
         return {
-            orderId: parseOrderHash(payload),
+            orderId,
             reason: ORDER_UPDATE_REASON.Fill,
             sourceStatus: ORDER_SOURCE_STATUS.Filled,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
@@ -160,13 +170,10 @@ export function normalizeOpenSeaMakerUpdate(
         };
     }
 
-    if (eventType === "item_sold") {
-        const { contract, tokenId } = parseRequiredNftId(payload.item);
+    if (eventType === OPENSEA_SALE_EVENT_TYPE) {
         return {
-            maker: assertAddress(payload.maker, "maker"),
-            contract,
-            tokenId,
-            reason: "item_sold",
+            ...requireOpenSeaSaleToken(raw),
+            reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.ItemSold,
         };
     }
 

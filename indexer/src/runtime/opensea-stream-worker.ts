@@ -18,6 +18,7 @@ import {
     getOpenSeaSourceEventAt,
 } from "../application/offchain/opensea-envelope.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
+import { getOpenSeaStreamDedupeKey } from "../application/offchain/opensea-stream-identity.js";
 import { OpenSeaStreamAdapter } from "../infra/offchain/opensea-stream.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
@@ -196,7 +197,7 @@ async function handleOpenSeaEvent(
             collectionId: collection.id,
             receivedAt,
             channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
-            dedupeKey: `${OFFCHAIN_OBSERVATION_CHANNEL.Stream}:${eventType}:${orderId ?? "na"}:${getOpenSeaSourceEventAt(rawEvent) ?? receivedAt}`,
+            dedupeKey: getOpenSeaStreamDedupeKey(rawEvent, receivedAt),
             eventType,
             orderId,
             runId: null,
