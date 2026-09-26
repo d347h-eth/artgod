@@ -705,6 +705,117 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	}
 
+	test('creates, edits, resets and clears extra trait competitors', async ({ page }, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Zone:Shahra`
+		);
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
+		const editor = page.getByRole('region', { name: 'extra single-trait competitors' });
+		await expect(editor).toBeVisible();
+		await page.screenshot({ path: testInfo.outputPath('competition-empty.png') });
+		await editor.getByRole('button', { name: 'add', exact: true }).click();
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelCreate)).toBeDisabled();
+		await expect(page.getByRole('alert')).toContainText('Choose a trait key');
+		await page.screenshot({ path: testInfo.outputPath('competition-invalid.png') });
+		await editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true }).fill('Mode');
+		await editor
+			.getByRole('combobox', { name: 'competitor trait values 1', exact: true })
+			.selectOption({ label: 'exact value' });
+		await editor
+			.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+			.fill('Terrain');
+		await editor.getByRole('button', { name: 'add', exact: true }).click();
+		await editor
+			.getByRole('textbox', { name: 'competitor trait key 2', exact: true })
+			.fill('Biome');
+		await page.screenshot({ path: testInfo.outputPath('competition-editable.png') });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
+			extraCompetitionTraits: [{ type: 'Biome' }, { type: 'Mode', value: 'Terrain' }]
+		});
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
+		).toHaveValue('Biome');
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-saved.png') });
+		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
+		await page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByRole('button', { name: 'reset', exact: true })
+			.click();
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
+		).toHaveValue('Biome');
+		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
+		await editor
+			.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+			.fill('Water');
+
+		let releaseFailure!: () => void;
+		const heldResponse = new Promise<void>((resolve) => {
+			releaseFailure = resolve;
+		});
+		await page.route(
+			'**/bidding/jobs/traits',
+			async (route) => {
+				await heldResponse;
+				await route.fulfill({
+					status: 400,
+					json: { message: 'Could not save. Try modify again.' }
+				});
+			},
+			{ times: 1 }
+		);
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+		).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-saving.png') });
+		releaseFailure();
+		await expect(page.getByRole('alert')).toContainText('Try modify again');
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+		).toHaveValue('Water');
+		await page.screenshot({ path: testInfo.outputPath('competition-save-failed.png') });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({
+			extraCompetitionTraits: [{ type: 'Mode', value: 'Water' }]
+		});
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({ extraCompetitionTraits: [] });
+	});
+
+	test('loads saved extra trait competitors and keeps them read-only without trait trust', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly}`
+		);
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const editor = page.getByRole('region', { name: 'extra single-trait competitors' });
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
+		).toHaveValue('Mode');
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+		).toHaveValue('Terrain');
+		await expect(
+			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
+		).toBeDisabled();
+		await expect(editor.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toHaveCount(0);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelPause)).toBeEnabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-readonly.png') });
+	});
+
 	test('renders token-scope offers from fixtures and captures a TokenOfferFilter mutation', async ({
 		page
 	}) => {

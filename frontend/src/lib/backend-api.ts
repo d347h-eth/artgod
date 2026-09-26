@@ -19,6 +19,7 @@ import type {
 	BootstrapSampleInspectionResponse
 } from '@artgod/shared/bootstrap/probe';
 import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
+import type { TradingTraitCompetitionSelector } from '@artgod/shared/types';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -535,6 +536,7 @@ export async function upsertTraitBiddingJob(
 		priceTierId?: string | null;
 		quantity?: number;
 		targetTraits: { type: string; value: string }[];
+		extraCompetitionTraits?: TradingTraitCompetitionSelector[];
 	}
 ): Promise<TraitBiddingJobMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);

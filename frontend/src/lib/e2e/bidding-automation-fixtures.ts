@@ -117,7 +117,8 @@ export const BIDDING_E2E_SCENARIO = {
 	OwnBidStatesUpdated: 'own_bid_states_updated',
 	OwnBidStatesPaused: 'own_bid_states_paused',
 	OwnBidStatesOnlyPaused: 'own_bid_states_only_paused',
-	OwnBidStatesWithoutOwn: 'own_bid_states_without_own'
+	OwnBidStatesWithoutOwn: 'own_bid_states_without_own',
+	TraitCompetitionReadOnly: 'trait_competition_read_only'
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
@@ -550,6 +551,7 @@ const JOBS: ApiBiddingJob[] = [
 	biddingJob({
 		jobId: 'job-trait-biome-42',
 		status: TRADING_JOB_STATUS.Enabled,
+		extraCompetitionTraits: [{ type: 'Mode', value: 'Terrain' }],
 		target: {
 			type: TRADING_JOB_TARGET_KIND.Collection,
 			quantity: 1,
@@ -664,7 +666,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		tokenStatus,
 		displayMode,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS
 	};
 }
@@ -725,7 +727,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		bidBook,
 		tokenOfferCards,
@@ -756,7 +758,7 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		media: resolveBiddingE2eTokenMedia(searchParams),
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:
@@ -907,6 +909,13 @@ export function buildBiddingE2eMutationJob(body: unknown, fallbackJobId: string)
 		deltaEth: BIDDING_E2E_SETTINGS.defaultDeltaEth,
 		revision: 1
 	});
+}
+
+function traitTrustForScenario(searchParams: URLSearchParams): boolean {
+	return (
+		parseBiddingE2eScenario(searchParams) !== BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly &&
+		BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS
+	);
 }
 
 function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
@@ -1502,6 +1511,7 @@ function biddingJob(params: {
 	deltaEth: string;
 	revision: number;
 	archivedAt?: string | null;
+	extraCompetitionTraits?: ApiBiddingJob['config']['extraCompetitionTraits'];
 }): ApiBiddingJob {
 	return {
 		jobId: params.jobId,
@@ -1515,7 +1525,10 @@ function biddingJob(params: {
 			floorEth: params.floorEth,
 			ceilingEth: params.ceilingEth,
 			deltaEth: params.deltaEth,
-			pricingSource: null
+			pricingSource: null,
+			...(params.extraCompetitionTraits
+				? { extraCompetitionTraits: params.extraCompetitionTraits }
+				: {})
 		},
 		runtime: null
 	};

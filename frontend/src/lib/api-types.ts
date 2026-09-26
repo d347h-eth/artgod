@@ -19,7 +19,8 @@ import {
 	type TradingBiddingJobRuntimeConstraint,
 	type TradingBotLifecycleStatus,
 	type TradingBiddingJobPricingSource,
-	type TradingBiddingTierSelectionMode
+	type TradingBiddingTierSelectionMode,
+	type TradingTraitCompetitionSelector
 } from '@artgod/shared/types';
 import type { EvmProxyConfidence, EvmProxyKind } from '@artgod/shared/evm/proxy-detection';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
@@ -573,6 +574,7 @@ export type ApiBiddingJob = {
 		ceilingEth: string;
 		deltaEth: string;
 		pricingSource: ApiBiddingJobPricingSource | null;
+		extraCompetitionTraits?: TradingTraitCompetitionSelector[];
 	};
 	runtime: ApiBiddingJobRuntimeState | null;
 };
