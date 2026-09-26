@@ -78,6 +78,16 @@ export class SqliteCollectionRegistry
             "WHERE chain_id = @chainId " +
             "AND (status = @liveStatus OR (status = @bootstrappingStatus AND bootstrap_anchor_block IS NOT NULL))",
     );
+    private selectGapRepair = db.prepare<{
+        chainId: number;
+        liveStatus: CollectionStatus;
+        afterCollectionId: number;
+        limit: number;
+    }>(
+        SELECT_COLLECTIONS_FIELDS +
+            "WHERE chain_id = @chainId AND status = @liveStatus AND bootstrap_anchor_block >= 1 " +
+            "AND collection_id > @afterCollectionId ORDER BY collection_id LIMIT @limit",
+    );
     private selectBackfill = db.prepare<{
         chainId: number;
         liveStatus: CollectionStatus;
@@ -338,6 +348,21 @@ export class SqliteCollectionRegistry
                       syncStatusQuery(chainId),
                   ) as CollectionRow[]);
         return rows.map(mapRow);
+    }
+
+    listCollectionsForGapRepair(
+        chainId: number,
+        afterCollectionId: number,
+        limit: number,
+    ): CollectionRecord[] {
+        return (
+            this.selectGapRepair.all({
+                chainId,
+                liveStatus: COLLECTION_STATUS.Live,
+                afterCollectionId,
+                limit,
+            }) as CollectionRow[]
+        ).map(mapRow);
     }
 
     listCollectionsForOpenSeaSubscription(chainId: number): CollectionRecord[] {
