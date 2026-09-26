@@ -264,6 +264,39 @@ describe("bounded Seaport validation snapshots", () => {
         expect(rpc.reads.balanceOf).toBe(2);
     });
 
+    it.each<keyof ConduitRegistryPort>([
+        "getConduit",
+        "upsertConduit",
+        "hasChannel",
+        "replaceChannels",
+    ])(
+        "retains infrastructure failure from conduit registry %s",
+        async (method) => {
+            vi.spyOn(logger, "error").mockImplementation(() => {});
+            vi.spyOn(logger, "debug").mockImplementation(() => {});
+            const failure = new Error("Conduit storage unavailable");
+            const conduits: ConduitRegistryPort = {
+                getConduit: () => null,
+                upsertConduit: () => {},
+                hasChannel: () => false,
+                replaceChannels: () => {},
+            };
+            vi.spyOn(conduits, method).mockImplementation(() => {
+                throw failure;
+            });
+            const batch = await factory(new HeavyMakerRpc(), { conduits })(
+                scope,
+            );
+            await expect(batch.validate(heavyMakerOrder(0))).rejects.toThrow(
+                OrderValidationSnapshotUnavailable,
+            );
+            expect(batch.canAccept()).toBe(false);
+            await expect(batch.finish()).rejects.toMatchObject({
+                cause: failure,
+            });
+        },
+    );
+
     it("bounds admission by count and elapsed time, rejecting expired results", async () => {
         const rpc = new HeavyMakerRpc();
         let elapsed = 0;

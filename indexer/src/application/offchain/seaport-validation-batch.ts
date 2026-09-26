@@ -95,6 +95,29 @@ function createValidationSnapshotFactory(
         let failure: unknown;
         let orders = 0;
         let closed = false;
+        // The validator also catches conduit-registry errors. Preserve their infrastructure
+        // origin so a failed SQLite lookup or cache write cannot become an invalid order.
+        const registryCall = <T>(call: () => T): T => {
+            try {
+                return call();
+            } catch (error) {
+                failure = new OrderValidationSnapshotUnavailable(
+                    "Validation snapshot conduit registry failed",
+                    error,
+                );
+                throw failure;
+            }
+        };
+        const conduits: ConduitRegistryPort = {
+            getConduit: (...args) =>
+                registryCall(() => input.conduits.getConduit(...args)),
+            upsertConduit: (...args) =>
+                registryCall(() => input.conduits.upsertConduit(...args)),
+            hasChannel: (...args) =>
+                registryCall(() => input.conduits.hasChannel(...args)),
+            replaceChannels: (...args) =>
+                registryCall(() => input.conduits.replaceChannels(...args)),
+        };
         const pinnedRpc: RpcProviderPort = {
             getBlockNumber: () => rpc.getBlockNumber(),
             getBlock: (n, options) => rpc.getBlock(n, options),
@@ -188,12 +211,12 @@ function createValidationSnapshotFactory(
                 orders++;
                 const result = await validateSeaportOrder(
                     pinnedRpc,
-                    input.conduits,
+                    conduits,
                     { conduitController: input.conduitController },
                     order,
                 );
-                // Singleton validation retains its existing error behavior. A batched RPC failure
-                // poisons this snapshot, even if the validator translated it into a result.
+                // A failed dependency poisons this snapshot, even if the validator
+                // translated the infrastructure error into a protocol result.
                 if (failure) throw failure;
                 return result;
             },

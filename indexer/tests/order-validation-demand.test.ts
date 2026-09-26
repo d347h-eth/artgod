@@ -11,6 +11,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import { SqliteConduitRegistry } from "../src/infra/conduits/sqlite.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import {
@@ -28,6 +29,7 @@ import {
     ORDER_STATUS,
 } from "../src/domain/orders.js";
 import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
+import type { ConduitRegistryPort } from "../src/ports/conduits.js";
 import {
     HEAVY_MAKER,
     HeavyMakerRpc,
@@ -49,7 +51,7 @@ const request = {
 const fillable = { status: ORDER_STATUS.Fillable, reason: "fixture" };
 const proof = { observedAt: now, blockNumber: HEAVY_MAKER.blockNumber };
 
-function workflow() {
+function workflow(conduits: ConduitRegistryPort = warmConduits) {
     const rpc = new HeavyMakerRpc();
     const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
         throw new Error("Demand must use the strict injected snapshot");
@@ -62,7 +64,7 @@ function workflow() {
         createSnapshot: createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
             rpc,
-            conduits: warmConduits,
+            conduits,
             conduitController: HEAVY_MAKER.controller,
         }),
     });
@@ -151,6 +153,49 @@ describe("durable ordinary validation demand", () => {
         expect(work.store.admit(request, now)).toBe(OUTCOME.Pending);
         await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
+    });
+
+    it("retries conduit storage failure without changing order status or recording coverage", async () => {
+        vi.spyOn(logger, "debug").mockImplementation(() => {});
+        db.exec(
+            "DELETE FROM seaport_conduit_channels; DELETE FROM seaport_conduits;",
+        );
+        const work = workflow(new SqliteConduitRegistry());
+        work.store.admit(request, now);
+        db.exec(
+            "CREATE TEMP TRIGGER reject_conduit BEFORE INSERT ON seaport_conduits BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END;",
+        );
+        try {
+            expect(await work.processor.executeBatch()).toMatchObject({
+                applied: 0,
+                covered: 0,
+                retried: 1,
+            });
+            expect(
+                work.store.get(request.chainId, request.orderId),
+            ).toMatchObject({
+                pending: true,
+                proofRevision: null,
+                failures: 1,
+            });
+            expect(
+                db
+                    .prepare("SELECT fillability_status FROM orders WHERE id=?")
+                    .get(order.id),
+            ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
+        } finally {
+            db.exec("DROP TRIGGER reject_conduit");
+        }
+        vi.mocked(Date.now).mockReturnValue(now + POLICY.retryBaseMs);
+        expect(await work.processor.executeBatch()).toMatchObject({
+            applied: 1,
+            covered: 1,
+            retried: 0,
+        });
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: false,
+            failures: 0,
+        });
     });
 
     it("records a validator's own resulting revision without scheduling itself forever", async () => {
