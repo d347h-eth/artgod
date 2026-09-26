@@ -6,6 +6,8 @@ import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
+import { COLLECTION_STANDARD } from "../src/domain/collections.js";
+import type { NftTransferEvent, OnChainData } from "../src/domain/onchain.js";
 
 describe("ownership balance persistence", () => {
     loadTestEnv();
@@ -34,8 +36,7 @@ describe("ownership balance persistence", () => {
     it("normalizes bootstrap owners and removes the seller after the first post-bootstrap transfer", () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
-        const sellerMixedCase =
-            "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+        const sellerMixedCase = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
         const sellerLower = sellerMixedCase.toLowerCase();
         const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         const collectionId = insertCollection({
@@ -59,12 +60,12 @@ describe("ownership balance persistence", () => {
         ]);
 
         expect(
-            db.prepare<
-                [number],
-                { owner: string }
-            >(
-                "SELECT owner FROM nft_balance_snapshots WHERE run_id = ? LIMIT 1",
-            ).get(1)?.owner,
+            db
+                .prepare<
+                    [number],
+                    { owner: string }
+                >("SELECT owner FROM nft_balance_snapshots WHERE run_id = ? LIMIT 1")
+                .get(1)?.owner,
         ).toBe(sellerLower);
 
         bootstrapStorage.finalizeSnapshot({
@@ -131,6 +132,123 @@ describe("ownership balance persistence", () => {
 
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
+        ]);
+    });
+
+    it.each([
+        {
+            name: "older blocks",
+            firstBlock: 103,
+            firstLog: 1,
+            lateBlock: 101,
+            lateLog: 1,
+        },
+        {
+            name: "earlier logs in the same block",
+            firstBlock: 103,
+            firstLog: 7,
+            lateBlock: 103,
+            lateLog: 1,
+        },
+    ])(
+        "keeps the latest ERC721 owner when repairing $name",
+        ({ firstBlock, firstLog, lateBlock, lateLog }) => {
+            const { collectionId, storage, transfer, persist } =
+                transferFixture();
+            const firstOwner = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const middleOwner = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            const latestOwner = "0xcccccccccccccccccccccccccccccccccccccccc";
+            const latest = transfer(
+                firstBlock,
+                firstLog,
+                middleOwner,
+                latestOwner,
+            );
+            const late = transfer(lateBlock, lateLog, firstOwner, middleOwner);
+            persist([latest]);
+            persist([late]);
+            persist([late, latest]);
+            expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+                { owner: latestOwner, amount: "1" },
+            ]);
+            expect(selectTransferCount(1, collectionId, "1")).toBe(2);
+            expect(
+                db
+                    .prepare(
+                        "SELECT last_block_number, last_log_index FROM nft_balances WHERE collection_id = ?",
+                    )
+                    .get(collectionId),
+            ).toEqual({
+                last_block_number: firstBlock,
+                last_log_index: firstLog,
+            });
+            storage.rollbackFromBlock(1, firstBlock);
+            expect(
+                storage.countCollectionSyncedBlocksInRange(
+                    1,
+                    collectionId,
+                    firstBlock,
+                    firstBlock,
+                ),
+            ).toBe(0);
+        },
+    );
+
+    it("does not resurrect a burned ERC721 when an older gap is repaired", () => {
+        const { collectionId, transfer, persist } = transferFixture();
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        persist([
+            transfer(
+                103,
+                1,
+                buyer,
+                "0x0000000000000000000000000000000000000000",
+            ),
+        ]);
+        persist([transfer(101, 1, seller, buyer)]);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([]);
+        expect(selectTransferCount(1, collectionId, "1")).toBe(2);
+    });
+
+    it("projects the latest transfer even when logs in one repaired range are unordered", () => {
+        const { collectionId, transfer, persist } = transferFixture();
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const middle = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const buyer = "0xcccccccccccccccccccccccccccccccccccccccc";
+        persist([
+            transfer(103, 2, middle, buyer),
+            transfer(101, 1, seller, middle),
+        ]);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+            { owner: buyer, amount: "1" },
+        ]);
+    });
+
+    it("converges ERC1155 deltas after late repair without applying duplicates", () => {
+        const { collectionId, transfer, persist } = transferFixture();
+        db.prepare(
+            "UPDATE collections SET standard = ? WHERE collection_id = ?",
+        ).run(COLLECTION_STANDARD.Erc1155, collectionId);
+        const zero = "0x0000000000000000000000000000000000000000";
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const sent = {
+            ...transfer(103, 1, seller, buyer),
+            kind: COLLECTION_STANDARD.Erc1155,
+            amount: "2",
+        };
+        const minted = {
+            ...transfer(101, 1, zero, seller),
+            kind: COLLECTION_STANDARD.Erc1155,
+            amount: "5",
+        };
+        persist([sent]);
+        persist([minted]);
+        persist([sent, minted]);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+            { owner: seller, amount: "3" },
+            { owner: buyer, amount: "2" },
         ]);
     });
 
@@ -409,11 +527,9 @@ function insertCollection(input: {
     anchorBlock: number;
 }): number {
     const result = db
-        .prepare<[number, string, string, number]>(
-            "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " +
-                "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', ?)",
-        )
+        .prepare<
+            [number, string, string, number]
+        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " + "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', ?)")
         .run(
             input.chainId,
             input.slug,
@@ -439,11 +555,10 @@ function selectBalanceOwners(
     tokenId: string,
 ): Array<{ owner: string; amount: string }> {
     return db
-        .prepare<[number, number, string], { owner: string; amount: string }>(
-            "SELECT owner, amount FROM nft_balances " +
-                "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
-                "ORDER BY owner ASC",
-        )
+        .prepare<
+            [number, number, string],
+            { owner: string; amount: string }
+        >("SELECT owner, amount FROM nft_balances " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " + "ORDER BY owner ASC")
         .all(chainId, collectionId, tokenId) as Array<{
         owner: string;
         amount: string;
@@ -456,17 +571,61 @@ function selectTransferCount(
     tokenId: string,
 ): number {
     return (
-        db.prepare<
-            [number, number, string],
-            { count: number }
-        >(
-            "SELECT COUNT(*) AS count FROM nft_transfer_events " +
-                "WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
-        ).get(chainId, collectionId, tokenId)?.count ?? 0
+        db
+            .prepare<
+                [number, number, string],
+                { count: number }
+            >("SELECT COUNT(*) AS count FROM nft_transfer_events " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ?")
+            .get(chainId, collectionId, tokenId)?.count ?? 0
     );
 }
 
-function emptyOnChainData() {
+function transferFixture() {
+    const contract = "0xabc0000000000000000000000000000000000000";
+    const collectionId = insertCollection({
+        chainId: 1,
+        slug: "gap-repair",
+        address: contract,
+        anchorBlock: 100,
+    });
+    const storage = new SqliteStorage();
+    const transfer = (
+        blockNumber: number,
+        logIndex: number,
+        from: string,
+        to: string,
+    ): NftTransferEvent => ({
+        collectionId,
+        contract,
+        tokenId: "1",
+        from,
+        to,
+        amount: "1",
+        blockNumber,
+        logIndex,
+        blockHash: `0x${String(blockNumber).padStart(64, "0")}`,
+        txHash: `0x${String(blockNumber * 100 + logIndex).padStart(64, "0")}`,
+        kind: COLLECTION_STANDARD.Erc721,
+    });
+    const persist = (events: NftTransferEvent[]) => {
+        const data = emptyOnChainData();
+        data.collectionScoped.nftTransferEvents = events;
+        storage.persistSyncResult(
+            1,
+            events.map((event) => ({
+                number: event.blockNumber,
+                hash: event.blockHash,
+                parentHash: `0x${"00".repeat(32)}`,
+                timestamp: event.blockNumber,
+            })),
+            data,
+            [loadCollection(1, collectionId)],
+        );
+    };
+    return { collectionId, storage, transfer, persist };
+}
+
+function emptyOnChainData(): OnChainData {
     return {
         transactions: [],
         collectionScoped: {
