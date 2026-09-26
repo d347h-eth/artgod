@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { TradingTraitCompetitionSelector } from '@artgod/shared/types';
+	import { normalizeExtraCompetitionTraits } from '@artgod/shared/trading/trait-competition';
+	import BiddingCompetitionTraitsEditor from '$lib/components/BiddingCompetitionTraitsEditor.svelte';
 	import { DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from '@artgod/shared/config/bidding';
 	import {
 		TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -118,6 +121,9 @@
 
 	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
+	let extraCompetitionTraits = $state<TradingTraitCompetitionSelector[]>(
+		initialPanelJob?.config.extraCompetitionTraits ?? []
+	);
 	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
 	let loadedDraftKey = $state(resolveBiddingAutomationPanelDraftIdentityKey(draft));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
@@ -198,7 +204,27 @@
 			displayedCeilingEth.trim().length > 0 &&
 			displayedDeltaEth.trim().length > 0
 	);
+	const isOrdinaryTraitJob = $derived(
+		draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob ||
+			(!draft && currentJob?.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+				currentJob.target.targetTraits.length > 0)
+	);
+	const competitionValidation = $derived.by(() => {
+		try {
+			return { selectors: normalizeExtraCompetitionTraits(extraCompetitionTraits), error: null };
+		} catch (error) {
+			return {
+				selectors: [],
+				error: error instanceof Error ? error.message : 'Check extra competitor traits.'
+			};
+		}
+	});
+	const competitionChanged = $derived(
+		isOrdinaryTraitJob &&
+			JSON.stringify(extraCompetitionTraits) !== JSON.stringify(currentJob?.config.extraCompetitionTraits ?? [])
+	);
 	const hasDraftChanges = $derived(
+		competitionChanged ||
 		hasBiddingAutomationPanelDraftChanges({
 			currentJob,
 			status,
@@ -219,6 +245,7 @@
 			!traitOfferTrustRequired &&
 			hasSubmittableBiddingTarget({ draft, targetTokenId }) &&
 			pricingAvailable &&
+			(!isOrdinaryTraitJob || !competitionValidation.error) &&
 			priceInputsComplete
 	);
 	const isEnabledJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Enabled);
@@ -506,6 +533,9 @@
 	}
 
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
+		extraCompetitionTraits = (value?.config.extraCompetitionTraits ?? []).map((selector) => ({
+			...selector
+		}));
 		pricingMode = resolveInitialBiddingAutomationPricingMode({
 			job: value,
 			draft: currentDraft
@@ -680,6 +710,9 @@
 				draft,
 				targetTokenId,
 				nextStatus,
+				extraCompetitionTraits: isOrdinaryTraitJob
+					? (allowedReadOnlyPause ? currentJob?.config.extraCompetitionTraits : competitionValidation.selectors)
+					: undefined,
 				pricing: pricingRequestBody()
 			});
 			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
@@ -1040,6 +1073,20 @@
 						pricingInputsDisabled}
 				/>
 			</div>
+			{#if isOrdinaryTraitJob}
+				<BiddingCompetitionTraitsEditor
+					selectors={extraCompetitionTraits}
+					disabled={pricingInputsDisabled}
+					onChange={(selectors) => {
+						extraCompetitionTraits = selectors;
+						markDraftInputTouched();
+						armedAction = null;
+					}}
+				/>
+				{#if competitionValidation.error}
+					<p class="runtime-error token-bidding-feedback" role="alert">{competitionValidation.error}</p>
+				{/if}
+			{/if}
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions-left">
 					{#if !traitOfferTrustRequired}

@@ -1,6 +1,7 @@
 import type { Page, Request } from 'playwright/test';
 import type { BatchTokenBiddingJobSelectionRequest } from '../../src/lib/backend-api';
 import { buildCollectionBiddingQuery } from '../../src/lib/bidding-query';
+import { normalizeExtraCompetitionTraits } from '@artgod/shared/trading/trait-competition';
 import {
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
@@ -314,6 +315,7 @@ function jobResponse(input: {
 			floorEth: body?.floorEth ?? '0.100',
 			ceilingEth: body?.ceilingEth ?? '0.200',
 			deltaEth: body?.deltaEth ?? '0.004',
+			extraCompetitionTraits: normalizeExtraCompetitionTraits(body?.extraCompetitionTraits ?? []),
 			pricingSource: null
 		},
 		runtime: null
@@ -503,6 +505,7 @@ function isJobMutationBody(value: unknown): value is {
 	floorEth?: string;
 	ceilingEth?: string;
 	deltaEth?: string;
+	extraCompetitionTraits?: unknown;
 } {
 	return !!value && typeof value === 'object';
 }

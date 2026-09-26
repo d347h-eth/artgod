@@ -44,7 +44,7 @@ selecting a whole key includes standalone trait offers for all its values.
 4. [x] Apply extra selectors to competitor assessment. Verify wildcard and exact
        matches, deduplication, unchanged placement payloads, exact own-order
        recovery/cancellation, and price-ceiling enforcement in the bidder pipeline.
-5. [ ] Add the compact trait-job editor. Verify create, load, modify, remove,
+5. [x] Add the compact trait-job editor. Verify create, load, modify, remove,
        reset, validation/recovery and restricted states using unit tests and the
        maintained deterministic Playwright harness. Inspect rendered artifacts.
 6. [ ] Update current-state documentation and OpenAPI; run relevant owner suites,
@@ -63,8 +63,8 @@ release. Local checks are not remote CI or live OpenSea evidence.
 
 - Baseline: local `main` at `b7a7f7fd`; new branch
   `feature/trait-bidding-competition`.
-- Ordinary trait jobs are collection targets with nonempty traits. Snapshot and
-  fallback discovery currently require exact trait equality. Own-order
+- Ordinary trait jobs are collection targets with nonempty traits. At baseline,
+  snapshot and fallback discovery required exact trait equality. Own-order
   management independently requires exact equality and must retain that rule.
 - Worktree dependencies installed with the immutable lockfile and lifecycle
   scripts disabled.
@@ -80,3 +80,11 @@ release. Local checks are not remote CI or live OpenSea evidence.
   omission and price-only reapply preserve extras; explicit clearing works.
   Snapshot/fallback selection agree; placement contains only target traits;
   the bidder cancels only the exact own target and respects the price ceiling.
+- Iteration 5: the complete frontend unit suite passes (452 tests), bidding
+  automation passes (42 browser tests), and public-mode guards pass (4 browser
+  tests). The editor covers create, lookup, modify, reset, explicit clearing,
+  incomplete input, pending save, failed save/retry, and trait-trust read-only
+  state. Rendered empty, editable, invalid, saved, saving, failure and read-only
+  states were inspected at desktop and narrow viewports. Screenshot dimensions
+  are 1920 x 1080 and 1082 x 2202 pixels respectively. Copy review retained only
+  labels, selector controls and actionable validation.
