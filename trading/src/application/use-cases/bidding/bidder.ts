@@ -3114,6 +3114,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             currentJob.config.floor === desiredJob.config.floor &&
             currentJob.config.ceiling === desiredJob.config.ceiling &&
             currentJob.config.delta === desiredJob.config.delta &&
+            JSON.stringify(currentJob.config.extraCompetitionTraits ?? []) ===
+                JSON.stringify(
+                    desiredJob.config.extraCompetitionTraits ?? [],
+                ) &&
             this.hasSameTargetIdentity(currentJob, desiredJob)
         );
     }

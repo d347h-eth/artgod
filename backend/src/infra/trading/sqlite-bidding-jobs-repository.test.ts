@@ -136,6 +136,124 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
+    it("persists competition edits on the same target, preserves omission and pricing reapply, and clears explicitly", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [
+                { type: "Zone", value: "Kairo" },
+                { type: "Biome", value: "91" },
+            ],
+        };
+        const created = repository.upsertCollectionJob(input);
+        assert.deepEqual(created.job.extraCompetitionTraits, []);
+        const selectors = [{ type: "Mode" }, { type: "Chroma", value: "Flow" }];
+        const updated = repository.upsertCollectionJob({
+            ...input,
+            extraCompetitionTraits: selectors,
+        });
+        const expected = [{ type: "Chroma", value: "Flow" }, { type: "Mode" }];
+        assert.equal(updated.job.jobId, created.job.jobId);
+        assert.equal(updated.job.revision, created.job.revision + 1);
+        assert.deepEqual(updated.job.extraCompetitionTraits, expected);
+        assert.equal(
+            updated.commands[0].commandKind,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+        assert.equal(
+            updated.commands[0].requestedRevision,
+            updated.job.revision,
+        );
+        const oldClientEdit = repository.upsertCollectionJob({
+            ...input,
+            ceilingWei: "12",
+        });
+        assert.deepEqual(oldClientEdit.job.extraCompetitionTraits, expected);
+        repository.updateJobsPricingById([
+            {
+                ...input,
+                jobId: created.job.jobId,
+                priceTierId: null,
+                pricingSource: {
+                    kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+                },
+            },
+        ]);
+        const reread = repository.getJobById(created.job.jobId);
+        assert.equal(reread?.targetKind, TRADING_JOB_TARGET_KIND.Collection);
+        assert.deepEqual(reread.extraCompetitionTraits, expected);
+        assert.deepEqual(
+            repository.upsertCollectionJob({
+                ...input,
+                extraCompetitionTraits: [],
+            }).job.extraCompetitionTraits,
+            [],
+        );
+        assert.equal(
+            repository.listCollectionJobs({ chainId: 1, collectionId }).length,
+            1,
+        );
+    });
+
+    it("rolls back competition and revision changes when command insertion fails", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        };
+        const created = repository.upsertCollectionJob(input);
+        db.exec(
+            "CREATE TRIGGER reject_command BEFORE INSERT ON trading_job_commands BEGIN SELECT RAISE(ABORT, 'fixture command failure'); END",
+        );
+        assert.throws(
+            () =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    extraCompetitionTraits: [{ type: "Mode" }],
+                }),
+            /fixture command failure/,
+        );
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+    });
+
+    it("upgrades pre-feature declarations without changing their targets or revisions", async () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        });
+        db.exec(
+            "ALTER TABLE trading_bidding_job_specs DROP COLUMN extra_competition_traits_json",
+        );
+        db.prepare("DELETE FROM migrations WHERE name = ?").run(
+            "056_trait_bidding_competition.sql",
+        );
+        await createMigrationRunner().runMigrations();
+        await createMigrationRunner().runMigrations();
+        assert.deepEqual(
+            new SqliteBiddingJobsRepository().getJobById(created.job.jobId),
+            created.job,
+        );
+    });
+
     it("persists tier-backed pricing metadata beside scalar token job prices", () => {
         const repository = new SqliteBiddingJobsRepository();
 

@@ -6,6 +6,35 @@ const zone = { type: "Zone", value: "Kairo" };
 const biome = { type: "Biome", value: "91" };
 
 describe("trait competition", () => {
+    it("adds exact or whole-key standalone buckets without including multitraits", () => {
+        expect(matchesTraitCompetition([mode], [zone, biome], [mode])).toBe(
+            true,
+        );
+        expect(
+            matchesTraitCompetition(
+                [{ type: "Mode", value: "Water" }],
+                [zone],
+                [mode],
+            ),
+        ).toBe(false);
+        expect(
+            matchesTraitCompetition(
+                [{ type: "Mode", value: "Water" }],
+                [zone],
+                [{ type: "Mode" }],
+            ),
+        ).toBe(true);
+        expect(matchesTraitCompetition([mode, mode], [zone], [mode])).toBe(
+            true,
+        );
+        expect(
+            matchesTraitCompetition([mode, biome], [zone], [mode, biome]),
+        ).toBe(false);
+        expect(
+            matchesTraitCompetition([mode, zone], [zone], [{ type: "Mode" }]),
+        ).toBe(false);
+        expect(matchesTraitCompetition([mode], [], [mode])).toBe(false);
+    });
     it("includes every nonempty subset of the target, independent of order or duplicates", () => {
         for (const criteria of [
             [mode],

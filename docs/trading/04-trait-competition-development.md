@@ -37,11 +37,11 @@ selecting a whole key includes standalone trait offers for all its values.
        both snapshot and fallback discovery. Verify single traits, full matches,
        subsets, unrelated and narrower combinations, duplicate criteria, and
        unchanged collection-only behavior.
-3. [ ] Add validated extra selectors to the job contract, HTTP mutation/view,
+3. [x] Add validated extra selectors to the job contract, HTTP mutation/view,
        SQLite migration/repository, runtime loading and declaration reconciliation.
        Verify upgrade, round trip, omission versus explicit clearing, atomic command
        creation, target identity, and price-tier reapply preservation.
-4. [ ] Apply extra selectors to competitor assessment. Verify wildcard and exact
+4. [x] Apply extra selectors to competitor assessment. Verify wildcard and exact
        matches, deduplication, unchanged placement payloads, exact own-order
        recovery/cancellation, and price-ceiling enforcement in the bidder pipeline.
 5. [ ] Add the compact trait-job editor. Verify create, load, modify, remove,
@@ -73,3 +73,10 @@ release. Local checks are not remote CI or live OpenSea evidence.
   and rejects repeated cursors or failed pages. Exact own-order matching remains
   separate. OpenSea documents [all offers](https://docs.opensea.io/reference/list_offers_collection_all)
   separately from [collection offers](https://docs.opensea.io/reference/get_offers_collection).
+- Iterations 3–4: complete backend suite passes (383 tests), complete trading
+  suite passes (337 tests), and the shared selector suite passes (2 tests).
+  Shared declarations, backend and trading TypeScript checks pass. Migration
+  replay preserves an existing declaration; command failure rolls back edits;
+  omission and price-only reapply preserve extras; explicit clearing works.
+  Snapshot/fallback selection agree; placement contains only target traits;
+  the bidder cancels only the exact own target and respects the price ceiling.

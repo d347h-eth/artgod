@@ -7,6 +7,7 @@ import type {
     TradingJobCommandRecord,
     TradingJobStatus,
     TradingTraitCriterion,
+    TradingTraitCompetitionSelector,
 } from "@artgod/shared/types";
 
 export type UpsertTokenBiddingJobInput = {
@@ -32,6 +33,8 @@ export type UpsertCollectionBiddingJobInput = {
     pricingSource?: TradingBiddingJobPricingSource | null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
+    // Omission preserves an existing declaration; an empty array explicitly clears it.
+    extraCompetitionTraits?: TradingTraitCompetitionSelector[];
 };
 
 export type UpdateBiddingJobPricingByIdInput = {
@@ -64,21 +67,15 @@ export interface BiddingJobsRepositoryPort {
         target: TradingBiddingJobTargetDescriptor;
         includeArchived?: boolean;
     }): PersistedBiddingJobRecord | null;
-    upsertTokenJob(
-        input: UpsertTokenBiddingJobInput,
-    ): {
+    upsertTokenJob(input: UpsertTokenBiddingJobInput): {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
-    upsertTokenJobs(
-        inputs: UpsertTokenBiddingJobInput[],
-    ): {
+    upsertTokenJobs(inputs: UpsertTokenBiddingJobInput[]): {
         jobs: PersistedTokenBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     };
-    upsertCollectionJob(
-        input: UpsertCollectionBiddingJobInput,
-    ): {
+    upsertCollectionJob(input: UpsertCollectionBiddingJobInput): {
         job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
@@ -98,13 +95,9 @@ export interface BiddingJobsRepositoryPort {
         job: PersistedBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null;
-    updateJobsPricingById(
-        inputs: UpdateBiddingJobPricingByIdInput[],
-    ): {
+    updateJobsPricingById(inputs: UpdateBiddingJobPricingByIdInput[]): {
         jobs: PersistedBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     };
-    listPendingCommands(params: {
-        limit: number;
-    }): TradingJobCommandRecord[];
+    listPendingCommands(params: { limit: number }): TradingJobCommandRecord[];
 }

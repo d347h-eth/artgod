@@ -171,6 +171,15 @@ describe("SqliteBiddingJobSource", () => {
             ]),
         });
 
+        db.prepare(
+            "UPDATE trading_bidding_job_specs SET extra_competition_traits_json = ? WHERE job_id = ?",
+        ).run(
+            JSON.stringify([
+                { type: "Mode" },
+                { type: "Zone", value: "Kairo" },
+            ]),
+            "job-collection",
+        );
         const source = new SqliteBiddingJobSource(1);
         const jobs = await source.loadEnabledJobs();
         const jobsById = new Map(jobs.map((job) => [job.id, job]));
@@ -212,6 +221,10 @@ describe("SqliteBiddingJobSource", () => {
                 floor: 100000000000000000n,
                 ceiling: 200000000000000000n,
                 delta: 1000000000000000n,
+                extraCompetitionTraits: [
+                    { type: "Mode" },
+                    { type: "Zone", value: "Kairo" },
+                ],
             },
             state: {},
         });

@@ -540,6 +540,58 @@ describe("trading HTTP adapters", () => {
         );
     });
 
+    it("maps, clears and rejects invalid extra competition selectors at the HTTP boundary", async () => {
+        const adapter = new UpsertTraitBiddingJobHttpAdapter({
+            upsertTraitBiddingJob: (input) => input as never,
+        });
+        const base = {
+            params: { chain_ref: "ethereum", collection_ref: "fixture" },
+            body: {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "1",
+                deltaEth: "0.01",
+                targetTraits: [{ type: "Zone", value: "Kairo" }],
+            },
+        };
+        for (const selectors of [
+            [],
+            [{ type: "Mode" }],
+            [{ type: "Mode", value: "Terrain" }],
+        ]) {
+            const mapped = await adapter.handle(
+                request({
+                    ...base,
+                    body: { ...base.body, extraCompetitionTraits: selectors },
+                }),
+            );
+            assert.deepEqual(
+                (mapped as unknown as { extraCompetitionTraits: unknown })
+                    .extraCompetitionTraits,
+                selectors,
+            );
+        }
+        for (const selectors of [
+            null,
+            {},
+            [{ type: "Mode", value: null }],
+            [{ type: "Mode", value: "" }],
+        ]) {
+            await assert.rejects(
+                adapter.handle(
+                    request({
+                        ...base,
+                        body: {
+                            ...base.body,
+                            extraCompetitionTraits: selectors,
+                        },
+                    }),
+                ),
+                ReadModelBadRequestError,
+            );
+        }
+    });
+
     it("maps trait job DTOs and rejects malformed trait targets", async () => {
         let captured: unknown;
         const adapter = new UpsertTraitBiddingJobHttpAdapter({
@@ -573,6 +625,7 @@ describe("trading HTTP adapters", () => {
             priceTierId: undefined,
             quantity: 2,
             targetTraits: [{ type: "Mode", value: "Terrain" }],
+            extraCompetitionTraits: undefined,
         });
         await assert.rejects(
             () =>

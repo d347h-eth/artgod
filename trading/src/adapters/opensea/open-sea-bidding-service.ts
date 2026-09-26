@@ -1468,7 +1468,13 @@ export class OpenSeaBiddingService implements BiddingService {
             const criteriaTraits = this.normalizeOfferTraitCriteria(
                 this.getOfferCriteria(rawOffer),
             );
-            if (!matchesTraitCompetition(criteriaTraits, targetTraits)) {
+            if (
+                !matchesTraitCompetition(
+                    criteriaTraits,
+                    targetTraits,
+                    job.config.extraCompetitionTraits,
+                )
+            ) {
                 return;
             }
 
@@ -1706,7 +1712,11 @@ export class OpenSeaBiddingService implements BiddingService {
             if (
                 this.inferNftSelectionKind(rawOffer, job.collectionAddress) ===
                     "item" ||
-                !matchesTraitCompetition(criteriaTraits, targetTraits)
+                !matchesTraitCompetition(
+                    criteriaTraits,
+                    targetTraits,
+                    job.config.extraCompetitionTraits,
+                )
             ) {
                 return;
             }
