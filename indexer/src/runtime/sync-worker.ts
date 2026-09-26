@@ -9,6 +9,7 @@ import {
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "../application/collection-extensions/types.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
+import { executeSyncGapRepair } from "../application/sync-gap-scheduler.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
 import {
@@ -51,6 +52,7 @@ import {
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
@@ -118,6 +120,7 @@ async function main() {
               })
             : primaryRpc;
         const storage = new SqliteStorage();
+        const syncGapStore = new SqliteSyncGapStore();
         const collectionRegistry = new SqliteCollectionRegistry();
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
@@ -197,12 +200,6 @@ async function main() {
                     config.tokens.wethAddress,
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 );
-                await scheduleGapBackfill(
-                    queue,
-                    storage,
-                    config.chainId,
-                    blocks,
-                );
                 await publishDomainJobs(
                     queue,
                     config.chainId,
@@ -246,6 +243,16 @@ async function main() {
             },
             async (job: JobEnvelope<BackfillSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
+                const isGapRepair =
+                    job.payload.source === BACKFILL_SOURCE.GapRepair;
+                // Legacy predecessor hints were unscoped. The scheduler now
+                // rediscovers their missing coverage through durable scoped work.
+                if (
+                    isGapRepair &&
+                    (job.collectionId === undefined ||
+                        job.chainId !== config.chainId)
+                )
+                    return;
                 const collections = resolveBackfillCollections(
                     collectionRegistry,
                     config.chainId,
@@ -272,48 +279,63 @@ async function main() {
                     range,
                 );
                 await backfillExecutionGate.run(executionMode, async () => {
-                    const { data, blocks } = await processRange(
-                        backfillRpc,
-                        storage,
-                        collectionRegistry,
-                        collectionExtensions,
-                        config.chainId,
-                        collections,
-                        range,
-                        bidderIndex,
-                        config.tokens.wethAddress,
-                        orderMaintenancePolicy,
-                    );
-                    await publishDomainJobs(
-                        queue,
-                        config.chainId,
-                        collections,
-                        range,
-                        job,
-                        "backfill",
-                        data,
-                        orderMaintenancePolicy,
-                    );
-                    logger.info("Backfill range processed", {
-                        component: "IndexerSyncWorker",
-                        action: "backfillRange",
-                        fromBlock: job.payload.fromBlock,
-                        toBlock: job.payload.toBlock,
-                        source: job.payload.source,
-                        orderMaintenancePolicy,
-                        collectionIds: collections.map(
-                            (collection) => collection.id,
-                        ),
-                        backfillExecutionMode: executionMode,
-                        backfillWorkerCount: config.sync.backfillWorkerCount,
-                        blocks: blocks.length,
-                        transfers:
-                            data.collectionScoped.nftTransferEvents.length,
-                        nftApprovals:
-                            data.collectionScoped.nftApprovalEvents.length,
-                        balanceDeltas:
-                            data.collectionScoped.nftBalanceDeltas.length,
-                    });
+                    const syncAndPublish = async (
+                        collections: CollectionRecord[],
+                    ) => {
+                        const { data, blocks } = await processRange(
+                            backfillRpc,
+                            storage,
+                            collectionRegistry,
+                            collectionExtensions,
+                            config.chainId,
+                            collections,
+                            range,
+                            bidderIndex,
+                            config.tokens.wethAddress,
+                            orderMaintenancePolicy,
+                        );
+                        await publishDomainJobs(
+                            queue,
+                            config.chainId,
+                            collections,
+                            range,
+                            job,
+                            "backfill",
+                            data,
+                            orderMaintenancePolicy,
+                        );
+                        logger.info("Backfill range processed", {
+                            component: "IndexerSyncWorker",
+                            action: "backfillRange",
+                            fromBlock: job.payload.fromBlock,
+                            toBlock: job.payload.toBlock,
+                            source: job.payload.source,
+                            orderMaintenancePolicy,
+                            collectionIds: collections.map(
+                                (collection) => collection.id,
+                            ),
+                            backfillExecutionMode: executionMode,
+                            backfillWorkerCount:
+                                config.sync.backfillWorkerCount,
+                            blocks: blocks.length,
+                            transfers:
+                                data.collectionScoped.nftTransferEvents.length,
+                            nftApprovals:
+                                data.collectionScoped.nftApprovalEvents.length,
+                            balanceDeltas:
+                                data.collectionScoped.nftBalanceDeltas.length,
+                        });
+                    };
+                    if (isGapRepair) {
+                        await executeSyncGapRepair(
+                            job,
+                            collectionRegistry,
+                            syncGapStore,
+                            (collection) => syncAndPublish([collection]),
+                        );
+                    } else {
+                        await syncAndPublish(collections);
+                    }
                 });
             },
             {
@@ -496,38 +518,6 @@ async function publishDomainJobs<TPayload>(
         collections,
         currentStateData,
     );
-}
-
-// Gap check: if a processed block's predecessor is missing, enqueue a backfill job.
-async function scheduleGapBackfill(
-    queue: QueuePort,
-    storage: SqliteStorage,
-    chainId: number,
-    blocks: RpcBlock[],
-): Promise<void> {
-    for (const block of blocks) {
-        const previous = block.number - 1;
-        if (previous <= 0) continue;
-        const existing = storage.getBlockHash(chainId, previous);
-        if (existing) continue;
-
-        const job: JobEnvelope<BackfillSyncPayload> = {
-            jobId: `sync:gap:${chainId}:${previous}`,
-            kind: SYNC_JOB_KIND.BackfillRange,
-            queue: QUEUE_NAMES.BackfillSync,
-            payload: {
-                fromBlock: previous,
-                toBlock: previous,
-                source: BACKFILL_SOURCE.GapRepair,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-        };
-        await queue.publish(QUEUE_NAMES.BackfillSync, job);
-    }
 }
 
 function resolveBackfillCollections(
