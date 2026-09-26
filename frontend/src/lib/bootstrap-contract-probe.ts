@@ -92,6 +92,30 @@ export function bootstrapProbeNeedsManualScope(probe: BootstrapContractProbeApiR
 	return bootstrapProbeStatusLabel(probe) === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
 }
 
+// Ownership and metadata availability are independent results of the preflight.
+export function bootstrapSampleOwnership(probe: BootstrapContractProbeApiResponse): boolean | null {
+	const sample = probe.firstToken;
+	return (
+		sample.candidates.find((candidate) => candidate.tokenId === sample.tokenId)?.exists ?? null
+	);
+}
+
+export function bootstrapSampleFailure(probe: BootstrapContractProbeApiResponse): string | null {
+	const sample = probe.firstToken;
+	if (!sample.tokenId) return 'Enter an existing Sample token ID, then press Probe.';
+	const ownership = bootstrapSampleOwnership(probe);
+	if (ownership === false) {
+		return 'Sample token has no owner. Enter an existing Sample token ID, then press Probe.';
+	}
+	if (ownership === null) {
+		return 'Sample ownership could not be checked. Check RPC settings in Admin config, then press Probe.';
+	}
+	if (!sample.tokenUri) {
+		return 'Sample metadata URI could not be read. Try another Sample token ID, then press Probe.';
+	}
+	return sample.tokenUriPayloadError ?? sample.metadataError;
+}
+
 function parseByteString(value: string): bigint | null {
 	const trimmed = value.trim();
 	if (!/^\d+$/.test(trimmed)) return null;

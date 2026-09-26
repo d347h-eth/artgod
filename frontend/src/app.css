@@ -291,7 +291,7 @@ a:hover {
 
 .bootstrap-create-form {
 	display: block;
-	margin-inline: auto;
+	margin-inline: 0;
 	width: min(46rem, 100%);
 	max-width: 100%;
 	margin-bottom: 4.5rem;
@@ -430,7 +430,8 @@ a:hover {
 }
 
 .bootstrap-create-form .bootstrap-form-row {
-	grid-template-columns: minmax(13rem, 17.5rem) max-content;
+	grid-template-columns: minmax(13rem, 17.5rem) minmax(0, 1fr);
+	width: 100%;
 }
 
 .bootstrap-create-form .bootstrap-form-checkbox-row {
@@ -1559,9 +1560,9 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	height: 20px;
+	height: auto;
 	min-height: 20px;
-	padding: 0 0.45rem;
+	padding: 0.1rem 0.45rem;
 	border: 1px solid var(--c-blue);
 	background: var(--c-bg);
 	color: var(--c-cyan);
@@ -1574,6 +1575,13 @@ th {
 	transition:
 		border-color 120ms ease,
 		color 120ms ease;
+}
+
+/* Actions can preview values while retaining their spelling and fitting narrow controls. */
+.facet-panel-action-button code {
+	font: inherit;
+	text-transform: none;
+	overflow-wrap: anywhere;
 }
 
 .facet-collapse-button {

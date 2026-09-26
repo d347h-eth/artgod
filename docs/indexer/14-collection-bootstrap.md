@@ -83,9 +83,12 @@ yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-bl
 
 All request fields are available after the contract-safety acknowledgement:
 address, sample token, image/animation source fields, local/OpenSea slugs, scope,
-and cache settings. Edits do not make network requests. Press **Probe** to submit
-the staged metadata inputs; detected fields can be accepted explicitly with
-**Apply detected fields**. Neither action silently replaces the configured scope.
+and cache settings. Edits do not make network requests. Press **Probe**, beside
+the contract address, to submit the staged metadata inputs. Each detected sample,
+image field, animation field, and collection slug has its own **Apply "value"**
+button beside the input. The button previews the suggestion and changes only that
+input; a matching value disables it. Neither probing nor applying a suggestion
+silently replaces the configured scope. The form stays compact and left aligned.
 
 The first token ID (editable default `1`) and total supply define the inclusive
 scope `first .. first + supply - 1`, not the currently minted inventory.
@@ -149,10 +152,10 @@ to other token IDs, a contract-only fallback, collection-details verification,
 or first/last boundary checks. A missing sample in OpenSea does not prove the
 requested range is invalid.
 
-The local collection slug is an independent ArtGod identifier. Detected fields
-are accepted only through **Apply detected fields**; this can fill a blank
-local slug from the contract name, which may name the shared contract rather
-than the intended project. Review it before queueing. Editing a sample,
+The local collection slug is an independent ArtGod identifier. Its **Apply "value"**
+button explicitly accepts a slug from the contract name, including replacing an
+existing draft. That name may identify the shared contract rather than the intended
+project. Review it before queueing. Editing a sample,
 metadata source, address, or OpenSea slug invalidates the relevant old result;
 it does not submit a new request or let a stale response replace the draft.
 
@@ -162,6 +165,28 @@ a nonempty present subset of the configured scope at that anchor, not presence
 of the exact preview sample. Existing collections need no scope migration;
 API callers must send `sample_token_id` to the OpenSea probe, so deploy backend
 and UI/CLI changes together.
+
+### Metadata and Image Failure Recovery
+
+Sample ownership is independent of metadata availability. A confirmed owner keeps
+the sample marked resolved when metadata download or parsing fails; the form shows
+that failure and keeps queueing blocked until a successful Probe. It must not label
+an owned token incorrect merely because its metadata host returned HTTP 429/404,
+timed out, or returned unreadable metadata. Contract and supply diagnostics remain
+available, and the entered sample, scope, and source fields remain intact.
+
+Expected image download/processing failures return HTTP 502 with a safe recovery
+message; upstream status codes remain visible, while raw error details go to logs.
+A failed image-cache estimate can be retried with **estimate**. Changing the sample,
+source, cache settings, or collection scope invalidates the old estimate; queueing
+with caching enabled still requires a successful estimate for the current inputs.
+Switching **Image cache mode** to **off** skips the estimate requirement.
+
+For IPFS download failures, check `COMMON_IPFS_GATEWAY_ORIGIN` in Admin config,
+restart infra after changing it, and repeat Probe/estimate. Metadata and image
+objects may have different availability even through the same gateway. Use a
+gateway that serves HTTP clients; a successful browser view alone does not prove
+backend access. No gateway is switched automatically.
 
 ## Current Lifecycle
 

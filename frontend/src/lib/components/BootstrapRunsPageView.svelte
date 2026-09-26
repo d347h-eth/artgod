@@ -24,6 +24,7 @@
 	} from '$lib/api-types';
 	import {
 		createBootstrapRun,
+		BackendApiError,
 		estimateBootstrapImageCache,
 		probeBootstrapCollectionContract
 	} from '$lib/backend-api';
@@ -34,6 +35,8 @@
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapProbeNeedsManualScope,
 		bootstrapProbeStatusLabel,
+		bootstrapSampleOwnership,
+		bootstrapSampleFailure,
 		contractNameToBootstrapSlug,
 		formatByteSize,
 		isBootstrapProbeableAddress,
@@ -227,7 +230,10 @@
 	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
 	let sampleTokenIdResolved = $derived(isSampleTokenIdResolved());
 	let sampleTokenIdIncorrect = $derived(isSampleTokenIdIncorrect());
-	let formDetailsReady = $derived(sourceFieldsReady && sampleTokenIdResolved);
+	let sampleProbeFailure = $derived(
+		latestProbeMatchesAddress && probeResult ? bootstrapSampleFailure(probeResult) : null
+	);
+	let formDetailsReady = $derived(sourceFieldsReady && sampleTokenIdResolved && !sampleProbeFailure);
 	let probeStatusSectionVisible = $derived(probeStatus !== BOOTSTRAP_PROBE_UI_STATUS.Idle);
 	let imageCacheEstimatePending = $derived(
 		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Loading
@@ -414,21 +420,6 @@
 		}
 	}
 
-	function applyDetectedFields(): void {
-		if (!latestProbeMatchesAddress || !probeResult) return;
-		const sample = probeResult.firstToken;
-		// This explicit action accepts detected values; probe responses alone never edit the draft.
-		setSampleTokenIdValue(sample.tokenId ?? readSampleTokenIdInputValue());
-		setImageSourceFieldValue(sample.imageSourceField ?? readImageSourceFieldInputValue());
-		setAnimationSourceFieldValue(sample.animationSourceField ?? readAnimationSourceFieldInputValue());
-		if (!readCollectionSlugInputValue()) {
-			setCollectionSlugInputValue(contractNameToBootstrapSlug(probeResult.contractName));
-		}
-		imageSourceFieldDirty = false;
-		animationSourceFieldDirty = false;
-		sampleTokenIdDirty = false;
-	}
-
 	function onOpenSeaSlugStateChange(state: OpenSeaSlugResolverState): void {
 		bootstrapOpenSeaSlug = state.slug;
 		openSeaSlugResolved = state.resolved;
@@ -458,17 +449,13 @@
 		if (!latestProbeMatchesAddress || !probeResult || sampleTokenIdDirty) return false;
 		const resolvedTokenId = normalizeFieldValue(probeResult.firstToken.tokenId);
 		if (!resolvedTokenId || readSampleTokenIdInputValue() !== resolvedTokenId) return false;
-		return (
-			probeResult.firstToken.tokenUri !== null &&
-			probeResult.firstToken.tokenUriPayloadError === null &&
-			probeResult.firstToken.metadataError === null
-		);
+		return bootstrapSampleOwnership(probeResult) === true;
 	}
 
 	function isSampleTokenIdIncorrect(): boolean {
 		if (!sampleTokenIdInputHasValue || sampleTokenIdDirty || contractProbePending) return false;
 		if (probeStatus !== BOOTSTRAP_PROBE_UI_STATUS.Ready) return false;
-		return !isSampleTokenIdResolved();
+		return probeResult !== null && bootstrapSampleOwnership(probeResult) === false;
 	}
 
 	function resolveOpenSeaBiddingUnavailableMessage(): string | null {
@@ -668,7 +655,7 @@
 		if (!formDetailsReady || imageCacheMode === IMAGE_CACHE_MODE.Off) return false;
 		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) return false;
 		if (!resolvedBootstrapScopeTotalSupply()) return false;
-		return imageCacheEstimateStatus === imageCacheEstimateUiStatus.Idle;
+		return !imageCacheEstimatePending && !imageCacheEstimateReady;
 	}
 
 	async function onEstimateImageCache(): Promise<void> {
@@ -710,7 +697,9 @@
 			imageCacheEstimateStatus = imageCacheEstimateUiStatus.Error;
 			imageCacheEstimateResult = null;
 			imageCacheEstimateError =
-				error instanceof Error ? error.message : 'image cache estimate failed';
+				error instanceof BackendApiError && [400, 422, 502].includes(error.status)
+					? error.message
+					: 'Image cache estimate failed. Press estimate to retry, or set Image cache mode to off.';
 		}
 	}
 
@@ -798,8 +787,19 @@
 		if (!chain) blockers.push('Chain configuration is still loading.');
 		if (!addressCanBeProbed) blockers.push('Enter a valid contract address.');
 		if (!formDetailsReady) {
-			if (latestProbeMatchesAddress && imageSourceFieldResolved && !sampleTokenIdResolved) {
-				blockers.push('Sample token ID must resolve before queueing bootstrap.');
+			if (sampleProbeFailure) {
+				blockers.push(sampleProbeFailure);
+			} else if (latestProbeMatchesAddress) {
+				if (!sampleTokenIdResolved) {
+					blockers.push('Apply the suggested Sample token ID, or enter one and press Probe.');
+				}
+				if (!imageSourceFieldResolved) {
+					blockers.push(
+						probeResult?.firstToken.imageSourceField
+							? 'Apply the suggested Image source field, or enter one and press Probe.'
+							: 'No image was found. Enter an Image source field and press Probe.'
+					);
+				}
 			} else {
 				blockers.push('Contract probe must finish before queueing bootstrap.');
 			}
@@ -900,6 +900,7 @@
 		}
 		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
 		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
+		if (sampleProbeFailure) return sampleProbeFailure;
 		if (!imageSourceFieldResolved) return 'image source field must resolve before queueing bootstrap';
 		if (!sampleTokenIdResolved) return 'sample token ID must resolve before queueing bootstrap';
 		if (animationSourceFieldInputHasValue && !animationSourceFieldResolved) {
@@ -1085,6 +1086,23 @@
 	</span>
 {/snippet}
 
+{#snippet applySuggestion(
+	value: string | null | undefined,
+	current: string,
+	apply: (value: string) => void
+)}
+	{#if latestProbeMatchesAddress && value}
+		<button
+			type="button"
+			class="facet-panel-action-button action-button-positive"
+			disabled={value === current.trim()}
+			onclick={() => apply(value)}
+		>
+			<span>Apply <code>"{value}"</code></span>
+		</button>
+	{/if}
+{/snippet}
+
 <section class="panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
@@ -1140,14 +1158,24 @@
 				<div class="bootstrap-form-section bootstrap-address-section">
 					<label class="bootstrap-form-row">
 						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
-						<input
-							value={bootstrapAddress}
-							class={`${bootstrapInputClass} bootstrap-input-address`}
-							type="text"
-							name="address"
-							required
-							oninput={onBootstrapAddressInput}
-						/>
+						<div class="bootstrap-input-status-row">
+							<input
+								value={bootstrapAddress}
+								class={`${bootstrapInputClass} bootstrap-input-address`}
+								type="text"
+								name="address"
+								required
+								oninput={onBootstrapAddressInput}
+							/>
+							<button
+								type="button"
+								class="facet-panel-action-button"
+								disabled={!addressCanBeProbed || contractProbePending}
+								onclick={() => void onProbe()}
+							>
+								Probe
+							</button>
+						</div>
 					</label>
 				</div>
 
@@ -1163,6 +1191,13 @@
 									name="sampleTokenId"
 									oninput={onSampleTokenIdInput}
 								/>
+								{@render applySuggestion(
+									probeResult && bootstrapSampleOwnership(probeResult) === true
+										? probeResult.firstToken.tokenId
+										: null,
+									sampleTokenId,
+									setSampleTokenIdValue
+								)}
 								{#if sampleTokenIdResolved}
 									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
 										resolved
@@ -1189,6 +1224,11 @@
 									name="imageSourceField"
 									oninput={onImageSourceFieldInput}
 								/>
+								{@render applySuggestion(
+									probeResult?.firstToken.imageSourceField,
+									imageSourceField,
+									setImageSourceFieldValue
+								)}
 								{#if imageSourceFieldResolved}
 									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
 										resolved
@@ -1216,6 +1256,11 @@
 									name="animationSourceField"
 									oninput={onAnimationSourceFieldInput}
 								/>
+								{@render applySuggestion(
+									probeResult?.firstToken.animationSourceField,
+									animationSourceField,
+									setAnimationSourceFieldValue
+								)}
 								{#if animationSourceFieldResolved}
 									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
 										resolved
@@ -1233,15 +1278,22 @@
 					<div class="bootstrap-form-section">
 						<label class="bootstrap-form-row">
 							{@render fieldLabel('Collection slug', bootstrapFieldHelp.slug)}
-							<input
-								bind:this={collectionSlugInputElement}
-								value={bootstrapSlug}
-								class={`${bootstrapInputClass} bootstrap-input-slug`}
-								type="text"
-								name="slug"
-								required
-								oninput={onCollectionSlugInput}
-							/>
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={collectionSlugInputElement}
+									value={bootstrapSlug}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="slug"
+									required
+									oninput={onCollectionSlugInput}
+								/>
+								{@render applySuggestion(
+									contractNameToBootstrapSlug(probeResult?.contractName),
+									bootstrapSlug,
+									setCollectionSlugInputValue
+								)}
+							</div>
 						</label>
 						<label class="bootstrap-form-row">
 							{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}
@@ -1327,15 +1379,6 @@
 						</div>
 					{/if}
 
-				<div class="bootstrap-form-section">
-                    <div class="bootstrap-input-status-row">
-                        <button type="button" disabled={!addressCanBeProbed || contractProbePending} onclick={() => void onProbe()}>Probe</button>
-                        {#if latestProbeMatchesAddress && probeResult}
-                            <button type="button" onclick={applyDetectedFields}>Apply detected fields</button>
-                        {/if}
-                    </div>
-                </div>
-
 				{#if formDetailsReady && firstTokenCard}
 					<div class="bootstrap-form-section bootstrap-token-preview-section">
 						<div class="secondary-tabs bootstrap-preview-source-tabs" aria-label="Sample token preview source">
@@ -1409,10 +1452,12 @@
 								{/if}
 							</div>
 						</div>
-						{#if probeError}
+						{#if probeError || sampleProbeFailure}
 							<div class="bootstrap-form-row bootstrap-probe-warning-row">
 								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
-								<div class="muted bootstrap-probe-warnings">{probeError}</div>
+								<div class="muted bootstrap-probe-warnings" role="alert">
+									{probeError ?? sampleProbeFailure}
+								</div>
 							</div>
 						{/if}
 						{#if latestProbeMatchesAddress && probeResult}
@@ -1520,7 +1565,14 @@
 										<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
 											failed
 										</span>
-                                        <button type="button" disabled={!imageCacheEstimateCanRun} onclick={() => void onEstimateImageCache()}>estimate</button>
+										<button
+											type="button"
+											class="facet-panel-action-button"
+											disabled={!imageCacheEstimateCanRun}
+											onclick={() => void onEstimateImageCache()}
+										>
+											estimate
+										</button>
 									{:else if imageCacheEstimatePending}
 										<span class="muted">
 											{@render inProgressStatus('estimating', 'estimating image cache size')}
@@ -1528,6 +1580,7 @@
 									{:else}
 										<button
 											type="button"
+											class="facet-panel-action-button"
 											disabled={!imageCacheEstimateCanRun}
 											onclick={() => void onEstimateImageCache()}
 										>
@@ -1623,7 +1676,9 @@
 							</div>
 						{/if}
 						{#each queueBootstrapBlockers as blocker}
-							<span class="muted">{blocker}</span>
+							{#if blocker !== sampleProbeFailure}
+								<span class="muted">{blocker}</span>
+							{/if}
 						{/each}
 						{#if openSeaBiddingUnavailableMessage}
 							<span class="muted">{openSeaBiddingUnavailableMessage}</span>

@@ -75,7 +75,13 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.probeRequestSampleTokenIds).toEqual([null]);
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 
-		await page.getByRole('button', { name: 'Apply detected fields' }).click();
+		await sampleTokenInputRow(page).getByRole('button', { name: 'Apply "0"', exact: true }).click();
+		await formRow(page, 'Image source field')
+			.getByRole('button', { name: 'Apply "image"', exact: true })
+			.click();
+		await formRow(page, 'Animation source field')
+			.getByRole('button', { name: 'Apply "animation_url"', exact: true })
+			.click();
 		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('0');
 		await expect(sampleTokenInputRow(page)).toContainText('resolved');
 		await expect(formRow(page, 'Image source field')).toContainText('resolved');
@@ -186,6 +192,10 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(rowControl(page, 'Image source field')).toBeVisible();
 		await expect(rowControl(page, 'Animation source field')).toBeVisible();
 		await expect(rowControl(page, 'Manual range start token ID')).toBeVisible();
+		await page.screenshot({
+			path: testInfo.outputPath('before-acknowledgement.png'),
+			fullPage: true
+		});
 		await contractAddressSafetyAcknowledgement(page).check();
 		await address.fill(BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
 		await page
@@ -200,6 +210,19 @@ test.describe('bootstrap contract probe UI', () => {
 			String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply)
 		);
 		await expect(page.getByRole('button', { name: 'Probe', exact: true })).toBeEnabled();
+		const addressBox = await address.boundingBox();
+		const probeBox = await page.getByRole('button', { name: 'Probe', exact: true }).boundingBox();
+		const formBox = await page.locator('.bootstrap-create-form').boundingBox();
+		expect(addressBox).not.toBeNull();
+		expect(probeBox).not.toBeNull();
+		expect(
+			Math.abs(probeBox!.y + probeBox!.height / 2 - addressBox!.y - addressBox!.height / 2)
+		).toBeLessThan(2);
+		expect(probeBox!.x).toBeGreaterThan(addressBox!.x);
+		expect(formBox!.x).toBeLessThan(50);
+		await expect(page.getByRole('button', { name: 'Probe', exact: true })).toHaveClass(
+			/facet-panel-action-button/
+		);
 		expect(api.probeRequests).toEqual([]);
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 		expect(api.imageCacheEstimateRequests).toEqual([]);
@@ -260,25 +283,239 @@ test.describe('bootstrap contract probe UI', () => {
 		);
 	});
 
-	test('accepts detected metadata fields only after the explicit apply action', async ({
-		page
-	}) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+	test('previews and applies each detected field independently', async ({ page }, testInfo) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
 		await rowControl(page, 'Image source field').clear();
 		await page.locator('input[name="sampleTokenId"]').clear();
 		await page.getByRole('button', { name: 'Probe', exact: true }).click();
-		await expect(page.getByRole('button', { name: 'Apply detected fields' })).toBeVisible();
+		const sampleApply = sampleTokenInputRow(page).getByRole('button', {
+			name: 'Apply "0"',
+			exact: true
+		});
+		const imageApply = formRow(page, 'Image source field').getByRole('button', {
+			name: 'Apply "image"',
+			exact: true
+		});
+		const animationApply = formRow(page, 'Animation source field').getByRole('button', {
+			name: 'Apply "animation_url"',
+			exact: true
+		});
+		const slugApply = formRow(page, 'Collection slug').getByRole('button', { name: /^Apply "/ });
+		for (const button of [sampleApply, imageApply, animationApply, slugApply]) {
+			await expect(button).toBeVisible();
+			await expect(button).toBeEnabled();
+			await expect(button).toHaveClass(/facet-panel-action-button/);
+			await expectSuggestionLabelFits(button);
+		}
 		await expect(rowControl(page, 'Image source field')).toHaveValue('');
 		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('');
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
-		await page.getByRole('button', { name: 'Apply detected fields' }).click();
+		await page.screenshot({ path: testInfo.outputPath('field-suggestions.png'), fullPage: true });
+		await imageApply.click();
 		await expect(rowControl(page, 'Image source field')).toHaveValue(
 			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
 		);
-		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('1');
+		await expect(imageApply).toBeDisabled();
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('');
+		await expect(rowControl(page, 'Animation source field')).toHaveValue('');
+		await sampleApply.click();
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('0');
+		await animationApply.click();
+		await expect(rowControl(page, 'Animation source field')).toHaveValue(
+			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+		);
 		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('999');
 		await expect(page.locator('input[name="slug"]')).toHaveValue('curated-collection');
+		const suggestedSlug = await slugApply.locator('code').textContent();
+		await slugApply.click();
+		await expect(page.locator('input[name="slug"]')).toHaveValue(suggestedSlug!.slice(1, -1));
+		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).not.toBeChecked();
 		expect(api.probeRequests).toHaveLength(1);
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+		await page.locator('input[name="sampleTokenId"]').fill('2');
+		await expect(imageApply).toHaveCount(0);
+		await expect(sampleApply).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+	});
+
+	test('keeps long case-sensitive suggestions readable beside their inputs', async ({
+		page
+	}, testInfo) => {
+		const imageField = 'ArtworkSourceWithCaseSensitivePropertyName';
+		const contractName = 'A'.repeat(64);
+		await installBootstrapProbeApiMock(page, (response) => ({
+			...response,
+			contractName,
+			firstToken: { ...response.firstToken, imageSourceField: imageField }
+		}));
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image source field').clear();
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		const imageApply = formRow(page, 'Image source field').getByRole('button', {
+			name: `Apply "${imageField}"`,
+			exact: true
+		});
+		const slugApply = formRow(page, 'Collection slug').getByRole('button', {
+			name: `Apply "${contractName.toLowerCase()}"`,
+			exact: true
+		});
+		for (const button of [imageApply, slugApply]) {
+			await expect(button).toBeVisible();
+			await expect(button.locator('code')).toHaveCSS('text-transform', 'none');
+			await expectSuggestionLabelFits(button);
+			const box = await button.boundingBox();
+			expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+		}
+		await page.screenshot({
+			path: testInfo.outputPath('long-field-suggestions.png'),
+			fullPage: true
+		});
+		await imageApply.click();
+		await expect(rowControl(page, 'Image source field')).toHaveValue(imageField);
+	});
+
+	test('reports metadata failure for an owned sample and recovers with Probe', async ({
+		page
+	}, testInfo) => {
+		let attempt = 0;
+		const api = await installBootstrapProbeApiMock(page, (response) => {
+			if (attempt++ > 0) return response;
+			return {
+				...response,
+				firstToken: {
+					...response.firstToken,
+					name: null,
+					image: null,
+					imageSourceField: null,
+					imageBytes: null,
+					imageWidth: null,
+					imageHeight: null,
+					tokenUriPayloadBytes: null,
+					tokenUriPayloadError:
+						'Metadata download failed (HTTP 429). Check the IPFS gateway in Admin config, restart infra after changes, then press Probe.'
+				}
+			};
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.locator('input[name="sampleTokenId"]').fill('1');
+		await rowControl(page, 'Manual range total supply').fill('3333');
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(sampleTokenInputRow(page)).toContainText('resolved');
+		await expect(sampleTokenInputRow(page)).not.toContainText('incorrect');
+		await expect(formRow(page, 'Probe error')).toContainText('Metadata download failed (HTTP 429)');
+		await expect(formRow(page, 'Probe error')).toContainText('IPFS gateway in Admin config');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('metadata-unavailable.png'),
+			fullPage: true
+		});
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'Probe error')).toHaveCount(0);
+		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue('1');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('3333');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		expect(api.probeRequestSampleTokenIds).toEqual(['1', '1']);
+	});
+
+	for (const status of [502, 500]) {
+		test(`retries a failed cache estimate after HTTP ${status}`, async ({ page }, testInfo) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+			await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+			await page.getByRole('button', { name: 'Probe', exact: true }).click();
+			await expect(formRow(page, 'Image source field')).toContainText('resolved');
+			await page.route(
+				'**/collections/bootstrap/image-cache-estimate',
+				(route) =>
+					route.fulfill({
+						status,
+						contentType: 'application/json',
+						body: JSON.stringify({
+							error: status === 502 ? 'image_cache_estimate_failed' : 'internal_error',
+							message:
+								status === 502
+									? 'Image download failed (HTTP 429). Check the IPFS gateway in Admin config, restart infra after changes, then press estimate.'
+									: 'Internal server error'
+						})
+					}),
+				{ times: 1 }
+			);
+			const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+			await estimate.click();
+			await expect(
+				page.getByText(
+					status === 502
+						? /Image download failed \(HTTP 429\)/
+						: /Image cache estimate failed\. Press estimate/
+				)
+			).toBeVisible();
+			await expect(estimate).toBeEnabled();
+			await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+			await page.screenshot({
+				path: testInfo.outputPath('cache-estimate-failure.png'),
+				fullPage: true
+			});
+			await estimate.click();
+			await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+			await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+			expect(api.imageCacheEstimateRequests).toHaveLength(1);
+			await rowControl(page, 'Manual range total supply').fill('3333');
+			await expect(estimate).toBeEnabled();
+			await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		});
+	}
+
+	test('shows pending work and discards an estimate when its scope changes', async ({
+		page
+	}, testInfo) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		let releaseProbe!: () => void;
+		const probeGate = new Promise<void>((resolve) => {
+			releaseProbe = resolve;
+		});
+		await page.route(
+			'**/collections/bootstrap/probe?**',
+			async (route) => {
+				await probeGate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Probe', exact: true })).toBeDisabled();
+		await expect(formRow(page, 'Contract probe status')).toContainText('probing');
+		await page.screenshot({ path: testInfo.outputPath('probe-pending.png'), fullPage: true });
+		releaseProbe();
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
+
+		let releaseEstimate!: () => void;
+		const estimateGate = new Promise<void>((resolve) => {
+			releaseEstimate = resolve;
+		});
+		await page.route(
+			'**/collections/bootstrap/image-cache-estimate',
+			async (route) => {
+				await estimateGate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await page.getByRole('button', { name: 'estimate', exact: true }).click();
+		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimating');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('estimate-pending.png'), fullPage: true });
+		await rowControl(page, 'Manual range total supply').fill('3333');
+		const staleResponse = page.waitForResponse('**/collections/bootstrap/image-cache-estimate');
+		releaseEstimate();
+		await staleResponse;
+		await expect(formRow(page, 'Cached image max dimension')).not.toContainText('estimated');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		await page.getByRole('button', { name: 'estimate', exact: true }).click();
+		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		expect(api.imageCacheEstimateRequests).toMatchObject([
+			{ totalSupply: '999' },
+			{ totalSupply: '3333' }
+		]);
 	});
 
 	test('preserves inputs after an error and allows explicit recovery', async ({
@@ -386,6 +623,11 @@ test.describe('bootstrap contract probe UI', () => {
 
 async function stageManualProbe(page: Page, address: string) {
 	const api = await installBootstrapProbeApiMock(page);
+	await stageManualProbeInputs(page, address);
+	return api;
+}
+
+async function stageManualProbeInputs(page: Page, address: string) {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 	await contractAddressSafetyAcknowledgement(page).check();
 	await page.locator('input[name="address"]').fill(address);
@@ -395,7 +637,6 @@ async function stageManualProbe(page: Page, address: string) {
 	await rowControl(page, 'Manual range total supply').fill('999');
 	await page.locator('input[name="slug"]').fill('curated-collection');
 	await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
-	return api;
 }
 
 test.describe('bootstrap run detail UI', () => {
@@ -602,4 +843,14 @@ function sampleTokenInputRow(page: Page) {
 	return formRow(page, 'Sample token ID').filter({
 		has: page.locator('input[name="sampleTokenId"]')
 	});
+}
+
+async function expectSuggestionLabelFits(button: Locator) {
+	const boxes = await button.evaluate((element) => {
+		const buttonBox = element.getBoundingClientRect();
+		const labelBox = element.querySelector('span')!.getBoundingClientRect();
+		return { top: labelBox.top - buttonBox.top, bottom: buttonBox.bottom - labelBox.bottom };
+	});
+	expect(boxes.top).toBeGreaterThanOrEqual(0);
+	expect(boxes.bottom).toBeGreaterThanOrEqual(0);
 }

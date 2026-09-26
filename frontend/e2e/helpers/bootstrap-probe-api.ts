@@ -101,7 +101,12 @@ export type BootstrapProbeApiMock = {
 };
 
 // Returns deterministic bootstrap probe responses while capturing write calls.
-export async function installBootstrapProbeApiMock(page: Page): Promise<BootstrapProbeApiMock> {
+export async function installBootstrapProbeApiMock(
+	page: Page,
+	transformProbeResponse: (
+		response: BootstrapContractProbeApiResponse
+	) => BootstrapContractProbeApiResponse = (response) => response
+): Promise<BootstrapProbeApiMock> {
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
 	const probeRequestImageSourceFields: (string | null)[] = [];
@@ -149,7 +154,9 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			probeRequestSampleTokenIds.push(sampleTokenId);
 			await fulfillJson(
 				route,
-				probeResponse(address, imageSourceField, animationSourceField, sampleTokenId)
+				transformProbeResponse(
+					probeResponse(address, imageSourceField, animationSourceField, sampleTokenId)
+				)
 			);
 			return;
 		}
@@ -524,13 +531,9 @@ function probeResponse(
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			firstTokenImageBytes: 34567,
 			firstTokenImageContentType: 'image/png',
-			firstTokenSource: 'candidate_token_uri',
+			firstTokenSource: 'candidate_owner_of',
 			tokenUriPayloadBytes: 2048,
-			manualInput: {
-				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-				startTokenId: '1',
-				totalSupply: 1000
-			},
+			manualInput: null,
 			warnings: ['first token resolved through fallback checks']
 		});
 	}
@@ -729,7 +732,10 @@ function buildProbeResponse(input: {
 			animationSourceField: input.animationSourceField ?? null,
 			animationUrl: input.animationUrl ?? null,
 			metadataError: null,
-			candidates: []
+			candidates:
+				input.firstTokenId === null
+					? []
+					: [{ tokenId: input.firstTokenId, exists: true, source: 'owner_of', error: null }]
 		},
 		storageEstimate:
 			suggestedScopeTotalSupply === null ||

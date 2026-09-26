@@ -263,6 +263,8 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
     - `TraitFacetPanel.svelte`
     - `trait-facet-panel-controller.ts`
 - Base action class: `.facet-panel-action-button`
+- Value previews inside actions use `code` to preserve their spelling. The shared
+  button keeps its compact minimum height and grows when a label wraps.
 
 Specific controls:
 

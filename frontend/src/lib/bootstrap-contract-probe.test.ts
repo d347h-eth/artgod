@@ -7,6 +7,8 @@ import {
 	BOOTSTRAP_PROBE_STATUS_LABEL,
 	bootstrapProbeNeedsManualScope,
 	bootstrapProbeStatusLabel,
+	bootstrapSampleOwnership,
+	bootstrapSampleFailure,
 	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
@@ -55,6 +57,31 @@ describe('bootstrap contract probe helpers', () => {
 		expect(formatByteSize(512)).toBe('512 B');
 		expect(formatByteSize(1536)).toBe('1.50 KB');
 		expect(formatByteSize('10485760')).toBe('10.0 MB');
+	});
+
+	it('keeps confirmed ownership when sample metadata is unavailable', () => {
+		const probe = makeProbe({ enumerable: false, startTokenId: '1', totalSupply: 3333 });
+		probe.firstToken.candidates = [{ tokenId: '1', exists: true, source: 'owner_of', error: null }];
+		probe.firstToken.tokenUri = 'ipfs://metadata/1';
+		probe.firstToken.tokenUriPayloadError = 'Metadata download failed (HTTP 429).';
+		expect(bootstrapSampleOwnership(probe)).toBe(true);
+		expect(bootstrapSampleFailure(probe)).toBe(probe.firstToken.tokenUriPayloadError);
+		probe.firstToken.tokenUriPayloadError = null;
+		probe.firstToken.metadataError = 'Metadata could not be read.';
+		expect(bootstrapSampleFailure(probe)).toBe(probe.firstToken.metadataError);
+		probe.firstToken.metadataError = null;
+		expect(bootstrapSampleFailure(probe)).toBeNull();
+	});
+
+	it('distinguishes unknown ownership from an absent sample even when tokenURI works', () => {
+		const probe = makeProbe({ enumerable: false, startTokenId: '2' });
+		probe.firstToken.tokenUri = 'ipfs://metadata/2';
+		probe.firstToken.candidates = [{ tokenId: '1', exists: true, source: 'owner_of', error: null }];
+		expect(bootstrapSampleOwnership(probe)).toBeNull();
+		expect(bootstrapSampleFailure(probe)).toContain('ownership could not be checked');
+		probe.firstToken.candidates.push({ tokenId: '2', exists: false, source: null, error: null });
+		expect(bootstrapSampleOwnership(probe)).toBe(false);
+		expect(bootstrapSampleFailure(probe)).toContain('Sample token has no owner');
 	});
 
 	it('normalizes ERC721 names into editable bootstrap slug suggestions', () => {
