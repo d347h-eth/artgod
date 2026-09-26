@@ -130,6 +130,13 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+// Competition-only selector: an omitted value includes all standalone bids for
+// that trait key. It never changes the criteria sent to the marketplace.
+export type TradingTraitCompetitionSelector = {
+    type: string;
+    value?: string;
+};
+
 export type TradingBiddingJobTargetDescriptor =
     | {
           targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
@@ -653,6 +660,7 @@ export type PersistedCollectionBiddingJobRecord = PersistedBiddingJobBase & {
     tokenId: null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
+    extraCompetitionTraits: TradingTraitCompetitionSelector[];
     competitorTraits: [];
 };
 

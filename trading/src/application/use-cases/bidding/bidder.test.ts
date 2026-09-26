@@ -3237,6 +3237,69 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.currentPrice, 5n);
     });
 
+    it("keeps own-order management exact when broader and extra trait buckets compete", async () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        const zone = { type: "Zone", value: "Kairo" };
+        const biome = { type: "Biome", value: "91" };
+        const future = Math.floor(Date.now() / 1000) + 3600;
+        for (const competitorPrice of [6n, 20n]) {
+            const service = new FakeBiddingService();
+            service.activeOffers = [
+                {
+                    id: "competitor",
+                    maker: "other",
+                    price: competitorPrice,
+                    offerScope: "trait",
+                    rawOrder: { criteria: { trait: mode } },
+                },
+                ...[
+                    ["own-exact", [zone, biome]],
+                    ["own-subset", [zone]],
+                    ["own-extra", [mode]],
+                ].map(([id, traits]) => ({
+                    id,
+                    maker: "0xmaker",
+                    price: 3n,
+                    protocolAddress: "0xprotocol",
+                    expirationTime: future,
+                    offerScope: "trait",
+                    rawOrder: { criteria: { traits } },
+                })),
+            ];
+            const job = makeJob(
+                "trait-job",
+                "fixture",
+                {
+                    type: BIDDER_TARGET_TYPE.Collection,
+                    quantity: 1,
+                    traits: [zone, biome],
+                },
+                undefined,
+                { floor: 1n, ceiling: 10n, delta: 1n },
+            );
+            job.config.extraCompetitionTraits = [mode];
+            const bidder = new Bidder(service as any, "0xmaker", 1000, {
+                dryRun: false,
+            });
+            bidder.addJob(job);
+            await bidder.refreshJob(job.id);
+            assert.ok(!service.canceledOrderIds.includes("own-subset"));
+            assert.ok(!service.canceledOrderIds.includes("own-extra"));
+            assert.ok(service.placedAmounts.every((amount) => amount <= 10n));
+            if (competitorPrice === 6n) {
+                assert.deepEqual(service.placedAmounts, [7n]);
+                assert.deepEqual(service.canceledOrderIds, ["own-exact"]);
+                assert.equal(
+                    bidder.getSatisfiedRuntimeSnapshot({
+                        ...job,
+                        config: { ...job.config, extraCompetitionTraits: [] },
+                    }),
+                    null,
+                );
+            }
+        }
+    });
+
     it("cancels maker bids when the effective ceiling collapses to zero", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [

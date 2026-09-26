@@ -1,5 +1,9 @@
 import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
+import {
+    normalizeExtraCompetitionTraits,
+    TraitCompetitionValidationError,
+} from "@artgod/shared/trading/trait-competition";
 import type {
     UpsertTraitBiddingJobInput,
     UpsertTraitBiddingJobOutput,
@@ -24,6 +28,7 @@ export type UpsertTraitBiddingJobRoute = {
         priceTierId?: unknown;
         quantity?: unknown;
         targetTraits?: unknown;
+        extraCompetitionTraits?: unknown;
     };
 };
 
@@ -55,12 +60,33 @@ export class UpsertTraitBiddingJobHttpAdapter {
             collectionRef: request.params.collection_ref,
             status: parseEditableBiddingJobStatus(request.body?.status),
             floorEth: parseOptionalString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseOptionalString(request.body?.ceilingEth, "ceilingEth"),
+            ceilingEth: parseOptionalString(
+                request.body?.ceilingEth,
+                "ceilingEth",
+            ),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
-            priceTierId: parseOptionalString(request.body?.priceTierId, "priceTierId"),
+            priceTierId: parseOptionalString(
+                request.body?.priceTierId,
+                "priceTierId",
+            ),
             quantity: parseOptionalQuantity(request.body?.quantity),
             targetTraits: parseTargetTraits(request.body?.targetTraits),
+            extraCompetitionTraits: parseExtraCompetitionTraits(
+                request.body?.extraCompetitionTraits,
+            ),
         };
+    }
+}
+
+function parseExtraCompetitionTraits(value: unknown) {
+    if (value === undefined) return undefined;
+    try {
+        return normalizeExtraCompetitionTraits(value);
+    } catch (error) {
+        if (error instanceof TraitCompetitionValidationError) {
+            throw new ReadModelBadRequestError(error.message);
+        }
+        throw error;
     }
 }
 
@@ -70,7 +96,9 @@ function parseTargetTraits(value: unknown): { type: string; value: string }[] {
     }
     return value.map((entry) => {
         if (!entry || typeof entry !== "object") {
-            throw new ReadModelBadRequestError("targetTraits entries must be objects");
+            throw new ReadModelBadRequestError(
+                "targetTraits entries must be objects",
+            );
         }
         const record = entry as Record<string, unknown>;
         return {

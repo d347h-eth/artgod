@@ -16,6 +16,7 @@ import type {
     TradingBiddingJobPricingSource,
     TradingJobStatus,
     TradingTraitCriterion,
+    TradingTraitCompetitionSelector,
 } from "@artgod/shared/types";
 
 export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
@@ -49,6 +50,7 @@ export type BiddingJobView = {
         ceilingEth: string;
         deltaEth: string;
         pricingSource: TradingBiddingJobPricingSource | null;
+        extraCompetitionTraits?: TradingTraitCompetitionSelector[];
     };
     runtime: {
         currentPriceEth: string | null;
@@ -287,6 +289,7 @@ export function mapPersistedBiddingJobToView(
                 ceilingEth: formatWeiAsEth(job.ceilingWei),
                 deltaEth: formatWeiAsEth(job.deltaWei),
                 pricingSource: job.pricingSource,
+                extraCompetitionTraits: job.extraCompetitionTraits,
             },
             runtime,
         };

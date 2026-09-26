@@ -1,4 +1,13 @@
-import type { ChainRecord, CollectionListItem, TradingTraitCriterion } from "@artgod/shared/types";
+import type {
+    ChainRecord,
+    CollectionListItem,
+    TradingTraitCriterion,
+} from "@artgod/shared/types";
+import type { TradingTraitCompetitionSelector } from "@artgod/shared/types";
+import {
+    normalizeExtraCompetitionTraits,
+    TraitCompetitionValidationError,
+} from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingJobsRepositoryPort,
     UpsertCollectionBiddingJobInput as PersistedUpsertCollectionBiddingJobInput,
@@ -34,6 +43,7 @@ export type UpsertTraitBiddingJobInput = {
     priceTierId?: string | null;
     quantity?: number;
     targetTraits: TradingTraitCriterion[];
+    extraCompetitionTraits?: TradingTraitCompetitionSelector[];
 };
 
 export class UpsertTraitBiddingJobUseCase {
@@ -74,6 +84,22 @@ export class UpsertTraitBiddingJobUseCase {
             input.collectionRef,
         );
         const targetTraits = normalizeTargetTraits(input.targetTraits);
+        let extraCompetitionTraits:
+            | TradingTraitCompetitionSelector[]
+            | undefined;
+        try {
+            extraCompetitionTraits =
+                input.extraCompetitionTraits === undefined
+                    ? undefined
+                    : normalizeExtraCompetitionTraits(
+                          input.extraCompetitionTraits,
+                      );
+        } catch (error) {
+            if (error instanceof TraitCompetitionValidationError) {
+                throw new TradingValidationError(error.message);
+            }
+            throw error;
+        }
         assertMarketplaceBiddingSupportedTargetTraits({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -101,11 +127,11 @@ export class UpsertTraitBiddingJobUseCase {
             pricingSource: pricing.pricingSource,
             quantity: parseQuantity(input.quantity),
             targetTraits,
+            extraCompetitionTraits,
         };
         // Persist the desired trait job and enqueue the matching Outbox command.
-        const result = this.biddingJobsRepositoryPort.upsertCollectionJob(
-            persistedInput,
-        );
+        const result =
+            this.biddingJobsRepositoryPort.upsertCollectionJob(persistedInput);
         // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,
@@ -126,19 +152,22 @@ function assertMarketplaceBiddingSupportedTargetTraits(params: {
     traitBiddingTargetSupportReadPort: TraitBiddingTargetSupportReadPort;
 }): void {
     const supportedTraits =
-        params.traitBiddingTargetSupportReadPort.listMarketplaceBiddingSupportedTraits({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            traits: params.targetTraits.map((trait) => ({
-                key: trait.type,
-                value: trait.value,
-            })),
-        });
+        params.traitBiddingTargetSupportReadPort.listMarketplaceBiddingSupportedTraits(
+            {
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                traits: params.targetTraits.map((trait) => ({
+                    key: trait.type,
+                    value: trait.value,
+                })),
+            },
+        );
     const supportedTraitKeys = new Set(
         supportedTraits.map((trait) => traitSignature(trait.key, trait.value)),
     );
     const unsupportedTrait = params.targetTraits.find(
-        (trait) => !supportedTraitKeys.has(traitSignature(trait.type, trait.value)),
+        (trait) =>
+            !supportedTraitKeys.has(traitSignature(trait.type, trait.value)),
     );
     if (unsupportedTrait) {
         throw new TradingValidationError(
@@ -196,7 +225,9 @@ function compareTraits(
     right: TradingTraitCriterion,
 ): number {
     const typeCompare = left.type.localeCompare(right.type);
-    return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
+    return typeCompare === 0
+        ? left.value.localeCompare(right.value)
+        : typeCompare;
 }
 
 function traitSignature(type: string, value: string): string {

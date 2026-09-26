@@ -63,6 +63,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             ceilingWei: string;
             deltaWei: string;
             targetTraits: { type: string; value: string }[];
+            extraCompetitionTraits?: { type: string; value?: string }[];
         }[] = [];
         let publishedCommands: TradingJobCommandRecord[] = [];
         const useCase = new UpsertTraitBiddingJobUseCase(
@@ -83,6 +84,8 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                             ceilingWei: input.ceilingWei,
                             deltaWei: input.deltaWei,
                             targetTraits: input.targetTraits,
+                            extraCompetitionTraits:
+                                input.extraCompetitionTraits,
                         }),
                         commands,
                     };
@@ -109,6 +112,10 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                 { type: "Mode", value: "Terrain" },
                 { type: "Biome", value: "42" },
             ],
+            extraCompetitionTraits: [
+                { type: " Zone ", value: " Kairo " },
+                { type: "Mode" },
+            ],
         });
 
         const persistedInput = persistedInputs[0];
@@ -121,8 +128,19 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             { type: "Mode", value: "Terrain" },
         ]);
         assert.equal(result.job.target.type, "collection");
-        assert.deepEqual(result.job.target.targetTraits, persistedInput.targetTraits);
+        assert.deepEqual(
+            result.job.target.targetTraits,
+            persistedInput.targetTraits,
+        );
         assert.deepEqual(publishedCommands, commands);
+        assert.deepEqual(persistedInput.extraCompetitionTraits, [
+            { type: "Mode" },
+            { type: "Zone", value: "Kairo" },
+        ]);
+        assert.deepEqual(
+            result.job.config.extraCompetitionTraits,
+            persistedInput.extraCompetitionTraits,
+        );
     });
 
     it("rejects bad trait targets and quantities before persistence", () => {
@@ -193,6 +211,15 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                         { type: "Mode", value: "Terrain" },
                         { type: "Mode", value: "Terrain" },
                     ],
+                }),
+            TradingValidationError,
+        );
+        assert.equal(persistenceCalls, 0);
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    ...validInput,
+                    extraCompetitionTraits: [{ type: "Mode", value: "" }],
                 }),
             TradingValidationError,
         );
@@ -274,6 +301,7 @@ function buildPersistedTraitJob(input: {
     ceilingWei: string;
     deltaWei: string;
     targetTraits: { type: string; value: string }[];
+    extraCompetitionTraits?: { type: string; value?: string }[];
 }): PersistedCollectionBiddingJobRecord {
     return {
         jobId: "job-trait",
@@ -298,6 +326,7 @@ function buildPersistedTraitJob(input: {
         tokenId: null,
         quantity: 1,
         targetTraits: input.targetTraits,
+        extraCompetitionTraits: input.extraCompetitionTraits ?? [],
         competitorTraits: [],
     };
 }

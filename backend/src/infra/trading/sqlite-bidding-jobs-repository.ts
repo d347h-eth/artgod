@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeExtraCompetitionTraits } from "@artgod/shared/trading/trait-competition";
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import {
@@ -55,6 +56,7 @@ type BiddingJobRow = {
     quantity: number | null;
     target_traits_json: string | null;
     competitor_traits_json: string | null;
+    extra_competition_traits_json: string;
     revision: number;
     created_at: string;
     updated_at: string;
@@ -102,7 +104,7 @@ const BIDDING_JOB_SELECT =
     "c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
     "j.status, j.target_kind, j.token_id, j.revision, j.created_at, j.updated_at, j.archived_at, " +
     "s.floor_wei, s.ceiling_wei, s.delta_wei, s.price_tier_id, s.pricing_source_json, " +
-    "s.quantity, s.target_traits_json, s.competitor_traits_json, " +
+    "s.quantity, s.target_traits_json, s.competitor_traits_json, s.extra_competition_traits_json, " +
     "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, " +
     "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, " +
     "r.last_run_at, r.last_error, r.cancellation_requested_at, r.cancellation_completed_at, r.cancellation_error, r.updated_at AS runtime_updated_at " +
@@ -577,6 +579,20 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 const targetTraits = this.normalizeTraitCriteria(
                     transactionInput.targetTraits,
                 );
+                const extraCompetitionTraits =
+                    transactionInput.extraCompetitionTraits === undefined
+                        ? undefined
+                        : normalizeExtraCompetitionTraits(
+                              transactionInput.extraCompetitionTraits,
+                          );
+                if (
+                    targetTraits.length === 0 &&
+                    extraCompetitionTraits?.length
+                ) {
+                    throw new Error(
+                        "Extra competitor traits require a trait-scoped job",
+                    );
+                }
                 const existing = this.findActiveCollectionJob({
                     chainId: transactionInput.chainId,
                     collectionId: transactionInput.collectionId,
@@ -601,6 +617,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         competitorTraitsJson: null,
                         ...this.biddingPricingPayload(transactionInput),
                     });
+                    this.writeExtraCompetitionTraits(
+                        existing.jobId,
+                        extraCompetitionTraits,
+                    );
                     const job = this.requireCollectionJobById(existing.jobId);
                     const commandKind =
                         job.status === TRADING_JOB_STATUS.Paused
@@ -650,6 +670,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     ...this.biddingPricingPayload(transactionInput),
                 });
 
+                this.writeExtraCompetitionTraits(jobId, extraCompetitionTraits);
                 const job = this.requireCollectionJobById(jobId);
                 const command = this.insertCommandRecord(
                     job.jobId,
@@ -665,6 +686,18 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 };
             },
         )(input);
+    }
+
+    // Runs inside the enclosing declaration/outbox transaction. Pricing-only
+    // updates never touch this column, including staged price-tier reapply.
+    private writeExtraCompetitionTraits(
+        jobId: string,
+        selectors: UpsertCollectionBiddingJobInput["extraCompetitionTraits"],
+    ): void {
+        if (selectors === undefined) return;
+        db.prepare<{ jobId: string; json: string }>(
+            "UPDATE trading_bidding_job_specs SET extra_competition_traits_json = @json WHERE job_id = @jobId",
+        ).run({ jobId, json: JSON.stringify(selectors) });
     }
 
     archiveTokenJob(params: {
@@ -1241,6 +1274,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 tokenId: null,
                 quantity: row.quantity,
                 targetTraits,
+                extraCompetitionTraits: normalizeExtraCompetitionTraits(
+                    JSON.parse(row.extra_competition_traits_json),
+                ),
                 competitorTraits: [],
             };
         }

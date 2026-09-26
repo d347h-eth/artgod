@@ -1,12 +1,14 @@
 import type {
     TradingBiddingJobRuntimeBidPosition,
     TradingBiddingJobRuntimeConstraint,
+    TradingTraitCompetitionSelector,
 } from "@artgod/shared/types";
 
 export interface BidderConfig {
     ceiling: bigint;
     floor: bigint;
     delta: bigint;
+    extraCompetitionTraits?: TradingTraitCompetitionSelector[];
 }
 
 export interface BidderState {
