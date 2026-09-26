@@ -21,6 +21,16 @@ import type {
     QueueDeliveryOrigin,
     QueueReplayBoundary,
 } from "../../ports/queue.js";
+import {
+    observeBestEffort,
+    observeProcessing,
+    observeSyncProcessing,
+} from "../processing-observability.js";
+import {
+    ORDER_PROCESSING_OPERATION as OPERATION,
+    ORDER_VALIDATION_PATH,
+    type OrderProcessingObservability,
+} from "./observability.js";
 
 export class RevalidateMakerOrders {
     constructor(
@@ -32,6 +42,7 @@ export class RevalidateMakerOrders {
                 consumerName: string,
             ) => Promise<QueueReplayBoundary>;
             now?: () => number;
+            observability?: OrderProcessingObservability;
         },
     ) {}
 
@@ -43,6 +54,7 @@ export class RevalidateMakerOrders {
     }): Promise<void> {
         const { store } = this.deps;
         const now = this.deps.now ?? Date.now;
+        const hooks = this.deps.observability;
         if (!input.jobId)
             throw new UnsupportedJob("Maker request job identity is required");
         if (
@@ -66,18 +78,34 @@ export class RevalidateMakerOrders {
             throw new UnsupportedJob("Invalid maker continuation");
         let admitted: MakerRevalidationRun | null;
         try {
-            if (input.origin && this.deps.replayBoundary)
-                store.cleanup(
-                    await this.deps.replayBoundary(input.origin.consumerName),
-                    POLICY.cleanupRows,
-                );
-            admitted = continuation
-                ? store.resume({
-                      chainId: payload.chainId,
-                      ...continuation,
-                      origin: input.origin,
-                  })
-                : store.admit({ ...input, payload, now: now() });
+            admitted = await observeProcessing(
+                hooks,
+                OPERATION.MakerAdmit,
+                { chainId: payload.chainId, continuation: !!continuation },
+                async () => {
+                    if (input.origin && this.deps.replayBoundary) {
+                        const boundary = await this.deps.replayBoundary(
+                            input.origin.consumerName,
+                        );
+                        const cleaned = observeSyncProcessing(
+                            hooks,
+                            OPERATION.MakerCleanup,
+                            { chainId: payload.chainId },
+                            () => store.cleanup(boundary, POLICY.cleanupRows),
+                        );
+                        observeBestEffort(() =>
+                            hooks?.observer?.makerReceiptsCleaned(cleaned),
+                        );
+                    }
+                    return continuation
+                        ? store.resume({
+                              chainId: payload.chainId,
+                              ...continuation,
+                              origin: input.origin,
+                          })
+                        : store.admit({ ...input, payload, now: now() });
+                },
+            );
         } catch (error) {
             if (error instanceof MakerRevalidationConflict)
                 throw new UnsupportedJob(error.message);
@@ -131,7 +159,18 @@ export class RevalidateMakerOrders {
                     "Maker execution lost its lease",
                 );
             const claimed = run;
-            run = await this.deps.admission.run(() => this.step(claimed, now));
+            run = await this.deps.admission.run(() =>
+                observeProcessing(
+                    hooks,
+                    OPERATION.MakerStep,
+                    {
+                        chainId: claimed.chainId,
+                        runId: claimed.runId,
+                        step: claimed.step,
+                    },
+                    () => this.step(claimed, now),
+                ),
+            );
         } catch (error) {
             store.release(run, now(), error);
             logger.warn(LOG.Retry, {
@@ -153,6 +192,12 @@ export class RevalidateMakerOrders {
         now: () => number,
     ): Promise<MakerRevalidationRun> {
         const start = now();
+        const hooks = this.deps.observability;
+        const attributes = {
+            chainId: run.chainId,
+            runId: run.runId,
+            step: run.step,
+        };
         const page = this.deps.store.next(run, POLICY.batchOrders);
         const isolatedIndex = page.findIndex(
             (candidate) => candidate.order.id === run.isolateOrderId,
@@ -169,87 +214,141 @@ export class RevalidateMakerOrders {
             (candidate) => candidate.currentAtTrigger,
         );
         const batch = first
-            ? await this.deps.createSnapshot({
-                  chainId: run.chainId,
-                  minimumBlock: run.payload.blockNumber ?? null,
-                  candidates: candidates
-                      .filter((candidate) => candidate.currentAtTrigger)
-                      .map((candidate) => candidate.order),
-              })
+            ? await observeProcessing(
+                  hooks,
+                  OPERATION.MakerSnapshot,
+                  attributes,
+                  () =>
+                      this.deps.createSnapshot({
+                          chainId: run.chainId,
+                          minimumBlock: run.payload.blockNumber ?? null,
+                          candidates: candidates
+                              .filter((candidate) => candidate.currentAtTrigger)
+                              .map((candidate) => candidate.order),
+                      }),
+              )
             : undefined;
-        for (const candidate of candidates) {
-            if (resolutions.length && now() - start >= POLICY.stepBudgetMs) {
-                stepEnd = STEP_END.Time;
-                break;
+        try {
+            try {
+                await observeProcessing(
+                    hooks,
+                    OPERATION.MakerValidate,
+                    {
+                        ...attributes,
+                        candidates: candidates.length,
+                        isolated: isolatedIndex === 0,
+                    },
+                    async () => {
+                        for (const candidate of candidates) {
+                            if (
+                                resolutions.length &&
+                                now() - start >= POLICY.stepBudgetMs
+                            ) {
+                                stepEnd = STEP_END.Time;
+                                break;
+                            }
+                            if (candidate.currentAtTrigger) {
+                                if (resolutions.length && !batch!.canAccept()) {
+                                    stepEnd = STEP_END.Time;
+                                    break;
+                                }
+                                const validation = await batch!.validate(
+                                    candidate.order,
+                                );
+                                resolutions.push({ candidate, validation });
+                            } else
+                                resolutions.push({
+                                    candidate,
+                                    validation: null,
+                                });
+                        }
+                    },
+                );
+            } catch (error) {
+                const candidate = candidates[0];
+                if (
+                    isolatedIndex !== 0 ||
+                    !candidate ||
+                    !(error instanceof OrderValidationReadUnavailable) ||
+                    error.orderId !== candidate.order.id
+                )
+                    throw error;
+                // The validation span records the failed read before this durable handoff.
+                resolutions.push({ candidate, deferredError: String(error) });
             }
-            if (candidate.currentAtTrigger) {
-                if (resolutions.length && !batch!.canAccept()) {
-                    stepEnd = STEP_END.Time;
-                    break;
-                }
-                try {
-                    const validation = await batch!.validate(candidate.order);
-                    resolutions.push({ candidate, validation });
-                } catch (error) {
-                    if (
-                        isolatedIndex !== 0 ||
-                        !(error instanceof OrderValidationReadUnavailable) ||
-                        error.orderId !== candidate.order.id
-                    )
-                        throw error;
-                    resolutions.push({
-                        candidate,
-                        deferredError: String(error),
-                    });
-                }
-            } else resolutions.push({ candidate, validation: null });
+            // An isolated failed snapshot has no result to commit. Its durable handoff
+            // carries the unmet requirement, never a validation proof from that snapshot.
+            if (
+                batch &&
+                !resolutions.some((result) => "deferredError" in result)
+            )
+                await observeProcessing(
+                    hooks,
+                    OPERATION.MakerVerify,
+                    attributes,
+                    () => batch.finish(),
+                );
+            const complete =
+                resolutions.length === page.length &&
+                page.length < POLICY.batchOrders;
+            const next = observeSyncProcessing(
+                hooks,
+                OPERATION.MakerCheckpoint,
+                attributes,
+                () =>
+                    this.deps.store.checkpoint(
+                        run,
+                        resolutions,
+                        complete,
+                        now(),
+                    ),
+            );
+            const progress = {
+                resolved: next.resolvedOrders - run.resolvedOrders,
+                deferred: next.deferredOrders - run.deferredOrders,
+                validated: resolutions.filter(
+                    (resolution) =>
+                        "validation" in resolution &&
+                        resolution.validation !== null,
+                ).length,
+                stepEnd: complete
+                    ? next.status === STATUS.Completed
+                        ? STEP_END.Completed
+                        : STEP_END.Followup
+                    : stepEnd,
+            };
+            observeBestEffort(() => hooks?.observer?.makerCheckpoint(progress));
+            logger.info(LOG.Checkpoint, {
+                component: LOG.Component,
+                runId: next.runId,
+                sourceJobId: next.sourceJobId,
+                chainId: next.chainId,
+                step: next.step,
+                afterId: next.afterId,
+                candidates: candidates.length,
+                ...progress,
+                totalResolved: next.resolvedOrders,
+                totalDeferred: next.deferredOrders,
+                durationMs: now() - start,
+                status: next.status,
+                eligible: candidates.filter(
+                    (candidate) => candidate.currentAtTrigger,
+                ).length,
+                contractReads: batch?.readCounts() ?? null,
+                generation: next.generation,
+                passGeneration: next.passGeneration,
+                priorFailures: run.failures,
+                wakeupGeneration: next.wakeupGeneration,
+            });
+            return next;
+        } finally {
+            if (batch)
+                observeBestEffort(() =>
+                    hooks?.observer?.contractReads(
+                        ORDER_VALIDATION_PATH.Maker,
+                        batch.readCounts(),
+                    ),
+                );
         }
-        // An isolated failed snapshot has no result to commit. Its durable handoff
-        // carries the unmet requirement, never a validation proof from that snapshot.
-        if (batch && !resolutions.some((result) => "deferredError" in result))
-            await batch.finish();
-        const complete =
-            resolutions.length === page.length &&
-            page.length < POLICY.batchOrders;
-        const next = this.deps.store.checkpoint(
-            run,
-            resolutions,
-            complete,
-            now(),
-        );
-        logger.info(LOG.Checkpoint, {
-            component: LOG.Component,
-            runId: next.runId,
-            sourceJobId: next.sourceJobId,
-            chainId: next.chainId,
-            step: next.step,
-            afterId: next.afterId,
-            candidates: candidates.length,
-            resolved: next.resolvedOrders - run.resolvedOrders,
-            deferred: next.deferredOrders - run.deferredOrders,
-            totalResolved: next.resolvedOrders,
-            totalDeferred: next.deferredOrders,
-            durationMs: now() - start,
-            status: next.status,
-            eligible: candidates.filter(
-                (candidate) => candidate.currentAtTrigger,
-            ).length,
-            validated: resolutions.filter(
-                (resolution) =>
-                    "validation" in resolution &&
-                    resolution.validation !== null,
-            ).length,
-            contractReads: batch?.readCounts() ?? null,
-            stepEnd: complete
-                ? next.status === STATUS.Completed
-                    ? STEP_END.Completed
-                    : STEP_END.Followup
-                : stepEnd,
-            generation: next.generation,
-            passGeneration: next.passGeneration,
-            priorFailures: run.failures,
-            wakeupGeneration: next.wakeupGeneration,
-        });
-        return next;
     }
 }

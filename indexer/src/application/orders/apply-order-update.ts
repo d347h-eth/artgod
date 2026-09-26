@@ -3,6 +3,11 @@ import { orderUpdateQueue } from "../../domain/order-processing.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
 import type { AdmitOrderValidation } from "./validate-order-demand.js";
+import { observeProcessing } from "../processing-observability.js";
+import {
+    ORDER_PROCESSING_OPERATION as OPERATION,
+    type OrderProcessingObservability,
+} from "./observability.js";
 
 /** Both new lifecycle deliveries and the legacy mixed queue use the same semantics. */
 export class ApplyOrderUpdate {
@@ -11,6 +16,7 @@ export class ApplyOrderUpdate {
             chainId: number;
             validation: Pick<AdmitOrderValidation, "execute">;
             lifecycle: Pick<OrdersDomainPort, "handleOrderUpdateById">;
+            observability?: OrderProcessingObservability;
         },
     ) {}
     async execute(
@@ -26,6 +32,12 @@ export class ApplyOrderUpdate {
                 requiredAt,
                 minimumBlock: payload.blockNumber ?? null,
             });
-        } else await this.deps.lifecycle.handleOrderUpdateById(payload);
+        } else
+            await observeProcessing(
+                this.deps.observability,
+                OPERATION.Lifecycle,
+                { chainId: payload.chainId },
+                () => this.deps.lifecycle.handleOrderUpdateById(payload),
+            );
     }
 }

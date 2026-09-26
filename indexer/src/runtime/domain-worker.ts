@@ -53,6 +53,7 @@ import {
 } from "../domain/order-processing.js";
 import { FairOrderValidationAdmission } from "../infra/orders/fair-validation-admission.js";
 import { OrderValidationDemandProgress } from "../infra/orders/order-validation-demand-reporting.js";
+import { DomainProcessingMetrics } from "../infra/observability/domain-processing-metrics.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
@@ -122,6 +123,13 @@ async function main() {
             worker: "domain-worker",
             chainId: config.chainId,
         });
+        const processingMetrics = new DomainProcessingMetrics(
+            runtimeMetrics.metrics,
+        );
+        const processingObservability = {
+            apm: runtimeApm.apm,
+            observer: processingMetrics,
+        };
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -165,6 +173,7 @@ async function main() {
         const admitOrderValidation = new AdmitOrderValidation(
             config.chainId,
             orderValidationStore,
+            processingObservability,
         );
         const createOrderSnapshot = createSeaportOrderValidationFactory({
             chainId: config.chainId,
@@ -174,22 +183,26 @@ async function main() {
         });
         const validationAdmission = new FairOrderValidationAdmission(
             ORDER_PROCESSING_POLICY.concurrentValidations,
+            processingObservability,
         );
         const applyOrderUpdate = new ApplyOrderUpdate({
             chainId: config.chainId,
             validation: admitOrderValidation,
             lifecycle: ordersDomain,
+            observability: processingObservability,
         });
         const orderValidation = new ValidateOrderDemand({
             chainId: config.chainId,
             store: orderValidationStore,
             createSnapshot: createOrderSnapshot,
             admission: validationAdmission,
+            observability: processingObservability,
         });
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
             createSnapshot: createOrderSnapshot,
             admission: validationAdmission,
+            observability: processingObservability,
             replayBoundary: (consumerName) =>
                 queue.getReplayBoundary(consumerName),
         });
@@ -227,6 +240,7 @@ async function main() {
         const stopQueueOutboxDrainer = startQueueOutboxDrainer(
             queueOutbox,
             queue,
+            { observability: processingObservability },
         );
         const imageCachePolicyResolver = new SqliteImageCachePolicyResolver(
             collectionExtensions,
@@ -312,6 +326,7 @@ async function main() {
 
         const stopMakerRecovery = startMakerRevalidationRecovery({
             store: makerRevalidationStore,
+            observability: processingObservability,
             isPublicationPending: (publication, queueName) =>
                 queue.isPublicationPending(
                     publication,

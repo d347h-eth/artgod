@@ -32,6 +32,17 @@ import {
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { processingTelemetry } from "./helpers/processing-observability.js";
+import {
+    ORDER_PROCESSING_OPERATION as OPERATION,
+    ORDER_VALIDATION_BATCH_OUTCOME as OUTCOME,
+    type OrderProcessingObservability,
+} from "../src/application/orders/observability.js";
+import {
+    DOMAIN_PROCESSING_METRIC as METRIC,
+    DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
+    DOMAIN_PROCESSING_RESULT as RESULT,
+} from "../src/infra/observability/domain-processing-metric-contract.js";
 
 const now = HEAVY_MAKER.now * 1_000;
 const request = (
@@ -46,7 +57,11 @@ const request = (
 
 function workflow(
     count: number,
-    options: { rpc?: BatchedHeavyMakerRpc; admitted?: number } = {},
+    options: {
+        rpc?: BatchedHeavyMakerRpc;
+        admitted?: number;
+        observability?: OrderProcessingObservability;
+    } = {},
 ) {
     const other = seedHeavyMaker(count);
     const rpc = options.rpc ?? new BatchedHeavyMakerRpc();
@@ -68,6 +83,7 @@ function workflow(
         store,
         admission,
         createSnapshot,
+        observability: options.observability,
     });
     const ids = Array.from({ length: count }, (_, i) => heavyMakerOrder(i).id);
     db.writeTransaction(() => {
@@ -133,7 +149,8 @@ describe("bounded demand validation batches", () => {
     afterEach(() => vi.restoreAllMocks());
 
     it("shares full validation for 250 demands across three bounded snapshots", async () => {
-        const work = workflow(250);
+        const telemetry = await processingTelemetry();
+        const work = workflow(250, { observability: telemetry.hooks });
         const head = vi.spyOn(work.rpc, "getBlockNumber");
         const block = vi.spyOn(work.rpc, "getBlock");
         const reports = [];
@@ -168,6 +185,35 @@ describe("bounded demand validation batches", () => {
                 )
                 .get(HEAVY_MAKER.now),
         ).toEqual({ count: 250 });
+        expect(await telemetry.value(METRIC.DemandBatches)).toBe(3);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Validated,
+            }),
+        ).toBe(250);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Covered,
+            }),
+        ).toBe(250);
+        expect(
+            await telemetry.value(METRIC.Operations, {
+                [LABEL.Operation]: OPERATION.DemandBatch,
+                [LABEL.Result]: RESULT.Success,
+            }),
+        ).toBe(3);
+        const validations = telemetry.apm.spans.filter(
+            (span) => span.name === OPERATION.DemandValidate,
+        );
+        expect(validations).toHaveLength(3);
+        expect(
+            validations.every(
+                (span) =>
+                    span.parent?.name === OPERATION.DemandBatch &&
+                    span.finished &&
+                    !span.error,
+            ),
+        ).toBe(true);
     });
 
     it("keeps balances separate for different makers and validates sell ownership", async () => {
@@ -331,7 +377,8 @@ describe("bounded demand validation batches", () => {
     });
 
     it("keeps all effects uncommitted when the pinned block changes before completion", async () => {
-        const work = workflow(3);
+        const telemetry = await processingTelemetry();
+        const work = workflow(3, { observability: telemetry.hooks });
         work.rpc.balance = 0n;
         work.rpc.onRead = () => {
             work.rpc.blockHash = `0x${"cd".repeat(32)}`;
@@ -355,10 +402,43 @@ describe("bounded demand validation batches", () => {
                 failures: 1,
                 proofAt: null,
             });
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Validated,
+            }),
+        ).toBe(3);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Covered,
+            }),
+        ).toBe(0);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Retried,
+            }),
+        ).toBe(3);
+        expect(
+            await telemetry.value(METRIC.Operations, {
+                [LABEL.Operation]: OPERATION.DemandVerify,
+                [LABEL.Result]: RESULT.Failure,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.Active, {
+                [LABEL.Operation]: OPERATION.DemandBatch,
+            }),
+        ).toBe(0);
+        const failure = telemetry.apm.spans.find(
+            (span) => span.name === OPERATION.DemandVerify,
+        );
+        expect(failure?.error).toBeInstanceOf(Error);
+        expect(failure?.parent?.name).toBe(OPERATION.DemandBatch);
+        expect(failure?.parent?.error).toBe(failure?.error);
     });
 
     it("rolls back every order effect when one demand completion write fails", async () => {
-        const work = workflow(3);
+        const telemetry = await processingTelemetry();
+        const work = workflow(3, { observability: telemetry.hooks });
         const rejected = [...work.ids].sort()[1]!;
         db.exec(
             `CREATE TEMP TRIGGER reject_batch BEFORE UPDATE ON order_validation_demand WHEN NEW.pending=0 AND NEW.order_id='${rejected}' BEGIN SELECT RAISE(ABORT,'fixture batch rollback'); END;`,
@@ -384,6 +464,21 @@ describe("bounded demand validation batches", () => {
                     )
                     .get(),
             ).toEqual({ count: 3 });
+            expect(
+                await telemetry.value(METRIC.DemandOrders, {
+                    [LABEL.Outcome]: OUTCOME.Applied,
+                }),
+            ).toBe(0);
+            expect(
+                await telemetry.value(METRIC.DemandOrders, {
+                    [LABEL.Outcome]: OUTCOME.Retried,
+                }),
+            ).toBe(3);
+            expect(
+                telemetry.apm.spans.find(
+                    (span) => span.name === OPERATION.DemandCommit,
+                )?.error,
+            ).toBeDefined();
         } finally {
             db.exec("DROP TRIGGER reject_batch");
         }
@@ -391,6 +486,16 @@ describe("bounded demand validation batches", () => {
         expect(await work.processor.executeBatch()).toMatchObject({
             covered: 3,
         });
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Covered,
+            }),
+        ).toBe(3);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: OUTCOME.Validated,
+            }),
+        ).toBe(6);
     });
 
     it("commits unaffected orders while preserving changed revisions and newer demand", async () => {

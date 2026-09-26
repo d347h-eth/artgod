@@ -4,23 +4,12 @@ import type {
     OrderValidationBatchReport,
     OrderValidationDemandReporter,
 } from "../../application/orders/validate-order-demand.js";
+import { ORDER_VALIDATION_BATCH_COUNTERS as counters } from "../../application/orders/observability.js";
 
 export const ORDER_VALIDATION_REPORTING_POLICY = Object.freeze({
     intervalMs: 10_000,
 });
 
-const counters = [
-    "scanned",
-    "claimed",
-    "validated",
-    "applied",
-    "covered",
-    "resolvedUnneeded",
-    "followup",
-    "retried",
-    "released",
-    "lostClaims",
-] as const satisfies readonly (keyof OrderValidationBatchReport)[];
 const emptyCounts = () => ({
     scanned: 0,
     claimed: 0,

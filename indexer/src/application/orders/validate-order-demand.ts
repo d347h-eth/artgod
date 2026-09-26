@@ -14,16 +14,31 @@ import type {
 } from "../../ports/order-validation.js";
 import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
 import { ORDER_PROCESSING_POLICY } from "../../domain/order-processing.js";
+import {
+    observeBestEffort,
+    observeProcessing,
+    observeSyncProcessing,
+} from "../processing-observability.js";
+import {
+    ORDER_PROCESSING_OPERATION as OPERATION,
+    type OrderProcessingObservability,
+} from "./observability.js";
 
 export class AdmitOrderValidation {
     constructor(
         private readonly chainId: number,
         private readonly store: OrderValidationDemandPort,
+        private readonly observability?: OrderProcessingObservability,
     ) {}
     execute(request: OrderValidationRequest) {
         if (request.chainId !== this.chainId)
             throw new Error("Order validation demand chain mismatch");
-        return this.store.admit(request, Date.now());
+        return observeSyncProcessing(
+            this.observability,
+            OPERATION.DemandAdmit,
+            { chainId: this.chainId },
+            () => this.store.admit(request, Date.now()),
+        );
     }
 }
 
@@ -58,6 +73,7 @@ export class ValidateOrderDemand {
             createSnapshot: OrderValidationSnapshotFactory;
             admission: OrderValidationAdmissionPort;
             now?: () => number;
+            observability?: OrderProcessingObservability;
         },
     ) {}
 
@@ -68,7 +84,17 @@ export class ValidateOrderDemand {
         if (signal?.aborted) return undefined;
         return this.deps.admission.run(async () => {
             if (signal?.aborted) return undefined;
-            return this.validateBatch(() => signal?.aborted ?? false);
+            const report = await this.validateBatch(
+                () => signal?.aborted ?? false,
+            );
+            if (report)
+                observeBestEffort(() =>
+                    this.deps.observability?.observer?.demandBatch(
+                        report,
+                        (this.deps.now ?? Date.now)(),
+                    ),
+                );
+            return report;
         }, signal);
     }
 
@@ -77,10 +103,18 @@ export class ValidateOrderDemand {
     ): Promise<OrderValidationBatchReport | undefined> {
         const now = this.deps.now ?? Date.now;
         const startedAt = now();
-        const batch = this.deps.store.claimBatch(
-            this.deps.chainId,
-            randomUUID(),
-            now(),
+        const hooks = this.deps.observability;
+        const attributes = { chainId: this.deps.chainId };
+        const batch = observeSyncProcessing(
+            hooks,
+            OPERATION.DemandClaim,
+            attributes,
+            () =>
+                this.deps.store.claimBatch(
+                    this.deps.chainId,
+                    randomUUID(),
+                    now(),
+                ),
         );
         if (!batch.scanned) return undefined;
         const report: OrderValidationBatchReport = {
@@ -115,52 +149,91 @@ export class ValidateOrderDemand {
             | Awaited<ReturnType<OrderValidationSnapshotFactory>>
             | undefined;
         try {
-            snapshot = await this.deps.createSnapshot({
-                chainId: this.deps.chainId,
-                // Different demands have different trigger blocks. Check each against the
-                // fresh snapshot below so one future trigger cannot block unrelated work.
-                minimumBlock: null,
-                candidates: batch.claims.map((claim) => claim.candidate.order),
-            });
-            const ready = batch.claims.filter((claim) =>
-                validationProofSatisfies(snapshot!.proof, claim.demand),
-            );
-            const uncovered = batch.claims.filter(
-                (claim) =>
-                    !validationProofSatisfies(snapshot!.proof, claim.demand),
-            );
-            report.retried += this.deps.store.fail(
-                uncovered,
-                new Error(
-                    "Snapshot does not yet cover demand observation or trigger block",
-                ),
-                now(),
-            );
-            const completions: OrderValidationCompletion[] = [];
-            for (const claim of ready) {
-                if (
-                    shouldStop() ||
-                    (completions.length > 0 && !snapshot.canAccept())
-                )
-                    break;
-                const result = await snapshot.validate(claim.candidate.order);
-                report.validated++;
-                completions.push({ claim, result });
-            }
-            await snapshot.finish();
-            const completed = this.deps.store.completeBatch(
-                completions,
-                snapshot.proof,
-                now(),
-            );
-            report.applied = completed.applied;
-            report.covered = completed.covered;
-            report.followup = completed.followup;
-            report.lostClaims = completed.lostClaims;
-            report.resolvedUnneeded += completed.resolvedUnneeded;
-            report.released = this.deps.store.release(
-                ready.slice(completions.length),
-                now(),
+            await observeProcessing(
+                hooks,
+                OPERATION.DemandBatch,
+                { ...attributes, claimed: batch.claims.length },
+                async () => {
+                    snapshot = await observeProcessing(
+                        hooks,
+                        OPERATION.DemandSnapshot,
+                        attributes,
+                        () =>
+                            this.deps.createSnapshot({
+                                chainId: this.deps.chainId,
+                                // Different demands have different trigger blocks. Check each against the
+                                // fresh snapshot below so one future trigger cannot block unrelated work.
+                                minimumBlock: null,
+                                candidates: batch.claims.map(
+                                    (claim) => claim.candidate.order,
+                                ),
+                            }),
+                    );
+                    const ready = batch.claims.filter((claim) =>
+                        validationProofSatisfies(snapshot!.proof, claim.demand),
+                    );
+                    const uncovered = batch.claims.filter(
+                        (claim) =>
+                            !validationProofSatisfies(
+                                snapshot!.proof,
+                                claim.demand,
+                            ),
+                    );
+                    report.retried += this.deps.store.fail(
+                        uncovered,
+                        new Error(
+                            "Snapshot does not yet cover demand observation or trigger block",
+                        ),
+                        now(),
+                    );
+                    const completions: OrderValidationCompletion[] = [];
+                    await observeProcessing(
+                        hooks,
+                        OPERATION.DemandValidate,
+                        attributes,
+                        async () => {
+                            for (const claim of ready) {
+                                if (
+                                    shouldStop() ||
+                                    (completions.length > 0 &&
+                                        !snapshot!.canAccept())
+                                )
+                                    break;
+                                const result = await snapshot!.validate(
+                                    claim.candidate.order,
+                                );
+                                report.validated++;
+                                completions.push({ claim, result });
+                            }
+                        },
+                    );
+                    await observeProcessing(
+                        hooks,
+                        OPERATION.DemandVerify,
+                        attributes,
+                        () => snapshot!.finish(),
+                    );
+                    const completed = observeSyncProcessing(
+                        hooks,
+                        OPERATION.DemandCommit,
+                        attributes,
+                        () =>
+                            this.deps.store.completeBatch(
+                                completions,
+                                snapshot!.proof,
+                                now(),
+                            ),
+                    );
+                    report.applied = completed.applied;
+                    report.covered = completed.covered;
+                    report.followup = completed.followup;
+                    report.lostClaims = completed.lostClaims;
+                    report.resolvedUnneeded += completed.resolvedUnneeded;
+                    report.released = this.deps.store.release(
+                        ready.slice(completions.length),
+                        now(),
+                    );
+                },
             );
         } catch (error) {
             report.retried += this.deps.store.fail(batch.claims, error, now());

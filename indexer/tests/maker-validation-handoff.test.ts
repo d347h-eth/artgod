@@ -35,6 +35,18 @@ import {
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { processingTelemetry } from "./helpers/processing-observability.js";
+import {
+    ORDER_PROCESSING_OPERATION as OPERATION,
+    ORDER_VALIDATION_BATCH_OUTCOME as DEMAND_OUTCOME,
+    type OrderProcessingObservability,
+} from "../src/application/orders/observability.js";
+import {
+    DOMAIN_PROCESSING_METRIC as METRIC,
+    DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
+    DOMAIN_PROCESSING_RESULT as RESULT,
+    MAKER_CHECKPOINT_OUTCOME as OUTCOME,
+} from "../src/infra/observability/domain-processing-metric-contract.js";
 
 const now = HEAVY_MAKER.now * 1000;
 const origin = {
@@ -50,7 +62,10 @@ const request = {
 };
 type Input = Parameters<RevalidateMakerOrders["execute"]>[0];
 
-function workflow(rpc = new HeavyMakerRpc()) {
+function workflow(
+    rpc = new HeavyMakerRpc(),
+    observability?: OrderProcessingObservability,
+) {
     const orders = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
         throw new Error("Handoff must use strict snapshots");
     });
@@ -71,12 +86,14 @@ function workflow(rpc = new HeavyMakerRpc()) {
             store,
             admission,
             createSnapshot,
+            observability,
         }),
         validator: new ValidateOrderDemand({
             chainId: HEAVY_MAKER.chainId,
             store: demand,
             admission,
             createSnapshot,
+            observability,
         }),
     };
 }
@@ -150,7 +167,8 @@ describe("maker scan handoff to durable order validation", () => {
 
     it("finishes healthy orders past a persistent failure, survives restart, and later completes the isolated demand", async () => {
         seedHeavyMaker(250);
-        const first = workflow();
+        const telemetry = await processingTelemetry();
+        const first = workflow(undefined, telemetry.hooks);
         const bad = first.store.next(saved(first), 100)[40]!.order;
         await isolate(first, bad.id);
         expect(await next(first)).toMatchObject({
@@ -168,7 +186,7 @@ describe("maker scan handoff to durable order validation", () => {
         });
 
         setDbPath(dbPath);
-        const restarted = workflow();
+        const restarted = workflow(undefined, telemetry.hooks);
         failOrder(restarted, bad.id);
         const completed = await finish(restarted);
         expect(completed).toMatchObject({
@@ -177,6 +195,30 @@ describe("maker scan handoff to durable order validation", () => {
             deferredOrders: 1,
             isolateOrderId: null,
         });
+        expect(
+            await telemetry.value(METRIC.MakerOrders, {
+                [LABEL.Outcome]: OUTCOME.Resolved,
+            }),
+        ).toBe(249);
+        expect(
+            await telemetry.value(METRIC.MakerOrders, {
+                [LABEL.Outcome]: OUTCOME.Deferred,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.MakerOrders, {
+                [LABEL.Outcome]: OUTCOME.Validated,
+            }),
+        ).toBe(249);
+        const handoff = telemetry.apm.spans.find(
+            (span) =>
+                span.name === OPERATION.MakerValidate &&
+                span.attributes.isolated === true,
+        );
+        expect(handoff?.error).toBeInstanceOf(OrderValidationReadUnavailable);
+        expect(handoff?.parent?.name).toBe(OPERATION.MakerStep);
+        expect(handoff?.parent?.error).toBeUndefined();
+        expect(handoff?.parent?.finished).toBe(true);
         expect(
             db
                 .prepare(
@@ -233,6 +275,21 @@ describe("maker scan handoff to durable order validation", () => {
             pending: false,
             failures: 0,
         });
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: DEMAND_OUTCOME.Retried,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.DemandOrders, {
+                [LABEL.Outcome]: DEMAND_OUTCOME.Covered,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.MakerOrders, {
+                [LABEL.Outcome]: OUTCOME.Deferred,
+            }),
+        ).toBe(1);
     });
 
     it.each(["checkpoint", "continuation"])(
@@ -240,7 +297,8 @@ describe("maker scan handoff to durable order validation", () => {
         async (fault) => {
             seedHeavyMaker(3);
             const input = { ...request, requiredAt: undefined };
-            const work = workflow();
+            const telemetry = await processingTelemetry();
+            const work = workflow(undefined, telemetry.hooks);
             const bad = work.store.next(saved(work, input), 1)[0]!.order;
             await isolate(work, bad.id, input);
             const trigger =
@@ -266,6 +324,15 @@ describe("maker scan handoff to durable order validation", () => {
                         .prepare("SELECT COUNT(*) AS count FROM queue_outbox")
                         .get(),
                 ).toEqual({ count: 0 });
+                expect(await telemetry.metrics.metricsText()).not.toContain(
+                    `artgod_indexer_${METRIC.MakerOrders}`,
+                );
+                expect(
+                    await telemetry.value(METRIC.Operations, {
+                        [LABEL.Operation]: OPERATION.MakerCheckpoint,
+                        [LABEL.Result]: RESULT.Failure,
+                    }),
+                ).toBe(1);
             } finally {
                 db.exec("DROP TRIGGER reject_handoff");
             }
@@ -274,6 +341,11 @@ describe("maker scan handoff to durable order validation", () => {
                 afterId: bad.id,
                 deferredOrders: 1,
             });
+            expect(
+                await telemetry.value(METRIC.MakerOrders, {
+                    [LABEL.Outcome]: OUTCOME.Deferred,
+                }),
+            ).toBe(1);
             setDbPath(dbPath);
             const restarted = workflow();
             const visited: unknown[] = [];

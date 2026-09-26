@@ -59,6 +59,15 @@ import {
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { processingTelemetry } from "./helpers/processing-observability.js";
+import { ORDER_PROCESSING_OPERATION as OPERATION } from "../src/application/orders/observability.js";
+import { QUEUE_OUTBOX_OPERATION } from "../src/application/queue-outbox/drainer.js";
+import {
+    DOMAIN_PROCESSING_METRIC as METRIC,
+    DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
+    DOMAIN_PROCESSING_RESULT as RESULT,
+    MAKER_RECOVERY_OUTCOME as RECOVERY,
+} from "../src/infra/observability/domain-processing-metric-contract.js";
 
 const origin = {
     streamId: "fixture-stream-incarnation",
@@ -592,6 +601,7 @@ describe("durable maker checkpoints", () => {
     });
 
     it("recovers publication exhaustion including publish-success followed by a failed sent write", async () => {
+        const telemetry = await processingTelemetry();
         seedHeavyMaker(150);
         const work = workflow();
         await work.stepProcessor.execute(request);
@@ -606,10 +616,23 @@ describe("durable maker checkpoints", () => {
         }));
         await drainQueueOutbox(outbox, { publish } as never, {
             maxAttempts: 1,
+            observability: telemetry.hooks,
         });
         expect(db.prepare("SELECT status FROM queue_outbox").get()).toEqual({
             status: QUEUE_OUTBOX_STATUS.FailedTerminal,
         });
+        expect(
+            await telemetry.value(METRIC.OutboxPublications, {
+                [LABEL.Queue]: QUEUE_NAMES.OrdersUpdateByMaker,
+                [LABEL.Status]: QUEUE_OUTBOX_STATUS.FailedTerminal,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.Operations, {
+                [LABEL.Operation]: QUEUE_OUTBOX_OPERATION.Publish,
+                [LABEL.Result]: RESULT.Failure,
+            }),
+        ).toBe(1);
         const recoveryAt = now + POLICY.recoveryGraceMs + 1;
         vi.mocked(Date.now).mockReturnValue(recoveryAt);
         work.rpc.blockTimestamp = Math.floor(recoveryAt / 1_000);
@@ -619,6 +642,7 @@ describe("durable maker checkpoints", () => {
                     store: work.store,
                     isPublicationPending: async () => true,
                     replayBoundaries: async () => [{ ...origin, ackFloor: 0 }],
+                    observability: telemetry.hooks,
                 },
                 recoveryAt,
             ),
@@ -637,9 +661,26 @@ describe("durable maker checkpoints", () => {
         });
         await work.processor.execute(request);
         expect(work.rpc.reads.getOrderStatus).toBe(150);
+        await recoverMakerRevalidations(
+            {
+                store: work.store,
+                isPublicationPending: async () => false,
+                replayBoundaries: async () => [{ ...origin, ackFloor: 44 }],
+                observability: telemetry.hooks,
+            },
+            recoveryAt,
+        );
+        expect(
+            await telemetry.value(METRIC.Recovery, {
+                [LABEL.Outcome]: RECOVERY.Recovered,
+            }),
+        ).toBe(1);
+        expect(await telemetry.value(METRIC.ReceiptsCleaned)).toBe(1);
     });
 
     it("does not multiply a sent continuation that still exists and repairs an acknowledged lost wakeup", async () => {
+        const telemetry = await processingTelemetry();
+        vi.spyOn(logger, "warn").mockImplementation(() => {});
         seedHeavyMaker(150);
         const work = workflow();
         await work.stepProcessor.execute(request);
@@ -657,13 +698,37 @@ describe("durable maker checkpoints", () => {
             store: work.store,
             isPublicationPending: probe,
             replayBoundaries: async () => [{ ...origin, ackFloor: 0 }],
+            observability: telemetry.hooks,
         };
         const recoveryAt = now + POLICY.recoveryGraceMs + 1;
+        const failure = new Error("broker probe unavailable");
+        probe.mockRejectedValueOnce(failure);
+        expect(await recoverMakerRevalidations(deps, recoveryAt)).toBe(0);
+        expect(
+            telemetry.apm.spans.find(
+                (span) => span.name === OPERATION.MakerWakeup,
+            )?.error,
+        ).toBe(failure);
+        expect(
+            await telemetry.value(METRIC.Recovery, {
+                [LABEL.Outcome]: RECOVERY.Failed,
+            }),
+        ).toBe(1);
         expect(await recoverMakerRevalidations(deps, recoveryAt)).toBe(0);
         pending = false;
         expect(await recoverMakerRevalidations(deps, recoveryAt)).toBe(1);
-        expect(probe).toHaveBeenCalledTimes(2);
+        expect(probe).toHaveBeenCalledTimes(3);
         expect(work.store.admit({ ...request, now }).wakeupGeneration).toBe(1);
+        expect(
+            await telemetry.value(METRIC.Recovery, {
+                [LABEL.Outcome]: RECOVERY.Checked,
+            }),
+        ).toBe(3);
+        expect(
+            await telemetry.value(METRIC.Recovery, {
+                [LABEL.Outcome]: RECOVERY.Recovered,
+            }),
+        ).toBe(1);
     });
 
     it("cannot replace a wakeup after another executor claims it during the broker probe", async () => {

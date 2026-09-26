@@ -29,6 +29,13 @@ import {
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { processingTelemetry } from "./helpers/processing-observability.js";
+import { ORDER_PROCESSING_OPERATION as OPERATION } from "../src/application/orders/observability.js";
+import {
+    DOMAIN_PROCESSING_METRIC as METRIC,
+    DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
+    DOMAIN_PROCESSING_RESULT as RESULT,
+} from "../src/infra/observability/domain-processing-metric-contract.js";
 import {
     HEAVY_MAKER,
     seedHeavyMaker,
@@ -122,6 +129,7 @@ describe("order processing boundaries", () => {
     });
 
     it("applies a sold-token fact while validation capacity is occupied and removes the shared current ask", async () => {
+        const telemetry = await processingTelemetry();
         const { sale, small } = seedHeavyMaker(1);
         const validate = vi.fn(async () => ({
             status: ORDER_STATUS.Fillable,
@@ -131,8 +139,9 @@ describe("order processing boundaries", () => {
         const store = new SqliteOrderValidationDemand(domain);
         const processor = new ApplyOrderUpdate({
             chainId: 1,
-            validation: new AdmitOrderValidation(1, store),
+            validation: new AdmitOrderValidation(1, store, telemetry.hooks),
             lifecycle: domain,
+            observability: telemetry.hooks,
         });
         const asks = new SqliteCurrentAsks(db.raw, [HEAVY_MAKER.weth]);
         const ask = () =>
@@ -194,6 +203,22 @@ describe("order processing boundaries", () => {
         await active;
         expect(validate).toHaveBeenCalledOnce();
         expect(store.get(1, small.id)?.pending).toBe(false);
+        expect(
+            await telemetry.value(METRIC.Operations, {
+                [LABEL.Operation]: OPERATION.DemandAdmit,
+                [LABEL.Result]: RESULT.Success,
+            }),
+        ).toBe(1);
+        expect(
+            await telemetry.value(METRIC.Operations, {
+                [LABEL.Operation]: OPERATION.Lifecycle,
+                [LABEL.Result]: RESULT.Success,
+            }),
+        ).toBe(1);
+        expect(telemetry.apm.spans.map((span) => span.name)).toEqual([
+            OPERATION.DemandAdmit,
+            OPERATION.Lifecycle,
+        ]);
     });
 
     it("preserves unsupported and wrong-chain updates for retry instead of acknowledging a no-op", async () => {

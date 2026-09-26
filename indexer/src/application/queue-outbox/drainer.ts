@@ -2,6 +2,25 @@ import { logger } from "@artgod/shared/utils";
 import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
 import type { QueueName } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
+import {
+    QUEUE_OUTBOX_STATUS,
+    type QueueOutboxStatus,
+} from "../../domain/queue-outbox.js";
+import {
+    observeBestEffort,
+    observeProcessing,
+    type ProcessingObservability,
+    type ProcessingObserver,
+} from "../processing-observability.js";
+
+export const QUEUE_OUTBOX_OPERATION = {
+    Drain: "queueOutbox.drain",
+    Publish: "queueOutbox.publish",
+} as const;
+
+export interface QueueOutboxObserver extends ProcessingObserver {
+    publication(queueName: QueueName, status: QueueOutboxStatus): void;
+}
 
 export type QueueOutboxDrainRecord = {
     outboxId: number;
@@ -30,6 +49,9 @@ export type QueueOutboxDrainerOptions = {
     maxAttempts?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    observability?: ProcessingObservability & {
+        observer?: QueueOutboxObserver;
+    };
 };
 
 // Queue outbox defaults bound broker retries without losing persisted jobs.
@@ -106,33 +128,71 @@ export async function drainQueueOutbox(
     queue: QueuePort,
     options: QueueOutboxDrainerOptions = {},
 ): Promise<number> {
-    const limit = options.limit ?? QUEUE_OUTBOX_DRAINER_DEFAULTS.Limit;
-    const due = outbox.listDue(Date.now(), limit);
-    let published = 0;
-    for (const row of due) {
-        const attempts = row.attempts + 1;
-        try {
-            const job = JSON.parse(row.jobJson) as JobEnvelope<unknown>;
-            const publication = await queue.publish(row.queueName, job);
-            outbox.markSent(row.outboxId, publication ?? undefined);
-            published += 1;
-        } catch (error) {
-            const terminal =
-                attempts >=
-                (options.maxAttempts ??
-                    QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
-            outbox.markFailed({
-                outboxId: row.outboxId,
-                attempts,
-                nextAttemptAt: terminal
-                    ? 0
-                    : Date.now() + resolveRetryDelayMs(attempts, options),
-                lastError: String(error),
-                terminal,
-            });
-        }
-    }
-    return published;
+    const hooks = options.observability;
+    return observeProcessing(
+        hooks,
+        QUEUE_OUTBOX_OPERATION.Drain,
+        {},
+        async () => {
+            const limit = options.limit ?? QUEUE_OUTBOX_DRAINER_DEFAULTS.Limit;
+            const due = outbox.listDue(Date.now(), limit);
+            let published = 0;
+            for (const row of due) {
+                const attempts = row.attempts + 1;
+                try {
+                    await observeProcessing(
+                        hooks,
+                        QUEUE_OUTBOX_OPERATION.Publish,
+                        { queue: row.queueName, attempt: attempts },
+                        async () => {
+                            const job = JSON.parse(
+                                row.jobJson,
+                            ) as JobEnvelope<unknown>;
+                            const publication = await queue.publish(
+                                row.queueName,
+                                job,
+                            );
+                            outbox.markSent(
+                                row.outboxId,
+                                publication ?? undefined,
+                            );
+                        },
+                    );
+                    published += 1;
+                    observeBestEffort(() =>
+                        hooks?.observer?.publication(
+                            row.queueName,
+                            QUEUE_OUTBOX_STATUS.Sent,
+                        ),
+                    );
+                } catch (error) {
+                    const terminal =
+                        attempts >=
+                        (options.maxAttempts ??
+                            QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
+                    outbox.markFailed({
+                        outboxId: row.outboxId,
+                        attempts,
+                        nextAttemptAt: terminal
+                            ? 0
+                            : Date.now() +
+                              resolveRetryDelayMs(attempts, options),
+                        lastError: String(error),
+                        terminal,
+                    });
+                    observeBestEffort(() =>
+                        hooks?.observer?.publication(
+                            row.queueName,
+                            terminal
+                                ? QUEUE_OUTBOX_STATUS.FailedTerminal
+                                : QUEUE_OUTBOX_STATUS.FailedRetry,
+                        ),
+                    );
+                }
+            }
+            return published;
+        },
+    );
 }
 
 function resolveRetryDelayMs(
