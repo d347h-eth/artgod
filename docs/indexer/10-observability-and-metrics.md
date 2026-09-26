@@ -21,12 +21,21 @@ Current setup is local-first and split by signal type:
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:42733`), and Grafana reads Pyroscope.
 
 This complete exporter graph applies to the full local/deploy runtime profile.
-Desktop backend/indexer metrics and every desktop APM/profile path still resolve
+Production desktop backend/indexer metrics and every APM/profile path still resolve
 to compile-time no-op adapters. The desktop trading artifact has one narrow
 exception: an opt-in Prometheus endpoint for the bidding bot, forced by Rust to
 `127.0.0.1` and exposed in Admin as only an enable toggle and TCP port. Desktop
 build validation rejects full metrics-barrel or APM access through that
 exception.
+
+The separate `yarn build:desktop:local` path includes this existing full exporter
+graph and its native profiler dependencies in a real desktop executable. Its
+native Config exposes the existing backend/indexer metrics and APM settings;
+enable flags remain false by default. Metrics listeners use `127.0.0.1`, and
+shared exporter defaults point to the existing local Compose stack. See
+[local desktop setup](../development/01-local-development.md#local-desktop-with-observability).
+This build adds no instrumentation and does not change the trace/profile
+correlation limitations documented below.
 
 Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 

@@ -11,6 +11,7 @@ Generated artifacts are committed so runtime packages and operators do not parse
 - `shared/config/generated-settings-defaults.ts`
 - `shared/config/generated-settings-validation-rules.ts`
 - `frontend/src/lib/e2e/generated-desktop-admin-config.ts`
+- `frontend/src/lib/e2e/generated-local-desktop-observability.ts` (local desktop fixture)
 
 Do not edit generated artifacts directly. Update the manifest, run generation, and commit the manifest plus generated outputs together.
 
@@ -87,12 +88,12 @@ Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`,
 falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized
 while component-specific overrides remain available. Backend/indexer metrics
 and every APM/profile setting target only `local` and `deploy`; those groups do
-not appear in Admin or its rendered `.env`.
+not appear in production desktop Admin or its rendered `.env`.
 
 Trading metrics are the narrow desktop exception. Admin renders
 `TRADING_METRICS_ENABLED` and `TRADING_METRICS_PORT_BIDDING_BOT`, but not
 `TRADING_METRICS_HOST`. Rust writes that host as `127.0.0.1` into the child
-environment regardless of persisted input. The desktop artifact admits only
+environment regardless of persisted input. The production desktop artifact admits only
 the reviewed trading Prometheus facade and continues to reject the full metrics
 barrel, tracing, and profiling implementations.
 
@@ -103,6 +104,31 @@ command generates `frontend/src/lib/e2e/generated-desktop-admin-config.ts`, so
 the maintained browser harness renders the desktop-managed schema and defaults
 from the manifest instead of maintaining a parallel fixture. Run `yarn
 config:check` after generation to catch drift.
+
+## Local Desktop Selection
+
+The non-default Cargo feature `desktop-local-observability` compiles
+`app_config_local_observability.rs`. It extends the normal desktop selection
+with the explicit existing keys in `config/desktop-local-observability.json`.
+Labels, validation, groups, and defaults still come from the canonical manifest.
+Additional fields use their local defaults; ordinary desktop fields keep their
+desktop defaults. Backend/indexer metrics hosts stay native-owned `127.0.0.1`.
+
+This selected native schema drives the generic Admin form, saved overrides, and
+rendered child environment together. No frontend mode flag controls the live
+form. Use `yarn build:desktop:local` to select both this capability and the
+matching instrumented resources.
+
+Both builds share `settings.json`. Production ignores local-only overrides
+when loading/rendering. Saving through production replaces the document with
+recognized overrides, so it drops those local-only values. A later local run
+then uses their defaults. Loading alone does not rewrite the document.
+
+For the maintained local browser fixture, run
+`yarn config:generate:desktop-local` after changing relevant manifest entries
+or the local eligibility list. Commit the generated fixture with those changes.
+`yarn config:check:desktop-local` checks drift; a native test also compares the
+fixture against the compiled local schema.
 
 ## Change Workflow
 

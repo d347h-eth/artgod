@@ -10,6 +10,10 @@ This document describes the current desktop pipeline end-to-end:
 
 It is the canonical technical reference for desktop composition in this repository.
 
+The production pipeline described here keeps its release dependency policy.
+The opt-in [local desktop build](#local-desktop-build-contract) has separate
+artifacts and resources for testing the existing observability integrations.
+
 Project versioning is documented in `docs/development/01-local-development.md`.
 For desktop releases, keep the shipped tag aligned with the root `package.json`
 version (`v<root-version>`) and run `yarn sync:version` plus
@@ -51,6 +55,48 @@ The desktop build/runtime pipeline is designed to:
 - make release builds reproducible in public CI
 
 The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
+
+## Local Desktop Build Contract
+
+`yarn build:desktop:local` selects the non-default Cargo feature
+`desktop-local-observability` and a local Tauri configuration overlay together.
+It replaces the before-build hook with `prepare-local-desktop.mjs`, builds the
+normal Admin/Userland frontends, and uses dedicated local runtime, dependency,
+resource, and sidecar scripts. The application identifier stays
+`network.artgod.desktop`.
+
+| Output                  | Local location                                  |
+| ----------------------- | ----------------------------------------------- |
+| Full runtime JavaScript | `dist-desktop-local/{backend,indexer,trading}`  |
+| Staged runtime          | `src-tauri/resources/runtime-local`             |
+| Native prompt staging   | `src-tauri/binaries-local`                      |
+| Cargo output            | `src-tauri/target-local`                        |
+| Default executable      | `src-tauri/target-local/release/artgod-desktop` |
+
+The native resource contract owns the local profile identity and resource path;
+the local JavaScript tools read it. Native build and startup reject missing or
+production profile markers. Entrypoint names and the supervisor stay the same.
+Release-mode wallet-recipient integrity hashes cover the selected local
+Node/trading closure.
+
+OpenTelemetry and Prometheus code are bundled by esbuild. Dynamically loaded
+Pyroscope and its locked dependencies are staged beside backend and indexer,
+with pprof prebuilds for the target and bundled Node ABI. SQLite/Sharp retain
+their reviewed file selections. Packaged runtimes use ordinary Node package
+resolution without workspace PnP hooks. The production stager still rejects
+local profile markers.
+
+`yarn check:desktop:local` compares staged and adjacent runtime bytes and modes,
+checks the release integrity snapshot, and executes native imports with the
+packaged Node. Its optional arguments are a release output directory followed
+by an extracted bundle runtime directory. The exporter smoke additionally
+checks the existing adapters against temporary loopback receivers.
+
+`yarn build:desktop:local:bundle --bundles <formats>` uses the same local path
+for host-supported bundles. These commands do not invoke the production signing
+scripts or GitHub release flow. Normal desktop commands and
+`src-tauri/tauri.conf.json` remain unchanged. For settings and collector setup,
+see [local development](../development/01-local-development.md#local-desktop-with-observability).
 
 ## macOS Universal 2 Contract
 
@@ -716,9 +762,11 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `NATS_URL` (must use `nats://127.0.0.1:<port>`; `localhost`, IPv6, and non-loopback hosts are rejected)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
-- backend/indexer metrics and every APM/profile setting remain local/deploy-only
-  and are not rendered into desktop Admin. Desktop Admin renders only the
+- production desktop excludes backend/indexer metrics and APM/profile settings
+  from Admin. Production Admin renders only the
   trading metrics enable/port settings; the host stays native-owned loopback.
+  The local desktop feature also admits the existing backend/indexer exporter
+  settings, as described in the local build contract above.
   See `docs/trading/03-bidding-runtime-observability.md` for the operator path.
 
 Desktop-first default path behavior:
