@@ -214,6 +214,41 @@ scope cleanup are independently bounded, so alternating consumers cannot starve
 each other's cleanup pages. Outbox recovery checks the publication's stored
 queue, including continuations produced by an older binary.
 
+## OpenSea Sale Hints
+
+An OpenSea `item_sold` event normally produces an exact-order filled update and
+a seller/token revalidation hint. The
+[locked Stream SDK contract](https://github.com/ProjectOpenSea/stream-js/blob/v0.4.0/src/types.ts)
+requires `order_hash`, but ingest also handles incomplete events:
+
+- A missing, blank or malformed hash produces no exact-order update. With a
+  valid seller address and `chain/contract/uint256` NFT identity, ingest still
+  awaits publication to `order-updates-by-token` before acknowledging the raw job.
+- The seller comes from the sale's `maker` field. A Seaport offerer can be the
+  buyer when a bid is accepted; it is not a substitute seller identity.
+- The hint enters the existing durable maker revalidation workflow. Full
+  validation uses a fresh pinned chain snapshot; only its result changes
+  fillability. The hint alone cannot mark an unknown order filled or create a
+  sale activity. Onchain fill/activity recovery follows
+  [Fill Decoding](15-fill-decoding.md).
+- Missing or invalid seller/NFT identifiers still fail ingestion. Failed queue
+  publication still retries. Cancellation and other exact-order events retain
+  their required hash.
+
+Hashless stream keys include a digest of the NFT, seller and available transaction
+hash plus the source timestamp. Different sales in one collection and second no
+longer share the `na` identity. Identical hints can coalesce; malformed events
+without a usable identity receive unique keys so they reach diagnosis.
+
+Successful fallback logs report the hash status, chain/collection, seller, NFT
+and available transaction hash. Dead-letter entries for sold events retain the
+same bounded identifiers under `openseaSale`, including usable fields from an
+otherwise malformed event. These diagnostics exclude raw source payloads,
+signatures, metadata and arbitrary URLs; raw-payload persistence stays opt-in.
+Exact historical recovery requires retained token/transaction identifiers and
+matching canonical transfer/fill or order-validation evidence. General queue
+drainage or reconciliation completion does not establish that recovery.
+
 ## Current-State Retention and Replay
 
 `orders` is a current passive market projection, not a lifetime order archive.
