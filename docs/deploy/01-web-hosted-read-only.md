@@ -346,6 +346,7 @@ mutations that are intentionally absent from the public mode.
   expires without a stale fallback, and is limited to one collection and
   100,000 eligible sales. Range/bucket changes reuse it; manual refresh may
   still see the cached snapshot until expiry. Desktop chart reads are uncached.
+  Trait-filtered chart requests bypass the snapshot and match current token attributes.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls how often the backend fully rebuilds the compact public blockspace cache for the configured single collection. The blockspace feature and cache internals are documented in `docs/indexer/16-blockspace-exploration.md`.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.

@@ -479,6 +479,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
     const getPriceHistoryUseCase = new GetPriceHistoryUseCase(
         config.defaultChainId,

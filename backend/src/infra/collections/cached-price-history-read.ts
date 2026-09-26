@@ -20,6 +20,12 @@ export class CachedPriceHistoryRead implements PriceHistoryReadPort {
     *iterateSingleTokenSales(
         input: Parameters<PriceHistoryReadPort["iterateSingleTokenSales"]>[0],
     ): Iterable<RealizedSale> {
+        // Reuse the token browser's current-attribute query for filtered reads.
+        // Do not cache filtered snapshots or let a metadata change outlive a request.
+        if (input.traits?.length || input.traitRanges?.length) {
+            yield* this.source.iterateSingleTokenSales(input);
+            return;
+        }
         const key = `${input.chainId}:${input.collectionId}`;
         let sales = this.cache.get<readonly RealizedSale[]>(
             QUERY_CACHE_NAMESPACES.CollectionSales,

@@ -10,6 +10,26 @@ compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sideba
 keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
 are URL state. Indicator settings and pinned selection reset on a full reload.
 
+## Trait filtering
+
+The chart reuses the collection token browser's trait sidebar, top-action layout,
+filter toggle, reset, selected-trait pills, searches, sorting, and `F`/`R` shortcuts.
+Collection navigation preserves both discrete and numeric-range selections when
+entering or leaving the chart. Filtering preserves the chart range and bucket;
+browser back restores the previous selection.
+
+Matching uses current token attributes, including extension-owned traits, rather
+than attributes as they existed at the sale date. Values within one trait key
+are ORed; different keys and inclusive numeric ranges are ANDed. The effective
+collection customization controls set/range presentation. Facet counts and range
+bounds describe the entire collection, like the collection token browser, rather
+than sale counts or the filtered history.
+
+The backend resolves matching token IDs with the shared indexed trait reader and
+applies them before the fill limit and aggregation. Dots, sidebar sales, volume,
+turnover, and indicators all use only matching sales. Changing filters replaces
+history and clears pinned/hovered sales and cards; stale requests are cancelled.
+
 ## Sales and selection
 
 The sidebar normally shows the newest loaded sales first. Hovering a dot highlights
@@ -74,7 +94,9 @@ or with `retry` on a pinned card.
 
 `GET /api/:chain_ref/:collection_ref/price-history` accepts `bucket`
 (`1h`, `4h`, `1d`, `1w`), `range` (`30d`, `90d`, `1y`, `all`),
-and optional `token_id`. Defaults are all stored history and daily buckets.
+and optional `token_id`, repeated `traits=key:value`, and repeated
+`trait_ranges=key:from..to`. The standard `trait` and `trait_range` aliases also
+work. Defaults are all stored history and daily buckets.
 The endpoint follows the public collection scope guard. Runtime WETH configuration
 limits chart history to the configured chain.
 `all` always uses `1d`; the shared policy also restricts any future range over
@@ -136,7 +158,7 @@ bucket table is maintained.
 1. Indexer decoding stores execution facts and original NFT price counts before
    tracking filters. Existing replay enriches eligibility; reorg rollback removes
    orphaned fills. The normal fills uniqueness constraint handles duplicate ingestion.
-2. `SqlitePriceHistoryRead` applies collection/time/token, currency, and single-NFT
+2. `SqlitePriceHistoryRead` applies collection/time/token/trait, currency, and single-NFT
    eligibility filters. Migration 057 extends the collection and token time indexes
    with block/log ordering; SQLite row ID breaks remaining ties. The bounded
    iterator reads at most 100,001 eligible fills so overflow is explicit.
@@ -144,9 +166,11 @@ bucket table is maintained.
    streams the ordered reader into exact aggregation. No intermediate sort or
    copied SQL-row array is needed. HTTP adapters only translate request/response
    contracts; the composition root wires the concrete reader.
-4. The chart page loads identity, navigation, and media settings through
+4. The chart page loads identity, navigation, media settings, and collection-wide facets through
    `GET /api/:chain_ref/:collection_ref/chart-context`. This avoids token-grid
-   queries and trait-facet calculations. Sales have their own request and recovery.
+   queries and applies the same trait presentation as the token browser. Selected
+   traits/ranges are parsed through the standard HTTP query contract. Sales have
+   their own request and recovery.
 5. The frontend expands the returned UTC bucket grid for the renderer and maps
    exact prices to floating-point coordinates. KLineCharts calculates enabled
    indicators. Drawing and hit testing visit visible buckets; the sidebar renders
@@ -161,6 +185,8 @@ and deletions; there is no stale fallback or background refresh for this cache.
 An oversized collection bypasses caching and can still serve bounded shorter
 ranges. Desktop and cache-disabled deployments read SQLite directly. A manual
 chart refresh during the public TTL may still return the cached snapshot.
+Trait-filtered reads always bypass this cache so matching uses current attributes
+and no filtered subset can populate the unfiltered collection snapshot.
 
 Accepted alpha limits:
 
@@ -207,7 +233,10 @@ bounded sidebar rows. Disposable SQLite coverage uses real migrations and 50,000
 fills spread across five years, checks collection/token query plans for indexed
 ordering without a temporary sort, and verifies public-cache expiry after new
 fills, eligibility correction, and deletion. HTTP tests cover scope and compact
-chart context; page-load tests reject accidental token-grid requests.
+chart context; page-load tests reject accidental token-grid requests. Trait checks
+cover set/range matching, extension sources, exact filtered aggregation, limits,
+indexed ordering, cache bypass after trait changes, customized facets, shared
+controls, empty results, and URL/back/reset behavior.
 
 Screenshots stay under the active worktree's `tmp/runtime-recovery-playwright/`.
 This is local synthetic database/API/browser evidence, not a packaged Tauri,

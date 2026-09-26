@@ -1,8 +1,9 @@
 import { error } from '@sveltejs/kit';
 import { BackendApiError, getPriceChartContext, getRuntimeConfig } from '$lib/backend-api';
 import { MEDIA_PREFERENCE_QUERY_PARAM } from '$lib/media-mode';
+import { appendNormalizedTraitParams, appendNormalizedTraitRangeParams } from '$lib/trait-filters';
 
-// The page loads only identity/media/navigation; sales retain independent recovery.
+// Page context owns facets/navigation; sales retain independent loading and recovery.
 export async function loadCollectionChartPage(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -11,6 +12,8 @@ export async function loadCollectionChartPage(
 	publicPage = false
 ) {
 	const contextQuery = new URLSearchParams();
+	appendNormalizedTraitParams(contextQuery, query);
+	appendNormalizedTraitRangeParams(contextQuery, query);
 	const preference = query.get(MEDIA_PREFERENCE_QUERY_PARAM);
 	if (preference) contextQuery.set(MEDIA_PREFERENCE_QUERY_PARAM, preference);
 	try {
@@ -22,6 +25,9 @@ export async function loadCollectionChartPage(
 			chain: context.chain,
 			collection: context.collection,
 			media: context.media,
+			selectedTraits: context.traits.selected,
+			selectedTraitRanges: context.traits.selectedRanges,
+			facets: context.traits.facets,
 			basePath: publicPage ? '/' : '/' + context.chain.slug + '/' + context.collection.slug,
 			blockExplorer: runtime.blockExplorer
 		};

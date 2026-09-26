@@ -1,4 +1,5 @@
 import type { PriceHistoryRequest } from "../types/price-history.js";
+import { TRAIT_FILTER_QUERY_PARAMS } from "../types/browse.js";
 
 // Collection API route templates registered by the backend.
 export const COLLECTION_API_ROUTE_TEMPLATE = {
@@ -32,6 +33,16 @@ export function buildPriceHistoryPath(
     });
     if (input.tokenId !== undefined)
         query.set(PRICE_HISTORY_QUERY.TokenId, input.tokenId);
+    for (const trait of input.traits ?? [])
+        query.append(
+            TRAIT_FILTER_QUERY_PARAMS.Traits,
+            `${trait.key}:${trait.value}`,
+        );
+    for (const range of input.traitRanges ?? [])
+        query.append(
+            TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
+            `${range.key}:${range.fromValue ?? ""}..${range.toValue ?? ""}`,
+        );
     return (
         buildCollectionRoute(COLLECTION_API_ROUTE_TEMPLATE.PriceHistory, {
             chainRef,

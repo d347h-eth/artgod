@@ -65,12 +65,23 @@ describe('buildCollectionNavigation', () => {
 			'/ethereum/milady/holders?media_mode=snapshot&media_preference=disabled'
 		);
 		expect(navigation.hrefs.chart).toBe(
-			'/ethereum/milady/chart?media_mode=snapshot&media_preference=disabled'
+			'/ethereum/milady/chart?media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain'
 		);
 		expect(navigation.hrefs.customization).toBe(
 			'/ethereum/milady/customization?media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain'
 		);
 		expect(navigation.hrefs.blockspace).toBe('/ethereum/blockspace?collection=milady');
+	});
+
+	it('keeps scalar filters when navigating to the collection chart', () => {
+		const navigation = buildCollectionNavigation({
+			basePath: '/',
+			selectedTraits: [],
+			selectedTraitRanges: [{ key: 'Level', fromValue: '3', toValue: '9' }]
+		});
+		expect(
+			new URL(navigation.hrefs.chart, 'http://localhost').searchParams.getAll('trait_ranges')
+		).toEqual(['Level:3..9']);
 	});
 
 	it('can hide blockspace navigation explicitly', () => {

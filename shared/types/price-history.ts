@@ -2,12 +2,20 @@ import type {
     ChainRecord,
     CollectionListItem,
     CollectionMediaState,
+    TraitFacet,
+    TraitFilter,
+    TraitRangeFilter,
 } from "./browse.js";
 
 export type CollectionPriceChartContext = {
     chain: ChainRecord;
     collection: CollectionListItem;
     media: CollectionMediaState;
+    traits: {
+        selected: TraitFilter[];
+        selectedRanges: TraitRangeFilter[];
+        facets: TraitFacet[];
+    };
 };
 
 export const PRICE_HISTORY_BUCKET = {
@@ -66,6 +74,8 @@ export type PriceHistoryRequest = {
     bucket: PriceHistoryBucket;
     range: PriceHistoryRange;
     tokenId?: string;
+    traits?: TraitFilter[];
+    traitRanges?: TraitRangeFilter[];
 };
 // Exact base-unit prices survive transport; only the renderer converts to floats.
 // Sales retain their execution currency; aggregate prices use the 1:1 ETH unit.

@@ -1,7 +1,11 @@
 import type { FastifyRequest } from "fastify";
 import { PRICE_HISTORY_QUERY } from "@artgod/shared/http/collection-routes";
 import type { GetPriceHistoryPort } from "../../../application/use-cases/collections/get-price-history.js";
-import { getSearchParams } from "../../common/request-query.js";
+import {
+    getSearchParams,
+    parseTraits,
+    parseTraitRanges,
+} from "../../common/request-query.js";
 
 export type GetPriceHistoryRoute = {
     Params: { chain_ref: string; collection_ref: string };
@@ -16,6 +20,8 @@ export class GetPriceHistoryHttpAdapter {
             bucket: query.get(PRICE_HISTORY_QUERY.Bucket) ?? undefined,
             range: query.get(PRICE_HISTORY_QUERY.Range) ?? undefined,
             tokenId: query.get(PRICE_HISTORY_QUERY.TokenId) ?? undefined,
+            traits: parseTraits(query),
+            traitRanges: parseTraitRanges(query),
         });
     };
 }

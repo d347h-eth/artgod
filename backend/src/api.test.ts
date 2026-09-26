@@ -449,6 +449,7 @@ beforeAll(async () => {
         1,
         chainsReadModel,
         collectionsReadModel,
+        customizationReadModel,
     );
     const getTokenDetailUseCase =
         new tokenDetailUseCaseModule.GetTokenDetailUseCase(
@@ -4206,7 +4207,7 @@ describe("backend api routes", () => {
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
     });
 
-    it("returns compact chart context with media preferences and public collection scope", async () => {
+    it("returns chart context with shared facets, media preferences and public collection scope", async () => {
         const path = buildPriceChartContextPath("ethereum", "terraforms");
         const result = await resolvePublic("GET", path);
         expect(result.statusCode).toBe(200);
@@ -4214,8 +4215,28 @@ describe("backend api routes", () => {
             "chain",
             "collection",
             "media",
+            "traits",
         ]);
         expect(result.payload.collection.slug).toBe("terraforms");
+        const grid = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms?token_status=all",
+        );
+        expect(result.payload.traits).toEqual(grid.payload.traits);
+        const selected = await resolvePublic(
+            "GET",
+            path + "?trait=Mode:Terrain&trait_range=Level:3..9",
+        );
+        expect(selected.statusCode).toBe(200);
+        expect(selected.payload.traits).toEqual({
+            selected: [{ key: "Mode", value: "Terrain" }],
+            selectedRanges: [{ key: "Level", fromValue: "3", toValue: "9" }],
+            facets: grid.payload.traits.facets,
+        });
+        expect(
+            (await resolvePublic("GET", path + "?trait_ranges=Level:9..3"))
+                .statusCode,
+        ).toBe(400);
         expect(result.payload.media.selectedMode).toBe(
             COLLECTION_MEDIA_MODES.Snapshot,
         );
@@ -4947,7 +4968,7 @@ describe("backend api routes", () => {
         });
     });
 
-    it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
+    it("updates collection trait filter presentation for tokens, activities and chart context", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:42710",
             origin: "http://127.0.0.1:42701",
@@ -5019,6 +5040,14 @@ describe("backend api routes", () => {
                 (item: { tokenId: string }) => item.tokenId,
             ),
         ).toEqual(["1"]);
+
+        const chart = await resolve(
+            "GET",
+            buildPriceChartContextPath("ethereum", "milady") +
+                "?trait_ranges=Power:3..9",
+        );
+        expect(chart.statusCode).toBe(200);
+        expect(chart.payload.traits).toEqual(detail.payload.traits);
 
         const activity = await resolve(
             "GET",

@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
 import { buildCollectionChartHref } from '$lib/price-chart/routing';
+import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import {
@@ -183,6 +184,9 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 
 	const holdersQuery = new URLSearchParams();
 	appendCollectionMediaParams(holdersQuery, { mediaMode, mediaPreference });
+	const chartQuery = new URLSearchParams(holdersQuery);
+	appendTraitParams(chartQuery, state.selectedTraits);
+	appendTraitRangeParams(chartQuery, state.selectedTraitRanges);
 
 	return {
 		basePath: normalizedBasePath,
@@ -199,7 +203,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			asks: tokenStatusHref('listed'),
 			offers: offersHref,
 			tokens: tokenStatusHref('all'),
-			chart: buildCollectionChartHref(normalizedBasePath, undefined, holdersQuery),
+			chart: buildCollectionChartHref(normalizedBasePath, undefined, chartQuery),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
 			blockspace: showBlockspace ? blockspaceHref : null,
 			customization: buildCollectionCustomizationHref({

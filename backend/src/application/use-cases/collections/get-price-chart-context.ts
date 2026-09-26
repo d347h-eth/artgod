@@ -6,13 +6,19 @@ import type {
     ChainRecord,
     CollectionListItem,
     CollectionMediaState,
+    TraitFacet,
+    TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types/browse";
+import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import type { CollectionPriceChartContext } from "@artgod/shared/types/price-history";
 
 export type GetPriceChartContextInput = {
     chainRef: string;
     collectionRef: string;
     mediaPreference?: CollectionMediaPreferenceValue;
+    traits: TraitFilter[];
+    traitRanges: TraitRangeFilter[];
 };
 export interface GetPriceChartContextPort {
     getPriceChartContext(
@@ -20,7 +26,7 @@ export interface GetPriceChartContextPort {
     ): CollectionPriceChartContext;
 }
 
-/** Chart navigation/card context without browsing tokens or calculating trait facets. */
+/** Chart navigation, media and the same collection-wide facets as the token browser. */
 export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
     constructor(
         private readonly defaultChainId: number,
@@ -38,6 +44,18 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
                 mediaMode?: string;
                 mediaPreference?: CollectionMediaPreferenceValue;
             }): CollectionMediaState;
+            listCollectionTraitFacets(
+                chainId: number,
+                collectionId: number,
+                owner?: string,
+                options?: { rangeOnlyKeys?: string[] },
+            ): TraitFacet[];
+        },
+        private readonly customization: {
+            getTraitFilterPresentationState(input: {
+                chainId: number;
+                collectionId: number;
+            }): { effectiveConfig: { rangeKeys: string[] } };
         },
     ) {}
     getPriceChartContext(
@@ -57,6 +75,32 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
             mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
             mediaPreference: input.mediaPreference,
         });
-        return { chain, collection, media };
+        const scope = {
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+        };
+        const config =
+            this.customization.getTraitFilterPresentationState(
+                scope,
+            ).effectiveConfig;
+        const facets = applyTraitFilterPresentationToFacets({
+            facets: this.collections.listCollectionTraitFacets(
+                scope.chainId,
+                scope.collectionId,
+                undefined,
+                { rangeOnlyKeys: config.rangeKeys },
+            ),
+            config,
+        });
+        return {
+            chain,
+            collection,
+            media,
+            traits: {
+                selected: input.traits,
+                selectedRanges: input.traitRanges,
+                facets,
+            },
+        };
     }
 }

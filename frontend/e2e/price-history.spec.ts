@@ -13,6 +13,7 @@ import {
 	priceHistoryOutlierFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
+import { TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
 import {
 	COLLECTION_API_ROUTE_TEMPLATE,
 	PRICE_HISTORY_QUERY
@@ -766,4 +767,180 @@ test('five years of 50,000 sales stay bounded in the sidebar and overlapping pin
 	await expect(rows(page).first()).not.toHaveAttribute('data-sale-id', firstId!);
 	await surface(page, info, 'dense-sale-dots');
 	expect(errors).toEqual([]);
+});
+
+test('shared trait controls filter sales, clear pins, preserve navigation and reset through pills or hotkeys', async ({
+	page
+}, info) => {
+	const errors: string[] = [];
+	page.on('pageerror', (error) => errors.push(error.message));
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
+	const requests: URLSearchParams[] = [];
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		requests.push(query);
+		// The DB suite verifies trait matching; this response exercises UI state replacement.
+		return route.fulfill({
+			json: priceHistoryFixture(
+				query.get(PRICE_HISTORY_QUERY.Bucket) as PriceHistoryBucket,
+				query.has(TRAIT_FILTER_QUERY_PARAMS.Traits) ? '103' : undefined
+			)
+		});
+	});
+	await page.goto(
+		PRICE_HISTORY_E2E.path +
+			'?' +
+			new URLSearchParams({
+				[PRICE_CHART_QUERY.Range]: PRICE_HISTORY_RANGE.Year,
+				[PRICE_CHART_QUERY.Bucket]: PRICE_HISTORY_BUCKET.FourHours
+			})
+	);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const point = (await salePoint(page))!;
+	await page.mouse.click(point.x, point.y);
+	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+	await page.keyboard.press('f');
+	const panel = page.locator('.facet-panel');
+	await expect(panel).toBeVisible();
+	const zone = panel
+		.locator('.trait-group')
+		.filter({ has: page.locator('.trait-group-title', { hasText: 'Zone' }) });
+	// A pinned full-size card can cover pointer targets on narrow screens; keyboard remains available.
+	await zone.locator('summary').focus();
+	await zone.locator('summary').press('Enter');
+	const tetsu = zone.getByRole('checkbox', { name: /Tetsu/ });
+	await tetsu.focus();
+	await tetsu.press('Space');
+	await expect(page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true })).toBeVisible();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'false');
+	await expect(page.locator('.sale-card-preview.pinned')).toHaveCount(0);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 190');
+	expect(requests.at(-1)!.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual(['Zone:Tetsu']);
+	expect(requests.at(-1)!.get(PRICE_HISTORY_QUERY.Bucket)).toBe(PRICE_HISTORY_BUCKET.FourHours);
+	expect(requests.at(-1)!.get(PRICE_HISTORY_QUERY.Range)).toBe(PRICE_HISTORY_RANGE.Year);
+	await expect(rows(page).locator('a.sale-thumbnail')).toHaveCount(50);
+	for (const href of await rows(page)
+		.locator('a.sale-thumbnail')
+		.evaluateAll((links) => links.map((link) => link.getAttribute('href'))))
+		expect(href).toMatch(/\/103$/);
+	await surface(page, info, 'chart-trait-filter-expanded');
+	await page.getByRole('button', { name: 'collapse traits panel' }).click();
+	await expect(panel).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'tokens', exact: true }).first()).toHaveAttribute(
+		'href',
+		/traits=Zone%3ATetsu/
+	);
+	await surface(page, info, 'chart-trait-filter-collapsed');
+	await page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true }).click();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 572');
+	await page.goBack();
+	await expect(page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true })).toBeVisible();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 190');
+	await page.keyboard.press('r');
+	await expect(page.getByRole('button', { name: 'reset', exact: true })).toHaveCount(0);
+	await loaded(page);
+	expect(new URL(page.url()).searchParams.get(PRICE_CHART_QUERY.Bucket)).toBe(
+		PRICE_HISTORY_BUCKET.FourHours
+	);
+	expect(errors).toEqual([]);
+});
+
+test('customized numeric facets filter the chart and recover from empty results with the shared reset', async ({
+	page
+}, info) => {
+	const errors: string[] = [];
+	page.on('pageerror', (error) => errors.push(error.message));
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1440, height: 1000 });
+	const requests: URLSearchParams[] = [];
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		requests.push(query);
+		const selection = query.get(TRAIT_FILTER_QUERY_PARAMS.TraitRanges);
+		return route.fulfill({
+			json: priceHistoryFixture(
+				PRICE_HISTORY_BUCKET.Day,
+				selection === 'Biome:43..' ? 'no-match' : selection ? '102' : undefined
+			)
+		});
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await page.getByRole('button', { name: 'expand traits panel' }).click();
+	const biome = page
+		.locator('.trait-group')
+		.filter({ has: page.locator('.trait-group-title', { hasText: 'Biome' }) });
+	await biome.locator('summary').click();
+	await biome.getByLabel('from', { exact: true }).fill('7');
+	await biome.getByLabel('to', { exact: true }).fill('7');
+	await biome.getByRole('button', { name: 'apply', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'remove Biome=7..7', exact: true })).toBeVisible();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 190');
+	expect(requests.at(-1)!.getAll(TRAIT_FILTER_QUERY_PARAMS.TraitRanges)).toEqual(['Biome:7..7']);
+	await surface(page, info, 'chart-trait-range');
+	await biome.getByLabel('from', { exact: true }).fill('43');
+	await biome.getByLabel('to', { exact: true }).fill('');
+	await biome.getByRole('button', { name: 'apply', exact: true }).click();
+	await expect(page.getByText('no single-token sales', { exact: true })).toBeVisible();
+	await surface(page, info, 'chart-trait-empty');
+	await page.getByRole('button', { name: 'reset', exact: true }).click();
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 572');
+	expect(requests.at(-1)!.has(TRAIT_FILTER_QUERY_PARAMS.TraitRanges)).toBe(false);
+	expect(errors).toEqual([]);
+});
+
+test('reset cancels an in-flight trait selection and a late response cannot replace the restored chart', async ({
+	page
+}) => {
+	let release!: () => void;
+	const pending = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let started!: () => void;
+	const requested = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	let finished!: () => void;
+	const responded = new Promise<void>((resolve) => {
+		finished = resolve;
+	});
+	await page.route(PRICE_HISTORY_E2E.apiPattern, async (route) => {
+		const filtered = new URL(route.request().url()).searchParams.has(
+			TRAIT_FILTER_QUERY_PARAMS.Traits
+		);
+		if (filtered) {
+			started();
+			await pending;
+		}
+		await route.fulfill({
+			json: priceHistoryFixture(PRICE_HISTORY_BUCKET.Day, filtered ? '103' : undefined)
+		});
+		if (filtered) finished();
+	});
+	await page.goto(
+		PRICE_HISTORY_E2E.path +
+			'?' +
+			new URLSearchParams({ [TRAIT_FILTER_QUERY_PARAMS.Traits]: 'Zone:Tetsu' })
+	);
+	await requested;
+	await expect(page.getByText('loading sales…', { exact: true })).toBeVisible();
+	const cancelled = page.waitForEvent(
+		'requestfailed',
+		(request) =>
+			request.url().includes('/price-history?') &&
+			new URL(request.url()).searchParams.has(TRAIT_FILTER_QUERY_PARAMS.Traits)
+	);
+	await page.getByRole('button', { name: 'reset', exact: true }).click();
+	await cancelled;
+	await loaded(page);
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 572');
+	release();
+	await responded;
+	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 572');
+	await expect(page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true })).toHaveCount(0);
 });
