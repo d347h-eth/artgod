@@ -511,6 +511,7 @@
 			onClose={togglePriceTierPanel}
 		/>
 	{/if}
+
 	<TokenBrowserView
 		chain={chain}
 		collection={collection}

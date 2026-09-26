@@ -11,7 +11,7 @@ Read the first two documents completely before changing a user-visible surface.
 4. [UI testing](03-testing.md) — unit, deterministic Playwright, attached-runtime,
    and required manual rendered inspection.
 5. [Realized price history](04-realized-price-history.md) — sale charts, strict
-   bundle eligibility, gaps, indicators, licensing, and PoC verification.
+   bundle eligibility, gaps, indicators, licensing, and alpha verification.
 
 Collection-specific UI behavior belongs in its
 [extension](../extensions/README.md). Admin supervision belongs in
