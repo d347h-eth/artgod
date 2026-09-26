@@ -1,12 +1,73 @@
 import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import { TCP_PORT_RANGE } from '@artgod/shared/config/tcp-port';
 import { getSettingDefault } from '@artgod/shared/config/generated-settings-defaults';
+import { SETTINGS_KEY } from '@artgod/shared/config/generated-settings-defaults';
 import {
 	ADMIN_CONFIG_OBSERVABILITY_FIELD,
 	ADMIN_CONFIG_OBSERVABILITY_TEST_ID,
+	LOCAL_DESKTOP_OBSERVABILITY_QUERY,
 	createAdminConfigObservabilityFixture
 } from '../src/lib/e2e/admin-config-observability-fixtures';
 import { CONFIG_OBSERVABILITY_HARNESS } from './config-observability-harness.mjs';
+
+test('local desktop exposes existing metrics and APM controls and saves their values', async ({
+	page
+}, testInfo) => {
+	const fixture = createAdminConfigObservabilityFixture(true);
+	const field = (key: string) => {
+		const metadata = fixture.groups
+			.flatMap((group) => group.fields)
+			.find((entry) => entry.key === key);
+		if (!metadata) throw new Error(`Missing local desktop field: ${key}`);
+		return page.getByLabel(new RegExp(`^${metadata.label}(?:\\s|$)`));
+	};
+	await page.goto(
+		`${CONFIG_OBSERVABILITY_HARNESS.routePath}?${LOCAL_DESKTOP_OBSERVABILITY_QUERY}`,
+		{ waitUntil: 'networkidle' }
+	);
+	await page.getByRole('button', { name: 'advanced' }).click();
+	for (const key of [
+		SETTINGS_KEY.BACKEND_METRICS_ENABLED,
+		SETTINGS_KEY.BACKEND_APM_ENABLED,
+		SETTINGS_KEY.INDEXER_METRICS_ENABLED,
+		SETTINGS_KEY.INDEXER_APM_ENABLED
+	]) {
+		await expect(field(key)).not.toBeChecked();
+	}
+	await expect(field(SETTINGS_KEY.OBSERVABILITY_OTLP_HTTP_URL)).toHaveValue(
+		getSettingDefault(SETTINGS_KEY.OBSERVABILITY_OTLP_HTTP_URL)
+	);
+	await expect(page.getByText('backend metrics host', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('indexer metrics host', { exact: true })).toHaveCount(0);
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'local-disabled');
+	await field(SETTINGS_KEY.BACKEND_METRICS_ENABLED).check();
+	await field(SETTINGS_KEY.BACKEND_APM_ENABLED).check();
+	await field(SETTINGS_KEY.INDEXER_METRICS_ENABLED).check();
+	await field(SETTINGS_KEY.INDEXER_APM_ENABLED).check();
+	const endpoint = field(SETTINGS_KEY.OBSERVABILITY_OTLP_HTTP_URL);
+	await endpoint.fill('invalid-url');
+	await expect(endpoint).toHaveAttribute('aria-invalid', 'true');
+	await expect(page.getByRole('button', { name: 'save' })).toBeDisabled();
+	await endpoint.fill(getSettingDefault(SETTINGS_KEY.OBSERVABILITY_OTLP_HTTP_URL));
+	await expect(endpoint).toHaveAttribute('aria-invalid', 'false');
+	await page.getByRole('button', { name: 'save' }).click();
+	const payload = JSON.parse(
+		(await page.getByTestId(ADMIN_CONFIG_OBSERVABILITY_TEST_ID.SavedConfig).textContent()) ?? ''
+	);
+	expect(payload.values).toMatchObject({
+		[SETTINGS_KEY.BACKEND_METRICS_ENABLED]: 'true',
+		[SETTINGS_KEY.BACKEND_APM_ENABLED]: 'true',
+		[SETTINGS_KEY.INDEXER_METRICS_ENABLED]: 'true',
+		[SETTINGS_KEY.INDEXER_APM_ENABLED]: 'true'
+	});
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'local-enabled');
+	await page.goto(CONFIG_OBSERVABILITY_HARNESS.routePath, { waitUntil: 'networkidle' });
+	await page.getByRole('button', { name: 'advanced' }).click();
+	await expect(page.getByRole('heading', { name: 'Backend Observability' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Indexer Observability' })).toHaveCount(0);
+});
 
 test('renders the disabled default and validates the opt-in metrics port', async ({
 	page

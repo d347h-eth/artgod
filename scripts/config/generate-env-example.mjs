@@ -115,7 +115,7 @@ function splitInlineTableEntries(content) {
     return entries;
 }
 
-function parseManifest(source) {
+export function parseManifest(source) {
     const document = {
         version: null,
         groups: [],
@@ -343,7 +343,7 @@ function hasTarget(setting, target) {
     return resolveTargets(setting).includes(target);
 }
 
-function resolveDefaultForTarget(setting, target) {
+export function resolveDefaultForTarget(setting, target) {
     if (setting.defaults?.[target] !== undefined) {
         return setting.defaults[target];
     }
@@ -453,7 +453,7 @@ async function generateSettingsValidationRulesModule(validationRules) {
     });
 }
 
-async function generateDesktopAdminConfigModule(manifest) {
+export function buildDesktopAdminConfigSchema(manifest) {
     const desktopSettings = manifest.settings.filter(
         (setting) =>
             hasTarget(setting, "desktop") && setting.desktop_managed !== false,
@@ -490,6 +490,11 @@ async function generateDesktopAdminConfigModule(manifest) {
             ]),
         ),
     };
+    return schema;
+}
+
+async function generateDesktopAdminConfigModule(manifest) {
+    const schema = buildDesktopAdminConfigSchema(manifest);
     const source = [
         "// Generated from the desktop-managed settings in config/settings.manifest.toml.",
         "// Do not edit directly; run `yarn config:generate`.",
@@ -667,7 +672,9 @@ async function main() {
     );
 }
 
-main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+    main().catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
+}

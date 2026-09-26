@@ -1,12 +1,16 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import AdminConfigurationPanel from '$lib/admin/configuration/AdminConfigurationPanel.svelte';
 	import type { AdminConfigSaveInput } from '$lib/admin/configuration/ports';
 	import {
 		ADMIN_CONFIG_OBSERVABILITY_TEST_ID,
+		LOCAL_DESKTOP_OBSERVABILITY_QUERY,
 		createAdminConfigObservabilityFixture
 	} from '$lib/e2e/admin-config-observability-fixtures';
 
-	const config = createAdminConfigObservabilityFixture();
+	const config = $derived(
+		createAdminConfigObservabilityFixture(page.url.searchParams.has(LOCAL_DESKTOP_OBSERVABILITY_QUERY))
+	);
 	let savedConfig = $state<AdminConfigSaveInput | null>(null);
 </script>
 

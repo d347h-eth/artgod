@@ -486,6 +486,50 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "desktop-local-observability")]
+    fn local_browser_fixture_matches_the_native_selected_schema() {
+        let model = load_app_config_manifest().unwrap();
+        let source =
+            include_str!("../../../frontend/src/lib/e2e/generated-local-desktop-observability.ts");
+        let json = source
+            .split_once(" = ")
+            .unwrap()
+            .1
+            .trim()
+            .strip_suffix(" as const;")
+            .unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(json).unwrap();
+        let selected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../config/desktop-local-observability.json"
+        ))
+        .unwrap();
+        let keys: Vec<&str> = selected["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| key.as_str().unwrap())
+            .collect();
+        let groups = build_schema_groups(&model)
+            .into_iter()
+            .filter_map(|mut group| {
+                group
+                    .fields
+                    .retain(|field| keys.contains(&field.key.as_str()));
+                (!group.fields.is_empty()).then_some(group)
+            })
+            .collect::<Vec<_>>();
+        let defaults: HashMap<_, _> = model
+            .defaults
+            .iter()
+            .filter(|(key, _)| keys.contains(&key.as_str()))
+            .collect();
+        assert_eq!(
+            fixture,
+            serde_json::json!({ "groups": groups, "defaults": defaults })
+        );
+    }
+
+    #[test]
     fn observability_overrides_follow_the_compiled_schema_through_save_and_env_rendering() {
         let model = load_app_config_manifest().expect("manifest");
         let enabled = "BACKEND_APM_ENABLED";
@@ -506,7 +550,9 @@ mod tests {
             version: SETTINGS_VERSION,
             created_at: "2026-01-01T00:00:00Z".to_owned(),
             updated_at: "2026-01-01T00:00:00Z".to_owned(),
-            desktop: DesktopSettings { auto_launch_on_startup: false },
+            desktop: DesktopSettings {
+                auto_launch_on_startup: false,
+            },
             overrides: input.clone(),
         };
         // Both binaries may read the same JSON, including unrecognized local overrides.
@@ -514,16 +560,28 @@ mod tests {
         let loaded = read_settings_document_if_exists(&paths).unwrap().unwrap();
         let state = build_app_config_state(&paths, Some(&loaded), &model);
         assert_eq!(state.values.contains_key(enabled), local);
-        assert_eq!(state.groups.iter().flat_map(|group| &group.fields).any(|field| field.key == enabled), local);
+        assert_eq!(
+            state
+                .groups
+                .iter()
+                .flat_map(|group| &group.fields)
+                .any(|field| field.key == enabled),
+            local
+        );
         assert_eq!(state.values["ARTGOD_DB_PATH"], "shared-data.sqlite");
         render_env_file(&paths, &loaded, &model).expect("render shared settings");
         let env = parse_env_content(&fs::read_to_string(&paths.env_file_path).unwrap());
         assert_eq!(env.defaults.contains_key(enabled), local);
-        if local { assert_eq!(env.defaults[enabled], "true"); }
+        if local {
+            assert_eq!(env.defaults[enabled], "true");
+        }
         assert!(!env.defaults.contains_key("BACKEND_METRICS_HOST"));
 
         // Saving uses the existing recognized-key replacement behavior in both builds.
-        let saved = AppSettingsDocument { overrides: extract_value_overrides(&input, &model), ..loaded };
+        let saved = AppSettingsDocument {
+            overrides: extract_value_overrides(&input, &model),
+            ..loaded
+        };
         write_settings_document(&paths, &saved).expect("save selected overrides");
         let reloaded = read_settings_document_if_exists(&paths).unwrap().unwrap();
         assert_eq!(reloaded.overrides.contains_key(enabled), local);
