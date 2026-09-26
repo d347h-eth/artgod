@@ -330,7 +330,7 @@ Current validation flow:
 1. Parse canonical Seaport data from the order row.
 2. Reconstruct the Seaport order hash locally and compare with `order.id`.
 3. Signature handling:
-    - stream-derived order with signature -> verify typed-data signer
+    - any supplied signature -> verify the Seaport typed-data signer
     - stream-derived order without signature -> warn and continue
     - REST-derived order -> no signature expectation
 4. Check time window with local wall clock.
@@ -338,6 +338,17 @@ Current validation flow:
 6. Read Seaport `getCounter(offerer)`.
 7. Resolve conduit approvals via ConduitController + local conduit cache.
 8. Check sell-side ownership/approvals or buy-side balance/allowance.
+
+The common protocol helper supports ordinary 64-byte EIP-2098 and 65-byte
+ECDSA signatures, plus Seaport bulk-order signatures. Bulk verification folds
+the order hash through positional siblings using the three-byte index, then
+verifies the height-specific `BulkOrder` digest in the same chain/protocol
+domain. Proofs are bounded to 1–24 nodes. Malformed encodings and incorrect
+proofs fail validation; a signature prefix alone does not authorize the order.
+These rules follow the
+[Seaport 1.6 verifier](https://github.com/ProjectOpenSea/seaport-core/blob/2f546b9a0d61a70e1632445cbcb108149a9369ae/src/lib/Verifiers.sol).
+Contract-wallet ERC-1271 verification remains unsupported. Successful signature
+recovery still requires every later fillability check to pass.
 
 Singleton RPC-dependent validation retains its existing `try/catch` behavior:
 hard RPC/helper failures are logged and converted into `invalid`.
