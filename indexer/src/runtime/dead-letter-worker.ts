@@ -11,6 +11,8 @@ import {
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
+import { OFFCHAIN_JOB_KIND } from "../domain/offchain-jobs.js";
+import { getOpenSeaSaleDiagnosticContext } from "../application/offchain/opensea-sale-diagnostics.js";
 
 async function main() {
     try {
@@ -46,6 +48,12 @@ async function main() {
             },
             async (job: JobEnvelope<DeadLetterPayload>) => {
                 if (job.kind !== DEAD_LETTER_KIND) return;
+                const sale =
+                    job.payload.original.kind === OFFCHAIN_JOB_KIND.OrderRaw
+                        ? getOpenSeaSaleDiagnosticContext(
+                              job.payload.original.payload,
+                          )
+                        : null;
                 logger.error("Dead-letter job received", {
                     component: "IndexerDeadLetter",
                     action: "handle",
@@ -56,6 +64,7 @@ async function main() {
                     originalKind: job.payload.original.kind,
                     originalQueue: job.payload.original.queue,
                     originalAttempt: job.payload.original.attempt,
+                    ...(sale ? { openseaSale: sale } : {}),
                 });
             },
             {

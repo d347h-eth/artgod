@@ -290,6 +290,12 @@ state is committed.
 - `sourceEventAt` (source-derived timestamp or `null`)
 - raw source payload
 
+For incomplete OpenSea sold events, validated seller/token identifiers can still
+produce an `orders.update-by-maker` hint on `order-updates-by-token` without an
+exact-order filled update. Hashless sales use distinct NFT/seller/transaction
+identities for stream deduplication; see
+[OpenSea Sale Hints](07-domain-orders.md#opensea-sale-hints).
+
 - Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
     - `bootstrap.collection.start`
     - `bootstrap.collection.metadata-process`

@@ -12,7 +12,10 @@ import {
 } from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
-import { assertAddress, normalizeCriteriaRoot } from "./normalizer-utils.js";
+import {
+    assertAddress,
+    normalizeCriteriaRoot,
+} from "@artgod/shared/offchain/normalizer-utils";
 import {
     buildAttributeSchema,
     buildCollectionSchema,

@@ -1,10 +1,17 @@
-import { toHex } from "viem";
+import { isAddress, isHash, toHex } from "viem";
+
+/** Tolerant record access for external payloads; required fields use asObject. */
+export function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+}
 
 export function asObject(
     value: unknown,
     name: string,
 ): Record<string, unknown> {
-    if (!value || typeof value !== "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error(`Invalid ${name}: expected object`);
     }
     return value as Record<string, unknown>;
@@ -43,15 +50,23 @@ export function parseOptionalNumber(
 }
 
 export function assertAddress(value: unknown, name: string): string {
-    const address =
-        typeof value === "string" ? value : asObject(value, name).address;
-    if (typeof address !== "string") {
-        throw new Error(`Invalid ${name} address`);
-    }
-    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        throw new Error(`Invalid ${name} address: ${address}`);
-    }
-    return address.toLowerCase();
+    const address = tryParseAddress(value);
+    if (address === null) throw new Error(`Invalid ${name} address`);
+    return address;
+}
+
+/** Accepts raw address strings and marketplace account objects. */
+export function tryParseAddress(value: unknown): string | null {
+    const address = typeof value === "string" ? value : asRecord(value).address;
+    return typeof address === "string" && isAddress(address, { strict: false })
+        ? address.toLowerCase()
+        : null;
+}
+
+export function tryParseHash(value: unknown): string | null {
+    return typeof value === "string" && isHash(value)
+        ? value.toLowerCase()
+        : null;
 }
 
 export function parseOptionalAddress(
@@ -83,24 +98,6 @@ export function parseTimestamp(value: unknown, name: string): number | null {
         throw new Error(`Invalid ${name} timestamp`);
     }
     return Math.floor(ms / 1000);
-}
-
-export function parseNftId(value: unknown): {
-    contract: string;
-    tokenId: string;
-} {
-    const item = asObject(value, "item");
-    const nftId = assertString(item.nft_id, "item.nft_id");
-    const parts = nftId.split("/");
-    if (parts.length < 3) {
-        throw new Error(`Invalid nft_id: ${nftId}`);
-    }
-    const contract = assertAddress(parts[1], "item.nft_id.contract");
-    const tokenId = parts.slice(2).join("/");
-    if (!tokenId) {
-        throw new Error(`Invalid nft_id tokenId: ${nftId}`);
-    }
-    return { contract, tokenId };
 }
 
 export function toBigInt(value: unknown, name: string): bigint {

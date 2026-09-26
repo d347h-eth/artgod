@@ -11,21 +11,27 @@ import {
     type OrderSourceStatus,
 } from "../../domain/orders.js";
 import {
-    asObject,
     assertAddress,
     assertPaymentToken,
     assertPrice,
-    assertString,
-    parseNftId,
     parseOptionalAddress,
     parseTimestamp,
-} from "./normalizer-utils.js";
+} from "@artgod/shared/offchain/normalizer-utils";
 import { logger } from "@artgod/shared/utils";
 import {
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
 import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
+import {
+    getOpenSeaEventIdentifiers,
+    getOpenSeaOrderHash,
+    parseOpenSeaOrderHash,
+    OPENSEA_STREAM_EVENT_TYPE,
+    parseNftId,
+    parseOpenSeaEnvelope,
+} from "@artgod/shared/opensea/payload";
+import { TOKEN_SCOPED_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
 
 export type OpenSeaOrderUpdate = {
     orderId: string;
@@ -51,19 +57,19 @@ export type OpenSeaMakerUpdate = {
 export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
     const { eventType, payload } = parseOpenSeaEnvelope(raw);
 
-    if (eventType === "item_listed") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemListed) {
         return normalizeItemListed(payload);
     }
-    if (eventType === "item_received_bid") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid) {
         return normalizeItemReceivedBid(payload, eventType);
     }
-    if (eventType === "item_received_offer") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedOffer) {
         return normalizeItemReceivedBid(payload, eventType);
     }
-    if (eventType === "collection_offer") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.CollectionOffer) {
         return normalizeCollectionOffer(payload);
     }
-    if (eventType === "trait_offer") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.TraitOffer) {
         return normalizeTraitOffer(payload);
     }
 
@@ -76,37 +82,41 @@ export function normalizeOpenSeaOrderUpdate(
 ): OpenSeaOrderUpdate | null {
     const { eventType, payload } = parseOpenSeaEnvelope(raw);
 
-    if (eventType === "item_cancelled") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemCancelled) {
         return {
-            orderId: parseOrderHash(payload),
+            orderId: parseOpenSeaOrderHash(payload),
             reason: ORDER_UPDATE_REASON.Cancel,
             sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }
     if (
-        eventType === "order_invalidate" ||
-        eventType === "order_invalidation"
+        eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidate ||
+        eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidation
     ) {
         return {
-            orderId: parseOrderHash(payload),
+            orderId: parseOpenSeaOrderHash(payload),
             reason: ORDER_UPDATE_REASON.Cancel,
             sourceStatus: ORDER_SOURCE_STATUS.Invalidated,
         };
     }
     if (
-        eventType === "order_revalidate" ||
-        eventType === "order_revalidation"
+        eventType === OPENSEA_STREAM_EVENT_TYPE.OrderRevalidate ||
+        eventType === OPENSEA_STREAM_EVENT_TYPE.OrderRevalidation
     ) {
         return {
-            orderId: parseOrderHash(payload),
+            orderId: parseOpenSeaOrderHash(payload),
             reason: ORDER_UPDATE_REASON.Validation,
             sourceStatus: ORDER_SOURCE_STATUS.Active,
         };
     }
-    if (eventType === "item_sold") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemSold) {
+        const { orderId } = getOpenSeaEventIdentifiers(raw);
+        // An incomplete sale can still trigger token revalidation, but cannot
+        // identify an order to mark filled. Do not derive an id from other terms.
+        if (!orderId) return null;
         return {
-            orderId: parseOrderHash(payload),
+            orderId,
             reason: ORDER_UPDATE_REASON.Fill,
             sourceStatus: ORDER_SOURCE_STATUS.Filled,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
@@ -132,7 +142,8 @@ export function normalizeOpenSeaMetadataRefresh(
     raw: unknown,
 ): OpenSeaMetadataRefresh | null {
     const { eventType, payload } = parseOpenSeaEnvelope(raw);
-    if (eventType !== "item_metadata_updated") return null;
+    if (eventType !== OPENSEA_STREAM_EVENT_TYPE.ItemMetadataUpdated)
+        return null;
 
     const { contract, tokenId } = parseRequiredNftId(payload.item);
     const metadataUrl = parseMetadataUrl(payload);
@@ -150,7 +161,7 @@ export function normalizeOpenSeaMakerUpdate(
 ): OpenSeaMakerUpdate | null {
     const { eventType, payload } = parseOpenSeaEnvelope(raw);
 
-    if (eventType === "item_transferred") {
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemTransferred) {
         const { contract, tokenId } = parseRequiredNftId(payload.item);
         return {
             maker: assertAddress(payload.from_account, "from_account"),
@@ -160,13 +171,19 @@ export function normalizeOpenSeaMakerUpdate(
         };
     }
 
-    if (eventType === "item_sold") {
-        const { contract, tokenId } = parseRequiredNftId(payload.item);
+    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemSold) {
+        const { maker, contract, tokenId } = getOpenSeaEventIdentifiers(raw);
+        if (!maker || !contract || tokenId === null)
+            throw new Error(
+                "Invalid OpenSea sale: expected seller and NFT identity",
+            );
+        // The stream maker is the seller even when accepting a bid; its Seaport
+        // offerer may be the buyer and cannot substitute for the seller.
         return {
-            maker: assertAddress(payload.maker, "maker"),
+            maker,
             contract,
             tokenId,
-            reason: "item_sold",
+            reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.ItemSold,
         };
     }
 
@@ -179,7 +196,7 @@ function normalizeItemListed(
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportSellTerms(seaportData);
-    const orderHash = assertString(payload.order_hash, "order_hash");
+    const orderHash = parseOpenSeaOrderHash(payload);
     const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
     const { contract, tokenId } = protocolTerms
         ? {
@@ -200,7 +217,7 @@ function normalizeItemListed(
         parseTimestamp(payload.expiration_date, "expiration_date");
 
     return {
-        orderId: orderHash.toLowerCase(),
+        orderId: orderHash,
         kind: "seaport",
         side: "sell",
         maker,
@@ -228,7 +245,7 @@ function normalizeItemReceivedBid(
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
             eventType,
-            orderHash: payload.order_hash,
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -261,8 +278,8 @@ function normalizeCollectionOffer(
     // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
-            eventType: "collection_offer",
-            orderHash: payload.order_hash,
+            eventType: OPENSEA_STREAM_EVENT_TYPE.CollectionOffer,
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -295,8 +312,8 @@ function normalizeTraitOffer(
     // Parse trait offer terms through the shared bidder-owned OpenSea parser.
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
-            eventType: "trait_offer",
-            orderHash: payload.order_hash,
+            eventType: OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -320,30 +337,6 @@ function normalizeTraitOffer(
         validUntil: terms.validUntil,
         seaportData,
     };
-}
-
-function parseOpenSeaEnvelope(raw: unknown): {
-    eventType: string;
-    payload: Record<string, unknown>;
-} {
-    const envelope = asObject(raw, "OpenSea envelope");
-    const eventType =
-        typeof envelope.event_type === "string" ? envelope.event_type : null;
-    if (!eventType) {
-        throw new Error("Invalid OpenSea payload");
-    }
-
-    const payloadValue = envelope.payload;
-    const payload =
-        payloadValue && typeof payloadValue === "object"
-            ? (payloadValue as Record<string, unknown>)
-            : envelope;
-
-    return { eventType, payload };
-}
-
-function parseOrderHash(payload: Record<string, unknown>): string {
-    return assertString(payload.order_hash, "order_hash").toLowerCase();
 }
 
 function parseRequiredNftId(value: unknown): {

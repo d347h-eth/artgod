@@ -1,5 +1,9 @@
 import { logger } from "@artgod/shared/utils";
 import {
+    getOpenSeaSaleDiagnosticContext,
+    OPENSEA_SALE_LOG,
+} from "./opensea-sale-diagnostics.js";
+import {
     admitsListingObservation,
     retainsOffchainActivity,
 } from "@artgod/shared/market-data/storage-policy";
@@ -228,6 +232,16 @@ export async function dispatchOffchainPayload(
         };
         await queue.publish(makerJob.queue, makerJob);
         handled = true;
+        if (!updateById) {
+            const sale = getOpenSeaSaleDiagnosticContext(payload);
+            if (sale) {
+                logger.warn(OPENSEA_SALE_LOG.RevalidationQueued, {
+                    component: OPENSEA_SALE_LOG.Component,
+                    action: OPENSEA_SALE_LOG.Action,
+                    ...sale,
+                });
+            }
+        }
     }
 
     const metadataRefresh = normalizeOffchainMetadataRefresh(payload);

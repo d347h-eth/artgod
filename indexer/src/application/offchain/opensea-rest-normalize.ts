@@ -2,10 +2,9 @@ import type { RawOrderPayload } from "./normalize.js";
 import {
     asObject,
     assertAddress,
-    assertString,
     parseOptionalAddress,
     toBigInt,
-} from "./normalizer-utils.js";
+} from "@artgod/shared/offchain/normalizer-utils";
 import { ORDER_SOURCE_SCOPE_KIND } from "../../domain/orders.js";
 import { OPENSEA_REST_EVENT_TYPE } from "../../domain/offchain-jobs.js";
 import {
@@ -13,6 +12,10 @@ import {
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
 import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
+import {
+    getOpenSeaOrderHash,
+    parseOpenSeaOrderHash,
+} from "@artgod/shared/opensea/payload";
 
 const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
 const PAYMENT_ITEM_TYPES = new Set([0, 1]);
@@ -48,7 +51,7 @@ function normalizeRestListing(
     const paymentItem = findPaymentItem(parameters.consideration);
 
     return {
-        orderId: parseOrderHash(payload),
+        orderId: parseOpenSeaOrderHash(payload),
         kind: "seaport",
         side: "sell",
         maker:
@@ -101,7 +104,7 @@ function normalizeRestItemOffer(
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
             recordType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
-            orderHash: getOrderHash(payload),
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -135,7 +138,7 @@ function normalizeRestCollectionOffer(
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
             recordType: OPENSEA_REST_EVENT_TYPE.CollectionOffer,
-            orderHash: getOrderHash(payload),
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -169,7 +172,7 @@ function normalizeRestTraitOffer(
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
             recordType: OPENSEA_REST_EVENT_TYPE.TraitOffer,
-            orderHash: getOrderHash(payload),
+            orderHash: getOpenSeaOrderHash(payload),
         },
     });
 
@@ -215,16 +218,8 @@ function parseProtocolParameters(value: unknown): Record<string, unknown> & {
     };
 }
 
-function parseOrderHash(payload: Record<string, unknown>): string {
-    return assertString(getOrderHash(payload), "order_hash").toLowerCase();
-}
-
 function getProtocolData(payload: Record<string, unknown>): unknown {
     return payload.protocol_data ?? payload.protocolData;
-}
-
-function getOrderHash(payload: Record<string, unknown>): unknown {
-    return payload.order_hash ?? payload.orderHash;
 }
 
 function requireNftItem(items: unknown, name: string): Record<string, unknown> {

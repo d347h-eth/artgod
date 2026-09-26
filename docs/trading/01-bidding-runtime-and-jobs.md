@@ -128,6 +128,11 @@ The bidding runtime uses `@opensea/stream-js` for wake-up events only.
 The current package version is `0.4.0`; its SDK surface is isolated behind the
 bot's OpenSea stream adapter.
 
+The market event adapter shares envelope and NFT identity decoding with the
+indexer through `shared/opensea/payload.ts`. Malformed NFT IDs yield no explicit
+token ID. A missing order hash still permits a valid token wake-up hint. Price,
+scope and trait mapping remain the adapter's responsibility.
+
 Current stream calls:
 
 - `onCollectionOffer(collectionSlug, callback)`
