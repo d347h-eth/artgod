@@ -56,6 +56,8 @@
         "test:desktop:local": "node --test scripts/build/local-desktop.test.mjs",
         "test:desktop:local:exporters": "node scripts/build/test-local-desktop-observability.mjs",
         "check:desktop:local": "node scripts/build/verify-local-desktop-runtime.mjs",
+        "config:generate:desktop-local": "node scripts/config/generate-local-desktop-admin-fixture.mjs",
+        "config:check:desktop-local": "node scripts/config/generate-local-desktop-admin-fixture.mjs --check",
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
         "build:desktop-runtime": "node ./scripts/build/build-runtime-artifacts.mjs --profile desktop",
         "build:sqlite-native": "node ./scripts/build/build-sqlite-native-binding.mjs",
