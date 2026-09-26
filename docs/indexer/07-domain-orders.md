@@ -350,6 +350,16 @@ These rules follow the
 Contract-wallet ERC-1271 verification remains unsupported. Successful signature
 recovery still requires every later fillability check to pass.
 
+Previously rejected bulk-signed orders can recover through ordinary validation
+demand. A fresh active source observation requests validation after the existing
+five-minute freshness interval; REST observations without signatures retain the
+canonical stream signature. Full validation commits the corrected fillability
+and demand coverage together, restoring current-ask eligibility only when all
+checks pass. Concurrent source cancellation still prevents publication. This
+uses the existing schema and reconciliation flow. Orders omitted by the source
+or already expired/terminal have no guaranteed recovery schedule; the fix does
+not establish current onchain fillability for the captured regression fixture.
+
 Singleton RPC-dependent validation retains its existing `try/catch` behavior:
 hard RPC/helper failures are logged and converted into `invalid`.
 
