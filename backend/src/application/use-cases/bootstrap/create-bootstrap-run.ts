@@ -41,6 +41,10 @@ import {
 import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media/token-metadata-animation-source";
 import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH,
+    BOOTSTRAP_TOKEN_ID_MAX_LENGTH,
+} from "@artgod/shared/config/bootstrap";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -393,7 +397,7 @@ function normalizeSlug(raw: string): string {
     if (!/^[a-z0-9-]+$/.test(value)) {
         throw new BootstrapValidationError("Invalid slug");
     }
-    if (value.length > 80) {
+    if (value.length > BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH) {
         throw new BootstrapValidationError("Slug is too long");
     }
     return value;
@@ -499,7 +503,7 @@ function normalizeTokenId(raw: string): string {
     if (!/^\d+$/.test(value)) {
         throw new BootstrapValidationError("Invalid token id");
     }
-    if (value.length > 78) {
+    if (value.length > BOOTSTRAP_TOKEN_ID_MAX_LENGTH) {
         throw new BootstrapValidationError("Token id is too large");
     }
     return value;
