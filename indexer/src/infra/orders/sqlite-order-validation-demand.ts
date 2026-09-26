@@ -90,6 +90,27 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         })();
     }
 
+    defer(request: OrderValidationRequest, error: string, now: number) {
+        return db.writeTransaction(() => {
+            const outcome = this.admit(request, now);
+            if (outcome === OUTCOME.Pending) {
+                // Retry this known failure alone, preserving stronger requirements
+                // and an existing executor's lease.
+                db.prepare(
+                    "UPDATE order_validation_demand SET failures=MAX(failures,?),next_attempt_at=MAX(next_attempt_at,?),last_error=?,updated_at=? WHERE chain_id=? AND order_id=?",
+                ).run(
+                    POLICY.isolateAfterFailures,
+                    now + POLICY.retryBaseMs,
+                    error,
+                    now,
+                    request.chainId,
+                    request.orderId,
+                );
+            }
+            return outcome;
+        })();
+    }
+
     claimBatch(
         chainId: number,
         owner: string,

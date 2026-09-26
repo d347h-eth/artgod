@@ -53,6 +53,7 @@ const config = JSON.parse(await readFile(process.argv[2]!, "utf8")) as {
     clockMs: number;
     holdAtRead: number | null;
     holdOrderIds?: string[];
+    failOrderIds?: string[];
     advanceClock?: boolean;
     rpcDelayMs?: number;
     reportEvery?: number;
@@ -78,8 +79,14 @@ const rpc = new HeavyMakerRpc();
 rpc.blockTimestamp = Math.floor(config.clockMs / 1_000);
 const releaseRpc = Promise.withResolvers<void>();
 const heldOrderIds = new Set(config.holdOrderIds ?? []);
+const failedOrderIds = new Set(config.failOrderIds ?? []);
 rpc.onRead = async ({ functionName, args }) => {
     if (config.rpcDelayMs) await delay(config.rpcDelayMs);
+    if (
+        functionName === "getOrderStatus" &&
+        failedOrderIds.has(String(args?.[0]))
+    )
+        throw new Error("Fixture persistent order read failure");
     if (
         functionName === "getOrderStatus" &&
         heldOrderIds.delete(String(args?.[0]))
@@ -103,8 +110,8 @@ const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
         order,
     );
 const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validateOrder);
-const store = new SqliteMakerRevalidations(domain);
 const demandStore = new SqliteOrderValidationDemand(domain);
+const store = new SqliteMakerRevalidations(domain, demandStore);
 const queue = await NatsJetStreamQueue.connect({
     natsUrl: config.natsUrl,
     streamPrefix: config.prefix,

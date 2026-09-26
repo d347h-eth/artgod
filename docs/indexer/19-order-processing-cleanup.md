@@ -374,7 +374,9 @@ These are deliberate parts of the revised model, not compatibility debt:
 - `order_validation_demand`, captured revision/generation/coverage, fenced
   leases and retry state; completed rows remain useful while their orders exist.
 - Finite maker-pass boundaries, atomic results/cursor/continuation checkpoints,
-  follow-up generations and current-scope coverage.
+  follow-up generations and current-scope admission. Keep persisted isolation
+  targets, atomic per-order handoffs and the distinction between finished maker
+  scans and unfinished demand; these are failure recovery, not compatibility.
 - Outbox publication evidence, recovery after a crash or uncertain publication,
   and ACK-based replay safety. At-least-once delivery still applies to one version.
 - Shared FIFO validation admission, bounded work, provider timeouts, snapshot

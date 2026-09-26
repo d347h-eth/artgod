@@ -10,8 +10,9 @@ import {
     MakerRevalidationConflict,
     canonicalMakerRequest,
     type MakerRevalidationRun,
-    type MakerValidationResolution,
+    type MakerValidationCheckpointEntry,
 } from "../../domain/maker-revalidation.js";
+import { OrderValidationReadUnavailable } from "../../domain/order-validation-failure.js";
 import type { OrderUpdateByMakerPayload } from "../../domain/order-jobs.js";
 import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
 import type { OrderValidationSnapshotFactory } from "../../ports/order-validation.js";
@@ -152,8 +153,17 @@ export class RevalidateMakerOrders {
         now: () => number,
     ): Promise<MakerRevalidationRun> {
         const start = now();
-        const candidates = this.deps.store.next(run, POLICY.batchOrders);
-        const resolutions: MakerValidationResolution[] = [];
+        const page = this.deps.store.next(run, POLICY.batchOrders);
+        const isolatedIndex = page.findIndex(
+            (candidate) => candidate.order.id === run.isolateOrderId,
+        );
+        // Commit the healthy prefix with a new snapshot before retrying the failing
+        // candidate alone. The persisted target survives this prefix checkpoint.
+        const candidates =
+            isolatedIndex < 0
+                ? page
+                : page.slice(0, Math.max(1, isolatedIndex));
+        const resolutions: MakerValidationCheckpointEntry[] = [];
         let stepEnd: (typeof STEP_END)[keyof typeof STEP_END] = STEP_END.Count;
         const first = candidates.find(
             (candidate) => candidate.currentAtTrigger,
@@ -177,14 +187,30 @@ export class RevalidateMakerOrders {
                     stepEnd = STEP_END.Time;
                     break;
                 }
-                const validation = await batch!.validate(candidate.order);
-                resolutions.push({ candidate, validation });
+                try {
+                    const validation = await batch!.validate(candidate.order);
+                    resolutions.push({ candidate, validation });
+                } catch (error) {
+                    if (
+                        isolatedIndex !== 0 ||
+                        !(error instanceof OrderValidationReadUnavailable) ||
+                        error.orderId !== candidate.order.id
+                    )
+                        throw error;
+                    resolutions.push({
+                        candidate,
+                        deferredError: String(error),
+                    });
+                }
             } else resolutions.push({ candidate, validation: null });
         }
-        if (batch) await batch.finish();
+        // An isolated failed snapshot has no result to commit. Its durable handoff
+        // carries the unmet requirement, never a validation proof from that snapshot.
+        if (batch && !resolutions.some((result) => "deferredError" in result))
+            await batch.finish();
         const complete =
-            resolutions.length === candidates.length &&
-            candidates.length < POLICY.batchOrders;
+            resolutions.length === page.length &&
+            page.length < POLICY.batchOrders;
         const next = this.deps.store.checkpoint(
             run,
             resolutions,
@@ -199,15 +225,19 @@ export class RevalidateMakerOrders {
             step: next.step,
             afterId: next.afterId,
             candidates: candidates.length,
-            resolved: resolutions.length,
+            resolved: next.resolvedOrders - run.resolvedOrders,
+            deferred: next.deferredOrders - run.deferredOrders,
             totalResolved: next.resolvedOrders,
+            totalDeferred: next.deferredOrders,
             durationMs: now() - start,
             status: next.status,
             eligible: candidates.filter(
                 (candidate) => candidate.currentAtTrigger,
             ).length,
             validated: resolutions.filter(
-                (resolution) => resolution.validation !== null,
+                (resolution) =>
+                    "validation" in resolution &&
+                    resolution.validation !== null,
             ).length,
             contractReads: batch?.readCounts() ?? null,
             stepEnd: complete

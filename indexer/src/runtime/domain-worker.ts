@@ -155,11 +155,12 @@ async function main() {
             undefined,
             createValidationBatch,
         );
-        const makerRevalidationStore = new SqliteMakerRevalidations(
-            ordersDomain,
-        );
         const orderValidationStore = new SqliteOrderValidationDemand(
             ordersDomain,
+        );
+        const makerRevalidationStore = new SqliteMakerRevalidations(
+            ordersDomain,
+            orderValidationStore,
         );
         const admitOrderValidation = new AdmitOrderValidation(
             config.chainId,

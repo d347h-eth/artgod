@@ -26,6 +26,8 @@ import {
     MAKER_REVALIDATION_POLICY,
     MAKER_REVALIDATION_STATUS,
 } from "../src/domain/maker-revalidation.js";
+import { ORDER_VALIDATION_DEMAND_POLICY } from "../src/domain/order-validation-demand.js";
+import { QUEUE_FIXTURE_PHASE } from "../tests/fixtures/order-queue-protocol.js";
 import { loadOrderQueueTestConfig } from "../tests/helpers/order-queue-test-config.js";
 import {
     IsolatedNats,
@@ -72,6 +74,7 @@ it("services small work between real-broker steps and recovers after killing a w
         clockMs: number,
         holdAtRead: number | null,
         holdOrderIds: string[] = [],
+        failOrderIds: string[] = [],
     ) {
         const configPath = path.join(
             artifacts,
@@ -86,6 +89,8 @@ it("services small work between real-broker steps and recovers after killing a w
                 clockMs,
                 holdAtRead,
                 holdOrderIds,
+                failOrderIds,
+                advanceClock: failOrderIds.length > 0,
             }),
         );
         const child = spawn(process.execPath, [workerArtifact, configPath], {
@@ -343,6 +348,100 @@ it("services small work between real-broker steps and recovers after killing a w
         };
         await routingQueue.close();
         queues.delete(routingQueue);
+
+        setDbPath(dbPath);
+        db.exec(
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+        );
+        seedHeavyMaker(250);
+        const failed = db
+            .prepare(
+                "SELECT id FROM orders WHERE maker=? ORDER BY id LIMIT 1 OFFSET 40",
+            )
+            .get(HEAVY_MAKER.maker) as { id: string };
+        db.raw.close();
+        await publish("handoff", [{ id: "heavy", payload: heavyMakerHint() }]);
+        const handingOff = await worker(
+            "handoff",
+            HEAVY_MAKER.now * 1000,
+            null,
+            [],
+            [failed.id],
+        );
+        await handingOff.wait(
+            () =>
+                handingOff.reports.some(
+                    (report) => report.phase === QUEUE_FIXTURE_PHASE.Complete,
+                ),
+            "maker scan finishes despite one persistently failing order",
+        );
+        await drained("handoff");
+        await handingOff.stop();
+        setDbPath(dbPath);
+        expect(
+            db
+                .prepare(
+                    "SELECT status,resolved_orders,deferred_orders FROM maker_order_revalidation_runs",
+                )
+                .get(),
+        ).toEqual({
+            status: MAKER_REVALIDATION_STATUS.Completed,
+            resolved_orders: 249,
+            deferred_orders: 1,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT pending,proof_revision FROM order_validation_demand WHERE order_id=?",
+                )
+                .get(failed.id),
+        ).toEqual({ pending: 1, proof_revision: null });
+        db.raw.close();
+        await broker.stop();
+        broker = await IsolatedNats.start(natsBinary, artifacts, store);
+        const demandRecovery = await worker(
+            "handoff",
+            HEAVY_MAKER.now * 1000 +
+                ORDER_VALIDATION_DEMAND_POLICY.retryMaxMs +
+                10_000,
+            null,
+        );
+        setDbPath(dbPath);
+        await demandRecovery.wait(
+            () =>
+                (
+                    db
+                        .prepare(
+                            "SELECT pending FROM order_validation_demand WHERE order_id=?",
+                        )
+                        .get(failed.id) as { pending: number }
+                ).pending === 0,
+            "handed-off demand completes after worker and broker restart",
+        );
+        await drained("handoff");
+        await demandRecovery.stop();
+        const recoveryReport = demandRecovery.reports.find(
+            (report) => report.phase === QUEUE_FIXTURE_PHASE.Summary,
+        )!;
+        expect(recoveryReport.reads?.getOrderStatus).toBe(1);
+        expect(
+            db
+                .prepare("SELECT validated_at FROM orders WHERE id=?")
+                .get(failed.id),
+        ).toEqual({
+            validated_at: Math.floor(
+                (HEAVY_MAKER.now * 1000 +
+                    ORDER_VALIDATION_DEMAND_POLICY.retryMaxMs +
+                    10_000) /
+                    1000,
+            ),
+        });
+        db.raw.close();
+        results.handoff = {
+            makerResolved: 249,
+            makerDeferred: 1,
+            recoveredOrderReads: recoveryReport.reads?.getOrderStatus,
+        };
 
         setDbPath(dbPath);
         db.exec(

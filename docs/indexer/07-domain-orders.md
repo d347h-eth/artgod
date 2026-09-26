@@ -346,9 +346,15 @@ only when that order is actually validated. Whole-batch failure disables further
 batch attempts for 60 seconds across that factory's contexts; each needed status
 then gets one individual port call, subject to the existing adapter retry policy.
 Adapters without batching and single-order contexts use individual reads.
-An individual failure poisons the context: results and progress remain uncommitted.
-The normal hash/head/lifetime check still precedes every checkpoint. Batches do
-not cache status across snapshots or weaken source/revision/anchor guards.
+An individual failure poisons the context: its validation results remain
+uncommitted. Order-specific status/ownership/approval reads carry the candidate
+identity; shared funding/counter/conduit reads, storage and snapshot verification
+failures do not. This identifies the failed dependency's scope, not the provider's
+health or a definitive invalid order. Maker isolation can later transfer the
+unmet requirement to demand without accepting any result from that context.
+Every checkpoint applying validation results still requires the normal
+hash/head/lifetime check. Batches do not cache status across snapshots or weaken
+source/revision/anchor guards.
 
 The Viem adapter caps requests at 20 contracts and uses one `eth_call` per
 aggregate through its existing endpoint, rate, retry and circuit policies.
@@ -432,6 +438,28 @@ awaits stay outside database transactions. A two-minute lease, renewed every
 30 seconds, fences duplicate executors; lease contention defers the delivery
 without treating the scheduling wait as an execution failure.
 
+After two failed steps, an order-scoped read failure saves its candidate in
+migration 061's `isolate_order_id`. The next step validates its preceding
+healthy prefix in a fresh bounded context, then retries the candidate alone.
+Successful prefix checkpoints and process restarts preserve the isolation target;
+passing or resolving it restores normal batching. Shared-read, registry,
+snapshot-creation/canonicality and unclassified failures still retry the maker
+step without advancing its cursor.
+
+If the isolated read fails again, the checkpoint atomically admits or strengthens
+that order's current-revision demand, advances the maker cursor and replaces its
+continuation. The failed snapshot contributes no validation result or proof.
+Admission carries the pass's observation requirement and minimum trigger block,
+preserves stronger demand and existing leases, and applies isolated retry/backoff.
+Terminal/deleted/anchor-ineligible orders resolve without a new obligation;
+concurrent successful demand may already cover the requirement.
+
+Maker `completed` now means the finite scan has resolved or durably handed off
+every selected order. It does not mean every order has validated successfully.
+`resolvedOrders` counts resolved entries; `deferredOrders` is a cumulative handoff
+count across generations, not the number still pending. Pending demand is the
+source of truth for unfinished handoffs and survives maker receipt cleanup.
+
 Restart reacquires a fresh RPC snapshot and resumes after the last committed
 cursor. Completion before ACK is recognizable on redelivery. Completed receipts
 are deleted in bounded batches only when the matching stream incarnation and
@@ -439,7 +467,7 @@ every contributing consumer's ACK floor prove its deliveries cannot be replayed.
 One high-water receipt per consumer records that proof; a newer delivery clears
 its acknowledgement proof. Legacy inline origins migrate lazily when touched.
 Consumer proofs advance independently from rotating scope cleanup, so disjoint
-pages cannot starve acknowledgement bookkeeping. Coalesced live-scope coverage remains while that scope has candidate
+pages cannot starve acknowledgement bookkeeping. Coalesced live-scope admission remains while that scope has candidate
 orders; a bounded rotating cleanup checks both empty scope and replay boundary.
 Missing broker origin does not expire by time. Fresh publications after receipt
 cleanup are new admissions; they never skip current validation.
@@ -451,8 +479,9 @@ eligibility differs. Equivalent balance/allowance hints share full WETH validati
 Original job IDs are preserved for replay attribution, never parsed for meaning.
 Requests without trusted enqueue time and pre-upgrade runs stay independent.
 
-Older hints covered by a pass's start time and minimum trigger block add no scan.
-Newer coverage records a generation while the current finite pass continues.
+Older hints represented by a pass's start time and minimum trigger block add no
+scan: their work is already resolved or owned by the scan/durable demand.
+Newer requirements record a generation while the current finite pass continues.
 At its final checkpoint, the transaction captures a new finite boundary, resets
 the cursor and commits one continuation for the entire follow-up pass. Changes
 behind the old cursor are revisited; many newer hints require only one pending

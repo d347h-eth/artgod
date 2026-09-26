@@ -78,7 +78,7 @@ it("reports bounded pending work and its wakeup without changing SQLite or hidin
             },
             now,
         );
-    const makers = new SqliteMakerRevalidations(domain);
+    const makers = new SqliteMakerRevalidations(domain, demands);
     const run = makers.admit({
         jobId: "inspect-fixture",
         payload: heavyMakerHint(),

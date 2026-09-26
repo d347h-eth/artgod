@@ -8,9 +8,9 @@ import {
     makerContinuationJob,
     makerValidationScopeKey,
     advancesMakerDemand,
-    mergeMakerCoverage,
+    mergeMakerRequirements,
     type MakerRevalidationRun,
-    type MakerValidationResolution,
+    type MakerValidationCheckpointEntry,
     type MakerWakeup,
 } from "../../domain/maker-revalidation.js";
 import type {
@@ -22,6 +22,9 @@ import type {
     QueueDeliveryOrigin,
 } from "../../ports/queue.js";
 import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
+import type { OrderValidationDemandPort } from "../../ports/order-validation-demand.js";
+import { ORDER_VALIDATION_DEMAND_OUTCOME } from "../../domain/order-validation-demand.js";
+import { OrderValidationReadUnavailable } from "../../domain/order-validation-failure.js";
 
 type RunRow = Omit<
     MakerRevalidationRun,
@@ -35,12 +38,15 @@ type RunRow = Omit<
     originSequence: number | null;
 };
 const SELECT_RUN =
-    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,source_payload_json AS sourcePayloadJson,requested_payload_json AS requestedPayloadJson,scope_key AS scopeKey,generation,pass_generation AS passGeneration,pass_started_at AS passStartedAt,requested_at AS requestedAt,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
+    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,source_payload_json AS sourcePayloadJson,requested_payload_json AS requestedPayloadJson,scope_key AS scopeKey,generation,pass_generation AS passGeneration,pass_started_at AS passStartedAt,requested_at AS requestedAt,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,isolate_order_id AS isolateOrderId,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
 
 /** Shares the projection's connection so order effects and progress have one commit boundary. */
 export class SqliteMakerRevalidations implements MakerRevalidationStore {
     private readonly outbox = new SqliteQueueOutbox();
-    constructor(private readonly orders: MakerOrderProjectionPort) {}
+    constructor(
+        private readonly orders: MakerOrderProjectionPort,
+        private readonly validation: Pick<OrderValidationDemandPort, "defer">,
+    ) {}
 
     get(runId: string): MakerRevalidationRun | undefined {
         const row = db.prepare(SELECT_RUN + "WHERE run_id=?").get(runId) as
@@ -83,7 +89,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     row &&
                     advancesMakerDemand(mapRun(row), payload, input.requiredAt!)
                 ) {
-                    const requested = mergeMakerCoverage(
+                    const requested = mergeMakerRequirements(
                         mapRun(row),
                         payload,
                         input.requiredAt!,
@@ -98,7 +104,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     if (row.status === STATUS.Completed) {
                         const boundary = this.orders.captureMakerPass();
                         db.prepare(
-                            "UPDATE maker_order_revalidation_runs SET status=?,after_id='',payload_json=requested_payload_json,pass_generation=generation,pass_started_at=?,upper_order_id=?,upper_rowid=?,step=step+1,updated_at=? WHERE run_id=?",
+                            "UPDATE maker_order_revalidation_runs SET status=?,after_id='',isolate_order_id=NULL,payload_json=requested_payload_json,pass_generation=generation,pass_started_at=?,upper_order_id=?,upper_rowid=?,step=step+1,updated_at=? WHERE run_id=?",
                         ).run(
                             STATUS.Pending,
                             input.now,
@@ -208,7 +214,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
 
     checkpoint(
         run: MakerRevalidationRun,
-        resolutions: MakerValidationResolution[],
+        resolutions: MakerValidationCheckpointEntry[],
         complete: boolean,
         now: number,
     ): MakerRevalidationRun {
@@ -227,6 +233,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     "Maker checkpoint lost its lease or cursor fence",
                 );
             let afterId = run.afterId;
+            let deferred = 0;
             for (const resolution of resolutions) {
                 const order = resolution.candidate.order;
                 if (
@@ -237,18 +244,48 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     throw new MakerRevalidationConflict(
                         "Maker checkpoint candidates are out of order",
                     );
-                this.orders.applyMakerResolution(run.payload, resolution);
+                if ("deferredError" in resolution) {
+                    if (
+                        resolutions.length !== 1 ||
+                        current.isolateOrderId !== order.id ||
+                        !resolution.candidate.currentAtTrigger
+                    )
+                        throw new MakerRevalidationConflict(
+                            "Maker handoff requires its isolated candidate",
+                        );
+                    // The current revision/eligibility is re-read by demand admission under
+                    // this same writer transaction. No failed-snapshot result is applied.
+                    const outcome = this.validation.defer(
+                        {
+                            chainId: run.chainId,
+                            orderId: order.id,
+                            requiredAt: Math.max(
+                                run.passStartedAt,
+                                run.requestedAt,
+                            ),
+                            minimumBlock: run.payload.blockNumber ?? null,
+                        },
+                        resolution.deferredError,
+                        now,
+                    );
+                    if (outcome === ORDER_VALIDATION_DEMAND_OUTCOME.Pending)
+                        deferred++;
+                } else
+                    this.orders.applyMakerResolution(run.payload, resolution);
                 afterId = order.id;
             }
             const followup =
                 complete && current.generation > run.passGeneration;
             const finished = complete && !followup;
             db.prepare(
-                "UPDATE maker_order_revalidation_runs SET after_id=?,status=?,step=step+1,resolved_orders=resolved_orders+?,failures=0,last_error=NULL,lease_owner=?,lease_until=?,updated_at=? WHERE run_id=?",
+                "UPDATE maker_order_revalidation_runs SET after_id=?,status=?,step=step+1,resolved_orders=resolved_orders+?,deferred_orders=deferred_orders+?,isolate_order_id=CASE WHEN ? OR isolate_order_id<=? THEN NULL ELSE isolate_order_id END,failures=0,last_error=NULL,lease_owner=?,lease_until=?,updated_at=? WHERE run_id=?",
             ).run(
                 afterId,
                 finished ? STATUS.Completed : STATUS.Pending,
-                resolutions.length,
+                resolutions.length - deferred,
+                deferred,
+                complete ? 1 : 0,
+                afterId,
                 finished ? null : run.leaseOwner,
                 finished ? 0 : now + POLICY.leaseMs,
                 now,
@@ -370,9 +407,18 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
     }
 
     release(run: MakerRevalidationRun, now: number, error?: unknown): void {
+        const failedOrderId =
+            error instanceof OrderValidationReadUnavailable &&
+            error.orderId > run.afterId &&
+            error.orderId <= run.upperOrderId
+                ? error.orderId
+                : null;
         db.prepare(
-            "UPDATE maker_order_revalidation_runs SET lease_owner=NULL,lease_until=0,failures=failures+?,last_error=?,updated_at=? WHERE run_id=? AND lease_owner=? AND lease_version=? AND status=?",
+            "UPDATE maker_order_revalidation_runs SET lease_owner=NULL,lease_until=0,isolate_order_id=CASE WHEN ? IS NOT NULL AND failures+1>=? THEN ? ELSE isolate_order_id END,failures=failures+?,last_error=?,updated_at=? WHERE run_id=? AND lease_owner=? AND lease_version=? AND status=?",
         ).run(
+            failedOrderId,
+            POLICY.isolateAfterFailures,
+            failedOrderId,
             error === undefined ? 0 : 1,
             error === undefined ? null : String(error),
             now,
@@ -434,7 +480,8 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                             1,
                         ).length)
                 ) {
-                    // A live scope's compact coverage proof survives individual delivery ACKs.
+                    // A live scope's admission record survives delivery ACKs. Deferred
+                    // order work belongs to demand independently of this scan receipt.
                     db.prepare(
                         "UPDATE maker_order_revalidation_runs SET recovery_checked_at=? WHERE run_id=?",
                     ).run(Date.now(), run.runId);

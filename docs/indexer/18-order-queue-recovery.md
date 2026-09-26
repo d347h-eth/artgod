@@ -28,7 +28,7 @@ startup using the existing desktop resources and exclusive store lock. Do not
 start a second broker against an open store or use the application's mutating
 queue adapter for read-only inspection.
 
-After migrations 056–060, inspect bounded durable progress without a writer:
+After migrations 056–061, inspect bounded durable progress without a writer:
 
 ```sh
 yarn workspace @artgod/indexer inspect:orders -- \
@@ -74,6 +74,11 @@ continue after yielding while work remains and poll every second when idle.
 Each claims at most 100 orders and shares a pinned snapshot, stopping new validation after
 five seconds and releasing unconsumed claims. Maker steps admit at most 100 orders or
 five seconds and atomically publish their next continuation through the outbox.
+Repeated order-scoped read failures isolate the candidate after a fresh healthy
+prefix. An isolated failure transfers to per-order demand in the cursor's same
+transaction; normal maker batching then continues. Shared dependencies and
+snapshot failures retain the maker checkpoint. Maker scan completion can therefore
+coexist with pending demand; it is not a claim that all validations succeeded.
 These are count/admission budgets, not deadlines for an in-flight RPC call.
 
 Do not cap the durable demand backlog by stopping on an arbitrary pending-row
@@ -95,14 +100,14 @@ For example, successful checks followed by a reorg increment `validated` and
 Compare pending count and oldest age across a complete reconciliation cycle;
 brief startup drainage or growth is not a steady-state throughput measurement.
 
-| Observation                                   | Meaning and next action                                                                                                                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Broker queue shrinks, demand remains          | Cheap admission is ahead of validation. Inspect pending generations, sampled age and successful validations before claiming catch-up.                                                                                                           |
-| Maker `step` / `resolvedOrders` advances      | Committed progress; the cursor and finite boundary survive restart. A follow-up generation can legitimately reset the cursor.                                                                                                                   |
-| A pending maker has failed/missing wakeup     | The bounded recovery poll repairs it after its grace period using publication evidence. Inspect `lastError` and the stored queue; do not manufacture a new full sweep.                                                                          |
-| Demand `failures` / `nextAttemptAt` increases | RPC/storage uncertainty remains pending with bounded retry delay; it has not been treated as protocol invalidity.                                                                                                                               |
-| `Queue work failed; retry retained`           | By-ID/lifecycle application failed. The original envelope remains with a one-second retry delay, including after five failures. Correct the underlying failure before judging throughput.                                                       |
-| `Unsupported queue work retained`             | The original envelope/bytes remain with a 60-second retry delay. Inspect its sequence/payload and review compatibility. A single-flight queue can be held up by that envelope; no automatic skip, purge or log-only DLQ transfer is authorized. |
+| Observation                                                 | Meaning and next action                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Broker queue shrinks, demand remains                        | Cheap admission is ahead of validation. Inspect pending generations, sampled age and successful validations before claiming catch-up.                                                                                                                                                      |
+| Maker `step` / `resolvedOrders` / `deferredOrders` advances | Committed scan progress; resolved work and durable handoffs are counted separately. `deferredOrders` is cumulative, not pending work. Inspect demand even after maker completion. The cursor, isolation target and finite boundary survive restart; a new generation can reset the cursor. |
+| A pending maker has failed/missing wakeup                   | The bounded recovery poll repairs it after its grace period using publication evidence. Inspect `lastError` and the stored queue; do not manufacture a new full sweep.                                                                                                                     |
+| Demand `failures` / `nextAttemptAt` increases               | RPC/storage uncertainty remains pending with bounded retry delay; it has not been treated as protocol invalidity.                                                                                                                                                                          |
+| `Queue work failed; retry retained`                         | By-ID/lifecycle application failed. The original envelope remains with a one-second retry delay, including after five failures. Correct the underlying failure before judging throughput.                                                                                                  |
+| `Unsupported queue work retained`                           | The original envelope/bytes remain with a 60-second retry delay. Inspect its sequence/payload and review compatibility. A single-flight queue can be held up by that envelope; no automatic skip, purge or log-only DLQ transfer is authorized.                                            |
 
 Unknown and malformed input is not an acknowledged no-op. Known terminal facts
 ACK only after normal domain application; ordinary hints ACK only after durable

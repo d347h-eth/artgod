@@ -60,7 +60,7 @@ export function inspectOrderProcessing(
             }>;
             const makers = conn
                 .prepare(
-                    "SELECT run_id AS runId,source_job_id AS sourceJobId,status,step,resolved_orders AS resolvedOrders,after_id AS afterId,upper_order_id AS upperOrderId,generation,pass_generation AS passGeneration,requested_at AS requestedAt,lease_until AS leaseUntil,failures,last_error AS lastError,wakeup_outbox_id AS wakeupOutboxId FROM maker_order_revalidation_runs WHERE status=? AND chain_id=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
+                    "SELECT run_id AS runId,source_job_id AS sourceJobId,status,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,isolate_order_id AS isolateOrderId,after_id AS afterId,upper_order_id AS upperOrderId,generation,pass_generation AS passGeneration,requested_at AS requestedAt,lease_until AS leaseUntil,failures,last_error AS lastError,wakeup_outbox_id AS wakeupOutboxId FROM maker_order_revalidation_runs WHERE status=? AND chain_id=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
                 )
                 .all(
                     MAKER_REVALIDATION_STATUS.Pending,

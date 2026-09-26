@@ -28,6 +28,13 @@ export interface OrderValidationDemandPort {
         request: OrderValidationRequest,
         now: number,
     ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
+    /** Admit a known failed order with isolated retry/backoff, without recording proof.
+     * Participates in the caller's checkpoint transaction on the same database. */
+    defer(
+        request: OrderValidationRequest,
+        error: string,
+        now: number,
+    ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
     get(chainId: number, orderId: string): OrderValidationDemand | null;
     /** Selects/claims bounded work atomically; only one executor owns each revision/generation. */
     claimBatch(

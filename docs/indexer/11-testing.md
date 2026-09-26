@@ -230,6 +230,14 @@ recovery races and bounded rotating recovery pages. Maker coalescing cases cover
 selection/anchor modes, demand arriving before the first checkpoint, and restart
 at a full follow-up pass boundary with no missed earlier orders.
 
+`tests/maker-validation-handoff.test.ts` injects a persistent order read failure
+among 250 orders: 249 finish while one remains in isolated demand, then completes
+after its dependency recovers. Real SQLite abort triggers prove demand admission,
+cursor advancement and continuation writes roll back together. Cases cover
+restart at the isolation target and after handoff, lost ACK/coalesced hints,
+newer maker generations during/after handoff, concurrent revisions and demand
+leases, terminal/anchor changes, shared dependency failures and receipt cleanup.
+
 Run the maintained queue fixture with an existing staged NATS binary:
 
 ```sh
@@ -253,6 +261,10 @@ against the same synthetic store, and resumes the remaining 410 of 510 orders.
 The recovery fixture advances its injected clock past the persisted lease;
 it does not wait two real minutes. Results use deterministic fake RPC, so they
 establish scheduling/replay behavior rather than live throughput or native QA.
+The same fixture injects a persistent failure into a 250-order maker scan,
+observes 249 resolved orders and one durable handoff with all broker messages
+acknowledged, then restarts worker and NATS. Only the remaining order is validated
+after recovery; an empty broker queue is not mistaken for an empty demand table.
 
 `tests/order-processing.test.ts` covers FIFO admission, error release and the
 lifecycle boundary. The backend's `integration/order-lifecycle.test.ts` uses real

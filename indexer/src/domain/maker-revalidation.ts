@@ -15,6 +15,8 @@ import {
 
 export const MAKER_REVALIDATION_STATUS = {
     Pending: "pending",
+    // The finite scan is complete: work was resolved or durably admitted to demand.
+    // This status alone is not proof that every order has validated successfully.
     Completed: "completed",
 } as const;
 export const MAKER_REVALIDATION_POLICY = Object.freeze({
@@ -22,6 +24,7 @@ export const MAKER_REVALIDATION_POLICY = Object.freeze({
     leaseMs: 120_000,
     renewEveryMs: 30_000,
     admissionRetryMs: 1_000,
+    isolateAfterFailures: 2,
     cleanupRows: 100,
     stepBudgetMs: 5_000,
     recoveryPollMs: 5_000,
@@ -55,6 +58,9 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     leaseUntil: number;
     step: number;
     resolvedOrders: number;
+    /** Cumulative handoffs, not the current number of unfinished demands. */
+    deferredOrders: number;
+    isolateOrderId: string | null;
     failures: number;
     wakeupOutboxId: number | null;
     wakeupGeneration: number;
@@ -99,7 +105,7 @@ export function makerValidationScopeKey(
     ]);
 }
 
-function makerCoverageIncludes(
+function makerAdmissionIncludes(
     payload: OrderUpdateByMakerPayload,
     at: number,
     required: OrderUpdateByMakerPayload,
@@ -117,14 +123,15 @@ function makerCoverageIncludes(
     );
 }
 
-/** Requests arriving behind a running cursor need one complete follow-up generation. */
+/** Represented work may still live in per-order demand after a maker scan finishes.
+ * Requests newer than that admission need one complete follow-up generation. */
 export function advancesMakerDemand(
     run: MakerRevalidationRun,
     payload: OrderUpdateByMakerPayload,
     requiredAt: number,
 ): boolean {
     if (
-        makerCoverageIncludes(
+        makerAdmissionIncludes(
             run.payload,
             run.passStartedAt,
             payload,
@@ -134,7 +141,7 @@ export function advancesMakerDemand(
         return false;
     return (
         run.generation === run.passGeneration ||
-        !makerCoverageIncludes(
+        !makerAdmissionIncludes(
             run.requestedPayload,
             run.requestedAt,
             payload,
@@ -143,7 +150,7 @@ export function advancesMakerDemand(
     );
 }
 
-export function mergeMakerCoverage(
+export function mergeMakerRequirements(
     run: MakerRevalidationRun,
     payload: OrderUpdateByMakerPayload,
     requiredAt: number,
@@ -168,6 +175,11 @@ export type MakerValidationResolution = {
     // Null resolves a candidate deliberately excluded by bootstrap-anchor policy.
     validation: OrderValidationResult | null;
 };
+
+/** Deferred entries have no validation result and cannot establish protocol coverage. */
+export type MakerValidationCheckpointEntry =
+    | MakerValidationResolution
+    | { candidate: MakerValidationCandidate; deferredError: string };
 
 export class MakerRevalidationConflict extends Error {}
 

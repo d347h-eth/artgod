@@ -67,6 +67,17 @@ reconciliation cycle. Net pending-row change alone is not an admission or
 validation execution counter; maker coverage, re-admission and retirement can
 also change it.
 
+### Maker scan progress
+
+`Maker revalidation checkpoint` reports `resolved` and `deferred` separately,
+with cumulative `totalResolved` / `totalDeferred`. Deferred entries own durable
+per-order demand; they are not successful validations. `status=completed` means
+the finite maker scan finished resolving/admitting its work. It can coexist with
+pending demand. `validated` still excludes failed reads and is not durable proof
+by itself. The bounded maker inspector includes `isolateOrderId` and
+`deferredOrders`; the latter is cumulative across generations, not remaining work.
+Inspect pending demand to establish whether delegated validation has completed.
+
 ### Docker Compose
 
 `docker-compose.yml` defines:

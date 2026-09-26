@@ -4,6 +4,7 @@ import type {
     MakerRevalidationRun,
     MakerValidationCandidate,
     MakerValidationResolution,
+    MakerValidationCheckpointEntry,
     MakerWakeup,
 } from "../domain/maker-revalidation.js";
 import type { QueueDeliveryOrigin, QueueReplayBoundary } from "./queue.js";
@@ -44,10 +45,11 @@ export interface MakerRevalidationStore {
         origin?: QueueDeliveryOrigin;
     }): MakerRevalidationRun | null;
     next(run: MakerRevalidationRun, limit: number): MakerValidationCandidate[];
-    /** Effects and cursor/terminal transition must commit atomically, guarded by the lease fence. */
+    /** Effects or durable demand admission, cursor and scan completion commit atomically,
+     * guarded by the lease fence. Handoff is allowed only for the isolated candidate. */
     checkpoint(
         run: MakerRevalidationRun,
-        resolutions: MakerValidationResolution[],
+        resolutions: MakerValidationCheckpointEntry[],
         complete: boolean,
         now: number,
     ): MakerRevalidationRun;

@@ -39,6 +39,7 @@ import {
 } from "../src/domain/orders.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
+import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import type { MakerOrderProjectionPort } from "../src/ports/maker-revalidation.js";
 import type {
@@ -84,7 +85,11 @@ function workflow(
             order,
         );
     const orders = new SqliteOrdersDomain(HEAVY_MAKER.weth, validateOrder);
-    const store = new SqliteMakerRevalidations(wrap ? wrap(orders) : orders);
+    const demand = new SqliteOrderValidationDemand(orders);
+    const store = new SqliteMakerRevalidations(
+        wrap ? wrap(orders) : orders,
+        demand,
+    );
     const processor = new RevalidateMakerOrders({
         admission: new FairOrderValidationAdmission(2),
         store,
@@ -121,6 +126,7 @@ function workflow(
         orders,
         store,
         processor: { execute: executeAll },
+        demand,
         stepProcessor: processor,
         rpc,
     };

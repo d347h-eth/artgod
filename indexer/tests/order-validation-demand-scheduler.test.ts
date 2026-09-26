@@ -149,6 +149,7 @@ describe("continuous fair demand scheduling", () => {
             admission.run(() => gate.promise),
         ];
         const store: OrderValidationDemandPort = {
+            defer: vi.fn(),
             admit: vi.fn(),
             get: vi.fn(),
             claimBatch: vi.fn(),
