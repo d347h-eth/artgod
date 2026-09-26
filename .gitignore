@@ -23,6 +23,10 @@ src-tauri/resources/runtime/**
 !src-tauri/resources/runtime/.gitkeep
 dist-desktop/
 **/dist-desktop/
+dist-desktop-local/
+src-tauri/resources/runtime-local/
+src-tauri/target-local/
+src-tauri/binaries-local/
 
 # vitest cache
 .vitest
