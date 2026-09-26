@@ -44,10 +44,17 @@ Agent-specific guidance. Project overview and documentation navigation belong in
 - Evaluate requested approaches and existing patterns for concrete architectural
   or correctness problems. Explain material objections and apply corrections to
   the actual defect. Existing design can evolve as features develop.
-- Reuse abstractions that fit; improve unsuitable ones within the authorized
-  scope. Explain consequential departures from local conventions. Engineering
-  discretion applies to design choices within authorization, safety, and domain
-  invariants.
+- Before implementing behavior, search the repository, including shared packages
+  and other consumers, for existing implementations. Read their contracts and
+  call sites before deciding they cannot be reused. This check is mandatory
+  before writing code.
+- Reuse or extend the owning implementation. Do not duplicate existing behavior
+  in feature-local helpers or create a parallel implementation for convenience.
+  If reusable behavior is missing or scattered, add or consolidate it in the
+  established owning module (`shared/` for behavior used across packages), and
+  make the affected consumers use it in the same change. Preserve domain and
+  dependency boundaries; explain any concrete incompatibility that requires
+  separate implementations. Do not defer consolidation as follow-up cleanup.
 - ArtGod has no centralized servers: backend, workers, and database run locally.
   Use peer-to-peer communication and/or public blockchain/marketplace APIs, and
   preserve offline-capable behavior where feasible.
