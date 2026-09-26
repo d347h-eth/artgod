@@ -30,6 +30,35 @@ sequenceDiagram
     Domain->>DB: Persist activities / metadata / orders
 ```
 
+## Perpetual Collection Gap Repair
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as Scheduler Worker
+    participant DB as SQLite
+    participant NATS as NATS JetStream
+    participant Sync as Sync Worker
+    participant RPC as RPC Node
+
+    loop Startup and HTTP head polls, including unchanged heads
+        Scheduler->>DB: Page live collections and read saved scan progress
+        Scheduler->>DB: Read bounded descending collection coverage
+        alt Missing coverage and no outstanding repair
+            Scheduler->>DB: Save cursor and pending repair identity
+            Scheduler->>NATS: Publish collection-scoped gap repair
+        else Pending repair is due for retry
+            Scheduler->>NATS: Republish the same repair identity
+        end
+    end
+    NATS-->>Sync: Deliver gap repair
+    Sync->>DB: Recheck live collection, anchor, and pending identity
+    Sync->>RPC: Fetch range through normal backfill path
+    Sync->>DB: Persist facts, coverage, and anchor-gated balances
+    Sync->>NATS: Publish domain jobs and current-state followups
+    Sync->>DB: Complete matching repair
+    Note over Scheduler,DB: Next pass continues toward anchor; completed sweeps restart at head
+```
+
 ## Collection Bootstrap + OpenSea Bootstrap
 
 ```mermaid

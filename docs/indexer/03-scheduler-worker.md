@@ -1,10 +1,12 @@
 # Scheduler-Worker Runtime
 
-The scheduler-worker is responsible for translating chain head updates into sync and reorg jobs. It is the only component allowed to publish realtime sync jobs.
+The scheduler-worker translates chain head updates into sync and reorg jobs and continuously repairs missing coverage for live collections. It is the only component allowed to publish realtime sync jobs.
 
 Implementation:
 
 - `indexer/src/application/scheduler-worker.ts` (core logic)
+- `indexer/src/application/sync-gap-scheduler.ts` (collection coverage sweeps)
+- `indexer/src/infra/storage/sqlite-sync-gaps.ts` (durable scan and repair state)
 - `indexer/src/runtime/scheduler-worker.ts` (runtime entrypoint)
 
 ## Inputs
@@ -12,6 +14,7 @@ Implementation:
 - RPC provider (HTTP): used to fetch the current head.
 - Optional WebSocket head source: emits head updates.
 - Queue port: publishes jobs to NATS.
+- Collection registry and gap store: read eligible collections and their coverage, and retain repair intent in SQLite.
 
 ## Bootstrap Sequence
 
@@ -21,6 +24,7 @@ Implementation:
 2. Schedule realtime sync jobs for the recent reorg window only.
 3. Schedule the initial block-check job for reorg validation.
 4. Set `lastScheduled` and `lastChecked` based on the head.
+5. Run one bounded collection gap scan using that observed head.
 
 This ensures the scheduler-worker never publishes from an uninitialized head.
 
@@ -29,11 +33,12 @@ This ensures the scheduler-worker never publishes from an uninitialized head.
 - The scheduler-worker maintains `lastScheduled` (last head seen and scheduled).
 - On each head update, it schedules jobs from `lastScheduled + 1` to `head`.
 - Jobs are published to `events-sync-realtime` with dedupe by jobId.
+- WS and HTTP scheduling share a serialized cursor; overlapping polls are coalesced.
 
 Important invariant:
 
 - The realtime window is always relative to the latest head.
-- The scheduler-worker never auto-schedules full historical backfills.
+- Automatic gap repairs run separately from the realtime window and use each live collection's anchor as their lower bound.
 
 ## Reorg Block Checks
 
@@ -58,9 +63,51 @@ The scheduler-worker supports two head sources:
 
 The WS path and poller both call the same `handleHead()` function.
 
+## Perpetual Collection Gap Repair
+
+Gap detection is enabled by default. Startup and every successful HTTP poll
+(default 12 seconds) run a bounded pass, including when the head is unchanged.
+Each pass visits at most 16 eligible collections in collection-ID order, rotating
+through the full set. Only `live` collections with a valid bootstrap anchor
+participate. Newly live collections join automatically; prepared, bootstrapping,
+paused, disabled, and unanchored collections are excluded.
+
+For each collection, the scanner reads at most a 10,000-block window of
+`collection_sync_blocks`, walking backward from the observed head to
+`bootstrap_anchor_block`, inclusive. It streams the indexed coverage rows and
+selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
+`blocks` rows and `bootstrap_last_synced_block` are not coverage evidence. A
+persisted cursor prevents newer heads or scheduler restarts from resetting the
+backward sweep; after the anchor it starts another sweep from the current head.
+
+Before publishing, the scheduler saves the next scan position and repair intent
+in `collection_sync_gap_scans`. There is at most one outstanding logical repair
+per collection. It carries `collectionId`, source `gap_repair`, and
+`current_state` order maintenance, using the existing backfill queue and worker.
+The anchor block itself remains facts-only under the existing projection guard.
+
+The sync worker rechecks the persisted repair identity, liveness, and anchor
+inside its execution gate. It completes the repair only after persistence and
+all downstream job publications succeed. Already completed or replaced jobs
+become no-ops. A failed publication leaves the same intent due; an accepted but
+unfinished repair is republished with the same job ID after five minutes. This
+also redrives dead-lettered work. Broker redelivery and retry publications may
+produce duplicate deliveries; they do not admit additional logical ranges.
+
+These limits belong to `SYNC_GAP_POLICY`; the runtime uses the existing typed
+`BACKFILL_BATCH_SIZE` setting for repair size. A failing collection does not stop
+other collections. A persistent failure in one range holds that collection's
+sweep until repair succeeds. Reorg coverage deletions and new holes behind a
+cursor are discovered on a subsequent sweep. Shutdown drains active scheduling
+and scan work before closing the queue.
+
+Coverage establishes successful onchain range ingestion. It does not prove that
+an RPC provider returned every expected log, or that downstream domain workers
+have finished consuming the published jobs.
+
 ## Manual Backfills
 
-Scheduler startup never publishes manual historical ranges automatically.
+History before the bootstrap anchor and other operator-selected ranges remain manual.
 
 Operators can schedule a range through either current inbound adapter:
 
@@ -78,6 +125,7 @@ effects without treating old WETH/counter events as current maker state.
 `indexer/src/runtime/scheduler-worker.ts` wires the ports:
 
 - Loads config from `.env`.
+- Applies migrations and opens collection coverage and durable gap-scan adapters.
 - Connects to NATS.
 - Initializes in-memory cache for RPC calls.
 - Creates HTTP RPC provider and optional WS head source.

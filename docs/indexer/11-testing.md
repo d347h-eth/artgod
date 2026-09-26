@@ -129,6 +129,30 @@ Important environment assumption:
 - `smoke.test.ts` requires Docker or another supported container runtime
 - if Docker is unavailable, this test fails explicitly
 
+## Perpetual Gap Repair Coverage
+
+The deterministic gap tests use disposable migrated SQLite databases and queue
+test doubles. They do not use a live chain, broker, or application database.
+
+- `tests/sync-gap-scheduler.test.ts` covers collection-specific internal holes,
+  inclusive anchor bounds, all small coverage shapes, bounded backward scans,
+  restart persistence, advancing and stationary heads, newly live collections,
+  paused/disabled/unanchored collections, fair paging, reorg deletions, failed
+  publication, repeated repair, stale identities, and failed downstream fanout.
+- `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
+  WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
+  shutdown draining.
+- `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
+  burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
+  collection coverage rollback.
+- `tests/backfill-execution.test.ts` preserves serialization of current-state
+  ranges and parallel execution of facts-only ranges.
+
+Use the same isolated environment described above, selecting these four files
+with `yarn workspace @artgod/indexer test`. This establishes local storage and
+scheduling behavior; it does not establish live RPC completeness or actual
+broker delivery under outage conditions.
+
 ## Offchain / OpenSea Coverage
 
 Current focused coverage includes:

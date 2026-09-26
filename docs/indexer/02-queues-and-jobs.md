@@ -185,8 +185,15 @@ type BackfillSyncPayload = {
 
 Manual historical backfills use `skip_global_maker_revalidation`, which
 preserves raw facts and activity projection while suppressing WETH/counter
-maker-wide order revalidation fanout. Reorg recovery, realtime gap repair,
+maker-wide order revalidation fanout. Reorg recovery, collection gap repair,
 bootstrap catch-up, and realtime processing use `current_state`.
+
+Automatic gap jobs carry a collection ID and a durable repair identity from
+`collection_sync_gap_scans`. The scheduler reuses that identity for publication
+retries; a new repair gets a new identity even when a later sweep finds the same
+range missing again. Completion follows sync persistence and downstream fanout,
+and stale duplicate deliveries become no-ops. See
+[gap repair scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair).
 
 - Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
     - `reorg.block-check`

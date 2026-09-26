@@ -25,6 +25,7 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
     - Schedules realtime block sync and block-check (reorg) jobs.
+    - Continuously scans live collections for missing coverage from head through their bootstrap anchor and schedules bounded repairs.
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
@@ -100,7 +101,7 @@ These assumptions are relied on by the implementation and should be preserved in
 
 1. Only the scheduler-worker publishes realtime sync jobs.
 2. Job handling is idempotent everywhere; at-least-once delivery is assumed.
-3. No implicit full historical backfill runs on startup. Full backfills are user-triggered.
+3. Live collections receive perpetual, bounded gap repair from the observed head through their own bootstrap anchor, inclusive. Coverage comes from `collection_sync_blocks`, independent of global blocks and bootstrap progress. History before that anchor remains user-triggered.
 4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters implemented in `indexer/src/infra/`.
 5. Configuration is explicit and loaded through typed env/config modules.
 6. Raw OpenSea payloads persisted into SQLite are audit/debug-only for indexer/order validation and passive troubleshooting. Runtime read paths consume normalized order fields and canonical Seaport data instead of reparsing `raw_rest_data` or `raw_stream_data`.
@@ -142,6 +143,7 @@ These assumptions are relied on by the implementation and should be preserved in
     - successful metadata writes fan out collection-extension artifact refresh jobs when an enabled install exists
 5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.
 6. Reorg worker verifies block hashes and rolls back on mismatch.
+7. On startup and HTTP polls, the scheduler revisits live collection coverage in bounded descending windows. Durable scan cursors and one outstanding repair per collection survive restart; the sweep repeats after reaching the anchor.
 
 ### OpenSea offchain flow
 
