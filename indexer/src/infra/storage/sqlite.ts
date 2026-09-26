@@ -1,5 +1,8 @@
 import { db } from "@artgod/shared/database";
-import { CollectionRecord } from "../../domain/collections.js";
+import {
+    COLLECTION_STANDARD,
+    CollectionRecord,
+} from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
@@ -155,6 +158,14 @@ export class SqliteStorage implements StoragePort {
     );
     private selectBalance = db.prepare<[number, number, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
+    );
+    private selectLatestTransfer = db.prepare<[number, number, string]>(
+        "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
+            "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+            "ORDER BY block_number DESC, log_index DESC LIMIT 1",
+    );
+    private deleteTokenBalances = db.prepare<[number, number, string]>(
+        "DELETE FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
     );
     private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
@@ -546,15 +557,36 @@ export class SqliteStorage implements StoragePort {
             const from = event.from.toLowerCase();
             const to = event.to.toLowerCase();
 
-            if (event.kind === "erc721") {
+            if (event.kind === COLLECTION_STANDARD.Erc721) {
+                // Gap repairs can arrive behind realtime or newer backfills.
+                // Project the latest persisted transfer, including burns, rather
+                // than letting delivery order determine the token's owner.
+                const latest = this.selectLatestTransfer.get(
+                    chainId,
+                    event.collectionId,
+                    event.tokenId,
+                ) as TransferRow | undefined;
+                if (!latest)
+                    throw new Error("Missing persisted ERC721 transfer");
+                this.deleteTokenBalances.run(
+                    chainId,
+                    event.collectionId,
+                    event.tokenId,
+                );
                 this.applyErc721Transfer(
                     chainId,
                     event.collectionId,
                     contract,
                     event.tokenId,
-                    from,
-                    to,
-                    context,
+                    ZERO_ADDRESS,
+                    latest.to_address,
+                    buildBalanceContext(
+                        latest.block_number,
+                        latest.block_hash,
+                        latest.block_timestamp,
+                        latest.tx_hash,
+                        latest.log_index,
+                    ),
                 );
                 continue;
             }
