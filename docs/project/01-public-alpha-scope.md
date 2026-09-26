@@ -26,6 +26,8 @@ Core release characteristics:
 - Multi-runtime indexer is active and queue-driven with NATS JetStream and
   SQLite.
 - Realtime sync, backfill sync, and reorg checks are implemented.
+- Live collections continuously repair missing onchain coverage from the current
+  head through their bootstrap anchor, using bounded, resumable collection scans.
 - Collection bootstrap is a durable step graph. Its blocking path anchors the
   run, enumerates tokens, writes metadata, snapshots ownership, catches up the
   short historical gap, and marks the collection live. Image caching,

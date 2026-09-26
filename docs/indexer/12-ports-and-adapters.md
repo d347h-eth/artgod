@@ -110,6 +110,16 @@ These fixed limits are code-owned policies, not Admin settings or adaptive
 queue-depth controls. See [processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
 for the distinction between pending work and retained completion state.
 
+## Collection Gap Scheduling Ports
+
+`indexer/src/application/sync-gap-scheduler.ts` owns the narrow collection-list,
+coverage/progress, and detector contracts used by automatic gap repair.
+`SqliteCollectionRegistry` pages live anchored collections, and
+`SqliteSyncGapStore` streams bounded coverage windows and persists scan cursors,
+publication retries, and completion fenced by job ID. The scheduler entrypoint
+constructs these adapters; the sync worker uses the same progress port to
+validate and finish repair jobs after downstream publication.
+
 ## Bidder Index Port
 
 - Interface: `indexer/src/ports/bidder-index.ts`

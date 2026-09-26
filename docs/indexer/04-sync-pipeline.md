@@ -23,7 +23,7 @@ Backfill `source` identifies whether the range is `manual_historical`,
 `skip_global_maker_revalidation` for manual historical enrichment.
 
 These jobs are published by the scheduler-worker (realtime), backend manual
-blockspace backfill, reorg recovery, bootstrap catch-up, and realtime gap repair.
+blockspace backfill, reorg recovery, bootstrap catch-up, and collection gap repair.
 
 ## Sync Worker Flow
 
@@ -132,7 +132,19 @@ The `Terraformed` log also emits an extension event fact. The Terraforms extensi
 
 ## Gap Check
 
-After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block `gap_repair` backfill job with `current_state` order maintenance to close the gap.
+The scheduler performs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
+on startup and every HTTP head poll. It repeatedly walks collection-specific
+coverage from head through each live collection's bootstrap anchor, including
+holes behind bootstrap's last-synced block. The former global predecessor check
+has been removed.
+
+Repairs are collection-scoped `gap_repair` jobs with `current_state` order
+maintenance. The worker rechecks liveness, anchor, and durable job identity
+inside its backfill execution gate, then uses the normal range sync and fanout
+path. It clears pending intent only after downstream publications succeed, so a
+crash after writing coverage still retries fanout. Late duplicate jobs and
+legacy unscoped predecessor hints are acknowledged without executing; the
+scheduler rediscovers any remaining gaps from collection coverage.
 
 ## Persisting Sync Results
 
@@ -149,6 +161,11 @@ The storage layer is idempotent:
 - Transfers are inserted with `INSERT OR IGNORE` against a unique constraint.
 - Collection block coverage is upserted by `(chain_id, collection_id, block_number)`.
 - Balances are updated only for transfers that were newly inserted.
+- For ERC721 tokens touched by new post-anchor transfers, ownership is projected
+  from the latest persisted transfer by block number and log index. Older repair
+  ranges cannot restore a previous owner, leave multiple owners, or resurrect a
+  token whose latest transfer burns it. ERC1155 deltas remain additive and are
+  applied once per inserted transfer.
 
 This is the key ownership invariant for historical backfill:
 

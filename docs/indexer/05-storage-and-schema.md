@@ -110,6 +110,25 @@ collection_sync_blocks(chain_id, collection_id, block_number, first_synced_at, l
 - Primary key: `(chain_id, collection_id, block_number)`
 - Records which collection context a sync/backfill job actually processed for each block
 - Drives collection-specific sync/backfill coverage UI and collection-scoped bootstrap completion checks
+- Supplies perpetual gap detection for live collections, independently of global block presence
+
+### `collection_sync_gap_scans`
+
+Defined in `057_collection_sync_gap_scans.sql`.
+
+```sql
+collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
+                          pending_job_id, pending_from_block, pending_to_block, retry_at)
+```
+
+- Primary key: `(chain_id, collection_id)`; collection purge cascades the row.
+- Retains the backward coverage-sweep cursor and at most one pending repair.
+- A null cursor begins the next sweep at the currently observed head.
+- Saves intent before publication and reuses the pending ID after restart or
+  failed publication. Retry timestamps are epoch milliseconds.
+- Worker completion is fenced by job ID and follows downstream publication;
+  coverage alone does not terminalize a pending repair.
+- A changed bootstrap anchor replaces the previous sweep and repair intent.
 
 ### `transactions`
 
@@ -131,6 +150,8 @@ nft_transfer_events(chain_id, collection_id, contract_address, from_address, to_
 
 - Unique constraint on `(chain_id, tx_hash, log_index, collection_id, token_id)`
 - Indexed by `(chain_id, collection_id, token_id)`, `(chain_id, contract_address, token_id)`, and `(chain_id, tx_hash)`
+- `056_transfer_projection_order.sql` also indexes collection/token transfers by
+  descending block number and log index for ownership projection after late repairs.
 - `amount` stored as `TEXT` to preserve integer precision
 
 ### `collection_extension_events`
