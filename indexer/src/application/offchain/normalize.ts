@@ -4,6 +4,7 @@ import {
     type OffchainOrderRawPayload,
 } from "../../domain/offchain-jobs.js";
 import type { TokenScopedMakerTriggerReason } from "../../domain/maker-triggers.js";
+import type { OrderUpdateReason } from "../../domain/order-jobs.js";
 import type {
     OrderLocalTokenSetStatus,
     OrderSeaportDataSourceKind,
@@ -69,7 +70,7 @@ export type NormalizedOffchainOrderUpdateById = {
     chainId: number;
     source: string;
     orderId: string;
-    reason: "cancel" | "order" | "fill";
+    reason: OrderUpdateReason;
     sourceStatus: OrderSourceStatus;
     validUntil?: number | null;
 };

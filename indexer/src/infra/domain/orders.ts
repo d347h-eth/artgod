@@ -34,6 +34,7 @@ import type {
     OrderUpdateByMakerPayload,
     OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
+import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
 import type {
     DomainSyncContext,
     OrderUpdateByMakerRuntimeContext,
@@ -50,6 +51,25 @@ import type {
     OrderStatus,
 } from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
+import type {
+    MakerValidationBatch,
+    MakerValidationBatchFactory,
+    OrderValidator,
+} from "../../ports/order-validation.js";
+import {
+    MakerRevalidationConflict,
+    type MakerPassBoundary,
+    type MakerValidationCandidate,
+    type MakerValidationResolution,
+} from "../../domain/maker-revalidation.js";
+import type { MakerOrderProjectionPort } from "../../ports/maker-revalidation.js";
+import type { OrderValidationProjectionPort } from "../../ports/order-validation-demand.js";
+import {
+    needsCurrentOrderValidation,
+    type OrderValidationRequest,
+    type ClaimedOrderValidation,
+} from "../../domain/order-validation-demand.js";
+import { SqliteOrderValidationDemand } from "../orders/sqlite-order-validation-demand.js";
 import {
     ORDER_UPDATE_BY_MAKER_LOG_CONTEXT,
     ORDER_UPDATE_BY_MAKER_LOG_MESSAGE,
@@ -96,9 +116,7 @@ type CollectionAnchorRow = {
     bootstrap_anchor_block: number | null;
 };
 
-type SeaportOrderValidator = (
-    order: OrderRecord,
-) => Promise<{ status: OrderStatus; reason: string }>;
+type SeaportOrderValidator = OrderValidator;
 
 type OrderIdentityParams = {
     chainId: number;
@@ -137,6 +155,8 @@ type ActiveRevalidatableOrderParams = {
     nowSeconds: number;
     afterId: string;
     batchLimit: number;
+    upperOrderId: string;
+    upperRowId: number;
     sourceStatus: OrderSourceStatus;
     fillableStatus: OrderStatus;
     noBalanceStatus: OrderStatus;
@@ -203,13 +223,20 @@ const SELECT_ORDER_FIELDS =
 const ACTIVE_REVALIDATABLE_ORDER_FILTER =
     "AND source_status = @sourceStatus " +
     "AND (valid_until IS NULL OR valid_until > @nowSeconds) AND id > @afterId " +
+    "AND id <= @upperOrderId AND rowid <= @upperRowId " +
     "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
 
-export class SqliteOrdersDomain implements OrdersDomainPort {
+export class SqliteOrdersDomain
+    implements
+        OrdersDomainPort,
+        MakerOrderProjectionPort,
+        OrderValidationProjectionPort
+{
     private readonly listingPrices: SqliteDailyListingPrices;
     private readonly retirements: SqliteOrderRetirements;
     private readonly wethAddress: string;
     private readonly validateOrder: SeaportOrderValidator;
+    private readonly validationDemand = new SqliteOrderValidationDemand(this);
     private updateOrderFillabilityStatus =
         db.prepare<OrderFillabilityStatusParams>(
             "UPDATE orders SET fillability_status = @fillabilityStatus, state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP " +
@@ -327,6 +354,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         validateOrder: SeaportOrderValidator,
         private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
         private readonly nowSeconds = () => Math.floor(Date.now() / 1000),
+        private readonly createValidationBatch?: MakerValidationBatchFactory,
     ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
@@ -411,18 +439,58 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         let validatedOrders = 0;
         let lastProgressLogAt = startedAt;
         const validationSummary = createValidationSummary();
+        let batch: MakerValidationBatch | undefined;
+        let pending: Array<{ row: OrderRow; status: OrderStatus }> = [];
+        const flush = async () => {
+            if (!batch) return;
+            // No transaction or pinned SQLite reader spans these remote checks.
+            await batch.finish();
+            updated += db.writeTransaction(() => {
+                let changes = 0;
+                for (const result of pending) {
+                    if (
+                        this.canMutateCurrentStateForCollection(
+                            payload.chainId,
+                            result.row.collection_id,
+                            payload.blockNumber,
+                        )
+                    ) {
+                        changes += this.applyValidation(
+                            result.row,
+                            result.status,
+                        ).changes;
+                    }
+                }
+                return changes;
+            })();
+            pending = [];
+            batch = undefined;
+        };
         for (let index = 0; index < rows.length; index += 1) {
             const row = rows[index]!;
+            const useBatch =
+                this.createValidationBatch &&
+                row.side === "buy" &&
+                row.currency?.toLowerCase() === this.wethAddress;
+            if (batch && (!useBatch || !batch.canAccept())) await flush();
+            if (useBatch && !batch) {
+                batch = await this.createValidationBatch!({
+                    chainId: payload.chainId,
+                    minimumBlock: payload.blockNumber ?? null,
+                });
+            }
             const validation = await this.revalidateSeaportOrderWithReporting(
                 row,
                 logContext,
                 index + 1,
                 rows.length,
                 startedAt,
+                batch?.validate,
             );
-            const result = this.applyValidation(row, validation.status);
+            if (batch) pending.push({ row, status: validation.status });
+            else
+                updated += this.applyValidation(row, validation.status).changes;
             validatedOrders += 1;
-            updated += result.changes;
             recordValidation(validationSummary, row, validation);
 
             const now = Date.now();
@@ -445,6 +513,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 });
             }
         }
+        await flush();
 
         logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
             ...logContext,
@@ -572,7 +641,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         }
 
         let finalStatus: OrderStatus = status;
-        if (payload.reason === "order") {
+        if (payload.reason === ORDER_UPDATE_REASON.Validation) {
             const orderRow =
                 row ??
                 (this.selectOrderById.get({
@@ -765,7 +834,26 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     }> {
         // Admission, tombstone checks and mutation share the writer snapshot.
         // There is no network work inside this transaction.
-        return db.writeTransaction(() => this.applyOrderUpsert(payload))();
+        return db.writeTransaction(() => {
+            const outcome = this.applyOrderUpsert(payload);
+            if (payload.validateAfterUpsert && outcome.validationNeeded) {
+                const now = this.nowSeconds() * 1_000;
+                this.validationDemand.admit(
+                    {
+                        chainId: payload.chainId,
+                        orderId: payload.orderId,
+                        // Replay keeps its observation requirement; retry time is not new demand.
+                        requiredAt: Math.min(
+                            now,
+                            (payload.observedAt ?? now / 1_000) * 1_000,
+                        ),
+                        minimumBlock: null,
+                    },
+                    now,
+                );
+            }
+            return outcome;
+        })();
     }
 
     private applyOrderUpsert(payload: OrderUpsertPayload): {
@@ -965,6 +1053,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private selectMakerUpdateCandidates(
         payload: OrderUpdateByMakerPayload,
         afterId = "",
+        boundary: MakerPassBoundary = {
+            upperOrderId: "\uffff",
+            upperRowId: Number.MAX_SAFE_INTEGER,
+        },
+        limit: number = STORAGE_POLICY.maintenanceBatchRows,
     ): OrderRow[] {
         const maker = payload.maker.toLowerCase();
         if (payload.scope === MAKER_TRIGGER_SCOPE.Token) {
@@ -976,7 +1069,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 ...activeRevalidatableOrderParams(),
                 nowSeconds: this.nowSeconds(),
                 afterId,
-                batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                ...boundary,
+                batchLimit: limit,
             }) as OrderRow[];
         }
         if (payload.scope === MAKER_TRIGGER_SCOPE.Collection) {
@@ -987,7 +1081,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 ...activeRevalidatableOrderParams(),
                 nowSeconds: this.nowSeconds(),
                 afterId,
-                batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                ...boundary,
+                batchLimit: limit,
             }) as OrderRow[];
         }
 
@@ -1001,7 +1096,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     ...activeRevalidatableOrderParams(),
                     nowSeconds: this.nowSeconds(),
                     afterId,
-                    batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                    ...boundary,
+                    batchLimit: limit,
                 }) as OrderRow[];
             case GLOBAL_MAKER_TRIGGER_REASON.OrderCounter:
                 return this.selectMakerSeaportOrders.all({
@@ -1010,9 +1106,120 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     ...activeRevalidatableOrderParams(),
                     nowSeconds: this.nowSeconds(),
                     afterId,
-                    batchLimit: STORAGE_POLICY.maintenanceBatchRows,
+                    ...boundary,
+                    batchLimit: limit,
                 }) as OrderRow[];
         }
+    }
+
+    validationCandidate(request: OrderValidationRequest) {
+        const row = this.selectOrderById.get({
+            chainId: request.chainId,
+            orderId: request.orderId,
+        }) as OrderRow | undefined;
+        if (!row) return null;
+        const order = mapOrderRow(row);
+        if (
+            !needsCurrentOrderValidation(order, this.nowSeconds()) ||
+            !this.canMutateCurrentStateForCollection(
+                row.chain_id,
+                row.collection_id,
+                request.minimumBlock,
+            )
+        )
+            return null;
+        return { order, revision: row.state_revision };
+    }
+
+    applyDemandValidation(
+        claim: ClaimedOrderValidation,
+        result: Awaited<ReturnType<OrderValidator>>,
+    ): number | null {
+        const current = this.validationCandidate({
+            ...claim.demand,
+            minimumBlock: claim.demand.anchorIndependent
+                ? null
+                : claim.demand.minimumBlock,
+        });
+        if (!current || current.revision !== claim.candidate.revision)
+            return null;
+        const row = this.selectOrderById.get({
+            chainId: claim.demand.chainId,
+            orderId: claim.demand.orderId,
+        }) as OrderRow;
+        this.applyValidation(row, result.status);
+        const updated = this.selectOrderById.get({
+            chainId: claim.demand.chainId,
+            orderId: claim.demand.orderId,
+        }) as OrderRow;
+        return updated.state_revision;
+    }
+
+    captureMakerPass(): MakerPassBoundary {
+        const row = db
+            .prepare(
+                "SELECT COALESCE((SELECT MAX(id) FROM orders), '') AS upperOrderId, COALESCE((SELECT MAX(rowid) FROM orders), 0) AS upperRowId",
+            )
+            .get() as MakerPassBoundary;
+        return row;
+    }
+
+    selectMakerCandidates(
+        payload: OrderUpdateByMakerPayload,
+        afterId: string,
+        boundary: MakerPassBoundary,
+        limit: number,
+    ): MakerValidationCandidate[] {
+        return this.selectMakerUpdateCandidates(
+            payload,
+            afterId,
+            boundary,
+            limit,
+        ).map((row) => ({
+            order: mapOrderRow(row),
+            revision: row.state_revision,
+            currentAtTrigger: this.canMutateCurrentStateForCollection(
+                payload.chainId,
+                row.collection_id,
+                payload.blockNumber,
+            ),
+        }));
+    }
+
+    applyMakerResolution(
+        payload: OrderUpdateByMakerPayload,
+        resolution: MakerValidationResolution,
+    ): void {
+        const row = this.selectOrderById.get({
+            chainId: payload.chainId,
+            orderId: resolution.candidate.order.id,
+        }) as OrderRow | undefined;
+        if (
+            !row ||
+            row.source_status !== ORDER_SOURCE_STATUS.Active ||
+            (row.valid_until !== null &&
+                row.valid_until <= this.nowSeconds()) ||
+            !Object.values(ORDER_REVALIDATABLE_FILLABILITY_STATUS).some(
+                (status) => status === row.fillability_status,
+            ) ||
+            !this.canMutateCurrentStateForCollection(
+                payload.chainId,
+                row.collection_id,
+                payload.blockNumber,
+            )
+        )
+            return;
+        // Do not advance past a still-actionable revision we did not validate. The
+        // outer checkpoint transaction rolls back and retry rereads this candidate.
+        if (
+            row.state_revision !== resolution.candidate.revision ||
+            !resolution.validation
+        ) {
+            throw new MakerRevalidationConflict(
+                "Maker validation revision changed",
+            );
+        }
+        this.applyValidation(row, resolution.validation.status);
     }
 
     private filterCurrentStateRows(
@@ -1072,6 +1279,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         orderPosition: number,
         orderCount: number,
         jobStartedAt: number,
+        validate: OrderValidator = this.validateOrder,
     ): Promise<TimedOrderValidation> {
         const startedAt = Date.now();
         const slowTimer = setInterval(() => {
@@ -1094,7 +1302,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         unrefTimer(slowTimer);
 
         try {
-            const validation = await this.revalidateSeaportOrder(row);
+            const validation = await validate(mapOrderRow(row));
             return {
                 ...validation,
                 durationMs: Date.now() - startedAt,
@@ -1149,7 +1357,7 @@ function parseSeaportDataJson(value: string | null): SeaportOrderData | null {
 
 function activeRevalidatableOrderParams(): Omit<
     ActiveRevalidatableOrderParams,
-    "nowSeconds" | "afterId" | "batchLimit"
+    "nowSeconds" | "afterId" | "batchLimit" | "upperOrderId" | "upperRowId"
 > {
     return {
         sourceStatus: ORDER_SOURCE_STATUS.Active,
@@ -1324,11 +1532,11 @@ function statusFromReason(
     reason: OrderUpdateByIdPayload["reason"],
 ): OrderStatus | null {
     switch (reason) {
-        case "fill":
+        case ORDER_UPDATE_REASON.Fill:
             return ORDER_STATUS.Filled;
-        case "cancel":
+        case ORDER_UPDATE_REASON.Cancel:
             return ORDER_STATUS.Cancelled;
-        case "order":
+        case ORDER_UPDATE_REASON.Validation:
             return ORDER_STATUS.Fillable;
         default:
             return null;

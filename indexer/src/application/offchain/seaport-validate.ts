@@ -1,6 +1,7 @@
 import { zeroAddress } from "viem";
 import { logger } from "@artgod/shared/utils";
 import { ERC20_ABI, ERC721_APPROVAL_ABI } from "../../abi/index.js";
+import { SEAPORT_VALIDATION_ABI as SEAPORT_ABI } from "../../abi/seaport-validation.js";
 import {
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_STATUS,
@@ -20,28 +21,6 @@ import {
     computeSeaportOrderHash,
     recoverSeaportSigner,
 } from "./seaport-protocol.js";
-
-const SEAPORT_ABI = [
-    {
-        type: "function",
-        name: "getOrderStatus",
-        inputs: [{ name: "orderHash", type: "bytes32" }],
-        outputs: [
-            { name: "isValidated", type: "bool" },
-            { name: "isCancelled", type: "bool" },
-            { name: "totalFilled", type: "uint256" },
-            { name: "totalSize", type: "uint256" },
-        ],
-        stateMutability: "view",
-    },
-    {
-        type: "function",
-        name: "getCounter",
-        inputs: [{ name: "offerer", type: "address" }],
-        outputs: [{ name: "counter", type: "uint256" }],
-        stateMutability: "view",
-    },
-] as const;
 
 const CONDUIT_CONTROLLER_ABI = [
     {

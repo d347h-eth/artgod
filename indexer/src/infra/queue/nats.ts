@@ -20,9 +20,15 @@ import {
     resolveNatsJobSubject,
 } from "@artgod/shared/queue/nats-job-stream";
 import type { QueueName } from "../../domain/queues.js";
-import type { JobEnvelope } from "../../domain/jobs.js";
+import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
+import { logger } from "@artgod/shared/utils";
+import {
+    UNSUPPORTED_JOB_POLICY,
+    UNSUPPORTED_JOB_LOG,
+} from "../../domain/unsupported-job.js";
 import type {
     QueueMessage,
+    QueueReplayBoundary,
     QueuePort,
     SubscribeOptions,
 } from "../../ports/queue.js";
@@ -66,6 +72,7 @@ export function resolveNatsConsumerConfigUpdate(
 export class NatsJetStreamQueue implements QueuePort {
     private readonly streamName: string;
     private streamReady?: Promise<void>;
+    private streamId = "";
 
     private constructor(
         private readonly nc: NatsConnection,
@@ -88,13 +95,18 @@ export class NatsJetStreamQueue implements QueuePort {
     async publish<TPayload>(
         queue: QueueName,
         message: JobEnvelope<TPayload>,
-    ): Promise<void> {
+    ): Promise<QueuePublication> {
         await this.ensureStream();
         const subject = this.subjectForQueue(queue);
         const codec = JSONCodec<JobEnvelope<TPayload>>();
-        await this.js.publish(subject, codec.encode(message), {
-            msgID: message.jobId,
-        });
+        const published = await this.js.publish(
+            subject,
+            codec.encode(message),
+            {
+                msgID: message.jobId,
+            },
+        );
+        return { streamId: this.streamId, sequence: published.seq };
     }
 
     async subscribe<TPayload>(
@@ -131,19 +143,51 @@ export class NatsJetStreamQueue implements QueuePort {
                     let data: JobEnvelope<TPayload>;
                     try {
                         data = codec.decode(msg.data);
-                        const deliveryCount =
-                            (msg as any)?.info?.redeliveryCount ?? 0;
+                        if (
+                            !data ||
+                            typeof data !== "object" ||
+                            typeof data.jobId !== "string" ||
+                            !data.jobId ||
+                            typeof data.kind !== "string" ||
+                            !data.kind ||
+                            data.queue !== queue ||
+                            !Number.isSafeInteger(data.chainId) ||
+                            data.chainId <= 0 ||
+                            !Number.isSafeInteger(data.scheduledAt) ||
+                            data.scheduledAt < 0
+                        )
+                            throw new Error("Invalid queue envelope");
+                        if (
+                            data.attempt != null &&
+                            (!Number.isSafeInteger(data.attempt) ||
+                                data.attempt < 0)
+                        )
+                            throw new Error("Invalid queue attempt");
                         data.attempt = Math.max(
                             data.attempt ?? 0,
-                            deliveryCount + 1,
+                            // The SDK's legacy redeliveryCount is also one-based.
+                            msg.info.deliveryCount,
                         );
-                    } catch {
-                        msg.term();
+                    } catch (error) {
+                        logger.error(UNSUPPORTED_JOB_LOG, {
+                            queue,
+                            consumer: options.consumerName,
+                            streamSequence: msg.info.streamSequence,
+                            reason: String(error),
+                        });
+                        // Keep the original bytes. The log-only DLQ cannot preserve an
+                        // unknown envelope, and TERM would make it unrecoverable.
+                        msg.nak(UNSUPPORTED_JOB_POLICY.retryMs);
                         return;
                     }
 
                     const wrapped: QueueMessage<TPayload> = {
                         data,
+                        origin: {
+                            streamId: this.streamId,
+                            consumerName: options.consumerName,
+                            sequence: msg.info.streamSequence,
+                        },
                         ack: async () => {
                             msg.ack();
                         },
@@ -184,6 +228,44 @@ export class NatsJetStreamQueue implements QueuePort {
         await this.nc.drain();
     }
 
+    /** Completed receipt cleanup is bounded by broker ACK evidence, never a guessed TTL. */
+    async getReplayBoundary(
+        consumerName: string,
+    ): Promise<QueueReplayBoundary> {
+        const stream = await this.jsm.streams.info(this.streamName);
+        const streamId = `${stream.config.name}:${stream.created}`;
+        if (streamId !== this.streamId)
+            throw new Error("Job stream incarnation changed");
+        const consumer = await this.jsm.consumers.info(
+            this.streamName,
+            consumerName,
+        );
+        return {
+            streamId,
+            consumerName,
+            ackFloor: consumer.ack_floor.stream_seq,
+        };
+    }
+
+    /** ACK evidence wins over physically retained messages on older brokers. */
+    async isPublicationPending(
+        publication: QueuePublication,
+        consumerName: string,
+    ): Promise<boolean> {
+        if (publication.streamId !== this.streamId) return false;
+        const boundary = await this.getReplayBoundary(consumerName);
+        if (boundary.ackFloor >= publication.sequence) return false;
+        try {
+            await this.jsm.streams.getMessage(this.streamName, {
+                seq: publication.sequence,
+            });
+            return true;
+        } catch (error) {
+            if (isStreamNotFound(error)) return false;
+            throw error;
+        }
+    }
+
     private async ensureStream(): Promise<void> {
         if (!this.streamReady) {
             this.streamReady = this.ensureStreamInner();
@@ -200,6 +282,7 @@ export class NatsJetStreamQueue implements QueuePort {
         }
 
         if (existing) {
+            this.streamId = `${existing.config.name}:${existing.created}`;
             if (existing.config.max_age !== NATS_JOB_STREAM_MAX_AGE_NANOS) {
                 await this.jsm.streams.update(this.streamName, {
                     max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
@@ -208,7 +291,7 @@ export class NatsJetStreamQueue implements QueuePort {
             return;
         }
 
-        await this.jsm.streams.add({
+        const created = await this.jsm.streams.add({
             name: this.streamName,
             subjects: [
                 resolveNatsJobStreamSubjectFilter(this.config.streamPrefix),
@@ -217,6 +300,7 @@ export class NatsJetStreamQueue implements QueuePort {
             storage: StorageType.File,
             max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
         });
+        this.streamId = `${created.config.name}:${created.created}`;
     }
 
     private subjectForQueue(queue: QueueName): string {

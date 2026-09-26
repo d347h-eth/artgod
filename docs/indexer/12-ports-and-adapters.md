@@ -18,7 +18,10 @@ Provides publish/subscribe semantics with explicit ack/nack/touch.
 
 Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTransactionReceipt` with log chunking and retry behavior.
 
-`readContract` is used for bootstrap ownership snapshots and offchain order validation. `getBalance` is used for native-ETH order checks.
+`readContract` is used for bootstrap ownership snapshots and offchain order
+validation. Optional `readContracts` provides bounded Seaport status aggregation;
+`getBalance` is used for native-ETH order checks. Validation snapshots pin these
+reads to an explicit block. See [bounded status aggregates](07-domain-orders.md#bounded-status-aggregates).
 
 The viem adapter accepts a weighted HTTP JSON-RPC endpoint pool from `RPC_URL_LIST`. Selection uses the configured weights as the baseline and lowers an endpoint's effective weight after request failures so later attempts drift toward healthier endpoints. Adjusted weights are in-memory only.
 
@@ -79,7 +82,33 @@ The shared `DomainSyncContext` also carries explicit projection intent:
 - `facts_only` for historical-safe feed projection
 - `current_state` for anchor-eligible materialized writes
 
-Orders domain also exposes update-by-maker and update-by-id handlers for fillability and explicit order events.
+Orders domain retains direct update-by-maker and update-by-id entry points for
+standalone callers. Runtime validation orchestration uses the application-owned
+ports below; lifecycle application still uses the domain's guarded transitions.
+Removal of superseded entry points is tracked in the
+[deferred cleanup inventory](19-order-processing-cleanup.md).
+
+## Order Processing Ports
+
+| Contract                                                                                                                                          | Implementation and responsibility                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MakerRevalidationStore` / `MakerOrderProjectionPort` in [maker-revalidation.ts](../../indexer/src/ports/maker-revalidation.ts)                   | `SqliteMakerRevalidations` owns admission, cursor/lease fencing, continuation recovery and replay cleanup. `SqliteOrdersDomain` selects candidates and applies guarded effects. The checkpoint includes any per-order handoff in the same transaction.                 |
+| `OrderValidationDemandPort` / `OrderValidationProjectionPort` in [order-validation-demand.ts](../../indexer/src/ports/order-validation-demand.ts) | `SqliteOrderValidationDemand` owns requirement coalescing, claims, coverage and retry. `SqliteOrdersDomain` supplies current eligibility and revision-guarded writes. `defer` participates in its caller's checkpoint transaction on the same database.                |
+| `OrderValidationSnapshotFactory` in [order-validation.ts](../../indexer/src/ports/order-validation.ts)                                            | `createSeaportOrderValidationFactory` performs full validation against a bounded pinned snapshot. Successful `finish()` verifies the proof before results may be persisted; an isolated failed snapshot may supply an unmet requirement but never a validation result. |
+| `OrderValidationAdmissionPort` in [order-validation-admission.ts](../../indexer/src/ports/order-validation-admission.ts)                          | `FairOrderValidationAdmission` shares two FIFO permits across demand, maker and token validation. Admission spans one bounded validation step and its result transaction, not a whole maker scan.                                                                      |
+
+`RevalidateMakerOrders`, `ValidateOrderDemand` and maker recovery orchestrate
+these contracts. The [domain composition root](../../indexer/src/runtime/domain-worker.ts)
+injects the concrete adapters and shared admission instance. RPC awaits and
+permit waits stay outside SQLite transactions. Durable state remains in SQLite;
+FIFO scheduling is local to that chain's domain-worker process.
+
+Policies belong to `domain/order-processing.ts`, `domain/maker-revalidation.ts`,
+`domain/order-validation-demand.ts` and `domain/order-validation-policy.ts` under
+`indexer/src/`. By-ID pacing belongs to `infra/orders/legacy-order-admission.ts`.
+These fixed limits are code-owned policies, not Admin settings or adaptive
+queue-depth controls. See [processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
+for the distinction between pending work and retained completion state.
 
 ## Bidder Index Port
 

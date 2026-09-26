@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,12 @@ import type {
     QueuePort,
     SubscribeOptions,
 } from "../src/ports/queue.js";
+import { processingTelemetry } from "./helpers/processing-observability.js";
+import {
+    DOMAIN_PROCESSING_METRIC as METRIC,
+    DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
+} from "../src/infra/observability/domain-processing-metric-contract.js";
+import { QUEUE_OUTBOX_OPERATION } from "../src/application/queue-outbox/drainer.js";
 
 const CHAIN_ID = 1;
 const COLLECTION_ID = 7;
@@ -30,13 +36,17 @@ describe("queue outbox drainer", () => {
     });
 
     it("publishes due rows and marks them sent", async () => {
+        const telemetry = await processingTelemetry();
         const outbox = new SqliteQueueOutbox();
         const queue = new RecordingQueue();
         const job = buildStatsJob();
 
         outbox.enqueueJob(job);
 
-        const published = await drainQueueOutbox(outbox, queue, { limit: 10 });
+        const published = await drainQueueOutbox(outbox, queue, {
+            limit: 10,
+            observability: telemetry.hooks,
+        });
 
         expect(published).toBe(1);
         expect(queue.published).toEqual([
@@ -46,6 +56,43 @@ describe("queue outbox drainer", () => {
             },
         ]);
         expect(selectOutboxStatus(job.jobId)).toBe(QUEUE_OUTBOX_STATUS.Sent);
+        expect(
+            await telemetry.value(METRIC.OutboxPublications, {
+                [LABEL.Queue]: QUEUE_NAMES.MetadataStats,
+                [LABEL.Status]: QUEUE_OUTBOX_STATUS.Sent,
+            }),
+        ).toBe(1);
+    });
+
+    it("observes publication failure before persisting retry, then counts the successful retry once", async () => {
+        const telemetry = await processingTelemetry();
+        const outbox = new SqliteQueueOutbox();
+        const queue = new RecordingQueue();
+        const failure = new Error("fixture broker unavailable");
+        vi.spyOn(queue, "publish").mockRejectedValueOnce(failure);
+        const job = buildStatsJob();
+        outbox.enqueueJob(job);
+        const options = { retryBaseDelayMs: 0, observability: telemetry.hooks };
+        expect(await drainQueueOutbox(outbox, queue, options)).toBe(0);
+        expect(selectOutboxStatus(job.jobId)).toBe(
+            QUEUE_OUTBOX_STATUS.FailedRetry,
+        );
+        expect(
+            telemetry.apm.spans.find(
+                (span) => span.name === QUEUE_OUTBOX_OPERATION.Publish,
+            )?.error,
+        ).toBe(failure);
+        expect(await drainQueueOutbox(outbox, queue, options)).toBe(1);
+        for (const status of [
+            QUEUE_OUTBOX_STATUS.FailedRetry,
+            QUEUE_OUTBOX_STATUS.Sent,
+        ])
+            expect(
+                await telemetry.value(METRIC.OutboxPublications, {
+                    [LABEL.Queue]: QUEUE_NAMES.MetadataStats,
+                    [LABEL.Status]: status,
+                }),
+            ).toBe(1);
     });
 });
 

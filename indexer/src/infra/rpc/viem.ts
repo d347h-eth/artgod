@@ -1,4 +1,5 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, type Abi } from "viem";
+import { isRpcDeterministicContractError } from "@artgod/shared/evm/rpc-errors";
 import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
@@ -29,6 +30,7 @@ import type {
     RpcTransaction,
     RpcTransactionReceipt,
 } from "../../ports/rpc.js";
+import { RPC_CONTRACT_BATCH_MAX_CALLS } from "../../ports/rpc.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
     INDEXER_RPC_LOG_COMPONENT,
@@ -115,8 +117,13 @@ export class ViemRpcProvider implements RpcProviderPort {
         return toSafeNumber(value, "blockNumber");
     }
 
-    async getBlock(blockNumber: number): Promise<RpcBlock> {
-        const cached = this.cache?.get<RpcBlock>("block", String(blockNumber));
+    async getBlock(
+        blockNumber: number,
+        options?: { fresh: boolean },
+    ): Promise<RpcBlock> {
+        const cached = options?.fresh
+            ? undefined
+            : this.cache?.get<RpcBlock>("block", String(blockNumber));
         if (cached) return cached;
 
         const block = await this.executeRpc("getBlock", (client) =>
@@ -234,12 +241,64 @@ export class ViemRpcProvider implements RpcProviderPort {
         return result as T;
     }
 
-    async getBalance(address: Hex): Promise<bigint> {
+    async getBalance(
+        address: Hex,
+        options?: { blockNumber: number },
+    ): Promise<bigint> {
         return this.executeRpc("getBalance", (client) =>
             client.getBalance({
                 address: address as `0x${string}`,
+                blockNumber: options ? BigInt(options.blockNumber) : undefined,
             }),
         );
+    }
+
+    async readContracts(
+        input: Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0],
+    ) {
+        if (
+            input.contracts.length < 1 ||
+            input.contracts.length > RPC_CONTRACT_BATCH_MAX_CALLS ||
+            !Number.isSafeInteger(input.blockNumber) ||
+            input.blockNumber < 0
+        )
+            throw new Error("Invalid bounded contract batch");
+        return this.executeRpc("readContracts", async (client) => {
+            const results = await client.multicall({
+                contracts: input.contracts.map((contract) => ({
+                    ...contract,
+                    abi: contract.abi as Abi,
+                })),
+                blockNumber: BigInt(input.blockNumber),
+                allowFailure: true,
+                // A read-only eth_call works without assuming a deployed multicall address.
+                deployless: true,
+                // This port caps request count. Do not let viem fan out hidden parallel chunks.
+                batchSize: 0,
+            });
+            // viem returns outer transport failures as per-item failures with allowFailure.
+            // Surface them through our existing retry/rate/circuit/observability boundary.
+            const first = results[0];
+            if (
+                first?.status === "failure" &&
+                results.every(
+                    (result) =>
+                        result.status === "failure" &&
+                        result.error === first.error,
+                ) &&
+                !isRpcDeterministicContractError(first.error)
+            )
+                // Keep bytecode/calldata out of the endpoint log message; classification
+                // and retry still inspect the original SDK error through its cause.
+                throw new Error("Aggregate contract read failed", {
+                    cause: first.error,
+                });
+            return results.map((result) =>
+                result.status === "success"
+                    ? { value: result.result }
+                    : { error: result.error },
+            );
+        });
     }
 
     private async executeRpc<T>(

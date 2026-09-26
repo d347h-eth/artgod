@@ -1,5 +1,17 @@
 export type Hex = `0x${string}`;
 
+/** Upper bound for one optional aggregate call, independent of provider retries. */
+export const RPC_CONTRACT_BATCH_MAX_CALLS = 20;
+
+export type RpcContractRead = {
+    address: Hex;
+    abi: readonly unknown[];
+    functionName: string;
+    args?: readonly unknown[];
+};
+
+export type RpcContractReadResult = { value: unknown } | { error: unknown };
+
 export type RpcEvent = {
     type: "event";
     name: string;
@@ -50,16 +62,27 @@ export type RpcLog = {
 
 export interface RpcProviderPort {
     getBlockNumber(): Promise<number>;
-    getBlock(blockNumber: number): Promise<RpcBlock>;
+    getBlock(
+        blockNumber: number,
+        options?: { fresh: boolean },
+    ): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
     getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;
-    readContract<T = unknown>(params: {
-        address: Hex;
-        abi: readonly unknown[];
-        functionName: string;
-        args?: readonly unknown[];
-        blockNumber?: number;
-    }): Promise<T>;
-    getBalance(address: Hex): Promise<bigint>;
+    readContract<T = unknown>(
+        params: RpcContractRead & { blockNumber?: number },
+    ): Promise<T>;
+    /**
+     * Optional bounded aggregate at one explicit block, with positional results.
+     * Only use for views independent of msg.sender; aggregation changes the caller.
+     * Infrastructure failures may reject the whole call. Callers own safe fallback.
+     */
+    readContracts?(input: {
+        contracts: readonly RpcContractRead[];
+        blockNumber: number;
+    }): Promise<readonly RpcContractReadResult[]>;
+    getBalance(
+        address: Hex,
+        options?: { blockNumber: number },
+    ): Promise<bigint>;
 }

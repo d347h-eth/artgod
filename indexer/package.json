@@ -20,11 +20,13 @@
         "dev:bootstrap-trigger": "tsx scripts/trigger-bootstrap.ts",
         "dev:collection-extension-trigger-range": "tsx scripts/trigger-collection-extension-artifacts-range.ts",
         "inspect:queue": "tsx scripts/inspect-jetstream-backlog.ts",
+        "inspect:orders": "tsx scripts/inspect-order-processing.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:nats:recovery": "tsx scripts/verify-nats-startup-recovery.ts",
-        "test:opensea:reconciliation": "vitest run --config vitest.opensea-reconciliation.config.ts"
+        "test:opensea:reconciliation": "vitest run --config vitest.opensea-reconciliation.config.ts",
+        "test:orders:queues": "vitest run --config vitest.order-queue.config.ts"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",

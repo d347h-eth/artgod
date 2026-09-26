@@ -16,6 +16,8 @@ export const QUEUE_NAMES = {
     OrdersUpsert: "orders-upsert",
     OrdersUpdateByMaker: "order-updates-by-maker",
     OrdersUpdateById: "order-updates-by-id",
+    OrdersUpdateByToken: "order-updates-by-token",
+    OrderLifecycle: "order-lifecycle-updates",
     ActivityUpsert: "activity-upsert",
     CollectionExtensionArtifacts: "collection-extension-artifacts",
     TokenImageCache: TOKEN_IMAGE_CACHE_QUEUE_NAME,

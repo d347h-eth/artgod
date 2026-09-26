@@ -1,5 +1,5 @@
 import { db } from "@artgod/shared/database";
-import type { JobEnvelope } from "../../domain/jobs.js";
+import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
 import {
     QUEUE_OUTBOX_STATUS,
     type QueueOutboxStatus,
@@ -71,10 +71,12 @@ export class SqliteQueueOutbox {
     private markSentStmt = db.prepare<{
         outboxId: number;
         sentStatus: QueueOutboxStatus;
+        streamId: string | null;
+        sequence: number | null;
     }>(
         "UPDATE queue_outbox SET status = @sentStatus, sent_at = CURRENT_TIMESTAMP, " +
-            "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE outbox_id = @outboxId",
+            "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP, " +
+            "publication_stream_id=@streamId, publication_sequence=@sequence WHERE outbox_id = @outboxId",
     );
     private markFailedStmt = db.prepare<{
         outboxId: number;
@@ -135,10 +137,12 @@ export class SqliteQueueOutbox {
         }));
     }
 
-    markSent(outboxId: number): void {
+    markSent(outboxId: number, publication?: QueuePublication): void {
         this.markSentStmt.run({
             outboxId,
             sentStatus: QUEUE_OUTBOX_STATUS.Sent,
+            streamId: publication?.streamId ?? null,
+            sequence: publication?.sequence ?? null,
         });
     }
 

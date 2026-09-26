@@ -14,6 +14,11 @@ the overview first, then follow the branch that owns the question.
 4. [Ports and adapters](12-ports-and-adapters.md) — dependency direction and
    concrete boundaries.
 
+For order backlog work, start with
+[processing ownership and retained state](07-domain-orders.md#processing-ownership-and-retained-state),
+then the [admission and recovery sequences](13-sequence-diagrams.md#order-admission-and-validation)
+and [operator procedure](18-order-queue-recovery.md).
+
 ## Runtime Flows
 
 - [Scheduler](03-scheduler-worker.md)
@@ -36,5 +41,8 @@ the overview first, then follow the branch that owns the question.
 
 - [Observability and metrics](10-observability-and-metrics.md)
 - [Testing](11-testing.md)
+- [Order queue recovery](18-order-queue-recovery.md)
+- [Deferred order-processing cleanup](19-order-processing-cleanup.md) — removal
+  inventory for a follow-up after queue healing; not current runtime behavior.
 - [RPC interaction catalog](../rpc/01-http-rpc-interaction-catalog.md)
 - [Backlog and status history](../planning/01-unified-backlog.md)

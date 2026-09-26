@@ -32,6 +32,159 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Components and Wiring
 
+### Order validation demand progress
+
+The domain worker emits `Order validation demand progress` through the ordinary
+structured logger, including in desktop builds. One bounded aggregate covers a
+ten-second window; idle polls can flush a final partial window, and graceful stop
+flushes remaining observations. It holds counters only, without per-order or
+per-wallet arrays. `chainId` and `component = OrderValidationDemand` identify it.
+
+- `scanned` / `claimed`: bounded DB selection and acquired order leases.
+- `validated`: full per-order checks returned a result; snapshot verification or
+  the DB commit may still reject it. This is not a durable-completion counter.
+- `applied`: validation effects committed, including those with newer follow-up
+  demand. `covered`: the captured demand completed without a follow-up.
+- `resolvedUnneeded`: current-state skips, including expiry, cancellation and
+  anchor changes. These can occur before RPC or at guarded completion.
+- `followup`, `retried`, `released`, `lostClaims`: work retained for newer state,
+  retry after failure/uncovered trigger, unused budget/shutdown claims, and results
+  rejected by ownership fences respectively. Applied/follow-up counts can overlap.
+- `contractReads`: logical `perOrder`, shared wallet, other reads and status
+  aggregates. Logical status reads are not a count of HTTP requests; block/head
+  lookups, adapter retries and provider billing are outside these counters.
+- `windowMs`: wall time for rates. `batchDurationMs` sums concurrent batch
+  durations and can exceed that window; `maximumBatchDurationMs` is one batch.
+- `oldestSampledRequiredAt`: oldest requirement among the scanned rows in that
+  window, not the global oldest pending request or its DB admission time.
+
+`inspect:orders --counts` additionally reports pending demand's due/leased/backoff
+counts, rows with failures, and global oldest requirement timestamp/age. Due work
+can still be resolved without RPC after current-state eligibility is rechecked.
+The default bounded inspector sample does not run these aggregate queries.
+Compare these snapshots with durable completion and skip counts over a full
+reconciliation cycle. Net pending-row change alone is not an admission or
+validation execution counter; maker coverage, re-admission and retirement can
+also change it.
+
+### Maker scan progress
+
+`Maker revalidation checkpoint` reports `resolved` and `deferred` separately,
+with cumulative `totalResolved` / `totalDeferred`. Deferred entries own durable
+per-order demand; they are not successful validations. `status=completed` means
+the finite maker scan finished resolving/admitting its work. It can coexist with
+pending demand. `validated` still excludes failed reads and is not durable proof
+by itself. The bounded maker inspector includes `isolateOrderId` and
+`deferredOrders`; the latter is cumulative across generations, not remaining work.
+Inspect pending demand to establish whether delegated validation has completed.
+
+### Order processing metrics and APM
+
+The domain-worker composition injects the existing shared `Metrics` and `ApmPort`
+into demand validation, maker/token scans, lifecycle application, fair validation
+admission, continuation recovery and the queue-outbox drainer. Instrumentation is
+present independently of exporter configuration. The existing build/configuration
+adapters determine where signals are exported; no separate order-specific
+exporter or collector is used.
+
+Contracts and implementation:
+
+- `indexer/src/application/orders/observability.ts` owns order operation names,
+  demand outcomes and the progress observer port.
+- `indexer/src/application/queue-outbox/drainer.ts` owns outbox operation names
+  and its publication observer port.
+- `indexer/src/application/processing-observability.ts` wraps the shared APM
+  boundary and makes metric callbacks best effort. A metric failure cannot turn
+  an already committed effect into a retry.
+- `indexer/src/infra/observability/domain-processing-metric-contract.ts` and
+  `domain-processing-metrics.ts` own metric names, labels, buckets and translation
+  to the shared metrics adapter. Runtime wiring lives in
+  `indexer/src/runtime/domain-worker.ts`.
+
+The following names use the shared runtime's default `artgod_indexer_` prefix.
+All series inherit `worker` and `chain_id`. Additional labels have finite values;
+there are no maker, order, token, run, job, error-text or RPC-URL metric labels.
+Duration and age histograms use explicit **seconds** buckets.
+
+| Metric suffix                                                                      | Additional labels     | Meaning                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `processing_operations_total`                                                      | `operation`, `result` | Completed instrumented operations, success/failure before retry catches.                                                                                                                                                                                                 |
+| `processing_duration_seconds`                                                      | `operation`, `result` | Duration of those operations. Nested stage durations overlap; do not add them together.                                                                                                                                                                                  |
+| `processing_active`                                                                | `operation`           | Concurrent calls to each instrumented operation.                                                                                                                                                                                                                         |
+| `order_demand_batches_total`                                                       | —                     | Nonempty bounded demand reports, including current-state skips and retries. Idle claims do not increment it.                                                                                                                                                             |
+| `order_demand_orders_total`                                                        | `outcome`             | `scanned`, `claimed`, `validated`, `applied`, `covered`, `resolvedUnneeded`, `followup`, `retried`, `released`, `lostClaims`, with the same meanings and overlaps as the progress log above.                                                                             |
+| `order_demand_batch_duration_seconds`                                              | —                     | Report duration, including selection and retry bookkeeping, excluding capacity wait.                                                                                                                                                                                     |
+| `order_demand_sampled_age_seconds`                                                 | —                     | One observation per nonempty report: age of its oldest sampled requirement at report time. Not global oldest backlog age; repeated attempts can resample a requirement.                                                                                                  |
+| `order_maker_checkpoints_total`                                                    | `end`                 | Successful atomic checkpoints by `completed`, `count_budget`, `time_budget`, `followup_generation`. Completion means the finite scan ended.                                                                                                                              |
+| `order_maker_checkpoint_orders_total`                                              | `outcome`             | `resolved`, `deferred`, `validated` at committed checkpoints. Deferred means durable demand handoff; validated means returned validation results in that checkpoint, not necessarily applied current-state changes. Rolled-back checkpoints increment none of these.     |
+| `order_validation_contract_reads_total`                                            | `path`, `kind`        | Demand/maker logical read accounting, including failed attempts with an established snapshot. `kind` is `perOrder`, `shared`, `other` or `statusBatches`; the last counts aggregate port calls, not individual logical reads. These are not HTTP/billing request totals. |
+| `order_validation_active`, `order_validation_waiting`, `order_validation_capacity` | —                     | O(1) in-memory FIFO capacity/pressure, shared by demand, maker and token work.                                                                                                                                                                                           |
+| `order_validation_wait_seconds`                                                    | `result`              | Time to `granted` capacity, including immediate grants, or `cancelled` waiting. Graceful shutdown cancellation is expected.                                                                                                                                              |
+| `order_maker_recovery_total`                                                       | `outcome`             | Bounded wakeup checks: `checked`, `recovered`, `failed`. Counts can overlap; a recovered row had its replacement wakeup committed.                                                                                                                                       |
+| `order_maker_receipts_cleaned_total`                                               | —                     | Completed run receipts actually removed after replay-boundary proof, through admission or periodic recovery cleanup.                                                                                                                                                     |
+| `queue_outbox_publications_total`                                                  | `queue`, `status`     | Persisted `sent`, `failed_retry` and `failed_terminal` outcomes, including maker continuations and metadata publications. Sent means publication receipt persisted, not consumer completion.                                                                             |
+
+Metrics are process-local observations, not a transactional audit ledger. An
+abrupt exit can lose an observation immediately after a DB commit. A successful
+poll/recovery/drain operation also does not imply every order validated or every
+publication succeeded: use the durable outcome counters and child failures.
+`orders.validationDemand.admit` measures the by-ID admission use case; atomic
+upsert/checkpoint admissions also exist, so it is not a global admission counter.
+No new DB-wide count or age scan runs on the metrics path. Use `inspect:orders`
+for durable inventory, including explicit `--counts` when needed.
+
+APM uses the same stable operation names as the operation metrics:
+
+- `orders.validationDemand.{admit,claim,batch,snapshot,validate,verify,commit}`:
+  covers background validation after broker ACK, with child phases under each
+  claimed batch. Claim spans also cover idle and skip-only selection.
+- `orders.maker.{admit,step,snapshot,validate,verify,checkpoint}`: covers bounded
+  maker/token work, with run/step attributes for correlation to checkpoint logs.
+- `orders.maker.{recover,recoverWakeup,cleanup}`: covers periodic recovery,
+  individual bounded broker probes and replay-safe receipt removal.
+- `orders.lifecycle.apply`: covers the lifecycle use case independently of
+  validation permits and makes its failures visible before consumer retry logic.
+- `queueOutbox.{drain,publish}`: covers bounded publication and sent-state writes.
+- `orders.validationAdmission.wait`: a span only while contended; this uses the
+  dedicated wait histogram/gauges rather than the generic operation metrics.
+
+Validation, snapshot verification, checkpoint, publication and recovery-check
+spans see errors **before** existing catches convert them into retry or handoff.
+For an isolated failing maker order, the validation child fails while its parent
+step can succeed by committing durable demand. No per-order validation span is
+created inside a batch. Shared APM supplies the established trace/profile context.
+
+Useful PromQL queries with the default runtime prefix:
+
+```promql
+# Demand completion and current-state retirement, kept separate from attempts.
+sum by (chain_id, outcome) (
+  rate(artgod_indexer_order_demand_orders_total{outcome=~"covered|resolvedUnneeded|retried|lostClaims"}[5m])
+)
+
+# Maker progress, including obligations delegated to demand validation.
+sum by (chain_id, outcome) (
+  rate(artgod_indexer_order_maker_checkpoint_orders_total{outcome=~"resolved|deferred"}[5m])
+)
+
+# Shared capacity pressure and p95 granted wait.
+artgod_indexer_order_validation_waiting
+histogram_quantile(0.95, sum by (chain_id, le) (
+  rate(artgod_indexer_order_validation_wait_seconds_bucket{result="granted"}[5m])
+))
+
+# Failing phases even when a worker handles the error and retains durable work.
+sum by (chain_id, operation) (
+  rate(artgod_indexer_processing_operations_total{result="failure"}[5m])
+)
+```
+
+Local checks exercise actual shared Prometheus serialization and a recording
+`ApmPort` around real disposable SQLite workflows: rollback versus coverage,
+isolated handoff versus completion, recovery, outbox retry, FIFO cancellation and
+failure-neutral metric callbacks. They do not certify live Tempo/Prometheus
+ingestion or rendered Grafana panels.
+
 ### Docker Compose
 
 `docker-compose.yml` defines:

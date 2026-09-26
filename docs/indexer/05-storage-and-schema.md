@@ -44,6 +44,21 @@ Migrations are applied at runtime startup via `createMigrationRunner()`:
 
 The migration runner is invoked by the onchain workers and the OpenSea workers.
 
+## Order validation recovery
+
+Migrations 056–061 introduce durable maker scans, continuation publication,
+per-order demand and delivery-origin receipts. Migration 061 adds
+`isolate_order_id` and cumulative `deferred_orders` to
+`maker_order_revalidation_runs`; existing cursors and completed scans remain
+intact. A known failed order is admitted to `order_validation_demand` in the same
+write transaction that moves its maker cursor and replaces the continuation.
+
+Maker `completed` means its finite scan resolved or durably handed off all work.
+It is not full validation proof: pending demand owns unfinished handoffs, even
+after maker receipt cleanup. `resolved_orders` excludes pending handoffs;
+`deferred_orders` counts transfers over the run's generations, not current
+remaining work. See [durable maker progress](07-domain-orders.md#durable-maker-progress).
+
 ## Core Tables (Onchain)
 
 Defined primarily in `database/migrations/002_indexer_schema.sql`.

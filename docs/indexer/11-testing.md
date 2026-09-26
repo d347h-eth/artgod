@@ -79,6 +79,12 @@ TMPDIR="$indexer_test_dir" SQLITE_TMPDIR="$indexer_test_dir" \
 
 Tests load `.env.test` via `loadTestEnv()`.
 
+Values present in that file overwrite the corresponding process environment.
+Check its database and service targets before running tests: assigning a shell
+`ARTGOD_DB_PATH` alone does not override the file. Keep disposable database paths
+under the active worktree's `tmp/`; the queue fixtures use separate stores and
+private loopback ports rather than app-data state.
+
 Required keys for smoke/integration paths:
 
 - `ARTGOD_DB_PATH`
@@ -144,6 +150,209 @@ production rate-limit behavior, endpoint ordering, or stream delivery. A
 release that changes the OpenSea dependency or adapter contract still needs a
 credentialed live integration check; those observations must not be promoted
 into ordering guarantees without an upstream contract.
+
+## Heavy-maker Order Workload
+
+`tests/orders-heavy-maker.test.ts` seeds a migrated disposable database with
+9,339 synthetic WETH bids across two collections, a small maker, and a sold
+token. It exercises the real candidate queries, validator and result writes
+with deterministic fake RPC replies. The fixture generates one order at a time;
+it does not copy a production orderbook or access an RPC endpoint.
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/orders-heavy-maker.test.ts
+```
+
+The baseline reports contract reads by purpose, virtual wire time (10 ms/read),
+local validation time and remaining SQLite/orchestration time. It verifies that
+the original serial handler finishes the entire maker before following token
+work, and replays the first page after interruption. Compare later changes on
+the same fixture and virtual latency; wall time is local synthetic evidence,
+not a live recovery ETA. Queue depth and useful validation count are separate
+measurements. No inspector extension is needed for this offline baseline.
+
+`tests/order-validation-demand-batch.test.ts` exercises the individual-order demand
+path with real disposable SQLite and a batch-capable fake RPC. A 250-order case
+uses three snapshots, 13 status aggregates and nine shared wallet reads; all 250
+receive guarded completion. Mixed makers/sells, future triggers, obsolete pages,
+time-budget release, concurrent claims, lost leases, source/revision/generation
+changes, reorgs, failed SQL commits and graceful stop verify durability. A repeated
+order-specific read failure isolates retries so the other 99 orders can finish
+before that fault is repaired. These
+call counts and virtual latency are synthetic evidence, not live throughput.
+
+Its sustained-admission case drives the production demand scheduler against
+disposable SQLite with 10 ms simulated latency per RPC port call, including
+block/head checks. It drains an initial 1,000 orders while accepting another 30
+per simulated second for ten seconds. All 1,300 are covered by the 11-second
+cutoff, with two RPC calls active at most; lifecycle work and a waiting competing
+validation request both proceed. This controlled workload does not qualify a
+live provider or predict native catch-up time.
+
+`tests/order-validation-demand-scheduler.test.ts` covers continuous draining,
+idle/error backoff, FIFO sharing with maker/token work, and shutdown while queued
+or active. Reporting tests distinguish checks from durable effects and verify
+bounded window aggregation; inspector tests distinguish scheduler samples from
+opt-in global age/lease/retry aggregates.
+
+The same migrated workload also exercises bounded WETH snapshots: with 100
+orders per context, 94 contexts perform 9,339 order-status reads and 282 shared
+wallet reads. `tests/seaport-validation-batch.test.ts` covers scope isolation,
+in-flight sharing, early/terminal decisions, changing balances, count/time
+bounds, RPC and conduit-registry failures, stale heads and branch changes. Database interleavings
+verify that failed contexts leave prior state intact and newer source/anchor
+changes win. The RPC adapter test checks that canonicality reads bypass its
+general block cache. These are deterministic local proofs, not native QA.
+
+`tests/seaport-status-batch.test.ts` covers bounded lazy status aggregates,
+per-item failure and malformed-result fallback, provider rejection/cooldown,
+block/protocol isolation and reorg rejection. The RPC adapter test exercises
+real Viem encoding/decoding against stubbed HTTP responses, including endpoint
+retry after a failed aggregate. It does not contact an external provider.
+The checkpoint suite runs all 9,339 bids through actual durable steps with the
+batch-capable fake: 467 status aggregates plus 282 shared wallet calls = 749
+contract RPC calls, versus 9,621 after wallet sharing alone. Logical reads remain
+9,621; virtual wire time becomes 7,490 ms at 10 ms per aggregate/single call.
+These counts exclude block lookups, provider retries and cold conduits. The fake
+does not measure deployless execution gas, billing or live endpoint support.
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/seaport-status-batch.test.ts \
+  tests/maker-revalidation-checkpoint.test.ts tests/rpc-provider-resilience.test.ts
+```
+
+`tests/maker-revalidation-checkpoint.test.ts` reopens migrated SQLite after an
+interruption, exercises the actual atomic result/cursor transaction (including
+SQLite busy retry), and checks lease fencing, changed/deleted orders, finite
+admission, completion before ACK and ACK-boundary receipt cleanup. The worker
+test checks delivery-origin mapping and deferred lease waits. Broker-origin
+and restart integration is a separate real-NATS gate; these SQLite tests do
+not establish broker or native runtime behavior. They also exercise elapsed
+budgets, duplicate continuations, terminal outbox failures, missing wakeups,
+recovery races and bounded rotating recovery pages. Maker coalescing cases cover
+2,000 old hints sharing a pass, live-scope coverage after ACK, distinct chain/
+selection/anchor modes, demand arriving before the first checkpoint, and restart
+at a full follow-up pass boundary with no missed earlier orders.
+
+Admission-failure cases run the actual worker beyond its retry ceiling with
+failed replay metadata or a SQLite admission abort. They require the original
+delivery to remain unacknowledged while no durable maker run exists, and prove
+completion after the fault clears.
+
+`tests/maker-validation-handoff.test.ts` injects a persistent order read failure
+among 250 orders: 249 finish while one remains in isolated demand, then completes
+after its dependency recovers. Real SQLite abort triggers prove demand admission,
+cursor advancement and continuation writes roll back together. Cases cover
+restart at the isolation target and after handoff, lost ACK/coalesced hints,
+newer maker generations during/after handoff, concurrent revisions and demand
+leases, terminal/anchor changes, shared dependency failures and receipt cleanup.
+
+Run the maintained queue fixture with an existing staged NATS binary:
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  ORDER_QUEUE_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
+  yarn workspace @artgod/indexer test:orders:queues
+```
+
+This command bundles a maintained child worker using the existing esbuild
+dependency, starts the pinned NATS version on loopback, and keeps all stores
+under worktree `tmp/order-queue-healing-nats/`. It downloads nothing and never
+opens app-data storage. It proves that small-maker and token work completes
+after the heavy maker's first 100 validations, all 9,339 finish without consuming
+failure attempts, and 200 additional old maker hints add no validation pass or
+run rows. At most one outbox continuation exists for the run. It
+also holds both shared validation permits on RPC, applies a lifecycle fill while
+they are held, and verifies targeted token work finishes before the broad sweep.
+The maximum stays at two active validations. It
+then kills its child while the second context is awaiting RPC, restarts NATS
+against the same synthetic store, and resumes the remaining 410 of 510 orders.
+The recovery fixture advances its injected clock past the persisted lease;
+it does not wait two real minutes. Results use deterministic fake RPC, so they
+establish scheduling/replay behavior rather than live throughput or native QA.
+The same fixture injects a persistent failure into a 250-order maker scan,
+observes 249 resolved orders and one durable handoff with all broker messages
+acknowledged, then restarts worker and NATS. Only the remaining order is validated
+after recovery; an empty broker queue is not mistaken for an empty demand table.
+
+`tests/order-processing.test.ts` covers FIFO admission, error release and the
+lifecycle boundary. The backend's `integration/order-lifecycle.test.ts` uses real
+migrations, domain transitions, read models and HTTP adapters: a processed sale
+removes the ask while the already-applied owner and sale activity remain intact.
+Run it with `yarn workspace @artgod/backend test integration/order-lifecycle.test.ts`.
+`yarn workspace @artgod/frontend test:listings:history` exercises the maintained
+rendered fixture for sold-token asks and retained daily history. That fixture is
+separate from native/live queue qualification.
+
+The same `test:orders:queues` command runs `integration/order-backlog.test.ts`:
+10,002 legacy envelopes (7,719 validation hints, 2,281 cancellations and two fill
+facts), plus 1,000 arriving hints across 50 additional orders. It uses the actual
+paced legacy handler, stops and resumes its child, verifies committed domain
+state and bounds demand rows without a per-envelope outbox. Malformed bytes and
+an unsupported future update remain stored through broker restart. Its concise
+result and bounded progress samples are under `tmp/order-backlog-nats/`.
+
+The September 24 synthetic run completed 11,002 supported envelopes in 64.4 s:
+170.9 completions/s against 44.2 arriving hints/s, 281 full validations and 1,124
+contract reads with a 2 ms fake delay per read. Demand peaked at 250 identities;
+there were no validation outbox rows. Worker CPU totaled 17.4 s, admission/domain
+SQLite work 6.0 s, peak worker RSS 143.7 MiB, and total allocated database growth
+228 KiB (including canonical updates and indexes, not metadata alone). Sampled
+unsatisfied demand age settled to zero. The oldest terminal input began 18 hours
+old and was applied about 64 s later. These costs include fixture instrumentation;
+they are neither real-provider throughput nor a six-million-message ETA.
+
+`tests/legacy-order-admission.test.ts` injects demand/terminal transaction failures
+and failed ACKs, checks retained retries beyond the normal ceiling, and verifies
+explicit no-RPC admission. `tests/order-processing-inspection.test.ts` verifies
+the read-only progress tool's explicit inputs, bounded samples and unchanged
+SQLite data version. Full counts require the operator's `--counts` opt-in.
+
+## Ordinary Order Validation Demand
+
+`tests/order-validation-demand.test.ts` uses migrated SQLite and strict full-order
+snapshots. It covers 2,000 old hints coalescing to one validation, bounded receipt
+storage, newer trigger generations/canonical revisions during RPC, cancellation
+precedence, expiry/anchor checks, own-result revision handling, dead leases,
+atomic upsert rollback and restart without a publication. The candidate query
+plan uses the chain/due index without a temporary sort. Native-balance snapshot
+pinning and failure propagation have validator and RPC-adapter coverage. The
+existing failed-publish/unchanged-upsert tests still enforce no redundant writes.
+
+Conduit-storage fault injection must leave order status unchanged, record no
+coverage and retain retryable demand. In
+`tests/order-validation-demand-batch.test.ts`, one persistently failing order in
+a 100-order page is isolated after repeated failure: the other 99 finish, and
+the remaining demand completes when its read recovers. Keep these ownership and
+failure-isolation cases alongside the maker handoff tests when changing batching.
+
+## Order Processing Observability
+
+`tests/domain-processing-observability.test.ts` uses the shared Prometheus
+serializer to verify duration units/buckets, bounded labels, overlapping active
+work, FIFO cancellation/drain and metric-failure neutrality. A recording `ApmPort`
+checks callback nesting and preservation of original errors without collectors.
+
+The demand-batch, maker-handoff, maker-checkpoint, order-processing and queue-outbox
+suites additionally verify telemetry against real disposable SQLite outcomes:
+rolled-back results are not reported as committed coverage, a failed isolated
+validation is visible under a successful durable handoff, and recovery/publication
+outcomes reflect persisted state. Preserve these checks when changing retry catches
+or checkpoint boundaries. The telemetry contracts and query examples are in
+[Order processing metrics and APM](10-observability-and-metrics.md#order-processing-metrics-and-apm).
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/domain-processing-observability.test.ts \
+  tests/order-validation-demand-batch.test.ts tests/maker-validation-handoff.test.ts \
+  tests/maker-revalidation-checkpoint.test.ts tests/order-processing.test.ts \
+  tests/queue-outbox.test.ts
+```
+
+These checks verify instrumentation locally. Live scrape/trace ingestion and
+rendered dashboards require separate runtime QA.
 
 ## OpenSea Reconciliation Regression
 

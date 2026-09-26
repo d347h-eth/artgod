@@ -1,3 +1,4 @@
+import { LISTING_HISTORY_HARNESS } from './listing-history-contract';
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
@@ -621,6 +622,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		selectedTraits,
 		selectedTraitRanges,
 		tokenStatus,
+		sold: searchParams.has(LISTING_HISTORY_HARNESS.soldKey),
 		cursor: searchParams.get('cursor')
 	});
 
@@ -873,9 +875,14 @@ function buildTokensPage(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
+	sold: boolean;
 	cursor: string | null;
 }): ApiTokensPage {
-	const filtered = TOKEN_CARDS.filter((token) => {
+	const filtered = TOKEN_CARDS.map((token) =>
+		params.sold && token.tokenId === LISTING_HISTORY_HARNESS.soldTokenId
+			? { ...token, listingPrice: null, listingCurrency: null }
+			: token
+	).filter((token) => {
 		if (params.tokenStatus === 'listed' && !token.listingPrice) {
 			return false;
 		}

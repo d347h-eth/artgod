@@ -4,10 +4,12 @@ import type { CollectionMakerTrigger, OnChainData } from "../domain/onchain.js";
 import {
     MAKER_TRIGGER_SCOPE,
     ORDER_JOB_KIND,
+    ORDER_UPDATE_REASON,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
 } from "../domain/order-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
+import { orderUpdateQueue } from "../domain/order-processing.js";
 import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
 import type { QueuePort } from "../ports/queue.js";
 import { allowsGlobalMakerRevalidation } from "./backfill-order-maintenance.js";
@@ -25,7 +27,7 @@ export async function publishOrderUpdateJobs(
         const job = isTokenScopedMakerTrigger(makerTrigger)
             ? buildTokenScopedMakerJob(chainId, maker, makerTrigger)
             : buildCollectionScopedMakerJob(chainId, maker, makerTrigger);
-        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
+        await queue.publish(job.queue, job);
     }
 
     if (allowsGlobalMakerRevalidation(orderMaintenancePolicy)) {
@@ -67,7 +69,7 @@ export async function publishOrderUpdateJobs(
             queue,
             chainId,
             fill.orderId,
-            "fill",
+            ORDER_UPDATE_REASON.Fill,
             fill,
         );
     }
@@ -86,7 +88,7 @@ export async function publishOrderUpdateJobs(
             queue,
             chainId,
             cancel.orderId,
-            "cancel",
+            ORDER_UPDATE_REASON.Cancel,
             cancel,
         );
     }
@@ -97,7 +99,7 @@ export async function publishOrderUpdateJobs(
             queue,
             chainId,
             order.orderId,
-            "order",
+            ORDER_UPDATE_REASON.Validation,
             order,
         );
     }
@@ -111,7 +113,7 @@ function buildTokenScopedMakerJob(
     return {
         jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
         kind: ORDER_JOB_KIND.UpdateByMaker,
-        queue: QUEUE_NAMES.OrdersUpdateByMaker,
+        queue: QUEUE_NAMES.OrdersUpdateByToken,
         payload: {
             chainId,
             scope: MAKER_TRIGGER_SCOPE.Token,
@@ -191,7 +193,7 @@ async function publishOrderUpdateById(
     const job: JobEnvelope<OrderUpdateByIdPayload> = {
         jobId: `orders:update:id:${chainId}:${orderId}:${attribution.blockNumber}:${attribution.logIndex}`,
         kind: ORDER_JOB_KIND.UpdateById,
-        queue: QUEUE_NAMES.OrdersUpdateById,
+        queue: orderUpdateQueue({ chainId, orderId, reason }),
         payload: {
             chainId,
             orderId,
@@ -205,5 +207,5 @@ async function publishOrderUpdateById(
         scheduledAt: Date.now(),
         chainId,
     };
-    await queue.publish(QUEUE_NAMES.OrdersUpdateById, job);
+    await queue.publish(job.queue, job);
 }

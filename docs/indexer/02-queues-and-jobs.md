@@ -17,7 +17,9 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `orders-domain`
 - `orders-upsert`
 - `order-updates-by-maker`
+- `order-updates-by-token`
 - `order-updates-by-id`
+- `order-lifecycle-updates`
 - `activity-upsert`
 - `collection-extension-artifacts`
 - `token-image-cache`
@@ -106,6 +108,9 @@ Publishing:
 
 - Each job is published to a subject derived from the queue name.
 - `msgID` is set to the jobId for broker-level dedupe.
+- Publication can return a stream-incarnation/sequence receipt. Durable maker
+  continuations record it in the outbox so recovery can distinguish pending
+  broker work from a publication whose delivery has already been acknowledged.
 
 Subscribing:
 
@@ -137,7 +142,17 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
 
 - If a job's `scheduledAt` is in the future, the worker nacks with delay.
 - If a handler throws, the message is nacked.
-- The NATS adapter updates `attempt` based on redelivery count.
+- By-ID/lifecycle consumers retain their original envelopes on application
+  failure with a one-second retry delay; they have no attempt-based transfer to
+  the log-only DLQ. Unsupported order jobs and malformed queue envelopes remain
+  in their original queue with a 60-second retry delay and a visible error.
+- The NATS adapter uses the SDK's one-based `deliveryCount` for `attempt` (the
+  first delivery is attempt 1). Successful maker continuations are separate
+  step messages; many successful steps do not exhaust a retry limit.
+- A deferred maker lease wait nacks with delay without entering the DLQ path.
+- Maker admission failures also retain the original delivery with a one-second
+  delay, including unavailable replay metadata or SQLite persistence. Before
+  admission commits there may be no run for durable recovery to find.
 - If `attempt >= maxAttempts` and a `deadLetterQueue` is configured:
     - A dead-letter job is published with the original job and error info.
     - The original message is acked (removed from the stream).
@@ -207,6 +222,43 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 - token-scoped updates include `scope = token`, `collectionId`, and `tokenId`
 - collection-scoped updates include `scope = collection` and `collectionId`
 - global updates include `scope = global` and omit collection/token attribution
+
+Maker continuation envelopes retain that full payload and add a run/step
+reference. Each delivery resolves a bounded step, commits its results, cursor
+and next outbox wakeup atomically, then ACKs. A bounded recovery poll checks
+unfinished runs and broker publication evidence. See
+[durable maker progress](07-domain-orders.md#durable-maker-progress).
+
+Ordinary by-ID validation hints admit one durable demand per current order before
+ACK; they no longer hold the mixed consumer across RPC. Upserts persist that
+demand in their own transaction without another queue envelope. A separate
+bounded poller validates captured revisions/generations and resumes expired
+leases after restart. Explicit fill/cancel/source updates retain their domain
+handlers. See [coalesced validation](07-domain-orders.md#coalesced-ordinary-validation).
+
+New token-scoped hints and their continuations use `order-updates-by-token`;
+collection/global sweeps use `order-updates-by-maker`. New explicit fill/cancel
+and OpenSea source observations use `order-lifecycle-updates`. Both legacy
+consumers remain active and accept their original mixed payloads. No queue reset
+or bulk republish is part of this upgrade.
+
+Lifecycle handling applies existing domain transitions without RPC. Broad maker,
+targeted token and ordinary-demand validation share FIFO admission with at most
+two active contexts per chain worker, preserving the previous aggregate capacity.
+Maker/token consumers are single-flight. Two bounded demand executors may use
+idle validation capacity; each yields and rejoins FIFO admission after its batch.
+Admission waits occur before claiming demand, and shutdown cancels queued waits.
+SQLite transactions remain synchronous
+and short; no transaction is held while waiting for RPC or an admission permit.
+Unknown order job kinds/reasons fail visibly and retain their original envelope.
+The new routes protect newly produced work; they do not let an old buried fill
+jump ahead of its legacy consumer's durable cursor.
+
+Legacy by-ID admission is paced at one envelope per five milliseconds (at most
+200/second before processing cost). Durable demand is bounded by live identities,
+not a fixed pending-row limit that would block later mixed-queue terminal facts.
+See the [operator procedure](18-order-queue-recovery.md) for bounded inspection,
+pause/resume, unknown input and useful-work measurements.
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`

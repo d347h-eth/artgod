@@ -407,6 +407,7 @@ describe("offchain dispatch", () => {
             validUntil,
         });
         expect(update).toBeDefined();
+        expect(update?.queue).toBe(QUEUE_NAMES.OrderLifecycle);
         const domain = new SqliteOrdersDomain(WETH, async () => {
             throw new Error("A cancellation must not validate an absent order");
         });
@@ -422,15 +423,52 @@ describe("offchain dispatch", () => {
             expires_at: validUntil + POLICY.orderReorgGraceSeconds,
         });
     });
+
+    it.each(["item_sold", "item_transferred"])(
+        "routes %s token work independently from broad maker scans",
+        async (eventType) => {
+            const collectionId = ensureCollection(1, CONTRACT);
+            const queue = new QueueCapture();
+            const fixture = await readFixture(`${eventType}.json`);
+            await dispatchOffchainPayload(queue, new SqliteTokenSetRegistry(), {
+                source: "opensea",
+                chainId: 1,
+                collectionId,
+                receivedAt: Date.now(),
+                channel: "stream",
+                dedupeKey: `fixture:${eventType}`,
+                eventType,
+                orderId: null,
+                runId: null,
+                sourceEventAt: Math.floor(Date.now() / 1000),
+                payload:
+                    eventType === "item_transferred"
+                        ? fixture.payload
+                        : fixture,
+            });
+            expect(
+                queue.published.find(
+                    (job) => job.kind === ORDER_JOB_KIND.UpdateByMaker,
+                )?.queue,
+            ).toBe(QUEUE_NAMES.OrdersUpdateByToken);
+            if (eventType === "item_sold")
+                expect(
+                    queue.published.find(
+                        (job) => job.kind === ORDER_JOB_KIND.UpdateById,
+                    )?.queue,
+                ).toBe(QUEUE_NAMES.OrderLifecycle);
+        },
+    );
 });
 
 class QueueCapture implements QueuePort {
     readonly published: Array<JobEnvelope<unknown>> = [];
 
     async publish<TPayload>(
-        _queue: QueueName,
+        queue: QueueName,
         message: JobEnvelope<TPayload>,
     ): Promise<void> {
+        expect(message.queue).toBe(queue);
         this.published.push(message as JobEnvelope<unknown>);
     }
 

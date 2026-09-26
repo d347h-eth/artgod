@@ -1,8 +1,13 @@
 import type { RawOrderPayload } from "./normalize.js";
-import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateReason,
+    type OrderUpdateByMakerReason,
+} from "../../domain/order-jobs.js";
 import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SOURCE_STATUS,
     type OrderSourceStatus,
 } from "../../domain/orders.js";
 import {
@@ -24,7 +29,7 @@ import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-t
 
 export type OpenSeaOrderUpdate = {
     orderId: string;
-    reason: "cancel" | "order" | "fill";
+    reason: OrderUpdateReason;
     sourceStatus: OrderSourceStatus;
     validUntil?: number | null;
 };
@@ -74,8 +79,8 @@ export function normalizeOpenSeaOrderUpdate(
     if (eventType === "item_cancelled") {
         return {
             orderId: parseOrderHash(payload),
-            reason: "cancel",
-            sourceStatus: "cancelled",
+            reason: ORDER_UPDATE_REASON.Cancel,
+            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }
@@ -85,8 +90,8 @@ export function normalizeOpenSeaOrderUpdate(
     ) {
         return {
             orderId: parseOrderHash(payload),
-            reason: "cancel",
-            sourceStatus: "invalidated",
+            reason: ORDER_UPDATE_REASON.Cancel,
+            sourceStatus: ORDER_SOURCE_STATUS.Invalidated,
         };
     }
     if (
@@ -95,15 +100,15 @@ export function normalizeOpenSeaOrderUpdate(
     ) {
         return {
             orderId: parseOrderHash(payload),
-            reason: "order",
-            sourceStatus: "active",
+            reason: ORDER_UPDATE_REASON.Validation,
+            sourceStatus: ORDER_SOURCE_STATUS.Active,
         };
     }
     if (eventType === "item_sold") {
         return {
             orderId: parseOrderHash(payload),
-            reason: "fill",
-            sourceStatus: "filled",
+            reason: ORDER_UPDATE_REASON.Fill,
+            sourceStatus: ORDER_SOURCE_STATUS.Filled,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }

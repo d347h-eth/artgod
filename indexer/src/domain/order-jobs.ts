@@ -18,6 +18,13 @@ export const ORDER_JOB_KIND = {
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
+export const ORDER_UPDATE_REASON = {
+    Validation: "order",
+    Fill: "fill",
+    Cancel: "cancel",
+} as const;
+export type OrderUpdateReason =
+    (typeof ORDER_UPDATE_REASON)[keyof typeof ORDER_UPDATE_REASON];
 export { MAKER_TRIGGER_SCOPE };
 export type OrderUpdateByMakerReason = MakerTriggerReason;
 
@@ -28,6 +35,8 @@ type OrderUpdateByMakerAttribution = {
     blockHash?: string | null;
     txHash?: string | null;
     logIndex?: number | null;
+    /** Full original payload lets older workers conservatively process a continuation. */
+    continuation?: { runId: string; step: number };
 };
 
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.
