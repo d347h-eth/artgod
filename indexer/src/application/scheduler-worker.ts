@@ -1,15 +1,9 @@
 import { logger } from "@artgod/shared/utils";
 import type { IndexerConfig } from "../config/index.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import type {
-    BackfillSyncPayload,
-    RealtimeSyncPayload,
-} from "../domain/sync-jobs.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    SYNC_JOB_KIND,
-} from "../domain/sync-jobs.js";
+import type { RealtimeSyncPayload } from "../domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
+import type { SyncGapDetectorPort } from "./sync-gap-scheduler.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
@@ -29,9 +23,13 @@ export type SchedulerWorkerOptions = {
 // Scheduler-worker runtime: perform a blocking bootstrap (head fetch + initial schedule),
 // then start non-blocking WS/poller loops that enqueue new heads in the background.
 export async function startSchedulerWorker(
-    rpc: RpcProviderPort,
-    queue: QueuePort,
-    config: IndexerConfig,
+    rpc: Pick<RpcProviderPort, "getBlockNumber">,
+    queue: Pick<QueuePort, "publish">,
+    config: {
+        chainId: IndexerConfig["chainId"];
+        sync: Pick<IndexerConfig["sync"], "reorgDepth">;
+    },
+    gapDetector: SyncGapDetectorPort,
     options: SchedulerWorkerOptions = {},
 ): Promise<() => Promise<void>> {
     const pollIntervalMs = options.pollIntervalMs ?? 12_000;
@@ -43,16 +41,26 @@ export async function startSchedulerWorker(
     let stopped = false;
     let timer: ReturnType<typeof setInterval> | undefined;
     let stopHeadSource: (() => Promise<void>) | undefined;
+    let headWork: Promise<void> = Promise.resolve();
+    let pollWork: Promise<void> | null = null;
 
     await bootstrapRealtimeScheduling();
     await bootstrapBlockChecks();
+    if (lastScheduled !== null) await scanGaps(lastScheduled);
 
-    const handleHead = async (headNumber: number) => {
-        // Ignore head events until bootstrap completed.
-        if (lastScheduled === null || headNumber <= lastScheduled) return;
-
-        await scheduleRealtimeForHead(headNumber);
-        await scheduleBlockChecksForHead(headNumber);
+    const handleHead = (headNumber: number): Promise<void> => {
+        if (stopped) return Promise.resolve();
+        // WS and HTTP publications share one cursor. Serialize their updates so
+        // a slower, older head cannot move that cursor backward.
+        const next = headWork.then(async () => {
+            if (stopped || lastScheduled === null) return;
+            if (headNumber > lastScheduled)
+                await scheduleRealtimeForHead(headNumber);
+            // Retry interrupted block-check fanout even if the head is unchanged.
+            await scheduleBlockChecksForHead(headNumber);
+        });
+        headWork = next.catch(() => {});
+        return next;
     };
 
     if (options.headSource) {
@@ -106,17 +114,25 @@ export async function startSchedulerWorker(
             },
             () => handleHead(current),
         );
+        // Coverage may change without a new head: bootstrap, rollback, dropped
+        // work, or an older hole. Never gate the perpetual sweep on lastScheduled.
+        if (!stopped) await scanGaps(current);
     };
 
     // Non-blocking: the timer drives polling while the caller continues.
     timer = setInterval(() => {
-        poll().catch((err) => {
-            logger.warn("Scheduler-worker poll failed", {
-                component: "IndexerSchedulerWorker",
-                action: "poll",
-                error: String(err),
+        if (stopped || pollWork) return;
+        pollWork = poll()
+            .catch((err) => {
+                logger.warn("Scheduler-worker poll failed", {
+                    component: "IndexerSchedulerWorker",
+                    action: "poll",
+                    error: String(err),
+                });
+            })
+            .finally(() => {
+                pollWork = null;
             });
-        });
     }, pollIntervalMs);
 
     return async () => {
@@ -125,10 +141,25 @@ export async function startSchedulerWorker(
         if (stopHeadSource) {
             await stopHeadSource();
         }
+        await pollWork;
+        await headWork;
     };
 
+    async function scanGaps(headBlock: number): Promise<void> {
+        try {
+            await gapDetector.scan(headBlock);
+        } catch (error) {
+            logger.warn("Scheduler-worker gap scan failed", {
+                component: "IndexerSchedulerWorker",
+                action: "scanGaps",
+                error: String(error),
+            });
+        }
+    }
+
     async function bootstrapRealtimeScheduling(): Promise<void> {
-        // Bootstrap: schedule only the recent reorg window, never full history.
+        // Realtime bootstrap covers the recent reorg window; gap repair has its
+        // own bounded, collection-scoped sweep after this head is established.
         // This blocking step ensures the first scheduled range is based on a known head.
         await apm.withSpan(
             "scheduler-worker.bootstrap.realtime",
@@ -213,7 +244,7 @@ export async function startSchedulerWorker(
 }
 
 async function scheduleRealtimeRange(
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     fromBlock: number,
     toBlock: number,
@@ -233,38 +264,8 @@ async function scheduleRealtimeRange(
     }
 }
 
-async function scheduleBackfillRange(
-    queue: QueuePort,
-    chainId: number,
-    fromBlock: number,
-    toBlock: number,
-    batchSize: number,
-): Promise<void> {
-    // Manual backfill path: emit batched range jobs when explicitly requested.
-    const size = Math.max(1, batchSize);
-    for (let start = fromBlock; start <= toBlock; start += size) {
-        const end = Math.min(toBlock, start + size - 1);
-        const job: JobEnvelope<BackfillSyncPayload> = {
-            jobId: `sync:backfill:${chainId}:${start}-${end}`,
-            kind: SYNC_JOB_KIND.BackfillRange,
-            queue: QUEUE_NAMES.BackfillSync,
-            payload: {
-                fromBlock: start,
-                toBlock: end,
-                source: BACKFILL_SOURCE.ManualHistorical,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-        };
-        await queue.publish(QUEUE_NAMES.BackfillSync, job);
-    }
-}
-
 async function scheduleBlockCheck(
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     blockNumber: number,
 ): Promise<void> {

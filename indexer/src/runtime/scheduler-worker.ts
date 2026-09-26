@@ -1,7 +1,11 @@
 import { logger } from "@artgod/shared/utils";
 import { setDbPath } from "@artgod/shared/database";
+import { createMigrationRunner } from "@artgod/shared/migrations";
 import { loadConfig } from "../config/index.js";
 import { startSchedulerWorker } from "../application/scheduler-worker.js";
+import { SyncGapScheduler } from "../application/sync-gap-scheduler.js";
+import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
+import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -17,6 +21,7 @@ async function main() {
     try {
         const config = loadConfig();
         setDbPath(config.dbPath);
+        await createMigrationRunner().runMigrations();
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,
@@ -66,6 +71,15 @@ async function main() {
             rpc,
             queue,
             config,
+            new SyncGapScheduler(
+                new SqliteCollectionRegistry(),
+                new SqliteSyncGapStore(),
+                queue,
+                {
+                    chainId: config.chainId,
+                    batchSize: config.sync.backfillBatchSize,
+                },
+            ),
             {
                 headSource,
                 apm: runtimeApm.apm,
