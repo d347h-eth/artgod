@@ -82,10 +82,10 @@ import type {
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
-import {
-	buildPriceHistoryPath,
-	type PriceHistoryRequest,
-	type PriceHistory
+import type {
+	PriceHistoryRequest,
+	PriceHistory,
+	CollectionPriceChartContext
 } from '@artgod/shared/types/price-history';
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
@@ -108,6 +108,8 @@ import {
 	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
 	buildTokenCardPath,
+	buildPriceHistoryPath,
+	buildPriceChartContextPath,
 	buildStartCollectionOpenSeaSyncPath,
 	buildUpdateCollectionOpenSeaStreamIngestionPath
 } from '@artgod/shared/http/collection-routes';
@@ -164,6 +166,19 @@ export async function getPriceHistory(
 	return requestJson<PriceHistory>(fetchFn, buildPriceHistoryPath(chainRef, collectionRef, input), {
 		signal
 	});
+}
+
+export async function getPriceChartContext(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	query: URLSearchParams
+): Promise<CollectionPriceChartContext> {
+	const suffix = query.toString();
+	return requestJson<CollectionPriceChartContext>(
+		fetchFn,
+		buildPriceChartContextPath(chainRef, collectionRef) + (suffix ? '?' + suffix : '')
+	);
 }
 
 export async function getRuntimeConfig(fetchFn: typeof fetch): Promise<RuntimeConfigApiResponse> {

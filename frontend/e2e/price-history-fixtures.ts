@@ -1,13 +1,12 @@
-import {
-	buildRealizedPriceHistory,
-	type PricedFill
-} from '../../backend/src/domain/realized-price-history';
+import { buildRealizedPriceHistory } from '../../backend/src/domain/realized-price-history';
 import {
 	PRICE_HISTORY_BUCKET,
 	PRICE_HISTORY_RANGE,
 	PRICE_HISTORY_CURRENCY_SYMBOL,
 	REALIZED_SALE_ACTION,
-	type PriceHistoryBucket
+	type PriceHistoryBucket,
+	type PriceHistoryRequest,
+	type RealizedSale
 } from '@artgod/shared/types/price-history';
 import { BLUR_BETH_ADDRESS } from '@artgod/shared/market-data/fills';
 
@@ -25,6 +24,22 @@ const CURRENCIES = [
 		currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Beth
 	}
 ];
+
+type PricedFill = RealizedSale & { blockNumber: number; logIndex: number };
+function fixtureHistory(fills: PricedFill[], input: PriceHistoryRequest, end: number) {
+	const ordered = fills.sort(
+		(a, b) =>
+			a.timestamp - b.timestamp ||
+			a.blockNumber - b.blockNumber ||
+			a.logIndex - b.logIndex ||
+			a.id.localeCompare(b.id)
+	);
+	return buildRealizedPriceHistory(
+		ordered.map(({ blockNumber: _block, logIndex: _log, ...sale }) => sale),
+		input,
+		end
+	);
+}
 
 export const PRICE_HISTORY_E2E = {
 	path: '/e2e-harness/collection/chart',
@@ -83,12 +98,23 @@ export function priceHistoryFixture(
 			? fills
 			: Array.from({ length: saleCount }, (_, i) => ({
 					...fills[i % fills.length],
+					// Stretch the dense fixture across five years, preserving exact clusters.
+					timestamp:
+						start +
+						200 * 86400 -
+						5 * 365 * 86400 +
+						Math.floor((fills[i % fills.length].timestamp - start) * ((5 * 365) / 200)),
 					id: 'dense-' + i,
 					txHash: '0x' + i.toString(16).padStart(64, '0')
 				}));
-	return buildRealizedPriceHistory(
+	return fixtureHistory(
 		tokenId ? expanded.filter((fill) => fill.tokenId === tokenId) : expanded,
-		{ bucket, range: PRICE_HISTORY_RANGE.All, tokenId },
+		{
+			bucket,
+			range:
+				bucket === PRICE_HISTORY_BUCKET.Day ? PRICE_HISTORY_RANGE.All : PRICE_HISTORY_RANGE.Year,
+			tokenId
+		},
 		start + 200 * 86400
 	);
 }
@@ -96,7 +122,7 @@ export function priceHistoryFixture(
 export function priceHistoryPrecisionFixture() {
 	const history = priceHistoryFixture();
 	const actions = [REALIZED_SALE_ACTION.TakeAsk, REALIZED_SALE_ACTION.TakeOffer, null];
-	return buildRealizedPriceHistory(
+	return fixtureHistory(
 		history.sales.slice(-3).map((sale, i) => ({
 			...sale,
 			timestamp: history.from + i * 86400,
@@ -113,7 +139,7 @@ export function priceHistoryPrecisionFixture() {
 export function priceHistoryOutlierFixture() {
 	const history = priceHistoryFixture();
 	const last = history.sales.at(-1)!;
-	return buildRealizedPriceHistory(
+	return fixtureHistory(
 		[
 			...history.sales,
 			...[10n, 11n, 12n].map((price, i) => ({

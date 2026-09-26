@@ -341,6 +341,11 @@ mutations that are intentionally absent from the public mode.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
 - `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the backend in-memory query cache for the public VPS deployment.
 - `BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS` controls how often the backend refreshes the cached public collection page (`listed`, first page, no filters) in the background.
+- With the memory provider, the same setting controls the collection chart's
+  fills snapshot TTL (default 30 seconds). That snapshot loads on request,
+  expires without a stale fallback, and is limited to one collection and
+  100,000 eligible sales. Range/bucket changes reuse it; manual refresh may
+  still see the cached snapshot until expiry. Desktop chart reads are uncached.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls how often the backend fully rebuilds the compact public blockspace cache for the configured single collection. The blockspace feature and cache internals are documented in `docs/indexer/16-blockspace-exploration.md`.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.

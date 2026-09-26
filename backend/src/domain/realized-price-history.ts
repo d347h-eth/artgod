@@ -1,16 +1,59 @@
 import {
     PRICE_HISTORY_BUCKET_SECONDS,
+    PRICE_HISTORY_BUCKET,
+    PRICE_HISTORY_RANGE,
     PRICE_HISTORY_LIMITS,
     PRICE_HISTORY_UNIT,
     REALIZED_SALE_ACTION,
     priceBucketStart,
+    priceHistoryBucket,
     type PriceHistory,
     type PriceHistoryRequest,
     type RealizedPriceBucket,
     type RealizedSale,
 } from "@artgod/shared/types/price-history";
-import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
+
 import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
+
+export class PriceHistoryInputError extends Error {}
+
+export function resolvePriceHistoryRequest(input: {
+    bucket?: string;
+    range?: string;
+    tokenId?: string;
+}): PriceHistoryRequest {
+    const bucket = input.bucket ?? PRICE_HISTORY_BUCKET.Day;
+    const range = input.range ?? PRICE_HISTORY_RANGE.All;
+    if (
+        !Object.values(PRICE_HISTORY_BUCKET).includes(
+            bucket as PriceHistoryRequest["bucket"],
+        ) ||
+        !Object.values(PRICE_HISTORY_RANGE).includes(
+            range as PriceHistoryRequest["range"],
+        )
+    )
+        throw new PriceHistoryInputError(
+            "Invalid price history range or bucket.",
+        );
+    if (
+        input.tokenId !== undefined &&
+        (!/^\d{1,78}$/.test(input.tokenId) ||
+            BigInt(input.tokenId) >= 2n ** 256n)
+    )
+        throw new PriceHistoryInputError("Invalid token ID.");
+    const validRange = range as PriceHistoryRequest["range"];
+    return {
+        bucket: priceHistoryBucket(
+            bucket as PriceHistoryRequest["bucket"],
+            validRange,
+        ),
+        range: validRange,
+        tokenId:
+            input.tokenId === undefined
+                ? undefined
+                : BigInt(input.tokenId).toString(),
+    };
+}
 
 /** Maker sells an ask and buys an accepted offer. Preserve unknown order sides
  * without guessing the execution action or ownership roles. */
@@ -34,70 +77,71 @@ export function realizedSaleExecution(
     return { action: null, seller: null, buyer: null };
 }
 
-export type PricedFill = RealizedSale & {
-    blockNumber: number;
-    logIndex: number;
-};
-
-/** Aggregate observed single-NFT prices, never interpolate or allocate a bundle. */
+/** One pass over already eligible, chronologically ordered sales. Exact arithmetic
+ * belongs here; adapters own ordering, and renderers only map the result to pixels.
+ * No bucket state is persisted. */
 export function buildRealizedPriceHistory(
-    fills: PricedFill[],
+    source: Iterable<RealizedSale>,
     input: PriceHistoryRequest,
     end: number,
 ): PriceHistory {
-    fills.sort(
-        (a, b) =>
-            a.timestamp - b.timestamp ||
-            a.blockNumber - b.blockNumber ||
-            a.logIndex - b.logIndex ||
-            a.id.localeCompare(b.id),
-    );
-    const bucketSeconds = PRICE_HISTORY_BUCKET_SECONDS[input.bucket];
-    const from = fills.length
-        ? priceBucketStart(fills[0]!.timestamp, input.bucket)
-        : end;
-    const to = fills.length
-        ? priceBucketStart(fills.at(-1)!.timestamp, input.bucket) +
-          bucketSeconds
-        : end;
-    if ((to - from) / bucketSeconds > PRICE_HISTORY_LIMITS.buckets) {
-        throw new ReadModelBadRequestError(
-            "Choose a larger time bucket or a shorter range.",
-        );
-    }
+    const bucket = priceHistoryBucket(input.bucket, input.range);
+    const bucketSeconds = PRICE_HISTORY_BUCKET_SECONDS[bucket];
     const buckets: RealizedPriceBucket[] = [];
     const sales: RealizedSale[] = [];
-    for (const fill of fills) {
-        const timestamp = priceBucketStart(fill.timestamp, input.bucket);
-        const price = BigInt(fill.priceWei);
-        const previous = buckets.at(-1);
-        if (!previous || previous.timestamp !== timestamp) {
-            buckets.push({
+    let current: RealizedPriceBucket | undefined;
+    let high = 0n,
+        low = 0n,
+        turnover = 0n;
+    let from = end,
+        to = end;
+    for (const sale of source) {
+        if (sales.length === PRICE_HISTORY_LIMITS.fills)
+            throw new PriceHistoryInputError(
+                "Choose a shorter price history range.",
+            );
+        if (sales.length && sale.timestamp < sales[sales.length - 1]!.timestamp)
+            throw new Error("Price history reader returned unordered sales");
+        const timestamp = priceBucketStart(sale.timestamp, bucket);
+        if (!sales.length) from = timestamp;
+        to = timestamp + bucketSeconds;
+        if ((to - from) / bucketSeconds > PRICE_HISTORY_LIMITS.buckets)
+            throw new PriceHistoryInputError(
+                "Choose a larger time bucket or a shorter range.",
+            );
+        const price = BigInt(sale.priceWei);
+        if (!current || current.timestamp !== timestamp) {
+            if (current) current.turnoverWei = turnover.toString();
+            high = low = turnover = price;
+            current = {
                 timestamp,
-                openWei: fill.priceWei,
-                highWei: fill.priceWei,
-                lowWei: fill.priceWei,
-                closeWei: fill.priceWei,
+                openWei: sale.priceWei,
+                highWei: sale.priceWei,
+                lowWei: sale.priceWei,
+                closeWei: sale.priceWei,
                 volume: 1,
-                turnoverWei: fill.priceWei,
-            });
+                turnoverWei: sale.priceWei,
+            };
+            buckets.push(current);
         } else {
-            if (price > BigInt(previous.highWei))
-                previous.highWei = fill.priceWei;
-            if (price < BigInt(previous.lowWei))
-                previous.lowWei = fill.priceWei;
-            previous.closeWei = fill.priceWei;
-            previous.volume++;
-            previous.turnoverWei = (
-                BigInt(previous.turnoverWei) + price
-            ).toString();
+            if (price > high) {
+                high = price;
+                current.highWei = sale.priceWei;
+            }
+            if (price < low) {
+                low = price;
+                current.lowWei = sale.priceWei;
+            }
+            current.closeWei = sale.priceWei;
+            current.volume++;
+            turnover += price;
         }
-        const { blockNumber: _block, logIndex: _log, ...sale } = fill;
         sales.push(sale);
     }
+    if (current) current.turnoverWei = turnover.toString();
     return {
         unit: PRICE_HISTORY_UNIT,
-        bucket: input.bucket,
+        bucket,
         bucketSeconds,
         range: input.range,
         from,

@@ -138,9 +138,13 @@ import {
     buildStartCollectionOpenSeaSyncPath,
     buildUpdateCollectionOpenSeaStreamIngestionPath,
     buildTokenCardPath,
+    buildPriceChartContextPath,
 } from "@artgod/shared/http/collection-routes";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
+import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
+import { GetPriceChartContextUseCase } from "./application/use-cases/collections/get-price-chart-context.js";
+import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
 import {
     QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
     QUERY_CACHE_DEBUG_HEADER_NAME,
@@ -440,6 +444,11 @@ beforeAll(async () => {
         chainsReadModel,
         collectionsReadModel,
         new SqlitePriceHistoryRead([]),
+    );
+    const getPriceChartContextUseCase = new GetPriceChartContextUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
     );
     const getTokenDetailUseCase =
         new tokenDetailUseCaseModule.GetTokenDetailUseCase(
@@ -1105,6 +1114,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getPriceHistoryUseCase,
+        getPriceChartContextUseCase,
         getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
@@ -1170,6 +1180,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getPriceHistoryUseCase,
+        getPriceChartContextUseCase,
         getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
@@ -4193,6 +4204,36 @@ describe("backend api routes", () => {
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         );
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
+    });
+
+    it("returns compact chart context with media preferences and public collection scope", async () => {
+        const path = buildPriceChartContextPath("ethereum", "terraforms");
+        const result = await resolvePublic("GET", path);
+        expect(result.statusCode).toBe(200);
+        expect(Object.keys(result.payload).sort()).toEqual([
+            "chain",
+            "collection",
+            "media",
+        ]);
+        expect(result.payload.collection.slug).toBe("terraforms");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        const disabled = await resolvePublic(
+            "GET",
+            path +
+                `?${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
+        );
+        expect(disabled.statusCode).toBe(200);
+        expect(disabled.payload.media).not.toEqual(result.payload.media);
+        expect(
+            (
+                await resolvePublic(
+                    "GET",
+                    buildPriceChartContextPath("ethereum", "milady"),
+                )
+            ).statusCode,
+        ).toBe(404);
     });
 
     it("returns the same single card as the asks grid, with current listing and traits", async () => {
@@ -8908,5 +8949,3 @@ function getCollectionFixtureByAddress(
     }
     return row;
 }
-import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
-import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";

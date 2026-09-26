@@ -26,6 +26,8 @@ import type { GetTokenCardUseCase } from "./application/use-cases/collections/ge
 import { GetTokenCardHttpAdapter } from "./http/handlers/collections/get-token-card.js";
 import type { GetPriceHistoryPort } from "./application/use-cases/collections/get-price-history.js";
 import { GetPriceHistoryHttpAdapter } from "./http/handlers/collections/get-price-history.js";
+import type { GetPriceChartContextPort } from "./application/use-cases/collections/get-price-chart-context.js";
+import { GetPriceChartContextHttpAdapter } from "./http/handlers/collections/get-price-chart-context.js";
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import type { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
@@ -188,6 +190,7 @@ export function createApiApp(
     getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getPriceHistoryUseCase: GetPriceHistoryPort,
+    getPriceChartContextUseCase: GetPriceChartContextPort,
     getTokenCardUseCase: GetTokenCardUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
     getTokenPreviewUseCase: GetTokenPreviewPort,
@@ -346,9 +349,14 @@ export function createApiApp(
     const getTokenDetailAdapter = new GetTokenDetailHttpAdapter(
         getTokenDetailUseCase,
     );
-    const getTokenCardAdapter = new GetTokenCardHttpAdapter(getTokenCardUseCase);
+    const getTokenCardAdapter = new GetTokenCardHttpAdapter(
+        getTokenCardUseCase,
+    );
     const getPriceHistoryAdapter = new GetPriceHistoryHttpAdapter(
         getPriceHistoryUseCase,
+    );
+    const getPriceChartContextAdapter = new GetPriceChartContextHttpAdapter(
+        getPriceChartContextUseCase,
     );
     const getTokenPreviewAdapter = new GetTokenPreviewHttpAdapter(
         getTokenPreviewUseCase,
@@ -471,6 +479,7 @@ export function createApiApp(
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getPriceHistoryAdapter,
+        getPriceChartContextAdapter,
         getTokenCardAdapter,
         getTokenDetailAdapter,
         getTokenPreviewAdapter,

@@ -96,6 +96,10 @@ import type {
     GetPriceHistoryRoute,
 } from "./http/handlers/collections/get-price-history.js";
 import type {
+    GetPriceChartContextHttpAdapter,
+    GetPriceChartContextRoute,
+} from "./http/handlers/collections/get-price-chart-context.js";
+import type {
     GetCollectionHoldersHttpAdapter,
     GetCollectionHoldersRoute,
 } from "./http/handlers/collections/get-collection-holders.js";
@@ -319,6 +323,7 @@ export function registerApiRoutes(
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getPriceHistoryAdapter: GetPriceHistoryHttpAdapter,
+    getPriceChartContextAdapter: GetPriceChartContextHttpAdapter,
     getTokenCardAdapter: GetTokenCardHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
@@ -463,6 +468,13 @@ export function registerApiRoutes(
         options,
         COLLECTION_API_ROUTE_TEMPLATE.PriceHistory,
         getPriceHistoryAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
+    );
+    registerObservedGet<GetPriceChartContextRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.PriceChartContext,
+        getPriceChartContextAdapter.handle,
         { preHandler: publicCollectionScopeGuard },
     );
     registerObservedGet<GetTokenActivityRoute>(
