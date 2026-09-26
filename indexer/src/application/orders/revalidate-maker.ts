@@ -42,13 +42,13 @@ export class RevalidateMakerOrders {
     }): Promise<void> {
         const { store } = this.deps;
         const now = this.deps.now ?? Date.now;
-        if (input.origin && this.deps.replayBoundary)
-            store.cleanup(
-                await this.deps.replayBoundary(input.origin.consumerName),
-                POLICY.cleanupRows,
-            );
         if (!input.jobId)
-            throw new Error("Maker request job identity is required");
+            throw new UnsupportedJob("Maker request job identity is required");
+        if (
+            input.requiredAt !== undefined &&
+            (!Number.isSafeInteger(input.requiredAt) || input.requiredAt < 0)
+        )
+            throw new UnsupportedJob("Invalid maker demand time");
         let payload: OrderUpdateByMakerPayload;
         try {
             payload = canonicalMakerRequest(input.payload);
@@ -63,13 +63,36 @@ export class RevalidateMakerOrders {
                 continuation.step < 0)
         )
             throw new UnsupportedJob("Invalid maker continuation");
-        const admitted = continuation
-            ? store.resume({
-                  chainId: payload.chainId,
-                  ...continuation,
-                  origin: input.origin,
-              })
-            : store.admit({ ...input, payload, now: now() });
+        let admitted: MakerRevalidationRun | null;
+        try {
+            if (input.origin && this.deps.replayBoundary)
+                store.cleanup(
+                    await this.deps.replayBoundary(input.origin.consumerName),
+                    POLICY.cleanupRows,
+                );
+            admitted = continuation
+                ? store.resume({
+                      chainId: payload.chainId,
+                      ...continuation,
+                      origin: input.origin,
+                  })
+                : store.admit({ ...input, payload, now: now() });
+        } catch (error) {
+            if (error instanceof MakerRevalidationConflict)
+                throw new UnsupportedJob(error.message);
+            // Until admission commits, the broker message is the only durable owner.
+            // Sending it to the log-only DLQ would leave nothing for run recovery.
+            logger.warn(LOG.AdmissionRetry, {
+                component: LOG.Component,
+                jobId: input.jobId,
+                chainId: payload.chainId,
+                error: String(error),
+            });
+            throw new JobDeferred(
+                "Maker request persistence unavailable",
+                POLICY.admissionRetryMs,
+            );
+        }
         if (!admitted) return;
         if (
             continuation &&

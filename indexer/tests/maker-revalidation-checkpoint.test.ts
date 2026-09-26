@@ -12,12 +12,17 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
+import { runWorker } from "../src/application/worker-runner.js";
 import { recoverMakerRevalidations } from "../src/application/orders/recover-maker-revalidations.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
 import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
-import type { OrderUpdateByMakerPayload } from "../src/domain/order-jobs.js";
+import {
+    ORDER_JOB_KIND,
+    type OrderUpdateByMakerPayload,
+} from "../src/domain/order-jobs.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { validateSeaportOrder } from "../src/application/offchain/seaport-validate.js";
 import {
@@ -36,6 +41,11 @@ import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import type { MakerOrderProjectionPort } from "../src/ports/maker-revalidation.js";
+import type {
+    QueueMessage,
+    QueuePort,
+    QueueReplayBoundary,
+} from "../src/ports/queue.js";
 import {
     HEAVY_MAKER,
     HeavyMakerRpc,
@@ -64,6 +74,7 @@ const now = HEAVY_MAKER.now * 1_000;
 function workflow(
     rpc = new HeavyMakerRpc(),
     wrap?: (orders: SqliteOrdersDomain) => MakerOrderProjectionPort,
+    replayBoundary?: (consumerName: string) => Promise<QueueReplayBoundary>,
 ) {
     const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
         validateSeaportOrder(
@@ -77,6 +88,7 @@ function workflow(
     const processor = new RevalidateMakerOrders({
         admission: new FairOrderValidationAdmission(2),
         store,
+        replayBoundary,
         createSnapshot: createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
             rpc,
@@ -141,6 +153,96 @@ describe("durable maker checkpoints", () => {
             .get(run.wakeupOutboxId) as { job_json: string };
         return JSON.parse(row.job_json);
     }
+
+    it.each(["storage", "broker-boundary"])(
+        "retains a maker trigger past the retry ceiling when %s fails before admission",
+        async (fault) => {
+            vi.spyOn(logger, "warn").mockImplementation(() => {});
+            seedHeavyMaker(1);
+            let unavailable = true;
+            const work = workflow(new HeavyMakerRpc(), undefined, async () => {
+                if (fault === "broker-boundary" && unavailable)
+                    throw new Error("Replay metadata unavailable");
+                return { ...origin, ackFloor: origin.sequence - 1 };
+            });
+            let deliver!: (
+                message: QueueMessage<OrderUpdateByMakerPayload>,
+            ) => Promise<void>;
+            const publish = vi.fn();
+            const queue: QueuePort = {
+                publish,
+                async subscribe(_queue, handler) {
+                    deliver = handler as typeof deliver;
+                    return async () => {};
+                },
+                async close() {},
+            };
+            await runWorker<OrderUpdateByMakerPayload>(
+                queue,
+                {
+                    queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                    consumerName: origin.consumerName,
+                    maxAttempts: 1,
+                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                },
+                (job, deliveryOrigin) =>
+                    work.stepProcessor.execute({
+                        jobId: job.jobId,
+                        payload: job.payload,
+                        requiredAt: job.scheduledAt,
+                        origin: deliveryOrigin,
+                    }),
+            );
+            const message: QueueMessage<OrderUpdateByMakerPayload> = {
+                data: {
+                    ...request,
+                    kind: ORDER_JOB_KIND.UpdateByMaker,
+                    queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                    chainId: HEAVY_MAKER.chainId,
+                    scheduledAt: now,
+                    attempt: 50,
+                },
+                origin,
+                ack: vi.fn(async () => {}),
+                nack: vi.fn(async () => {}),
+                touch: vi.fn(async () => {}),
+            };
+            if (fault === "storage")
+                db.exec(
+                    "CREATE TEMP TRIGGER reject_maker_admission BEFORE INSERT ON maker_order_revalidation_runs BEGIN SELECT RAISE(ABORT,'fixture admission failure'); END;",
+                );
+            try {
+                await deliver(message);
+                expect(message.ack).not.toHaveBeenCalled();
+                expect(publish).not.toHaveBeenCalled();
+                expect(message.nack).toHaveBeenCalledWith({
+                    delayMs: POLICY.admissionRetryMs,
+                });
+                expect(
+                    db
+                        .prepare(
+                            "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                        )
+                        .get(),
+                ).toEqual({ count: 0 });
+                expect(work.rpc.reads).toEqual({});
+            } finally {
+                if (fault === "storage")
+                    db.exec("DROP TRIGGER reject_maker_admission");
+                unavailable = false;
+            }
+            await deliver(message);
+            expect(message.ack).toHaveBeenCalledOnce();
+            expect(publish).not.toHaveBeenCalled();
+            expect(work.rpc.reads.getOrderStatus).toBe(1);
+            expect(
+                work.store.admit({ ...request, requiredAt: now, now }),
+            ).toMatchObject({
+                status: STATUS.Completed,
+                resolvedOrders: 1,
+            });
+        },
+    );
 
     it("validates all 9,339 bids through durable steps with bounded status aggregates", async () => {
         seedHeavyMaker();

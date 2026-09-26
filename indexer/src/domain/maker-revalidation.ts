@@ -21,6 +21,7 @@ export const MAKER_REVALIDATION_POLICY = Object.freeze({
     batchOrders: 100,
     leaseMs: 120_000,
     renewEveryMs: 30_000,
+    admissionRetryMs: 1_000,
     cleanupRows: 100,
     stepBudgetMs: 5_000,
     recoveryPollMs: 5_000,
@@ -31,6 +32,7 @@ export const MAKER_REVALIDATION_LOG = {
     Component: "MakerRevalidation",
     Checkpoint: "Maker revalidation checkpoint",
     Retry: "Maker revalidation step failed",
+    AdmissionRetry: "Maker revalidation admission failed; trigger retained",
 } as const;
 
 export const MAKER_REVALIDATION_STEP_END = {

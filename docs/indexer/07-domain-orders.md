@@ -414,6 +414,11 @@ cursor, completed count, failures and lease/version fence. Candidate pages use
 the existing indexed queries; the initial maximum order ID and rowid exclude
 later admissions. New canonical orders retain their own validation demand.
 
+Before durable admission, replay-metadata or storage failures retain the broker
+delivery with a one-second delay, bypassing the attempt-based dead-letter path.
+The original message still owns the obligation until the run transaction commits.
+Malformed requests and conflicting source-job identities remain unsupported work.
+
 Each bounded context commits its order effects and cursor in one SQLite write
 transaction. Removed, expired, source-terminal and anchor-ineligible candidates
 are intentionally resolved. A still-actionable changed revision rejects the

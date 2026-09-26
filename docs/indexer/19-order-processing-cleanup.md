@@ -309,8 +309,9 @@ adapter while composition constructs another demand adapter over the same store.
 - Maker consumers retain a five-attempt/log-only-DLQ delivery policy, while a
   persisted pending run has its own recovery mechanism. Review whether those
   two failure owners can be simplified for maker execution after durable
-  admission. Admission failure before a run exists needs an explicit outcome;
-  it must not be mistaken for recoverable persisted work.
+  admission. Pre-admission metadata/storage failure now retains the original
+  delivery with delayed retry; preserve that boundary because no persisted run
+  may exist yet. Simplifying post-admission retry ownership remains deferred.
 - The generic outbox's terminal publication failure is repaired for maker runs
   by maker recovery. Keep one clear owner for that redrive. Do not change generic
   runner/outbox/DLQ behavior for unrelated domains as incidental cleanup.
