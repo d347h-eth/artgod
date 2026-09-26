@@ -13,7 +13,13 @@
 		type RealizedSale
 	} from '@artgod/shared/types/price-history';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
+	import type {
+		ApiChain,
+		ApiCollection,
+		ApiCollectionMediaState,
+		ApiTokenAttribute,
+		ApiTraitRangeFilter
+	} from '$lib/api-types';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import { BackendApiError, getPriceHistory, getTokenCard } from '$lib/backend-api';
 	import { buildTokenMediaQuery } from '$lib/media-mode';
@@ -41,13 +47,17 @@
 		collection,
 		media,
 		basePath,
-		blockExplorer
+		blockExplorer,
+		selectedTraits,
+		selectedTraitRanges
 	}: {
 		chain: ApiChain;
 		collection: ApiCollection;
 		media: ApiCollectionMediaState;
 		basePath: string;
 		blockExplorer: BlockExplorerConfig;
+		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 	} = $props();
 	const chainRef = $derived(chain.slug),
 		collectionRef = $derived(collection.slug);
@@ -120,12 +130,13 @@
 
 	onMount(() => {
 		let stopped = false;
+		let measureFrame = 0;
 		const onPopState = () => readQuery(new URL(window.location.href));
 		const measure = () => {
-			height = Math.max(
-				240,
-				(window.visualViewport?.height ?? window.innerHeight) - root.getBoundingClientRect().top - 12
-			);
+			// Document coordinates keep browser scroll anchoring from feeding back
+			// into chart height when the shared facet panel stacks above it.
+			const top = root.getBoundingClientRect().top + window.scrollY;
+			height = Math.max(240, (window.visualViewport?.height ?? window.innerHeight) - top - 12);
 		};
 		// Normalize the first request before loading the renderer.
 		readQuery(new URL(window.location.href), false);
@@ -133,7 +144,12 @@
 		window.addEventListener('popstate', onPopState);
 		window.addEventListener('resize', measure);
 		window.visualViewport?.addEventListener('resize', measure);
-		const observer = new ResizeObserver(measure);
+		// Changing this height also resizes the observed parent. Write on the next
+		// frame instead of inside ResizeObserver's delivery cycle.
+		const observer = new ResizeObserver(() => {
+			cancelAnimationFrame(measureFrame);
+			measureFrame = requestAnimationFrame(measure);
+		});
 		observer.observe(root.parentElement!);
 		ready = true;
 		void import('$lib/price-chart/renderer')
@@ -147,6 +163,7 @@
 		return () => {
 			stopped = true;
 			observer.disconnect();
+			cancelAnimationFrame(measureFrame);
 			window.removeEventListener('popstate', onPopState);
 			window.removeEventListener('resize', measure);
 			window.visualViewport?.removeEventListener('resize', measure);
@@ -171,7 +188,16 @@
 	});
 	$effect(() => {
 		if (!ready) return;
-		const scope = { chainRef, collectionRef, tokenId, bucket, range, revision };
+		const scope = {
+			chainRef,
+			collectionRef,
+			tokenId,
+			bucket,
+			range,
+			revision,
+			traits: selectedTraits,
+			traitRanges: selectedTraitRanges
+		};
 		const abort = new AbortController();
 		loading = true;
 		error = '';
@@ -186,7 +212,13 @@
 			fetch,
 			scope.chainRef,
 			scope.collectionRef,
-			{ tokenId: scope.tokenId, bucket: scope.bucket, range: scope.range },
+			{
+				tokenId: scope.tokenId,
+				bucket: scope.bucket,
+				range: scope.range,
+				traits: scope.traits,
+				traitRanges: scope.traitRanges
+			},
 			abort.signal
 		)
 			.then((result) => {

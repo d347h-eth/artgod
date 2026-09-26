@@ -26,13 +26,17 @@ paths:
     /api/{chain_ref}/{collection_ref}/chart-context:
         get:
             tags: [Collections]
-            summary: Collection identity and media settings for the chart page
+            summary: Collection identity, media settings and trait facets for the chart page
             operationId: getPriceChartContext
-            description: Returns chart navigation and snapshot-media context without token lists or trait facets.
+            description: Returns chart navigation, snapshot-media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists.
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaPreference"
+                - $ref: "#/components/parameters/Traits"
+                - $ref: "#/components/parameters/Trait"
+                - $ref: "#/components/parameters/TraitRanges"
+                - $ref: "#/components/parameters/TraitRange"
             responses:
                 "200":
                     description: Collection chart context
@@ -59,6 +63,10 @@ paths:
                 requested bucket. Public deployments may reuse an expiring
                 collection snapshot; desktop reads query SQLite directly.
                 Requests over 100000 eligible fills or 30000 buckets return 400.
+                Trait filters use current token attributes, including extension
+                traits, before the fill limit and aggregation. Values within one
+                key are ORed; keys and numeric ranges are ANDed. Filtered requests
+                bypass the public snapshot cache.
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
@@ -73,6 +81,10 @@ paths:
                   in: query
                   description: Optional unsigned decimal token ID within this collection
                   schema: { type: string, pattern: "^[0-9]+$" }
+                - $ref: "#/components/parameters/Traits"
+                - $ref: "#/components/parameters/Trait"
+                - $ref: "#/components/parameters/TraitRanges"
+                - $ref: "#/components/parameters/TraitRange"
             responses:
                 "200":
                     description: Exact base-unit prices, sales and populated OHLC buckets
@@ -2208,6 +2220,42 @@ components:
             description: CSRF cookie token
 
     parameters:
+        Traits:
+            name: traits
+            in: query
+            description: Repeated `key:value` filter; values within a key are ORed and different keys are ANDed
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        Trait:
+            name: trait
+            in: query
+            description: Legacy alias of `traits`
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        TraitRanges:
+            name: trait_ranges
+            in: query
+            description: Repeated `key:from..to` inclusive unsigned-integer range filter; either bound can be omitted
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        TraitRange:
+            name: trait_range
+            in: query
+            description: Legacy alias of `trait_ranges`
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
         ChainRef:
             name: chain_ref
             in: path
@@ -2461,7 +2509,7 @@ components:
                 requirements, retention bounds and retry behavior. Security checks are unchanged.
         CollectionPriceChartContext:
             type: object
-            required: [chain, collection, media]
+            required: [chain, collection, media, traits]
             additionalProperties: false
             properties:
                 chain:
@@ -2470,6 +2518,23 @@ components:
                     $ref: "#/components/schemas/CollectionListItem"
                 media:
                     $ref: "#/components/schemas/CollectionMediaState"
+                traits:
+                    type: object
+                    required: [selected, selectedRanges, facets]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        selectedRanges:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitRangeFilter"
+                        facets:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFacet"
         PriceHistory:
             type: object
             required:

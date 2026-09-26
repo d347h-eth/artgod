@@ -4,6 +4,8 @@ import type { GetPriceChartContextPort } from "../../../application/use-cases/co
 import {
     getSearchParams,
     parseMediaPreference,
+    parseTraits,
+    parseTraitRanges,
 } from "../../common/request-query.js";
 
 export type GetPriceChartContextRoute = {
@@ -18,6 +20,8 @@ export class GetPriceChartContextHttpAdapter {
         return this.context.getPriceChartContext({
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
+            traits: parseTraits(query),
+            traitRanges: parseTraitRanges(query),
             mediaPreference: parseMediaPreference(
                 query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
             ),

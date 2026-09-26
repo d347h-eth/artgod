@@ -1,6 +1,8 @@
 import type {
     ChainRecord,
     CollectionListItem,
+    TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import {
     PRICE_HISTORY_RANGE_DAYS,
@@ -21,6 +23,8 @@ export type GetPriceHistoryInput = {
     tokenId?: string;
     bucket?: string;
     range?: string;
+    traits?: TraitFilter[];
+    traitRanges?: TraitRangeFilter[];
 };
 export type GetPriceHistoryPort = {
     getPriceHistory(input: GetPriceHistoryInput): PriceHistory;
@@ -28,11 +32,14 @@ export type GetPriceHistoryPort = {
 export type PriceHistoryReadPort = {
     // Only verified single-NFT ETH-equivalent fills, retaining execution currency.
     // Ascending timestamp, block, log and row identity. The domain consumes once;
-    // the adapter must include one extra row so limits never silently truncate.
+    // Trait predicates use current token attributes and apply before the limit.
+    // The adapter must include one extra row so limits never silently truncate.
     iterateSingleTokenSales(input: {
         chainId: number;
         collectionId: number;
         tokenId?: string;
+        traits?: TraitFilter[];
+        traitRanges?: TraitRangeFilter[];
         from: number;
         to: number;
         limit: number;
@@ -88,6 +95,8 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: request.tokenId,
+            traits: input.traits,
+            traitRanges: input.traitRanges,
             from: days === null ? 0 : to - days * 86400,
             to,
             limit: PRICE_HISTORY_LIMITS.fills + 1,

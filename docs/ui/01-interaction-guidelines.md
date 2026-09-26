@@ -190,6 +190,10 @@ Collection pages should compose the shared shell like this:
         - user-defined setting
         - extension-defined setting
 
+6. `CollectionPriceChartView.svelte`
+    - row 1: shared trait panel controls, reset, and selected-trait pills
+    - body: shared trait sidebar beside the chart and sales list
+
 Do not reintroduce page-level action rows inside leaf views once the action belongs to the shared page shell.
 
 Token status, collection activity kind, and bidding view navigation belong to `CollectionSectionTabs.svelte`.
@@ -637,6 +641,7 @@ Trait-aware pages:
 
 - collection tokens
 - collection activities
+- collection sale chart
 - collection bidding `bid_scope=token`
 - collection bidding `bid_scope=traits`
 - holder-token page
@@ -646,7 +651,7 @@ The collection holders leaderboard is intentionally not trait-aware and acts as 
 Navigation rules:
 
 - primary collection navigation built through `collection-navigation.ts` preserves trait filters for trait-aware destinations
-- collection `tokens` <-> collection `activities` <-> collection bidding preserve trait filters
+- collection `tokens` <-> collection `activities` <-> collection `chart` <-> collection bidding preserve trait filters
 - holder-token page -> collection `tokens` / `activities` / bidding preserves trait filters
 - collection `tokens` / `activities` -> holder-token page does not carry trait filters
 - collection `holders` leaderboard does not preserve trait filters

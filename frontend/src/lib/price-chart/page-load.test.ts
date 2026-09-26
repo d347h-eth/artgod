@@ -11,6 +11,11 @@ import {
 	getCollectionDetail
 } from '$lib/backend-api';
 import { loadCollectionChartPage } from './page-load';
+import {
+	BIDDING_E2E_CHAIN,
+	BIDDING_E2E_COLLECTION,
+	BIDDING_E2E_MEDIA
+} from '$lib/e2e/bidding-automation-fixtures';
 
 vi.mock('$lib/backend-api', async (importOriginal) => {
 	const { BackendApiError } = await importOriginal<typeof import('$lib/backend-api')>();
@@ -29,9 +34,14 @@ it.each([false, true])(
 	'loads only chart context and runtime settings (public=%s)',
 	async (publicPage) => {
 		const context = {
-			chain: { slug: 'ethereum' },
-			collection: { slug: 'collection' },
-			media: { selectedMode: COLLECTION_MEDIA_MODES.Snapshot }
+			chain: BIDDING_E2E_CHAIN,
+			collection: { ...BIDDING_E2E_COLLECTION, slug: 'collection' },
+			media: { ...BIDDING_E2E_MEDIA, selectedMode: COLLECTION_MEDIA_MODES.Snapshot },
+			traits: {
+				selected: [{ key: 'Mode', value: 'Terrain' }],
+				selectedRanges: [{ key: 'Level', fromValue: '3', toValue: null }],
+				facets: []
+			}
 		};
 		const blockExplorer = { baseUrl: 'https://example.com' };
 		vi.mocked(getPriceChartContext).mockResolvedValue(
@@ -45,13 +55,20 @@ it.each([false, true])(
 		});
 		const query = new URLSearchParams({
 			[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+			trait: 'Mode:Terrain',
+			trait_range: 'Level:3..',
 			owner: 'unused',
 			limit: '1'
 		});
 		expect(
 			await loadCollectionChartPage(fetchFn, 'ethereum', 'collection', query, publicPage)
 		).toEqual({
-			...context,
+			chain: context.chain,
+			collection: context.collection,
+			media: context.media,
+			selectedTraits: context.traits.selected,
+			selectedTraitRanges: context.traits.selectedRanges,
+			facets: context.traits.facets,
 			blockExplorer,
 			basePath: publicPage ? '/' : '/ethereum/collection'
 		});
@@ -60,6 +77,8 @@ it.each([false, true])(
 			'ethereum',
 			'collection',
 			new URLSearchParams({
+				traits: 'Mode:Terrain',
+				trait_ranges: 'Level:3..',
 				[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 			})
 		);

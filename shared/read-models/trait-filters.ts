@@ -214,7 +214,8 @@ export function resolveTraitFilterTokenCandidatesWithSpan(params: {
     );
 }
 
-function resolveTraitFilterTokenCandidates(params: {
+/** Shared indexed token membership for exact and numeric filters across collection reads. */
+export function resolveTraitFilterTokenCandidates(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;

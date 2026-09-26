@@ -118,6 +118,7 @@
         "./read-models/errors": "./read-models/errors.ts",
         "./read-models/chains": "./read-models/chains.ts",
         "./read-models/collections": "./read-models/collections.ts",
+        "./read-models/trait-filters": "./read-models/trait-filters.ts",
         "./trading/open-sea-bidding-offers": "./trading/open-sea-bidding-offers.ts",
         "./trading/open-sea-offer-price": "./trading/open-sea-offer-price.ts",
         "./trading/trait-competition": "./trading/trait-competition.ts",

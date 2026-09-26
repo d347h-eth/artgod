@@ -6,6 +6,13 @@ import type {
 } from "@artgod/shared/types/price-history";
 import type { PriceHistoryReadPort } from "../../application/use-cases/collections/get-price-history.js";
 import { realizedSaleExecution } from "../../domain/realized-price-history.js";
+import {
+    groupTraitFilters,
+    groupTraitRangeFilters,
+    normalizeTraitFilters,
+    normalizeTraitRangeFilters,
+    resolveTraitFilterTokenCandidates,
+} from "@artgod/shared/read-models/trait-filters";
 
 type FillRow = {
     id: number;
@@ -42,6 +49,18 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
     *iterateSingleTokenSales(
         input: Parameters<PriceHistoryReadPort["iterateSingleTokenSales"]>[0],
     ): Iterable<RealizedSale> {
+        const candidates = resolveTraitFilterTokenCandidates({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            tokenId: input.tokenId,
+            traitFilterGroups: groupTraitFilters(
+                normalizeTraitFilters(input.traits ?? []),
+            ),
+            traitRangeFilterGroups: groupTraitRangeFilters(
+                normalizeTraitRangeFilters(input.traitRanges ?? []),
+            ),
+        });
+        if (candidates.isEmpty) return;
         // Legacy Seaport rows cannot prove a single NFT: an untracked sibling
         // leaves no fill row. Blur V2 has always quoted each exchange separately.
         const query = db.prepare(
@@ -50,6 +69,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
              WHERE chain_id = ? AND collection_id = ?
                AND block_timestamp >= ? AND block_timestamp < ?
                ${input.tokenId === undefined ? "" : "AND token_id = ?"}
+               ${candidates.tokenIds === null ? "" : "AND token_id IN (SELECT value FROM json_each(?))"}
                AND amount = '1'
                AND (price_nft_count = '1' OR (price_nft_count IS NULL AND kind = ?))
                AND currency IN (${Array.from(this.currencies, () => "?").join(",")})
@@ -65,6 +85,9 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
             input.to,
         ];
         if (input.tokenId !== undefined) args.push(input.tokenId);
+        // One binding avoids SQLite's variable limit on large matching token sets.
+        if (candidates.tokenIds !== null)
+            args.push(JSON.stringify(candidates.tokenIds));
         args.push(FILL_KIND.BlurV2, ...this.currencies.keys(), input.limit);
         for (const raw of query.iterate(...args)) {
             const row = raw as FillRow;
