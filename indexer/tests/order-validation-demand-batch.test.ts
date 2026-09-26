@@ -200,6 +200,61 @@ describe("bounded demand validation batches", () => {
         expect(work.rpc.reads.ownerOf).toBe(1);
     });
 
+    it("isolates retries so one persistently failing order cannot hold healthy demand pending", async () => {
+        vi.spyOn(logger, "debug").mockImplementation(() => {});
+        const work = workflow(POLICY.batchOrders);
+        const failedId = [...work.ids].sort()[
+            Math.floor(POLICY.batchOrders / 2)
+        ]!;
+        work.rpc.onRead = ({ functionName, args }) => {
+            if (functionName === "getOrderStatus" && args?.[0] === failedId)
+                throw new Error("Persistent order-specific read failure");
+        };
+        let retryAt = now;
+        for (
+            let failure = 1;
+            failure <= POLICY.isolateAfterFailures;
+            failure++
+        ) {
+            vi.mocked(Date.now).mockReturnValue(retryAt);
+            expect(await work.processor.executeBatch()).toMatchObject({
+                covered: 0,
+                retried: POLICY.batchOrders,
+            });
+            retryAt += POLICY.retryBaseMs * 2 ** (failure - 1);
+        }
+        vi.mocked(Date.now).mockReturnValue(retryAt);
+        const retried = [];
+        for (let i = 0; i <= POLICY.batchOrders; i++) {
+            const report = await work.processor.executeBatch();
+            if (!report) break;
+            retried.push(report);
+        }
+        expect(retried.reduce((sum, report) => sum + report.covered, 0)).toBe(
+            POLICY.batchOrders - 1,
+        );
+        expect(work.store.get(1, failedId)).toMatchObject({
+            pending: true,
+            failures: POLICY.isolateAfterFailures + 1,
+            proofAt: null,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM order_validation_demand WHERE pending=1",
+                )
+                .get(),
+        ).toEqual({ count: 1 });
+        work.rpc.onRead = undefined;
+        vi.mocked(Date.now).mockReturnValue(
+            retryAt + POLICY.retryBaseMs * 2 ** POLICY.isolateAfterFailures,
+        );
+        expect(await work.processor.executeBatch()).toMatchObject({
+            covered: 1,
+        });
+        expect(await work.processor.executeBatch()).toBeUndefined();
+    });
+
     it("reports bounded cheap progress when an entire candidate page is obsolete", async () => {
         const work = workflow(POLICY.batchOrders + 1);
         db.prepare("UPDATE orders SET source_status=?").run(

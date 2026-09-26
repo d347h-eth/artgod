@@ -171,7 +171,9 @@ path with real disposable SQLite and a batch-capable fake RPC. A 250-order case
 uses three snapshots, 13 status aggregates and nine shared wallet reads; all 250
 receive guarded completion. Mixed makers/sells, future triggers, obsolete pages,
 time-budget release, concurrent claims, lost leases, source/revision/generation
-changes, reorgs, failed SQL commits and graceful stop verify durability. These
+changes, reorgs, failed SQL commits and graceful stop verify durability. A repeated
+order-specific read failure isolates retries so the other 99 orders can finish
+before that fault is repaired. These
 call counts and virtual latency are synthetic evidence, not live throughput.
 
 Its sustained-admission case drives the production demand scheduler against
@@ -192,7 +194,7 @@ The same migrated workload also exercises bounded WETH snapshots: with 100
 orders per context, 94 contexts perform 9,339 order-status reads and 282 shared
 wallet reads. `tests/seaport-validation-batch.test.ts` covers scope isolation,
 in-flight sharing, early/terminal decisions, changing balances, count/time
-bounds, RPC failures, stale heads and branch changes. Database interleavings
+bounds, RPC and conduit-registry failures, stale heads and branch changes. Database interleavings
 verify that failed contexts leave prior state intact and newer source/anchor
 changes win. The RPC adapter test checks that canonicality reads bypass its
 general block cache. These are deterministic local proofs, not native QA.

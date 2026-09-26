@@ -13,6 +13,7 @@ export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     batchOrders: ORDER_VALIDATION_BATCH_POLICY.maxOrders,
     retryBaseMs: 1_000,
     retryMaxMs: 60_000,
+    isolateAfterFailures: 2,
 });
 
 export const ORDER_VALIDATION_DEMAND_OUTCOME = {

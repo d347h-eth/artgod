@@ -150,6 +150,11 @@ snapshot retry independently while covered orders proceed. After five seconds
 of new validation, the batch verifies its snapshot and commits bounded results
 together. Unconsumed claims are released without coverage. Missing, expired or
 terminal pages report cheap progress without opening an RPC snapshot.
+After two failed attempts, affected demand rows retry individually until they
+complete. This prevents one persistent order-specific failure from keeping a
+whole page pending. Fresh work and a first transient retry retain batching; due
+order, leases and exponential backoff still apply. Recovery from a prolonged
+provider outage temporarily costs more snapshot reads for those isolated rows.
 Persisted two-minute leases renew
 every 30 seconds; expired leases are reclaimable after restart. Failed work uses
 bounded exponential retry delay up to 60 seconds. Pending rows themselves are the
@@ -316,7 +321,7 @@ at least as recent as the trigger. Before committing the bounded results, the
 worker fetches that block afresh and checks its hash, the head, and lifetime:
 30 seconds maximum context lifetime, a block no more than 60 seconds old, and
 head advancement of at most two blocks. The next context starts afresh. RPC,
-stale-head and reorg failures discard the uncommitted context and retry the job;
+conduit-storage, stale-head and reorg failures discard the uncommitted context and retry the job;
 they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
 decisions still apply. Writes retain revision, active-source and bootstrap-anchor
 guards, with no SQLite transaction spanning RPC calls.

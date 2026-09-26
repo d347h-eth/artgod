@@ -97,12 +97,22 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
     ): OrderValidationClaimBatch {
         return db.writeTransaction(() => {
             // Retired/ineligible rows cannot make one tick scan an unbounded backlog.
-            const rows = db
+            const due = db
                 .prepare(
                     SELECT +
                         "WHERE chain_id=? AND pending=1 AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
                 )
                 .all(chainId, now, now, POLICY.batchOrders) as DemandRow[];
+            // Repeatedly failed snapshots must not keep unrelated orders in one retry
+            // group forever. Retry those rows alone, retaining due-order fairness and
+            // fresh batches for the preceding rows. A first transient failure still batches.
+            const retry = due.findIndex(
+                (row) => row.failures >= POLICY.isolateAfterFailures,
+            );
+            const rows = due.slice(
+                0,
+                retry < 0 ? due.length : Math.max(1, retry),
+            );
             const batch: OrderValidationClaimBatch = {
                 claims: [],
                 scanned: rows.length,
