@@ -222,7 +222,9 @@ Offer discovery:
   `BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION` entry intentionally restricts
   which criteria trait types are considered for that collection
 - collection jobs prefer cached collection snapshots and use live collection
-  pagination only when no usable snapshot exists
+  pagination only when no usable snapshot exists; trait-scoped jobs use the
+  all-offers endpoint for that fallback so broader and extra standalone trait
+  competition is available
 - competitive trait jobs remain on live collection and trait endpoint reads
   because they need collection-wide context plus trait-bucket fan-out
 - full collection all-offers snapshots still back broad competition context and
@@ -293,7 +295,7 @@ The temporary JSON job file source has been removed.
 Primary tables:
 
 - `trading_jobs`: common declared job envelope for bidding and future sniping
-- `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, trait criteria)
+- `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, target trait criteria, and `extra_competition_traits_json`)
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
 - `trading_bidding_runtime_authorized_collections`: non-secret, session-bound read projection of the collection identity and per-offer limits enforced by the current bidding process
 - `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression

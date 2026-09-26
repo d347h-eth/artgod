@@ -3099,6 +3099,22 @@ components:
                 value:
                     type: string
 
+        ExtraCompetitionTraits:
+            type: array
+            maxItems: 64
+            description: Additive single-trait competitor buckets for a trait job. A missing value includes every value for the key. Omit on mutation to preserve saved selectors; send an empty array to clear. These selectors never change offer target identity or marketplace submission criteria.
+            items:
+                type: object
+                required: [type]
+                additionalProperties: false
+                properties:
+                    type:
+                        type: string
+                        minLength: 1
+                    value:
+                        type: string
+                        minLength: 1
+
         TraitFilterDisplayKind:
             type: string
             enum: [set, range]
@@ -3373,6 +3389,8 @@ components:
                             anyOf:
                                 - $ref: "#/components/schemas/BiddingJobPricingSource"
                                 - $ref: "#/components/schemas/NullValue"
+                        extraCompetitionTraits:
+                            $ref: "#/components/schemas/ExtraCompetitionTraits"
                 runtime:
                     $ref: "#/components/schemas/BiddingJobRuntimeState"
 
@@ -3417,6 +3435,8 @@ components:
                     minItems: 1
                     items:
                         $ref: "#/components/schemas/TradingTraitCriterion"
+                extraCompetitionTraits:
+                    $ref: "#/components/schemas/ExtraCompetitionTraits"
 
         UpsertCollectionBiddingJobRequest:
             type: object

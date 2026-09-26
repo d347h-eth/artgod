@@ -158,6 +158,34 @@ Trait targets:
 - Trait criteria are canonicalized before persistence so the same key/value set resolves to the same declared job regardless of UI order.
 - OR-mode filter exploration remains a display/search aid; a drafted trait job stores the selected traits as a concrete AND target.
 
+Trait-job competition:
+
+- Every trait job considers collection-wide bids and bids whose nonempty trait
+  criteria are a subset of its target. A `Mode=Terrain` + `Zone=Kairo` job
+  therefore considers each single trait as well as that exact pair. A narrower
+  or conflicting combination is excluded by default.
+- `extra single-trait competitors` in the bidding panel adds exact key/value
+  selectors or whole keys using `all values`. These count standalone single-trait
+  bids only. Adding `Mode=Terrain` does not include `Mode=Terrain` + another
+  trait; adding `Mode` includes standalone bids for every Mode value.
+- The editor uses the existing create/modify confirmation, reset, save feedback
+  and trait-trust restrictions. Selectors use case-sensitive marketplace trait
+  names and values; whole keys do not require local enumeration of their values.
+- Extra selectors affect assessment only. They never change the offer target,
+  target lookup identity, quantity, pricing caps, or which own offers the job
+  manages. They do not enter the OpenSea placement request.
+- A job stores up to 64 selectors in `extraCompetitionTraits`. Duplicate entries
+  are canonicalized; a whole-key entry subsumes exact values for that key. New
+  jobs default to an empty list. API clients omitting this field preserve saved
+  extras; `[]` explicitly clears them. Price-tier reapply preserves them too.
+- Existing trait jobs gain inclusive default competition after upgrade without
+  being resaved. Migration `056_trait_bidding_competition.sql` adds empty extras
+  without changing job targets, revisions or tracked orders. Subsequent strategy
+  decisions remain bounded by each job's pricing and active authorization.
+
+The legacy competitive-trait job kind retains its existing behavior. The new
+settings belong to ordinary trait-scoped collection jobs.
+
 Bid-book discovery remains available by default, but trait job creation and
 live trait or multi-trait placement require the operator to explicitly enable
 `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS` in Admin Config and restart

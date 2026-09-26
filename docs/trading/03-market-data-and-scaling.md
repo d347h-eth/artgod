@@ -147,6 +147,20 @@ and use live collection and trait pagination after a configured selector-count
 guard. Per-job execution remains serialized, and configured job concurrency is
 deliberately conservative.
 
+Ordinary trait-scoped collection jobs apply inclusive competition to that shared
+snapshot: collection-wide offers, offers targeting any nonempty subset of the
+job's traits, and standalone trait offers matching its extra competition
+selectors. Whole-key selectors match observed values directly, without trait
+enumeration or a request per value. Explicit token offers and additional
+multi-trait combinations remain excluded. Collection-only jobs keep their
+collection-wide scope.
+
+When a trait job has no shared snapshot, its fallback reads every page of the
+all-offers endpoint before applying the same policy. A failed page or repeated
+cursor rejects the read. Collection-only and legacy competitive-trait jobs keep
+their existing collection endpoint paths. This does not introduce another
+background polling lane or change snapshot freshness and stream scheduling.
+
 ## Bid-Book Display Selection
 
 After a successful snapshot, the projection sidecar writes parsed offer rows and

@@ -111,10 +111,9 @@ implemented boundary; this file only prioritizes changes to it.
 
 ## Trait Bidding Competition
 
-Status: Partial. Extend ordinary trait jobs with inclusive target-trait
-competition and persisted extra key/value or whole-key selectors. The
-[development plan](../trading/04-trait-competition-development.md) owns the
-iteration checklist and verification evidence for this active change.
+| ID        | Priority | Status | Retained outcome                                                                               | Current evidence and context                                                                                                                                                                                                                                                                  |
+| --------- | -------- | ------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BKL-069` | P1       | Done   | Include broader target-trait bids by default and allow per-job extra single-trait competitors. | Domain matching, snapshot/fallback assessment, compatible persistence, runtime loading and the shared bidding editor are implemented. The [development plan](../trading/04-trait-competition-development.md) records the completed iterations, local verification and live-evidence boundary. |
 
 ## Maintenance Rules
 
