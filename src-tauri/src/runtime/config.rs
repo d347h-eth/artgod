@@ -259,6 +259,11 @@ impl DesktopRuntimeConfig {
 
 /// Overrides persisted process config with the native-owned metrics listener boundary.
 fn enforce_desktop_metrics_loopback(process_env: &mut HashMap<String, String>) {
+    #[cfg(feature = "desktop-local-observability")]
+    super::app_config_manifest::local_observability::enforce_metrics_loopback(
+        process_env,
+        DESKTOP_IPV4_LOOPBACK_HOST,
+    );
     process_env.insert(
         TRADING_METRICS_HOST_ENV_KEY.to_owned(),
         DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
