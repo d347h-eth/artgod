@@ -139,7 +139,22 @@ Current focused coverage includes:
 - offchain dispatch and token-set mismatch persistence (`tests/offchain-dispatch.test.ts`)
 - canonical order raw-source precedence and Seaport data usage (`tests/orders-raw-source.test.ts`)
 - Seaport validation (`tests/seaport-validate.test.ts`)
+- ordinary and bulk signature recovery, positional proofs, compact/standard
+  encodings, malformed inputs and domain binding
+  (`tests/seaport-protocol.test.ts`)
+- captured bulk listing through scalar/pinned validation and disposable SQLite
+  recovery, including REST signature preservation, current-ask visibility, RPC
+  failure and concurrent source cancellation
+  (`tests/seaport-bulk-validation.test.ts`)
 - scoped maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
+
+The bulk-signature fixtures include a public listing captured on 2026-09-26 and
+independent Seaport SDK vectors for heights 1 and 3. The height-24 vector uses a
+sparse tree and the
+[Seaport 1.6 type-hash constant](https://github.com/ProjectOpenSea/seaport-types/blob/fa8b592f991b30ddf10a3b71737c9c1d5e315d10/src/lib/ConsiderationConstants.sol).
+Chain responses are synthetic; these tests establish cryptographic compatibility
+and local projection/recovery behavior, not live marketplace availability or
+onchain fillability.
 
 These tests pin SDK response-shape normalization and adapter behavior. The REST
 boundary accepts the SDK's camelCase fields such as `orderHash` and

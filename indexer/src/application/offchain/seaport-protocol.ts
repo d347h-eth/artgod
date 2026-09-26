@@ -2,7 +2,9 @@ import {
     compactSignatureToSignature,
     concatHex,
     getAddress,
+    hashDomain,
     keccak256,
+    recoverAddress,
     recoverTypedDataAddress,
     stringToBytes,
     toHex,
@@ -54,6 +56,35 @@ const EIP_712_ORDER_TYPE = {
         { name: "recipient", type: "address" },
     ],
 } as const;
+
+const EIP_712_DOMAIN_TYPE = {
+    EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "version", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+    ],
+} as const;
+
+const SEAPORT_SIGNATURE = {
+    compactBytes: 64,
+    standardBytes: 65,
+    bulkIndexBytes: 3,
+    proofNodeBytes: 32,
+    maxProofHeight: 24,
+} as const;
+
+// EIP-712 appends referenced struct definitions in alphabetical order.
+const BULK_ORDER_DEPENDENCIES = (
+    ["ConsiderationItem", "OfferItem", "OrderComponents"] as const
+)
+    .map(
+        (name) =>
+            `${name}(${EIP_712_ORDER_TYPE[name]
+                .map((field) => `${field.type} ${field.name}`)
+                .join(",")})`,
+    )
+    .join("");
 
 type SeaportOfferItem = {
     itemType: number;
@@ -136,12 +167,83 @@ export async function recoverSeaportSigner(
         throw new Error("Missing Seaport signature");
     }
 
+    const signature = seaportData.signature;
+    const signatureBytes = (signature.length - 2) / 2;
+    const singleOrder =
+        signatureBytes === SEAPORT_SIGNATURE.compactBytes ||
+        signatureBytes === SEAPORT_SIGNATURE.standardBytes;
+    // Bound work before parsing untrusted hex or hashing any proof nodes.
+    const ecdsaBytes = SEAPORT_SIGNATURE.standardBytes - (signatureBytes % 2);
+    const proofHeight =
+        (signatureBytes - ecdsaBytes - SEAPORT_SIGNATURE.bulkIndexBytes) /
+        SEAPORT_SIGNATURE.proofNodeBytes;
+    if (
+        !singleOrder &&
+        (!Number.isInteger(proofHeight) ||
+            proofHeight < 1 ||
+            proofHeight > SEAPORT_SIGNATURE.maxProofHeight)
+    ) {
+        throw new Error("Unsupported Seaport signature length");
+    }
+    if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(signature)) {
+        throw new Error("Invalid Seaport signature hex");
+    }
+
     const orderComponents = buildSeaportOrderComponents(seaportData);
+    const domain = buildSeaportTypedDataDomain(
+        chainId,
+        seaportData.protocolAddress,
+    );
+    if (!singleOrder) {
+        const indexOffset = 2 + ecdsaBytes * 2;
+        const proofOffset = indexOffset + SEAPORT_SIGNATURE.bulkIndexBytes * 2;
+        const index = Number.parseInt(
+            signature.slice(indexOffset, proofOffset),
+            16,
+        );
+        let root = deriveSeaportOrderHash(orderComponents);
+        for (let level = 0; level < proofHeight; level++) {
+            const offset =
+                proofOffset + level * SEAPORT_SIGNATURE.proofNodeBytes * 2;
+            const sibling = `0x${signature.slice(
+                offset,
+                offset + SEAPORT_SIGNATURE.proofNodeBytes * 2,
+            )}` as Hex;
+            // Seaport uses positional siblings, not sorted pairs. Higher index
+            // bits are ignored by the contract when they exceed the tree height.
+            root = keccak256(
+                concatHex(
+                    (index >> level) & 1 ? [sibling, root] : [root, sibling],
+                ),
+            );
+        }
+        const bulkTypeHash = keccak256(
+            stringToBytes(
+                `BulkOrder(OrderComponents${"[2]".repeat(proofHeight)} tree)${BULK_ORDER_DEPENDENCIES}`,
+            ),
+        );
+        const bulkOrderHash = keccak256(concatHex([bulkTypeHash, root]));
+        const domainHash = hashDomain({
+            domain,
+            types: EIP_712_DOMAIN_TYPE,
+        });
+        // Only the reconstructed BulkOrder digest authorizes this leaf. Removing
+        // the proof and recovering against OrderComponents would verify a
+        // different message. See Seaport 1.6 Verifiers._computeBulkOrderProof.
+        return getAddress(
+            await recoverAddress({
+                hash: keccak256(
+                    concatHex(["0x1901", domainHash, bulkOrderHash]),
+                ),
+                signature: normalizeSeaportSignature(
+                    signature.slice(0, indexOffset),
+                ),
+            }),
+        );
+    }
+
     const recovered = await recoverTypedDataAddress({
-        domain: buildSeaportTypedDataDomain(
-            chainId,
-            seaportData.protocolAddress,
-        ),
+        domain,
         types: EIP_712_ORDER_TYPE,
         primaryType: "OrderComponents",
         message: orderComponents,
@@ -152,7 +254,7 @@ export async function recoverSeaportSigner(
 }
 
 function normalizeSeaportSignature(signature: string): Hex | Signature {
-    if (signature.startsWith("0x") && signature.length === 130) {
+    if (signature.length === 2 + SEAPORT_SIGNATURE.compactBytes * 2) {
         // OpenSea can emit EIP-2098 compact signatures; viem recovery expects an expanded signature shape.
         return compactSignatureToSignature({
             r: `0x${signature.slice(2, 66)}` as Hex,
@@ -167,7 +269,7 @@ function buildSeaportTypedDataDomain(chainId: number, protocolAddress: string) {
     return {
         name: SEAPORT_CONTRACT_NAME,
         version: resolveSeaportProtocolVersion(protocolAddress),
-        chainId,
+        chainId: BigInt(chainId),
         verifyingContract: getAddress(protocolAddress),
     } as const;
 }
