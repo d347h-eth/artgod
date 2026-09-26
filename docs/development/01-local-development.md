@@ -277,6 +277,61 @@ installers are expected to be unsigned unless the builder provides their own
 code-signing setup. The official release pipeline remains documented in
 `docs/desktop/06-release-signing-runbook.md`.
 
+## Local Desktop With Observability
+
+Build a real desktop executable with the existing backend/indexer metrics,
+tracing, and profiling modules:
+
+```sh
+yarn build:desktop:local
+yarn check:desktop:local
+```
+
+The default is an optimized, non-bundled executable at
+`src-tauri/target-local/release/artgod-desktop` (`.exe` on Windows). Stop the
+other desktop instance before launching it. It uses the same app identity,
+settings, databases, wallets, and logs as the ordinary desktop app.
+
+In native Config, select **advanced**, enable the existing backend/indexer
+metrics and APM settings, save, and restart the affected processes. Enable
+flags remain false by default. Shared exporter URLs default to Tempo at
+`http://127.0.0.1:42732/v1/traces` and Pyroscope at `http://127.0.0.1:42733`.
+Metrics use the existing scrape ports `42740`–`42753` and bind to `127.0.0.1`.
+
+Run `yarn observability:up` from the checkout that owns your existing Compose
+project. The desktop build does not start collectors. Alloy's `tmp/logs` mount
+in that checkout must resolve to the desktop app-data logs; a new worktree
+does not inherit another checkout's log symlink.
+
+Optional local bundling uses the same path. On Linux:
+
+```sh
+yarn build:desktop:local:bundle --bundles deb
+```
+
+Bundles appear under `src-tauri/target-local/release/bundle`. Existing production,
+signing, and GitHub release commands retain their current behavior. Host/target
+selection uses the existing native mappings; staging fails if the locked
+profiler lacks a matching native prebuild.
+
+Focused checks:
+
+```sh
+yarn test:desktop:local
+yarn test:desktop:local:exporters
+yarn config:check:desktop-local
+yarn workspace @artgod/frontend test:config:observability
+```
+
+The exporter smoke uses the packaged Node and dependencies with temporary
+loopback receivers. It checks disabled/enabled behavior and a fresh process
+restart. Native supervisor operation against your saved data and signal
+delivery into Grafana remain separate runtime checks. Linux x64 no-bundle and
+`.deb` resource verification have been exercised; other hosts need native QA.
+
+See [the local build contract](../desktop/01-tauri-build-and-runtime.md#local-desktop-build-contract)
+and [local settings selection](../desktop/04-settings-manifest-process.md#local-desktop-selection).
+
 ## Bidding And Extension UI Tests
 
 ```sh
@@ -830,6 +885,9 @@ yarn dev:composition
 
 # Build the release-like no-bundle desktop executable for local QA.
 yarn build:desktop:no-bundle
+
+# Build the separate local desktop with existing metrics/APM available.
+yarn build:desktop:local
 
 # Verify installed desktop listener config/argv and the staged NATS socket.
 yarn test:desktop:listener-boundaries
