@@ -79,6 +79,12 @@ TMPDIR="$indexer_test_dir" SQLITE_TMPDIR="$indexer_test_dir" \
 
 Tests load `.env.test` via `loadTestEnv()`.
 
+Values present in that file overwrite the corresponding process environment.
+Check its database and service targets before running tests: assigning a shell
+`ARTGOD_DB_PATH` alone does not override the file. Keep disposable database paths
+under the active worktree's `tmp/`; the queue fixtures use separate stores and
+private loopback ports rather than app-data state.
+
 Required keys for smoke/integration paths:
 
 - `ARTGOD_DB_PATH`
@@ -230,6 +236,11 @@ recovery races and bounded rotating recovery pages. Maker coalescing cases cover
 selection/anchor modes, demand arriving before the first checkpoint, and restart
 at a full follow-up pass boundary with no missed earlier orders.
 
+Admission-failure cases run the actual worker beyond its retry ceiling with
+failed replay metadata or a SQLite admission abort. They require the original
+delivery to remain unacknowledged while no durable maker run exists, and prove
+completion after the fault clears.
+
 `tests/maker-validation-handoff.test.ts` injects a persistent order read failure
 among 250 orders: 249 finish while one remains in isolated demand, then completes
 after its dependency recovers. Real SQLite abort triggers prove demand admission,
@@ -309,6 +320,13 @@ atomic upsert rollback and restart without a publication. The candidate query
 plan uses the chain/due index without a temporary sort. Native-balance snapshot
 pinning and failure propagation have validator and RPC-adapter coverage. The
 existing failed-publish/unchanged-upsert tests still enforce no redundant writes.
+
+Conduit-storage fault injection must leave order status unchanged, record no
+coverage and retain retryable demand. In
+`tests/order-validation-demand-batch.test.ts`, one persistently failing order in
+a 100-order page is isolated after repeated failure: the other 99 finish, and
+the remaining demand completes when its read recovers. Keep these ownership and
+failure-isolation cases alongside the maker handoff tests when changing batching.
 
 ## OpenSea Reconciliation Regression
 

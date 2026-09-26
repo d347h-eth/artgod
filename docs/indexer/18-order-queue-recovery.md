@@ -46,6 +46,12 @@ still become unnecessary before validation. Schema errors mean the inspected
 file/version is wrong, not that there is no pending work. Never delete a WAL
 manually.
 
+Use inspector source compatible with the store's migration level. The current
+maker inspection expects migration 061; use the matching older inspector for an
+older running app instead of upgrading its live database merely to inspect it.
+For which process drains or reaps each table, see
+[processing ownership and retained state](07-domain-orders.md#processing-ownership-and-retained-state).
+
 ## Start, observe, stop
 
 1. Agree the intended store, patched commit, an initial observation window and a

@@ -230,19 +230,21 @@ request attempt; the retry policy still bounds the total number of attempts.
 ### Domain Worker
 
 - Runtime: `indexer/src/runtime/domain-worker.ts`.
-- Main use cases: order domain sync, order update by maker/id, order upsert,
-  metadata refresh, metadata stats, activity projection, and offchain order
-  validation.
+- Order RPC calls come from bounded maker/token steps and per-order demand
+  validation. Upserts and by-ID hints admit demand; lifecycle facts apply without
+  RPC. Metadata URI resolution uses the separate `metadata-rpc` lane.
 - HTTP lane: `domain-http-rpc`.
 - RPC method paths: Seaport order status, Seaport counters, conduit state,
   ownership, approvals, WETH allowance/balance, and native ETH balance.
 - Resilience: full indexer HTTP adapter coverage.
 
-Maker validation lazily aggregates up to 20 unique Seaport statuses at a pinned
-block, using the adapter's `readContracts` path. No global HTTP batching is
-enabled. Per-item failures fall back on demand; a failed/unsupported aggregate
-starts a 60-second cooldown before probing again. Individual fallback failure
-retries the uncommitted context. Fresh block/hash checks still precede result
+Maker steps and per-order demand batches lazily aggregate up to 20 unique
+Seaport statuses at a pinned block using the adapter's `readContracts` path, and
+share counter/balance/allowance reads within that snapshot. No global HTTP
+batching is enabled. Per-item failures fall back on demand; a failed/unsupported
+aggregate starts a 60-second cooldown before probing again. Individual fallback
+failure leaves its validation context uncommitted; durable retry/isolation can
+let unrelated orders proceed. Fresh block/hash checks still precede result
 writes; see [orders](../indexer/07-domain-orders.md#bounded-status-aggregates).
 
 ### Reorg Worker

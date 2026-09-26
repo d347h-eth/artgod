@@ -1,10 +1,14 @@
 # Orders Domain
 
-The orders domain persists canonical order rows and maintains their fillability through dedicated update queues.
+The orders domain persists canonical order rows and maintains their fillability
+through update queues, durable validation demand and resumable maker scans.
 
-Primary file:
+Primary boundaries:
 
-- `indexer/src/infra/domain/orders.ts`
+- `indexer/src/runtime/domain-worker.ts` composes consumers and processing loops.
+- `indexer/src/application/orders/` owns validation orchestration and recovery.
+- `indexer/src/infra/domain/orders.ts` owns canonical projection and guarded writes.
+- `indexer/src/infra/orders/` implements durable demand, checkpoints and admission.
 
 Schema:
 
@@ -12,10 +16,13 @@ Schema:
 - `database/migrations/015_opensea_offchain_schema.sql`
 - `database/migrations/016_offchain_source_scope.sql`
 - `database/migrations/055_market_data_storage_lifecycle.sql`
+- Migrations 056–061 add maker progress, continuations, demand, delivery receipts
+  and isolated handoffs; see [order validation recovery](05-storage-and-schema.md#order-validation-recovery).
 
 ## Inputs
 
-The orders domain consumes four relevant job streams:
+The orders domain consumes four relevant job kinds; queue routing is described
+in [queues and jobs](02-queues-and-jobs.md#current-job-types):
 
 - `domain.orders.sync`
 - `orders.upsert`
@@ -29,6 +36,34 @@ Even so, the orders domain now enforces the bootstrap-anchor contract for onchai
 - pre-anchor historical ranges must not invalidate current order state
 - global maker triggers and explicit onchain update-by-id events are checked against the affected order row's `collection_id`
 - offchain source-status updates are not anchor-gated because they are not replayed from historical onchain sync
+
+## Processing ownership and retained state
+
+The consumers and validation/recovery loops below share one domain-worker process
+per chain. Queue admission, validation completion and receipt cleanup are separate
+operations with different durable owners:
+
+| Component                                  | Durable responsibility                                                                                                 | Completion and cleanup                                                                                                                                                          |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upsert and by-ID validation-hint consumers | Admit current order requirements into `order_validation_demand`; upserts commit canonical changes and demand together. | ACK after admission or an explicit current-state no-work decision. They do not wait for the RPC validation.                                                                     |
+| Lifecycle consumer                         | Apply fill/cancel/source observations through the orders domain, including its replay and retirement rules.            | ACK after domain effects commit; no validation permit is required. Older lifecycle envelopes still reach the same behavior through the by-ID consumer.                          |
+| Broad-maker and token consumers            | `maker_order_revalidation_runs` owns the finite scan, cursor, generations, isolation target and lease.                 | Commit effects or durable per-order handoff with the cursor and next continuation before ACK. A completed scan may still have pending demand.                                   |
+| Per-order demand executors                 | Poll `order_validation_demand`, claim due rows and validate captured revisions/generations.                            | Commit results and coverage together; retry or release unfinished work. Completed rows retain reusable coverage while their orders exist.                                       |
+| Outbox publisher                           | Publish committed maker continuation intent from `queue_outbox` and record publication receipts.                       | A sent row proves publication, not execution. Maker checkpoints replace the previous continuation row.                                                                          |
+| Maker recovery and receipt cleanup         | Restore missing continuations and maintain `maker_validation_delivery_origins` replay proof.                           | Remove completed maker receipts only after the required broker ACK floors, and retain coalesced scopes while eligible candidates remain. Deferred demand survives this cleanup. |
+| Market-data maintenance                    | Retire canonical orders and replay-protection markers under domain retention rules.                                    | Deleting an order cascades to its demand row. Maintenance does not perform pending RPC validation.                                                                              |
+
+The demand row is also its own durable wakeup: startup polling can resume it
+without another broker envelope or per-order outbox copy. Its revision and
+generation prevent an old validation result from satisfying a newer request.
+Repeated hints therefore share unfinished work without collapsing definitive
+lifecycle facts into generic validation.
+
+Completion receipts are intentional state, not a backlog that needs manual
+truncation. Inspect pending flags, unfinished maker status and requirement age
+alongside broker counts. See [recovery](18-order-queue-recovery.md),
+[port ownership](12-ports-and-adapters.md#order-processing-ports) and the
+[runtime sequences](13-sequence-diagrams.md#order-admission-and-validation).
 
 ## Canonical Order Model
 
@@ -104,7 +139,7 @@ Examples:
 - `fillability_status = fillable`
 - `source_status = active` (unless explicitly overridden)
 
-The follow-up validation job corrects `fillability_status` after protocol checks run.
+The demand executor corrects `fillability_status` after protocol checks run.
 
 Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
 repeat validation have a five-minute freshness interval; explicit maker/state
@@ -512,7 +547,8 @@ compatibility bridge, not verified native downgrade support. Keep SQLite/NATS
 backups and deployed worker artifacts aligned; do not restore either store alone.
 Legacy standalone `SqliteOrdersDomain.handleOrderUpdateByMaker` remains for
 existing callers and baseline tests; runtime scheduling belongs to the application
-use case. The separate by-ID backlog is not accelerated by these maker changes.
+use case. By-ID backlog admission and validation use the independent
+[demand path](#coalesced-ordinary-validation) above.
 
 ## Source Scope and Token Sets
 

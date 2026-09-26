@@ -49,7 +49,13 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.
     - Persists canonical orders, metadata, and activities.
-    - Re-validates Seaport orders asynchronously from canonical order state.
+    - Commits per-order validation demand with canonical changes, then drains it
+      through bounded validation batches.
+    - Services broad-maker and token scans through saved cursors and durable
+      continuations; lifecycle updates apply without waiting for RPC validation.
+    - Runs order-demand polling, maker recovery, outbox publication and
+      market-data maintenance inside the same process. See
+      [order processing ownership](07-domain-orders.md#processing-ownership-and-retained-state).
 
 - Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
     - Consumes raw offchain order payloads.
@@ -182,7 +188,12 @@ OpenSea snapshot/reconcile completion currently means:
 - raw records were published to the offchain queue
 - source-active/inactive reconciliation for the run was applied
 
-It does **not** mean every published order has already completed downstream upsert + validation. The local orderbook converges through the queue pipeline shortly after the snapshot/reconcile run completes.
+It does **not** mean every published order has completed downstream upsert and
+validation. Convergence also depends on pending SQLite validation demand and
+unfinished maker scans after queue admission. A maker scan may finish after
+durably handing a failed order to demand. Neither an empty broker queue nor a
+completed source run proves that validation is caught up; use the
+[order progress measurements](18-order-queue-recovery.md#failure-and-progress-interpretation).
 
 Collection-extension artifact completion is similarly eventual:
 

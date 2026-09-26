@@ -14,6 +14,11 @@ the overview first, then follow the branch that owns the question.
 4. [Ports and adapters](12-ports-and-adapters.md) — dependency direction and
    concrete boundaries.
 
+For order backlog work, start with
+[processing ownership and retained state](07-domain-orders.md#processing-ownership-and-retained-state),
+then the [admission and recovery sequences](13-sequence-diagrams.md#order-admission-and-validation)
+and [operator procedure](18-order-queue-recovery.md).
+
 ## Runtime Flows
 
 - [Scheduler](03-scheduler-worker.md)

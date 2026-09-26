@@ -102,10 +102,111 @@ sequenceDiagram
     Offchain->>NATS: Publish order work
 
     NATS-->>Domain: orders.upsert
-    Domain->>DB: Persist canonical order
-    Domain->>NATS: Publish orders.update-by-id(reason=order)
-    NATS-->>Domain: orders.update-by-id
-    Domain->>DB: Validate Seaport order and update fillability_status
+    Domain->>DB: Commit canonical order and needed validation demand together
+    Domain-->>NATS: ACK after commit
+```
+
+Validation continues through the local demand loop below; upsert completion
+does not publish a second broker envelope or imply validation completion.
+
+## Order Admission and Validation
+
+Consumers and executors here are separate tasks inside the same per-chain
+domain-worker process. Lifecycle facts can commit while RPC validation is busy.
+Demand, broad-maker and token validation share two FIFO permits. See
+[processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
+for the durable state and [ports](12-ports-and-adapters.md#order-processing-ports)
+for the application boundaries.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant NATS as NATS JetStream
+    participant Consumer as Order Consumers
+    participant DB as SQLite
+    participant Demand as Demand Executors
+    participant RPC as RPC Node
+
+    NATS-->>Consumer: Deliver upsert, validation hint or lifecycle fact
+    alt Upsert
+        Consumer->>DB: Commit canonical changes and needed demand together
+    else By-ID validation hint
+        Consumer->>DB: Coalesce current requirement or resolve unnecessary work
+    else Fill, cancel or source observation
+        Consumer->>DB: Apply guarded lifecycle effects without RPC
+    end
+    Consumer-->>NATS: ACK after committed effects or durable admission
+
+    loop Poll due demand and resume expired leases
+        Demand->>Demand: Acquire shared FIFO permit
+        Demand->>DB: Claim bounded current revisions and generations
+        opt Eligible claims remain
+            Demand->>RPC: Full validations at a fresh pinned block
+            Demand->>RPC: Verify block hash, head and snapshot lifetime
+            alt Snapshot verified
+                Demand->>DB: Atomically apply guarded results and captured coverage
+                Note over DB: Newer or changed requirements stay pending
+            else Dependency or snapshot failure
+                Demand->>DB: Retain unfinished demand with retry state
+            end
+        end
+        Demand->>DB: Release any unconsumed claims without coverage
+        Demand->>Demand: Release permit and yield before next batch
+    end
+```
+
+## Maker Checkpoint and Recovery
+
+Each delivery runs one bounded step. The checkpoint owns the atomic boundary
+between order effects or handoff, cursor movement and continuation intent.
+The outbox publishes afterward; its sent receipt alone is not completion proof.
+See [durable maker progress](07-domain-orders.md#durable-maker-progress) for
+isolation, follow-up generations, lease fencing and replay cleanup.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant NATS as NATS JetStream
+    participant Maker as Maker or Token Processor
+    participant DB as SQLite
+    participant RPC as RPC Node
+    participant Outbox as Outbox Publisher
+    participant Recovery as Maker Recovery
+
+    NATS-->>Maker: Scoped hint or run/step continuation
+    Maker->>DB: Admit or resume finite pass and claim lease
+    Maker->>Maker: Acquire shared FIFO permit
+    Maker->>RPC: Validate one bounded step at a fresh snapshot
+    alt Results verified or isolated handoff available
+        alt Successful validation results
+            Maker->>RPC: Verify snapshot before committing results
+            Maker->>DB: Commit effects, cursor and continuation intent together
+        else Persisted isolated candidate read fails again
+            Maker->>DB: Commit per-order demand, cursor and continuation intent together
+            Note over DB: No failed result becomes validation coverage
+        end
+    else Shared, snapshot or checkpoint failure
+        Maker->>DB: Keep previous cursor and retryable run
+    end
+    Maker->>Maker: Release permit and lease
+    alt Checkpoint committed
+        Maker-->>NATS: ACK after durable checkpoint
+    else Step failed
+        Maker-->>NATS: Delivery fails; saved run retains unfinished work
+    end
+
+    opt Scan or newer generation still needs a step
+        Outbox->>DB: Read committed continuation
+        Outbox->>NATS: Publish next step behind ready work
+        Outbox->>DB: Record publication receipt
+    end
+
+    loop Bounded recovery and receipt cleanup
+        Recovery->>DB: Read idle unfinished runs and delivery receipts
+        Recovery->>NATS: Check publication identity and consumer ACK floors
+        Recovery->>DB: Repair missing wakeups and reap eligible completed receipts
+    end
+    Note over DB: Completed maker scan may coexist with pending per-order demand
 ```
 
 ## Canonical Metadata Refresh + Collection Extension Artifacts
