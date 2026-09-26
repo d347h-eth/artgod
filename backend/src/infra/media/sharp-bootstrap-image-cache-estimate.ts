@@ -8,11 +8,12 @@ import {
     resizeTokenImageCacheSourceToWebp,
 } from "@artgod/shared/media/token-image-cache-transform";
 import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
-import type { BootstrapImageCacheEstimatePort } from "../../application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
 import {
-    loadSharp,
-    type SharpFactoryLoader,
-} from "./sharp-loader.js";
+    BootstrapImageCacheEstimateError,
+    type BootstrapImageCacheEstimatePort,
+} from "../../application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
+import { bootstrapImageFetchFailure } from "./bootstrap-resource-failure.js";
+import { loadSharp, type SharpFactoryLoader } from "./sharp-loader.js";
 
 export type SharpBootstrapImageCacheEstimateConfig = {
     ipfsGatewayOrigin: string;
@@ -21,10 +22,10 @@ export type SharpBootstrapImageCacheEstimateConfig = {
     sharpLoader?: SharpFactoryLoader;
 };
 
-export class SharpBootstrapImageCacheEstimateAdapter
-    implements BootstrapImageCacheEstimatePort
-{
-    constructor(private readonly config: SharpBootstrapImageCacheEstimateConfig) {}
+export class SharpBootstrapImageCacheEstimateAdapter implements BootstrapImageCacheEstimatePort {
+    constructor(
+        private readonly config: SharpBootstrapImageCacheEstimateConfig,
+    ) {}
 
     async estimateCacheOutput(input: {
         sourceImageUrl: string;
@@ -45,49 +46,71 @@ export class SharpBootstrapImageCacheEstimateAdapter
             ipfsGatewayOrigin: this.config.ipfsGatewayOrigin,
             maxSourceBytes: this.config.maxSourceBytes,
             fetchResilience: this.config.fetchResilience,
+        }).catch((cause: unknown) => {
+            throw new BootstrapImageCacheEstimateError(
+                bootstrapImageFetchFailure(cause, input.sourceImageUrl),
+                cause,
+            );
         });
-        const sharpLoader = this.config.sharpLoader ?? loadSharp;
-        const sourceDimensions = await readTokenImageSourceDimensions({
-            sourceBuffer: source.buffer,
-            sharpLoader,
-        });
+        const sharp = await (this.config.sharpLoader ?? loadSharp)().catch(
+            (cause: unknown) => {
+                throw new BootstrapImageCacheEstimateError(
+                    "Image processing is unavailable. Restart infra and press estimate, or set Image cache mode to off.",
+                    cause,
+                );
+            },
+        );
+        const sharpLoader = async () => sharp;
+        try {
+            const sourceDimensions = await readTokenImageSourceDimensions({
+                sourceBuffer: source.buffer,
+                sharpLoader,
+            });
 
-        if (input.maxDimension === null) {
-            const contentType = normalizeImageContentType(source.contentType);
+            if (input.maxDimension === null) {
+                const contentType = normalizeImageContentType(
+                    source.contentType,
+                );
+                return {
+                    sourceBytes: source.buffer.byteLength,
+                    cachedBytes: source.buffer.byteLength,
+                    contentType,
+                    sampleCachedImageDataUrl: contentType
+                        ? buildImageDataUri({
+                              contentType,
+                              buffer: source.buffer,
+                          })
+                        : null,
+                    sourceWidth: sourceDimensions.width,
+                    sourceHeight: sourceDimensions.height,
+                    width: sourceDimensions.width,
+                    height: sourceDimensions.height,
+                };
+            }
+
+            const transformed = await resizeTokenImageCacheSourceToWebp({
+                sourceBuffer: source.buffer,
+                requestedMaxDimension: input.maxDimension,
+                sharpLoader,
+            });
             return {
                 sourceBytes: source.buffer.byteLength,
-                cachedBytes: source.buffer.byteLength,
-                contentType,
-                sampleCachedImageDataUrl: contentType
-                    ? buildImageDataUri({
-                          contentType,
-                          buffer: source.buffer,
-                      })
-                    : null,
+                cachedBytes: transformed.buffer.byteLength,
+                contentType: transformed.contentType,
+                sampleCachedImageDataUrl: buildImageDataUri({
+                    contentType: transformed.contentType,
+                    buffer: transformed.buffer,
+                }),
                 sourceWidth: sourceDimensions.width,
                 sourceHeight: sourceDimensions.height,
-                width: sourceDimensions.width,
-                height: sourceDimensions.height,
+                width: transformed.width,
+                height: transformed.height,
             };
+        } catch (cause) {
+            throw new BootstrapImageCacheEstimateError(
+                "Sample image could not be decoded or resized. Set Image cache mode to off, or choose another Image source field and press Probe.",
+                cause,
+            );
         }
-
-        const transformed = await resizeTokenImageCacheSourceToWebp({
-            sourceBuffer: source.buffer,
-            requestedMaxDimension: input.maxDimension,
-            sharpLoader,
-        });
-        return {
-            sourceBytes: source.buffer.byteLength,
-            cachedBytes: transformed.buffer.byteLength,
-            contentType: transformed.contentType,
-            sampleCachedImageDataUrl: buildImageDataUri({
-                contentType: transformed.contentType,
-                buffer: transformed.buffer,
-            }),
-            sourceWidth: sourceDimensions.width,
-            sourceHeight: sourceDimensions.height,
-            width: transformed.width,
-            height: transformed.height,
-        };
     }
 }

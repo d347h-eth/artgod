@@ -10,6 +10,14 @@ import {
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
 
+// Expected sample download/processing failure; its message is safe for the form.
+export class BootstrapImageCacheEstimateError extends Error {
+    constructor(message: string, cause: unknown) {
+        super(message, { cause });
+        this.name = "BootstrapImageCacheEstimateError";
+    }
+}
+
 export type EstimateBootstrapImageCacheInput = {
     chainRef: string;
     sampleTokenId: string;
@@ -68,7 +76,10 @@ export class EstimateBootstrapImageCacheUseCase {
             input.chainRef,
             this.defaultChainId,
         );
-        const totalSupply = parsePositiveBigInt(input.totalSupply, "totalSupply");
+        const totalSupply = parsePositiveBigInt(
+            input.totalSupply,
+            "totalSupply",
+        );
         const sampleTokenId = input.sampleTokenId.trim();
         if (!sampleTokenId) {
             throw new BootstrapValidationError("sampleTokenId is required");
@@ -146,11 +157,15 @@ function validateMaxDimension(value: number | null): void {
 function parsePositiveBigInt(value: string, field: string): bigint {
     const normalized = value.trim();
     if (!/^\d+$/.test(normalized)) {
-        throw new BootstrapValidationError(`${field} must be a positive integer`);
+        throw new BootstrapValidationError(
+            `${field} must be a positive integer`,
+        );
     }
     const parsed = BigInt(normalized);
     if (parsed <= 0n) {
-        throw new BootstrapValidationError(`${field} must be a positive integer`);
+        throw new BootstrapValidationError(
+            `${field} must be a positive integer`,
+        );
     }
     return parsed;
 }

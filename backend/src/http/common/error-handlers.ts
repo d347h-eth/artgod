@@ -11,6 +11,7 @@ import { PurgeCollectionValidationError } from "../../application/use-cases/coll
 import { TradingValidationError } from "../../application/use-cases/trading/types.js";
 import { logger } from "@artgod/shared/utils";
 import { toErrorMessage } from "../../utils/error-message.js";
+import { BootstrapImageCacheEstimateError } from "../../application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
 
 export function registerApiErrorHandlers(app: FastifyInstance): void {
     app.setNotFoundHandler((_request, reply) => {
@@ -21,6 +22,18 @@ export function registerApiErrorHandlers(app: FastifyInstance): void {
     });
 
     app.setErrorHandler((error, request, reply) => {
+        if (error instanceof BootstrapImageCacheEstimateError) {
+            logger.warn("Bootstrap image cache estimate failed", {
+                component: "BackendApi",
+                action: "estimateImageCache",
+                error: String(error.cause),
+            });
+            reply.code(502).send({
+                error: "image_cache_estimate_failed",
+                message: error.message,
+            });
+            return;
+        }
         if (error instanceof ReadModelBadRequestError) {
             reply.code(400).send({
                 error: "bad_request",

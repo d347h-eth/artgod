@@ -34,6 +34,7 @@ import { readTokenImageSourceDimensions } from "@artgod/shared/media/token-image
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     fetchWithHttpResilience,
+    HttpFetchStatusError,
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
 import {
@@ -45,6 +46,8 @@ import {
     type EvmProxyResolution,
 } from "@artgod/shared/evm/proxy-detection";
 import { loadSharp } from "../media/sharp-loader.js";
+import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
+import { logger } from "@artgod/shared/utils";
 
 type BootstrapProbeRpc = {
     getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
@@ -569,13 +572,20 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 candidates,
             };
         } catch (error) {
+            logger.warn("Bootstrap sample metadata fetch failed", {
+                component: "BootstrapContractProbe",
+                action: "fetchMetadata",
+                address,
+                tokenId,
+                error: compactError(error),
+            });
             return {
                 tokenId,
                 source,
                 tokenUri: uri,
                 tokenUriPayloadBytes: null,
                 tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: compactError(error),
+                tokenUriPayloadError: bootstrapMetadataFetchFailure(error, uri),
                 name: null,
                 imageSourceField: null,
                 image: null,
@@ -702,7 +712,7 @@ async function fetchTokenUriPayload(
         },
     });
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new HttpFetchStatusError(response.status);
     }
     const contentLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(contentLength) && contentLength > maxBytes) {
@@ -774,11 +784,16 @@ function parseMetadataPayload(
             error: null,
         };
     } catch (error) {
+        logger.warn("Bootstrap metadata parsing failed", {
+            component: "BootstrapContractProbe",
+            action: "parseMetadata",
+            error: compactError(error),
+        });
         return {
             name: null,
             imageSource: null,
             animationSource: null,
-            error: compactError(error),
+            error: "Metadata could not be read. Try another sample token ID, then press Probe.",
         };
     }
 }

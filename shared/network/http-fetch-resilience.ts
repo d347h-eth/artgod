@@ -38,16 +38,26 @@ const HTTP_FETCH_RETRYABLE_STATUS_CODES = new Set([
 // Error raised when a normal HTTP attempt exceeds its request timeout.
 export class HttpFetchRequestTimeoutError extends Error {
     constructor(timeoutMs: number, cause?: unknown) {
-        super(`${HTTP_FETCH_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`);
+        super(
+            `${HTTP_FETCH_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`,
+        );
         this.name = "HttpFetchRequestTimeoutError";
         this.cause = cause;
     }
 }
 
-// Error raised internally to retry transient HTTP responses.
-export class HttpFetchRetryableStatusError extends Error {
+// Retains the response status without exposing an upstream body or URL to callers.
+export class HttpFetchStatusError extends Error {
     constructor(readonly status: number) {
         super(`HTTP ${status}`);
+        this.name = "HttpFetchStatusError";
+    }
+}
+
+// Error raised internally to retry transient HTTP responses.
+export class HttpFetchRetryableStatusError extends HttpFetchStatusError {
+    constructor(status: number) {
+        super(status);
         this.name = "HttpFetchRetryableStatusError";
     }
 }

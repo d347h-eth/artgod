@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContractFunctionRevertedError } from "viem";
 import {
     ERC721_OWNER_OF_FUNCTION,
@@ -36,6 +36,54 @@ const TEST_ONE_PIXEL_PNG =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 describe("ViemBootstrapContractProbe", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it.each([404, 429])(
+        "retains confirmed ownership when the metadata gateway returns HTTP %i",
+        async (status) => {
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(
+                    async () => new Response("gateway unavailable", { status }),
+                ),
+            );
+            const result = await makeEnumerableProbe(
+                "ipfs://sample/1",
+            ).probeErc721Contract({
+                address: TEST_CONTRACT_ADDRESS,
+                imageSourceField: null,
+                animationSourceField: null,
+                sampleTokenId: "1",
+            });
+            expect(result.firstToken.candidates).toEqual([
+                expect.objectContaining({ tokenId: "1", exists: true }),
+            ]);
+            expect(result.firstToken.tokenUri).toBe("ipfs://sample/1");
+            expect(result.firstToken.tokenUriPayloadError).toContain(
+                `Metadata download failed (HTTP ${status})`,
+            );
+            expect(result.firstToken.tokenUriPayloadError).toContain(
+                "IPFS gateway in Admin config",
+            );
+            expect(result.firstToken.imageSourceField).toBeNull();
+        },
+    );
+
+    it("reports malformed metadata separately from confirmed sample ownership", async () => {
+        const result = await makeEnumerableProbe(
+            "data:application/json,invalid",
+        ).probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+            sampleTokenId: "1",
+        });
+        expect(result.firstToken.candidates[0]?.exists).toBe(true);
+        expect(result.firstToken.tokenUriPayloadError).toBeNull();
+        expect(result.firstToken.metadataError).toContain(
+            "Metadata could not be read",
+        );
+    });
     it("rejects addresses without contract bytecode before ERC165 reads", async () => {
         const calls: string[] = [];
         const probe = new ViemBootstrapContractProbe({

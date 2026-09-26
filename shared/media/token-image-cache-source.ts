@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import {
     fetchWithHttpResilience,
+    HttpFetchStatusError,
     type HttpFetchResilienceConfig,
 } from "../network/http-fetch-resilience.js";
 import {
@@ -47,16 +48,14 @@ export async function fetchTokenImageCacheSource(input: {
         },
     });
     if (!response.ok) {
-        throw new Error(`Image fetch failed: HTTP ${response.status}`);
+        throw new HttpFetchStatusError(response.status);
     }
     const contentLength = Number(response.headers.get("content-length"));
     if (
         Number.isFinite(contentLength) &&
         contentLength > input.maxSourceBytes
     ) {
-        throw new Error(
-            `Image payload exceeds ${input.maxSourceBytes} bytes`,
-        );
+        throw new Error(`Image payload exceeds ${input.maxSourceBytes} bytes`);
     }
 
     return {
