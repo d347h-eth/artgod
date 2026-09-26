@@ -106,6 +106,13 @@ For example, successful checks followed by a reorg increment `validated` and
 Compare pending count and oldest age across a complete reconciliation cycle;
 brief startup drainage or growth is not a steady-state throughput measurement.
 
+For ongoing rates and bottlenecks, use the shared
+[order processing metrics and APM](10-observability-and-metrics.md#order-processing-metrics-and-apm):
+demand completion/retry rates, maker resolved/deferred progress, FIFO pressure,
+recovery and outbox outcomes, and failure spans around validation and persistence.
+The runtime does not scan whole tables to populate metrics; its sampled age
+histogram complements the inspector's explicitly requested global inventory.
+
 | Observation                                                 | Meaning and next action                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Broker queue shrinks, demand remains                        | Cheap admission is ahead of validation. Inspect pending generations, sampled age and successful validations before claiming catch-up.                                                                                                                                                      |

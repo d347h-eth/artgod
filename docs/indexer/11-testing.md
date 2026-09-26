@@ -328,6 +328,32 @@ a 100-order page is isolated after repeated failure: the other 99 finish, and
 the remaining demand completes when its read recovers. Keep these ownership and
 failure-isolation cases alongside the maker handoff tests when changing batching.
 
+## Order Processing Observability
+
+`tests/domain-processing-observability.test.ts` uses the shared Prometheus
+serializer to verify duration units/buckets, bounded labels, overlapping active
+work, FIFO cancellation/drain and metric-failure neutrality. A recording `ApmPort`
+checks callback nesting and preservation of original errors without collectors.
+
+The demand-batch, maker-handoff, maker-checkpoint, order-processing and queue-outbox
+suites additionally verify telemetry against real disposable SQLite outcomes:
+rolled-back results are not reported as committed coverage, a failed isolated
+validation is visible under a successful durable handoff, and recovery/publication
+outcomes reflect persisted state. Preserve these checks when changing retry catches
+or checkpoint boundaries. The telemetry contracts and query examples are in
+[Order processing metrics and APM](10-observability-and-metrics.md#order-processing-metrics-and-apm).
+
+```sh
+TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
+  yarn workspace @artgod/indexer test tests/domain-processing-observability.test.ts \
+  tests/order-validation-demand-batch.test.ts tests/maker-validation-handoff.test.ts \
+  tests/maker-revalidation-checkpoint.test.ts tests/order-processing.test.ts \
+  tests/queue-outbox.test.ts
+```
+
+These checks verify instrumentation locally. Live scrape/trace ingestion and
+rendered dashboards require separate runtime QA.
+
 ## OpenSea Reconciliation Regression
 
 `tests/opensea-reconcile.test.ts` uses disposable migrated SQLite databases to
