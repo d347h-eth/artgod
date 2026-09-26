@@ -3,17 +3,16 @@ import type {
     CollectionListItem,
 } from "@artgod/shared/types/browse";
 import {
-    PRICE_HISTORY_BUCKET,
-    PRICE_HISTORY_RANGE,
     PRICE_HISTORY_RANGE_DAYS,
     PRICE_HISTORY_LIMITS,
     type PriceHistory,
-    type PriceHistoryRequest,
+    type RealizedSale,
 } from "@artgod/shared/types/price-history";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
     buildRealizedPriceHistory,
-    type PricedFill,
+    resolvePriceHistoryRequest,
+    PriceHistoryInputError,
 } from "../../../domain/realized-price-history.js";
 
 export type GetPriceHistoryInput = {
@@ -28,7 +27,8 @@ export type GetPriceHistoryPort = {
 };
 export type PriceHistoryReadPort = {
     // Only verified single-NFT ETH-equivalent fills, retaining execution currency.
-    // The iterator bounds allocations and includes one extra row to detect overflow.
+    // Ascending timestamp, block, log and row identity. The domain consumes once;
+    // the adapter must include one extra row so limits never silently truncate.
     iterateSingleTokenSales(input: {
         chainId: number;
         collectionId: number;
@@ -36,7 +36,7 @@ export type PriceHistoryReadPort = {
         from: number;
         to: number;
         limit: number;
-    }): Iterable<PricedFill>;
+    }): Iterable<RealizedSale>;
 };
 
 export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
@@ -57,27 +57,17 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
     ) {}
 
     getPriceHistory(input: GetPriceHistoryInput): PriceHistory {
-        const bucket = input.bucket ?? PRICE_HISTORY_BUCKET.Day;
-        const range = input.range ?? PRICE_HISTORY_RANGE.All;
-        if (
-            !Object.values(PRICE_HISTORY_BUCKET).includes(
-                bucket as PriceHistoryRequest["bucket"],
-            ) ||
-            !Object.values(PRICE_HISTORY_RANGE).includes(
-                range as PriceHistoryRequest["range"],
-            )
-        ) {
-            throw new ReadModelBadRequestError(
-                "Invalid price history range or bucket.",
-            );
+        try {
+            return this.readHistory(input);
+        } catch (error) {
+            if (error instanceof PriceHistoryInputError)
+                throw new ReadModelBadRequestError(error.message);
+            throw error;
         }
-        if (
-            input.tokenId !== undefined &&
-            (!/^\d{1,78}$/.test(input.tokenId) ||
-                BigInt(input.tokenId) >= 2n ** 256n)
-        ) {
-            throw new ReadModelBadRequestError("Invalid token ID.");
-        }
+    }
+
+    private readHistory(input: GetPriceHistoryInput): PriceHistory {
+        const request = resolvePriceHistoryRequest(input);
         const chain = this.chains.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -92,32 +82,16 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
             chain.publicChainId,
             input.collectionRef,
         );
-        const request = {
-            bucket,
-            range,
-            tokenId:
-                input.tokenId === undefined
-                    ? undefined
-                    : BigInt(input.tokenId).toString(),
-        } as PriceHistoryRequest;
         const to = this.now() + 1;
         const days = PRICE_HISTORY_RANGE_DAYS[request.range];
-        const fills: PricedFill[] = [];
-        for (const fill of this.prices.iterateSingleTokenSales({
+        const fills = this.prices.iterateSingleTokenSales({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: request.tokenId,
             from: days === null ? 0 : to - days * 86400,
             to,
             limit: PRICE_HISTORY_LIMITS.fills + 1,
-        })) {
-            if (fills.length === PRICE_HISTORY_LIMITS.fills) {
-                throw new ReadModelBadRequestError(
-                    "Choose a shorter price history range.",
-                );
-            }
-            fills.push(fill);
-        }
+        });
         return buildRealizedPriceHistory(fills, request, to);
     }
 }

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, expect, it } from "vitest";
+import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -14,13 +14,17 @@ import {
     PRICE_HISTORY_BUCKET as BUCKET,
     PRICE_HISTORY_RANGE as RANGE,
     PRICE_HISTORY_LIMITS,
-    PRICE_HISTORY_ROUTE,
     PRICE_HISTORY_CURRENCY_SYMBOL,
     REALIZED_SALE_ACTION,
-    buildPriceHistoryPath,
     priceBucketStart,
 } from "@artgod/shared/types/price-history";
+import {
+    COLLECTION_API_ROUTE_TEMPLATE,
+    buildPriceHistoryPath,
+} from "@artgod/shared/http/collection-routes";
 import { SqlitePriceHistoryRead } from "./sqlite-price-history-read.js";
+import { CachedPriceHistoryRead } from "./cached-price-history-read.js";
+import { MemoryQueryCache } from "../cache/memory.js";
 import {
     GetPriceHistoryUseCase,
     type PriceHistoryReadPort,
@@ -223,9 +227,9 @@ it("uses half-open requested ranges and rejects unsafe allocations or invalid in
         ).toThrow(ReadModelBadRequestError);
     }
     fill({ timestamp: 1 });
-    expect(() =>
-        useCase.getPriceHistory({ ...input(), bucket: BUCKET.Hour }),
-    ).toThrow(/larger time bucket/);
+    expect(
+        useCase.getPriceHistory({ ...input(), bucket: BUCKET.Hour }).bucket,
+    ).toBe(BUCKET.Day);
     const first = [
         ...reader.iterateSingleTokenSales({
             chainId: 1,
@@ -256,7 +260,7 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
     fill({ token: "8" });
     const app = Fastify();
     const adapter = new GetPriceHistoryHttpAdapter(useCase);
-    app.get(PRICE_HISTORY_ROUTE, adapter.handle);
+    app.get(COLLECTION_API_ROUTE_TEMPLATE.PriceHistory, adapter.handle);
     app.setErrorHandler((error, _request, reply) =>
         reply.code(error instanceof ReadModelBadRequestError ? 400 : 500).send({
             message: error instanceof Error ? error.message : "Unknown error",
@@ -276,7 +280,7 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
                 .json()
                 .sales.map((sale: { tokenId: string }) => sale.tokenId),
         ).toEqual(["7"]);
-        expect(response.json().bucketSeconds).toBe(3600);
+        expect(response.json().bucketSeconds).toBe(86400);
         expect(response.json().sales[0]).toMatchObject({
             currencyAddress: WETH,
             currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
@@ -294,4 +298,153 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
     } finally {
         await app.close();
     }
+});
+
+it("reads 50,000 sales across five years in index order without a temporary sort", () => {
+    const count = 50_000;
+    const start = TIME - 5 * 365 * 86400;
+    db.writeTransaction(() => {
+        // Insert backwards to ensure row/insertion order cannot pass this check.
+        for (let i = count - 1; i >= 0; i--)
+            fill({
+                token: String(i % 100),
+                timestamp: start + Math.floor((i * (TIME - start)) / count),
+                block: i + 1,
+                log: i % 10,
+                price: String(10n ** 18n + BigInt(i)),
+            });
+    })();
+    const prepare = vi.spyOn(db, "prepare");
+    const started = performance.now();
+    const history = useCase.getPriceHistory(input());
+    const elapsedMs = performance.now() - started;
+    const token = useCase.getPriceHistory({ ...input(), tokenId: "7" });
+    const queries = prepare.mock.calls
+        .map(([sql]) => sql)
+        .filter((sql) => sql.includes("price_nft_count"));
+    prepare.mockRestore();
+    expect(history.sales).toHaveLength(count);
+    expect(history.buckets).toHaveLength(5 * 365);
+    expect(
+        history.buckets.reduce((sum, bucket) => sum + bucket.volume, 0),
+    ).toBe(count);
+    expect(
+        history.sales.every(
+            (sale, i) => sale.priceWei === String(10n ** 18n + BigInt(i)),
+        ),
+    ).toBe(true);
+    expect(token.sales).toHaveLength(500);
+    for (const [i, query] of queries.entries()) {
+        const args = [
+            1,
+            collectionId,
+            0,
+            TIME + 5 * 86400 + 1,
+            ...(i ? ["7"] : []),
+            FILL_KIND.BlurV2,
+            ...CURRENCIES,
+            PRICE_HISTORY_LIMITS.fills + 1,
+        ];
+        const plan = db.prepare("EXPLAIN QUERY PLAN " + query).all(...args) as {
+            detail: string;
+        }[];
+        expect(plan.map((row) => row.detail).join(" ")).toContain(
+            i ? "fills_collection_token_idx" : "fills_collection_time_idx",
+        );
+        expect(plan.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(
+            false,
+        );
+    }
+    expect(queries).toHaveLength(2);
+    console.info(
+        `Five-year fixture: ${count} fills, ${elapsedMs.toFixed(1)} ms read/aggregate, ${(JSON.stringify(history).length / 1024 / 1024).toFixed(1)} MiB JSON`,
+    );
+});
+
+it("shares a bounded public snapshot across ranges and observes correction, deletion and new fills after expiry", () => {
+    vi.useFakeTimers();
+    const source = vi.spyOn(reader, "iterateSingleTokenSales");
+    try {
+        fill({ token: "1" });
+        fill({ token: "2", timestamp: TIME - 100 * 86400 });
+        const cached = new CachedPriceHistoryRead(
+            reader,
+            new MemoryQueryCache({ maxEntries: 1 }),
+            30_000,
+        );
+        const request = {
+            chainId: 1,
+            collectionId,
+            from: 0,
+            to: TIME + 1,
+            limit: PRICE_HISTORY_LIMITS.fills + 1,
+        };
+        const all = Array.from(cached.iterateSingleTokenSales(request));
+        expect(all.map((sale) => sale.tokenId)).toEqual(["2", "1"]);
+        expect(
+            Array.from(
+                cached.iterateSingleTokenSales({
+                    ...request,
+                    from: TIME,
+                    tokenId: "1",
+                }),
+            ),
+        ).toEqual([all[1]]);
+        expect(source).toHaveBeenCalledTimes(1);
+        db.prepare("DELETE FROM fills WHERE token_id = ?").run("2");
+        db.prepare(
+            "UPDATE fills SET price_nft_count = ? WHERE token_id = ?",
+        ).run("2", "1");
+        fill({ token: "3", price: "77" });
+        expect(Array.from(cached.iterateSingleTokenSales(request))).toEqual(
+            all,
+        );
+        vi.advanceTimersByTime(30_000);
+        const refreshed = Array.from(cached.iterateSingleTokenSales(request));
+        expect(refreshed.map((sale) => [sale.tokenId, sale.priceWei])).toEqual([
+            ["3", "77"],
+        ]);
+        expect(source).toHaveBeenCalledTimes(2);
+        expect(
+            Array.from(
+                cached.iterateSingleTokenSales({
+                    ...request,
+                    collectionId: collectionId + 1,
+                }),
+            ),
+        ).toEqual([]);
+        expect(source).toHaveBeenCalledTimes(3);
+    } finally {
+        source.mockRestore();
+        vi.useRealTimers();
+    }
+});
+
+it("does not cache an oversized collection or truncate a bounded token read", () => {
+    fill();
+    const request = {
+        chainId: 1,
+        collectionId,
+        from: 0,
+        to: TIME + 1,
+        limit: PRICE_HISTORY_LIMITS.fills + 1,
+        tokenId: "1",
+    };
+    const first = Array.from(reader.iterateSingleTokenSales(request))[0]!;
+    const source: PriceHistoryReadPort = {
+        *iterateSingleTokenSales(input) {
+            if (input.tokenId) {
+                yield first;
+                return;
+            }
+            for (let i = 0; i <= PRICE_HISTORY_LIMITS.fills; i++) yield first;
+        },
+    };
+    const cache = new MemoryQueryCache({ maxEntries: 1 });
+    const set = vi.spyOn(cache, "set");
+    const cached = new CachedPriceHistoryRead(source, cache, 30_000);
+    expect(Array.from(cached.iterateSingleTokenSales(request))).toEqual([
+        first,
+    ]);
+    expect(set).not.toHaveBeenCalled();
 });

@@ -1,3 +1,15 @@
+import type {
+    ChainRecord,
+    CollectionListItem,
+    CollectionMediaState,
+} from "./browse.js";
+
+export type CollectionPriceChartContext = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
+    media: CollectionMediaState;
+};
+
 export const PRICE_HISTORY_BUCKET = {
     Hour: "1h",
     FourHours: "4h",
@@ -30,12 +42,6 @@ export const PRICE_HISTORY_RANGE_DAYS: Record<
     [PRICE_HISTORY_RANGE.Year]: 365,
     [PRICE_HISTORY_RANGE.All]: null,
 };
-export const PRICE_HISTORY_QUERY = {
-    Bucket: "bucket",
-    Range: "range",
-    TokenId: "token_id",
-} as const;
-export const PRICE_HISTORY_ROUTE = COLLECTION_API_ROUTE_TEMPLATE.PriceHistory;
 export const PRICE_HISTORY_LIMITS = {
     fills: 100_000,
     buckets: 30_000,
@@ -97,25 +103,23 @@ export type PriceHistory = {
     buckets: RealizedPriceBucket[];
 };
 
-export function buildPriceHistoryPath(
-    chainRef: string,
-    collectionRef: string,
-    input: PriceHistoryRequest,
-): string {
-    const query = new URLSearchParams({
-        [PRICE_HISTORY_QUERY.Bucket]: input.bucket,
-        [PRICE_HISTORY_QUERY.Range]: input.range,
-    });
-    if (input.tokenId !== undefined)
-        query.set(PRICE_HISTORY_QUERY.TokenId, input.tokenId);
-    return (
-        PRICE_HISTORY_ROUTE.replace(
-            ":chain_ref",
-            encodeURIComponent(chainRef),
-        ).replace(":collection_ref", encodeURIComponent(collectionRef)) +
-        "?" +
-        query
-    );
+/** Bound long histories without pagination. This rule also covers future ranges. */
+export function priceHistoryBuckets(
+    range: PriceHistoryRange,
+): readonly PriceHistoryBucket[] {
+    const days = PRICE_HISTORY_RANGE_DAYS[range];
+    return days === null || days > 2 * 365
+        ? [PRICE_HISTORY_BUCKET.Day]
+        : Object.values(PRICE_HISTORY_BUCKET);
+}
+
+export function priceHistoryBucket(
+    bucket: PriceHistoryBucket,
+    range: PriceHistoryRange,
+): PriceHistoryBucket {
+    return priceHistoryBuckets(range).includes(bucket)
+        ? bucket
+        : PRICE_HISTORY_BUCKET.Day;
 }
 
 // Weekly buckets start Monday 00:00 UTC, all others at UTC epoch multiples.
@@ -127,4 +131,3 @@ export function priceBucketStart(
     const origin = bucket === PRICE_HISTORY_BUCKET.Week ? 4 * 86400 : 0;
     return Math.floor((timestamp - origin) / seconds) * seconds + origin;
 }
-import { COLLECTION_API_ROUTE_TEMPLATE } from "../http/collection-routes.js";

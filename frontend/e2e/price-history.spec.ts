@@ -1,6 +1,5 @@
 import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import {
-	PRICE_HISTORY_QUERY,
 	PRICE_HISTORY_BUCKET,
 	PRICE_HISTORY_RANGE,
 	PRICE_HISTORY_LIMITS,
@@ -15,7 +14,10 @@ import {
 	priceHistoryOutlierFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
-import { COLLECTION_API_ROUTE_TEMPLATE } from '@artgod/shared/http/collection-routes';
+import {
+	COLLECTION_API_ROUTE_TEMPLATE,
+	PRICE_HISTORY_QUERY
+} from '@artgod/shared/http/collection-routes';
 
 const CARD_API = '**' + COLLECTION_API_ROUTE_TEMPLATE.TokenCard.replace(/:[a-z_]+/g, '*') + '?*';
 const IMAGE =

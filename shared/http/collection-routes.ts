@@ -1,6 +1,9 @@
-// Collection action API route templates registered by the backend.
+import type { PriceHistoryRequest } from "../types/price-history.js";
+
+// Collection API route templates registered by the backend.
 export const COLLECTION_API_ROUTE_TEMPLATE = {
     PriceHistory: "/api/:chain_ref/:collection_ref/price-history",
+    PriceChartContext: "/api/:chain_ref/:collection_ref/chart-context",
     TokenCard: "/api/:chain_ref/:collection_ref/:token_ref/card",
     StartBootstrap: "/api/:chain_ref/:collection_ref/bootstrap/start",
     ProbeOpenSeaSlug: "/api/:chain_ref/:collection_ref/opensea/slug-probe",
@@ -12,6 +15,33 @@ export const COLLECTION_API_ROUTE_TEMPLATE = {
 const COLLECTION_API_CHAIN_REF_PARAM = ":chain_ref";
 const COLLECTION_API_COLLECTION_REF_PARAM = ":collection_ref";
 
+export const PRICE_HISTORY_QUERY = {
+    Bucket: "bucket",
+    Range: "range",
+    TokenId: "token_id",
+} as const;
+
+export function buildPriceHistoryPath(
+    chainRef: string,
+    collectionRef: string,
+    input: PriceHistoryRequest,
+): string {
+    const query = new URLSearchParams({
+        [PRICE_HISTORY_QUERY.Bucket]: input.bucket,
+        [PRICE_HISTORY_QUERY.Range]: input.range,
+    });
+    if (input.tokenId !== undefined)
+        query.set(PRICE_HISTORY_QUERY.TokenId, input.tokenId);
+    return (
+        buildCollectionRoute(COLLECTION_API_ROUTE_TEMPLATE.PriceHistory, {
+            chainRef,
+            collectionRef,
+        }) +
+        "?" +
+        query
+    );
+}
+
 export function buildTokenCardPath(input: {
     chainRef: string;
     collectionRef: string;
@@ -21,6 +51,16 @@ export function buildTokenCardPath(input: {
         COLLECTION_API_ROUTE_TEMPLATE.TokenCard,
         input,
     ).replace(":token_ref", encodeURIComponent(input.tokenRef));
+}
+
+export function buildPriceChartContextPath(
+    chainRef: string,
+    collectionRef: string,
+): string {
+    return buildCollectionRoute(
+        COLLECTION_API_ROUTE_TEMPLATE.PriceChartContext,
+        { chainRef, collectionRef },
+    );
 }
 
 // Query keys accepted by collection action endpoints.

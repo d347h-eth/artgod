@@ -1,17 +1,15 @@
 import { db } from "@artgod/shared/database";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
-import type { PriceHistoryCurrencySymbol } from "@artgod/shared/types/price-history";
+import type {
+    PriceHistoryCurrencySymbol,
+    RealizedSale,
+} from "@artgod/shared/types/price-history";
 import type { PriceHistoryReadPort } from "../../application/use-cases/collections/get-price-history.js";
-import {
-    realizedSaleExecution,
-    type PricedFill,
-} from "../../domain/realized-price-history.js";
+import { realizedSaleExecution } from "../../domain/realized-price-history.js";
 
 type FillRow = {
     id: number;
     block_timestamp: number;
-    block_number: number;
-    log_index: number;
     token_id: string;
     price: string;
     currency: string;
@@ -43,11 +41,11 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
 
     *iterateSingleTokenSales(
         input: Parameters<PriceHistoryReadPort["iterateSingleTokenSales"]>[0],
-    ): Iterable<PricedFill> {
+    ): Iterable<RealizedSale> {
         // Legacy Seaport rows cannot prove a single NFT: an untracked sibling
         // leaves no fill row. Blur V2 has always quoted each exchange separately.
         const query = db.prepare(
-            `SELECT id, block_timestamp, block_number, log_index, token_id, price, currency, tx_hash, order_side, maker, taker
+            `SELECT id, block_timestamp, token_id, price, currency, tx_hash, order_side, maker, taker
              FROM fills
              WHERE chain_id = ? AND collection_id = ?
                AND block_timestamp >= ? AND block_timestamp < ?
@@ -57,6 +55,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
                AND currency IN (${Array.from(this.currencies, () => "?").join(",")})
                AND price IS NOT NULL AND price != '' AND price NOT GLOB '*[^0-9]*'
                AND length(price) <= 78
+             ORDER BY block_timestamp, block_number, log_index, id
              LIMIT ?`,
         );
         const args: (string | number)[] = [
@@ -72,8 +71,6 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
             yield {
                 id: String(row.id),
                 timestamp: row.block_timestamp,
-                blockNumber: row.block_number,
-                logIndex: row.log_index,
                 tokenId: row.token_id,
                 priceWei: row.price,
                 currencyAddress: row.currency,

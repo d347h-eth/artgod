@@ -1,6 +1,9 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
-import { COLLECTION_STANDARD, type CollectionStandard } from "./collections.js";
+import {
+    COLLECTION_STANDARD,
+    type CollectionStandard,
+} from "./collections.js";
 import type {
     CollectionScopedMakerTriggerReason,
     GlobalMakerTriggerReason,

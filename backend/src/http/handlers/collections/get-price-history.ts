@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import { PRICE_HISTORY_QUERY } from "@artgod/shared/types/price-history";
+import { PRICE_HISTORY_QUERY } from "@artgod/shared/http/collection-routes";
 import type { GetPriceHistoryPort } from "../../../application/use-cases/collections/get-price-history.js";
 import { getSearchParams } from "../../common/request-query.js";
 

@@ -13,7 +13,7 @@ gross price on every attributed fill and a count greater than one, including
 when only one of its NFTs is tracked. Blur V2 quotes a token-specific listing
 price for each exchange, including exchanges within batch calls.
 
-The realized-price PoC includes only quantity-one fills with a verified price
+The realized-price chart includes only quantity-one fills with a verified price
 count of one. Legacy Blur V2 rows remain eligible because their existing decoder
 already has that price contract. Legacy Seaport rows with a NULL count are
 excluded: persisted sibling rows alone cannot rule out an untracked bundle NFT.

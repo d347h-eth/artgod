@@ -23,6 +23,27 @@ tags:
     - name: Trading
 
 paths:
+    /api/{chain_ref}/{collection_ref}/chart-context:
+        get:
+            tags: [Collections]
+            summary: Collection identity and media settings for the chart page
+            operationId: getPriceChartContext
+            description: Returns chart navigation and snapshot-media context without token lists or trait facets.
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/MediaPreference"
+            responses:
+                "200":
+                    description: Collection chart context
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionPriceChartContext"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /api/{chain_ref}/{collection_ref}/price-history:
         get:
             tags: [Collections]
@@ -34,6 +55,9 @@ paths:
                 original currency address and symbol.
                 Bundles, quantities other than one, and unknown legacy Seaport
                 executions are excluded. Empty UTC buckets are omitted.
+                All-history requests always use daily buckets, regardless of the
+                requested bucket. Public deployments may reuse an expiring
+                collection snapshot; desktop reads query SQLite directly.
                 Requests over 100000 eligible fills or 30000 buckets return 400.
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -2435,6 +2459,17 @@ components:
                 while HTTP remains 200. An interrupted stream is never a successful operation.
                 See docs/indexer/14-collection-bootstrap.md, Live Setup Output, for per-operation
                 requirements, retention bounds and retry behavior. Security checks are unchanged.
+        CollectionPriceChartContext:
+            type: object
+            required: [chain, collection, media]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
         PriceHistory:
             type: object
             required:
@@ -2458,7 +2493,19 @@ components:
                     type: array
                     items:
                         type: object
-                        required: [id, timestamp, tokenId, priceWei, currencyAddress, currencySymbol, seller, buyer, txHash]
+                        required:
+                            [
+                                id,
+                                timestamp,
+                                tokenId,
+                                priceWei,
+                                currencyAddress,
+                                currencySymbol,
+                                action,
+                                seller,
+                                buyer,
+                                txHash,
+                            ]
                         properties:
                             id: { type: string }
                             timestamp: { type: integer }
@@ -2467,9 +2514,16 @@ components:
                             currencyAddress:
                                 type: string
                                 description: Original execution currency address; zero address for ETH
-                            currencySymbol: { type: string, enum: [ETH, WETH, BETH] }
-                            seller: { type: [string, "null"] }
-                            buyer: { type: [string, "null"] }
+                            currencySymbol:
+                                { type: string, enum: [ETH, WETH, BETH] }
+                            action:
+                                {
+                                    type: string,
+                                    nullable: true,
+                                    enum: [take-ask, take-offer, null],
+                                }
+                            seller: { type: string, nullable: true }
+                            buyer: { type: string, nullable: true }
                             txHash: { type: string }
                 buckets:
                     type: array
