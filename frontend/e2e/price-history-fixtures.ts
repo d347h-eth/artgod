@@ -154,3 +154,19 @@ export function priceHistoryOutlierFixture() {
 		history.to
 	);
 }
+
+export function priceHistoryZeroFixture() {
+	const history = priceHistoryFixture();
+	return fixtureHistory(
+		history.sales.slice(-3).map((sale, i) => ({
+			...sale,
+			timestamp: history.from + i * 86400,
+			priceWei: (BigInt(i) * 10n ** 18n).toString(),
+			action: REALIZED_SALE_ACTION.TakeAsk,
+			blockNumber: i,
+			logIndex: i
+		})),
+		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
+		history.to
+	);
+}

@@ -64,6 +64,7 @@
 	let bucket = $state<PriceHistoryBucket>(PRICE_HISTORY_BUCKET.Day);
 	let range = $state<PriceHistoryRange>(PRICE_HISTORY_RANGE.All);
 	const allowedBuckets = $derived(priceHistoryBuckets(range));
+	const showIndicatorSettings = false;
 	let tokenId = $state<string | undefined>();
 	let root: HTMLElement;
 	let element: HTMLDivElement;
@@ -320,11 +321,11 @@
 		<label>range <select class="bootstrap-control-select" aria-label="History range" value={range} onchange={(event) => setQuery(PRICE_CHART_QUERY.Range, event.currentTarget.value)}>
 			{#each Object.values(PRICE_HISTORY_RANGE) as value}<option value={value}>{value}</option>{/each}
 		</select></label>
-		<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>
+		{#if showIndicatorSettings}<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>{/if}
 		<button class="facet-panel-action-button" disabled={!history?.sales.length || !controller} onclick={() => controller?.fit()}>fit</button>
 		<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>
 	</div>
-	{#if indicatorsOpen}
+	{#if showIndicatorSettings && indicatorsOpen}
 		<div class="price-indicators">
 			{#each indicators as indicator (indicator.id)}
 				<div class="price-indicator" role="group" aria-label={`${PRICE_INDICATOR_LABEL[indicator.kind]} ${indicator.params.join('/')}`.trim()}>
