@@ -3,12 +3,13 @@
 The fourth Explore tab, `chart`, opens the dedicated collection sale chart.
 There is no chart link on token detail. Inline charts and line/candle display
 modes have been removed. The chart plots individual
-sales as dots and supports panning, zooming, fit, and configurable indicators.
+sales as dots and supports panning, zooming, fit, and bucket volume.
+The indicators button and settings are hidden for now; the default volume pane remains.
 
 The workspace fills the remaining viewport below collection navigation and its
 compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
 keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
-are URL state. Indicator settings and pinned selection reset on a full reload.
+are URL state. Pinned selection resets on a full reload.
 
 ## Trait filtering
 
@@ -136,9 +137,16 @@ indicator panes, and calculations. A custom drawing callback plots visible sale
 dots with fractional bucket coordinates, preserving sub-bucket timestamps and
 coincident fills. A spatial map provides hit testing without a DOM node per sale.
 Missing internal OHLC values are NaNs, excluded from ranges and calculations.
-Price-axis and price-crosshair labels show four decimal places. Only the axis
-text formatter changes; sale values, coordinates, ranges, and indicator inputs
-retain their existing precision.
+Price-axis and price-crosshair labels show four decimal places; sale values,
+coordinates, and indicator inputs retain their existing precision. Price ranges
+never extend below zero, including automatic padding, manual zoom, and vertical
+panning. Wheel-up over the price labels contracts the price range; wheel-down
+expands it. Time-axis navigation and the volume pane retain their usual behavior.
+The price-axis adapter owns these gestures through KLineCharts' public range API
+because native manual gestures bypass its custom range callback.
+
+The retained indicator implementation supports the following, with only volume
+enabled while its settings are hidden:
 
 - Multiple independently configurable SMA/EMA instances overlay the price pane.
 - MACD defaults to 12/26/9. Its histogram is MACD minus signal.
@@ -223,7 +231,8 @@ Relevant checks:
 - `yarn check:docs`
 
 The maintained Playwright harness mounts production views with synthetic fills.
-It covers navigation, layout, indicators, pan/zoom, pin/unpin, original currencies,
+It covers navigation, layout, hidden indicator controls, pan/zoom, the zero price
+boundary, inverted price-axis wheel gestures, pin/unpin, original currencies,
 explorer/owner/token links, compact price formatting and alignment, uninterrupted
 hover-to-pin media, order-side colors, price precision below the axis-label
 resolution, independent sidebar previews alongside pinned cards, reused

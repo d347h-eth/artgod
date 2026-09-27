@@ -10,7 +10,8 @@ import {
 	PRICE_HISTORY_E2E,
 	priceHistoryFixture,
 	priceHistoryPrecisionFixture,
-	priceHistoryOutlierFixture
+	priceHistoryOutlierFixture,
+	priceHistoryZeroFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
@@ -69,6 +70,53 @@ async function loaded(page: Page) {
 	await expect(page.locator('[data-chart-ready="true"]')).toBeVisible();
 	await expect(page.getByText('loading sales…', { exact: true })).toHaveCount(0);
 	await expect(page.locator('.price-canvas canvas').first()).toBeVisible();
+}
+async function recordCanvasText(page: Page) {
+	await page.addInitScript((key) => {
+		const labels = new WeakMap<HTMLCanvasElement, Map<string, number>>();
+		(window as unknown as Record<string, unknown>)[key] = labels;
+		const fillText = CanvasRenderingContext2D.prototype.fillText;
+		const clearRect = CanvasRenderingContext2D.prototype.clearRect;
+		CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+			labels.delete(this.canvas);
+			clearRect.apply(this, args);
+		};
+		CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+			const values = labels.get(this.canvas) ?? new Map<string, number>();
+			// KLineCharts draws ticks with top-baseline text centered on the tick.
+			const size = Number(this.font.match(/([\d.]+)px/)?.[1] ?? 0);
+			const point = this.getTransform().transformPoint({ x, y: y + size / 2 });
+			values.set(text, (point.y * this.canvas.getBoundingClientRect().height) / this.canvas.height);
+			labels.set(this.canvas, values);
+			fillText.call(this, text, x, y, maxWidth);
+		};
+	}, PRICE_HISTORY_E2E.canvasTextKey);
+}
+
+async function visiblePriceRange(page: Page) {
+	return page.locator('.price-canvas').evaluate((element, key) => {
+		const recorded = (window as unknown as Record<string, unknown>)[key] as WeakMap<
+			HTMLCanvasElement,
+			Map<string, number>
+		>;
+		for (const canvas of element.querySelectorAll('canvas')) {
+			const bounds = canvas.getBoundingClientRect();
+			if (bounds.height <= 150 || bounds.width >= 150) continue;
+			const ticks = [...(recorded.get(canvas) ?? [])]
+				.filter(([text]) => /^-?\d+\.\d+$/.test(text))
+				.map(([text, y]) => ({ price: Number(text), y }))
+				.sort((a, b) => a.y - b.y);
+			if (ticks.length < 2) continue;
+			const top = ticks[0],
+				bottom = ticks.at(-1)!;
+			const perPixel = (top.price - bottom.price) / (bottom.y - top.y);
+			return {
+				from: bottom.price - (bounds.height - bottom.y) * perPixel,
+				span: bounds.height * perPixel
+			};
+		}
+		throw new Error('Price ticks are not rendered');
+	}, PRICE_HISTORY_E2E.canvasTextKey);
 }
 // Inspect the maintained harness's own canvas, never host windows or display APIs.
 async function salePoint(page: Page, fromRight = true) {
@@ -149,7 +197,7 @@ async function zoomPriceIn(page: Page) {
 	await page.mouse.move(2, 2);
 }
 
-test('dedicated dots page is fourth in Explore and fills the viewport with configurable indicators', async ({
+test('dedicated dots page is fourth in Explore and fills the viewport with indicator controls hidden', async ({
 	page
 }, info) => {
 	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
@@ -186,32 +234,8 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 		expect(canvas.width / bounds.width).toBeLessThan(0.91);
 	}
 	await surface(page, info, 'chart-page');
-	await chart(page).getByRole('button', { name: 'indicators', exact: true }).click();
-	const sma = chart(page).getByRole('group', { name: 'SMA 20', exact: true });
-	await sma.getByRole('button', { name: 'SMA', exact: true }).click();
-	expect(await sma.getByRole('spinbutton').evaluate((el) => getComputedStyle(el).appearance)).toBe(
-		'textfield'
-	);
-	await sma.getByRole('spinbutton').fill('0');
-	await sma.getByRole('spinbutton').press('Tab');
-	await expect(chart(page).getByRole('alert')).toHaveText(
-		'Use a whole-number length from 1 to 500.'
-	);
-	await surface(page, info, 'indicator-validation');
-	await sma.getByRole('spinbutton').fill('10');
-	await sma.getByRole('spinbutton').press('Tab');
-	await chart(page)
-		.getByRole('group', { name: 'MACD 12/26/9' })
-		.getByRole('button', { name: 'MACD', exact: true })
-		.click();
-	await chart(page)
-		.getByRole('group', { name: 'RSI 14' })
-		.getByRole('button', { name: 'RSI', exact: true })
-		.click();
-	await chart(page).getByRole('combobox', { name: 'Moving average type' }).selectOption('EMA');
-	await chart(page).getByRole('button', { name: 'add moving average' }).click();
-	await surface(page, info, 'indicator-controls');
-	await chart(page).getByRole('button', { name: 'indicators', exact: true }).click();
+	await expect(chart(page).getByRole('button', { name: 'indicators', exact: true })).toHaveCount(0);
+	await expect(chart(page).locator('.price-indicators')).toHaveCount(0);
 	const canvas = page.locator('.price-canvas');
 	const box = (await canvas.boundingBox())!;
 	await page.mouse.move(box.x + box.width / 2, box.y + 50);
@@ -225,7 +249,7 @@ test('dedicated dots page is fourth in Explore and fills the viewport with confi
 	await expect.poll(async () => (await canvas.screenshot()).equals(zoomed)).toBe(false);
 	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'false');
 	await chart(page).getByRole('button', { name: 'fit', exact: true }).click();
-	await surface(page, info, 'chart-indicators');
+	await surface(page, info, 'chart-fit');
 	await page
 		.getByRole('combobox', { name: 'History range' })
 		.selectOption(PRICE_HISTORY_RANGE.Year);
@@ -439,17 +463,7 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	page
 }, info) => {
 	await page.setViewportSize({ width: 1280, height: 1024 });
-	await page.addInitScript((key) => {
-		const labels = new WeakMap<HTMLCanvasElement, Set<string>>();
-		(window as unknown as Record<string, unknown>)[key] = labels;
-		const original = CanvasRenderingContext2D.prototype.fillText;
-		CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-			const values = labels.get(this.canvas) ?? new Set<string>();
-			values.add(text);
-			labels.set(this.canvas, values);
-			original.call(this, text, x, y, maxWidth);
-		};
-	}, PRICE_HISTORY_E2E.canvasTextKey);
+	await recordCanvasText(page);
 	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
 		route.fulfill({ json: priceHistoryPrecisionFixture() })
 	);
@@ -459,12 +473,12 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	const labels = await page.locator('.price-canvas').evaluate((element, key) => {
 		const recorded = (window as unknown as Record<string, unknown>)[key] as WeakMap<
 			HTMLCanvasElement,
-			Set<string>
+			Map<string, number>
 		>;
 		return [...element.querySelectorAll('canvas')].flatMap((canvas) => {
 			const bounds = canvas.getBoundingClientRect();
 			return bounds.height > 150 && bounds.width < 150
-				? [...(recorded.get(canvas) ?? [])].filter((text) => /^\d+\.\d+$/.test(text))
+				? [...(recorded.get(canvas)?.keys() ?? [])].filter((text) => /^\d+\.\d+$/.test(text))
 				: [];
 		});
 	}, PRICE_HISTORY_E2E.canvasTextKey);
@@ -501,6 +515,62 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	expect(Math.abs(positions[0].y - positions[1].y)).toBeGreaterThan(50);
 	expect(Math.abs(positions[0].y - positions[2].y)).toBeLessThan(2);
 	await surface(page, info, 'precise-sale-types');
+});
+
+test('price-axis wheel zoom is inverted and automatic and manual ranges stay above zero', async ({
+	page
+}, info) => {
+	await recordCanvasText(page);
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
+		route.fulfill({ json: priceHistoryZeroFixture() })
+	);
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const automatic = await visiblePriceRange(page);
+	// Tick coordinates are rounded to pixels; extrapolate the actual pane floor
+	// within that tolerance rather than merely checking for negative tick labels.
+	expect(Math.abs(automatic.from)).toBeLessThan(automatic.span * 0.005);
+	const { axis } = await pricePaneBounds(page);
+	await page.mouse.move(axis.x + axis.width / 2, axis.y + axis.height / 2);
+	await page.mouse.wheel(0, -100);
+	await expect
+		.poll(async () => (await visiblePriceRange(page)).span)
+		.toBeLessThan(automatic.span * 0.98);
+	const contracted = await visiblePriceRange(page);
+	await page.mouse.wheel(0, 100);
+	await expect
+		.poll(async () => (await visiblePriceRange(page)).span)
+		.toBeGreaterThan(contracted.span * 1.02);
+	for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 100);
+	await expect
+		.poll(async () => (await visiblePriceRange(page)).span)
+		.toBeGreaterThan(automatic.span * 1.5);
+	const expanded = await visiblePriceRange(page);
+	expect(Math.abs(expanded.from)).toBeLessThan(expanded.span * 0.005);
+	// Drag the price window down through zero; the scale stops at the boundary.
+	const { main } = await pricePaneBounds(page);
+	const x = main.x + main.width / 2;
+	await page.mouse.move(x, main.y + main.height * 0.2);
+	await page.mouse.down();
+	await page.mouse.move(x, main.y + main.height * 0.5, { steps: 8 });
+	await page.mouse.up();
+	await expect
+		.poll(async () => (await visiblePriceRange(page)).from)
+		.toBeGreaterThan(expanded.span * 0.2);
+	await page.mouse.move(x, main.y + main.height * 0.8);
+	await page.mouse.down();
+	await page.mouse.move(x, main.y + main.height * 0.2, { steps: 8 });
+	await page.mouse.up();
+	await page.mouse.move(2, 2);
+	const panned = await visiblePriceRange(page);
+	expect(Math.abs(panned.from)).toBeLessThan(panned.span * 0.005);
+	expect(Math.abs(panned.span - expanded.span)).toBeLessThan(expanded.span * 0.005);
+	await surface(page, info, 'nonnegative-price-axis', false);
+	await page.mouse.dblclick(axis.x + axis.width / 2, axis.y + axis.height / 2);
+	await expect
+		.poll(async () => Math.abs((await visiblePriceRange(page)).span - automatic.span))
+		.toBeLessThan(automatic.span * 0.005);
 });
 
 test('one small arrow reveals higher sales using the same scale reset as the price axis', async ({

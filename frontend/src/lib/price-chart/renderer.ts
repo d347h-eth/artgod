@@ -2,13 +2,13 @@ import {
 	init,
 	dispose,
 	registerIndicator,
-	registerYAxis,
 	type IndicatorDrawParams,
 	type DeepPartial,
 	type Styles,
 	type Coordinate
 } from 'klinecharts';
 import type { PriceHistory, RealizedSale } from '@artgod/shared/types/price-history';
+import { CANDLE_PANE, PRICE_PRECISION, createPriceAxis } from './price-axis';
 import {
 	PRICE_INDICATOR,
 	PRICE_INDICATOR_LABEL,
@@ -23,8 +23,6 @@ import {
 } from './model';
 
 const PRICE_LAYER = 'artgod-realized-sales';
-const PRICE_AXIS = 'artgod-sale-price';
-const CANDLE_PANE = 'candle_pane'; // KLineChart's public price-pane ID.
 const NO_AREA_VALUE = 'artgod_no_area_value';
 const HIT_SIZE = 12;
 type Hit = Coordinate & { sale: RealizedSale };
@@ -49,13 +47,11 @@ let registered = false;
 function registerPriceLayer() {
 	if (registered) return;
 	registered = true;
-	// Only text changes. Keep price precision, axis transforms, ranges and data intact.
-	registerYAxis({ name: PRICE_AXIS, displayValueToText: (value) => value.toFixed(4) });
 	registerIndicator<unknown>({
 		name: PRICE_LAYER,
 		shortName: '',
 		series: 'price',
-		precision: 8,
+		precision: PRICE_PRECISION,
 		// Invisible figures establish the full sale-price range for the dot layer.
 		figures: [
 			{ key: 'high', type: 'line' },
@@ -213,7 +209,7 @@ export function createPriceChart(
 	};
 	let currentHistory: PriceHistory | null = null;
 	const active = new Map<string, { id: string; kind: PriceIndicator['kind'] }>();
-	chart.setSymbol({ ticker: 'ETH', pricePrecision: 8, volumePrecision: 0 });
+	chart.setSymbol({ ticker: 'ETH', pricePrecision: PRICE_PRECISION, volumePrecision: 0 });
 	chart.setPeriod({ type: 'day', span: 1 });
 	chart.setOffsetRightDistance(20);
 	// KLineChart deep-clones extendData objects. A callback preserves ownership
@@ -222,12 +218,13 @@ export function createPriceChart(
 		{ name: PRICE_LAYER, paneId: CANDLE_PANE, extendData: () => drawing },
 		true
 	)!;
-	chart.overrideYAxis({ paneId: CANDLE_PANE, name: PRICE_AXIS });
+	const priceAxis = createPriceAxis(chart, element);
 	const observer = new ResizeObserver(() => chart.resize());
 	observer.observe(element);
 
 	return {
 		setHistory(history: PriceHistory) {
+			priceAxis.reset();
 			currentHistory = history;
 			drawing.seconds = history.bucketSeconds;
 			drawing.hits.clear();
@@ -271,7 +268,11 @@ export function createPriceChart(
 							shortName: PRICE_INDICATOR_LABEL[setting.kind],
 							...(inPricePane ? { paneId: CANDLE_PANE } : {}),
 							calcParams: setting.params,
-							precision: inPricePane ? 8 : setting.kind === PRICE_INDICATOR.Volume ? 0 : 4
+							precision: inPricePane
+								? PRICE_PRECISION
+								: setting.kind === PRICE_INDICATOR.Volume
+									? 0
+									: 4
 						},
 						true
 					);
@@ -326,9 +327,7 @@ export function createPriceChart(
 			chart.scrollToRealTime();
 		},
 		resetPriceScale() {
-			// Reapplying the axis restores automatic range calculation, as a
-			// double-click on its labels does, without changing time zoom or scroll.
-			chart.overrideYAxis({ paneId: CANDLE_PANE, name: PRICE_AXIS });
+			priceAxis.reset();
 		},
 		salesAt(clientX: number, clientY: number): RealizedSale[] {
 			const rect = chart.getDom(CANDLE_PANE, 'main')?.getBoundingClientRect();
@@ -348,6 +347,7 @@ export function createPriceChart(
 		},
 		dispose() {
 			observer.disconnect();
+			priceAxis.dispose();
 			dispose(chart);
 		}
 	};
