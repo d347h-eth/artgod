@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { ApiCollectionMediaState } from '$lib/api-types';
 	import type { RealizedSale } from '@artgod/shared/types/price-history';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import type { SaleMediaLoader, SalePreviewTarget } from '$lib/price-chart/media';
@@ -18,6 +19,7 @@
 		pinned,
 		clearPin,
 		basePath,
+		media,
 		blockExplorer,
 		loader,
 		onpreview
@@ -26,6 +28,7 @@
 		pinned: boolean;
 		clearPin: () => void;
 		basePath: string;
+		media: ApiCollectionMediaState;
 		blockExplorer: BlockExplorerConfig;
 		loader: SaleMediaLoader;
 		onpreview: (target: SalePreviewTarget | null) => void;
@@ -58,7 +61,9 @@
 		return buildOwnerTokensHref({
 			basePath: joinPath(basePath, 'holders/' + encodeURIComponent(address)),
 			selectedTraits: [],
-			selectedTraitRanges: []
+			selectedTraitRanges: [],
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 	function changePage(step: number) {
@@ -69,7 +74,7 @@
 </script>
 
 <aside class="sale-sidebar" aria-label="Sales" data-pinned={pinned}>
-	<div class="sale-sidebar-heading"><span>sales · {sales.length}</span>{#if pinned}<button class="facet-panel-action-button" onclick={clearPin}>unpin</button>{/if}</div>
+	<div class="sale-sidebar-heading"><span>sales · {sales.length}</span>{#if pinned}<button class="facet-panel-action-button facet-reset-button" onclick={clearPin}>unpin</button>{/if}</div>
 	<div class="sales-scroll" bind:this={scroller} onscroll={() => onpreview(null)}>
 		<div class="sales-table" role="table" aria-label="Realized sales">
 			<div class="sale-row sale-head" role="row"><span role="columnheader">time</span><span role="columnheader" aria-label="Token">NFT</span><span role="columnheader" class="sale-price">price</span><span role="columnheader">seller</span><span role="columnheader">buyer</span></div>
@@ -77,7 +82,7 @@
 				{@const txHref = blockExplorerTransactionHref(sale.txHash, blockExplorer)}
 				<div class="sale-row" role="row" data-sale-id={sale.id}>
 					<span role="cell"><a class="sale-time" href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={new Date(sale.timestamp * 1000).toISOString()}>{relativeTime(sale.timestamp)}</a></span>
-					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId })} {loader} {onpreview} /></span>
+					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })} {loader} {onpreview} /></span>
 					<span role="cell" class="sale-price" style:--sale-color={`var(--c-${saleActionColor(sale.action)})`}><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{salePriceText(sale.priceWei)}</span><small aria-label={sale.currencySymbol}>{SALE_CURRENCY_LABEL[sale.currencySymbol]}</small></a></span>
 					<span role="cell">{#if sale.seller}<a class="sale-seller" href={ownerHref(sale.seller)} title={sale.seller}>{sale.seller.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 					<span role="cell">{#if sale.buyer}<a class="sale-buyer" href={ownerHref(sale.buyer)} title={sale.buyer}>{sale.buyer.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>

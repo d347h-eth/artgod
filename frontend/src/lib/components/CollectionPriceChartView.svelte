@@ -10,9 +10,16 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
-	import { buildCollectionNavigation } from '$lib/collection-navigation';
+	import {
+		buildCollectionNavigation,
+		handleCollectionSectionShortcut
+	} from '$lib/collection-navigation';
 	import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 	import CollectionPageLayout from './CollectionPageLayout.svelte';
+	import CollectionJumpForm from './CollectionJumpForm.svelte';
+	import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from './keyboard-shortcuts-help-controller';
+	import { getTokenPreviewController } from './token-preview-controller';
 	import RealizedPriceChart from './RealizedPriceChart.svelte';
 	import TraitFacetPanel from './TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from './TraitFacetPanelControls.svelte';
@@ -40,6 +47,10 @@
 	} = $props();
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
+	const tokenPreview = getTokenPreviewController();
+	const tokenPreviewState = tokenPreview.state;
 	const navigation = $derived(
 		buildCollectionNavigation({
 			basePath,
@@ -71,14 +82,27 @@
 			setTraitRangeFilter(selectedTraitRanges, key, fromValue, toValue)
 		);
 	}
+	function onWindowKeydown(event: KeyboardEvent) {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) return;
+		const previewWasOpen = $tokenPreviewState.open;
+		tokenPreview.onWindowKeydown(event);
+		if (previewWasOpen) return;
+		if (handleCollectionSectionShortcut(event, navigation)) return;
+		traitFacetPanel.onWindowKeydown(event, { onReset: resetTraits });
+	}
 </script>
 
-<svelte:window onkeydown={(event) => traitFacetPanel.onWindowKeydown(event, { onReset: resetTraits })} />
+<svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout {navigation} activeSection="chart" showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}>
 	{#snippet breadcrumbs()}
 		{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}<a href={'/' + chain.slug}>collections</a><span class="breadcrumbs-separator">/</span>{/if}
-		<a href={basePath}>{collection.slug}</a>
+		<a href={navigation.hrefs.asks}>{collection.slug}</a><span class="breadcrumbs-separator">/</span><span class="breadcrumbs-current">chart</span>
+	{/snippet}
+	{#snippet headerActions()}
+		<CollectionJumpForm chainRef={chain.slug} {basePath} mediaMode={media.selectedMode} mediaPreference={media.preference} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">

@@ -14,6 +14,13 @@ import {
 	priceHistoryZeroFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_QUERY_PARAMS,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
+import { TERRAFORMS_MEDIA_MODES } from '@artgod/shared/extensions/terraforms';
+import { BIDDING_E2E_TOKEN_MEDIA } from '../src/lib/e2e/bidding-automation-fixtures';
 import { TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
 import {
 	COLLECTION_API_ROUTE_TEMPLATE,
@@ -70,6 +77,37 @@ async function loaded(page: Page) {
 	await expect(page.locator('[data-chart-ready="true"]')).toBeVisible();
 	await expect(page.getByText('loading sales…', { exact: true })).toHaveCount(0);
 	await expect(page.locator('.price-canvas canvas').first()).toBeVisible();
+}
+async function sharedChrome(page: Page) {
+	await expect(
+		page.getByRole('textbox', { name: 'Jump to token, owner, or ENS name' })
+	).toBeVisible();
+	await expect(page.getByRole('button', { name: 'keyboard shortcuts', exact: true })).toBeVisible();
+	await expect(page.locator('.breadcrumbs-current')).toHaveText('chart');
+}
+
+async function chartGutters(page: Page) {
+	const geometry = await page.locator('.realized-price').evaluate((element) => {
+		const panel = element.closest('.panel')!;
+		const header = panel.querySelector('.panel-header')!;
+		const headerBox = header.getBoundingClientRect();
+		const headerStyle = getComputedStyle(header);
+		const toolbar = element.querySelector('.price-toolbar')!.getBoundingClientRect();
+		const plot = element.querySelector('.price-canvas')!.getBoundingClientRect();
+		const sidebar = element.querySelector('.sale-sidebar')!.getBoundingClientRect();
+		return {
+			left: headerBox.left + parseFloat(headerStyle.paddingLeft),
+			right: headerBox.right - parseFloat(headerStyle.paddingRight),
+			toolbar: toolbar.toJSON(),
+			plot: plot.toJSON(),
+			sidebar: sidebar.toJSON(),
+			collapsed: element.parentElement!.classList.contains('sidebar-collapsed')
+		};
+	});
+	expect(geometry.plot.x).toBeCloseTo(geometry.toolbar.x, 0);
+	expect(geometry.sidebar.right).toBeCloseTo(geometry.right, 0);
+	expect(geometry.plot.x).toBeGreaterThanOrEqual(geometry.left);
+	if (geometry.collapsed) expect(geometry.plot.x).toBeCloseTo(geometry.left, 0);
 }
 async function recordCanvasText(page: Page) {
 	await page.addInitScript((key) => {
@@ -197,7 +235,7 @@ async function zoomPriceIn(page: Page) {
 	await page.mouse.move(2, 2);
 }
 
-test('dedicated dots page is fourth in Explore and fills the viewport with indicator controls hidden', async ({
+test('dedicated dots page follows Transfers in Asset Events and fills the viewport with indicator controls hidden', async ({
 	page
 }, info) => {
 	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
@@ -212,16 +250,21 @@ test('dedicated dots page is fourth in Explore and fills the viewport with indic
 		.evaluate((el) => el.getBoundingClientRect().height);
 	expect(gridMediaHeight).toBe(400);
 	const explore = page.locator('.runtime-tab-group').first().locator('.runtime-tab-group-items');
-	await expect(explore.locator('a, .runtime-tab-active')).toHaveText([
-		'asks',
-		'offers',
-		'tokens',
+	await expect(explore.locator('a, .runtime-tab-active')).toHaveText(['asks', 'offers', 'tokens']);
+	const assetEvents = page.locator('.runtime-tab-group').nth(1);
+	await expect(assetEvents.locator('.runtime-tab-group-label')).toHaveText('asset events');
+	await expect(assetEvents.locator('a, .runtime-tab-active')).toHaveText([
+		'sales',
+		'listings',
+		'transfers',
 		'chart'
 	]);
-	await explore.getByRole('link', { name: 'chart', exact: true }).click();
+	await assetEvents.getByRole('link', { name: 'chart', exact: true }).click();
 	await expect(page).toHaveURL(new RegExp(PRICE_HISTORY_E2E.path + '(\\?|$)'));
 	await loaded(page);
 	await expect(chart(page).getByRole('heading')).toHaveCount(0);
+	await sharedChrome(page);
+	await chartGutters(page);
 	await expect(chart(page).locator('.sale-legend')).toHaveCount(0);
 	await expect(page.locator('.runtime-tab-active').filter({ hasText: /^chart$/ })).toBeVisible();
 	await expect(chart(page).getByRole('button', { name: /^(dots|line|candles)$/ })).toHaveCount(0);
@@ -230,8 +273,9 @@ test('dedicated dots page is fourth in Explore and fills the viewport with indic
 	expect(bounds.height).toBeGreaterThan(page.viewportSize()!.height * 0.55);
 	if (page.viewportSize()!.width > 1500) {
 		const canvas = (await page.locator('.price-canvas').boundingBox())!;
-		expect(canvas.width / bounds.width).toBeGreaterThan(0.88);
-		expect(canvas.width / bounds.width).toBeLessThan(0.91);
+		const workspace = (await page.locator('.price-workspace').boundingBox())!;
+		expect(canvas.width / workspace.width).toBeGreaterThan(0.88);
+		expect(canvas.width / workspace.width).toBeLessThan(0.91);
 	}
 	await surface(page, info, 'chart-page');
 	await expect(chart(page).getByRole('button', { name: 'indicators', exact: true })).toHaveCount(0);
@@ -259,6 +303,130 @@ test('dedicated dots page is fourth in Explore and fills the viewport with indic
 	await expect(page).toHaveURL(new RegExp(PRICE_CHART_QUERY.Bucket + '=4h'));
 	await loaded(page);
 	expect(errors).toEqual([]);
+});
+
+test('shared header actions preserve media state and help owns shortcuts before chart controls', async ({
+	page
+}, info) => {
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1920, height: 1080 });
+	const query = new URLSearchParams({
+		[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TERRAFORMS_MEDIA_MODES.Live,
+		[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+		[TRAIT_FILTER_QUERY_PARAMS.Traits]: 'Zone:Tetsu'
+	});
+	await page.goto(PRICE_HISTORY_E2E.path + '?' + query);
+	await loaded(page);
+	await sharedChrome(page);
+	await chartGutters(page);
+	const currentUrl = page.url();
+	const tokensHref = (await page
+		.getByRole('link', { name: 'tokens', exact: true })
+		.getAttribute('href'))!;
+	await page.getByRole('button', { name: 'keyboard shortcuts', exact: true }).click();
+	const help = page.getByRole('dialog', { name: 'ABOUT', exact: true });
+	await expect(help).toBeVisible();
+	await page.keyboard.press('f');
+	await expect(page.locator('.facet-panel')).toHaveCount(0);
+	await page.keyboard.press('r');
+	await expect(page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true })).toBeVisible();
+	await page.keyboard.press('3');
+	await expect(page).toHaveURL(currentUrl);
+	await surface(page, info, 'chart-shared-help', false);
+	await page.keyboard.press('F1');
+	await expect(help).toHaveCount(0);
+	await page.keyboard.press('F1');
+	await expect(help).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(help).toHaveCount(0);
+	const jump = page.getByRole('textbox', { name: 'Jump to token, owner, or ENS name' });
+	await jump.fill('10');
+	await jump.press('3');
+	await expect(jump).toHaveValue('103');
+	await expect(page).toHaveURL(currentUrl);
+	await jump.press('Enter');
+	await expect(page).toHaveURL(new RegExp('/103\\?'));
+	expect(new URL(page.url()).searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
+		TERRAFORMS_MEDIA_MODES.Live
+	);
+	expect(new URL(page.url()).searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference)).toBe(
+		COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
+	);
+	await page.goBack();
+	await loaded(page);
+	await page.locator('.breadcrumbs-current').click();
+	await page.keyboard.press('3');
+	await expect(page).toHaveURL(new URL(tokensHref, currentUrl).href);
+});
+
+test('chart links and fullscreen preview reuse media preferences and modal shortcuts', async ({
+	page
+}, info) => {
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 1440, height: 1024 });
+	const mediaQuery = new URLSearchParams({
+		[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TERRAFORMS_MEDIA_MODES.Live,
+		[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
+	});
+	const cardRequests: URLSearchParams[] = [];
+	await page.route(CARD_API, (route) => {
+		cardRequests.push(new URL(route.request().url()).searchParams);
+		return route.fulfill({ json: cardResponse(route.request().url()) });
+	});
+	const previewRequests: URLSearchParams[] = [];
+	await page.route('**/api/*/*/*/preview?*', (route) => {
+		const url = new URL(route.request().url());
+		previewRequests.push(url.searchParams);
+		return route.fulfill({
+			json: {
+				media: {
+					...BIDDING_E2E_TOKEN_MEDIA,
+					selectedMode: TERRAFORMS_MEDIA_MODES.Live,
+					preference: { ...BIDDING_E2E_TOKEN_MEDIA.preference!, enabled: false }
+				},
+				token: { tokenId: url.pathname.split('/').at(-2)!, image: IMAGE, animationUrl: null }
+			}
+		});
+	});
+	await page.goto(PRICE_HISTORY_E2E.path + '?' + mediaQuery);
+	await loaded(page);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const point = (await salePoint(page))!;
+	await page.mouse.click(point.x, point.y);
+	const card = page.locator('.sale-card-preview.pinned');
+	await expect(card.getByTestId(TEST_IDS.TokenCard)).toBeVisible();
+	for (const link of [
+		card.locator('.token-grid-id'),
+		rows(page).first().locator('.sale-thumbnail'),
+		rows(page).first().locator('.sale-seller'),
+		rows(page).first().locator('.sale-buyer')
+	]) {
+		const url = new URL((await link.getAttribute('href'))!, page.url());
+		for (const [key, value] of mediaQuery) expect(url.searchParams.get(key)).toBe(value);
+	}
+	expect(cardRequests.length).toBeGreaterThan(0);
+	expect(
+		cardRequests.every(
+			(query) =>
+				query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) === COLLECTION_MEDIA_MODES.Snapshot
+		)
+	).toBe(true);
+	await card.getByRole('button', { name: /^preview token / }).click();
+	const preview = page.getByRole('dialog', { name: 'Token Preview', exact: true });
+	await expect(preview.locator('iframe')).toBeVisible();
+	for (const [key, value] of mediaQuery) expect(previewRequests.at(-1)!.get(key)).toBe(value);
+	const before = (await preview.locator('.token-preview-box').boundingBox())!;
+	await page.keyboard.press('-');
+	await expect
+		.poll(async () => (await preview.locator('.token-preview-box').boundingBox())!.width)
+		.toBeLessThan(before.width);
+	const currentUrl = page.url();
+	await page.keyboard.press('f');
+	await page.keyboard.press('3');
+	await expect(page.locator('.facet-panel')).toHaveCount(0);
+	await expect(page).toHaveURL(currentUrl);
+	await surface(page, info, 'chart-fullscreen-preview', false);
+	await page.keyboard.press('Escape');
+	await expect(preview).toHaveCount(0);
+	await expect(card).toBeVisible();
 });
 
 test('dot hover is ephemeral, click pins overlapping sales, and row previews and links preserve identities', async ({
@@ -444,7 +612,7 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await surface(page, info, 'row-card-preview');
 	await page.mouse.move(2, 2);
 	await expect(floatingCard).toHaveCount(0);
-	await expect(thumb).toHaveAttribute('href', /\/\d+$/);
+	expect(new URL((await thumb.getAttribute('href'))!, page.url()).pathname).toMatch(/\/\d+$/);
 	// Native thumbnail navigation also works while another token's card is pinned.
 	// Re-read the canvas after full-page screenshots have resized it.
 	const repin = (await salePoint(page))!;
@@ -456,7 +624,7 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect(rowCard).toBeVisible();
 	if (coveredByCard) await rowThumb.press('Enter');
 	else await rowThumb.click();
-	await expect(page).toHaveURL(new RegExp(tokenHref! + '$'));
+	await expect(page).toHaveURL(new URL(tokenHref!, page.url()).href);
 });
 
 test('price labels use four decimals while close sale prices retain distinct positions and side colors', async ({
@@ -517,7 +685,7 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	await surface(page, info, 'precise-sale-types');
 });
 
-test('price-axis wheel zoom is inverted and automatic and manual ranges stay above zero', async ({
+test('price-axis wheel zoom stays inverted and native panning continues through zero', async ({
 	page
 }, info) => {
 	await recordCanvasText(page);
@@ -528,9 +696,8 @@ test('price-axis wheel zoom is inverted and automatic and manual ranges stay abo
 	await loaded(page);
 	await expect.poll(() => salePoint(page)).not.toBeNull();
 	const automatic = await visiblePriceRange(page);
-	// Tick coordinates are rounded to pixels; extrapolate the actual pane floor
-	// within that tolerance rather than merely checking for negative tick labels.
-	expect(Math.abs(automatic.from)).toBeLessThan(automatic.span * 0.005);
+	// The native axis keeps padding below a zero-priced sale.
+	expect(automatic.from).toBeLessThan(-0.1);
 	const { axis } = await pricePaneBounds(page);
 	await page.mouse.move(axis.x + axis.width / 2, axis.y + axis.height / 2);
 	await page.mouse.wheel(0, -100);
@@ -547,8 +714,8 @@ test('price-axis wheel zoom is inverted and automatic and manual ranges stay abo
 		.poll(async () => (await visiblePriceRange(page)).span)
 		.toBeGreaterThan(automatic.span * 1.5);
 	const expanded = await visiblePriceRange(page);
-	expect(Math.abs(expanded.from)).toBeLessThan(expanded.span * 0.005);
-	// Drag the price window down through zero; the scale stops at the boundary.
+	expect(expanded.from).toBeLessThan(automatic.from);
+	// Pan both ways through zero without changing the zoom or hitting a floor.
 	const { main } = await pricePaneBounds(page);
 	const x = main.x + main.width / 2;
 	await page.mouse.move(x, main.y + main.height * 0.2);
@@ -557,16 +724,16 @@ test('price-axis wheel zoom is inverted and automatic and manual ranges stay abo
 	await page.mouse.up();
 	await expect
 		.poll(async () => (await visiblePriceRange(page)).from)
-		.toBeGreaterThan(expanded.span * 0.2);
+		.toBeGreaterThan(expanded.from + expanded.span * 0.2);
 	await page.mouse.move(x, main.y + main.height * 0.8);
 	await page.mouse.down();
 	await page.mouse.move(x, main.y + main.height * 0.2, { steps: 8 });
 	await page.mouse.up();
 	await page.mouse.move(2, 2);
 	const panned = await visiblePriceRange(page);
-	expect(Math.abs(panned.from)).toBeLessThan(panned.span * 0.005);
+	expect(panned.from).toBeLessThan(expanded.from - expanded.span * 0.2);
 	expect(Math.abs(panned.span - expanded.span)).toBeLessThan(expanded.span * 0.005);
-	await surface(page, info, 'nonnegative-price-axis', false);
+	await surface(page, info, 'unrestricted-price-axis', false);
 	await page.mouse.dblclick(axis.x + axis.width / 2, axis.y + axis.height / 2);
 	await expect
 		.poll(async () => Math.abs((await visiblePriceRange(page)).span - automatic.span))
@@ -669,7 +836,7 @@ test('the pinned grid card keeps token navigation usable', async ({ page }) => {
 	const href = await link.getAttribute('href');
 	await page.mouse.move(2, 2);
 	await link.click();
-	await expect(page).toHaveURL(new RegExp(href! + '$'));
+	await expect(page).toHaveURL(new URL(href!, page.url()).href);
 });
 
 test('slow and failed media cannot leave a stale popup after pointer exit', async ({
@@ -718,9 +885,11 @@ test('loading, empty, failure and retry preserve the chart page controls', async
 	});
 	await page.goto(PRICE_HISTORY_E2E.path);
 	await expect(page.getByText('loading sales…', { exact: true })).toBeVisible();
+	await sharedChrome(page);
 	await surface(page, info, 'chart-loading');
 	release();
 	await expect(page.getByText('no single-token sales', { exact: true })).toBeVisible();
+	await sharedChrome(page);
 	await surface(page, info, 'chart-empty');
 	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
 		route.fulfill({ status: 400, json: { message: 'Choose a shorter price history range.' } })
@@ -729,6 +898,7 @@ test('loading, empty, failure and retry preserve the chart page controls', async
 	await expect(chart(page).getByRole('alert')).toContainText(
 		'Choose a shorter price history range.'
 	);
+	await sharedChrome(page);
 	await surface(page, info, 'chart-error');
 	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
 		route.fulfill({ json: priceHistoryFixture() })
@@ -894,7 +1064,8 @@ test('shared trait controls filter sales, clear pins, preserve navigation and re
 	for (const href of await rows(page)
 		.locator('a.sale-thumbnail')
 		.evaluateAll((links) => links.map((link) => link.getAttribute('href'))))
-		expect(href).toMatch(/\/103$/);
+		expect(new URL(href!, page.url()).pathname).toMatch(/\/103$/);
+	await chartGutters(page);
 	await surface(page, info, 'chart-trait-filter-expanded');
 	await page.getByRole('button', { name: 'collapse traits panel' }).click();
 	await expect(panel).toHaveCount(0);
@@ -903,6 +1074,7 @@ test('shared trait controls filter sales, clear pins, preserve navigation and re
 		/traits=Zone%3ATetsu/
 	);
 	await surface(page, info, 'chart-trait-filter-collapsed');
+	await chartGutters(page);
 	await page.getByRole('button', { name: 'remove Zone=Tetsu', exact: true }).click();
 	await loaded(page);
 	await expect(page.locator('.sale-sidebar-heading')).toHaveText('sales · 572');

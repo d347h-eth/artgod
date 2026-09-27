@@ -28,10 +28,11 @@ paths:
             tags: [Collections]
             summary: Collection identity, media settings and trait facets for the chart page
             operationId: getPriceChartContext
-            description: Returns chart navigation, snapshot-media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists.
+            description: Returns chart navigation, media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists. Thumbnail reads remain snapshot-only.
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/MediaPreference"
                 - $ref: "#/components/parameters/Traits"
                 - $ref: "#/components/parameters/Trait"

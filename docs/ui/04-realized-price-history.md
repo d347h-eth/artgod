@@ -1,6 +1,6 @@
 # Realized Price History
 
-The fourth Explore tab, `chart`, opens the dedicated collection sale chart.
+The `chart` tab after `transfers` in Asset Events opens the dedicated collection sale chart.
 There is no chart link on token detail. Inline charts and line/candle display
 modes have been removed. The chart plots individual
 sales as dots and supports panning, zooming, fit, and bucket volume.
@@ -10,6 +10,10 @@ The workspace fills the remaining viewport below collection navigation and its
 compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
 keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
 are URL state. Pinned selection resets on a full reload.
+The chart uses the shared collection header, quick jump, help modal, navigation
+shortcuts, and content inset. The plot and sales sidebar stay inside the same
+page margins as the header; the viewport-height calculation keeps the panel's
+bottom margin. Help and fullscreen token previews own keyboard input while open.
 
 ## Trait filtering
 
@@ -91,6 +95,11 @@ requests. Hover takes priority over queued thumbnails. Refresh clears the card
 cache; navigation cancels requests. Failed requests can retry by hovering again
 or with `retry` on a pinned card.
 
+Collection navigation, quick jump, token-card links, sidebar token/owner links,
+and fullscreen previews retain the selected media source and preference.
+The chart context resolves these through the same collection media policy as
+the token browser. Thumbnail/card reads remain snapshot-only.
+
 ## Data contract
 
 `GET /api/:chain_ref/:collection_ref/price-history` accepts `bucket`
@@ -138,12 +147,12 @@ dots with fractional bucket coordinates, preserving sub-bucket timestamps and
 coincident fills. A spatial map provides hit testing without a DOM node per sale.
 Missing internal OHLC values are NaNs, excluded from ranges and calculations.
 Price-axis and price-crosshair labels show four decimal places; sale values,
-coordinates, and indicator inputs retain their existing precision. Price ranges
-never extend below zero, including automatic padding, manual zoom, and vertical
-panning. Wheel-up over the price labels contracts the price range; wheel-down
-expands it. Time-axis navigation and the volume pane retain their usual behavior.
-The price-axis adapter owns these gestures through KLineCharts' public range API
-because native manual gestures bypass its custom range callback.
+coordinates, and indicator inputs retain their existing precision. Native price
+scaling and panning may extend below zero so continuous dragging and zooming stay
+unrestricted. Wheel-up over the price labels contracts the price range; wheel-down
+expands it. The price-axis adapter forwards the inverted wheel gesture to the
+native handler; time-axis navigation, price dragging, double-click reset, and
+the volume pane keep their library behavior.
 
 The retained indicator implementation supports the following, with only volume
 enabled while its settings are hidden:
@@ -231,8 +240,10 @@ Relevant checks:
 - `yarn check:docs`
 
 The maintained Playwright harness mounts production views with synthetic fills.
-It covers navigation, layout, hidden indicator controls, pan/zoom, the zero price
-boundary, inverted price-axis wheel gestures, pin/unpin, original currencies,
+It covers navigation, shared page gutters and header actions, help/preview
+shortcut ownership, media-state preservation, hidden indicator controls,
+continuous pan/zoom through zero, inverted price-axis wheel gestures,
+pin/unpin, original currencies,
 explorer/owner/token links, compact price formatting and alignment, uninterrupted
 hover-to-pin media, order-side colors, price precision below the axis-label
 resolution, independent sidebar previews alongside pinned cards, reused

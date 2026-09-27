@@ -3,6 +3,7 @@ import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 import type { GetPriceChartContextPort } from "../../../application/use-cases/collections/get-price-chart-context.js";
 import {
     getSearchParams,
+    parseMediaMode,
     parseMediaPreference,
     parseTraits,
     parseTraitRanges,
@@ -22,6 +23,9 @@ export class GetPriceChartContextHttpAdapter {
             collectionRef: request.params.collection_ref,
             traits: parseTraits(query),
             traitRanges: parseTraitRanges(query),
+            mediaMode: parseMediaMode(
+                query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
+            ),
             mediaPreference: parseMediaPreference(
                 query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
             ),
