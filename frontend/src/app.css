@@ -289,12 +289,77 @@ a:hover {
 	max-width: calc(100% - 1.5rem);
 }
 
+.bootstrap-workspace {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1.5rem;
+	align-items: start;
+	padding: 0.75rem;
+	margin-bottom: 4.5rem;
+}
+
 .bootstrap-create-form {
 	display: block;
 	margin-inline: 0;
-	width: min(76rem, 100%);
+	width: 100%;
 	max-width: 100%;
-	margin-bottom: 4.5rem;
+	padding: 0;
+}
+
+.bootstrap-create-form > .bootstrap-contract-address-warning {
+	margin-bottom: 0.85rem;
+}
+
+.bootstrap-create-form fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+
+.bootstrap-create-form fieldset:disabled {
+	opacity: 0.55;
+}
+
+.bootstrap-metadata-panel {
+	position: sticky;
+	top: 1rem;
+	min-width: 0;
+}
+
+.bootstrap-metadata-heading {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	border-bottom: 1px solid var(--c-blue);
+	padding-bottom: 0.75rem;
+}
+
+.bootstrap-metadata-heading .panel-title {
+	margin: 0;
+}
+
+.bootstrap-metadata-panel .muted {
+	font-size: 0.75rem;
+}
+
+.json-payload-frame {
+	display: block;
+	width: 100%;
+	height: max(24rem, calc(100dvh - 5rem));
+	border: 0;
+}
+
+@media (max-width: 1199px) {
+	.bootstrap-workspace {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.bootstrap-metadata-panel {
+		position: static;
+	}
 }
 
 .bootstrap-form-fields {
@@ -399,7 +464,7 @@ a:hover {
 
 .bootstrap-create-form {
 	/* One column contract for every section, independent of button/value lengths. */
-	--bootstrap-setup-columns: minmax(9rem, 0.7fr) minmax(0, 1.3fr) minmax(12rem, 0.9fr);
+	--bootstrap-setup-columns: minmax(8rem, 0.9fr) minmax(0, 1.4fr) minmax(10rem, 0.85fr);
 }
 
 .bootstrap-create-form .bootstrap-form-row,
@@ -413,19 +478,31 @@ a:hover {
 }
 
 .bootstrap-create-form .bootstrap-form-row {
-	align-items: start;
-}
-
-.bootstrap-create-form .bootstrap-form-row > label,
-.bootstrap-create-form .bootstrap-form-row > .bootstrap-form-label-cell,
-.bootstrap-create-form .bootstrap-form-row > .bootstrap-read-value {
-	padding-top: 0.5rem;
+	align-items: center;
 }
 
 .bootstrap-create-form .bootstrap-form-row > .bootstrap-control,
 .bootstrap-resolver-grid .bootstrap-control {
-	width: 100%;
+	width: min(100%, 30ch);
 	min-width: 0;
+}
+
+.bootstrap-create-form #bootstrap-address {
+	width: min(100%, 44ch);
+}
+
+.bootstrap-create-form #bootstrap-sample,
+.bootstrap-create-form #bootstrap-range-start {
+	width: min(100%, 22ch);
+}
+
+.bootstrap-create-form #bootstrap-range-count,
+.bootstrap-create-form #bootstrap-cache-dimension {
+	width: min(100%, 10ch);
+}
+
+.bootstrap-create-form .bootstrap-form-row > .bootstrap-control-textarea {
+	width: 100%;
 }
 
 .bootstrap-step-heading {
@@ -465,6 +542,11 @@ a:hover {
 	gap: 0.35rem;
 	align-content: center;
 	min-width: 0;
+	align-self: center;
+}
+
+.bootstrap-row-actions .bootstrap-resolution-badge {
+	justify-self: start;
 }
 
 .bootstrap-row-actions > button,
@@ -512,35 +594,8 @@ a:hover {
 	overflow-wrap: anywhere;
 }
 
-.bootstrap-setup-intro {
-	margin-bottom: 1rem;
-}
-
-.bootstrap-setup-intro p,
 .bootstrap-setup-submit p {
 	font-size: 0.78rem;
-}
-
-.bootstrap-setup-progress {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.75rem 1.5rem;
-	padding: 0;
-	list-style: none;
-	font-size: 0.8rem;
-}
-
-.bootstrap-setup-progress a {
-	display: grid;
-	gap: 0.3rem;
-}
-
-.bootstrap-setup-progress a[aria-current='step'] {
-	color: var(--c-orange);
-}
-
-.bootstrap-setup-progress .muted {
-	font-size: 0.68rem;
 }
 
 .bootstrap-create-form .bootstrap-form-section {

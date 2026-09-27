@@ -52,6 +52,7 @@
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import WarningIcon from '$lib/components/WarningIcon.svelte';
+	import JsonPayloadPreview from '$lib/components/JsonPayloadPreview.svelte';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
@@ -273,9 +274,6 @@
 			optional: true
 		}
 	]);
-	let nextRequiredSection = $derived(
-		setupSections.findIndex((section, index) => !section.ready && index < 4)
-	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
 	let cachedTokenCard = $derived(cachedTokenPreviewCard());
 	let animationPreviewIframeSource = $derived(resolveAnimationPreviewIframeSource());
@@ -440,7 +438,7 @@
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Error;
 			probeError =
-				'Contract probe failed. Check the sample token ID and RPC settings, then press Probe.';
+				'Contract probe failed. Check the sample token ID and RPC settings, then press probe.';
 		}
 	}
 
@@ -917,11 +915,11 @@
 		<button
 			type="button"
 			class="action-button-positive"
-			title={`Apply "${value}"`}
+			title={`apply "${value}"`}
 			disabled={value === current.trim()}
 			onclick={() => apply(value)}
 		>
-			<span class="action-button-value">Apply <code>"{value}"</code></span>
+			<span class="action-button-value">apply <code>"{value}"</code></span>
 		</button>
 	{/if}
 {/snippet}
@@ -954,27 +952,8 @@
 	</header>
 
 
+	<div class="bootstrap-workspace">
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
-		<div class="bootstrap-setup-intro">
-			<h2 class="panel-title">New collection</h2>
-			<p class="muted">Complete steps 1–3 to queue bootstrap. Probe, previews and estimates are optional checks.</p>
-			<nav aria-label="Bootstrap setup progress">
-				<ol class="bootstrap-setup-progress">
-					{#each setupSections as section, index}
-						<li>
-							<a href={"#" + section.id} aria-current={index === nextRequiredSection ? 'step' : undefined}>
-								{index + 1}. {section.title}
-								<span class="muted">{section.optional ? 'optional' : section.ready ? 'complete' : 'needs input'}</span>
-							</a>
-						</li>
-					{/each}
-				</ol>
-			</nav>
-		</div>
-
-		<div class="bootstrap-form-fields">
-			<section class="bootstrap-form-section" id={setupSections[0].id} aria-labelledby="bootstrap-contract-heading">
-				{@render sectionHeading(0)}
 				<div class="bootstrap-contract-address-warning" role="note">
 					<span class="bootstrap-contract-address-warning-icon"><WarningIcon /></span>
 					<div class="bootstrap-contract-address-warning-body">
@@ -987,6 +966,9 @@
 						</label>
 					</div>
 				</div>
+		<fieldset class="bootstrap-form-fields" disabled={!contractAddressSafetyAcknowledged}>
+			<section class="bootstrap-form-section" id={setupSections[0].id} aria-labelledby="bootstrap-contract-heading">
+				{@render sectionHeading(0)}
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-address">{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}</label>
 					<input id="bootstrap-address" value={bootstrapAddress} class={bootstrapInputClass}
@@ -995,23 +977,23 @@
 					<div class="bootstrap-row-actions">
 						<button type="button" class="action-button-positive"
 							disabled={!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain || contractProbePending}
-							onclick={() => void onProbe()}>Probe</button>
-						<span class="bootstrap-row-status" role="status">
-							{#if contractProbePending}
-								{@render inProgressStatus('probing', 'probing contract')}
-							{:else if probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Error}
+							aria-label="probe" aria-busy={contractProbePending} onclick={() => void onProbe()}>
+							{#if contractProbePending}{@render inProgressStatus('probing', 'probing contract')}{:else}probe{/if}
+						</button>
+						<span class="bootstrap-row-status" role="status" hidden={contractProbePending}>
+							{#if probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Error}
 								probe failed
 							{:else if latestProbeMatchesAddress}
 								{sampleProbeFailure ? 'check incomplete' : 'probe complete'}
 							{:else}
-								{probeInputsChanged ? 'inputs changed — Probe again' : 'not checked'}
+								{probeInputsChanged ? 'inputs changed — probe again' : 'not checked'}
 							{/if}
 						</span>
 					</div>
 					<p id="bootstrap-address-help" class="bootstrap-row-note muted">
 						{#if setupIssues.address}{setupIssues.address}
 						{:else if !contractAddressSafetyAcknowledged}Confirm the contract address above before probing or queueing.
-						{:else}Probe checks the current sample and media fields. After editing them, press Probe again.{/if}
+						{:else}probe checks the current sample and media fields. After editing them, press probe again.{/if}
 					</p>
 				</div>
 				<div class="bootstrap-form-row">
@@ -1034,7 +1016,7 @@
 						{#if sampleTokenId.trim() && !sampleMatchesScope && !scopeIssue}
 							This sample is outside the selected scope. Choose one inside it to set up OpenSea; bootstrap can proceed.
 						{:else}
-							Use one existing token for checks and previews, or leave blank for Probe to find a sample.
+							Use one existing token for checks and previews, or leave blank for probe to find a sample.
 						{/if}
 					</p>
 				</div>
@@ -1052,7 +1034,7 @@
 						</div>
 						<div class="bootstrap-row-actions">
 							<button type="button" class="action-button-positive" aria-expanded={probeDetailsOpen}
-								onclick={() => probeDetailsOpen = !probeDetailsOpen}>{probeDetailsOpen ? 'Hide checks' : 'View checks'}</button>
+								onclick={() => probeDetailsOpen = !probeDetailsOpen}>{probeDetailsOpen ? 'hide checks' : 'view checks'}</button>
 						</div>
 					</div>
 					{#if probeDetailsOpen}
@@ -1130,7 +1112,13 @@
 						<input id="bootstrap-range-count" value={manualRangeTotalSupply} class={bootstrapInputClass}
 							type="text" inputmode="numeric" required oninput={onManualRangeTotalSupplyInput}
 							aria-invalid={Boolean(manualRangeTotalSupply && setupIssues.totalSupply)} aria-describedby="bootstrap-range-help" />
-						<div class="bootstrap-row-actions"><span class="bootstrap-row-status">required</span></div>
+						<div class="bootstrap-row-actions">
+							{@render applySuggestion(probeResult?.totalSupply.bootstrapRangeValue?.toString(), manualRangeTotalSupply, (value) => {
+								manualRangeTotalSupply = value;
+								resetImageCacheEstimateState();
+							})}
+							<span class="bootstrap-row-status">{latestProbeMatchesAddress && probeResult?.totalSupply.bootstrapRangeValue ? 'contract supply suggestion' : 'required'}</span>
+						</div>
 						<p id="bootstrap-range-help" class="bootstrap-row-note muted">
 							{scopeIssue ?? `Token IDs ${manualRangeStartTokenId.trim()}–${BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}, including unminted IDs.`}
 						</p>
@@ -1174,9 +1162,9 @@
 					{:else if !imageSourceFieldResolved}
 						<p id="bootstrap-image-help" class="bootstrap-row-note muted">
 							{#if latestProbeMatchesAddress && !sampleProbeFailure}
-								No image found in this field. Edit it and press Probe again, or queue the entered field.
+								No image found in this field. Edit it and press probe again, or queue the entered field.
 							{:else}
-								Not checked. Probe can check this field; bootstrap uses the value entered.
+								Not checked. probe can check this field; bootstrap uses the value entered.
 							{/if}
 						</p>
 					{/if}
@@ -1198,7 +1186,7 @@
 						<div class="bootstrap-read-value">Token #{firstTokenCard.tokenId}</div>
 						<div class="bootstrap-row-actions">
 							<button type="button" class="action-button-positive" aria-expanded={samplePreviewOpen}
-								onclick={() => samplePreviewOpen = !samplePreviewOpen}>{samplePreviewOpen ? 'Hide preview' : 'Preview sample'}</button>
+								onclick={() => samplePreviewOpen = !samplePreviewOpen}>{samplePreviewOpen ? 'hide preview' : 'preview sample'}</button>
 						</div>
 					</div>
 					{#if samplePreviewOpen}
@@ -1252,10 +1240,11 @@
 							aria-describedby="bootstrap-cache-help" />
 						<div class="bootstrap-row-actions">
 							<button type="button" class="action-button-positive" disabled={!imageCacheEstimateCanRun}
-								onclick={() => void onEstimateImageCache()}>estimate</button>
-							<span class="bootstrap-row-status" role="status">
-								{#if imageCacheEstimatePending}{@render inProgressStatus('estimating', 'estimating image cache size')}
-								{:else if imageCacheEstimateReady}estimated
+								aria-label="estimate" aria-busy={imageCacheEstimatePending} onclick={() => void onEstimateImageCache()}>
+								{#if imageCacheEstimatePending}{@render inProgressStatus('estimating', 'estimating image cache size')}{:else}estimate{/if}
+							</button>
+							<span class="bootstrap-row-status" role="status" hidden={imageCacheEstimatePending}>
+								{#if imageCacheEstimateReady}estimated
 								{:else if imageCacheEstimateFailed}estimate failed
 								{:else}not estimated{/if}
 							</span>
@@ -1263,7 +1252,7 @@
 						<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
 							{setupIssues.maxDimension ?? (imageCacheEstimateCanRun || imageCacheEstimateReady || imageCacheEstimatePending
 								? 'Estimate is optional. Leave the dimension blank to keep original image dimensions.'
-								: 'To estimate, Probe and apply the sample and image field, then set a token count. You can queue without an estimate.')}
+								: 'To estimate, probe and apply the sample and image field, then set a token count. You can queue without an estimate.')}
 						</p>
 					</div>
 				{/if}
@@ -1285,7 +1274,7 @@
 						<div class="bootstrap-read-value mono">{imageCacheSampleOutputValue()} · {imageCacheOutputDimensionsValue()}</div>
 						<div class="bootstrap-row-actions">
 							<button type="button" class="action-button-positive" aria-expanded={cachePreviewOpen}
-								onclick={() => cachePreviewOpen = !cachePreviewOpen}>{cachePreviewOpen ? 'Hide preview' : 'Preview cached image'}</button>
+								onclick={() => cachePreviewOpen = !cachePreviewOpen}>{cachePreviewOpen ? 'hide preview' : 'preview cached image'}</button>
 						</div>
 					</div>
 					<div class="bootstrap-form-row">
@@ -1313,8 +1302,8 @@
 					<label for="bootstrap-opensea-slug">{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}</label>
 					<OpenSeaSlugResolverControl chainSlug={chain?.slug ?? null} contractAddress={normalizedBootstrapAddress}
 						bind:this={openSeaSlugResolver} {sampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
-						inputClass={bootstrapInputClass} gridLayout {openSeaEnabled} onStateChange={onOpenSeaSlugStateChange}
-						disabledReason={openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
+						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
+						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
 				</div>
 				<p class="bootstrap-section-note muted">
 					{#if openSeaSlugResolved && sampleMatchesScope}
@@ -1333,13 +1322,27 @@
 					{:else if submitting}Queueing bootstrap…
 					{:else}Check the highlighted sections above.{/if}
 				</p>
-				<button type="button" class="action-button-positive" disabled={submitDisabled} onclick={() => void onSubmitBootstrap()}>
-					{submitting ? 'queueing…' : 'queue bootstrap'}
+				<button type="button" class="action-button-positive" disabled={submitDisabled} aria-label="queue bootstrap" aria-busy={submitting} onclick={() => void onSubmitBootstrap()}>
+					{#if submitting}{@render inProgressStatus('queueing', 'queueing bootstrap')}{:else}queue bootstrap{/if}
 				</button>
 				{#if submitError}<p class="bootstrap-section-note bootstrap-check-warning" role="alert">{submitError}</p>{/if}
 			</div>
-		</div>
+		</fieldset>
 	</form>
+	<aside class="bootstrap-metadata-panel" aria-label="tokenURI response">
+		<header class="bootstrap-metadata-heading">
+			<h2 class="panel-title">tokenURI response</h2>
+			{#if latestProbeMatchesAddress && probeResult?.firstToken.tokenId}
+				<span class="muted">token #{probeResult.firstToken.tokenId} · {formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}</span>
+			{/if}
+		</header>
+		{#if latestProbeMatchesAddress && probeResult?.firstToken.tokenUriPayload != null}
+			<JsonPayloadPreview text={probeResult.firstToken.tokenUriPayload} />
+		{:else}
+			<p class="muted">{contractProbePending ? 'waiting for metadata…' : probeError || sampleProbeFailure ? 'No response available. Retry probe.' : 'probe to load metadata'}</p>
+		{/if}
+	</aside>
+	</div>
 
 	<div class="table-wrap">
 		<table>

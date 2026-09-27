@@ -189,29 +189,29 @@
 			onkeydown={onSlugKeydown}
 		/>
 		<div class:bootstrap-row-actions={gridLayout} class:bootstrap-resolver-actions={!gridLayout}>
-			<button
-				type="button"
-				class="action-button-positive"
-				disabled={!canResolve || probePending}
-				onclick={() => void resolveSlug()}
-			>
-				resolve
-			</button>
 			{#if slugResolved}
-				<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge'}>
-					resolved
-				</span>
-			{:else if slugIncorrect}
-				<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge'}>
-					incorrect
-				</span>
-			{:else if probePending}
-				<span class="muted">
-					<span class="bootstrap-inline-progress">
-						<span>resolving</span>
-						<LoadingBladeBar ariaLabel="resolving OpenSea slug" barLength={2} />
+				<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">resolved</span>
+			{:else}
+				<button
+					type="button"
+					class="action-button-positive"
+					aria-label="resolve"
+					aria-busy={probePending}
+					disabled={!canResolve || probePending}
+					onclick={() => void resolveSlug()}
+				>
+					{#if probePending}
+						<span class="bootstrap-inline-progress">
+							<span>resolving</span>
+							<LoadingBladeBar ariaLabel="resolving OpenSea slug" barLength={2} />
+						</span>
+					{:else}resolve{/if}
+				</button>
+				{#if slugIncorrect}
+					<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge'}>
+						incorrect
 					</span>
-				</span>
+				{/if}
 			{/if}
 		</div>
 	</div>

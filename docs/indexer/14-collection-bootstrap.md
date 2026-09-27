@@ -83,22 +83,42 @@ yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-bl
 
 The form has five ordered sections: Contract, Token scope, Collection details,
 Image cache, and OpenSea. The first three are required; the last two are optional
-settings. A progress list links to each section and identifies incomplete setup.
-All fields remain editable. The contract-safety acknowledgement gates probing and
-queueing, not editing.
+settings. Section headings identify incomplete setup. The contract-safety
+acknowledgement must be checked before any form control can be used. Unchecking
+it locks the form again and clears check results while preserving entered fields.
 
-Each section uses the same label/input/action grid. Inputs and action buttons have
-stable widths, with single-line **Apply "value"** suggestions in the action column.
+Each section uses the same label/input/action grid. Inputs share a left edge and
+are sized for their intended content, with single-line **apply "value"** suggestions
+in the action column. Status hints are centered vertically against their inputs.
 Long suggestions are clipped and expose their complete value through the button's
-title and accessible name. The form is left aligned and uses more horizontal space;
-narrow viewports stack each row in label, input, action order.
+title and accessible name. The desktop form occupies the left half of the page;
+the right half displays the sample's formatted tokenURI response. Narrow viewports
+stack these panels and then each row in label, input, action order.
 
-Edits do not make network requests. **Probe**, beside the address, checks the
-staged sample and metadata fields. Its pending state, errors and retry guidance
-stay in the Contract section. Each detected sample, image field, animation field,
-and collection slug has an independent Apply action. It changes only that input;
+Edits do not make network requests. **probe**, beside the address, checks the
+staged sample and metadata fields. Progress appears inside the initiating button;
+errors and retry guidance stay in the Contract section. Each detected sample,
+image field, animation field, collection slug, and bounded contract supply has
+an independent apply action. It changes only that input;
 a matching value disables it. Neither probing nor applying a suggestion silently
-replaces the configured scope. Previews and detailed checks open on request.
+replaces the configured scope. Applying contract supply changes Token count only;
+it does not establish a first ID or a shared-contract project's boundaries.
+Media previews and detailed checks open on request. Probe, estimate, resolve,
+and queue actions share lowercase labels and inline progress. Successful OpenSea
+resolution replaces its button with the cyan resolved badge until inputs change.
+
+The existing probe response adds nullable `firstToken.tokenUriPayload`: the
+original metadata text from the same download or decoded data URI, bounded by
+`BOOTSTRAP_TOKEN_URI_MAX_BYTES` (10 MiB). Invalid JSON remains inspectable; unavailable
+or oversized responses return null and the existing error fields. No additional
+endpoint, request parameters, or metadata download is needed.
+
+The response inspector treats all keys and values as escaped text. It reuses the
+token-detail iframe boundary with an empty sandbox (scripts disabled), no referrer,
+and CSP denying network access, forms, and base URL changes. Keys and values over
+240 characters are collapsed behind native disclosure controls; deeply nested or
+wide documents fall back to collapsed original text to bound DOM generation.
+Editing probe inputs or removing acknowledgement clears the inspector.
 
 Queue eligibility depends on the declared address, local slug, image source field,
 token scope, and valid cache settings. Animation is optional. A sample, successful
@@ -173,7 +193,7 @@ to other token IDs, a contract-only fallback, collection-details verification,
 or first/last boundary checks. A missing sample in OpenSea does not prove the
 requested range is invalid.
 
-The local collection slug is an independent ArtGod identifier. Its **Apply "value"**
+The local collection slug is an independent ArtGod identifier. Its **apply "value"**
 button explicitly accepts a slug from the contract name, including replacing an
 existing draft. That name may identify the shared contract rather than the intended
 project. Review it before queueing. Editing a sample,

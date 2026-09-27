@@ -345,28 +345,40 @@ Rules:
 
 ### Bootstrap setup
 
-The creation form uses ordered sections with a progress list: Contract, Token
+The creation form uses ordered sections: Contract, Token
 scope, Collection details, Image cache, and OpenSea. Required sections show
 completion independently of optional network checks. Field errors and recovery
-instructions belong in their section; Probe feedback stays beside the contract
+instructions belong in their section; probe feedback stays beside the contract
 controls. Optional check failures never gate a complete manual definition.
+The contract-safety acknowledgement precedes and unlocks the entire form;
+unchecking it locks the controls again without discarding the entered definition.
 
-The form is explicitly left aligned and wider than the compact-form default.
-Every section shares one three-column grid: label, input, action/status. All scalar
-inputs fill the same input column. Actions use the standard form button and
-`.action-button-positive` family, including Probe, per-field Apply, estimate,
-resolve, preview toggles, and queue bootstrap. Action widths follow their shared
-column; their labels do not wrap. Long suggested values use the shared
+The desktop workspace divides equally between the left-aligned form and a
+tokenURI response inspector on the right. Every form section shares one
+three-column grid: label, input, action/status. Inputs start at the same column
+and are sized for their content; counts and dimensions stay compact. Status hints
+are vertically centered against controls. Actions use the standard form button
+and `.action-button-positive` family, including probe, per-field apply, estimate,
+resolve, preview toggles, and queue bootstrap. Action labels are lowercase, and
+pending text and `LoadingBladeBar` appear inside the initiating button. A resolved
+OpenSea slug replaces resolve with the existing cyan status badge; editing it
+restores the action. Action widths follow their shared column; labels do not wrap.
+Long suggested values use the shared
 `.action-button-value` clipping treatment with a complete accessible name and
-hover title. Narrow screens stack label, input, then action without squeezing
-controls or causing horizontal form overflow.
+hover title. Narrow screens stack the workspace and, when necessary, label,
+input, then action without squeezing controls or causing horizontal overflow.
+
+The inspector formats metadata as escaped text in `TokenMediaFrame` with scripts
+disabled and a restrictive content policy. Large keys and values use expandable
+masks. It never renders metadata HTML or follows its media URLs. The inspector
+uses the same probe response and clears when that response is invalidated.
 
 Detailed probe results and media previews open on request. Scope choices remain
 editable without probing. A whole-contract choice is explicit and carries a
 warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.
 
-The logical groups, progress links, and explicit optional stages follow the
+The logical groups and explicit optional stages follow the
 [W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,
 colors and controls remain ArtGod's existing visual system.
 

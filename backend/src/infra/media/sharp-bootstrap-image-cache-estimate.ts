@@ -108,7 +108,7 @@ export class SharpBootstrapImageCacheEstimateAdapter implements BootstrapImageCa
             };
         } catch (cause) {
             throw new BootstrapImageCacheEstimateError(
-                "Sample image could not be decoded or resized. Set Image cache mode to off, or choose another Image source field and press Probe.",
+                "Sample image could not be decoded or resized. Set Image cache mode to off, or choose another Image source field and press probe.",
                 cause,
             );
         }

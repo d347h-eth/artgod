@@ -140,7 +140,7 @@ the release you downloaded; the verification transcripts below are examples.
 
     ![Admin showing healthy infrastructure and the Enter the Userland action](../assets/operator-guide/artgod-guide-04-admin-started-infra.png)
 
-5. Bootstrap one collection. Confirm that its contract source is publicly verified, stage the sample and collection scope, then use **Probe** and review the result before queueing. Follow [Adding a Collection](#adding-a-collection) for shared or partially minted contracts.
+5. Bootstrap one collection. Confirm that its contract source is publicly verified, stage the sample and collection scope, then use **probe** and review the result before queueing. Follow [Adding a Collection](#adding-a-collection) for shared or partially minted contracts.
 
     ![First part of the collection bootstrap form](../assets/operator-guide/artgod-guide-05-bootstrap-milady-part1.png)
 
@@ -198,23 +198,27 @@ Start with one collection bootstrap at a time. Multiple runs share the same RPC 
 
 ## Adding a Collection
 
-The form has five numbered sections and a progress list that links to each one.
-Fields stay editable; typing or clearing a field sends no probe. Required setup
-can be completed manually even when optional network checks fail.
+Confirm that you have verified the contract address to unlock the form. Its five
+numbered sections show required and optional setup separately. Unchecking the
+confirmation locks every control again while keeping the entered definition.
+Typing or clearing a field sends no probe. Required setup can be completed
+manually even when optional network checks fail.
 
-1. **Contract:** enter the address and confirm it is authentic. You may enter a
-   **Sample token ID** for checks or leave it blank for **Probe** to find one.
-   Probe is optional; its progress and errors appear next to these controls.
+1. **Contract:** enter the verified address. You may enter a
+   **Sample token ID** for checks or leave it blank for **probe** to find one.
+   Probing is optional; progress appears inside the button and errors stay nearby.
    The sample is one existing NFT, not necessarily the first token in the scope.
 2. **Token scope:** choose a range or token ID list. For a range, set **First
    token ID** and **Token count**; the last ID is `first + count - 1`. The default
    first ID of `1` is editable, not a detected fact. Choose **Entire contract
    (ERC721Enumerable)** only when you want every token on that contract, including
    all projects if the contract is shared. Unconfirmed support produces a warning.
+   A detected contract supply can be applied to Token count explicitly; check
+   that it describes your intended range before accepting it.
 3. **Collection details:** set the local **Collection slug** and required **Image
-   source field**. Animation is optional. Each available **Apply "value"** button
+   source field**. Animation is optional. Each available **apply "value"** button
    previews and accepts only that field's suggestion. You can also enter known
-   fields manually. To check edited sample/media fields, press **Probe** again.
+   fields manually. To check edited sample/media fields, press **probe** again.
 4. **Image cache (optional):** choose whether to cache images locally and their
    maximum dimension. **estimate** checks one image and projects storage for the
    selected scope. An unavailable or failed estimate does not prevent queueing.
@@ -223,6 +227,11 @@ can be completed manually even when optional network checks fail.
    when scope is defined and OpenSea is enabled. If you apply an address-only
    sample afterward, press **resolve** yourself. A staged slug must match the
    sample's OpenSea collection.
+   The resolve button shows progress, then changes to a cyan resolved badge.
+
+On desktop, the tokenURI response appears to the right of the form after probing.
+It shows formatted metadata as inert text; click a masked large key or value to
+expand it. Changing the probe inputs clears that response until you probe again.
 
 Once the required sections are complete, press **queue bootstrap**. The entered
 scope and media fields are used even if metadata is rate-limited, missing, or

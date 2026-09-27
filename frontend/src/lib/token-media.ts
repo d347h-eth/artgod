@@ -1,3 +1,5 @@
+import { escapeHtml } from '$lib/html';
+
 export type TokenMediaIframeSource =
 	| {
 			kind: 'src';
@@ -80,13 +82,4 @@ function buildImagePreviewDocument(imageUrl: string, title: string): string {
 <img src="${escapedUrl}" alt="${escapedTitle}" referrerpolicy="no-referrer" />
 </body>
 </html>`;
-}
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;')
-		.replaceAll("'", '&#39;');
 }

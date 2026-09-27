@@ -102,16 +102,16 @@ export function bootstrapSampleOwnership(probe: BootstrapContractProbeApiRespons
 
 export function bootstrapSampleFailure(probe: BootstrapContractProbeApiResponse): string | null {
 	const sample = probe.firstToken;
-	if (!sample.tokenId) return 'Enter an existing Sample token ID, then press Probe.';
+	if (!sample.tokenId) return 'Enter an existing Sample token ID, then press probe.';
 	const ownership = bootstrapSampleOwnership(probe);
 	if (ownership === false) {
-		return 'Sample token has no owner. Enter an existing Sample token ID, then press Probe.';
+		return 'Sample token has no owner. Enter an existing Sample token ID, then press probe.';
 	}
 	if (ownership === null) {
-		return 'Sample ownership could not be checked. Check RPC settings in Admin config, then press Probe.';
+		return 'Sample ownership could not be checked. Check RPC settings in Admin config, then press probe.';
 	}
 	if (!sample.tokenUri) {
-		return 'Sample metadata URI could not be read. Try another Sample token ID, then press Probe.';
+		return 'Sample metadata URI could not be read. Try another Sample token ID, then press probe.';
 	}
 	return sample.tokenUriPayloadError ?? sample.metadataError;
 }
