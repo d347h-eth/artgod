@@ -789,6 +789,7 @@ beforeAll(async () => {
                             tokenUri:
                                 "data:application/json,%7B%22name%22%3A%22Milady%201%22%7D",
                             tokenUriPayloadBytes: 19,
+                            tokenUriPayload: '{"name":"Milady 1"}',
                             tokenUriPayloadTruncated: false,
                             tokenUriPayloadError: null,
                             name: "Milady 1",
@@ -5156,6 +5157,9 @@ describe("backend api routes", () => {
         expect(probe.statusCode).toBe(200);
         expect(probe.payload.enumerable.supported).toBe(true);
         expect(probe.payload.firstToken.tokenId).toBe("42");
+        expect(probe.payload.firstToken.tokenUriPayload).toBe(
+            '{"name":"Milady 1"}',
+        );
         expect(probe.payload.storageEstimate).toBeNull();
         expect(probe.payload.imageStorageEstimate).toBeNull();
         expect(probe.payload.suggestedInput).toEqual({

@@ -18,6 +18,7 @@ import {
     BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
 } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
 import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
+import { BOOTSTRAP_TOKEN_URI_MAX_BYTES } from "@artgod/shared/config/bootstrap";
 import {
     BEACON_PROXY_IMPLEMENTATION_FUNCTION,
     NON_CONTRACT_ADDRESS_PROBE_ERROR,
@@ -66,6 +67,7 @@ describe("ViemBootstrapContractProbe", () => {
                 "IPFS gateway in Admin config",
             );
             expect(result.firstToken.imageSourceField).toBeNull();
+            expect(result.firstToken.tokenUriPayload).toBeNull();
         },
     );
 
@@ -80,10 +82,49 @@ describe("ViemBootstrapContractProbe", () => {
         });
         expect(result.firstToken.candidates[0]?.exists).toBe(true);
         expect(result.firstToken.tokenUriPayloadError).toBeNull();
+        expect(result.firstToken.tokenUriPayload).toBe("invalid");
         expect(result.firstToken.metadataError).toContain(
             "Metadata could not be read",
         );
     });
+    it("returns the original metadata response including large embedded artwork", async () => {
+        const payload = JSON.stringify(
+            { name: "Sample", artwork: "A".repeat(60_000) },
+            null,
+            2,
+        );
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response(payload)),
+        );
+        const result = await makeEnumerableProbe(
+            "https://metadata.example/1",
+        ).probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+            sampleTokenId: "1",
+        });
+        expect(result.firstToken.tokenUriPayload).toBe(payload);
+        expect(result.firstToken.tokenUriPayloadBytes).toBe(
+            Buffer.byteLength(payload),
+        );
+    });
+
+    it("enforces the metadata response bound for inline data too", async () => {
+        const result = await makeEnumerableProbe(
+            "data:application/json," +
+                "x".repeat(BOOTSTRAP_TOKEN_URI_MAX_BYTES + 1),
+        ).probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+            sampleTokenId: "1",
+        });
+        expect(result.firstToken.tokenUriPayload).toBeNull();
+        expect(result.firstToken.tokenUriPayloadError).not.toBeNull();
+    });
+
     it("rejects addresses without contract bytecode before ERC165 reads", async () => {
         const calls: string[] = [];
         const probe = new ViemBootstrapContractProbe({

@@ -5360,6 +5360,7 @@ components:
                     tokenId,
                     source,
                     tokenUri,
+                    tokenUriPayload,
                     tokenUriPayloadBytes,
                     tokenUriPayloadTruncated,
                     tokenUriPayloadError,
@@ -5396,9 +5397,14 @@ components:
                     type: string
                     nullable: true
                 tokenUriPayloadBytes:
+                    description: UTF-8 byte count of the original tokenURI response.
                     type: integer
                     nullable: true
                     minimum: 0
+                tokenUriPayload:
+                    description: Original tokenURI response text, bounded to 10 MiB. Null when unavailable. Untrusted inspection data only; malformed JSON is retained.
+                    type: string
+                    nullable: true
                 tokenUriPayloadTruncated:
                     type: boolean
                 tokenUriPayloadError:

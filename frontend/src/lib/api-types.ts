@@ -240,6 +240,7 @@ export type ApiBootstrapProbeFirstToken = {
 	tokenId: string | null;
 	source: 'token_by_index' | 'candidate_token_uri' | 'candidate_owner_of' | null;
 	tokenUri: string | null;
+	tokenUriPayload: string | null;
 	tokenUriPayloadBytes: number | null;
 	tokenUriPayloadTruncated: boolean;
 	tokenUriPayloadError: string | null;

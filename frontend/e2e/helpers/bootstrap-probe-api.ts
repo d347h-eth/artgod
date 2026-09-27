@@ -23,6 +23,7 @@ export { BOOTSTRAP_PROBE_E2E_ROUTE_PATH };
 
 // Contract addresses used to exercise the bootstrap probe UI states.
 export const BOOTSTRAP_PROBE_CONTRACTS = {
+	Aeon: '0xc374a204334d4edd4c6a62f0867c752d65e9579c',
 	NonEnumerable: '0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab',
 	EnumerableRaster: '0x5af0d9827e0c53e4799bb226655a1de152a425a5',
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
@@ -518,14 +519,18 @@ function probeResponse(
 		}
 		return response;
 	}
-	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
+	if (
+		address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable ||
+		address === BOOTSTRAP_PROBE_CONTRACTS.Aeon
+	) {
+		const aeon = address === BOOTSTRAP_PROBE_CONTRACTS.Aeon;
 		return buildProbeResponse({
 			address,
-			contractName: 'Non Enumerable: Test Collection!',
+			contractName: aeon ? 'Project AEON' : 'Non Enumerable: Test Collection!',
 			enumerable: false,
-			totalSupply: '1000',
+			totalSupply: aeon ? '3333' : '1000',
 			firstTokenId: requestedSampleTokenId ?? '1',
-			firstTokenName: 'Non Enumerable #1',
+			firstTokenName: aeon ? 'AEON #1' : 'Non Enumerable #1',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage,
 			firstTokenImageSourceField:
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
@@ -712,6 +717,17 @@ function buildProbeResponse(input: {
 			tokenId: input.firstTokenId,
 			source: input.firstTokenSource,
 			tokenUri: `ipfs://metadata/${input.firstTokenId}`,
+			tokenUriPayload:
+				input.tokenUriPayloadBytes === null
+					? null
+					: JSON.stringify({
+							name: input.firstTokenName,
+							[input.firstTokenImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]:
+								input.firstTokenImage,
+							...(input.animationSourceField
+								? { [input.animationSourceField]: input.animationUrl }
+								: {})
+						}),
 			tokenUriPayloadBytes: input.tokenUriPayloadBytes,
 			tokenUriPayloadTruncated: false,
 			tokenUriPayloadError: null,

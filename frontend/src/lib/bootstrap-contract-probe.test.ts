@@ -148,6 +148,7 @@ function makeProbe(input: {
 			tokenId: input.startTokenId ?? null,
 			source: input.enumerable ? 'token_by_index' : 'candidate_token_uri',
 			tokenUri: null,
+			tokenUriPayload: null,
 			tokenUriPayloadBytes: null,
 			tokenUriPayloadTruncated: false,
 			tokenUriPayloadError: null,

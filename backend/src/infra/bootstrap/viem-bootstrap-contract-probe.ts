@@ -48,6 +48,7 @@ import {
 import { loadSharp } from "../media/sharp-loader.js";
 import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
 import { logger } from "@artgod/shared/utils";
+import { BOOTSTRAP_TOKEN_URI_MAX_BYTES } from "@artgod/shared/config/bootstrap";
 
 type BootstrapProbeRpc = {
     getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
@@ -162,7 +163,6 @@ const ERC721_INTERFACE_ID = "0x80ac58cd";
 // ERC165 interface id for ERC721Enumerable.
 const ERC721_ENUMERABLE_INTERFACE_ID = "0x780e9d63";
 // Preflight only needs enough payload to render a safe preview and estimate scale.
-const MAX_TOKEN_URI_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MEDIA_PROBE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_IPFS_GATEWAY_ORIGIN = "https://ipfs.io";
 const EMPTY_EVM_BYTECODE = "0x";
@@ -417,6 +417,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             tokenId: null,
             source: null,
             tokenUri: null,
+            tokenUriPayload: null,
             tokenUriPayloadBytes: null,
             tokenUriPayloadTruncated: false,
             tokenUriPayloadError: null,
@@ -527,7 +528,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 uri,
                 this.ipfsGatewayOrigin,
                 this.fetchResilience,
-                MAX_TOKEN_URI_PAYLOAD_BYTES,
+                BOOTSTRAP_TOKEN_URI_MAX_BYTES,
             );
             const metadata = parseMetadataPayload(
                 payload.text,
@@ -551,6 +552,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenId,
                 source,
                 tokenUri: uri,
+                tokenUriPayload: payload.text,
                 tokenUriPayloadBytes: payload.byteSize,
                 tokenUriPayloadTruncated: payload.truncated,
                 tokenUriPayloadError: null,
@@ -583,6 +585,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenId,
                 source,
                 tokenUri: uri,
+                tokenUriPayload: null,
                 tokenUriPayloadBytes: null,
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: bootstrapMetadataFetchFailure(error, uri),
@@ -653,6 +656,7 @@ function emptyFirstTokenWithError(
         tokenId,
         source,
         tokenUri: null,
+        tokenUriPayload: null,
         tokenUriPayloadBytes: null,
         tokenUriPayloadTruncated: false,
         tokenUriPayloadError: error,
@@ -692,11 +696,7 @@ async function fetchTokenUriPayload(
 ): Promise<TokenUriPayload> {
     if (uri.startsWith("data:")) {
         const text = parseJsonDataUriText(uri);
-        return {
-            text,
-            byteSize: Buffer.byteLength(text, "utf8"),
-            truncated: false,
-        };
+        return boundedTokenUriPayload(text, maxBytes);
     }
 
     const resolved = resolveDisplayUrl(uri, ipfsGatewayOrigin);
@@ -728,11 +728,7 @@ async function readResponseTextWithLimit(
     const body = response.body;
     if (!body) {
         const text = await response.text();
-        return {
-            text,
-            byteSize: Buffer.byteLength(text, "utf8"),
-            truncated: false,
-        };
+        return boundedTokenUriPayload(text, maxBytes);
     }
 
     const reader = body.getReader();
@@ -744,6 +740,7 @@ async function readResponseTextWithLimit(
         if (!value) continue;
         received += value.byteLength;
         if (received > maxBytes) {
+            await reader.cancel();
             throw new Error(`tokenURI payload exceeds ${maxBytes} bytes`);
         }
         chunks.push(value);
@@ -754,6 +751,17 @@ async function readResponseTextWithLimit(
         byteSize: received,
         truncated: false,
     };
+}
+
+function boundedTokenUriPayload(
+    text: string,
+    maxBytes: number,
+): TokenUriPayload {
+    const byteSize = Buffer.byteLength(text, "utf8");
+    if (byteSize > maxBytes) {
+        throw new Error(`tokenURI payload exceeds ${maxBytes} bytes`);
+    }
+    return { text, byteSize, truncated: false };
 }
 
 function parseMetadataPayload(
@@ -793,7 +801,7 @@ function parseMetadataPayload(
             name: null,
             imageSource: null,
             animationSource: null,
-            error: "Metadata could not be read. Try another sample token ID, then press Probe.",
+            error: "Metadata could not be read. Try another sample token ID, then press probe.",
         };
     }
 }

@@ -82,6 +82,8 @@ export type BootstrapProbeFirstToken = {
     tokenId: string | null;
     source: BootstrapProbeFirstTokenSource | null;
     tokenUri: string | null;
+    // Original bounded response text for inert inspection, including malformed JSON.
+    tokenUriPayload: string | null;
     tokenUriPayloadBytes: number | null;
     tokenUriPayloadTruncated: boolean;
     tokenUriPayloadError: string | null;

@@ -4,6 +4,9 @@ export const BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION = 4096;
 export const BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION = 1080;
 export const BOOTSTRAP_IMAGE_CACHE_DEFAULT_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 
+// Bounds metadata downloaded or decoded for one bootstrap probe and returned for inspection.
+export const BOOTSTRAP_TOKEN_URI_MAX_BYTES = 10 * 1024 * 1024;
+
 // Request bounds shared by bootstrap admission and the setup form.
 export const BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT = 50_000;
 export const BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT = 1_000_000;
