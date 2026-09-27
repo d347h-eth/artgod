@@ -285,7 +285,7 @@ describe("ProbeCollectionContractUseCase", () => {
         });
     });
 
-    it("forwards a trimmed custom sample token id to the contract probe", async () => {
+    it("forwards a canonical decimal sample token id to the contract probe", async () => {
         const probeInputs: Array<{
             sampleTokenId: string | null;
         }> = [];
@@ -315,14 +315,30 @@ describe("ProbeCollectionContractUseCase", () => {
             chainRef: "ethereum",
             address: "0x3333333333333333333333333333333333333333",
             standard: "erc721",
-            sampleTokenId: "  token-42  ",
+            sampleTokenId: "  00042  ",
         });
 
         expect(probeInputs).toEqual([
             {
-                sampleTokenId: "token-42",
+                sampleTokenId: "42",
             },
         ]);
+    });
+
+    it("rejects a malformed sample before making RPC requests", async () => {
+        let reads = 0;
+        const useCase = makeUseCase({}, undefined, () => {
+            reads += 1;
+        });
+        await expect(
+            useCase.probe({
+                chainRef: "ethereum",
+                address: "0x3333333333333333333333333333333333333333",
+                standard: "erc721",
+                sampleTokenId: "token-42",
+            }),
+        ).rejects.toThrow("valid decimal sample token ID");
+        expect(reads).toBe(0);
     });
 
     it("does not infer collection scope from a custom sample token id", async () => {

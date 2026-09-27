@@ -7,6 +7,7 @@ import {
 } from "@artgod/shared/opensea/collection-slug-probe";
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 
 export type ProbeOpenSeaCollectionSlugInput = {
     chainRef: string;
@@ -128,9 +129,10 @@ function normalizeSampleTokenId(raw: string | undefined): string {
         throw new BootstrapValidationError(
             OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired,
         );
-    if (!/^\d+$/.test(value))
+    const normalized = normalizeEvmTokenId(value);
+    if (normalized === null)
         throw new BootstrapValidationError(
             OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleInvalid,
         );
-    return BigInt(value).toString();
+    return normalized;
 }

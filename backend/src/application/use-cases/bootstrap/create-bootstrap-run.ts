@@ -1,4 +1,10 @@
 import {
+    parseBootstrapScope,
+    bootstrapScopeModel,
+    BootstrapScopeValidationError,
+    type BootstrapScope,
+} from "@artgod/shared/bootstrap/scope";
+import {
     BootstrapConflictError,
     BootstrapValidationError,
     type CreateBootstrapRunInput,
@@ -23,13 +29,10 @@ import type {
     BootstrapRunsWritePort,
     ChainRefResolverPort,
 } from "./ports.js";
-import {
-    BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
-    BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
-} from "./bootstrap-limits.js";
 import { planBootstrapRunSteps } from "./bootstrap-pipeline-planner.js";
 import {
     BOOTSTRAP_METADATA_MODE,
+    BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_RUN_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
@@ -41,10 +44,7 @@ import {
 import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media/token-metadata-animation-source";
 import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
-import {
-    BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH,
-    BOOTSTRAP_TOKEN_ID_MAX_LENGTH,
-} from "@artgod/shared/config/bootstrap";
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from "@artgod/shared/config/bootstrap";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -431,82 +431,48 @@ function resolveEnumerationInput(
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
 } {
-    if (supportsEnumerable) {
-        return {
-            mode: "enumerable",
-            tokenScopeKind:
-                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-            scopeStartTokenId: null,
-            scopeTotalSupply: null,
-            explicitTokenIds: [],
-            manualTokenIdsJson: null,
-            manualRangeStartTokenId: null,
-            manualRangeTotalSupply: null,
-        };
-    }
-
-    if (!manualInput) {
+    if (!supportsEnumerable && !manualInput) {
         throw new BootstrapValidationError(
             "Manual input is required when enumerable support is disabled",
         );
     }
-
-    if (manualInput.mode === "manual_token_ids") {
-        if (manualInput.tokenIds.length === 0) {
-            throw new BootstrapValidationError(
-                "Token IDs list cannot be empty",
-            );
-        }
-        if (manualInput.tokenIds.length > BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT) {
-            throw new BootstrapValidationError("Token IDs list is too large");
-        }
-        const normalized = manualInput.tokenIds.map((tokenId) =>
-            normalizeTokenId(tokenId),
+    let scope: BootstrapScope;
+    try {
+        scope = parseBootstrapScope(
+            supportsEnumerable
+                ? { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
+                : manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+                  ? {
+                        mode: manualInput.mode,
+                        startTokenId: manualInput.startTokenId,
+                        tokenCount: manualInput.totalSupply,
+                    }
+                  : manualInput,
         );
-        return {
-            mode: "manual_token_ids",
-            tokenScopeKind:
-                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds,
-            scopeStartTokenId: null,
-            scopeTotalSupply: null,
-            explicitTokenIds: normalized,
-            manualTokenIdsJson: JSON.stringify(normalized),
-            manualRangeStartTokenId: null,
-            manualRangeTotalSupply: null,
-        };
-    }
-
-    const startTokenId = normalizeTokenId(manualInput.startTokenId);
-    const totalSupply = manualInput.totalSupply;
-    if (!Number.isInteger(totalSupply) || totalSupply <= 0) {
-        throw new BootstrapValidationError(
-            "totalSupply must be a positive integer",
-        );
-    }
-    if (totalSupply > BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT) {
-        throw new BootstrapValidationError("totalSupply is too large");
+    } catch (error) {
+        if (!(error instanceof BootstrapScopeValidationError)) throw error;
+        throw new BootstrapValidationError(error.message);
     }
     return {
-        mode: "manual_range",
-        tokenScopeKind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
-        scopeStartTokenId: startTokenId,
-        scopeTotalSupply: totalSupply,
-        explicitTokenIds: [],
-        manualTokenIdsJson: null,
-        manualRangeStartTokenId: startTokenId,
-        manualRangeTotalSupply: totalSupply,
+        mode: scope.mode,
+        ...bootstrapScopeModel(scope).toPersistence(),
+        explicitTokenIds:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+                ? scope.tokenIds
+                : [],
+        manualTokenIdsJson:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+                ? JSON.stringify(scope.tokenIds)
+                : null,
+        manualRangeStartTokenId:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+                ? scope.startTokenId
+                : null,
+        manualRangeTotalSupply:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+                ? scope.tokenCount
+                : null,
     };
-}
-
-function normalizeTokenId(raw: string): string {
-    const value = raw.trim();
-    if (!/^\d+$/.test(value)) {
-        throw new BootstrapValidationError("Invalid token id");
-    }
-    if (value.length > BOOTSTRAP_TOKEN_ID_MAX_LENGTH) {
-        throw new BootstrapValidationError("Token id is too large");
-    }
-    return value;
 }
 
 // Protects bootstrap collection scopes from overlapping existing collections.

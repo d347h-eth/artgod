@@ -19,6 +19,7 @@ import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/tok
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
 import { BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT } from "./bootstrap-limits.js";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 
 // Serialized availability states returned by bootstrap contract probes.
 export const BOOTSTRAP_PROBE_READ_STATUS = {
@@ -268,9 +269,13 @@ function normalizeAddress(raw: string): string {
 }
 
 function normalizeOptionalTokenId(raw: string | undefined): string | null {
-    if (raw === undefined) return null;
-    const value = raw.trim();
-    return value ? value : null;
+    if (raw === undefined || !raw.trim()) return null;
+    const value = normalizeEvmTokenId(raw);
+    if (value === null)
+        throw new BootstrapValidationError(
+            "Enter a valid decimal sample token ID.",
+        );
+    return value;
 }
 
 function buildSuggestedInput(

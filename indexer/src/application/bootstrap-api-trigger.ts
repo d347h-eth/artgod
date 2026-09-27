@@ -1,4 +1,5 @@
 import { SETTINGS_DEFAULTS } from "@artgod/shared/config/generated-settings-defaults";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import {
     API_CSRF_COOKIE_NAME,
     API_CSRF_HEADER_NAME,
@@ -736,8 +737,8 @@ function resolveManualInput(
 }
 
 function normalizeDecimalTokenId(raw: string, option: string): string {
-    const value = raw.trim();
-    if (!/^\d+$/.test(value)) {
+    const value = normalizeEvmTokenId(raw);
+    if (value === null) {
         throw new Error(`${option} must contain decimal token IDs`);
     }
     return value;
