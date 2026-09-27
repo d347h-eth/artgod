@@ -1,7 +1,4 @@
-import {
-    COLLECTION_MEDIA_MODES,
-    type CollectionMediaPreferenceValue,
-} from "@artgod/shared/extensions";
+import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -16,6 +13,7 @@ import type { CollectionPriceChartContext } from "@artgod/shared/types/price-his
 export type GetPriceChartContextInput = {
     chainRef: string;
     collectionRef: string;
+    mediaMode?: string;
     mediaPreference?: CollectionMediaPreferenceValue;
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
@@ -72,7 +70,7 @@ export class GetPriceChartContextUseCase implements GetPriceChartContextPort {
         const media = this.collections.getCollectionMediaState({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
-            mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+            mediaMode: input.mediaMode,
             mediaPreference: input.mediaPreference,
         });
         const scope = {

@@ -89,7 +89,7 @@
 	<div inert={!pinned}>
 	{#if token}
 		<TokenCardTile {chain} {collection} {token} {tokenPreview}
-			href={buildTokenDetailHref({ basePath, tokenId: token.tokenId })}
+			href={buildTokenDetailHref({ basePath, tokenId: token.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })}
 			selectedMediaMode={media.selectedMode} availableMediaModes={media.availableModes}
 			mediaPreference={media.preference} marketPrices={ask ? [ask] : []} />
 	{:else}

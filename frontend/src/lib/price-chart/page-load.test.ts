@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import {
-	COLLECTION_MEDIA_MODES,
 	COLLECTION_MEDIA_QUERY_PARAMS,
 	COLLECTION_MEDIA_PREFERENCE_VALUES
 } from '@artgod/shared/extensions';
+import { TERRAFORMS_MEDIA_MODES } from '@artgod/shared/extensions/terraforms';
 import {
 	BackendApiError,
 	getPriceChartContext,
@@ -36,7 +36,7 @@ it.each([false, true])(
 		const context = {
 			chain: BIDDING_E2E_CHAIN,
 			collection: { ...BIDDING_E2E_COLLECTION, slug: 'collection' },
-			media: { ...BIDDING_E2E_MEDIA, selectedMode: COLLECTION_MEDIA_MODES.Snapshot },
+			media: { ...BIDDING_E2E_MEDIA, selectedMode: TERRAFORMS_MEDIA_MODES.Live },
 			traits: {
 				selected: [{ key: 'Mode', value: 'Terrain' }],
 				selectedRanges: [{ key: 'Level', fromValue: '3', toValue: null }],
@@ -54,6 +54,7 @@ it.each([false, true])(
 			throw new Error('Unexpected page fetch');
 		});
 		const query = new URLSearchParams({
+			[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TERRAFORMS_MEDIA_MODES.Live,
 			[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
 			trait: 'Mode:Terrain',
 			trait_range: 'Level:3..',
@@ -79,6 +80,7 @@ it.each([false, true])(
 			new URLSearchParams({
 				traits: 'Mode:Terrain',
 				trait_ranges: 'Level:3..',
+				[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TERRAFORMS_MEDIA_MODES.Live,
 				[COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 			})
 		);

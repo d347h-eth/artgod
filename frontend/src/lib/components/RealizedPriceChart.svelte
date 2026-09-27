@@ -137,7 +137,12 @@
 			// Document coordinates keep browser scroll anchoring from feeding back
 			// into chart height when the shared facet panel stacks above it.
 			const top = root.getBoundingClientRect().top + window.scrollY;
-			height = Math.max(240, (window.visualViewport?.height ?? window.innerHeight) - top - 12);
+			const panel = root.closest('.panel');
+			const bottomMargin = panel ? Number.parseFloat(getComputedStyle(panel).marginBottom) : 0;
+			height = Math.max(
+				240,
+				(window.visualViewport?.height ?? window.innerHeight) - top - bottomMargin
+			);
 		};
 		// Normalize the first request before loading the renderer.
 		readQuery(new URL(window.location.href), false);
@@ -312,9 +317,9 @@
 	}
 </script>
 
-<section class="realized-price" bind:this={root} style:height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
+<section class="realized-price panel-content" bind:this={root} style:height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
 	<div class="price-toolbar">
-		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
+		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button facet-reset-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
 		<label>bucket <select class="bootstrap-control-select" aria-label="Time bucket" value={bucket} disabled={allowedBuckets.length === 1} onchange={(event) => setQuery(PRICE_CHART_QUERY.Bucket, event.currentTarget.value)}>
 			{#each allowedBuckets as value}<option value={value}>{value}</option>{/each}
 		</select></label>
@@ -374,7 +379,7 @@
 				</button>
 			{/if}
 		</div>
-		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
+		{#if loader}<SaleHistorySidebar sales={sidebarSales} pinned={pinnedSales.length > 0} {clearPin} {basePath} {media} {blockExplorer} {loader} onpreview={(target) => sidebarPreview = target} />{/if}
 	</div>
 	{#if loader && (pinnedPreview || preview)}
 		<SaleCardPreview target={(pinnedPreview || preview)!} pinned={!!pinnedPreview} {loader} {chain} {collection} {media} {basePath} />
@@ -398,7 +403,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.55rem;
+		gap: var(--control-button-gap);
 	}
 	label {
 		display: inline-flex;

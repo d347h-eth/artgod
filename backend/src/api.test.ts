@@ -4247,6 +4247,22 @@ describe("backend api routes", () => {
         );
         expect(disabled.statusCode).toBe(200);
         expect(disabled.payload.media).not.toEqual(result.payload.media);
+        const liveQuery = new URLSearchParams({
+            [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]:
+                TERRAFORMS_MEDIA_MODES.Live,
+            [COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]:
+                COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+        });
+        const live = await resolvePublic("GET", path + "?" + liveQuery);
+        const liveGrid = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms?" + liveQuery,
+        );
+        expect(live.statusCode).toBe(200);
+        expect(live.payload.media).toEqual(liveGrid.payload.media);
+        expect(live.payload.media.selectedMode).toBe(
+            TERRAFORMS_MEDIA_MODES.Live,
+        );
         expect(
             (
                 await resolvePublic(
