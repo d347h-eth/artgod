@@ -27,7 +27,8 @@
 	--bootstrap-input-slug-width: 36ch;
 	/* Shared fill for own bid rows and bid-book update flashes. */
 	--bid-book-own-row-background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
-	--bid-book-update-flash-peak-background: color-mix(in srgb, var(--c-orange) 88%, var(--c-yellow));
+	--update-flash-peak-background: color-mix(in srgb, var(--c-orange) 88%, var(--c-yellow));
+	--update-flash-rest-background: var(--bid-book-own-row-background);
 }
 
 * {
