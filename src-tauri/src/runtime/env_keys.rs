@@ -6,6 +6,10 @@ pub(crate) const NATS_URL_ENV_KEY: &str = "NATS_URL";
 /// Configured namespace used by the native jobs store migration and queue workers.
 pub(crate) const NATS_STREAM_PREFIX_ENV_KEY: &str = "NATS_STREAM_PREFIX";
 
+/// Ambient Node loader settings must not redirect packaged runtime dependencies.
+pub(crate) const NODE_OPTIONS_ENV_KEY: &str = "NODE_OPTIONS";
+pub(crate) const NODE_PATH_ENV_KEY: &str = "NODE_PATH";
+
 // Env key for the primary weighted HTTP JSON-RPC endpoint list.
 pub(crate) const RPC_ENDPOINT_LIST_ENV_KEY: &str = "RPC_URL_LIST";
 

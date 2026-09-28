@@ -209,6 +209,9 @@ What each command does:
   : Starts the staged bundled Node with ambient PnP variables removed and executes SQLite/Sharp smoke operations through every package-local runtime dependency tree.
   : Starts the staged bundled NATS, requires its ports file and initial client `INFO` frame to report exactly `127.0.0.1` with the same valid port, and verifies that socket accepts a connection.
 
+- `yarn test:desktop:runtime-environment`
+  : Requires already staged runtime resources. Exercises the supervisor's environment setup with an injected build loader, then imports staged Sharp and verifies a real WebP conversion under bundled Node. The supervisor removes `NODE_OPTIONS` and `NODE_PATH` from packaged children so `yarn dev:desktop` cannot redirect their dependency resolution through the development workspace.
+
 - `yarn test:desktop:listener-boundaries`
   : Runs the exact Rust config and supervisor argument tests that require numeric IPv4 loopback for the installed backend and NATS processes, then starts the backend on an OS-assigned port and verifies Fastify bound the configured IPv4 interface.
 
