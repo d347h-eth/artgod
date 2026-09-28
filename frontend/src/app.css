@@ -545,6 +545,16 @@ a:hover {
 	align-self: center;
 }
 
+/* Actions share the input's grid row; later actions/statuses cannot shift its centerline. */
+.bootstrap-create-form .bootstrap-row-actions {
+	display: contents;
+}
+
+.bootstrap-create-form .bootstrap-row-actions > * {
+	grid-column: 3;
+	min-width: 0;
+}
+
 .bootstrap-row-actions .bootstrap-resolution-badge {
 	justify-self: start;
 }
@@ -571,11 +581,13 @@ a:hover {
 }
 
 .bootstrap-row-note {
-	grid-column: 2 / 4;
+	grid-column: 3;
+	min-width: 0;
 	margin: 0;
 	font-size: 0.75rem;
 	line-height: 1.5;
 	text-transform: none;
+	overflow-wrap: anywhere;
 }
 
 .bootstrap-section-note {
@@ -1173,6 +1185,10 @@ a:hover {
 
 	.bootstrap-row-actions {
 		justify-items: stretch;
+	}
+
+	.bootstrap-create-form .bootstrap-row-actions > * {
+		grid-column: 1;
 	}
 
 	.bootstrap-create-form .bootstrap-form-section {

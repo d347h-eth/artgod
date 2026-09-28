@@ -49,7 +49,6 @@
 		bootstrapSetupScope,
 		bootstrapSetupIssues,
 		bootstrapSampleMatchesScope,
-		bootstrapTokenIds,
 		type BootstrapSetupDraft
 	} from '$lib/bootstrap-setup';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
@@ -118,7 +117,7 @@
 	} as const;
 	type BootstrapPreviewSource =
 		(typeof BOOTSTRAP_PREVIEW_SOURCE)[keyof typeof BOOTSTRAP_PREVIEW_SOURCE];
-	const openSeaSetupMessage = `Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
+	const openSeaSetupMessage = `Set ${OPENSEA_API_KEY_ENV} in Admin, then fully restart the app.`;
 	const imageCachePreviewMessage =
 		'This preview was generated with the selected cache settings. If it looks wrong or does not render, choose caching: off.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
@@ -144,7 +143,7 @@
 		imageMaxDimension:
 			'Maximum cached image width or height in pixels. Leave blank to keep original dimensions.',
 		manualMode:
-			'Choose this collection’s token range or explicit token IDs. Entire contract includes every project on the contract.',
+			'Choose this collection’s token range or explicit token IDs. Entire contract uses ERC721Enumerable and includes every project on the contract.',
 		tokenIds: 'Required explicit token IDs, separated by commas or whitespace.',
 		startTokenId: 'First token ID in the declared range, including IDs that are not yet minted.',
 		manualRangeTotalSupply:
@@ -761,10 +760,6 @@
 		}
 	}
 
-	function manualTokenIdList(): string[] {
-		return bootstrapTokenIds(manualTokenIds);
-	}
-
 	function resolvedBootstrapScopeTotalSupply(): string | null {
 		const scope = currentScope();
 		if (!scope) return null;
@@ -1012,7 +1007,8 @@
 					<label for="bootstrap-address">{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}</label>
 					<input id="bootstrap-address" value={bootstrapAddress} class={bootstrapInputClass}
 						type="text" name="address" required oninput={onBootstrapAddressInput}
-						aria-invalid={Boolean(bootstrapAddress && setupIssues.address)} aria-describedby="bootstrap-address-help" />
+						aria-invalid={Boolean(bootstrapAddress && setupIssues.address)}
+						aria-describedby={setupIssues.address || probeError ? 'bootstrap-address-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						<button type="button" class="action-button-positive"
 							disabled={!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain || contractProbePending}
@@ -1028,18 +1024,19 @@
 								{probeInputsChanged ? 'inputs changed — probe again' : 'not checked'}
 							{/if}
 						</span>
+						{#if setupIssues.address || probeError}
+							<p id="bootstrap-address-help" class="bootstrap-row-note" class:muted={!probeError} class:bootstrap-check-warning={Boolean(probeError)} role={probeError ? 'alert' : undefined}>
+								{probeError ?? (bootstrapAddress.trim() ? setupIssues.address : 'required')}
+							</p>
+						{/if}
 					</div>
-					<p id="bootstrap-address-help" class="bootstrap-row-note muted">
-						{#if setupIssues.address}{setupIssues.address}
-						{:else if !contractAddressSafetyAcknowledged}Confirm the contract address above before probing or queueing.
-						{:else}probe checks contract capabilities, then inspects a sample.{/if}
-					</p>
 				</div>
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-sample">{@render fieldLabel('Sample token ID', bootstrapFieldHelp.sampleTokenId)}</label>
 					<input id="bootstrap-sample" bind:this={sampleTokenIdInputElement} value={sampleTokenId}
 						class={bootstrapInputClass} type="text" inputmode="numeric" name="sampleTokenId"
-						oninput={onSampleTokenIdInput} aria-describedby="bootstrap-sample-help" />
+						oninput={onSampleTokenIdInput}
+						aria-describedby={sampleProbeFailure || (effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue) ? 'bootstrap-sample-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(sample && bootstrapSampleOwnership(sample) === true
 							? sample.tokenId : null, sampleTokenId, setSampleTokenIdValue)}
@@ -1048,28 +1045,22 @@
 							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}inspect{/if}
 						</button>
 						{#if sampleTokenIdResolved}
-							<span class="bootstrap-row-status">owner confirmed</span>
+							<span class="bootstrap-row-status">{!sampleTokenId.trim() ? `sample #${effectiveSampleTokenId} · ` : ''}owner confirmed</span>
 						{:else if sampleTokenIdIncorrect}
 							<span class="bootstrap-row-status">no owner found</span>
 						{:else}
 							<span class="bootstrap-row-status">optional</span>
 						{/if}
-					</div>
-					<p id="bootstrap-sample-help" class="bootstrap-row-note muted">
-						{#if effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue}
-							Token #{effectiveSampleTokenId} is outside the selected scope. Choose a sample inside it for estimates and OpenSea. Bootstrap can proceed.
-						{:else}
-							{#if !sampleTokenId.trim() && effectiveSampleTokenId}Using token #{effectiveSampleTokenId}.{:else}Optional override. Leave blank to find a sample in the selected scope.{/if}
+						{#if sampleProbeFailure || (effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue)}
+							<p id="bootstrap-sample-help" class="bootstrap-row-note bootstrap-check-warning" role={sampleProbeFailure ? 'alert' : undefined}>
+								{#if sampleProbeFailure}{sampleProbeFailure}{/if}
+								{#if effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue}
+									Sample #{effectiveSampleTokenId} is outside this scope. Inspect a token inside it for estimates and OpenSea.
+								{/if}
+							</p>
 						{/if}
-					</p>
-				</div>
-				{#if probeError || sampleProbeFailure}
-					<div class="bootstrap-section-note bootstrap-check-warning" role="alert">
-						{#if probeError}<p>{probeError}</p>{/if}
-						{#if sampleProbeFailure}<p>{sampleProbeFailure}</p>{/if}
-						<p class="muted">You can still queue bootstrap with the required fields below. Unavailable metadata or images may remain missing.</p>
 					</div>
-				{/if}
+				</div>
 				{#if latestProbeMatchesAddress && probeResult}
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Contract checks</span>
@@ -1117,44 +1108,48 @@
 						onchange={onScopeModeChange}>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.ManualRange}>Token range</option>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}>Token ID list</option>
-						<option value={BOOTSTRAP_ENUMERATION_MODE.Enumerable}>Entire contract (ERC721Enumerable)</option>
+						<option value={BOOTSTRAP_ENUMERATION_MODE.Enumerable}>Entire contract</option>
 					</select>
 					<div class="bootstrap-row-actions">
 						{#if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
 							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
 						{/if}
-						<span class="bootstrap-row-status">{entireContractSelected ? 'all contract tokens' : 'collection scope'}</span>
+						{#if entireContractSelected}
+							<p class="bootstrap-row-note muted">Includes every project on this contract.</p>
+							{#if !latestProbeMatchesAddress || probeResult?.enumerable.supported !== true}
+								<p class="bootstrap-row-note bootstrap-check-warning">
+									ERC721Enumerable not confirmed. Use Token range or Token ID list if enumeration is unavailable.
+								</p>
+							{/if}
+						{/if}
 					</div>
 				</div>
-				{#if entireContractSelected}
-					<p class="bootstrap-section-note muted">
-						Includes every token on this contract. For one project on a shared contract, choose Token range or Token ID list.
-					</p>
-					{#if !latestProbeMatchesAddress || probeResult?.enumerable.supported !== true}
-						<p class="bootstrap-section-note bootstrap-check-warning">
-							ERC721Enumerable support was not confirmed. Choose a range or list if this contract cannot enumerate tokens; you can still queue the selected scope.
-						</p>
-					{/if}
-				{:else if manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}
+				{#if !entireContractSelected && manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}
 					<div class="bootstrap-form-row bootstrap-form-row-textarea">
 						<label for="bootstrap-token-ids">{@render fieldLabel('Token IDs', bootstrapFieldHelp.tokenIds)}</label>
 						<textarea id="bootstrap-token-ids" value={manualTokenIds} class={bootstrapTextareaClass}
 							rows="3" required oninput={onManualTokenIdsInput}
 							aria-invalid={Boolean(manualTokenIds && setupIssues.tokenIds)} aria-describedby="bootstrap-token-ids-help"></textarea>
-						<div class="bootstrap-row-actions"><span class="bootstrap-row-status">required</span></div>
-						<p id="bootstrap-token-ids-help" class="bootstrap-row-note muted">
-							{setupIssues.tokenIds ?? `${new Set(manualTokenIdList()).size} token IDs selected.`}
-						</p>
+						<div class="bootstrap-row-actions">
+							<p id="bootstrap-token-ids-help" class="bootstrap-row-note muted">
+								{manualTokenIds.trim() ? setupIssues.tokenIds ?? `${resolvedBootstrapScopeTotalSupply()} token IDs selected.` : 'required'}
+							</p>
+						</div>
 					</div>
-				{:else}
+				{:else if !entireContractSelected}
 					<div class="bootstrap-form-row">
 						<label for="bootstrap-range-start">{@render fieldLabel('First token ID', bootstrapFieldHelp.startTokenId)}</label>
 						<input id="bootstrap-range-start" value={manualRangeStartTokenId} class={bootstrapInputClass}
 							type="text" inputmode="numeric" required oninput={onManualRangeStartTokenIdInput}
-							aria-invalid={Boolean(setupIssues.startTokenId)} aria-describedby="bootstrap-range-help" />
+							aria-invalid={Boolean(setupIssues.startTokenId)}
+							aria-describedby={setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(probeResult?.discovery.rangeStartCandidate, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
-							<span class="bootstrap-row-status">{probeResult?.discovery.rangeStartCandidate != null ? 'confirmed ID · review range' : 'required'}</span>
+							{#if setupIssues.startTokenId}
+								<p id="bootstrap-range-start-help" class="bootstrap-row-note muted">{manualRangeStartTokenId.trim() ? setupIssues.startTokenId : 'required'}</p>
+							{:else if probeResult?.discovery.rangeStartCandidate != null}
+								<span class="bootstrap-row-status">confirmed ID · review range</span>
+							{/if}
 						</div>
 					</div>
 					<div class="bootstrap-form-row">
@@ -1166,11 +1161,14 @@
 							{@render applySuggestion(probeResult?.totalSupply.bootstrapRangeValue?.toString(), manualRangeTotalSupply, (value) => {
 								manualRangeTotalSupply = value;
 							})}
-							<span class="bootstrap-row-status">{latestProbeMatchesAddress && probeResult?.totalSupply.bootstrapRangeValue ? 'contract supply suggestion' : 'required'}</span>
+							{#if latestProbeMatchesAddress && probeResult?.totalSupply.bootstrapRangeValue}
+								<span class="bootstrap-row-status">contract supply suggestion</span>
+							{/if}
+							<p id="bootstrap-range-help" class="bootstrap-row-note muted">
+								{#if setupIssues.totalSupply}{manualRangeTotalSupply.trim() ? setupIssues.totalSupply : 'required'}
+								{:else if !scopeIssue}IDs {manualRangeStartTokenId.trim()}–{BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}{/if}
+							</p>
 						</div>
-						<p id="bootstrap-range-help" class="bootstrap-row-note muted">
-							{scopeIssue ?? `Token IDs ${manualRangeStartTokenId.trim()}–${BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}, including unminted IDs.`}
-						</p>
 					</div>
 				{/if}
 				{#if latestProbeMatchesAddress && probeResult?.totalSupply.value}
@@ -1178,7 +1176,6 @@
 						{@render fieldLabel('Contract total supply', bootstrapFieldHelp.contractTotalSupply)}
 						<div class="bootstrap-read-value mono">{probeResult.totalSupply.value}</div>
 						<div class="bootstrap-row-actions"><span class="bootstrap-row-status">reported by contract</span></div>
-						<p class="bootstrap-row-note muted">Contract supply does not define the first ID or the size of one project on a shared contract.</p>
 					</div>
 				{/if}
 			</section>
@@ -1189,34 +1186,27 @@
 					<label for="bootstrap-slug">{@render fieldLabel('Collection slug', bootstrapFieldHelp.slug)}</label>
 					<input id="bootstrap-slug" bind:this={collectionSlugInputElement} value={bootstrapSlug}
 						class={bootstrapInputClass} type="text" name="slug" required oninput={onCollectionSlugInput}
-						aria-invalid={Boolean(bootstrapSlug && setupIssues.slug)} aria-describedby="bootstrap-slug-help" />
+						aria-invalid={Boolean(bootstrapSlug && setupIssues.slug)}
+						aria-describedby={setupIssues.slug ? 'bootstrap-slug-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(contractNameToBootstrapSlug(probeResult?.contractName), bootstrapSlug, setCollectionSlugInputValue)}
+						{#if setupIssues.slug}<p id="bootstrap-slug-help" class="bootstrap-row-note muted">{bootstrapSlug.trim() ? setupIssues.slug : 'required'}</p>{/if}
 					</div>
-					<p id="bootstrap-slug-help" class="bootstrap-row-note muted">
-						{setupIssues.slug ?? 'Local name used in ArtGod URLs. Review suggestions for shared contracts.'}
-					</p>
 				</div>
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-image-field">{@render fieldLabel('Image source field', bootstrapFieldHelp.imageSourceField)}</label>
 					<input id="bootstrap-image-field" bind:this={imageSourceFieldInputElement} value={imageSourceField}
 						class={bootstrapInputClass} type="text" name="imageSourceField" required oninput={onImageSourceFieldInput}
-						aria-describedby="bootstrap-image-help" />
+						aria-describedby={setupIssues.imageSourceField ? 'bootstrap-image-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(metadataSuggestions.imageSourceField, imageSourceField, setImageSourceFieldValue)}
 						{#if imageSourceFieldResolved}<span class="bootstrap-row-status">found in sample</span>{/if}
+						{#if setupIssues.imageSourceField}
+							<span id="bootstrap-image-help" class="bootstrap-row-status">required</span>
+						{:else if !imageSourceFieldResolved && sampleResult?.sample.tokenUriPayload && !sampleProbeFailure}
+							<span class="bootstrap-row-status">not found in sample</span>
+						{/if}
 					</div>
-					{#if setupIssues.imageSourceField}
-						<p id="bootstrap-image-help" class="bootstrap-row-note muted">{setupIssues.imageSourceField}</p>
-					{:else if !imageSourceFieldResolved}
-						<p id="bootstrap-image-help" class="bootstrap-row-note muted">
-							{#if sampleResult && !sampleProbeFailure}
-								No image found in this field. Choose another field or queue the entered value.
-							{:else}
-								Not checked. Press inspect to load sample metadata, or queue the entered value.
-							{/if}
-						</p>
-					{/if}
 				</div>
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-animation-field">{@render fieldLabel('Animation source field (optional)', bootstrapFieldHelp.animationSourceField)}</label>
@@ -1280,7 +1270,7 @@
 					</select>
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(imageCacheSuggestion?.config.imageCacheMode, imageCacheMode, (value) => { imageCacheMode = parseImageCacheMode(value); resetImageCacheEstimateState(); }, imageCacheSuggestion ? imageCacheModeLabel(imageCacheSuggestion.config.imageCacheMode) : undefined)}
-						<span class="bootstrap-row-status">{imageCacheSuggestion ? 'extension suggestion' : imageCacheMode === IMAGE_CACHE_MODE.Off ? 'no local image files' : 'optional estimate'}</span>
+						{#if imageCacheSuggestion}<span class="bootstrap-row-status">extension suggestion</span>{/if}
 					</div>
 				</div>
 				{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
@@ -1289,7 +1279,7 @@
 						<input id="bootstrap-cache-dimension" value={imageCacheMaxDimensionDraft} class={bootstrapInputClass}
 							type="text" inputmode="numeric" oninput={onImageCacheMaxDimensionInput}
 							onkeydown={onImageCacheMaxDimensionKeydown} aria-invalid={Boolean(setupIssues.maxDimension)}
-							aria-describedby="bootstrap-cache-help" />
+							aria-describedby={setupIssues.maxDimension || (!imageCacheEstimateCanRun && !imageCacheEstimatePending && !imageCacheEstimateReady) ? 'bootstrap-cache-help' : undefined} />
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(imageCacheSuggestion ? String(imageCacheSuggestion.config.maxDimension ?? 'original') : null, imageCacheMaxDimensionDraft || 'original', (value) => { imageCacheMaxDimensionDraft = value === 'original' ? '' : value; resetImageCacheEstimateState(); })}
 							<button type="button" class="action-button-positive" disabled={!imageCacheEstimateCanRun}
@@ -1301,16 +1291,16 @@
 								{:else if imageCacheEstimateFailed}estimate failed
 								{:else}not estimated{/if}
 							</span>
+							{#if setupIssues.maxDimension || (!imageCacheEstimateCanRun && !imageCacheEstimatePending && !imageCacheEstimateReady)}
+								<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
+									{setupIssues.maxDimension ?? (scopeIssue ? 'Define the token scope to estimate.' : 'Inspect a token in this scope and select its image field to estimate.')}
+								</p>
+							{/if}
+							{#if imageCacheEstimateError}
+								<p class="bootstrap-row-note bootstrap-check-warning" role="alert">{imageCacheEstimateError}</p>
+							{/if}
 						</div>
-						<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
-							{setupIssues.maxDimension ?? (imageCacheEstimateCanRun || imageCacheEstimateReady || imageCacheEstimatePending
-								? 'Estimate is optional. Leave the dimension blank to keep original image dimensions.'
-								: 'To estimate, inspect a token inside the selected scope and choose its image field. You can queue without an estimate.')}
-						</p>
 					</div>
-				{/if}
-				{#if imageCacheEstimateError}
-					<p class="bootstrap-section-note bootstrap-check-warning" role="alert">{imageCacheEstimateError} Bootstrap can still be queued.</p>
 				{/if}
 				{#if imageCacheEstimateReady}
 					<div class="bootstrap-form-row">
@@ -1357,16 +1347,14 @@
 						bind:this={openSeaSlugResolver} sampleTokenId={effectiveSampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
 						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
 						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
-				</div>
-				<p class="bootstrap-section-note muted">
-					{#if openSeaSlugResolved && sampleMatchesScope}
-						Included in this bootstrap. The slug identifies the sample's OpenSea collection.
-					{:else if openSeaSlugResolved}
-						The sample is outside the selected scope. OpenSea will be skipped; choose a sample inside the scope and resolve again.
-					{:else}
-						Optional for onchain bootstrap. Resolve a sample from your scope to enable OpenSea sync and bidding, or set it up later.
+					{#if openSeaSlugResolved && !sampleMatchesScope}
+						<p class="bootstrap-row-note bootstrap-check-warning">
+							OpenSea will be skipped. Inspect a token inside this scope and resolve again.
+						</p>
+					{:else if openSeaEnabled && !effectiveSampleTokenId}
+						<p class="bootstrap-row-note muted">Inspect a sample token to resolve.</p>
 					{/if}
-				</p>
+				</div>
 			</section>
 
 			<div class="bootstrap-setup-submit">

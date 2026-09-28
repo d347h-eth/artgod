@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from 'playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
@@ -88,6 +89,28 @@ test.describe('bootstrap setup', () => {
 		expect(api.sampleRequests).toEqual([]);
 	});
 
+	test('keeps field validation and action prerequisites in the aligned right column', async ({
+		page
+	}, info) => {
+		await installBootstrapProbeApiMock(page);
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-address').fill('0x123');
+		await page.locator('#bootstrap-range-start').fill('-1');
+		await page.locator('#bootstrap-range-count').fill('0');
+		await page.locator('#bootstrap-slug').fill('invalid slug!');
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await page.locator('#bootstrap-cache-dimension').fill('1');
+		for (const id of ['address', 'range-start', 'range-count', 'slug', 'cache-dimension']) {
+			const input = page.locator(`#bootstrap-${id}`);
+			await expect(input).toHaveAttribute('aria-invalid', 'true');
+			const descriptionId = await input.getAttribute('aria-describedby');
+			await expect(page.locator(`#${descriptionId}`)).toBeVisible();
+		}
+		await expect(queueButton(page)).toBeDisabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('field-validation.png'), fullPage: true });
+	});
+
 	test('keeps failed submissions editable and supports retry', async ({ page }) => {
 		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
 		await page.route(
@@ -130,6 +153,7 @@ test.describe('bootstrap setup', () => {
 				.getByRole('img', { name: 'inspecting sample' })
 		).toBeVisible();
 		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
+		await expectGridAlignment(page);
 		await page.screenshot({
 			path: info.outputPath('contract-ready-sample-loading.png'),
 			fullPage: true
@@ -223,6 +247,7 @@ test.describe('bootstrap setup', () => {
 		await expect(formRow(page, 'Contract total supply')).toContainText('200000');
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual(['163000000']);
 		await expect(page.getByRole('button', { name: 'resolve', exact: true })).toHaveCount(0);
+		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('meridian-resolved.png'), fullPage: true });
 		await queueButton(page).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
@@ -270,6 +295,7 @@ test.describe('bootstrap setup', () => {
 		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
 		await probeButton(page).click();
 		await expect(page.getByRole('alert')).toContainText('HTTP 429');
+		await expectGridAlignment(page);
 		await expect(
 			formRow(page, 'Token count').getByRole('button', { name: 'apply "3333"' })
 		).toBeVisible();
@@ -316,6 +342,7 @@ test.describe('bootstrap setup', () => {
 		await expect(estimate).toBeDisabled();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		await expect(page.locator('#bootstrap-opensea')).toContainText('will be skipped');
+		await expectGridAlignment(page);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('sample-outside-scope.png'), fullPage: true });
 		await page.locator('#bootstrap-range-count').fill('2000');
@@ -349,6 +376,7 @@ test.describe('bootstrap setup', () => {
 			);
 			await estimate.click();
 			await expect(page.locator('#bootstrap-cache')).toContainText('Image processing failed');
+			await expectGridAlignment(page);
 			await expect(queueButton(page)).toBeEnabled();
 			await page.screenshot({ path: info.outputPath('image-failure.png'), fullPage: true });
 			await estimate.click();
@@ -478,6 +506,7 @@ test.describe('bootstrap setup', () => {
 		const resolve = page.getByRole('button', { name: 'resolve', exact: true });
 		await expect(resolve).toContainText('resolving');
 		await expect(resolve.getByRole('img', { name: 'resolving OpenSea slug' })).toBeVisible();
+		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('opensea-loading.png'), fullPage: true });
 		await page.locator('#bootstrap-sample').fill('3');
 		await page.locator('#bootstrap-opensea-slug').fill('user-edited-slug');
@@ -490,6 +519,7 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveCount(0);
 		await resolve.click();
 		await expect(page.locator('#bootstrap-opensea')).toContainText('incorrect');
+		await expectGridAlignment(page);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-incorrect.png'), fullPage: true });
 		await page.locator('#bootstrap-opensea-slug').fill('');
@@ -520,6 +550,7 @@ test.describe('bootstrap setup', () => {
 		await estimate.click();
 		await expect(estimate).toContainText('estimating');
 		await expect(estimate.getByRole('img', { name: 'estimating image cache size' })).toBeVisible();
+		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('image-loading.png'), fullPage: true });
 		await rowControl(page, 'Max dimension (px)').fill('64');
 		await estimate.click();
@@ -560,10 +591,20 @@ test.describe('bootstrap setup', () => {
 				await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
 					BOOTSTRAP_ENUMERATION_MODE.Enumerable
 				);
+				await page.screenshot({
+					path: test.info().outputPath('scope-entire-contract.png'),
+					fullPage: true
+				});
 				await page
 					.locator('#bootstrap-scope-mode')
 					.selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds);
 				await rowControl(page, 'Token IDs').fill('0, 42, 00042');
+				await expect(page.getByText('2 token IDs selected.', { exact: true })).toBeVisible();
+				await expectGridAlignment(page);
+				await page.screenshot({
+					path: test.info().outputPath('scope-explicit-list.png'),
+					fullPage: true
+				});
 				await expect(queueButton(page)).toBeEnabled();
 				await queueButton(page).click();
 				await expect.poll(() => api.mutations.length).toBe(1);
@@ -597,6 +638,11 @@ test.describe('bootstrap setup', () => {
 		await formRow(page, 'Max dimension (px)').getByRole('button', { name: 'apply "64"' }).click();
 		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue('64');
 		await expect(rowControl(page, 'Image cache mode')).toHaveValue(IMAGE_CACHE_MODE.CacheOnce);
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: test.info().outputPath('extension-cache-suggestions.png'),
+			fullPage: true
+		});
 		await page.locator('#bootstrap-range-count').fill('1000');
 		await expect(mode).toHaveCount(0);
 		expect(api.sampleRequests).toHaveLength(1);
@@ -816,20 +862,23 @@ async function stageManualProbeInputs(page: Page, address: string) {
 
 async function expectGridAlignment(page: Page) {
 	const controls = page.locator(
-		'.bootstrap-create-form .bootstrap-form-row input, .bootstrap-create-form .bootstrap-form-row select'
+		'.bootstrap-create-form .bootstrap-form-row input, .bootstrap-create-form .bootstrap-form-row select, .bootstrap-create-form .bootstrap-form-row textarea'
 	);
 	const boxes = await controls.evaluateAll((elements) =>
 		elements.map((element) => {
 			const rect = element.getBoundingClientRect();
-			return { x: rect.x, width: rect.width };
+			return { x: rect.x, width: rect.width, multiline: element.tagName === 'TEXTAREA' };
 		})
 	);
 	for (const box of boxes) {
 		expect(Math.abs(box.x - boxes[0].x)).toBeLessThan(2);
-		expect(box.width).toBeLessThanOrEqual(boxes[0].width + 2);
+		if (!box.multiline) expect(box.width).toBeLessThanOrEqual(boxes[0].width + 2);
 	}
-	const countBox = await rowControl(page, 'Token count').boundingBox();
-	expect(countBox!.width).toBeLessThan(boxes[0].width);
+	const countControl = rowControl(page, 'Token count');
+	if (await countControl.count()) {
+		const countBox = await countControl.boundingBox();
+		expect(countBox!.width).toBeLessThan(boxes[0].width);
+	}
 	const formBox = await page.locator('.bootstrap-create-form').boundingBox();
 	expect(formBox!.x).toBeLessThan(50);
 	const overflow = await page
@@ -848,6 +897,22 @@ async function expectGridAlignment(page: Page) {
 	}
 	if (page.viewportSize()!.width > 640)
 		expect(actions[0].x).toBeGreaterThan(boxes[0].x + boxes[0].width);
+	const notes = await page
+		.locator('.bootstrap-create-form .bootstrap-row-note')
+		.evaluateAll((elements) =>
+			elements
+				.filter((element) => element.getClientRects().length > 0)
+				.map((element) => {
+					const rect = element.getBoundingClientRect();
+					return { text: element.textContent, x: rect.x, width: rect.width };
+				})
+		);
+	for (const note of notes) {
+		expect(Math.abs(note.x - actions[0].x), `message in action column: ${note.text}`).toBeLessThan(
+			2
+		);
+		expect(note.width).toBeLessThanOrEqual(actions[0].width + 2);
+	}
 	if (page.viewportSize()!.width >= 1200) {
 		const inspectorBox = await page
 			.getByRole('complementary', { name: 'tokenURI response' })
@@ -856,13 +921,34 @@ async function expectGridAlignment(page: Page) {
 		expect(inspectorBox!.x).toBeGreaterThan(formBox!.x + formBox!.width);
 	}
 	if (page.viewportSize()!.width > 640) {
-		for (const label of ['Token scope', 'First token ID', 'Image cache mode']) {
-			const row = formRow(page, label);
-			const control = await row.locator('input, select').boundingBox();
-			const hint = await row.locator('.bootstrap-row-actions').boundingBox();
-			expect(Math.abs(control!.y + control!.height / 2 - hint!.y - hint!.height / 2)).toBeLessThan(
-				2
+		const rows = await page
+			.locator('.bootstrap-create-form .bootstrap-form-row')
+			.evaluateAll((elements) =>
+				elements.flatMap((row) => {
+					const control = row.querySelector('input, select, textarea');
+					// Align the actual first action or standalone badge, not its wrapper plus status text.
+					const action = Array.from(row.querySelectorAll('.bootstrap-row-actions > *')).find(
+						(element) => element.getClientRects().length > 0
+					);
+					if (!control || !action) return [];
+					const inputBox = control.getBoundingClientRect();
+					const actionBox = action.getBoundingClientRect();
+					return [
+						{
+							name: control.getAttribute('id'),
+							offset: inputBox.y + inputBox.height / 2 - actionBox.y - actionBox.height / 2
+						}
+					];
+				})
 			);
+		const alignmentPath = test.info().outputPath('bootstrap-control-alignment.json');
+		await writeFile(alignmentPath, JSON.stringify(rows, null, 2));
+		await test.info().attach('bootstrap-control-alignment', {
+			path: alignmentPath,
+			contentType: 'application/json'
+		});
+		for (const row of rows) {
+			expect(Math.abs(row.offset), `${row.name}: input/action vertical center`).toBeLessThan(2);
 		}
 	}
 }
