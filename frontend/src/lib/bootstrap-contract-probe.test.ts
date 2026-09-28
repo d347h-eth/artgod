@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
-import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
-import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
+import { bootstrapTestSample } from '@artgod/shared/testing/bootstrap-probe';
 import {
-	BOOTSTRAP_PROBE_STATUS_LABEL,
-	bootstrapProbeNeedsManualScope,
-	bootstrapProbeStatusLabel,
 	bootstrapSampleOwnership,
 	bootstrapSampleFailure,
 	contractNameToBootstrapSlug,
@@ -14,173 +9,50 @@ import {
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
 } from './bootstrap-contract-probe';
-import type { BootstrapContractProbeApiResponse } from './api-types';
-
-describe('bootstrap contract probe helpers', () => {
-	it('normalizes and validates contract addresses', () => {
-		expect(isBootstrapProbeableAddress('0x1111111111111111111111111111111111111111')).toBe(true);
-		expect(isBootstrapProbeableAddress('0x111')).toBe(false);
-		expect(normalizeBootstrapAddress(' 0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD ')).toBe(
-			'0xabcdefabcdefabcdefabcdefabcdefabcdefabcd'
-		);
+describe('bootstrap display helpers', () => {
+	it('normalizes addresses', () => {
+		expect(isBootstrapProbeableAddress('0x' + 'a'.repeat(40))).toBe(true);
+		expect(isBootstrapProbeableAddress('0x1')).toBe(false);
+		expect(isBootstrapProbeableAddress('0x' + 'g'.repeat(40))).toBe(false);
+		expect(normalizeBootstrapAddress(' 0xAB ')).toBe('0xab');
 	});
-
-	it('labels enumerable and inferred-range probes', () => {
-		expect(bootstrapProbeStatusLabel(makeProbe({ enumerable: true, totalSupply: 940 }))).toBe(
-			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
-		);
-		expect(
-			bootstrapProbeStatusLabel(
-				makeProbe({
-					enumerable: false,
-					startTokenId: '1',
-					totalSupply: 940
-				})
-			)
-		).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred);
+	it.each([
+		[null, '-'],
+		[undefined, '-'],
+		['bad', '-'],
+		['12', '12 B'],
+		[1536, '1.50 KB'],
+		['10485760', '10.0 MB'],
+		[102400, '100 KB']
+	])('formats %s', (value, result) => {
+		expect(formatByteSize(value)).toBe(result);
 	});
-
-	it('keeps shared-contract capability separate from required manual scope', () => {
-		const probe = makeProbe({
-			enumerable: true,
-			suggestedEnumerable: false,
-			inferManualRange: false,
-			startTokenId: '282000000',
-			totalSupply: 198051
-		});
-		expect(probe.enumerable.supported).toBe(true);
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
+	it('keeps ownership separate from each metadata failure', () => {
+		const sample = bootstrapTestSample().sample;
+		for (const field of ['tokenUriError', 'tokenUriPayloadError', 'metadataError'] as const) {
+			sample[field] = 'HTTP 429';
+			expect(bootstrapSampleFailure(sample)).toBe('HTTP 429');
+			expect(bootstrapSampleOwnership(sample)).toBe(true);
+			sample[field] = null;
+		}
+		expect(bootstrapSampleFailure(sample)).toBeNull();
+		sample.ownership = { tokenId: '0', exists: false, error: 'No owner' };
+		expect(bootstrapSampleOwnership(sample)).toBe(false);
+		expect(bootstrapSampleFailure(sample)).toBe('No owner');
+		sample.ownership = null;
+		expect(bootstrapSampleOwnership(sample)).toBeNull();
+		expect(bootstrapSampleFailure(sample)).toContain('Ownership could not');
+		sample.tokenId = null;
+		expect(bootstrapSampleFailure(sample)).toContain('No sample was confirmed');
 	});
-
-	it('formats byte counts for tokenURI payload estimates', () => {
-		expect(formatByteSize(512)).toBe('512 B');
-		expect(formatByteSize(1536)).toBe('1.50 KB');
-		expect(formatByteSize('10485760')).toBe('10.0 MB');
-	});
-
-	it('keeps confirmed ownership when sample metadata is unavailable', () => {
-		const probe = makeProbe({ enumerable: false, startTokenId: '1', totalSupply: 3333 });
-		probe.firstToken.candidates = [{ tokenId: '1', exists: true, source: 'owner_of', error: null }];
-		probe.firstToken.tokenUri = 'ipfs://metadata/1';
-		probe.firstToken.tokenUriPayloadError = 'Metadata download failed (HTTP 429).';
-		expect(bootstrapSampleOwnership(probe)).toBe(true);
-		expect(bootstrapSampleFailure(probe)).toBe(probe.firstToken.tokenUriPayloadError);
-		probe.firstToken.tokenUriPayloadError = null;
-		probe.firstToken.metadataError = 'Metadata could not be read.';
-		expect(bootstrapSampleFailure(probe)).toBe(probe.firstToken.metadataError);
-		probe.firstToken.metadataError = null;
-		expect(bootstrapSampleFailure(probe)).toBeNull();
-	});
-
-	it('distinguishes unknown ownership from an absent sample even when tokenURI works', () => {
-		const probe = makeProbe({ enumerable: false, startTokenId: '2' });
-		probe.firstToken.tokenUri = 'ipfs://metadata/2';
-		probe.firstToken.candidates = [{ tokenId: '1', exists: true, source: 'owner_of', error: null }];
-		expect(bootstrapSampleOwnership(probe)).toBeNull();
-		expect(bootstrapSampleFailure(probe)).toContain('ownership could not be checked');
-		probe.firstToken.candidates.push({ tokenId: '2', exists: false, source: null, error: null });
-		expect(bootstrapSampleOwnership(probe)).toBe(false);
-		expect(bootstrapSampleFailure(probe)).toContain('Sample token has no owner');
-	});
-
 	it('normalizes ERC721 names into editable bootstrap slug suggestions', () => {
+		expect(contractNameToBootstrapSlug(null)).toBe('');
 		expect(contractNameToBootstrapSlug('  Milady by Remilia Corporation!!!  ')).toBe(
 			'milady-by-remilia-corporation'
 		);
 		expect(contractNameToBootstrapSlug('Æther / Test: 2026')).toBe('ther-test-2026');
-		expect(contractNameToBootstrapSlug(`${'A'.repeat(70)}!`)).toBe('a'.repeat(64));
+		expect(
+			contractNameToBootstrapSlug(`${'A'.repeat(BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH + 10)}!`)
+		).toBe('a'.repeat(BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH));
 	});
 });
-
-function makeProbe(input: {
-	enumerable: boolean;
-	suggestedEnumerable?: boolean;
-	inferManualRange?: boolean;
-	startTokenId?: string;
-	totalSupply?: number;
-	bootstrapRangeValue?: number | null;
-}): BootstrapContractProbeApiResponse {
-	const suggestedEnumerable = input.suggestedEnumerable ?? input.enumerable;
-	const bootstrapRangeValue =
-		input.bootstrapRangeValue === undefined
-			? (input.totalSupply ?? null)
-			: input.bootstrapRangeValue;
-	const manualInput =
-		input.inferManualRange === false ||
-		suggestedEnumerable ||
-		!input.startTokenId ||
-		!bootstrapRangeValue
-			? null
-			: {
-					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-					startTokenId: input.startTokenId,
-					totalSupply: bootstrapRangeValue
-				};
-	return {
-		chain: {
-			id: 1,
-			type: 'evm',
-			publicChainId: 1,
-			slug: 'ethereum',
-			name: 'Ethereum'
-		},
-		address: '0x1111111111111111111111111111111111111111',
-		standard: 'erc721',
-		proxy: null,
-		contractName: null,
-		erc721: {
-			supported: true,
-			error: null
-		},
-		enumerable: {
-			supported: input.enumerable,
-			error: null
-		},
-		totalSupply: {
-			status: input.totalSupply ? 'available' : 'unavailable',
-			value: input.totalSupply ? String(input.totalSupply) : null,
-			safeIntegerValue: input.totalSupply ?? null,
-			bootstrapRangeValue,
-			error: null
-		},
-		firstToken: {
-			tokenId: input.startTokenId ?? null,
-			source: input.enumerable ? 'token_by_index' : 'candidate_token_uri',
-			tokenUri: null,
-			tokenUriPayload: null,
-			tokenUriPayloadBytes: null,
-			tokenUriPayloadTruncated: false,
-			tokenUriPayloadError: null,
-			name: null,
-			imageSourceField: null,
-			image: null,
-			imageBytes: null,
-			imageBytesSource: null,
-			imageContentType: null,
-			imageBytesError: null,
-			imageWidth: null,
-			imageHeight: null,
-			animationSourceField: null,
-			animationUrl: null,
-			metadataError: null,
-			candidates: []
-		},
-		storageEstimate: null,
-		imageStorageEstimate: null,
-		suggestedInput: {
-			supportsEnumerable: suggestedEnumerable,
-			manualInput,
-			ready: suggestedEnumerable || manualInput !== null,
-			warnings: []
-		},
-		imageCacheSuggestion: {
-			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-			extensionKey: null,
-			config: {
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			}
-		}
-	};
-}

@@ -1,3 +1,5 @@
+import type { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
+import { InspectBootstrapSampleHttpAdapter } from "./http/handlers/bootstrap/inspect-bootstrap-sample.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { isPublicSingleCollectionDeployment } from "@artgod/shared/config/deployment";
 import type { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
@@ -149,6 +151,7 @@ export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
     startPreparedCollectionBootstrapUseCase: StartPreparedCollectionBootstrapUseCase,
     probeCollectionContractUseCase: ProbeCollectionContractUseCase,
+    inspectBootstrapSampleUseCase: InspectBootstrapSampleUseCase,
     estimateBootstrapImageCacheUseCase: EstimateBootstrapImageCacheUseCase,
     probeOpenSeaCollectionSlugUseCase: ProbeOpenSeaCollectionSlugUseCase,
     listBootstrapRunsUseCase: ListBootstrapRunsUseCase,
@@ -223,6 +226,9 @@ export function createApiApp(
         );
     const probeCollectionContractAdapter =
         new ProbeCollectionContractHttpAdapter(probeCollectionContractUseCase);
+    const inspectBootstrapSampleAdapter = new InspectBootstrapSampleHttpAdapter(
+        inspectBootstrapSampleUseCase,
+    );
     const estimateBootstrapImageCacheAdapter =
         new EstimateBootstrapImageCacheHttpAdapter(
             estimateBootstrapImageCacheUseCase,
@@ -416,6 +422,7 @@ export function createApiApp(
         createBootstrapRunAdapter,
         startCollectionBootstrapAdapter,
         probeCollectionContractAdapter,
+        inspectBootstrapSampleAdapter,
         estimateBootstrapImageCacheAdapter,
         probeOpenSeaCollectionSlugAdapter,
         listBootstrapRunsAdapter,

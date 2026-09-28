@@ -216,97 +216,10 @@ export type ApiCollectionsPage = {
 	limit: number;
 };
 
-export type ApiBootstrapProbeInterfaceCheck = {
-	supported: boolean | null;
-	error: string | null;
-};
-
-export type ApiBootstrapProbeTotalSupply = {
-	status: 'available' | 'unavailable';
-	value: string | null;
-	safeIntegerValue: number | null;
-	bootstrapRangeValue: number | null;
-	error: string | null;
-};
-
-export type ApiBootstrapProbeTokenCandidate = {
-	tokenId: string;
-	exists: boolean | null;
-	source: 'token_uri' | 'owner_of' | null;
-	error: string | null;
-};
-
-export type ApiBootstrapProbeFirstToken = {
-	tokenId: string | null;
-	source: 'token_by_index' | 'candidate_token_uri' | 'candidate_owner_of' | null;
-	tokenUri: string | null;
-	tokenUriPayload: string | null;
-	tokenUriPayloadBytes: number | null;
-	tokenUriPayloadTruncated: boolean;
-	tokenUriPayloadError: string | null;
-	name: string | null;
-	imageSourceField: string | null;
-	image: string | null;
-	imageBytes: number | null;
-	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
-	imageContentType: string | null;
-	imageBytesError: string | null;
-	imageWidth: number | null;
-	imageHeight: number | null;
-	animationSourceField: string | null;
-	animationUrl: string | null;
-	metadataError: string | null;
-	candidates: ApiBootstrapProbeTokenCandidate[];
-};
-
-export type ApiBootstrapProbeStorageEstimate = {
-	sampleTokenId: string;
-	samplePayloadBytes: number;
-	projectedBytes: string;
-	totalSupply: string;
-} | null;
-
-export type ApiBootstrapProbeImageStorageEstimate = {
-	sampleTokenId: string;
-	sampleImageBytes: number;
-	projectedBytes: string;
-	totalSupply: string;
-	contentType: string | null;
-} | null;
-
-export type BootstrapContractProbeApiResponse = {
-	chain: ApiChain;
-	address: string;
-	standard: 'erc721';
-	proxy: {
-		kind: EvmProxyKind;
-		confidence: EvmProxyConfidence;
-		implementationAddress: string;
-		beaconAddress: string | null;
-	} | null;
-	contractName: string | null;
-	erc721: ApiBootstrapProbeInterfaceCheck;
-	enumerable: ApiBootstrapProbeInterfaceCheck;
-	totalSupply: ApiBootstrapProbeTotalSupply;
-	firstToken: ApiBootstrapProbeFirstToken;
-	storageEstimate: ApiBootstrapProbeStorageEstimate;
-	imageStorageEstimate: ApiBootstrapProbeImageStorageEstimate;
-	suggestedInput: {
-		supportsEnumerable: boolean;
-		manualInput: {
-			mode: 'manual_range';
-			startTokenId: string;
-			totalSupply: number;
-		} | null;
-		ready: boolean;
-		warnings: string[];
-	};
-	imageCacheSuggestion: {
-		selectedSource: ApiCollectionCustomizationSource;
-		extensionKey: string | null;
-		config: ApiImageCachePolicyConfig;
-	};
-};
+export type {
+	BootstrapContractProbeResponse as BootstrapContractProbeApiResponse,
+	BootstrapSampleInspectionResponse as BootstrapSampleInspectionApiResponse
+} from '@artgod/shared/bootstrap/probe';
 
 export type BootstrapImageCacheEstimateApiResponse = {
 	chain: ApiChain;
@@ -315,8 +228,6 @@ export type BootstrapImageCacheEstimateApiResponse = {
 	maxDimension: number | null;
 	sampleSourceBytes: number | null;
 	sampleCachedBytes: number;
-	projectedCachedBytes: string;
-	totalSupply: string;
 	contentType: string | null;
 	sampleCachedImageDataUrl: string | null;
 	sourceWidth: number | null;

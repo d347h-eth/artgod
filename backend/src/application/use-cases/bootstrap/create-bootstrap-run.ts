@@ -105,10 +105,7 @@ export class CreateBootstrapRunUseCase {
             throw new BootstrapValidationError("Only ERC-721 is supported");
         }
 
-        const enumeration = resolveEnumerationInput(
-            input.supportsEnumerable,
-            input.manualInput,
-        );
+        const enumeration = resolveEnumerationInput(input.scope);
         const requestImageCache = resolveImageCacheInput(input.imageCache);
         const requestExtensionKey = resolveRequestedExtensionKey(
             this.embeddedExtensionResolverPort,
@@ -418,10 +415,7 @@ function normalizeAddress(raw: string): string {
     return value;
 }
 
-function resolveEnumerationInput(
-    supportsEnumerable: boolean,
-    manualInput: CreateBootstrapRunInput["manualInput"],
-): {
+function resolveEnumerationInput(input: BootstrapScope): {
     mode: "enumerable" | "manual_token_ids" | "manual_range";
     tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
     scopeStartTokenId: string | null;
@@ -431,24 +425,9 @@ function resolveEnumerationInput(
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
 } {
-    if (!supportsEnumerable && !manualInput) {
-        throw new BootstrapValidationError(
-            "Manual input is required when enumerable support is disabled",
-        );
-    }
     let scope: BootstrapScope;
     try {
-        scope = parseBootstrapScope(
-            supportsEnumerable
-                ? { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
-                : manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
-                  ? {
-                        mode: manualInput.mode,
-                        startTokenId: manualInput.startTokenId,
-                        tokenCount: manualInput.totalSupply,
-                    }
-                  : manualInput,
-        );
+        scope = parseBootstrapScope(input);
     } catch (error) {
         if (!(error instanceof BootstrapScopeValidationError)) throw error;
         throw new BootstrapValidationError(error.message);

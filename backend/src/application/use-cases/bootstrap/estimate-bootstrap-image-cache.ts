@@ -1,3 +1,4 @@
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import {
     BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
@@ -23,7 +24,6 @@ export type EstimateBootstrapImageCacheInput = {
     sampleTokenId: string;
     sourceImageUrl: string;
     sourceImageBytes: number | null;
-    totalSupply: string;
     imageCacheMode: ImageCacheMode;
     maxDimension: number | null;
 };
@@ -35,8 +35,6 @@ export type EstimateBootstrapImageCacheOutput = {
     maxDimension: number | null;
     sampleSourceBytes: number | null;
     sampleCachedBytes: number;
-    projectedCachedBytes: string;
-    totalSupply: string;
     contentType: string | null;
     sampleCachedImageDataUrl: string | null;
     sourceWidth: number | null;
@@ -76,13 +74,11 @@ export class EstimateBootstrapImageCacheUseCase {
             input.chainRef,
             this.defaultChainId,
         );
-        const totalSupply = parsePositiveBigInt(
-            input.totalSupply,
-            "totalSupply",
-        );
-        const sampleTokenId = input.sampleTokenId.trim();
+        const sampleTokenId = normalizeEvmTokenId(input.sampleTokenId);
         if (!sampleTokenId) {
-            throw new BootstrapValidationError("sampleTokenId is required");
+            throw new BootstrapValidationError(
+                "A valid sample token ID is required",
+            );
         }
         if (!input.sourceImageUrl.trim()) {
             throw new BootstrapValidationError("sourceImageUrl is required");
@@ -96,8 +92,6 @@ export class EstimateBootstrapImageCacheUseCase {
                 maxDimension: null,
                 sampleSourceBytes: input.sourceImageBytes,
                 sampleCachedBytes: 0,
-                projectedCachedBytes: "0",
-                totalSupply: totalSupply.toString(),
                 contentType: null,
                 sampleCachedImageDataUrl: null,
                 sourceWidth: null,
@@ -127,10 +121,6 @@ export class EstimateBootstrapImageCacheUseCase {
             maxDimension: input.maxDimension,
             sampleSourceBytes: estimate.sourceBytes,
             sampleCachedBytes: estimate.cachedBytes,
-            projectedCachedBytes: (
-                BigInt(estimate.cachedBytes) * totalSupply
-            ).toString(),
-            totalSupply: totalSupply.toString(),
             contentType: estimate.contentType,
             sampleCachedImageDataUrl: estimate.sampleCachedImageDataUrl,
             sourceWidth: estimate.sourceWidth,
@@ -152,20 +142,4 @@ function validateMaxDimension(value: number | null): void {
             `image max dimension must be ${BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}-${BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}`,
         );
     }
-}
-
-function parsePositiveBigInt(value: string, field: string): bigint {
-    const normalized = value.trim();
-    if (!/^\d+$/.test(normalized)) {
-        throw new BootstrapValidationError(
-            `${field} must be a positive integer`,
-        );
-    }
-    const parsed = BigInt(normalized);
-    if (parsed <= 0n) {
-        throw new BootstrapValidationError(
-            `${field} must be a positive integer`,
-        );
-    }
-    return parsed;
 }

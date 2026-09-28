@@ -1,6 +1,7 @@
 import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilience";
 import { NOOP_APM } from "@artgod/shared/observability/apm";
 import { RPC_OBSERVABILITY_LOG_MESSAGE } from "@artgod/shared/observability/rpc";
+import { BOOTSTRAP_TEST_OBSERVATION } from "@artgod/shared/testing/bootstrap-probe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     BACKEND_RPC_LOG_FIELD,
@@ -173,4 +174,70 @@ describe("ViemBackendRpcClient", () => {
         expect(attemptStarted).toMatchObject(expectedMetadata);
         expect(callSucceeded).toMatchObject(expectedMetadata);
     });
+
+    it("pins probe observations to finalized blocks and forwards the same block to code reads", async () => {
+        const getBlock = vi.fn(async () => ({
+            number: BigInt(BOOTSTRAP_TEST_OBSERVATION.blockNumber),
+            hash: BOOTSTRAP_TEST_OBSERVATION.blockHash,
+        }));
+        const getBytecode = vi.fn(async () => "0x6000");
+        const client = new ViemBackendRpcClient(
+            [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+                resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+                createClient: () =>
+                    ({
+                        getBlock,
+                        getBytecode,
+                    }) as unknown as ReturnType<BackendRpcClientFactory>,
+            },
+        );
+        expect(await client.getProbeBlock()).toEqual(
+            BOOTSTRAP_TEST_OBSERVATION,
+        );
+        expect(getBlock).toHaveBeenLastCalledWith({ blockTag: "finalized" });
+        expect(
+            await client.getProbeBlock(BOOTSTRAP_TEST_OBSERVATION.blockNumber),
+        ).toEqual(BOOTSTRAP_TEST_OBSERVATION);
+        expect(getBlock).toHaveBeenLastCalledWith({
+            blockNumber: BigInt(BOOTSTRAP_TEST_OBSERVATION.blockNumber),
+        });
+        await client.getBytecode(
+            TEST_CONTRACT_ADDRESS,
+            BOOTSTRAP_TEST_OBSERVATION.blockNumber,
+        );
+        expect(getBytecode).toHaveBeenCalledWith({
+            address: TEST_CONTRACT_ADDRESS,
+            blockNumber: BigInt(BOOTSTRAP_TEST_OBSERVATION.blockNumber),
+        });
+    });
+
+    it.each([
+        { number: null, hash: null },
+        {
+            number: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+            hash: BOOTSTRAP_TEST_OBSERVATION.blockHash,
+        },
+    ])(
+        "rejects unavailable or unsupported observation blocks",
+        async (block) => {
+            const client = new ViemBackendRpcClient(
+                [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+                NOOP_APM,
+                undefined,
+                {
+                    retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+                    resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+                    createClient: () =>
+                        ({
+                            getBlock: async () => block,
+                        }) as unknown as ReturnType<BackendRpcClientFactory>,
+                },
+            );
+            await expect(client.getProbeBlock()).rejects.toThrow(/Probe block/);
+        },
+    );
 });

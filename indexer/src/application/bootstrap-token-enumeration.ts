@@ -1,3 +1,4 @@
+import { parseBootstrapScope } from "@artgod/shared/bootstrap/scope";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     type BootstrapEnumerationMode,
@@ -14,65 +15,31 @@ export type BootstrapManualTokenEnumerationInput = {
 export function resolveManualBootstrapTokenIds(
     input: BootstrapManualTokenEnumerationInput,
 ): Iterable<string> | null {
-    if (input.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
-        return null;
-    }
-
-    if (input.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
-        return parseManualTokenIds(input.manualTokenIdsJson);
-    }
-
-    if (input.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange) {
-        return resolveManualTokenRange(
-            input.manualRangeStartTokenId,
-            input.manualRangeTotalSupply,
-        );
-    }
-
-    throw new Error(
-        `Unsupported enumeration mode: ${String(input.enumerationMode)}`,
+    const scope = parseBootstrapScope(
+        input.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? {
+                  mode: input.enumerationMode,
+                  startTokenId: input.manualRangeStartTokenId,
+                  tokenCount: input.manualRangeTotalSupply,
+              }
+            : input.enumerationMode ===
+                BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+              ? {
+                    mode: input.enumerationMode,
+                    tokenIds: input.manualTokenIdsJson
+                        ? JSON.parse(input.manualTokenIdsJson)
+                        : null,
+                }
+              : { mode: input.enumerationMode },
     );
-}
-
-function parseManualTokenIds(manualTokenIdsJson: string | null): string[] {
-    if (!manualTokenIdsJson) {
-        throw new Error("manual token id mode requires token ids payload");
+    switch (scope.mode) {
+        case BOOTSTRAP_ENUMERATION_MODE.Enumerable:
+            return null;
+        case BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds:
+            return scope.tokenIds;
+        case BOOTSTRAP_ENUMERATION_MODE.ManualRange:
+            return iterateRange(BigInt(scope.startTokenId), scope.tokenCount);
     }
-
-    const parsed = JSON.parse(manualTokenIdsJson) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("manual token ids payload is empty");
-    }
-
-    const tokenIds: string[] = [];
-    for (const value of parsed) {
-        if (typeof value !== "string" || !/^\d+$/.test(value.trim())) {
-            throw new Error(
-                "manual token ids payload contains invalid token id",
-            );
-        }
-        tokenIds.push(value.trim());
-    }
-    return tokenIds;
-}
-
-function resolveManualTokenRange(
-    startTokenId: string | null,
-    totalSupply: number | null,
-): Iterable<string> {
-    if (
-        !startTokenId ||
-        !totalSupply ||
-        !Number.isInteger(totalSupply) ||
-        totalSupply <= 0
-    ) {
-        throw new Error(
-            "manual token range requires start token id and supply",
-        );
-    }
-
-    const start = BigInt(startTokenId);
-    return iterateRange(start, totalSupply);
 }
 
 function* iterateRange(start: bigint, totalSupply: number): Generator<string> {

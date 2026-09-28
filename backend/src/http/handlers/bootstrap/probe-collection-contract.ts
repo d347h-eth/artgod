@@ -12,9 +12,6 @@ export type ProbeCollectionContractRoute = {
     };
     Querystring: {
         address?: string;
-        [BOOTSTRAP_API_QUERY_PARAM.ImageSourceField]?: string;
-        [BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField]?: string;
-        [BOOTSTRAP_API_QUERY_PARAM.SampleTokenId]?: string;
         standard?: string;
     };
 };
@@ -44,9 +41,11 @@ export class ProbeCollectionContractHttpAdapter {
             request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
             BOOTSTRAP_API_QUERY_PARAM.Address,
         );
-        const standard =
-            request.query[BOOTSTRAP_API_QUERY_PARAM.Standard]?.trim() ||
-            "erc721";
+        const rawStandard = request.query[BOOTSTRAP_API_QUERY_PARAM.Standard];
+        if (rawStandard !== undefined && typeof rawStandard !== "string") {
+            throw new ReadModelBadRequestError("Only erc721 is supported");
+        }
+        const standard = rawStandard?.trim() || "erc721";
         if (standard !== "erc721") {
             throw new ReadModelBadRequestError("Only erc721 is supported");
         }
@@ -54,15 +53,6 @@ export class ProbeCollectionContractHttpAdapter {
             chainRef: request.params.chain_ref,
             address,
             standard,
-            imageSourceField: optionalString(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.ImageSourceField],
-            ),
-            animationSourceField: optionalString(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField],
-            ),
-            sampleTokenId: optionalString(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.SampleTokenId],
-            ),
         };
     }
 }
@@ -72,13 +62,4 @@ function mustString(value: unknown, field: string): string {
         throw new ReadModelBadRequestError(`${field} is required`);
     }
     return value.trim();
-}
-
-function optionalString(value: unknown): string | undefined {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value !== "string") {
-        throw new ReadModelBadRequestError("Expected string");
-    }
-    const trimmed = value.trim();
-    return trimmed ? trimmed : undefined;
 }

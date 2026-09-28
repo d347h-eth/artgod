@@ -1,6 +1,5 @@
-import type { BootstrapContractProbeApiResponse } from '$lib/api-types';
-
-const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
+export { bootstrapSampleOwnership, bootstrapSampleFailure } from '@artgod/shared/bootstrap/probe';
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
 
 // Editable conventional range start; it does not claim a token is minted.
 export const BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID = '1';
@@ -23,14 +22,6 @@ export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING =
 // Explicit user acknowledgment required before the bootstrap probe form is enabled.
 export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT =
 	'I have verified the contract address and want to continue.';
-
-// Contract probe status labels drive bootstrap form flow hints.
-export const BOOTSTRAP_PROBE_STATUS_LABEL = {
-	Enumerable: 'enumerable',
-	RangeInferred: 'range inferred',
-	NeedsTokenStart: 'needs token start',
-	NeedsManualScope: 'needs manual scope'
-} as const;
 
 export function isBootstrapAddressComplete(value: string): boolean {
 	return value.trim().length === BOOTSTRAP_CONTRACT_ADDRESS_LENGTH;
@@ -77,43 +68,6 @@ export function formatByteSize(value: number | string | null | undefined): strin
 	}
 	const decimals = scaled >= 100 || unitIndex === 0 ? 0 : scaled >= 10 ? 1 : 2;
 	return `${scaled.toFixed(decimals)} ${units[unitIndex]}`;
-}
-
-export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
-	if (probe.suggestedInput.supportsEnumerable) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
-	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
-	if (!probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue !== null) {
-		return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;
-	}
-	return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
-}
-
-export function bootstrapProbeNeedsManualScope(probe: BootstrapContractProbeApiResponse): boolean {
-	return bootstrapProbeStatusLabel(probe) === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
-}
-
-// Ownership and metadata availability are independent results of the preflight.
-export function bootstrapSampleOwnership(probe: BootstrapContractProbeApiResponse): boolean | null {
-	const sample = probe.firstToken;
-	return (
-		sample.candidates.find((candidate) => candidate.tokenId === sample.tokenId)?.exists ?? null
-	);
-}
-
-export function bootstrapSampleFailure(probe: BootstrapContractProbeApiResponse): string | null {
-	const sample = probe.firstToken;
-	if (!sample.tokenId) return 'Enter an existing Sample token ID, then press probe.';
-	const ownership = bootstrapSampleOwnership(probe);
-	if (ownership === false) {
-		return 'Sample token has no owner. Enter an existing Sample token ID, then press probe.';
-	}
-	if (ownership === null) {
-		return 'Sample ownership could not be checked. Check RPC settings in Admin config, then press probe.';
-	}
-	if (!sample.tokenUri) {
-		return 'Sample metadata URI could not be read. Try another Sample token ID, then press probe.';
-	}
-	return sample.tokenUriPayloadError ?? sample.metadataError;
 }
 
 function parseByteString(value: string): bigint | null {

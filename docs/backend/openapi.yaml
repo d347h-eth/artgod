@@ -1522,12 +1522,11 @@ paths:
     /api/{chain_ref}/collections/bootstrap/probe:
         get:
             tags: [Bootstrap]
-            summary: Probe an ERC721 contract before bootstrap
+            summary: Discover ERC721 contract capabilities and token candidates
             description: |
-                Reads onchain ERC721/Enumerable state plus one sample token URI payload so the
-                bootstrap form can prefill source fields, supply scope, and cache policy inputs.
-                When `sample_token_id` is present, that token is used for the sample metadata
-                probe instead of automatic tokenByIndex / 0 / 1 discovery.
+                Reads independent interface, name, supply, proxy and candidate findings at one
+                finalized block. Does not inspect metadata, select collection scope or require
+                a sample. Partial check failures remain separate from successful facts.
             operationId: probeBootstrapCollectionContract
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -1538,29 +1537,13 @@ paths:
                       type: string
                 - name: standard
                   in: query
-                  required: false
                   schema:
                       type: string
                       enum: [erc721]
                       default: erc721
-                - name: image_source_field
-                  in: query
-                  required: false
-                  schema:
-                      type: string
-                - name: animation_source_field
-                  in: query
-                  required: false
-                  schema:
-                      type: string
-                - name: sample_token_id
-                  in: query
-                  required: false
-                  schema:
-                      type: string
             responses:
                 "200":
-                    description: Contract probe result used by the bootstrap form
+                    description: Independent contract findings and their block identity
                     content:
                         application/json:
                             schema:
@@ -1569,6 +1552,49 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/collections/bootstrap/sample:
+        post:
+            tags: [Bootstrap]
+            summary: Inspect one bootstrap sample independently of contract discovery
+            description: |
+                Inspects the exact requested token, or chooses a bounded candidate from the
+                declared scope and discovery hint. Verifies ownership before reading tokenURI.
+                Keeps ownership, URI, download and parse failures separate. Metadata text is
+                bounded to 10 MiB; this operation does not download images or create a run.
+                The supplied observation is verified before and after chain reads; if omitted,
+                one finalized block is selected. POST host/origin/CSRF checks apply.
+            operationId: inspectBootstrapSample
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/BootstrapSampleInspectionRequest"
+            responses:
+                "200":
+                    description: Sample inspection and scope-specific cache suggestion
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapSampleInspectionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -5335,48 +5361,83 @@ components:
                     type: string
                     nullable: true
 
+        BootstrapProbeObservation:
+            type: object
+            required: [blockNumber, blockHash]
+            additionalProperties: false
+            properties:
+                blockNumber:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                blockHash:
+                    type: string
+                    pattern: "^0x[0-9a-fA-F]{64}$"
+
         BootstrapProbeTokenCandidate:
             type: object
-            required: [tokenId, exists, source, error]
+            required: [tokenId, exists, error]
             additionalProperties: false
             properties:
                 tokenId:
                     type: string
+                    description: Canonical decimal uint256.
                 exists:
                     type: boolean
                     nullable: true
-                source:
-                    type: string
-                    enum: [token_uri, owner_of, null]
-                    nullable: true
+                    description: Null means ownership could not be checked, not absence.
                 error:
                     type: string
                     nullable: true
 
-        BootstrapProbeFirstToken:
+        BootstrapTokenDiscovery:
+            type: object
+            required:
+                [enumeration, candidates, sampleTokenId, rangeStartCandidate]
+            additionalProperties: false
+            properties:
+                enumeration:
+                    type: object
+                    required: [checked, tokenId, error]
+                    additionalProperties: false
+                    properties:
+                        checked:
+                            type: boolean
+                        tokenId:
+                            type: string
+                            nullable: true
+                            description: First enumeration entry, not a numeric minimum.
+                        error:
+                            type: string
+                            nullable: true
+                candidates:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
+                sampleTokenId:
+                    type: string
+                    nullable: true
+                rangeStartCandidate:
+                    type: string
+                    nullable: true
+                    enum: ["0", "1", null]
+                    description: Confirmed conventional ID, not proof of a historical boundary.
+
+        BootstrapProbeSample:
             type: object
             required:
                 [
                     tokenId,
                     source,
+                    ownership,
+                    candidates,
                     tokenUri,
+                    tokenUriError,
                     tokenUriPayload,
                     tokenUriPayloadBytes,
                     tokenUriPayloadTruncated,
                     tokenUriPayloadError,
-                    name,
-                    imageSourceField,
-                    image,
-                    imageBytes,
-                    imageBytesSource,
-                    imageContentType,
-                    imageBytesError,
-                    imageWidth,
-                    imageHeight,
-                    animationSourceField,
-                    animationUrl,
                     metadataError,
-                    candidates,
                 ]
             additionalProperties: false
             properties:
@@ -5385,146 +5446,97 @@ components:
                     nullable: true
                 source:
                     type: string
-                    enum:
-                        [
-                            token_by_index,
-                            candidate_token_uri,
-                            candidate_owner_of,
-                            null,
-                        ]
+                    enum: [requested, declared_scope, discovery, null]
                     nullable: true
+                ownership:
+                    anyOf:
+                        - $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
+                        - $ref: "#/components/schemas/NullValue"
+                candidates:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
                 tokenUri:
                     type: string
                     nullable: true
+                tokenUriError:
+                    type: string
+                    nullable: true
+                tokenUriPayload:
+                    description: Original response text, bounded to 10 MiB; malformed JSON is retained. Treat as untrusted inspection data.
+                    type: string
+                    nullable: true
                 tokenUriPayloadBytes:
-                    description: UTF-8 byte count of the original tokenURI response.
                     type: integer
                     nullable: true
                     minimum: 0
-                tokenUriPayload:
-                    description: Original tokenURI response text, bounded to 10 MiB. Null when unavailable. Untrusted inspection data only; malformed JSON is retained.
-                    type: string
-                    nullable: true
                 tokenUriPayloadTruncated:
                     type: boolean
                 tokenUriPayloadError:
                     type: string
                     nullable: true
-                name:
-                    type: string
-                    nullable: true
-                imageSourceField:
-                    type: string
-                    nullable: true
-                image:
-                    type: string
-                    nullable: true
-                imageBytes:
-                    type: integer
-                    nullable: true
-                    minimum: 0
-                imageBytesSource:
-                    type: string
-                    enum: [content_length, download, data_uri, null]
-                    nullable: true
-                imageContentType:
-                    type: string
-                    nullable: true
-                imageBytesError:
-                    type: string
-                    nullable: true
-                imageWidth:
-                    type: integer
-                    nullable: true
-                    minimum: 1
-                imageHeight:
-                    type: integer
-                    nullable: true
-                    minimum: 1
-                animationSourceField:
-                    type: string
-                    nullable: true
-                animationUrl:
-                    type: string
-                    nullable: true
                 metadataError:
                     type: string
                     nullable: true
-                candidates:
-                    type: array
-                    items:
-                        $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
 
-        BootstrapProbeStorageEstimate:
+        BootstrapSampleInspectionRequest:
             type: object
-            nullable: true
-            required:
-                [sampleTokenId, samplePayloadBytes, projectedBytes, totalSupply]
+            required: [address]
             additionalProperties: false
             properties:
-                sampleTokenId:
+                address:
                     type: string
-                samplePayloadBytes:
-                    type: integer
-                    minimum: 0
-                projectedBytes:
+                requestedTokenId:
                     type: string
-                totalSupply:
+                    nullable: true
+                    description: Optional exact decimal uint256 sample; empty means automatic selection.
+                discoveredTokenId:
                     type: string
+                    nullable: true
+                    description: Optional discovery candidate, rechecked for ownership.
+                observation:
+                    anyOf:
+                        - $ref: "#/components/schemas/BootstrapProbeObservation"
+                        - $ref: "#/components/schemas/NullValue"
+                scope:
+                    anyOf:
+                        - $ref: "#/components/schemas/BootstrapScope"
+                        - $ref: "#/components/schemas/NullValue"
 
-        BootstrapProbeImageStorageEstimate:
+        BootstrapSampleInspectionResponse:
             type: object
-            nullable: true
             required:
                 [
-                    sampleTokenId,
-                    sampleImageBytes,
-                    projectedBytes,
-                    totalSupply,
-                    contentType,
+                    chain,
+                    address,
+                    observation,
+                    requestedTokenId,
+                    scope,
+                    sample,
+                    ipfsGatewayOrigin,
+                    imageCacheSuggestion,
                 ]
             additionalProperties: false
             properties:
-                sampleTokenId:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                address:
                     type: string
-                sampleImageBytes:
-                    type: integer
-                    minimum: 0
-                projectedBytes:
-                    type: string
-                totalSupply:
-                    type: string
-                contentType:
+                observation:
+                    $ref: "#/components/schemas/BootstrapProbeObservation"
+                requestedTokenId:
                     type: string
                     nullable: true
-
-        BootstrapProbeSuggestedInput:
-            type: object
-            required: [supportsEnumerable, manualInput, ready, warnings]
-            additionalProperties: false
-            properties:
-                supportsEnumerable:
-                    type: boolean
-                manualInput:
-                    type: object
-                    nullable: true
-                    required: [mode, startTokenId, totalSupply]
-                    additionalProperties: false
-                    properties:
-                        mode:
-                            type: string
-                            enum: [manual_range]
-                        startTokenId:
-                            type: string
-                        totalSupply:
-                            type: integer
-                            minimum: 1
-                ready:
-                    type: boolean
-                warnings:
-                    type: array
-                    items:
-                        type: string
+                scope:
+                    anyOf:
+                        - $ref: "#/components/schemas/BootstrapScope"
+                        - $ref: "#/components/schemas/NullValue"
+                sample:
+                    $ref: "#/components/schemas/BootstrapProbeSample"
+                ipfsGatewayOrigin:
+                    type: string
+                imageCacheSuggestion:
+                    $ref: "#/components/schemas/BootstrapProbeImageCacheSuggestion"
 
         BootstrapProbeImageCacheSuggestion:
             type: object
@@ -5568,16 +5580,15 @@ components:
                     chain,
                     address,
                     standard,
+                    observation,
                     proxy,
+                    proxyError,
                     contractName,
+                    contractNameError,
                     erc721,
                     enumerable,
                     totalSupply,
-                    firstToken,
-                    storageEstimate,
-                    imageStorageEstimate,
-                    suggestedInput,
-                    imageCacheSuggestion,
+                    discovery,
                 ]
             additionalProperties: false
             properties:
@@ -5588,11 +5599,19 @@ components:
                 standard:
                     type: string
                     enum: [erc721]
+                observation:
+                    $ref: "#/components/schemas/BootstrapProbeObservation"
                 proxy:
                     anyOf:
                         - $ref: "#/components/schemas/BootstrapProbeContractProxy"
                         - $ref: "#/components/schemas/NullValue"
+                proxyError:
+                    type: string
+                    nullable: true
                 contractName:
+                    type: string
+                    nullable: true
+                contractNameError:
                     type: string
                     nullable: true
                 erc721:
@@ -5601,16 +5620,8 @@ components:
                     $ref: "#/components/schemas/BootstrapProbeInterfaceCheck"
                 totalSupply:
                     $ref: "#/components/schemas/BootstrapProbeTotalSupply"
-                firstToken:
-                    $ref: "#/components/schemas/BootstrapProbeFirstToken"
-                storageEstimate:
-                    $ref: "#/components/schemas/BootstrapProbeStorageEstimate"
-                imageStorageEstimate:
-                    $ref: "#/components/schemas/BootstrapProbeImageStorageEstimate"
-                suggestedInput:
-                    $ref: "#/components/schemas/BootstrapProbeSuggestedInput"
-                imageCacheSuggestion:
-                    $ref: "#/components/schemas/BootstrapProbeImageCacheSuggestion"
+                discovery:
+                    $ref: "#/components/schemas/BootstrapTokenDiscovery"
 
         BootstrapRunStatus:
             type: string
@@ -6045,17 +6056,49 @@ components:
                 metadataTasks:
                     $ref: "#/components/schemas/BootstrapRunTaskCounts"
 
+        BootstrapScope:
+            description: Explicit declared coverage. Capability and sample selection never choose this mode.
+            oneOf:
+                - type: object
+                  required: [mode]
+                  additionalProperties: false
+                  properties:
+                      mode:
+                          type: string
+                          enum: [enumerable]
+                - type: object
+                  required: [mode, startTokenId, tokenCount]
+                  additionalProperties: false
+                  properties:
+                      mode:
+                          type: string
+                          enum: [manual_range]
+                      startTokenId:
+                          type: string
+                          description: Decimal uint256; normalized to canonical form. Range end must also fit uint256.
+                      tokenCount:
+                          type: integer
+                          minimum: 1
+                          maximum: 1000000
+                - type: object
+                  required: [mode, tokenIds]
+                  additionalProperties: false
+                  properties:
+                      mode:
+                          type: string
+                          enum: [manual_token_ids]
+                      tokenIds:
+                          type: array
+                          minItems: 1
+                          maxItems: 50000
+                          description: Decimal uint256 IDs, normalized and deduplicated.
+                          items:
+                              type: string
+
         CreateBootstrapRunRequest:
             type: object
             required:
-                [
-                    slug,
-                    address,
-                    imageSourceField,
-                    standard,
-                    metadataMode,
-                    supportsEnumerable,
-                ]
+                [slug, address, imageSourceField, standard, metadataMode, scope]
             additionalProperties: false
             properties:
                 slug:
@@ -6076,33 +6119,8 @@ components:
                     enum: [erc721]
                 metadataMode:
                     $ref: "#/components/schemas/BootstrapMetadataMode"
-                supportsEnumerable:
-                    type: boolean
-                manualInput:
-                    oneOf:
-                        - type: object
-                          required: [mode, tokenIds]
-                          additionalProperties: false
-                          properties:
-                              mode:
-                                  type: string
-                                  enum: [manual_token_ids]
-                              tokenIds:
-                                  type: array
-                                  items:
-                                      type: string
-                        - type: object
-                          required: [mode, startTokenId, totalSupply]
-                          additionalProperties: false
-                          properties:
-                              mode:
-                                  type: string
-                                  enum: [manual_range]
-                              startTokenId:
-                                  type: string
-                              totalSupply:
-                                  type: integer
-                                  minimum: 1
+                scope:
+                    $ref: "#/components/schemas/BootstrapScope"
                 imageCache:
                     type: object
                     required: [selectedSource, imageCacheMode, maxDimension]
@@ -6124,13 +6142,7 @@ components:
         BootstrapImageCacheEstimateRequest:
             type: object
             required:
-                [
-                    sampleTokenId,
-                    sourceImageUrl,
-                    totalSupply,
-                    imageCacheMode,
-                    maxDimension,
-                ]
+                [sampleTokenId, sourceImageUrl, imageCacheMode, maxDimension]
             additionalProperties: false
             properties:
                 sampleTokenId:
@@ -6141,8 +6153,6 @@ components:
                     type: integer
                     nullable: true
                     minimum: 0
-                totalSupply:
-                    type: string
                 imageCacheMode:
                     $ref: "#/components/schemas/ImageCacheMode"
                 maxDimension:
@@ -6161,8 +6171,6 @@ components:
                     maxDimension,
                     sampleSourceBytes,
                     sampleCachedBytes,
-                    projectedCachedBytes,
-                    totalSupply,
                     contentType,
                     sampleCachedImageDataUrl,
                     sourceWidth,
@@ -6188,10 +6196,6 @@ components:
                 sampleCachedBytes:
                     type: integer
                     minimum: 0
-                projectedCachedBytes:
-                    type: string
-                totalSupply:
-                    type: string
                 contentType:
                     type: string
                     nullable: true

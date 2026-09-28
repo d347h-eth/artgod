@@ -1,470 +1,210 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-    IMAGE_CACHE_MODE,
-    defaultImageCachePolicyConfig,
-    type ImageCachePolicyConfig,
-} from "@artgod/shared/media/token-image-cache";
-import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
-import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
-import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
-import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
+    BOOTSTRAP_TEST_CHAIN as CHAIN,
+    BOOTSTRAP_TEST_ADDRESS as ADDRESS,
+    BOOTSTRAP_TEST_OBSERVATION as OBSERVATION,
+    bootstrapTestContract,
+    bootstrapTestSample,
+    BOOTSTRAP_CONTRACT_CASES,
+} from "@artgod/shared/testing/bootstrap-probe";
+import { BOOTSTRAP_ENUMERATION_MODE as Mode } from "@artgod/shared/bootstrap/pipeline";
+import { BOOTSTRAP_SAMPLE_SOURCE as Source } from "@artgod/shared/bootstrap/probe";
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND as SourceKind } from "@artgod/shared/types";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND as ScopeKind } from "@artgod/shared/extensions";
+import { defaultImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
+import { ProbeCollectionContractUseCase } from "./probe-collection-contract.js";
 import {
-    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
-    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
-    BOOTSTRAP_PROBE_READ_STATUS,
-    BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
-    ProbeCollectionContractUseCase,
-    type CollectionContractProbePort,
-    type ProbeCollectionExtensionResolverPort,
-} from "./probe-collection-contract.js";
-import type { CollectionContractProbeResult } from "./probe-collection-contract.js";
+    InspectBootstrapSampleUseCase,
+    type BootstrapSampleInspectionPort,
+} from "./inspect-bootstrap-sample.js";
 
-const CHAIN = {
-    id: 1,
-    type: "evm",
-    publicChainId: 1,
-    slug: "ethereum",
-    name: "Ethereum",
-};
-
-// Test extension key used to verify probe-time extension policy plumbing.
-const PROBE_TEST_EXTENSION_KEY = "probe-test-extension";
-const SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY = 198_051;
-const SHARED_ENUMERABLE_SAMPLE_TOKEN_ID = "282000000";
-
-describe("ProbeCollectionContractUseCase", () => {
-    it("marks enumerable contracts ready without manual input", async () => {
-        const useCase = makeUseCase({
-            contractName: "Example Collection",
-            enumerable: {
-                supported: true,
-                error: null,
-            },
-            totalSupply: {
-                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                value: "3",
-                safeIntegerValue: 3,
-                bootstrapRangeValue: 3,
-                error: null,
-            },
-            firstToken: {
-                tokenId: "1",
-                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
-                tokenUri: "data:application/json,%7B%7D",
-                tokenUriPayload: "{}",
-                tokenUriPayloadBytes: 100,
-                tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: null,
-                name: null,
-                imageSourceField: null,
-                image: null,
-                imageBytes: null,
-                imageBytesSource: null,
-                imageContentType: null,
-                imageBytesError: null,
-                imageWidth: null,
-                imageHeight: null,
-                animationSourceField: null,
-                animationUrl: null,
-                metadataError: null,
-                candidates: [],
-            },
+const resolver = { resolveChainRef: () => CHAIN };
+function fixture(existing: (id: string) => boolean | null = () => true) {
+    const metadata = bootstrapTestSample().sample;
+    const port: BootstrapSampleInspectionPort = {
+        observation: vi.fn(async () => OBSERVATION),
+        verifyObservation: vi.fn(async () => {}),
+        checkOwnership: vi.fn(async ({ tokenId }) => ({
+            tokenId,
+            exists: existing(tokenId),
+            error: existing(tokenId) === true ? null : "ownership failed",
+        })),
+        readMetadata: vi.fn(async () => metadata),
+    };
+    const extensions = {
+        resolveExtensionKey: vi.fn((): string | null => null),
+        resolveImageCachePolicyConfig: vi.fn(() =>
+            defaultImageCachePolicyConfig(),
+        ),
+    };
+    return {
+        port,
+        extensions,
+        inspector: new InspectBootstrapSampleUseCase(
+            1,
+            resolver,
+            port,
+            extensions,
+            "https://ipfs.io",
+        ),
+    };
+}
+describe("bootstrap probe use cases", () => {
+    it("discovers facts without sample or scope recommendations", async () => {
+        const discoverContract = vi.fn(async () => bootstrapTestContract());
+        const useCase = new ProbeCollectionContractUseCase(1, resolver, {
+            discoverContract,
         });
-
         const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: "0x1111111111111111111111111111111111111111",
+            chainRef: CHAIN.slug,
+            address: " " + ADDRESS.toUpperCase().replace("0X", "0x") + " ",
             standard: "erc721",
         });
-
-        expect(result.contractName).toBe("Example Collection");
-        expect(result.suggestedInput).toEqual({
-            supportsEnumerable: true,
-            manualInput: null,
-            ready: true,
-            warnings: [],
-        });
-        expect(result.storageEstimate).toEqual({
-            sampleTokenId: "1",
-            samplePayloadBytes: 100,
-            projectedBytes: "300",
-            totalSupply: "3",
-        });
-        expect(result.imageCacheSuggestion).toEqual({
-            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-            extensionKey: null,
-            config: defaultImageCachePolicyConfig(),
-        });
-        expect(result.imageStorageEstimate).toBeNull();
-    });
-
-    it("requires manual scope when an enumerable contract is probed with a custom sample", async () => {
-        const useCase = makeUseCase({
-            enumerable: {
-                supported: true,
-                error: null,
-            },
-            totalSupply: {
-                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                value: String(SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY),
-                safeIntegerValue: SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY,
-                bootstrapRangeValue: SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY,
-                error: null,
-            },
-            firstToken: {
-                tokenId: SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
-                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
-                tokenUri: "data:application/json,%7B%7D",
-                tokenUriPayload: "{}",
-                tokenUriPayloadBytes: 100,
-                tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: null,
-                name: "Memories of Qilin #0",
-                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-                image: "data:image/png;base64,aW1hZ2U=",
-                imageBytes: 5,
-                imageBytesSource: BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.DataUri,
-                imageContentType: "image/png",
-                imageBytesError: null,
-                imageWidth: 1,
-                imageHeight: 1,
-                animationSourceField: null,
-                animationUrl: null,
-                metadataError: null,
-                candidates: [],
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: "0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270",
-            standard: "erc721",
-            sampleTokenId: SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
-        });
-
-        expect(result.enumerable.supported).toBe(true);
-        expect(result.suggestedInput).toEqual({
-            supportsEnumerable: false,
-            manualInput: null,
-            ready: false,
-            warnings: [],
-        });
-        expect(result.storageEstimate).toBeNull();
-        expect(result.imageStorageEstimate).toBeNull();
-        expect(result.imageCacheSuggestion).toEqual({
-            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-            extensionKey: null,
-            config: defaultImageCachePolicyConfig(),
-        });
-    });
-
-    it("does not infer a range from current minted count and one sample", async () => {
-        const useCase = makeUseCase({
-            enumerable: {
-                supported: false,
-                error: null,
-            },
-            totalSupply: {
-                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                value: "999",
-                safeIntegerValue: 999,
-                bootstrapRangeValue: 999,
-                error: null,
-            },
-            firstToken: {
-                tokenId: "0",
-                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
-                tokenUri: "data:application/json,%7B%7D",
-                tokenUriPayload: "{}",
-                tokenUriPayloadBytes: 10,
-                tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: null,
-                name: null,
-                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-                image: null,
-                imageBytes: 2048,
-                imageBytesSource: BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.Download,
-                imageContentType: "image/png",
-                imageBytesError: null,
-                imageWidth: 1000,
-                imageHeight: 1000,
-                animationSourceField: null,
-                animationUrl: null,
-                metadataError: null,
-                candidates: [
-                    {
-                        tokenId: "0",
-                        exists: true,
-                        source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri,
-                        error: null,
-                    },
-                ],
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: "0x2222222222222222222222222222222222222222",
-            standard: "erc721",
-        });
-
-        expect(result.suggestedInput).toEqual({
-            supportsEnumerable: false,
-            manualInput: null,
-            ready: false,
-            warnings: [],
-        });
-        expect(result.imageStorageEstimate).toBeNull();
-    });
-
-    it("uses embedded extension image cache policy suggestions when the probed scope matches", async () => {
-        const extensionConfig: ImageCachePolicyConfig = {
-            imageCacheMode: IMAGE_CACHE_MODE.Off,
-            maxDimension: null,
-        };
-        const useCase = makeUseCase(
-            {
-                enumerable: {
-                    supported: true,
-                    error: null,
-                },
-                totalSupply: {
-                    status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                    value: "3",
-                    safeIntegerValue: 3,
-                    bootstrapRangeValue: 3,
-                    error: null,
-                },
-                firstToken: {
-                    tokenId: "1",
-                    source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
-                    tokenUri: "data:application/json,%7B%7D",
-                    tokenUriPayload: "{}",
-                    tokenUriPayloadBytes: 100,
-                    tokenUriPayloadTruncated: false,
-                    tokenUriPayloadError: null,
-                    name: null,
-                    imageSourceField: null,
-                    image: null,
-                    imageBytes: null,
-                    imageBytesSource: null,
-                    imageContentType: null,
-                    imageBytesError: null,
-                    imageWidth: null,
-                    imageHeight: null,
-                    animationSourceField: null,
-                    animationUrl: null,
-                    metadataError: null,
-                    candidates: [],
-                },
-            },
-            {
-                resolveExtensionKey(input) {
-                    expect(input.scope.kind).toBe(
-                        EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-                    );
-                    return PROBE_TEST_EXTENSION_KEY;
-                },
-                resolveImageCachePolicyConfig(input) {
-                    expect(input.extensionKey).toBe(PROBE_TEST_EXTENSION_KEY);
-                    return extensionConfig;
-                },
-            },
-        );
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: "0x3333333333333333333333333333333333333333",
-            standard: "erc721",
-        });
-
-        expect(result.imageCacheSuggestion).toEqual({
-            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
-            extensionKey: PROBE_TEST_EXTENSION_KEY,
-            config: extensionConfig,
-        });
-    });
-
-    it("forwards a canonical decimal sample token id to the contract probe", async () => {
-        const probeInputs: Array<{
-            sampleTokenId: string | null;
-        }> = [];
-        const useCase = makeUseCase(
-            {
-                enumerable: {
-                    supported: true,
-                    error: null,
-                },
-                totalSupply: {
-                    status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                    value: "3",
-                    safeIntegerValue: 3,
-                    bootstrapRangeValue: 3,
-                    error: null,
-                },
-            },
-            undefined,
-            (input) => {
-                probeInputs.push({
-                    sampleTokenId: input.sampleTokenId,
-                });
-            },
-        );
-
-        await useCase.probe({
-            chainRef: "ethereum",
-            address: "0x3333333333333333333333333333333333333333",
-            standard: "erc721",
-            sampleTokenId: "  00042  ",
-        });
-
-        expect(probeInputs).toEqual([
-            {
-                sampleTokenId: "42",
-            },
-        ]);
-    });
-
-    it("rejects a malformed sample before making RPC requests", async () => {
-        let reads = 0;
-        const useCase = makeUseCase({}, undefined, () => {
-            reads += 1;
-        });
+        expect(discoverContract).toHaveBeenCalledWith(ADDRESS);
+        expect(result).not.toHaveProperty("firstToken");
+        expect(result).not.toHaveProperty("suggestedInput");
         await expect(
             useCase.probe({
-                chainRef: "ethereum",
-                address: "0x3333333333333333333333333333333333333333",
+                chainRef: CHAIN.slug,
+                address: "bad",
                 standard: "erc721",
-                sampleTokenId: "token-42",
             }),
-        ).rejects.toThrow("valid decimal sample token ID");
-        expect(reads).toBe(0);
+        ).rejects.toThrow("Invalid address");
+        await expect(
+            useCase.probe({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                standard: "erc1155" as "erc721",
+            }),
+        ).rejects.toThrow("Only erc721");
     });
-
-    it("does not infer collection scope from a custom sample token id", async () => {
-        const useCase = makeUseCase({
-            enumerable: {
-                supported: false,
-                error: null,
-            },
-            totalSupply: {
-                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                value: "999",
-                safeIntegerValue: 999,
-                bootstrapRangeValue: 999,
-                error: null,
-            },
-            firstToken: {
-                tokenId: "42",
-                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
-                tokenUri: "data:application/json,%7B%7D",
-                tokenUriPayload: "{}",
-                tokenUriPayloadBytes: 10,
-                tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: null,
-                name: null,
-                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-                image: null,
-                imageBytes: null,
-                imageBytesSource: null,
-                imageContentType: null,
-                imageBytesError: null,
-                imageWidth: null,
-                imageHeight: null,
-                animationSourceField: null,
-                animationUrl: null,
-                metadataError: null,
-                candidates: [],
-            },
+    it.each([true, false, null])(
+        "inspects exactly the explicit override for ownership %s",
+        async (exists) => {
+            const { inspector, port } = fixture(() => exists);
+            const result = await inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                requestedTokenId: " 00042 ",
+                discoveredTokenId: "0",
+            });
+            expect(result.requestedTokenId).toBe("42");
+            expect(result.sample.tokenId).toBe("42");
+            expect(result.sample.source).toBe(Source.Requested);
+            expect(port.checkOwnership).toHaveBeenCalledTimes(1);
+            expect(port.readMetadata).toHaveBeenCalledTimes(
+                exists === true ? 1 : 0,
+            );
+            expect(result.sample.ownership?.exists).toBe(exists);
+        },
+    );
+    it.each(BOOTSTRAP_CONTRACT_CASES)(
+        "keeps $name scope through metadata failure and retries",
+        async (c) => {
+            const { inspector, port, extensions } = fixture(
+                (id) => id === c.sample,
+            );
+            vi.mocked(port.readMetadata).mockResolvedValue({
+                ...bootstrapTestSample().sample,
+                tokenUriPayload: null,
+                tokenUriPayloadError: "HTTP 429",
+            });
+            const scope = {
+                mode: Mode.ManualRange,
+                startTokenId: c.start,
+                tokenCount: c.count,
+            } as const;
+            const result = await inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: c.address,
+                scope,
+                requestedTokenId: c.sample,
+                discoveredTokenId: "0",
+            });
+            expect(result.scope).toEqual(scope);
+            expect(result.sample.tokenUriPayloadError).toBe("HTTP 429");
+            expect(extensions.resolveExtensionKey).toHaveBeenCalledWith({
+                chainId: 1,
+                contractAddress: c.address,
+                scope: {
+                    kind: ScopeKind.TokenRange,
+                    startTokenId: c.start,
+                    totalSupply: c.count,
+                },
+            });
+            expect(result.sample.ownership?.exists).toBe(true);
+        },
+    );
+    it("prefers a present token from a declared list and retains an outside fallback when none exists", async () => {
+        const { inspector, port } = fixture((id) => id === "7" || id === "100");
+        const scope = {
+            mode: Mode.ManualTokenIds,
+            tokenIds: ["5", "7", "9"],
+        } as const;
+        const first = await inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            scope: { ...scope, tokenIds: [...scope.tokenIds] },
+            discoveredTokenId: "100",
         });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: "0x3333333333333333333333333333333333333333",
-            standard: "erc721",
-            sampleTokenId: "42",
+        expect(first.sample.tokenId).toBe("7");
+        expect(
+            vi.mocked(port.checkOwnership).mock.calls.map(([p]) => p.tokenId),
+        ).toEqual(["5", "7"]);
+        const outside = await inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            scope: {
+                mode: Mode.ManualRange,
+                startTokenId: "1000",
+                tokenCount: 1000,
+            },
+            discoveredTokenId: "100",
         });
-
-        expect(result.suggestedInput).toEqual({
-            supportsEnumerable: false,
-            manualInput: null,
-            ready: false,
-            warnings: [],
+        expect(outside.sample.tokenId).toBe("100");
+        const none = await fixture(() => false).inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
         });
+        expect(none.sample.tokenId).toBeNull();
+    });
+    it.each(["-1", "1.5", "1e3", "token-42", "0x2", "9".repeat(79)])(
+        "rejects malformed sample %s before RPC",
+        async (requestedTokenId) => {
+            const { inspector, port } = fixture();
+            await expect(
+                inspector.inspect({
+                    chainRef: CHAIN.slug,
+                    address: ADDRESS,
+                    requestedTokenId,
+                }),
+            ).rejects.toThrow("decimal sample");
+            expect(port.observation).not.toHaveBeenCalled();
+        },
+    );
+    it("rejects invalid scope before RPC and scopes extension suggestions to the entered definition", async () => {
+        const { inspector, port, extensions } = fixture();
+        await expect(
+            inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                scope: {
+                    mode: Mode.ManualRange,
+                    startTokenId: "0",
+                    tokenCount: 0,
+                },
+            }),
+        ).rejects.toThrow();
+        expect(port.observation).not.toHaveBeenCalled();
+        extensions.resolveExtensionKey.mockReturnValue("test-extension");
+        const result = await inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            scope: { mode: Mode.Enumerable },
+        });
+        expect(result.imageCacheSuggestion.selectedSource).toBe(
+            SourceKind.Extension,
+        );
+        expect(result.sample.tokenId).toBeNull();
     });
 });
-
-function makeUseCase(
-    overrides: Partial<CollectionContractProbeResult>,
-    extensionResolver: ProbeCollectionExtensionResolverPort = {
-        resolveExtensionKey() {
-            return null;
-        },
-        resolveImageCachePolicyConfig() {
-            return null;
-        },
-    },
-    onProbeInput: (
-        input: Parameters<
-            CollectionContractProbePort["probeErc721Contract"]
-        >[0],
-    ) => void = () => {},
-) {
-    const probe: CollectionContractProbeResult = {
-        proxy: null,
-        contractName: null,
-        erc721: {
-            supported: true,
-            error: null,
-        },
-        enumerable: {
-            supported: false,
-            error: null,
-        },
-        totalSupply: {
-            status: BOOTSTRAP_PROBE_READ_STATUS.Unavailable,
-            value: null,
-            safeIntegerValue: null,
-            bootstrapRangeValue: null,
-            error: "missing",
-        },
-        firstToken: {
-            tokenId: null,
-            source: null,
-            tokenUri: null,
-            tokenUriPayload: null,
-            tokenUriPayloadBytes: null,
-            tokenUriPayloadTruncated: false,
-            tokenUriPayloadError: null,
-            name: null,
-            imageSourceField: null,
-            image: null,
-            imageBytes: null,
-            imageBytesSource: null,
-            imageContentType: null,
-            imageBytesError: null,
-            imageWidth: null,
-            imageHeight: null,
-            animationSourceField: null,
-            animationUrl: null,
-            metadataError: null,
-            candidates: [],
-        },
-        ...overrides,
-    };
-    return new ProbeCollectionContractUseCase(
-        1,
-        {
-            resolveChainRef() {
-                return CHAIN;
-            },
-        },
-        {
-            async probeErc721Contract(input) {
-                onProbeInput(input);
-                return probe;
-            },
-        },
-        extensionResolver,
-    );
-}

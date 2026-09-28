@@ -1,3 +1,4 @@
+import type { BootstrapScope } from "@artgod/shared/bootstrap/scope";
 import {
     COLLECTION_STANDARD,
     type ChainRecord,
@@ -35,17 +36,6 @@ export type {
     BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 
-export type BootstrapManualInput =
-    | {
-          mode: "manual_token_ids";
-          tokenIds: string[];
-      }
-    | {
-          mode: "manual_range";
-          startTokenId: string;
-          totalSupply: number;
-      };
-
 export type CreateBootstrapRunInput = {
     chainRef: string;
     slug: string;
@@ -55,8 +45,7 @@ export type CreateBootstrapRunInput = {
     animationSourceField?: string | null;
     standard: typeof COLLECTION_STANDARD.Erc721;
     metadataMode: BootstrapMetadataMode;
-    supportsEnumerable: boolean;
-    manualInput?: BootstrapManualInput;
+    scope: BootstrapScope;
     imageCache?: {
         selectedSource: CollectionCustomizationSourceKind;
         imageCacheMode: ImageCacheMode;

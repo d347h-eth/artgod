@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_ENUMERATION_MODE,
 	BOOTSTRAP_STEP_ACTION,
@@ -19,7 +20,6 @@ import {
 	BOOTSTRAP_PROBE_CONTRACTS,
 	BOOTSTRAP_PROBE_MEDIA,
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
-	BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE,
 	installBootstrapProbeApiMock
 } from './helpers/bootstrap-probe-api';
 import {
@@ -38,12 +38,11 @@ import {
 	COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH
 } from '../src/lib/e2e/collection-opensea-sync-fixtures';
 import { BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT } from '../src/lib/bootstrap-contract-probe';
+import { BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM } from '../src/lib/e2e/bootstrap-probe-fixtures';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 // Confirms the late-sync slug field uses the wider shared slug-input control.
 const COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX = 250;
-const SHARED_ENUMERABLE_SAMPLE_TOKEN_ID = '282000000';
-const SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY = '1024';
 
 test.beforeEach(({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
@@ -54,463 +53,635 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
-	test('retains the definition after queue submission fails and lets the user retry', async ({
+	test('locks the entire form and retains entered values when acknowledgement is removed', async ({
 		page
-	}, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+	}, info) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+		await expectFormLocked(page);
+		await page.screenshot({ path: info.outputPath('locked.png'), fullPage: true });
+		await contractAddressSafetyAcknowledgement(page).check();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-slug').fill('aeon');
+		await contractAddressSafetyAcknowledgement(page).uncheck();
+		await expectFormLocked(page);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('aeon');
+		expect(api.probeRequests).toEqual([]);
+	});
+
+	test('queues a complete manual definition without probes, sample or estimate', async ({
+		page
+	}, info) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-sample').fill('');
+		await expect(queueButton(page)).toBeEnabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('manual-ready.png'), fullPage: true });
+		await queueButton(page).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0].body).toMatchObject({
+			scope: { mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange, startTokenId: '1', tokenCount: 999 },
+			imageSourceField: 'image'
+		});
+		expect(api.probeRequests).toEqual([]);
+		expect(api.sampleRequests).toEqual([]);
+	});
+
+	test('keeps failed submissions editable and supports retry', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
 		await page.route(
 			'**/collections/bootstrap',
-			(route) =>
-				route.fulfill({
-					status: 503,
-					contentType: 'application/json',
-					body: JSON.stringify({ error: 'unavailable' })
-				}),
+			(route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
 			{ times: 1 }
 		);
 		await queueButton(page).click();
 		await expect(
 			page.getByText('Bootstrap could not be queued. Press queue bootstrap to retry.')
 		).toBeVisible();
-		await expect(queueButton(page)).toBeEnabled();
-		await expect(rowControl(page, 'Token count')).toHaveValue('999');
-		await expect(rowControl(page, 'Image source field')).toHaveValue('image');
-		await page.screenshot({ path: testInfo.outputPath('queue-retry.png'), fullPage: true });
-		let releaseQueue!: () => void;
-		const queueGate = new Promise<void>((resolve) => {
-			releaseQueue = resolve;
-		});
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
+		await queueButton(page).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+	});
+
+	test('shows contract findings while sample metadata is still loading', async ({ page }, info) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
 		await page.route(
-			'**/collections/bootstrap',
+			'**/collections/bootstrap/sample',
 			async (route) => {
-				await queueGate;
+				await gate;
 				await route.fallback();
 			},
 			{ times: 1 }
 		);
-		await queueButton(page).click();
-		await expect(queueButton(page)).toHaveAttribute('aria-busy', 'true');
-		await expect(queueButton(page).getByRole('img', { name: 'queueing bootstrap' })).toBeVisible();
-		await expect(queueButton(page)).toBeDisabled();
-		releaseQueue();
-		await expect.poll(() => api.mutations.length).toBe(1);
-	});
-
-	test('queues the entered definition without a sample, probe or cache estimate', async ({
-		page
-	}, testInfo) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await page.locator('input[name="sampleTokenId"]').clear();
-		await rowControl(page, 'Animation source field (optional)').fill('generator_url');
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
-		await expect(queueButton(page)).toBeEnabled();
-		for (const title of ['1. Contract', '2. Token scope', '3. Collection details']) {
-			await expect(page.getByRole('region', { name: new RegExp(title) })).toContainText('complete');
-		}
+		await probeButton(page).click();
+		await expect(
+			formRow(page, 'Token count').getByRole('button', { name: 'apply "3333"' })
+		).toBeVisible();
+		await expect(page.getByRole('button', { name: 'inspect', exact: true })).toContainText(
+			'inspecting'
+		);
+		await expect(
+			page
+				.getByRole('button', { name: 'inspect', exact: true })
+				.getByRole('img', { name: 'inspecting sample' })
+		).toBeVisible();
+		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
 		await page.screenshot({
-			path: testInfo.outputPath('manual-ready-no-checks.png'),
+			path: info.outputPath('contract-ready-sample-loading.png'),
 			fullPage: true
 		});
-		await queueButton(page).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).toMatchObject({
-			address: BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
-			slug: 'curated-collection',
-			imageSourceField: 'image',
-			animationSourceField: 'generator_url',
-			supportsEnumerable: false,
-			manualInput: {
-				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-				startTokenId: '1',
-				totalSupply: 999
-			},
-			imageCache: { imageCacheMode: IMAGE_CACHE_MODE.CacheOnce, maxDimension: 1080 }
-		});
-		expect(api.probeRequests).toEqual([]);
-		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
-		expect(api.imageCacheEstimateRequests).toEqual([]);
+		release();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		expect(api.probeRequests).toHaveLength(1);
 	});
 
-	test('guides initial setup and keeps validation in its owning section', async ({
+	test('uses an automatic sample without applying it and applies scope suggestions independently', async ({
 		page
-	}, testInfo) => {
+	}, info) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
-		await expect(page.getByRole('navigation', { name: 'Bootstrap setup progress' })).toHaveCount(0);
-		await expect(page.getByRole('heading', { name: 'New collection' })).toHaveCount(0);
-		await expectFormLocked(page);
-		await expect(probeButton(page)).toBeDisabled();
-		await expect(queueButton(page)).toBeDisabled();
-		await page.screenshot({ path: testInfo.outputPath('initial-setup.png'), fullPage: true });
 		await contractAddressSafetyAcknowledgement(page).check();
-		await expect(page.locator('input[name="address"]')).toBeEnabled();
-		await page.locator('input[name="address"]').fill(BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
-		await expect(probeButton(page)).toBeEnabled();
-		await rowControl(page, 'Token count').fill('999');
-		await page.locator('input[name="slug"]').fill('bad slug');
-		await rowControl(page, 'Image source field').fill('image');
-		await expect(page.getByRole('region', { name: /3. Collection details/ })).toContainText(
-			'Use letters'
-		);
-		await expect(queueButton(page)).toBeDisabled();
-		await page.locator('input[name="slug"]').fill('collection');
-		await rowControl(page, 'Max dimension (px)').fill('1');
-		await expect(page.getByRole('region', { name: /4. Image cache/ })).toContainText('Enter 64');
-		await expect(queueButton(page)).toBeDisabled();
-		await rowControl(page, 'Max dimension (px)').clear();
-		await expect(queueButton(page)).toBeEnabled();
-		await contractAddressSafetyAcknowledgement(page).uncheck();
-		await expect(queueButton(page)).toBeDisabled();
-		await expectFormLocked(page);
-		await expect(page.locator('input[name="slug"]')).toHaveValue('collection');
-		expect(api.probeRequests).toEqual([]);
-		expect(api.imageCacheEstimateRequests).toEqual([]);
-	});
-
-	test('allows explicit whole-contract enumeration before probing and warns on unsupported evidence', async ({
-		page
-	}, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await rowControl(page, 'Token scope').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
-		await expect(rowControl(page, 'First token ID')).toHaveCount(0);
-		await expect(queueButton(page)).toBeEnabled();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
 		await probeButton(page).click();
-		await expect(page.getByRole('region', { name: /2. Token scope/ })).toContainText(
-			'ERC721Enumerable support was not confirmed'
-		);
-		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({
-			path: testInfo.outputPath('enumerable-unconfirmed.png'),
-			fullPage: true
-		});
-		await rowControl(page, 'Token scope').selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualRange);
-		await expect(rowControl(page, 'Token count')).toHaveValue('999');
-		await rowControl(page, 'Token scope').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
-		await queueButton(page).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).toMatchObject({ supportsEnumerable: true });
-		expect(api.mutations[0].body).not.toHaveProperty('manualInput');
-	});
-
-	test('does not expand a shared Enumerable contract to its full scope', async ({ page }) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-		await page.locator('input[name="sampleTokenId"]').fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await rowControl(page, 'First token ID').fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await rowControl(page, 'Token count').fill(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY);
-		await probeButton(page).click();
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(rowControl(page, 'Token scope')).toHaveValue(
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('');
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await formRow(page, 'Token count').getByRole('button', { name: 'apply "10000"' }).click();
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await formRow(page, 'First token ID').getByRole('button', { name: 'apply "0"' }).click();
+		await formRow(page, 'Image source field')
+			.getByRole('button', { name: 'apply "image"' })
+			.click();
+		await formRow(page, 'Collection slug').getByRole('button', { name: 'apply "milady"' }).click();
+		await formRow(page, 'Animation source field (optional)')
+			.getByRole('button', { name: 'apply "animation_url"' })
+			.click();
+		await expect(page.locator('#bootstrap-animation-field')).toHaveValue('animation_url');
+		await formRow(page, 'Sample token ID').getByRole('button', { name: 'apply "0"' }).click();
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('0');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('10000');
+		expect(api.sampleRequests).toHaveLength(1);
+		await expect(page.getByRole('button', { name: 'estimate', exact: true })).toBeEnabled();
+		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
 			BOOTSTRAP_ENUMERATION_MODE.ManualRange
 		);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('suggestions-ready.png'), fullPage: true });
+		await formRow(page, 'Token scope')
+			.getByRole('button', { name: 'apply "entire contract"' })
+			.click();
+		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+			BOOTSTRAP_ENUMERATION_MODE.Enumerable
+		);
 		await queueButton(page).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0].body).toMatchObject({
-			supportsEnumerable: false,
-			manualInput: {
-				startTokenId: SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
-				totalSupply: Number(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY)
-			}
+			scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable }
 		});
 	});
 
-	test('keeps an unminted sample warning separate from the intended range', async ({
+	test('keeps contract findings when a sample changes and field edits re-use downloaded metadata', async ({
 		page
-	}, testInfo) => {
+	}) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await page.locator('#bootstrap-image-field').fill('image_url');
+		await expect(formRow(page, 'Image source field')).toContainText('found in sample');
+		await page.locator('#bootstrap-animation-field').fill('generator_url');
+		await expect(formRow(page, 'Animation source field (optional)')).toContainText(
+			'found in sample'
+		);
+		expect(api.sampleRequests).toHaveLength(1);
+		await page.locator('#bootstrap-sample').fill('42');
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+		await expect(formRow(page, 'Contract total supply')).toContainText('10000');
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		expect(api.probeRequests).toHaveLength(1);
+		expect(api.sampleRequests.map((r) => r.requestedTokenId)).toEqual(['2', '42']);
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+	});
+
+	test('preserves a Meridian range and resolves OpenSea through its effective sample', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page.locator('#bootstrap-sample').fill('');
+		await page.locator('#bootstrap-range-start').fill('163000000');
+		await page.locator('#bootstrap-range-count').fill('1000');
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-opensea')).toContainText('resolved');
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('163000000');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
+		await expect(formRow(page, 'Contract total supply')).toContainText('200000');
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual(['163000000']);
+		await expect(page.getByRole('button', { name: 'resolve', exact: true })).toHaveCount(0);
+		await page.screenshot({ path: info.outputPath('meridian-resolved.png'), fullPage: true });
+		await queueButton(page).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0].body).toMatchObject({
+			scope: {
+				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+				startTokenId: '163000000',
+				tokenCount: 1000
+			},
+			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+		});
+	});
+
+	test('keeps the sparse declared range when low IDs are absent', async ({ page }, info) => {
 		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.PartiallyMinted);
-		await page
-			.locator('input[name="sampleTokenId"]')
-			.fill(BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE.absentSampleTokenId);
+		await page.locator('#bootstrap-range-start').fill('0');
+		await page.locator('#bootstrap-range-count').fill('1000');
+		await page.locator('#bootstrap-sample').fill('0');
 		await probeButton(page).click();
 		await expect(sampleTokenInputRow(page)).toContainText('no owner found');
-		await expect(page.getByRole('region', { name: /1. Contract/ })).toContainText(
-			'Sample token has no owner'
-		);
 		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({ path: testInfo.outputPath('unminted-sample.png'), fullPage: true });
-		await page
-			.locator('input[name="sampleTokenId"]')
-			.fill(BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE.sampleTokenId);
-		await expect(page.getByText('inputs changed — probe again')).toBeVisible();
-		await probeButton(page).click();
-		await expect(sampleTokenInputRow(page)).toContainText('owner confirmed');
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(rowControl(page, 'First token ID')).toHaveValue('1');
-		await expect(rowControl(page, 'Token count')).toHaveValue('999');
-		expect(api.probeRequestSampleTokenIds).toEqual(['1', '2']);
-	});
-
-	test('applies each suggested value independently with aligned inputs and actions', async ({
-		page
-	}, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-		await rowControl(page, 'Image source field').clear();
-		await page.locator('input[name="sampleTokenId"]').clear();
-		await probeButton(page).click();
-		const suggestions = [
-			[sampleTokenInputRow(page), '0'],
-			[formRow(page, 'Image source field'), 'image'],
-			[formRow(page, 'Animation source field (optional)'), 'animation_url']
-		] as const;
-		for (const [row, value] of suggestions) {
-			const button = row.getByRole('button', { name: `apply "${value}"`, exact: true });
-			await expect(button).toBeVisible();
-			await expect(button).toHaveClass('action-button-positive');
-			await expectSuggestionLabelFits(button);
-		}
-		await expectGridAlignment(page);
-		await page.screenshot({ path: testInfo.outputPath('field-suggestions.png'), fullPage: true });
-		await suggestions[1][0].getByRole('button', { name: 'apply "image"', exact: true }).click();
-		await expect(rowControl(page, 'Image source field')).toHaveValue('image');
-		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('');
-		await suggestions[0][0].getByRole('button', { name: 'apply "0"', exact: true }).click();
-		await suggestions[2][0]
-			.getByRole('button', { name: 'apply "animation_url"', exact: true })
-			.click();
-		const slugApply = formRow(page, 'Collection slug').getByRole('button', { name: /^apply "/ });
-		const suggestedSlug = await slugApply.locator('code').textContent();
-		await slugApply.click();
-		await expect(page.locator('input[name="slug"]')).toHaveValue(suggestedSlug!.slice(1, -1));
-		await expect(slugApply).toBeDisabled();
-		await expect(rowControl(page, 'Token count')).toHaveValue('999');
+		await page.screenshot({ path: info.outputPath('sparse-absent-sample.png'), fullPage: true });
+		await page.locator('#bootstrap-sample').fill('10');
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
+		await expect(formRow(page, 'Contract total supply')).toContainText('704');
 		expect(api.probeRequests).toHaveLength(1);
-		expect(api.imageCacheEstimateRequests).toEqual([]);
-		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
-		await page.locator('input[name="sampleTokenId"]').fill('2');
-		await expect(
-			formRow(page, 'Image source field').getByRole('button', { name: /^apply / })
-		).toHaveCount(0);
-		await expect(queueButton(page)).toBeEnabled();
 	});
 
-	test('keeps long suggestions on one line and exposes their full value', async ({
+	test('keeps AEON supply/start suggestions and manual queueing after metadata HTTP 429', async ({
 		page
-	}, testInfo) => {
-		const imageField = 'ArtworkSourceWithCaseSensitivePropertyName';
-		const contractName = 'A'.repeat(64);
-		await installBootstrapProbeApiMock(page, (response) => ({
-			...response,
-			contractName,
-			firstToken: { ...response.firstToken, imageSourceField: imageField }
-		}));
-		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await rowControl(page, 'Image source field').clear();
-		await probeButton(page).click();
-		const imageApply = formRow(page, 'Image source field').getByRole('button', {
-			name: `apply "${imageField}"`,
-			exact: true
+	}, info) => {
+		const api = await installBootstrapProbeApiMock(page, {
+			sample: (r) => ({
+				...r,
+				sample: {
+					...r.sample,
+					tokenUriPayload: null,
+					tokenUriPayloadBytes: null,
+					tokenUriPayloadError: 'Metadata download failed (HTTP 429). Press inspect to retry.'
+				}
+			})
 		});
-		const slugApply = formRow(page, 'Collection slug').getByRole('button', {
-			name: `apply "${contractName.toLowerCase()}"`,
-			exact: true
-		});
-		for (const button of [imageApply, slugApply]) {
-			await expect(button).toBeVisible();
-			await expect(button.locator('code')).toHaveCSS('text-transform', 'none');
-			await expect(button).toHaveAttribute('title', await button.innerText());
-			await expectSuggestionLabelFits(button);
-		}
-		await expectGridAlignment(page);
-		await page.screenshot({ path: testInfo.outputPath('long-suggestions.png'), fullPage: true });
-		await imageApply.click();
-		await expect(rowControl(page, 'Image source field')).toHaveValue(imageField);
-	});
-
-	test('offers AEON contract supply even when metadata returns 429 and queues the entered fields', async ({
-		page
-	}, testInfo) => {
-		const api = await installBootstrapProbeApiMock(page, (response) => ({
-			...response,
-			contractName: 'Project AEON',
-			firstToken: {
-				...response.firstToken,
-				tokenUriPayload: null,
-				tokenUriPayloadBytes: null,
-				image: null,
-				imageSourceField: null,
-				animationUrl: null,
-				animationSourceField: null,
-				tokenUriPayloadError:
-					'Metadata download failed (HTTP 429). Check the IPFS gateway in Admin config, restart infra after changes, then press probe.'
-			}
-		}));
 		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
-		await page.locator('input[name="sampleTokenId"]').fill('1');
-		await rowControl(page, 'Token count').clear();
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
 		await probeButton(page).click();
-		await expect(sampleTokenInputRow(page)).toContainText('owner confirmed');
-		const contract = page.getByRole('region', { name: /1. Contract/ });
-		await expect(contract).toContainText('Metadata download failed (HTTP 429)');
-		await expect(contract).toContainText('You can still queue bootstrap');
-		await expect(rowControl(page, 'Token count')).toHaveValue('');
-		await expect(queueButton(page)).toBeDisabled();
-		await formRow(page, 'Token count').getByRole('button', { name: 'apply "3333"' }).click();
-		await expect(rowControl(page, 'Token count')).toHaveValue('3333');
-		await expect(rowControl(page, 'First token ID')).toHaveValue('1');
-		await expect(page.getByRole('complementary', { name: 'tokenURI response' })).toContainText(
-			'No response available'
-		);
+		await expect(page.getByRole('alert')).toContainText('HTTP 429');
+		await expect(
+			formRow(page, 'Token count').getByRole('button', { name: 'apply "3333"' })
+		).toBeVisible();
+		await expect(
+			formRow(page, 'First token ID').getByRole('button', { name: 'apply "1"' })
+		).toBeVisible();
 		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({ path: testInfo.outputPath('metadata-429-ready.png'), fullPage: true });
+		await page.screenshot({ path: info.outputPath('aeon-metadata-429.png'), fullPage: true });
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		await expect.poll(() => api.sampleRequests.length).toBe(2);
+		expect(api.probeRequests).toHaveLength(1);
+	});
+
+	test('rejects malformed sample locally while allowing complete manual setup', async ({
+		page
+	}) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-sample').fill('-1');
+		await probeButton(page).click();
+		await expect(page.getByRole('alert')).toContainText('valid decimal sample token ID');
+		await expect(formRow(page, 'Contract total supply')).toContainText('3333');
+		expect(api.sampleRequests).toEqual([]);
+		await expect(queueButton(page)).toBeEnabled();
+	});
+
+	test('retains measured images across count edits and suppresses totals/OpenSea outside scope', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await page.locator('#bootstrap-sample').fill('1000');
+		await page.locator('#bootstrap-range-count').fill('10000');
+		await probeButton(page).click();
+		const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+		await expect(estimate).toBeEnabled();
+		await estimate.click();
+		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('9.77 MB');
+		await page.locator('#bootstrap-range-count').fill('2000');
+		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('1.95 MB');
+		expect(api.imageCacheEstimateRequests).toHaveLength(1);
+		expect(api.imageCacheEstimateRequests[0]).not.toHaveProperty('totalSupply');
+		await page.locator('#bootstrap-range-count').fill('500');
+		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('not available');
+		await expect(estimate).toBeDisabled();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-opensea')).toContainText('will be skipped');
+		await expect(queueButton(page)).toBeEnabled();
+		await page.screenshot({ path: info.outputPath('sample-outside-scope.png'), fullPage: true });
+		await page.locator('#bootstrap-range-count').fill('2000');
+		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('1.95 MB');
+		await expect(estimate).toBeEnabled();
+		await expect(page.locator('#bootstrap-opensea')).toContainText('resolved');
+		expect(api.imageCacheEstimateRequests).toHaveLength(1);
+		expect(api.sampleRequests).toHaveLength(1);
+		await page.locator('#bootstrap-range-count').fill('500');
 		await queueButton(page).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).toMatchObject({
-			imageSourceField: 'image',
-			manualInput: { startTokenId: '1', totalSupply: 3333 },
-			imageCache: { imageCacheMode: IMAGE_CACHE_MODE.CacheOnce }
-		});
+		expect(api.mutations[0].body).not.toHaveProperty('openseaSlug');
 	});
 
-	test('keeps the grid at narrow and desktop widths', async ({ page }, testInfo) => {
-		await installBootstrapProbeApiMock(page, (response) => ({
-			...response,
-			contractName: 'Project AEON'
-		}));
-		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await page.locator('input[name="sampleTokenId"]').clear();
-		await rowControl(page, 'Image source field').clear();
-		await probeButton(page).click();
-		for (const viewport of [
-			{ width: 764, height: 1148 },
-			{ width: 773, height: 1038 },
-			{ width: 1200, height: 900 },
-			{ width: 1440, height: 900 }
-		]) {
-			await page.setViewportSize(viewport);
-			await expectGridAlignment(page);
-			await page.screenshot({
-				path: testInfo.outputPath(`form-width-${viewport.width}.png`),
-				fullPage: true
-			});
-		}
-	});
-
-	test('allows queueing after a failed RPC probe and explicit retry', async ({
-		page
-	}, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await page.route(
-			'**/collections/bootstrap/probe?**',
-			(route) =>
-				route.fulfill({
-					status: 422,
-					contentType: 'application/json',
-					body: JSON.stringify({ error: 'unavailable' })
-				}),
-			{ times: 1 }
-		);
-		await probeButton(page).click();
-		await expect(page.getByRole('region', { name: /1. Contract/ })).toContainText('probe failed');
-		await expect(queueButton(page)).toBeEnabled();
-		await expect(rowControl(page, 'Token count')).toHaveValue('999');
-		await page.screenshot({ path: testInfo.outputPath('rpc-failure.png'), fullPage: true });
-		await probeButton(page).click();
-		await expect(sampleTokenInputRow(page)).toContainText('owner confirmed');
-		expect(api.probeRequests).toHaveLength(1);
-	});
-
-	for (const status of [502, 500]) {
-		test(`queues and retries after cache estimate HTTP ${status}`, async ({ page }, testInfo) => {
+	for (const status of [400, 502])
+		test('retries image processing failure ' + status, async ({ page }, info) => {
 			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
 			await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
 			await probeButton(page).click();
-			await expect(formRow(page, 'Image source field')).toContainText('found in sample');
+			const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+			await expect(estimate).toBeEnabled();
 			await page.route(
 				'**/collections/bootstrap/image-cache-estimate',
 				(route) =>
 					route.fulfill({
 						status,
 						contentType: 'application/json',
-						body: JSON.stringify({
-							error: 'image_cache_estimate_failed',
-							message:
-								status === 502
-									? 'Image download failed (HTTP 429). Press estimate to retry.'
-									: 'Internal server error'
-						})
+						body: JSON.stringify({ message: 'Image processing failed. Press estimate to retry.' })
 					}),
 				{ times: 1 }
 			);
-			const estimate = page.getByRole('button', { name: 'estimate', exact: true });
 			await estimate.click();
-			await expect(page.getByRole('region', { name: /4. Image cache/ })).toContainText(
-				'Bootstrap can still be queued'
-			);
+			await expect(page.locator('#bootstrap-cache')).toContainText('Image processing failed');
 			await expect(queueButton(page)).toBeEnabled();
-			await expect(estimate).toBeEnabled();
-			await page.screenshot({ path: testInfo.outputPath('estimate-failure.png'), fullPage: true });
+			await page.screenshot({ path: info.outputPath('image-failure.png'), fullPage: true });
 			await estimate.click();
-			await expect(formRow(page, 'Max dimension (px)')).toContainText('estimated');
-			await expect(queueButton(page)).toBeEnabled();
+			await expect(formRow(page, 'Cached image (1 token)')).toContainText('1.00 KB');
 			expect(api.imageCacheEstimateRequests).toHaveLength(1);
-			await rowControl(page, 'Token count').fill('3333');
-			await expect(formRow(page, 'Max dimension (px)')).toContainText('not estimated');
-			await expect(queueButton(page)).toBeEnabled();
 		});
-	}
 
-	test('shows pending checks inside their actions and discards stale responses', async ({
+	test('drops late contract and sample responses after identity edits and re-locking', async ({
 		page
-	}, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
-		let releaseProbe!: () => void;
-		const probeGate = new Promise<void>((resolve) => {
-			releaseProbe = resolve;
-		});
+	}, info) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		let release!: () => void;
+		let gate = new Promise<void>((resolve) => (release = resolve));
 		await page.route(
 			'**/collections/bootstrap/probe?**',
 			async (route) => {
-				await probeGate;
+				await gate;
 				await route.fallback();
 			},
 			{ times: 1 }
 		);
 		await probeButton(page).click();
 		await expect(probeButton(page)).toContainText('probing');
-		await expect(probeButton(page)).toHaveAttribute('aria-busy', 'true');
-		await expect(probeButton(page).getByRole('img', { name: 'probing contract' })).toBeVisible();
-		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({ path: testInfo.outputPath('probe-pending.png'), fullPage: true });
-		await page.locator('input[name="sampleTokenId"]').fill('3');
-		const staleProbe = page.waitForResponse('**/collections/bootstrap/probe?**');
-		releaseProbe();
-		await staleProbe;
-		await expect(formRow(page, 'Image source field')).not.toContainText('found in sample');
-		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('3');
-		await probeButton(page).click();
-		await expect(formRow(page, 'Image source field')).toContainText('found in sample');
-		let releaseEstimate!: () => void;
-		const estimateGate = new Promise<void>((resolve) => {
-			releaseEstimate = resolve;
-		});
+		await page.screenshot({ path: info.outputPath('contract-loading.png'), fullPage: true });
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		release();
+		await expect(formRow(page, 'Contract total supply')).toHaveCount(0);
+		gate = new Promise<void>((resolve) => (release = resolve));
 		await page.route(
-			'**/collections/bootstrap/image-cache-estimate',
+			'**/collections/bootstrap/sample',
 			async (route) => {
-				await estimateGate;
+				await gate;
 				await route.fallback();
 			},
 			{ times: 1 }
 		);
-		await page.getByRole('button', { name: 'estimate', exact: true }).click();
-		const estimate = page.getByRole('button', { name: 'estimate', exact: true });
-		await expect(estimate).toContainText('estimating');
-		await expect(estimate).toHaveAttribute('aria-busy', 'true');
-		await expect(estimate.getByRole('img')).toBeVisible();
+		await probeButton(page).click();
+		await expect(page.getByRole('button', { name: 'inspect', exact: true })).toContainText(
+			'inspecting'
+		);
+		await contractAddressSafetyAcknowledgement(page).uncheck();
+		release();
+		await expectFormLocked(page);
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+		await contractAddressSafetyAcknowledgement(page).check();
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
 		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({ path: testInfo.outputPath('estimate-pending.png'), fullPage: true });
-		await rowControl(page, 'Token count').fill('3333');
-		const staleEstimate = page.waitForResponse('**/collections/bootstrap/image-cache-estimate');
-		releaseEstimate();
-		await staleEstimate;
-		await expect(formRow(page, 'Max dimension (px)')).toContainText('not estimated');
-		await page.getByRole('button', { name: 'estimate', exact: true }).click();
-		await expect(formRow(page, 'Max dimension (px)')).not.toContainText('not estimated');
-		expect(api.imageCacheEstimateRequests).toMatchObject([
-			{ totalSupply: '999' },
-			{ totalSupply: '3333' }
-		]);
+	});
+
+	test('ignores the previous chain response after navigation and a newer probe', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await page.goto(
+			`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?${BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM}=ethereum`
+		);
+		await contractAddressSafetyAcknowledgement(page).check();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-slug').fill('retained-draft');
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		await page.route(
+			'**/ethereum/collections/bootstrap/probe?**',
+			async (route) => {
+				await gate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await probeButton(page).click();
+		await expect(probeButton(page)).toContainText('probing');
+		await page
+			.getByRole('navigation', { name: 'Test chain' })
+			.getByRole('link', { name: 'Arbitrum' })
+			.click();
+		await expect(page.getByText('Arbitrum (arbitrum / 42161)', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('retained-draft');
+		await expect(probeButton(page)).toBeEnabled();
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		const oldResponse = page.waitForResponse((response) =>
+			response.url().includes('/ethereum/collections/bootstrap/probe?')
+		);
+		release();
+		await (await oldResponse).finished();
+		await expect.poll(() => api.probeRequests.length).toBe(2);
+		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
+		expect(api.sampleRequests).toHaveLength(1);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('retained-draft');
+	});
+
+	test('offers a retry after RPC failure without blocking queueing', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		let failing = true;
+		await page.route('**/collections/bootstrap/probe?**', (route) =>
+			failing
+				? route.fulfill({ status: 502, contentType: 'application/json', body: '{}' })
+				: route.fallback()
+		);
+		await probeButton(page).click();
+		// GET reads exhaust the shared 12-second startup retry window before reporting failure.
+		await expect(page.getByRole('alert')).toContainText('Contract checks failed', {
+			timeout: 20_000
+		});
+		await expect(queueButton(page)).toBeEnabled();
+		failing = false;
+		await probeButton(page).click();
+		await expect(formRow(page, 'Contract total supply')).toContainText('3333');
+		expect(api.probeRequests).toHaveLength(1);
+	});
+
+	test('keeps OpenSea progress inside resolve and ignores a late result after sample and slug edits', async ({
+		page
+	}, info) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		await page.route(
+			'**/collections/bootstrap/opensea-slug-probe?**',
+			async (route) => {
+				await gate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await probeButton(page).click();
+		const resolve = page.getByRole('button', { name: 'resolve', exact: true });
+		await expect(resolve).toContainText('resolving');
+		await expect(resolve.getByRole('img', { name: 'resolving OpenSea slug' })).toBeVisible();
+		await page.screenshot({ path: info.outputPath('opensea-loading.png'), fullPage: true });
+		await page.locator('#bootstrap-sample').fill('3');
+		await page.locator('#bootstrap-opensea-slug').fill('user-edited-slug');
+		const oldResponse = page.waitForResponse((response) =>
+			response.url().includes('opensea-slug-probe')
+		);
+		release();
+		await oldResponse;
+		await expect(page.locator('#bootstrap-opensea-slug')).toHaveValue('user-edited-slug');
+		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveCount(0);
+		await resolve.click();
+		await expect(page.locator('#bootstrap-opensea')).toContainText('incorrect');
+		await expect(queueButton(page)).toBeEnabled();
+		await page.screenshot({ path: info.outputPath('opensea-incorrect.png'), fullPage: true });
+		await page.locator('#bootstrap-opensea-slug').fill('');
+		await resolve.click();
+		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+			'resolved'
+		);
+	});
+
+	test('ignores an old image measurement after cache settings change and a newer estimate finishes', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await probeButton(page).click();
+		const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+		await expect(estimate).toBeEnabled();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		await page.route(
+			'**/collections/bootstrap/image-cache-estimate',
+			async (route) => {
+				await gate;
+				await route.fallback();
+			},
+			{ times: 1 }
+		);
+		await estimate.click();
+		await expect(estimate).toContainText('estimating');
+		await expect(estimate.getByRole('img', { name: 'estimating image cache size' })).toBeVisible();
+		await page.screenshot({ path: info.outputPath('image-loading.png'), fullPage: true });
+		await rowControl(page, 'Max dimension (px)').fill('64');
+		await estimate.click();
+		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
+		const oldResponse = page.waitForResponse(
+			(response) =>
+				response.url().includes('image-cache-estimate') &&
+				response.request().postDataJSON().maxDimension === 1080
+		);
+		release();
+		await oldResponse;
+		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
+		expect(api.imageCacheEstimateRequests).toHaveLength(2);
+		await rowControl(page, 'Image source field').fill('image_url');
+		await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+	});
+
+	for (const sampleId of ['', '0', '42'])
+		test(
+			'preserves Enumerable facts with sample override ' + JSON.stringify(sampleId),
+			async ({ page }) => {
+				const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+				await page.locator('#bootstrap-sample').fill(sampleId);
+				await probeButton(page).click();
+				await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+				await expect(
+					formRow(page, 'Token scope').getByRole('button', { name: 'apply "entire contract"' })
+				).toBeVisible();
+				await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+					BOOTSTRAP_ENUMERATION_MODE.ManualRange
+				);
+				await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+				await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+				await formRow(page, 'Token scope')
+					.getByRole('button', { name: 'apply "entire contract"' })
+					.click();
+				await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+					BOOTSTRAP_ENUMERATION_MODE.Enumerable
+				);
+				await page
+					.locator('#bootstrap-scope-mode')
+					.selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds);
+				await rowControl(page, 'Token IDs').fill('0, 42, 00042');
+				await expect(queueButton(page)).toBeEnabled();
+				await queueButton(page).click();
+				await expect.poll(() => api.mutations.length).toBe(1);
+				expect(api.mutations[0].body).toMatchObject({
+					scope: { mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds, tokenIds: ['0', '42'] }
+				});
+			}
+		);
+
+	test('offers extension cache suggestions for only the inspected scope and applies each independently', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page, {
+			sample: (result) => ({
+				...result,
+				imageCacheSuggestion: {
+					selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+					extensionKey: 'test-scope-extension',
+					config: { imageCacheMode: IMAGE_CACHE_MODE.CacheOnce, maxDimension: 64 }
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await probeButton(page).click();
+		const mode = formRow(page, 'Image cache mode').getByRole('button', {
+			name: 'apply "cache once"'
+		});
+		await expect(mode).toBeVisible();
+		await mode.click();
+		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue('1080');
+		await formRow(page, 'Max dimension (px)').getByRole('button', { name: 'apply "64"' }).click();
+		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue('64');
+		await expect(rowControl(page, 'Image cache mode')).toHaveValue(IMAGE_CACHE_MODE.CacheOnce);
+		await page.locator('#bootstrap-range-count').fill('1000');
+		await expect(mode).toHaveCount(0);
+		expect(api.sampleRequests).toHaveLength(1);
+	});
+
+	test('keeps manual queueing available when OpenSea is disabled', async ({ page }, info) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH + '?opensea=disabled');
+		await contractAddressSafetyAcknowledgement(page).check();
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.locator('#bootstrap-slug').fill('remilio');
+		await page.locator('#bootstrap-range-count').fill('10000');
+		await rowControl(page, 'Image source field').fill('image');
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'resolve', exact: true })).toBeDisabled();
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+		await expect(queueButton(page)).toBeEnabled();
+		await page.screenshot({ path: info.outputPath('opensea-disabled.png'), fullPage: true });
+	});
+
+	for (const status of [429, 502])
+		test('recovers independently from OpenSea HTTP ' + status, async ({ page }, info) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+			let failed = true;
+			await page.route('**/collections/bootstrap/opensea-slug-probe?**', (route) =>
+				failed
+					? route.fulfill({ status, contentType: 'application/json', body: '{}' })
+					: route.fallback()
+			);
+			await probeButton(page).click();
+			await expect(page.locator('#bootstrap-opensea')).toContainText(
+				'OpenSea lookup failed. Try resolve again.',
+				{ timeout: 20_000 }
+			);
+			await expect(queueButton(page)).toBeEnabled();
+			await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+			await page.screenshot({ path: info.outputPath('opensea-error.png'), fullPage: true });
+			failed = false;
+			await page.getByRole('button', { name: 'resolve', exact: true }).click();
+			await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+				'resolved'
+			);
+			expect(api.probeRequests).toHaveLength(1);
+			expect(api.sampleRequests).toHaveLength(1);
+		});
+
+	test('shows contract validation recovery instead of treating it as an RPC outage', async ({
+		page
+	}) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.route('**/collections/bootstrap/probe?**', (route) =>
+			route.fulfill({
+				status: 422,
+				contentType: 'application/json',
+				body: JSON.stringify({ message: 'address is not a contract' })
+			})
+		);
+		await probeButton(page).click();
+		await expect(page.getByRole('alert')).toContainText('address is not a contract');
+		await expect(queueButton(page)).toBeEnabled();
+	});
+
+	test('keeps long suggestions on one line and aligns the complete form', async ({
+		page
+	}, info) => {
+		const longField = 'a-very-long-custom-image-property-' + 'x'.repeat(80);
+		await installBootstrapProbeApiMock(page, {
+			sample: (r) => ({
+				...r,
+				sample: {
+					...r.sample,
+					tokenUriPayload: JSON.stringify({ [longField]: BOOTSTRAP_PROBE_MEDIA.RasterImage })
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await probeButton(page).click();
+		const suggestion = formRow(page, 'Image source field').getByRole('button', {
+			name: 'apply "' + longField + '"'
+		});
+		await expect(suggestion).toBeVisible();
+		await expectSuggestionLabelFits(suggestion);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('long-suggestions.png'), fullPage: true });
 	});
 
 	test('inspects AEON metadata as inert formatted text with expandable large keys and values', async ({
@@ -535,14 +706,16 @@ test.describe('bootstrap setup', () => {
 		page.on('request', (request) => {
 			if (request.url().includes('metadata-payload.example')) externalRequests.push(request.url());
 		});
-		await installBootstrapProbeApiMock(page, (response) => ({
-			...response,
-			firstToken: {
-				...response.firstToken,
-				tokenUriPayload: payload,
-				tokenUriPayloadBytes: Buffer.byteLength(payload)
-			}
-		}));
+		await installBootstrapProbeApiMock(page, {
+			sample: (response) => ({
+				...response,
+				sample: {
+					...response.sample,
+					tokenUriPayload: payload,
+					tokenUriPayloadBytes: Buffer.byteLength(payload)
+				}
+			})
+		});
 		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
 		await page.locator('input[name="sampleTokenId"]').fill('1');
 		await probeButton(page).click();
@@ -560,6 +733,7 @@ test.describe('bootstrap setup', () => {
 			await expect(detail.locator('code')).not.toBeVisible();
 		}
 		await expectGridAlignment(page);
+		await iframe.scrollIntoViewIfNeeded();
 		await page.screenshot({
 			path: testInfo.outputPath('aeon-metadata-masked.png'),
 			fullPage: true
@@ -595,14 +769,16 @@ test.describe('bootstrap setup', () => {
 		page
 	}) => {
 		const payload = '<html>metadata unavailable</html>';
-		await installBootstrapProbeApiMock(page, (response) => ({
-			...response,
-			firstToken: {
-				...response.firstToken,
-				tokenUriPayload: payload,
-				tokenUriPayloadError: 'Token metadata is not valid JSON.'
-			}
-		}));
+		await installBootstrapProbeApiMock(page, {
+			sample: (response) => ({
+				...response,
+				sample: {
+					...response.sample,
+					tokenUriPayload: payload,
+					tokenUriPayloadError: 'Token metadata is not valid JSON.'
+				}
+			})
+		});
 		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
 		await probeButton(page).click();
 		const frame = page.frameLocator('iframe[title="tokenURI response"]');
@@ -612,127 +788,7 @@ test.describe('bootstrap setup', () => {
 		await page.locator('input[name="sampleTokenId"]').fill('3');
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
 	});
-
-	test('shows OpenSea progress inside resolve and replaces the action with a cyan resolved badge', async ({
-		page
-	}, testInfo) => {
-		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		let release!: () => void;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await page.route(
-			'**/collections/bootstrap/opensea-slug-probe?**',
-			async (route) => {
-				await gate;
-				await route.fallback();
-			},
-			{ times: 1 }
-		);
-		const row = formRow(page, 'OpenSea slug');
-		const resolve = row.getByRole('button', { name: 'resolve', exact: true });
-		await resolve.click();
-		await expect(resolve).toContainText('resolving');
-		await expect(resolve).toHaveAttribute('aria-busy', 'true');
-		await expect(resolve.getByRole('img', { name: 'resolving OpenSea slug' })).toBeVisible();
-		await page.screenshot({ path: testInfo.outputPath('opensea-resolving.png'), fullPage: true });
-		release();
-		const resolved = row.getByText('resolved', { exact: true });
-		await expect(resolved).toBeVisible();
-		await expect(resolve).toHaveCount(0);
-		await expect(resolved).toHaveClass(/bid-book-own-status-draw/);
-		await page.screenshot({ path: testInfo.outputPath('opensea-resolved.png'), fullPage: true });
-		await page.locator('input[name="openseaSlug"]').fill('different-collection');
-		await expect(resolve).toBeEnabled();
-		await expect(resolved).toHaveCount(0);
-	});
-
-	test('omits optional OpenSea when its sample is outside the selected scope', async ({ page }) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await probeButton(page).click();
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await rowControl(page, 'First token ID').fill('10');
-		await expect(sampleTokenInputRow(page)).toContainText('outside the selected scope');
-		await expect(queueButton(page)).toBeEnabled();
-		await queueButton(page).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).not.toHaveProperty('openseaSlug');
-		expect(api.mutations[0].body).toMatchObject({
-			manualInput: { startTokenId: '10', totalSupply: 999 }
-		});
-	});
-
-	test('validates explicit token IDs without making a sample mandatory', async ({ page }) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await rowControl(page, 'Token scope').selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds);
-		await expect(queueButton(page)).toBeDisabled();
-		await rowControl(page, 'Token IDs').fill('1, invalid, 3');
-		await expect(page.getByRole('region', { name: /2. Token scope/ })).toContainText(
-			'Enter decimal token IDs'
-		);
-		await rowControl(page, 'Token IDs').fill('1, 3');
-		await expect(queueButton(page)).toBeEnabled();
-		await queueButton(page).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).toMatchObject({
-			manualInput: { mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds, tokenIds: ['1', '3'] }
-		});
-		expect(api.probeRequests).toEqual([]);
-	});
-
-	test('keeps optional OpenSea failure local and recoverable', async ({ page }, testInfo) => {
-		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await page.locator('input[name="openseaSlug"]').fill('another-project');
-		await probeButton(page).click();
-		await expect(formRow(page, 'OpenSea slug')).toContainText('incorrect');
-		await expect(
-			formRow(page, 'OpenSea slug').getByRole('button', { name: 'resolve' })
-		).toBeEnabled();
-		await expect(queueButton(page)).toBeEnabled();
-		await page.screenshot({
-			path: testInfo.outputPath('opensea-optional-failure.png'),
-			fullPage: true
-		});
-		await queueButton(page).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0].body).not.toHaveProperty('openseaSlug');
-	});
-
-	test('renders sample and cache previews only on request and preserves animation choice', async ({
-		page
-	}, testInfo) => {
-		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-		await rowControl(page, 'Animation source field (optional)').fill('animation_url');
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
-		await page.route(BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl, (route) =>
-			route.fulfill({
-				contentType: 'text/html',
-				body: '<html><body>Sample animation</body></html>'
-			})
-		);
-		await probeButton(page).click();
-		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toHaveCount(0);
-		await page.getByRole('button', { name: 'preview sample', exact: true }).click();
-		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toBeVisible();
-		await page.getByRole('button', { name: 'animation', exact: true }).click();
-		await expect(page.getByTitle(/animation preview/)).toBeVisible();
-		await expect(
-			page.frameLocator('iframe[title$="animation preview"]').getByText('Sample animation')
-		).toBeVisible();
-		await page.getByRole('button', { name: 'estimate', exact: true }).click();
-		await page.getByRole('button', { name: 'preview cached image', exact: true }).click();
-		await expect(page.getByTestId(TEST_IDS.BootstrapCacheTokenCard)).toBeVisible();
-		await expect(page.getByText('Source image (1 token)', { exact: true })).toBeVisible();
-		await page.getByRole('button', { name: 'view checks', exact: true }).click();
-		await expect(page.getByText('Metadata (1 token)', { exact: true })).toBeVisible();
-		await page.screenshot({
-			path: testInfo.outputPath('previews-and-estimate.png'),
-			fullPage: true
-		});
-		await expect(queueButton(page)).toBeEnabled();
-	});
 });
-
 function probeButton(page: Page) {
 	return page.getByRole('button', { name: 'probe', exact: true });
 }
@@ -1012,7 +1068,7 @@ function contractAddressSafetyAcknowledgement(page: Page): Locator {
 function formRow(page: Page, label: string) {
 	return page.locator('.bootstrap-form-fields .bootstrap-form-row').filter({
 		has: page
-			.locator('.bootstrap-form-label-cell > span:first-child')
+			.locator('.bootstrap-form-label-cell > span:first-child, span.bootstrap-form-label-cell')
 			.filter({ hasText: new RegExp('^' + label.replace(/[.*+?^$()|[\]\\]/g, '\\$&') + '$') })
 	});
 }

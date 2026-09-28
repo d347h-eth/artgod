@@ -82,4 +82,24 @@ describe('bootstrap setup', () => {
 			bootstrapSetupIssues({ ...draft, imageCacheMode: IMAGE_CACHE_MODE.Off, maxDimension: 'bad' })
 		).toEqual({});
 	});
+
+	it('keeps incomplete and malformed scopes local to the required fields', () => {
+		expect(bootstrapSetupIssues({ ...draft, slug: '' }).slug).toBeDefined();
+		expect(
+			bootstrapSetupIssues({ ...draft, scopeMode: 'invalid' as BootstrapSetupDraft['scopeMode'] })
+				.scopeMode
+		).toBeDefined();
+		expect(bootstrapSampleMatchesScope('1', { ...draft, totalSupply: '' })).toBe(false);
+		expect(bootstrapSampleMatchesScope('invalid', draft)).toBe(false);
+	});
+
+	it('does not turn unexpected failures into ordinary invalid-scope feedback', () => {
+		const broken = Object.defineProperty({ ...draft }, 'totalSupply', {
+			get() {
+				throw new Error('unexpected draft failure');
+			}
+		});
+		expect(() => bootstrapSetupIssues(broken)).toThrow('unexpected draft failure');
+		expect(() => bootstrapSampleMatchesScope('1', broken)).toThrow('unexpected draft failure');
+	});
 });

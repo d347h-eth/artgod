@@ -1,0 +1,198 @@
+import {
+    emptyBootstrapSampleMetadata,
+    type BootstrapProbeObservation,
+    type BootstrapProbeTokenCandidate,
+    type BootstrapSampleMetadata,
+    type BootstrapSampleInspectionRequest,
+    type BootstrapSampleInspectionResponse,
+    type BootstrapImageCacheSuggestion,
+} from "@artgod/shared/bootstrap/probe";
+import { bootstrapSampleCandidates } from "@artgod/shared/bootstrap/sample-selection";
+import {
+    parseBootstrapScope,
+    bootstrapScopeModel,
+    BootstrapScopeValidationError,
+    type BootstrapScope,
+} from "@artgod/shared/bootstrap/scope";
+import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
+import {
+    defaultImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import {
+    resolveRequestedExtensionKey,
+    type EmbeddedCollectionExtensionResolverPort,
+} from "./create-bootstrap-run.js";
+import { normalizeBootstrapProbeAddress } from "./probe-collection-contract.js";
+import type { ChainRefResolverPort } from "./ports.js";
+import { BootstrapValidationError } from "./types.js";
+
+export interface BootstrapSampleInspectionPort {
+    observation(
+        reference?: BootstrapProbeObservation | null,
+    ): Promise<BootstrapProbeObservation>;
+    verifyObservation(reference: BootstrapProbeObservation): Promise<void>;
+    checkOwnership(input: {
+        address: string;
+        tokenId: string;
+        observation: BootstrapProbeObservation;
+    }): Promise<BootstrapProbeTokenCandidate>;
+    readMetadata(input: {
+        address: string;
+        tokenId: string;
+        observation: BootstrapProbeObservation;
+    }): Promise<BootstrapSampleMetadata>;
+}
+export interface ProbeCollectionExtensionResolverPort extends EmbeddedCollectionExtensionResolverPort {
+    resolveImageCachePolicyConfig(input: {
+        chainId: number;
+        extensionKey: CollectionExtensionKey;
+    }): ImageCachePolicyConfig | null;
+}
+
+export class InspectBootstrapSampleUseCase {
+    constructor(
+        private readonly defaultChainId: number,
+        private readonly chainRefResolver: ChainRefResolverPort,
+        private readonly inspection: BootstrapSampleInspectionPort,
+        private readonly extensions: ProbeCollectionExtensionResolverPort,
+        private readonly ipfsGatewayOrigin: string,
+    ) {}
+
+    async inspect(
+        input: BootstrapSampleInspectionRequest & { chainRef: string },
+    ): Promise<BootstrapSampleInspectionResponse> {
+        const chain = this.chainRefResolver.resolveChainRef(
+            input.chainRef,
+            this.defaultChainId,
+        );
+        const address = normalizeBootstrapProbeAddress(input.address);
+        const requestedTokenId = optionalTokenId(input.requestedTokenId);
+        const discoveredTokenId = optionalTokenId(input.discoveredTokenId);
+        const scope = optionalScope(input.scope);
+        const observation = await this.inspection.observation(
+            input.observation,
+        );
+        const candidates: BootstrapProbeTokenCandidate[] = [];
+        const sample: BootstrapSampleInspectionResponse["sample"] = {
+            ...emptyBootstrapSampleMetadata(),
+            tokenId: null,
+            source: null,
+            ownership: null,
+            candidates,
+        };
+        for (const candidate of bootstrapSampleCandidates({
+            requestedTokenId,
+            discoveredTokenId,
+            scope,
+        })) {
+            // A caller's discovery hint is only a candidate, never trusted ownership evidence.
+            const ownership = await this.inspection.checkOwnership({
+                address,
+                tokenId: candidate.tokenId,
+                observation,
+            });
+            candidates.push(ownership);
+            if (requestedTokenId !== null || ownership.exists === true) {
+                if (ownership.exists === true)
+                    Object.assign(
+                        sample,
+                        await this.inspection.readMetadata({
+                            address,
+                            tokenId: candidate.tokenId,
+                            observation,
+                        }),
+                    );
+                Object.assign(sample, {
+                    tokenId: candidate.tokenId,
+                    source: candidate.source,
+                    ownership,
+                    candidates,
+                });
+                break;
+            }
+        }
+        await this.inspection.verifyObservation(observation);
+        return {
+            chain,
+            address,
+            observation,
+            requestedTokenId,
+            scope,
+            sample,
+            ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+            imageCacheSuggestion: this.imageCacheSuggestion(
+                chain.publicChainId,
+                address,
+                scope,
+            ),
+        };
+    }
+
+    private imageCacheSuggestion(
+        chainId: number,
+        address: string,
+        scope: BootstrapScope | null,
+    ): BootstrapImageCacheSuggestion {
+        const fallback: BootstrapImageCacheSuggestion = {
+            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+            extensionKey: null,
+            config: defaultImageCachePolicyConfig(),
+        };
+        if (!scope) return fallback;
+        const extensionKey = resolveRequestedExtensionKey(
+            this.extensions,
+            chainId,
+            address,
+            {
+                ...bootstrapScopeModel(scope).toPersistence(),
+                explicitTokenIds:
+                    scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+                        ? scope.tokenIds
+                        : [],
+            },
+        );
+        if (!extensionKey) return fallback;
+        const config = this.extensions.resolveImageCachePolicyConfig({
+            chainId,
+            extensionKey,
+        });
+        return config
+            ? {
+                  selectedSource:
+                      COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                  extensionKey,
+                  config,
+              }
+            : { ...fallback, extensionKey };
+    }
+}
+
+function optionalTokenId(raw: string | null | undefined): string | null {
+    if (
+        raw === null ||
+        raw === undefined ||
+        (typeof raw === "string" && !raw.trim())
+    )
+        return null;
+    const id = normalizeEvmTokenId(raw);
+    if (id === null)
+        throw new BootstrapValidationError(
+            "Enter a valid decimal sample token ID.",
+        );
+    return id;
+}
+
+function optionalScope(raw: unknown): BootstrapScope | null {
+    if (raw === undefined || raw === null) return null;
+    try {
+        return parseBootstrapScope(raw);
+    } catch (error) {
+        if (error instanceof BootstrapScopeValidationError)
+            throw new BootstrapValidationError(error.message);
+        throw error;
+    }
+}

@@ -1,3 +1,9 @@
+import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
+import type {
+	BootstrapSampleInspectionRequest,
+	BootstrapSampleInspectionResponse
+} from '@artgod/shared/bootstrap/probe';
+import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -184,24 +190,21 @@ export async function scheduleBlockspaceBackfill(
 export async function probeBootstrapCollectionContract(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	address: string,
-	options: {
-		imageSourceField?: string | null;
-		animationSourceField?: string | null;
-		sampleTokenId?: string | null;
-	} = {}
+	address: string
 ): Promise<BootstrapContractProbeApiResponse> {
-	return requestJson<BootstrapContractProbeApiResponse>(
+	return requestJson(
 		fetchFn,
-		buildProbeBootstrapCollectionPath({
-			chainRef,
-			address,
-			standard: 'erc721',
-			imageSourceField: options.imageSourceField,
-			animationSourceField: options.animationSourceField,
-			sampleTokenId: options.sampleTokenId
-		})
+		buildProbeBootstrapCollectionPath({ chainRef, address, standard: 'erc721' })
 	);
+}
+
+export async function inspectBootstrapSample(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	input: BootstrapSampleInspectionRequest
+): Promise<BootstrapSampleInspectionResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody(fetchFn, buildInspectBootstrapSamplePath(chainRef), 'POST', input);
 }
 
 export async function getCollectionDetail(
@@ -847,17 +850,7 @@ export async function createBootstrapRun(
 		animationSourceField?: string | null;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
-		supportsEnumerable: boolean;
-		manualInput?:
-			| {
-					mode: 'manual_token_ids';
-					tokenIds: string[];
-			  }
-			| {
-					mode: 'manual_range';
-					startTokenId: string;
-					totalSupply: number;
-			  };
+		scope: BootstrapScope;
 		imageCache?: {
 			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;
@@ -896,7 +889,6 @@ export async function estimateBootstrapImageCache(
 		sampleTokenId: string;
 		sourceImageUrl: string;
 		sourceImageBytes: number | null;
-		totalSupply: string;
 		imageCacheMode: ApiImageCacheMode;
 		maxDimension: number | null;
 	}

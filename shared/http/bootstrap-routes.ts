@@ -1,6 +1,7 @@
 // Bootstrap API route templates registered by the backend.
 export const BOOTSTRAP_API_ROUTE_TEMPLATE = {
     CreateRun: "/api/:chain_ref/collections/bootstrap",
+    InspectSample: "/api/:chain_ref/collections/bootstrap/sample",
     ProbeCollection: "/api/:chain_ref/collections/bootstrap/probe",
     EstimateImageCache:
         "/api/:chain_ref/collections/bootstrap/image-cache-estimate",
@@ -13,8 +14,6 @@ const BOOTSTRAP_API_CHAIN_REF_PARAM = ":chain_ref";
 // Query keys accepted by bootstrap probing endpoints.
 export const BOOTSTRAP_API_QUERY_PARAM = {
     Address: "address",
-    AnimationSourceField: "animation_source_field",
-    ImageSourceField: "image_source_field",
     SampleTokenId: "sample_token_id",
     Slug: "slug",
     Standard: "standard",
@@ -33,31 +32,10 @@ export function buildProbeBootstrapCollectionPath(input: {
     chainRef: string;
     address: string;
     standard: string;
-    imageSourceField?: string | null;
-    animationSourceField?: string | null;
-    sampleTokenId?: string | null;
 }): string {
     const query = new URLSearchParams();
     query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
     query.set(BOOTSTRAP_API_QUERY_PARAM.Standard, input.standard);
-    if (input.imageSourceField?.trim()) {
-        query.set(
-            BOOTSTRAP_API_QUERY_PARAM.ImageSourceField,
-            input.imageSourceField.trim(),
-        );
-    }
-    if (input.animationSourceField?.trim()) {
-        query.set(
-            BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField,
-            input.animationSourceField.trim(),
-        );
-    }
-    if (input.sampleTokenId?.trim()) {
-        query.set(
-            BOOTSTRAP_API_QUERY_PARAM.SampleTokenId,
-            input.sampleTokenId.trim(),
-        );
-    }
     return `${buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         input.chainRef,
@@ -101,5 +79,12 @@ function buildBootstrapChainRoute(template: string, chainRef: string): string {
     return template.replace(
         BOOTSTRAP_API_CHAIN_REF_PARAM,
         encodeURIComponent(chainRef),
+    );
+}
+
+export function buildInspectBootstrapSamplePath(chainRef: string): string {
+    return buildBootstrapChainRoute(
+        BOOTSTRAP_API_ROUTE_TEMPLATE.InspectSample,
+        chainRef,
     );
 }

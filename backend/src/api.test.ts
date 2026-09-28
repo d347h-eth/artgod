@@ -143,10 +143,11 @@ import {
 import { getDefaultOpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
 import { getDefaultBlockExplorerConfig } from "@artgod/shared/config/block-explorer";
 import {
-    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
-    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
-    BOOTSTRAP_PROBE_READ_STATUS,
-} from "./application/use-cases/bootstrap/probe-collection-contract.js";
+    bootstrapTestContract,
+    bootstrapTestSample,
+    BOOTSTRAP_TEST_OBSERVATION,
+} from "@artgod/shared/testing/bootstrap-probe";
+import { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const DEFAULT_CHAIN_ID = 1;
@@ -762,57 +763,29 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             {
-                async probeErc721Contract(input: {
-                    sampleTokenId: string | null;
-                }) {
-                    return {
-                        proxy: null,
-                        contractName: null,
-                        erc721: {
-                            supported: true,
-                            error: null,
-                        },
-                        enumerable: {
-                            supported: true,
-                            error: null,
-                        },
-                        totalSupply: {
-                            status: BOOTSTRAP_PROBE_READ_STATUS.Available,
-                            value: "3",
-                            safeIntegerValue: 3,
-                            bootstrapRangeValue: 3,
-                            error: null,
-                        },
-                        firstToken: {
-                            tokenId: input.sampleTokenId ?? "1",
-                            source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
-                            tokenUri:
-                                "data:application/json,%7B%22name%22%3A%22Milady%201%22%7D",
-                            tokenUriPayloadBytes: 19,
-                            tokenUriPayload: '{"name":"Milady 1"}',
-                            tokenUriPayloadTruncated: false,
-                            tokenUriPayloadError: null,
-                            name: "Milady 1",
-                            imageSourceField:
-                                TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-                            image: "https://example.com/1.png",
-                            imageBytes: 1024,
-                            imageBytesSource:
-                                BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.ContentLength,
-                            imageContentType: "image/png",
-                            imageBytesError: null,
-                            imageWidth: 2160,
-                            imageHeight: 2160,
-                            animationSourceField: null,
-                            animationUrl: null,
-                            metadataError: null,
-                            candidates: [],
-                        },
-                    };
+                async discoverContract() {
+                    return bootstrapTestContract();
                 },
             },
-            builtInCollectionExtensionResolver,
         );
+    const inspectBootstrapSampleUseCase = new InspectBootstrapSampleUseCase(
+        1,
+        chainsReadModel,
+        {
+            async observation() {
+                return BOOTSTRAP_TEST_OBSERVATION;
+            },
+            async verifyObservation() {},
+            async checkOwnership({ tokenId }) {
+                return { tokenId, exists: true, error: null };
+            },
+            async readMetadata() {
+                return bootstrapTestSample().sample;
+            },
+        },
+        builtInCollectionExtensionResolver,
+        "https://ipfs.io",
+    );
     const estimateBootstrapImageCacheUseCase =
         new estimateBootstrapImageCacheUseCaseModule.EstimateBootstrapImageCacheUseCase(
             1,
@@ -1053,6 +1026,7 @@ beforeAll(async () => {
         createBootstrapRunUseCase,
         startPreparedCollectionBootstrapUseCase,
         probeCollectionContractUseCase,
+        inspectBootstrapSampleUseCase,
         estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
@@ -1111,6 +1085,7 @@ beforeAll(async () => {
         createBootstrapRunUseCase,
         startPreparedCollectionBootstrapUseCase,
         probeCollectionContractUseCase,
+        inspectBootstrapSampleUseCase,
         estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
@@ -1450,6 +1425,12 @@ describe("backend api routes", () => {
             `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}`,
         );
         expect(bootstrapProbe.statusCode).toBe(404);
+        const bootstrapSample = await resolvePublic(
+            "POST",
+            "/api/ethereum/collections/bootstrap/sample",
+            { address: TERRAFORMS_ADDRESS, requestedTokenId: "42" },
+        );
+        expect(bootstrapSample.statusCode).toBe(403);
 
         const customization = await resolvePublic(
             "GET",
@@ -4722,7 +4703,7 @@ describe("backend api routes", () => {
                 animationSourceField: null,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
                 imageCache: {
                     selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
                     imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
@@ -5156,26 +5137,46 @@ describe("backend api routes", () => {
         );
         expect(probe.statusCode).toBe(200);
         expect(probe.payload.enumerable.supported).toBe(true);
-        expect(probe.payload.firstToken.tokenId).toBe("42");
-        expect(probe.payload.firstToken.tokenUriPayload).toBe(
-            '{"name":"Milady 1"}',
+        expect(probe.payload.discovery.sampleTokenId).toBe("0");
+        expect(probe.payload).not.toHaveProperty("firstToken");
+        expect(probe.payload).not.toHaveProperty("suggestedInput");
+        const invalidStandard = await resolve(
+            "GET",
+            `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}&standard=erc721&standard=erc1155`,
         );
-        expect(probe.payload.storageEstimate).toBeNull();
-        expect(probe.payload.imageStorageEstimate).toBeNull();
-        expect(probe.payload.suggestedInput).toEqual({
-            supportsEnumerable: false,
-            manualInput: null,
-            ready: false,
-            warnings: [],
-        });
+        expect(invalidStandard.statusCode).toBe(400);
+        const inspection = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap/sample",
+            {
+                address: TERRAFORMS_ADDRESS,
+                requestedTokenId: "00042",
+                observation: probe.payload.observation,
+                scope: {
+                    mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+                    startTokenId: "1",
+                    tokenCount: 100,
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(inspection.statusCode).toBe(200);
+        expect(inspection.payload.requestedTokenId).toBe("42");
+        expect(inspection.payload.sample.tokenId).toBe("42");
+        expect(inspection.payload.sample.ownership.exists).toBe(true);
         const imageCacheEstimate = await resolve(
             "POST",
             "/api/ethereum/collections/bootstrap/image-cache-estimate",
             {
-                sampleTokenId: probe.payload.firstToken.tokenId,
-                sourceImageUrl: probe.payload.firstToken.image,
-                sourceImageBytes: probe.payload.firstToken.imageBytes,
-                totalSupply: probe.payload.totalSupply.value,
+                sampleTokenId: inspection.payload.sample.tokenId,
+                sourceImageUrl: "https://example.com/image.png",
+                sourceImageBytes: 1024,
                 imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
                 maxDimension: 1080,
             },
@@ -5197,8 +5198,6 @@ describe("backend api routes", () => {
             maxDimension: 1080,
             sampleSourceBytes: 1024,
             sampleCachedBytes: 512,
-            projectedCachedBytes: "1536",
-            totalSupply: "3",
             contentType: "image/webp",
             sampleCachedImageDataUrl: "data:image/webp;base64,Y2FjaGVk",
             sourceWidth: 2160,
@@ -5927,7 +5926,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
                 imageCache: {
                     selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
                     imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
@@ -5962,7 +5961,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
             },
             {
                 host: "artgod.network",
@@ -6016,7 +6015,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
                 imageCache: {
                     selectedSource:
                         COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
@@ -6073,7 +6072,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
                 imageCache: {
                     selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
                     imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
@@ -6557,7 +6556,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
             },
             {
                 host: "127.0.0.1:42710",
@@ -6571,6 +6570,12 @@ describe("backend api routes", () => {
     });
 
     it("rejects bootstrap write requests without csrf token", async () => {
+        const inspection = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap/sample",
+            { address: TERRAFORMS_ADDRESS, requestedTokenId: "42" },
+        );
+        expect(inspection.statusCode).toBe(403);
         const response = await resolve(
             "POST",
             "/api/ethereum/collections/bootstrap",
@@ -6580,7 +6585,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
             },
             {
                 host: "127.0.0.1:42710",
@@ -6602,7 +6607,7 @@ describe("backend api routes", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
-                supportsEnumerable: true,
+                scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
             },
             {
                 host: "evil.example",

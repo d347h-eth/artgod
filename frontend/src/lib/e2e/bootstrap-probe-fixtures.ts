@@ -14,6 +14,13 @@ export const BOOTSTRAP_PROBE_E2E_CHAIN: ApiChain = {
 	name: 'Ethereum'
 };
 
+// Optional harness navigation exercises a chain change without remounting the form.
+export const BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM = 'chain';
+export const BOOTSTRAP_PROBE_E2E_CHAINS: ApiChain[] = [
+	BOOTSTRAP_PROBE_E2E_CHAIN,
+	{ id: 2, type: 'evm', publicChainId: 42161, slug: 'arbitrum', name: 'Arbitrum' }
+];
+
 // Browser-test OpenSea state keeps optional bootstrap inputs visible.
 export const BOOTSTRAP_PROBE_E2E_OPENSEA_INTEGRATION: ApiOpenSeaIntegrationStatus = {
 	enabled: true,
@@ -33,9 +40,11 @@ export const BOOTSTRAP_PROBE_E2E_DISABLED_OPENSEA_INTEGRATION: ApiOpenSeaIntegra
 };
 
 // Feeds deterministic data into the production bootstrap-run view for browser tests.
-export function buildBootstrapProbeE2ePageData(input: { openseaEnabled?: boolean } = {}) {
+export function buildBootstrapProbeE2ePageData(
+	input: { openseaEnabled?: boolean; chain?: ApiChain } = {}
+) {
 	return {
-		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		chain: input.chain ?? BOOTSTRAP_PROBE_E2E_CHAIN,
 		page: {
 			items: [],
 			nextCursor: null,

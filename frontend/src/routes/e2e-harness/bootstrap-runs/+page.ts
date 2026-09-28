@@ -1,7 +1,11 @@
 import { dev } from '$app/environment';
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { buildBootstrapProbeE2ePageData } from '$lib/e2e/bootstrap-probe-fixtures';
+import {
+	buildBootstrapProbeE2ePageData,
+	BOOTSTRAP_PROBE_E2E_CHAINS,
+	BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM
+} from '$lib/e2e/bootstrap-probe-fixtures';
 
 export const ssr = false;
 
@@ -13,8 +17,15 @@ export const load: PageLoad = ({ url }) => {
 		throw error(404, 'Not found');
 	}
 
+	const chainSlug = url.searchParams.get(BOOTSTRAP_PROBE_E2E_CHAIN_QUERY_PARAM);
+	const chain = BOOTSTRAP_PROBE_E2E_CHAINS.find((candidate) => candidate.slug === chainSlug);
+	if (chainSlug && !chain) throw error(404, 'Unknown test chain');
 	// Feed deterministic bootstrap page data into the production bootstrap view.
-	return buildBootstrapProbeE2ePageData({
-		openseaEnabled: url.searchParams.get(BOOTSTRAP_PROBE_E2E_OPENSEA_QUERY_PARAM) !== 'disabled'
-	});
+	return {
+		...buildBootstrapProbeE2ePageData({
+			chain,
+			openseaEnabled: url.searchParams.get(BOOTSTRAP_PROBE_E2E_OPENSEA_QUERY_PARAM) !== 'disabled'
+		}),
+		chainSwitchChoices: chainSlug ? BOOTSTRAP_PROBE_E2E_CHAINS : []
+	};
 };

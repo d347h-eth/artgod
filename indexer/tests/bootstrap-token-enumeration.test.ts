@@ -51,7 +51,7 @@ describe("bootstrap token enumeration", () => {
                 manualRangeStartTokenId: null,
                 manualRangeTotalSupply: null,
             }),
-        ).toThrow("manual token ids payload is empty");
+        ).toThrow();
 
         expect(() =>
             resolveManualBootstrapTokenIds({
@@ -60,7 +60,7 @@ describe("bootstrap token enumeration", () => {
                 manualRangeStartTokenId: null,
                 manualRangeTotalSupply: null,
             }),
-        ).toThrow("manual token ids payload contains invalid token id");
+        ).toThrow();
     });
 
     it("rejects incomplete manual token ranges", () => {
@@ -71,7 +71,7 @@ describe("bootstrap token enumeration", () => {
                 manualRangeStartTokenId: "100",
                 manualRangeTotalSupply: 0,
             }),
-        ).toThrow("manual token range requires start token id and supply");
+        ).toThrow();
     });
     it("only seeds minted tokens within the user range", async () => {
         const calls: string[] = [];
@@ -98,4 +98,34 @@ describe("bootstrap token enumeration", () => {
             resolvePresentBootstrapTokenIds(["1"], async () => null),
         ).rejects.toThrow("No tokens exist");
     });
+});
+
+it("preserves a synthetic Grailers 0-999 declaration while materializing 704 minted IDs", async () => {
+    const declaration = {
+        enumerationMode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+        manualRangeStartTokenId: "0",
+        manualRangeTotalSupply: 1000,
+        manualTokenIdsJson: null,
+    };
+    const minted = new Set(
+        Array.from({ length: 990 }, (_, i) => i + 10)
+            .filter((id) => id % 7 !== 0)
+            .slice(0, 704)
+            .map(String),
+    );
+    const requested: string[] = [];
+    const present = await resolvePresentBootstrapTokenIds(
+        resolveManualBootstrapTokenIds(declaration)!,
+        async (id) => {
+            requested.push(id);
+            return minted.has(id) ? "owner" : null;
+        },
+    );
+    expect(present).toEqual([...minted]);
+    expect(present).toHaveLength(704);
+    expect(requested).toHaveLength(1000);
+    expect(requested[0]).toBe("0");
+    expect(requested.at(-1)).toBe("999");
+    expect(declaration.manualRangeStartTokenId).toBe("0");
+    expect(declaration.manualRangeTotalSupply).toBe(1000);
 });

@@ -8,9 +8,13 @@
         "test": "vitest run"
     },
     "exports": {
+        "./testing/bootstrap-probe": "./testing/bootstrap-probe.ts",
         "./collections/token-scope": "./collections/token-scope.ts",
         "./evm/token-id": "./evm/token-id.ts",
         "./bootstrap/scope": "./bootstrap/scope.ts",
+        "./bootstrap/probe": "./bootstrap/probe.ts",
+        "./bootstrap/sample-selection": "./bootstrap/sample-selection.ts",
+        "./bootstrap/metadata": "./bootstrap/metadata.ts",
         "./config/bootstrap": "./config/bootstrap.ts",
         "./config/pagination": "./config/pagination.ts",
         "./config/blockspace": "./config/blockspace.ts",

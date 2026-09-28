@@ -1,6 +1,11 @@
 <script lang="ts">
+	import { normalizeEvmTokenId } from '@artgod/shared/evm/token-id';
+	import { inspectBootstrapMetadata } from '@artgod/shared/bootstrap/metadata';
+	import type { BootstrapSampleInspectionResponse } from '@artgod/shared/bootstrap/probe';
+	import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
+	import { bootstrapScopeTokenCount } from '@artgod/shared/bootstrap/scope';
 	import { goto } from '$app/navigation';
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import {
 		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
@@ -24,7 +29,8 @@
 		createBootstrapRun,
 		BackendApiError,
 		estimateBootstrapImageCache,
-		probeBootstrapCollectionContract
+		probeBootstrapCollectionContract,
+		inspectBootstrapSample
 	} from '$lib/backend-api';
 	import {
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
@@ -40,6 +46,7 @@
 	} from '$lib/bootstrap-contract-probe';
 	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
 	import {
+		bootstrapSetupScope,
 		bootstrapSetupIssues,
 		bootstrapSampleMatchesScope,
 		bootstrapTokenIds,
@@ -150,19 +157,14 @@
 	let contractAddressSafetyAcknowledged = $state(false);
 	let imageSourceField = $state('');
 	let imageSourceFieldInputElement = $state<HTMLInputElement | null>(null);
-	let imageSourceFieldDirty = $state(false);
 	let animationSourceField = $state('');
 	let animationSourceFieldInputElement = $state<HTMLInputElement | null>(null);
-	let animationSourceFieldInputHasValue = $state(false);
-	let animationSourceFieldDirty = $state(false);
 	let sampleTokenId = $state('');
 	let sampleTokenIdInputElement = $state<HTMLInputElement | null>(null);
-	let sampleTokenIdInputHasValue = $state(false);
-	let sampleTokenIdDirty = $state(false);
 	let selectedBootstrapPreviewSource = $state<BootstrapPreviewSource>(BOOTSTRAP_PREVIEW_SOURCE.Image);
 	let bootstrapOpenSeaSlug = $state('');
 	let openSeaSlugResolved = $state(false);
-	let supportsEnumerable = $state(false);
+	let entireContractSelected = $state(false);
 	let manualMode = $state<BootstrapManualEnumerationMode>(BOOTSTRAP_ENUMERATION_MODE.ManualRange);
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state(BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID);
@@ -175,6 +177,13 @@
 		(typeof BOOTSTRAP_PROBE_UI_STATUS)[keyof typeof BOOTSTRAP_PROBE_UI_STATUS]
 	>(BOOTSTRAP_PROBE_UI_STATUS.Idle);
 	let probeResult = $state<BootstrapContractProbeApiResponse | null>(null);
+	let sampleResult = $state<BootstrapSampleInspectionResponse | null>(null);
+	let sampleStatus = $state<
+		(typeof BOOTSTRAP_PROBE_UI_STATUS)[keyof typeof BOOTSTRAP_PROBE_UI_STATUS]
+	>(BOOTSTRAP_PROBE_UI_STATUS.Idle);
+	let sampleError = $state<string | null>(null);
+	let sampleRequestId = 0;
+	let observedChainRef: string | null = null;
 	let probeError = $state<string | null>(null);
 	let probeAddress = $state<string | null>(null);
 	let imageCacheEstimateStatus = $state<ImageCacheEstimateUiStatus>(imageCacheEstimateUiStatus.Idle);
@@ -196,19 +205,42 @@
 	let normalizedBootstrapAddress = $derived(normalizeBootstrapAddress(bootstrapAddress));
 	let addressCanBeProbed = $derived(isBootstrapProbeableAddress(bootstrapAddress));
 	let latestProbeMatchesAddress = $derived(
-		probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Ready && probeAddress === normalizedBootstrapAddress
+		probeResult !== null &&
+			probeResult.chain.slug === chain?.slug &&
+			probeAddress === normalizedBootstrapAddress
 	);
 	let contractProbePending = $derived(probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Loading);
 	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
-	let sourceFieldsReady = $derived(
-		latestProbeMatchesAddress && probeResult !== null && imageSourceFieldResolved
-	);
+	let sourceFieldsReady = $derived(sampleResult !== null && imageSourceFieldResolved);
 	let animationSourceFieldResolved = $derived(isAnimationSourceFieldResolved());
 	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
 	let sampleTokenIdResolved = $derived(isSampleTokenIdResolved());
 	let sampleTokenIdIncorrect = $derived(isSampleTokenIdIncorrect());
-	let sampleProbeFailure = $derived(
-		latestProbeMatchesAddress && probeResult ? bootstrapSampleFailure(probeResult) : null
+	let samplePending = $derived(sampleStatus === BOOTSTRAP_PROBE_UI_STATUS.Loading);
+	let metadataSuggestions = $derived(
+		inspectBootstrapMetadata({
+			text: sampleResult?.sample.tokenUriPayload ?? null,
+			ipfsGatewayOrigin: sampleResult?.ipfsGatewayOrigin ?? ''
+		})
+	);
+	let selectedMetadata = $derived(
+		inspectBootstrapMetadata({
+			text: sampleResult?.sample.tokenUriPayload ?? null,
+			ipfsGatewayOrigin: sampleResult?.ipfsGatewayOrigin ?? '',
+			imageSourceField,
+			animationSourceField
+		})
+	);
+	let sample = $derived(sampleResult ? { ...sampleResult.sample, ...selectedMetadata } : null);
+	let effectiveSampleTokenId = $derived(
+		sampleTokenId.trim() ? (normalizeEvmTokenId(sampleTokenId) ?? '') : (sample?.tokenId ?? '')
+	);
+	let sampleProbeFailure = $derived(sampleError ?? (sample ? bootstrapSampleFailure(sample) : null));
+	let imageCacheSuggestion = $derived(
+		sampleResult?.imageCacheSuggestion.extensionKey &&
+			JSON.stringify(sampleResult.scope) === JSON.stringify(currentScope())
+			? sampleResult.imageCacheSuggestion
+			: null
 	);
 	let formDetailsReady = $derived(sourceFieldsReady && sampleTokenIdResolved && !sampleProbeFailure);
 	let imageCacheEstimatePending = $derived(
@@ -225,7 +257,7 @@
 		address: bootstrapAddress,
 		slug: bootstrapSlug,
 		imageSourceField,
-		scopeMode: supportsEnumerable ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode,
+		scopeMode: entireContractSelected ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode,
 		startTokenId: manualRangeStartTokenId,
 		totalSupply: manualRangeTotalSupply,
 		tokenIds: manualTokenIds,
@@ -236,7 +268,7 @@
 	let scopeIssue = $derived(
 		setupIssues.startTokenId ?? setupIssues.totalSupply ?? setupIssues.tokenIds
 	);
-	let sampleMatchesScope = $derived(bootstrapSampleMatchesScope(sampleTokenId, setupDraft));
+	let sampleMatchesScope = $derived(bootstrapSampleMatchesScope(effectiveSampleTokenId, setupDraft));
 	let contractReady = $derived(
 		Boolean(chain) && addressCanBeProbed && contractAddressSafetyAcknowledged
 	);
@@ -274,12 +306,21 @@
 			optional: true
 		}
 	]);
-	let firstTokenCard = $derived(firstTokenPreviewCard());
+	let sampleTokenCard = $derived(sampleTokenPreviewCard());
 	let cachedTokenCard = $derived(cachedTokenPreviewCard());
 	let animationPreviewIframeSource = $derived(resolveAnimationPreviewIframeSource());
 	let animationPreviewAvailable = $derived(animationPreviewIframeSource !== null);
 
+	$effect(() => {
+		const next = chain?.slug ?? null;
+		if (next !== observedChainRef) {
+			observedChainRef = next;
+			untrack(invalidateContractProbe);
+		}
+	});
+
 	onDestroy(() => {
+		sampleRequestId += 1;
 		contractProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 	});
@@ -305,8 +346,26 @@
 		probeResult = null;
 		probeAddress = null;
 		probeError = null;
+		invalidateSample();
 		submitError = null;
 		resetImageCacheEstimateState();
+	}
+
+	function invalidateSample(): void {
+		sampleRequestId += 1;
+		sampleResult = null;
+		sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Idle;
+		sampleError = null;
+		samplePreviewOpen = false;
+		resetImageCacheEstimateState();
+	}
+
+	function currentScope(): BootstrapScope | null {
+		try {
+			return bootstrapSetupScope(setupDraft);
+		} catch {
+			return null;
+		}
 	}
 
 	function resetImageCacheEstimateState(): void {
@@ -332,6 +391,7 @@
 
 	function setImageSourceFieldValue(value: string): void {
 		imageSourceField = value;
+		resetImageCacheEstimateState();
 		if (imageSourceFieldInputElement) imageSourceFieldInputElement.value = value;
 	}
 
@@ -342,7 +402,6 @@
 	function setAnimationSourceFieldValue(value: string): void {
 		animationSourceField = value;
 		if (animationSourceFieldInputElement) animationSourceFieldInputElement.value = value;
-		animationSourceFieldInputHasValue = normalizeFieldValue(value).length > 0;
 	}
 
 	function readAnimationSourceFieldInputValue(): string {
@@ -352,12 +411,6 @@
 	function setSampleTokenIdValue(value: string): void {
 		sampleTokenId = value;
 		if (sampleTokenIdInputElement) sampleTokenIdInputElement.value = value;
-		sampleTokenIdInputHasValue = normalizeFieldValue(value).length > 0;
-	}
-
-	function readSampleTokenIdInputValue(): string {
-		// Derived validation must observe state changes when detected fields are explicitly applied.
-		return normalizeFieldValue(sampleTokenId);
 	}
 
 	function onCollectionSlugInput(event: Event): void {
@@ -377,68 +430,102 @@
 	}
 
 	function onImageSourceFieldInput(event: Event): void {
-		imageSourceField = (event.currentTarget as HTMLInputElement).value;
-		imageSourceFieldDirty = true;
-		invalidateContractProbe();
+		setImageSourceFieldValue((event.currentTarget as HTMLInputElement).value);
 	}
 
 	function onAnimationSourceFieldInput(event: Event): void {
 		setAnimationSourceFieldValue((event.currentTarget as HTMLInputElement).value);
-		animationSourceFieldDirty = true;
 		selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
-		invalidateContractProbe();
 	}
 
 	function onSampleTokenIdInput(event: Event): void {
 		setSampleTokenIdValue((event.currentTarget as HTMLInputElement).value);
-		sampleTokenIdDirty = true;
-		invalidateContractProbe();
+		invalidateSample();
 	}
 
 	async function onProbe(): Promise<void> {
 		if (!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain) return;
 		const requestId = ++contractProbeRequestId;
-		const submittedOpenSeaSlug = bootstrapOpenSeaSlug;
+		const chainRef = chain.slug;
+		const address = normalizedBootstrapAddress;
+		const sampleGeneration = sampleRequestId;
+		const selection = { requestedTokenId: sampleTokenId, scope: currentScope() };
 		probeInputsChanged = false;
-		probeResult = null;
 		probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Loading;
 		probeError = null;
-		resetImageCacheEstimateState();
 		try {
-			// Submit one snapshot of the user's staged metadata inputs.
-			const result = await probeBootstrapCollectionContract(
-				fetch,
-				chain.slug,
-				normalizedBootstrapAddress,
-				{
-					imageSourceField: readImageSourceFieldInputValue() || null,
-					animationSourceField: readAnimationSourceFieldInputValue() || null,
-					sampleTokenId: readSampleTokenIdInputValue() || null
-				}
-			);
-			if (requestId !== contractProbeRequestId) return;
+			const result = await probeBootstrapCollectionContract(fetch, chainRef, address);
+			if (requestId !== contractProbeRequestId || chainRef !== chain?.slug) return;
 			probeResult = result;
 			probeAddress = result.address;
 			probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Ready;
-			imageSourceFieldDirty = false;
-			animationSourceFieldDirty = false;
-			sampleTokenIdDirty = false;
-			// The optional marketplace lookup uses the same explicit sample, never the scope.
+		} catch (error) {
+			if (requestId !== contractProbeRequestId) return;
+			probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Error;
+			probeError =
+				error instanceof BackendApiError && [400, 422].includes(error.status)
+					? error.message
+					: 'Contract checks failed. Check RPC settings, then press probe.';
+		}
+		if (
+			requestId === contractProbeRequestId &&
+			sampleGeneration === sampleRequestId &&
+			contractAddressSafetyAcknowledged
+		)
+			await onInspectSample(selection);
+	}
+
+	async function onInspectSample(
+		selection = { requestedTokenId: sampleTokenId, scope: currentScope() }
+	): Promise<void> {
+		if (!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain) return;
+		const requestId = ++sampleRequestId;
+		const chainRef = chain.slug;
+		const address = normalizedBootstrapAddress;
+		const submittedOpenSeaSlug = bootstrapOpenSeaSlug;
+		if (
+			selection.requestedTokenId.trim() &&
+			normalizeEvmTokenId(selection.requestedTokenId) === null
+		) {
+			sampleError = 'Enter a valid decimal sample token ID.';
+			sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Error;
+			return;
+		}
+		sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Loading;
+		sampleError = null;
+		resetImageCacheEstimateState();
+		try {
+			const result = await inspectBootstrapSample(fetch, chainRef, {
+				address,
+				requestedTokenId: selection.requestedTokenId,
+				scope: selection.scope,
+				discoveredTokenId: latestProbeMatchesAddress ? probeResult?.discovery.sampleTokenId : null,
+				observation: latestProbeMatchesAddress ? probeResult?.observation : null
+			});
+			if (
+				requestId !== sampleRequestId ||
+				chainRef !== chain?.slug ||
+				address !== normalizedBootstrapAddress
+			)
+				return;
+			sampleResult = result;
+			sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Ready;
 			await tick();
 			if (
-				requestId === contractProbeRequestId &&
+				requestId === sampleRequestId &&
 				sampleTokenIdResolved &&
 				sampleMatchesScope &&
 				openSeaEnabled &&
 				bootstrapOpenSeaSlug === submittedOpenSeaSlug
-			) {
+			)
 				void openSeaSlugResolver?.resolveSlug();
-			}
-		} catch {
-			if (requestId !== contractProbeRequestId) return;
-			probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Error;
-			probeError =
-				'Contract probe failed. Check the sample token ID and RPC settings, then press probe.';
+		} catch (error) {
+			if (requestId !== sampleRequestId) return;
+			sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Error;
+			sampleError =
+				error instanceof BackendApiError && [400, 422].includes(error.status)
+					? error.message
+					: 'Sample inspection failed. Press inspect to retry.';
 		}
 	}
 
@@ -448,36 +535,38 @@
 	}
 
 	function isImageSourceFieldResolved(): boolean {
-		if (!latestProbeMatchesAddress || !probeResult) return false;
-		const resolvedField = normalizeFieldValue(probeResult.firstToken.imageSourceField);
-		if (!resolvedField || !probeResult.firstToken.image) return false;
-		return normalizeFieldValue(imageSourceField) === resolvedField && !imageSourceFieldDirty;
+		return Boolean(
+			sample &&
+			imageSourceField.trim() &&
+			selectedMetadata.imageSourceField === imageSourceField.trim() &&
+			selectedMetadata.image
+		);
 	}
 
 	function isAnimationSourceFieldResolved(): boolean {
-		if (!latestProbeMatchesAddress || !probeResult) return false;
-		const resolvedField = normalizeFieldValue(probeResult.firstToken.animationSourceField);
-		if (!resolvedField || !probeResult.firstToken.animationUrl) return false;
-		return normalizeFieldValue(animationSourceField) === resolvedField && !animationSourceFieldDirty;
+		return Boolean(
+			sample &&
+			animationSourceField.trim() &&
+			selectedMetadata.animationSourceField === animationSourceField.trim() &&
+			selectedMetadata.animationUrl
+		);
 	}
 
 	function isAnimationSourceFieldIncorrect(): boolean {
-		if (!animationSourceFieldInputHasValue || animationSourceFieldDirty) return false;
-		if (!latestProbeMatchesAddress || !probeResult || sampleProbeFailure) return false;
-		return !isAnimationSourceFieldResolved();
+		return Boolean(
+			animationSourceField.trim() &&
+			sampleResult?.sample.tokenUriPayload &&
+			!sampleProbeFailure &&
+			!animationSourceFieldResolved
+		);
 	}
 
 	function isSampleTokenIdResolved(): boolean {
-		if (!latestProbeMatchesAddress || !probeResult || sampleTokenIdDirty) return false;
-		const resolvedTokenId = normalizeFieldValue(probeResult.firstToken.tokenId);
-		if (!resolvedTokenId || readSampleTokenIdInputValue() !== resolvedTokenId) return false;
-		return bootstrapSampleOwnership(probeResult) === true;
+		return sample?.ownership?.exists === true;
 	}
 
 	function isSampleTokenIdIncorrect(): boolean {
-		if (!sampleTokenIdInputHasValue || sampleTokenIdDirty || contractProbePending) return false;
-		if (probeStatus !== BOOTSTRAP_PROBE_UI_STATUS.Ready) return false;
-		return probeResult !== null && bootstrapSampleOwnership(probeResult) === false;
+		return sample?.ownership?.exists === false;
 	}
 
 	function interfaceLabel(value: boolean | null): string {
@@ -486,33 +575,33 @@
 		return 'unknown';
 	}
 
-	function firstTokenPreviewCard(): ApiTokenCard | null {
-		const firstToken = probeResult?.firstToken;
-		if (!firstToken?.tokenId) return null;
+	function sampleTokenPreviewCard(): ApiTokenCard | null {
+		const sampleToken = sample;
+		if (!sampleToken?.tokenId) return null;
 		return {
-			tokenId: firstToken.tokenId,
+			tokenId: sampleToken.tokenId,
 			marketplaceBiddingSupported: true,
-			name: firstToken.name,
-			image: firstToken.image,
-			animationUrl: firstToken.animationUrl,
+			name: sampleToken.name,
+			image: sampleToken.image,
+			animationUrl: sampleToken.animationUrl,
 			traitSummary: null,
 			listingPrice: null,
 			listingCurrency: null,
 			attributes: [],
-			hasMetadata: firstToken.metadataError === null,
+			hasMetadata: sampleToken.metadataError === null,
 			metadataUpdatedAt: null
 		};
 	}
 
 	function resolveAnimationPreviewIframeSource(): TokenMediaIframeSource | null {
-		const firstToken = probeResult?.firstToken;
-		if (!animationSourceFieldResolved || !firstToken?.tokenId || !firstToken.animationUrl) {
+		const sampleToken = sample;
+		if (!animationSourceFieldResolved || !sampleToken?.tokenId || !sampleToken.animationUrl) {
 			return null;
 		}
 		return resolveTokenMediaIframeSource(
-			firstToken.animationUrl,
+			sampleToken.animationUrl,
 			null,
-			tokenMediaTitle(firstToken.tokenId)
+			tokenMediaTitle(sampleToken.tokenId)
 		);
 	}
 
@@ -524,26 +613,26 @@
 	}
 
 	function cachedTokenPreviewCard(): ApiTokenCard | null {
-		const firstToken = probeResult?.firstToken;
+		const sampleToken = sample;
 		if (
 			imageCacheMode === IMAGE_CACHE_MODE.Off ||
 			!imageCacheEstimateReady ||
 			!imageCacheEstimateResult?.sampleCachedImageDataUrl ||
-			!firstToken?.tokenId
+			!sampleToken?.tokenId
 		) {
 			return null;
 		}
 		return {
-			tokenId: firstToken.tokenId,
+			tokenId: sampleToken.tokenId,
 			marketplaceBiddingSupported: true,
-			name: firstToken.name,
+			name: sampleToken.name,
 			image: imageCacheEstimateResult.sampleCachedImageDataUrl,
 			animationUrl: null,
 			traitSummary: null,
 			listingPrice: null,
 			listingCurrency: null,
 			attributes: [],
-			hasMetadata: firstToken.metadataError === null,
+			hasMetadata: sampleToken.metadataError === null,
 			metadataUpdatedAt: null
 		};
 	}
@@ -587,52 +676,50 @@
 
 	function onScopeModeChange(event: Event): void {
 		const mode = (event.currentTarget as HTMLSelectElement).value;
-		supportsEnumerable = mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable;
-		if (!supportsEnumerable) {
+		entireContractSelected = mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable;
+		if (!entireContractSelected) {
 			manualMode =
 				mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
 					? BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
 					: BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		}
-		resetImageCacheEstimateState();
 	}
 
 	function onManualTokenIdsInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLTextAreaElement)) return;
 		manualTokenIds = target.value;
-		resetImageCacheEstimateState();
 	}
 
 	function onManualRangeStartTokenIdInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
 		manualRangeStartTokenId = target.value;
-		resetImageCacheEstimateState();
 	}
 
 	function onManualRangeTotalSupplyInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
 		manualRangeTotalSupply = target.value;
-		resetImageCacheEstimateState();
 	}
 
 	function canRunImageCacheEstimate(): boolean {
 		if (
+			!contractAddressSafetyAcknowledged ||
+			!sampleMatchesScope ||
 			scopeIssue ||
 			setupIssues.maxDimension ||
 			!formDetailsReady ||
 			imageCacheMode === IMAGE_CACHE_MODE.Off
 		)
 			return false;
-		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) return false;
+		if (!sample?.tokenId || !sample.image) return false;
 		if (!resolvedBootstrapScopeTotalSupply()) return false;
 		return !imageCacheEstimatePending;
 	}
 
 	async function onEstimateImageCache(): Promise<void> {
-		if (!chain || !probeResult || !canRunImageCacheEstimate()) return;
+		if (!chain || !sample || !canRunImageCacheEstimate()) return;
 		let maxDimension: number | null;
 		try {
 			maxDimension = parseImageCacheMaxDimension();
@@ -643,9 +730,9 @@
 				error instanceof Error ? error.message : 'invalid image cache setting';
 			return;
 		}
-		const firstToken = probeResult.firstToken;
+		const sampleToken = sample!;
 		const totalSupply = resolvedBootstrapScopeTotalSupply();
-		if (!firstToken.tokenId || !firstToken.image || !totalSupply) return;
+		if (!sampleToken.tokenId || !sampleToken.image || !totalSupply) return;
 		imageCacheEstimateRequestId += 1;
 		const requestId = imageCacheEstimateRequestId;
 		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Loading;
@@ -653,10 +740,9 @@
 		imageCacheEstimateError = null;
 		try {
 			const result = await estimateBootstrapImageCache(fetch, chain.slug, {
-				sampleTokenId: firstToken.tokenId,
-				sourceImageUrl: firstToken.image,
-				sourceImageBytes: firstToken.imageBytes,
-				totalSupply,
+				sampleTokenId: sampleToken.tokenId,
+				sourceImageUrl: sampleToken.image,
+				sourceImageBytes: null,
 				imageCacheMode,
 				maxDimension
 			});
@@ -679,31 +765,19 @@
 		return bootstrapTokenIds(manualTokenIds);
 	}
 
-	function normalizedManualRangeStartTokenId(): string {
-		return normalizeFieldValue(manualRangeStartTokenId);
-	}
-
-	function normalizedManualRangeTotalSupply(): string {
-		const value = normalizeFieldValue(manualRangeTotalSupply);
-		return /^\d+$/.test(value) && BigInt(value) > 0n ? value : '';
-	}
-
 	function resolvedBootstrapScopeTotalSupply(): string | null {
-		if (scopeIssue) return null;
-		if (supportsEnumerable) {
+		const scope = currentScope();
+		if (!scope) return null;
+		if (scope.mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable)
 			return latestProbeMatchesAddress ? (probeResult?.totalSupply.value ?? null) : null;
-		}
-		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
-			const tokenIds = new Set(manualTokenIdList().map((id) => BigInt(id).toString()));
-			return tokenIds.size > 0 ? String(tokenIds.size) : null;
-		}
-		return normalizedManualRangeTotalSupply() || null;
+		const count = bootstrapScopeTokenCount(scope);
+		return count === null ? null : String(count);
 	}
 
 	function projectedMetadataSize(): string {
-		const sampleBytes = probeResult?.firstToken.tokenUriPayloadBytes;
+		const sampleBytes = sample?.tokenUriPayloadBytes;
 		const count = resolvedBootstrapScopeTotalSupply();
-		return sampleBytes == null || count === null
+		return !sampleMatchesScope || sampleBytes == null || count === null
 			? 'not available'
 			: formatByteSize((BigInt(sampleBytes) * BigInt(count)).toString());
 	}
@@ -725,7 +799,12 @@
 	function imageCacheProjectedOutputValue(): string {
 		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
 		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
-		return formatByteSize(imageCacheEstimateResult.projectedCachedBytes);
+		const count = resolvedBootstrapScopeTotalSupply();
+		return sampleMatchesScope && count
+			? formatByteSize(
+					(BigInt(imageCacheEstimateResult.sampleCachedBytes) * BigInt(count)).toString()
+				)
+			: 'not available';
 	}
 
 	function parseImageCacheMaxDimension(): number | null {
@@ -800,47 +879,7 @@
 		}
 		const resolvedAnimationSourceField = readAnimationSourceFieldInputValue() || null;
 
-		let manualInput:
-			| {
-					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds;
-					tokenIds: string[];
-			  }
-			| {
-					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
-					startTokenId: string;
-					totalSupply: number;
-			  }
-			| undefined;
-
-		if (!supportsEnumerable) {
-			if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
-				const tokenIds = manualTokenIdList();
-				if (tokenIds.length === 0) {
-					submitError = 'token ids are required';
-					return;
-				}
-				manualInput = {
-					mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
-					tokenIds
-				};
-			} else {
-				const startTokenId = normalizedManualRangeStartTokenId();
-				const totalSupply = Number(normalizedManualRangeTotalSupply());
-				if (!startTokenId) {
-					submitError = 'start token id is required';
-					return;
-				}
-				if (!Number.isInteger(totalSupply) || totalSupply <= 0) {
-					submitError = 'total supply must be a positive integer';
-					return;
-				}
-				manualInput = {
-					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-					startTokenId,
-					totalSupply
-				};
-			}
-		}
+		const scope = bootstrapSetupScope(setupDraft);
 
 		let imageCacheMaxDimensionValue: number | null = null;
 		if (imageCacheMode !== IMAGE_CACHE_MODE.Off) {
@@ -862,8 +901,7 @@
 				animationSourceField: resolvedAnimationSourceField,
 				standard: 'erc721',
 				metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
-				supportsEnumerable,
-				manualInput,
+				scope,
 				imageCache: {
 					selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
 					imageCacheMode,
@@ -909,17 +947,18 @@
 {#snippet applySuggestion(
 	value: string | null | undefined,
 	current: string,
-	apply: (value: string) => void
+	apply: (value: string) => void,
+	label?: string
 )}
-	{#if latestProbeMatchesAddress && value}
+	{#if contractAddressSafetyAcknowledged && value}
 		<button
 			type="button"
 			class="action-button-positive"
-			title={`apply "${value}"`}
+			title={`apply "${label ?? value}"`}
 			disabled={value === current.trim()}
 			onclick={() => apply(value)}
 		>
-			<span class="action-button-value">apply <code>"{value}"</code></span>
+			<span class="action-button-value">apply <code>"{label ?? value}"</code></span>
 		</button>
 	{/if}
 {/snippet}
@@ -984,7 +1023,7 @@
 							{#if probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Error}
 								probe failed
 							{:else if latestProbeMatchesAddress}
-								{sampleProbeFailure ? 'check incomplete' : 'probe complete'}
+								contract checked
 							{:else}
 								{probeInputsChanged ? 'inputs changed — probe again' : 'not checked'}
 							{/if}
@@ -993,7 +1032,7 @@
 					<p id="bootstrap-address-help" class="bootstrap-row-note muted">
 						{#if setupIssues.address}{setupIssues.address}
 						{:else if !contractAddressSafetyAcknowledged}Confirm the contract address above before probing or queueing.
-						{:else}probe checks the current sample and media fields. After editing them, press probe again.{/if}
+						{:else}probe checks contract capabilities, then inspects a sample.{/if}
 					</p>
 				</div>
 				<div class="bootstrap-form-row">
@@ -1002,8 +1041,12 @@
 						class={bootstrapInputClass} type="text" inputmode="numeric" name="sampleTokenId"
 						oninput={onSampleTokenIdInput} aria-describedby="bootstrap-sample-help" />
 					<div class="bootstrap-row-actions">
-						{@render applySuggestion(probeResult && bootstrapSampleOwnership(probeResult) === true
-							? probeResult.firstToken.tokenId : null, sampleTokenId, setSampleTokenIdValue)}
+						{@render applySuggestion(sample && bootstrapSampleOwnership(sample) === true
+							? sample.tokenId : null, sampleTokenId, setSampleTokenIdValue)}
+						<button type="button" class="action-button-positive" aria-label="inspect" aria-busy={samplePending}
+							disabled={!addressCanBeProbed || samplePending || contractProbePending} onclick={() => void onInspectSample()}>
+							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}inspect{/if}
+						</button>
 						{#if sampleTokenIdResolved}
 							<span class="bootstrap-row-status">owner confirmed</span>
 						{:else if sampleTokenIdIncorrect}
@@ -1013,16 +1056,17 @@
 						{/if}
 					</div>
 					<p id="bootstrap-sample-help" class="bootstrap-row-note muted">
-						{#if sampleTokenId.trim() && !sampleMatchesScope && !scopeIssue}
-							This sample is outside the selected scope. Choose one inside it to set up OpenSea; bootstrap can proceed.
+						{#if effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue}
+							Token #{effectiveSampleTokenId} is outside the selected scope. Choose a sample inside it for estimates and OpenSea. Bootstrap can proceed.
 						{:else}
-							Use one existing token for checks and previews, or leave blank for probe to find a sample.
+							{#if !sampleTokenId.trim() && effectiveSampleTokenId}Using token #{effectiveSampleTokenId}.{:else}Optional override. Leave blank to find a sample in the selected scope.{/if}
 						{/if}
 					</p>
 				</div>
 				{#if probeError || sampleProbeFailure}
 					<div class="bootstrap-section-note bootstrap-check-warning" role="alert">
-						<p>{probeError ?? sampleProbeFailure}</p>
+						{#if probeError}<p>{probeError}</p>{/if}
+						{#if sampleProbeFailure}<p>{sampleProbeFailure}</p>{/if}
 						<p class="muted">You can still queue bootstrap with the required fields below. Unavailable metadata or images may remain missing.</p>
 					</div>
 				{/if}
@@ -1048,7 +1092,7 @@
 						</div>
 						<div class="bootstrap-form-row">
 							<span class="bootstrap-form-label-cell">Metadata (1 token)</span>
-							<div class="bootstrap-read-value mono">{formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}</div>
+							<div class="bootstrap-read-value mono">{formatByteSize(sample?.tokenUriPayloadBytes)}</div>
 						</div>
 						<div class="bootstrap-form-row">
 							<span class="bootstrap-form-label-cell">Est. metadata (selected scope)</span>
@@ -1069,21 +1113,24 @@
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-scope-mode">{@render fieldLabel('Token scope', bootstrapFieldHelp.manualMode)}</label>
 					<select id="bootstrap-scope-mode" class={bootstrapSelectClass}
-						value={supportsEnumerable ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode}
+						value={entireContractSelected ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode}
 						onchange={onScopeModeChange}>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.ManualRange}>Token range</option>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}>Token ID list</option>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.Enumerable}>Entire contract (ERC721Enumerable)</option>
 					</select>
 					<div class="bootstrap-row-actions">
-						<span class="bootstrap-row-status">{supportsEnumerable ? 'all contract tokens' : 'collection scope'}</span>
+						{#if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
+							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
+						{/if}
+						<span class="bootstrap-row-status">{entireContractSelected ? 'all contract tokens' : 'collection scope'}</span>
 					</div>
 				</div>
-				{#if supportsEnumerable}
+				{#if entireContractSelected}
 					<p class="bootstrap-section-note muted">
 						Includes every token on this contract. For one project on a shared contract, choose Token range or Token ID list.
 					</p>
-					{#if latestProbeMatchesAddress && probeResult?.enumerable.supported !== true}
+					{#if !latestProbeMatchesAddress || probeResult?.enumerable.supported !== true}
 						<p class="bootstrap-section-note bootstrap-check-warning">
 							ERC721Enumerable support was not confirmed. Choose a range or list if this contract cannot enumerate tokens; you can still queue the selected scope.
 						</p>
@@ -1105,7 +1152,10 @@
 						<input id="bootstrap-range-start" value={manualRangeStartTokenId} class={bootstrapInputClass}
 							type="text" inputmode="numeric" required oninput={onManualRangeStartTokenIdInput}
 							aria-invalid={Boolean(setupIssues.startTokenId)} aria-describedby="bootstrap-range-help" />
-						<div class="bootstrap-row-actions"><span class="bootstrap-row-status">required</span></div>
+						<div class="bootstrap-row-actions">
+							{@render applySuggestion(probeResult?.discovery.rangeStartCandidate, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
+							<span class="bootstrap-row-status">{probeResult?.discovery.rangeStartCandidate != null ? 'confirmed ID · review range' : 'required'}</span>
+						</div>
 					</div>
 					<div class="bootstrap-form-row">
 						<label for="bootstrap-range-count">{@render fieldLabel('Token count', bootstrapFieldHelp.manualRangeTotalSupply)}</label>
@@ -1115,7 +1165,6 @@
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(probeResult?.totalSupply.bootstrapRangeValue?.toString(), manualRangeTotalSupply, (value) => {
 								manualRangeTotalSupply = value;
-								resetImageCacheEstimateState();
 							})}
 							<span class="bootstrap-row-status">{latestProbeMatchesAddress && probeResult?.totalSupply.bootstrapRangeValue ? 'contract supply suggestion' : 'required'}</span>
 						</div>
@@ -1154,17 +1203,17 @@
 						class={bootstrapInputClass} type="text" name="imageSourceField" required oninput={onImageSourceFieldInput}
 						aria-describedby="bootstrap-image-help" />
 					<div class="bootstrap-row-actions">
-						{@render applySuggestion(probeResult?.firstToken.imageSourceField, imageSourceField, setImageSourceFieldValue)}
+						{@render applySuggestion(metadataSuggestions.imageSourceField, imageSourceField, setImageSourceFieldValue)}
 						{#if imageSourceFieldResolved}<span class="bootstrap-row-status">found in sample</span>{/if}
 					</div>
 					{#if setupIssues.imageSourceField}
 						<p id="bootstrap-image-help" class="bootstrap-row-note muted">{setupIssues.imageSourceField}</p>
 					{:else if !imageSourceFieldResolved}
 						<p id="bootstrap-image-help" class="bootstrap-row-note muted">
-							{#if latestProbeMatchesAddress && !sampleProbeFailure}
-								No image found in this field. Edit it and press probe again, or queue the entered field.
+							{#if sampleResult && !sampleProbeFailure}
+								No image found in this field. Choose another field or queue the entered value.
 							{:else}
-								Not checked. probe can check this field; bootstrap uses the value entered.
+								Not checked. Press inspect to load sample metadata, or queue the entered value.
 							{/if}
 						</p>
 					{/if}
@@ -1174,16 +1223,16 @@
 					<input id="bootstrap-animation-field" bind:this={animationSourceFieldInputElement} value={animationSourceField}
 						class={bootstrapInputClass} type="text" name="animationSourceField" oninput={onAnimationSourceFieldInput} />
 					<div class="bootstrap-row-actions">
-						{@render applySuggestion(probeResult?.firstToken.animationSourceField, animationSourceField, setAnimationSourceFieldValue)}
+						{@render applySuggestion(metadataSuggestions.animationSourceField, animationSourceField, setAnimationSourceFieldValue)}
 						{#if animationSourceFieldResolved}<span class="bootstrap-row-status">found in sample</span>
 						{:else if animationSourceFieldIncorrect}<span class="bootstrap-row-status">not found in sample</span>
 						{:else if !animationSourceField}<span class="bootstrap-row-status">skip animation</span>{/if}
 					</div>
 				</div>
-				{#if formDetailsReady && firstTokenCard}
+				{#if formDetailsReady && sampleTokenCard}
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Sample preview</span>
-						<div class="bootstrap-read-value">Token #{firstTokenCard.tokenId}</div>
+						<div class="bootstrap-read-value">Token #{sampleTokenCard.tokenId}</div>
 						<div class="bootstrap-row-actions">
 							<button type="button" class="action-button-positive" aria-expanded={samplePreviewOpen}
 								onclick={() => samplePreviewOpen = !samplePreviewOpen}>{samplePreviewOpen ? 'hide preview' : 'preview sample'}</button>
@@ -1205,11 +1254,11 @@
 								{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation && animationPreviewIframeSource}
 									<div class="bootstrap-animation-preview-frame-wrap">
 										<TokenMediaFrame className="bootstrap-animation-preview-frame" iframeSource={animationPreviewIframeSource}
-											hideScrollbars title={`${tokenMediaTitle(firstTokenCard.tokenId)} animation preview`} />
+											hideScrollbars title={`${tokenMediaTitle(sampleTokenCard.tokenId)} animation preview`} />
 									</div>
 								{:else}
 									<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
-										<TokenCardTile {chain} collection={null} token={firstTokenCard} href="#"
+										<TokenCardTile {chain} collection={null} token={sampleTokenCard} href="#"
 											selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot} availableMediaModes={bootstrapPreviewMediaModes}
 											{tokenPreview} showMeta={false} />
 									</div>
@@ -1229,7 +1278,10 @@
 							<option value={mode}>{imageCacheModeLabel(mode)}</option>
 						{/each}
 					</select>
-					<div class="bootstrap-row-actions"><span class="bootstrap-row-status">{imageCacheMode === IMAGE_CACHE_MODE.Off ? 'no local image files' : 'optional estimate'}</span></div>
+					<div class="bootstrap-row-actions">
+						{@render applySuggestion(imageCacheSuggestion?.config.imageCacheMode, imageCacheMode, (value) => { imageCacheMode = parseImageCacheMode(value); resetImageCacheEstimateState(); }, imageCacheSuggestion ? imageCacheModeLabel(imageCacheSuggestion.config.imageCacheMode) : undefined)}
+						<span class="bootstrap-row-status">{imageCacheSuggestion ? 'extension suggestion' : imageCacheMode === IMAGE_CACHE_MODE.Off ? 'no local image files' : 'optional estimate'}</span>
+					</div>
 				</div>
 				{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
 					<div class="bootstrap-form-row">
@@ -1239,6 +1291,7 @@
 							onkeydown={onImageCacheMaxDimensionKeydown} aria-invalid={Boolean(setupIssues.maxDimension)}
 							aria-describedby="bootstrap-cache-help" />
 						<div class="bootstrap-row-actions">
+							{@render applySuggestion(imageCacheSuggestion ? String(imageCacheSuggestion.config.maxDimension ?? 'original') : null, imageCacheMaxDimensionDraft || 'original', (value) => { imageCacheMaxDimensionDraft = value === 'original' ? '' : value; resetImageCacheEstimateState(); })}
 							<button type="button" class="action-button-positive" disabled={!imageCacheEstimateCanRun}
 								aria-label="estimate" aria-busy={imageCacheEstimatePending} onclick={() => void onEstimateImageCache()}>
 								{#if imageCacheEstimatePending}{@render inProgressStatus('estimating', 'estimating image cache size')}{:else}estimate{/if}
@@ -1252,7 +1305,7 @@
 						<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
 							{setupIssues.maxDimension ?? (imageCacheEstimateCanRun || imageCacheEstimateReady || imageCacheEstimatePending
 								? 'Estimate is optional. Leave the dimension blank to keep original image dimensions.'
-								: 'To estimate, probe and apply the sample and image field, then set a token count. You can queue without an estimate.')}
+								: 'To estimate, inspect a token inside the selected scope and choose its image field. You can queue without an estimate.')}
 						</p>
 					</div>
 				{/if}
@@ -1301,7 +1354,7 @@
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-opensea-slug">{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}</label>
 					<OpenSeaSlugResolverControl chainSlug={chain?.slug ?? null} contractAddress={normalizedBootstrapAddress}
-						bind:this={openSeaSlugResolver} {sampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
+						bind:this={openSeaSlugResolver} sampleTokenId={effectiveSampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
 						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
 						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
 				</div>
@@ -1332,14 +1385,14 @@
 	<aside class="bootstrap-metadata-panel" aria-label="tokenURI response">
 		<header class="bootstrap-metadata-heading">
 			<h2 class="panel-title">tokenURI response</h2>
-			{#if latestProbeMatchesAddress && probeResult?.firstToken.tokenId}
-				<span class="muted">token #{probeResult.firstToken.tokenId} · {formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}</span>
+			{#if sample?.tokenId}
+				<span class="muted">token #{sample!.tokenId} · {formatByteSize(sample!.tokenUriPayloadBytes)}</span>
 			{/if}
 		</header>
-		{#if latestProbeMatchesAddress && probeResult?.firstToken.tokenUriPayload != null}
-			<JsonPayloadPreview text={probeResult.firstToken.tokenUriPayload} />
+		{#if sample?.tokenUriPayload != null}
+			<JsonPayloadPreview text={sample!.tokenUriPayload} />
 		{:else}
-			<p class="muted">{contractProbePending ? 'waiting for metadata…' : probeError || sampleProbeFailure ? 'No response available. Retry probe.' : 'probe to load metadata'}</p>
+			<p class="muted">{samplePending || contractProbePending ? 'waiting for metadata…' : sampleProbeFailure ? 'No response available. Press inspect to retry.' : 'probe or inspect to load metadata'}</p>
 		{/if}
 	</aside>
 	</div>

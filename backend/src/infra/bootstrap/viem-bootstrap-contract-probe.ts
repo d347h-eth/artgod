@@ -4,33 +4,27 @@ import {
     isErc721TokenAbsentError,
     normalizeErc721Owner,
 } from "@artgod/shared/evm/erc721-ownership";
-import type {
-    BootstrapProbeFirstTokenSource,
-    BootstrapProbeImageBytesSource,
-    BootstrapProbeFirstToken,
-    BootstrapProbeInterfaceCheck,
-    BootstrapProbeTokenCandidate,
-    BootstrapProbeTotalSupply,
-    CollectionContractProbePort,
-    CollectionContractProbeResult,
-} from "../../application/use-cases/bootstrap/probe-collection-contract.js";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import {
-    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
-    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
     BOOTSTRAP_PROBE_READ_STATUS,
-    BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
-    toBootstrapRangeTotalSupply,
-    toSafeIntegerValue,
-} from "../../application/use-cases/bootstrap/probe-collection-contract.js";
+    emptyBootstrapSampleMetadata,
+    type BootstrapContractFindings,
+    type BootstrapProbeObservation,
+    type BootstrapProbeInterfaceCheck,
+    type BootstrapProbeTokenCandidate,
+    type BootstrapProbeTotalSupply,
+    type BootstrapSampleMetadata,
+    type BootstrapTokenDiscovery,
+} from "@artgod/shared/bootstrap/probe";
+import { bootstrapTokenDiscovery } from "@artgod/shared/bootstrap/sample-selection";
+import { inspectBootstrapMetadata } from "@artgod/shared/bootstrap/metadata";
+import type { CollectionContractProbePort } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
+import type { BootstrapSampleInspectionPort } from "../../application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
 import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
-import { selectTokenMetadataAnimationSource } from "@artgod/shared/media/token-metadata-animation-source";
-import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
-import { fetchTokenImageCacheSource } from "@artgod/shared/media/token-image-cache-source";
-import { readTokenImageSourceDimensions } from "@artgod/shared/media/token-image-cache-transform";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     fetchWithHttpResilience,
@@ -45,49 +39,31 @@ import {
     readErc1967BeaconAddress,
     type EvmProxyResolution,
 } from "@artgod/shared/evm/proxy-detection";
-import { loadSharp } from "../media/sharp-loader.js";
 import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
 import { logger } from "@artgod/shared/utils";
-import { BOOTSTRAP_TOKEN_URI_MAX_BYTES } from "@artgod/shared/config/bootstrap";
+import {
+    BOOTSTRAP_TOKEN_URI_MAX_BYTES,
+    BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
+} from "@artgod/shared/config/bootstrap";
 
+type Hex = `0x${string}`;
 type BootstrapProbeRpc = {
-    getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
+    getProbeBlock(blockNumber?: number): Promise<BootstrapProbeObservation>;
+    getBytecode(address: Hex, blockNumber?: number): Promise<Hex | null>;
     getStorageAt(params: {
-        address: `0x${string}`;
-        slot: `0x${string}`;
-    }): Promise<`0x${string}` | null>;
+        address: Hex;
+        slot: Hex;
+        blockNumber?: number;
+    }): Promise<Hex | null>;
     readContract<T = unknown>(params: {
-        address: `0x${string}`;
+        address: Hex;
         abi: readonly unknown[];
         functionName: string;
         args?: readonly unknown[];
+        blockNumber?: number;
     }): Promise<T>;
 };
-
-type TokenUriPayload = {
-    text: string;
-    byteSize: number;
-    truncated: boolean;
-};
-
-type TokenUriReadResult =
-    | {
-          ok: true;
-          uri: string;
-      }
-    | {
-          ok: false;
-          error: string;
-      };
-
-type CandidateProbeResult = BootstrapProbeTokenCandidate & {
-    tokenUri: string | null;
-};
-
-type ContractProbeTarget = {
-    address: `0x${string}`;
-    proxy: EvmProxyResolution | null;
-};
+type TokenUriPayload = { text: string; byteSize: number; truncated: boolean };
 
 const ERC165_SUPPORTS_INTERFACE_FUNCTION = "supportsInterface";
 const ERC721_TOKEN_BY_INDEX_FUNCTION = "tokenByIndex";
@@ -162,135 +138,267 @@ const BEACON_PROXY_ABI = [
 const ERC721_INTERFACE_ID = "0x80ac58cd";
 // ERC165 interface id for ERC721Enumerable.
 const ERC721_ENUMERABLE_INTERFACE_ID = "0x780e9d63";
-// Preflight only needs enough payload to render a safe preview and estimate scale.
-const MAX_MEDIA_PROBE_BYTES = 25 * 1024 * 1024;
+
 const DEFAULT_IPFS_GATEWAY_ORIGIN = "https://ipfs.io";
-const EMPTY_EVM_BYTECODE = "0x";
-// User-facing probe failure for addresses with no deployed EVM bytecode.
 export const NON_CONTRACT_ADDRESS_PROBE_ERROR = "address is not a contract";
 
-export class ViemBootstrapContractProbe implements CollectionContractProbePort {
+export class ViemBootstrapContractProbe
+    implements CollectionContractProbePort, BootstrapSampleInspectionPort
+{
     constructor(
         private readonly rpc: BootstrapProbeRpc,
         private readonly ipfsGatewayOrigin: string = DEFAULT_IPFS_GATEWAY_ORIGIN,
         private readonly fetchResilience: HttpFetchResilienceConfig = getDefaultHttpFetchResilienceConfig(),
     ) {}
 
-    async probeErc721Contract(input: {
-        address: string;
-        imageSourceField: string | null;
-        animationSourceField: string | null;
-        sampleTokenId: string | null;
-    }): Promise<CollectionContractProbeResult> {
-        const address = input.address as `0x${string}`;
-        const target = await this.resolveContractProbeTarget(address);
-        const erc721 = await this.readInterfaceSupport(
-            target.address,
-            ERC721_INTERFACE_ID,
-        );
-        const enumerable = await this.readInterfaceSupport(
-            target.address,
-            ERC721_ENUMERABLE_INTERFACE_ID,
-        );
-        // Read name() only to suggest an editable local collection slug.
-        const contractName = await this.readContractName(target.address);
-        const totalSupply = await this.readTotalSupply(target.address);
-        const firstToken = await this.probeFirstToken(
-            target.address,
-            enumerable,
-            input.imageSourceField,
-            input.animationSourceField,
-            input.sampleTokenId,
-        );
-
-        return {
-            proxy: target.proxy,
-            contractName,
-            erc721,
-            enumerable,
-            totalSupply,
-            firstToken,
-        };
+    async observation(
+        reference?: BootstrapProbeObservation | null,
+    ): Promise<BootstrapProbeObservation> {
+        if (
+            reference &&
+            (!Number.isSafeInteger(reference.blockNumber) ||
+                reference.blockNumber < 0 ||
+                !/^0x[0-9a-f]{64}$/i.test(reference.blockHash))
+        ) {
+            throw new BootstrapValidationError(
+                "Invalid probe observation. Press probe again.",
+            );
+        }
+        const observed = await this.rpc.getProbeBlock(reference?.blockNumber);
+        if (
+            reference &&
+            observed.blockHash.toLowerCase() !==
+                reference.blockHash.toLowerCase()
+        ) {
+            throw new BootstrapValidationError(
+                "The observed block changed. Press probe again.",
+            );
+        }
+        return observed;
     }
 
-    private async resolveContractProbeTarget(
-        address: `0x${string}`,
-    ): Promise<ContractProbeTarget> {
-        const bytecode = await this.rpc.getBytecode(address);
-        if (!bytecode || bytecode === EMPTY_EVM_BYTECODE) {
+    async verifyObservation(
+        reference: BootstrapProbeObservation,
+    ): Promise<void> {
+        await this.observation(reference);
+    }
+
+    async discoverContract(
+        rawAddress: string,
+    ): Promise<BootstrapContractFindings> {
+        const address = rawAddress as Hex;
+        const observation = await this.observation();
+        const blockNumber = observation.blockNumber;
+        const bytecode = await this.rpc.getBytecode(address, blockNumber);
+        if (!bytecode || bytecode === "0x")
             throw new BootstrapValidationError(
                 NON_CONTRACT_ADDRESS_PROBE_ERROR,
             );
+        const [proxyResult, erc721, enumerable, name, totalSupply] =
+            await Promise.all([
+                this.readProxy(address, bytecode, blockNumber),
+                this.readInterfaceSupport(
+                    address,
+                    ERC721_INTERFACE_ID,
+                    blockNumber,
+                ),
+                this.readInterfaceSupport(
+                    address,
+                    ERC721_ENUMERABLE_INTERFACE_ID,
+                    blockNumber,
+                ),
+                this.readContractName(address, blockNumber),
+                this.readTotalSupply(address, blockNumber),
+            ]);
+        const enumeration: BootstrapTokenDiscovery["enumeration"] = {
+            checked: false,
+            tokenId: null,
+            error: null,
+        };
+        if (enumerable.supported === true && totalSupply.value !== "0") {
+            enumeration.checked = true;
+            try {
+                const id = await this.rpc.readContract<bigint>({
+                    address,
+                    abi: ERC721_ENUMERABLE_ABI,
+                    functionName: ERC721_TOKEN_BY_INDEX_FUNCTION,
+                    args: [0n],
+                    blockNumber,
+                });
+                enumeration.tokenId = normalizeEvmTokenId(id.toString());
+                if (enumeration.tokenId === null)
+                    throw new Error("Invalid enumeration token ID");
+            } catch (error) {
+                enumeration.error = compactError(error);
+            }
         }
-        const bytecodeProxy = detectEvmProxy(bytecode);
-        if (bytecodeProxy) {
-            return {
-                address,
-                proxy: bytecodeProxy,
-            };
-        }
-
+        // The first enumeration entry is not necessarily the smallest ID. Check conventional IDs independently.
+        const ids = [
+            ...new Set([
+                "0",
+                "1",
+                ...(enumeration.tokenId === null ? [] : [enumeration.tokenId]),
+            ]),
+        ];
+        const candidates = await Promise.all(
+            ids.map((tokenId) =>
+                this.checkOwnership({ address, tokenId, observation }),
+            ),
+        );
+        await this.verifyObservation(observation);
         return {
-            address,
-            proxy: await this.readErc1967Proxy(address),
+            observation,
+            proxy: proxyResult.proxy,
+            proxyError: proxyResult.error,
+            contractName: name.value,
+            contractNameError: name.error,
+            erc721,
+            enumerable,
+            totalSupply,
+            discovery: bootstrapTokenDiscovery(enumeration, candidates),
         };
     }
 
-    private async readErc1967Proxy(
-        address: `0x${string}`,
-    ): Promise<EvmProxyResolution | null> {
-        const implementationProxy =
-            await this.readErc1967ImplementationProxy(address);
-        if (implementationProxy) return implementationProxy;
-
-        return await this.readErc1967BeaconProxy(address);
-    }
-
-    private async readErc1967ImplementationProxy(
-        address: `0x${string}`,
-    ): Promise<EvmProxyResolution | null> {
+    async checkOwnership(input: {
+        address: string;
+        tokenId: string;
+        observation: BootstrapProbeObservation;
+    }): Promise<BootstrapProbeTokenCandidate> {
         try {
-            // Read the deterministic ERC-1967 implementation slot after bytecode detection misses.
-            const slotValue = await this.rpc.getStorageAt({
-                address,
-                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+            const owner = await this.rpc.readContract<string>({
+                address: input.address as Hex,
+                abi: ERC721_OWNERSHIP_ABI,
+                functionName: ERC721_OWNER_OF_FUNCTION,
+                args: [BigInt(input.tokenId)],
+                blockNumber: input.observation.blockNumber,
             });
-            return detectErc1967ImplementationProxy(slotValue);
-        } catch {
-            return null;
+            normalizeErc721Owner(owner);
+            return { tokenId: input.tokenId, exists: true, error: null };
+        } catch (error) {
+            const absent = isErc721TokenAbsentError(error);
+            logger.debug("Bootstrap ownership check failed", {
+                address: input.address,
+                tokenId: input.tokenId,
+                error: compactError(error),
+            });
+            return {
+                tokenId: input.tokenId,
+                exists: absent ? false : null,
+                error: absent
+                    ? "This token has no owner at the observed block. Choose another sample token ID."
+                    : "Ownership could not be checked. Retry inspection.",
+            };
         }
     }
 
-    private async readErc1967BeaconProxy(
-        address: `0x${string}`,
-    ): Promise<EvmProxyResolution | null> {
+    async readMetadata(input: {
+        address: string;
+        tokenId: string;
+        observation: BootstrapProbeObservation;
+    }): Promise<BootstrapSampleMetadata> {
+        const result = emptyBootstrapSampleMetadata();
         try {
-            // Read the deterministic ERC-1967 beacon slot before asking the beacon for its implementation.
-            const beaconSlotValue = await this.rpc.getStorageAt({
+            const uri = await this.rpc.readContract<string>({
+                address: input.address as Hex,
+                abi: ERC721_METADATA_ABI,
+                functionName: ERC721_TOKEN_URI_FUNCTION,
+                args: [BigInt(input.tokenId)],
+                blockNumber: input.observation.blockNumber,
+            });
+            if (typeof uri !== "string" || !uri.trim())
+                throw new Error("tokenURI returned no URI");
+            result.tokenUri = uri;
+        } catch (error) {
+            logger.warn("Bootstrap tokenURI read failed", {
+                address: input.address,
+                tokenId: input.tokenId,
+                error: compactError(error),
+            });
+            result.tokenUriError =
+                "Token URI could not be read. Retry inspection or choose another sample token ID.";
+            return result;
+        }
+        try {
+            const payload = await fetchTokenUriPayload(
+                result.tokenUri,
+                this.ipfsGatewayOrigin,
+                this.fetchResilience,
+                BOOTSTRAP_TOKEN_URI_MAX_BYTES,
+            );
+            Object.assign(result, {
+                tokenUriPayload: payload.text,
+                tokenUriPayloadBytes: payload.byteSize,
+                tokenUriPayloadTruncated: payload.truncated,
+            });
+            result.metadataError = inspectBootstrapMetadata({
+                text: payload.text,
+                ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+            }).error;
+        } catch (error) {
+            logger.warn("Bootstrap sample metadata fetch failed", {
+                address: input.address,
+                tokenId: input.tokenId,
+                error: compactError(error),
+            });
+            result.tokenUriPayloadError = bootstrapMetadataFetchFailure(
+                error,
+                result.tokenUri,
+            );
+        }
+        return result;
+    }
+
+    private async readProxy(
+        address: Hex,
+        bytecode: Hex,
+        blockNumber: number,
+    ): Promise<{ proxy: EvmProxyResolution | null; error: string | null }> {
+        const detected = detectEvmProxy(bytecode);
+        if (detected) return { proxy: detected, error: null };
+        const errors: string[] = [];
+        try {
+            const value = await this.rpc.getStorageAt({
+                address,
+                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+                blockNumber,
+            });
+            const proxy = detectErc1967ImplementationProxy(value);
+            if (proxy) return { proxy, error: null };
+        } catch (error) {
+            errors.push(compactError(error));
+        }
+        try {
+            const slot = await this.rpc.getStorageAt({
                 address,
                 slot: EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
+                blockNumber,
             });
-            const beaconAddress = readErc1967BeaconAddress(beaconSlotValue);
-            if (!beaconAddress) return null;
-
-            const implementationAddress =
-                await this.rpc.readContract<`0x${string}`>({
+            const beaconAddress = readErc1967BeaconAddress(slot);
+            if (beaconAddress) {
+                const implementationAddress = await this.rpc.readContract<Hex>({
                     address: beaconAddress,
                     abi: BEACON_PROXY_ABI,
                     functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+                    blockNumber,
                 });
-            return detectErc1967BeaconProxy({
-                beaconAddress,
-                implementationAddress,
-            });
-        } catch {
-            return null;
+                return {
+                    proxy: detectErc1967BeaconProxy({
+                        beaconAddress,
+                        implementationAddress,
+                    }),
+                    error: errors.length ? errors.join("; ") : null,
+                };
+            }
+        } catch (error) {
+            errors.push(compactError(error));
         }
+        return { proxy: null, error: errors.length ? errors.join("; ") : null };
     }
 
     private async readInterfaceSupport(
-        address: `0x${string}`,
+        address: Hex,
         interfaceId: string,
+        blockNumber: number,
     ): Promise<BootstrapProbeInterfaceCheck> {
         try {
             const supported = await this.rpc.readContract<boolean>({
@@ -298,394 +406,73 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 abi: ERC165_ABI,
                 functionName: ERC165_SUPPORTS_INTERFACE_FUNCTION,
                 args: [interfaceId],
+                blockNumber,
             });
-            return {
-                supported: Boolean(supported),
-                error: null,
-            };
+            if (typeof supported !== "boolean")
+                throw new Error("Invalid interface response");
+            return { supported, error: null };
         } catch (error) {
-            return {
-                supported: null,
-                error: compactError(error),
-            };
+            return { supported: null, error: compactError(error) };
         }
     }
 
     private async readContractName(
-        address: `0x${string}`,
-    ): Promise<string | null> {
+        address: Hex,
+        blockNumber: number,
+    ): Promise<{ value: string | null; error: string | null }> {
         try {
             const name = await this.rpc.readContract<string>({
                 address,
                 abi: ERC721_NAME_ABI,
                 functionName: ERC721_NAME_FUNCTION,
+                blockNumber,
             });
-            return name.trim() || null;
-        } catch {
-            return null;
+            return { value: name.trim() || null, error: null };
+        } catch (error) {
+            return { value: null, error: compactError(error) };
         }
     }
 
     private async readTotalSupply(
-        address: `0x${string}`,
+        address: Hex,
+        blockNumber: number,
     ): Promise<BootstrapProbeTotalSupply> {
         try {
             const value = await this.rpc.readContract<bigint>({
                 address,
                 abi: ERC721_SUPPLY_ABI,
                 functionName: ERC721_TOTAL_SUPPLY_FUNCTION,
+                blockNumber,
             });
-            if (value <= 0n) {
-                return unavailableTotalSupply("totalSupply is not positive");
-            }
+            if (
+                typeof value !== "bigint" ||
+                normalizeEvmTokenId(value.toString()) === null
+            )
+                throw new Error("Invalid total supply");
             return {
                 status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                 value: value.toString(),
-                safeIntegerValue: toSafeIntegerValue(value),
-                bootstrapRangeValue: toBootstrapRangeTotalSupply(value),
                 error: null,
-            };
-        } catch (error) {
-            return unavailableTotalSupply(compactError(error));
-        }
-    }
-
-    private async probeFirstToken(
-        address: `0x${string}`,
-        enumerable: BootstrapProbeInterfaceCheck,
-        imageSourceField: string | null,
-        animationSourceField: string | null,
-        sampleTokenId: string | null,
-    ): Promise<BootstrapProbeFirstToken> {
-        const candidates: BootstrapProbeTokenCandidate[] = [];
-        if (sampleTokenId) {
-            return this.probeRequestedSampleToken(
-                address,
-                sampleTokenId,
-                candidates,
-                imageSourceField,
-                animationSourceField,
-            );
-        }
-
-        if (enumerable.supported === true) {
-            try {
-                const tokenId = await this.rpc.readContract<bigint>({
-                    address,
-                    abi: ERC721_ENUMERABLE_ABI,
-                    functionName: ERC721_TOKEN_BY_INDEX_FUNCTION,
-                    args: [0n],
-                });
-                const sample = await this.probeRequestedSampleToken(
-                    address,
-                    tokenId.toString(),
-                    candidates,
-                    imageSourceField,
-                    animationSourceField,
-                );
-                return {
-                    ...sample,
-                    source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
-                };
-            } catch {
-                // Fall back to token id start probing below.
-            }
-        }
-
-        for (const tokenId of ["0", "1"]) {
-            const candidate = await this.probeTokenCandidate(address, tokenId);
-            candidates.push({
-                tokenId: candidate.tokenId,
-                exists: candidate.exists,
-                source: candidate.source,
-                error: candidate.error,
-            });
-            if (candidate.exists) {
-                return this.readFirstTokenMetadata(
-                    address,
-                    tokenId,
-                    firstTokenSourceForCandidate(candidate.source),
-                    candidates,
-                    candidate.tokenUri,
-                    imageSourceField,
-                    animationSourceField,
-                );
-            }
-        }
-
-        return {
-            tokenId: null,
-            source: null,
-            tokenUri: null,
-            tokenUriPayload: null,
-            tokenUriPayloadBytes: null,
-            tokenUriPayloadTruncated: false,
-            tokenUriPayloadError: null,
-            name: null,
-            imageSourceField: null,
-            image: null,
-            imageBytes: null,
-            imageBytesSource: null,
-            imageContentType: null,
-            imageBytesError: null,
-            imageWidth: null,
-            imageHeight: null,
-            animationSourceField: null,
-            animationUrl: null,
-            metadataError: "token ids 0 and 1 were not confirmed",
-            candidates,
-        };
-    }
-
-    private async probeRequestedSampleToken(
-        address: `0x${string}`,
-        tokenId: string,
-        candidates: BootstrapProbeTokenCandidate[],
-        imageSourceField: string | null,
-        animationSourceField: string | null,
-    ): Promise<BootstrapProbeFirstToken> {
-        const candidate = await this.probeTokenCandidate(address, tokenId);
-        candidates.push({
-            tokenId: candidate.tokenId,
-            exists: candidate.exists,
-            source: candidate.source,
-            error: candidate.error,
-        });
-        if (candidate.exists) {
-            return this.readFirstTokenMetadata(
-                address,
-                tokenId,
-                firstTokenSourceForCandidate(candidate.source),
-                candidates,
-                candidate.tokenUri,
-                imageSourceField,
-                animationSourceField,
-            );
-        }
-
-        return emptyFirstTokenWithError(
-            tokenId,
-            null,
-            candidates,
-            candidate.error ?? "sample token was not confirmed",
-        );
-    }
-
-    private async probeTokenCandidate(
-        address: `0x${string}`,
-        tokenId: string,
-    ): Promise<CandidateProbeResult> {
-        // Metadata may exist for unminted IDs; establish ownership before fetching it.
-        try {
-            const owner = await this.rpc.readContract<string>({
-                address,
-                abi: ERC721_OWNERSHIP_ABI,
-                functionName: ERC721_OWNER_OF_FUNCTION,
-                args: [BigInt(tokenId)],
-            });
-            normalizeErc721Owner(owner);
-            return {
-                tokenId,
-                exists: true,
-                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf,
-                error: null,
-                tokenUri: null,
+                safeIntegerValue:
+                    value <= BigInt(Number.MAX_SAFE_INTEGER)
+                        ? Number(value)
+                        : null,
+                bootstrapRangeValue:
+                    value > 0n &&
+                    value <= BigInt(BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT)
+                        ? Number(value)
+                        : null,
             };
         } catch (error) {
             return {
-                tokenId,
-                exists: isErc721TokenAbsentError(error) ? false : null,
-                source: null,
+                status: BOOTSTRAP_PROBE_READ_STATUS.Unavailable,
+                value: null,
+                safeIntegerValue: null,
+                bootstrapRangeValue: null,
                 error: compactError(error),
-                tokenUri: null,
             };
         }
     }
-
-    private async readFirstTokenMetadata(
-        address: `0x${string}`,
-        tokenId: string,
-        source: BootstrapProbeFirstToken["source"],
-        candidates: BootstrapProbeTokenCandidate[],
-        knownTokenUri: string | null,
-        requestedImageSourceField: string | null,
-        requestedAnimationSourceField: string | null,
-    ): Promise<BootstrapProbeFirstToken> {
-        const tokenUri =
-            knownTokenUri ?? (await this.readTokenUri(address, tokenId));
-        if (typeof tokenUri !== "string" && !tokenUri.ok) {
-            return emptyFirstTokenWithError(
-                tokenId,
-                source,
-                candidates,
-                tokenUri.error,
-            );
-        }
-
-        const uri = typeof tokenUri === "string" ? tokenUri : tokenUri.uri;
-        try {
-            const payload = await fetchTokenUriPayload(
-                uri,
-                this.ipfsGatewayOrigin,
-                this.fetchResilience,
-                BOOTSTRAP_TOKEN_URI_MAX_BYTES,
-            );
-            const metadata = parseMetadataPayload(
-                payload.text,
-                requestedImageSourceField,
-                requestedAnimationSourceField,
-                this.ipfsGatewayOrigin,
-            );
-            const image = resolveDisplayUrl(
-                metadata.imageSource?.value ?? null,
-                this.ipfsGatewayOrigin,
-            );
-            const imageSize = image
-                ? await probeMediaSize(
-                      image,
-                      this.ipfsGatewayOrigin,
-                      MAX_MEDIA_PROBE_BYTES,
-                      this.fetchResilience,
-                  )
-                : null;
-            return {
-                tokenId,
-                source,
-                tokenUri: uri,
-                tokenUriPayload: payload.text,
-                tokenUriPayloadBytes: payload.byteSize,
-                tokenUriPayloadTruncated: payload.truncated,
-                tokenUriPayloadError: null,
-                name: metadata.name,
-                imageSourceField: metadata.imageSource?.field ?? null,
-                image,
-                imageBytes: imageSize?.bytes ?? null,
-                imageBytesSource: imageSize?.source ?? null,
-                imageContentType: imageSize?.contentType ?? null,
-                imageBytesError: imageSize?.error ?? null,
-                imageWidth: imageSize?.width ?? null,
-                imageHeight: imageSize?.height ?? null,
-                animationSourceField: metadata.animationSource?.field ?? null,
-                animationUrl: resolveDisplayUrl(
-                    metadata.animationSource?.value ?? null,
-                    this.ipfsGatewayOrigin,
-                ),
-                metadataError: metadata.error,
-                candidates,
-            };
-        } catch (error) {
-            logger.warn("Bootstrap sample metadata fetch failed", {
-                component: "BootstrapContractProbe",
-                action: "fetchMetadata",
-                address,
-                tokenId,
-                error: compactError(error),
-            });
-            return {
-                tokenId,
-                source,
-                tokenUri: uri,
-                tokenUriPayload: null,
-                tokenUriPayloadBytes: null,
-                tokenUriPayloadTruncated: false,
-                tokenUriPayloadError: bootstrapMetadataFetchFailure(error, uri),
-                name: null,
-                imageSourceField: null,
-                image: null,
-                imageBytes: null,
-                imageBytesSource: null,
-                imageContentType: null,
-                imageBytesError: null,
-                imageWidth: null,
-                imageHeight: null,
-                animationSourceField: null,
-                animationUrl: null,
-                metadataError: null,
-                candidates,
-            };
-        }
-    }
-
-    private async readTokenUri(
-        address: `0x${string}`,
-        tokenId: string,
-    ): Promise<TokenUriReadResult> {
-        try {
-            const uri = await this.rpc.readContract<string>({
-                address,
-                abi: ERC721_METADATA_ABI,
-                functionName: ERC721_TOKEN_URI_FUNCTION,
-                args: [BigInt(tokenId)],
-            });
-            if (!uri.trim()) {
-                return {
-                    ok: false,
-                    error: "tokenURI returned an empty string",
-                };
-            }
-            return {
-                ok: true,
-                uri,
-            };
-        } catch (error) {
-            return {
-                ok: false,
-                error: `tokenURI: ${compactError(error)}`,
-            };
-        }
-    }
-}
-
-function unavailableTotalSupply(error: string): BootstrapProbeTotalSupply {
-    return {
-        status: BOOTSTRAP_PROBE_READ_STATUS.Unavailable,
-        value: null,
-        safeIntegerValue: null,
-        bootstrapRangeValue: null,
-        error,
-    };
-}
-
-function emptyFirstTokenWithError(
-    tokenId: string,
-    source: BootstrapProbeFirstToken["source"],
-    candidates: BootstrapProbeTokenCandidate[],
-    error: string,
-): BootstrapProbeFirstToken {
-    return {
-        tokenId,
-        source,
-        tokenUri: null,
-        tokenUriPayload: null,
-        tokenUriPayloadBytes: null,
-        tokenUriPayloadTruncated: false,
-        tokenUriPayloadError: error,
-        name: null,
-        imageSourceField: null,
-        image: null,
-        imageBytes: null,
-        imageBytesSource: null,
-        imageContentType: null,
-        imageBytesError: null,
-        imageWidth: null,
-        imageHeight: null,
-        animationSourceField: null,
-        animationUrl: null,
-        metadataError: null,
-        candidates,
-    };
-}
-
-function firstTokenSourceForCandidate(
-    source: BootstrapProbeTokenCandidate["source"],
-): BootstrapProbeFirstTokenSource | null {
-    if (source === BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri) {
-        return BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri;
-    }
-    if (source === BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf) {
-        return BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf;
-    }
-    return null;
 }
 
 async function fetchTokenUriPayload(
@@ -699,7 +486,7 @@ async function fetchTokenUriPayload(
         return boundedTokenUriPayload(text, maxBytes);
     }
 
-    const resolved = resolveDisplayUrl(uri, ipfsGatewayOrigin);
+    const resolved = resolveTokenResourceUri(uri, { ipfsGatewayOrigin });
     if (!resolved || !/^https?:\/\//i.test(resolved)) {
         throw new Error("unsupported tokenURI scheme");
     }
@@ -762,141 +549,6 @@ function boundedTokenUriPayload(
         throw new Error(`tokenURI payload exceeds ${maxBytes} bytes`);
     }
     return { text, byteSize, truncated: false };
-}
-
-function parseMetadataPayload(
-    text: string,
-    requestedImageSourceField: string | null,
-    requestedAnimationSourceField: string | null,
-    ipfsGatewayOrigin: string,
-): {
-    name: string | null;
-    imageSource: { field: string; value: string } | null;
-    animationSource: { field: string; value: string } | null;
-    error: string | null;
-} {
-    try {
-        const raw = JSON.parse(text) as Record<string, unknown>;
-        return {
-            name: asString(raw.name),
-            imageSource: selectTokenMetadataImageSource({
-                metadata: raw,
-                requestedField: requestedImageSourceField,
-                ipfsGatewayOrigin,
-            }),
-            animationSource: selectTokenMetadataAnimationSource({
-                metadata: raw,
-                requestedField: requestedAnimationSourceField,
-                ipfsGatewayOrigin,
-            }),
-            error: null,
-        };
-    } catch (error) {
-        logger.warn("Bootstrap metadata parsing failed", {
-            component: "BootstrapContractProbe",
-            action: "parseMetadata",
-            error: compactError(error),
-        });
-        return {
-            name: null,
-            imageSource: null,
-            animationSource: null,
-            error: "Metadata could not be read. Try another sample token ID, then press probe.",
-        };
-    }
-}
-
-function resolveDisplayUrl(
-    value: string | null,
-    ipfsGatewayOrigin: string,
-): string | null {
-    return resolveTokenResourceUri(value, { ipfsGatewayOrigin });
-}
-
-async function probeMediaSize(
-    uri: string,
-    ipfsGatewayOrigin: string,
-    maxBytes: number,
-    fetchResilience: HttpFetchResilienceConfig,
-): Promise<{
-    bytes: number | null;
-    source: BootstrapProbeImageBytesSource | null;
-    contentType: string | null;
-    width: number | null;
-    height: number | null;
-    error: string | null;
-}> {
-    try {
-        const source = await fetchTokenImageCacheSource({
-            sourceImageUrl: uri,
-            ipfsGatewayOrigin,
-            maxSourceBytes: maxBytes,
-            fetchResilience,
-        });
-        const dimensionProbe = await probeImageDimensions(source.buffer);
-        return {
-            bytes: source.buffer.byteLength,
-            source: uri.startsWith("data:")
-                ? BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.DataUri
-                : BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.Download,
-            contentType: source.contentType,
-            width: dimensionProbe.width,
-            height: dimensionProbe.height,
-            error: dimensionProbe.error,
-        };
-    } catch (error) {
-        return emptyMediaSizeError(error);
-    }
-}
-
-async function probeImageDimensions(buffer: Buffer): Promise<{
-    width: number | null;
-    height: number | null;
-    error: string | null;
-}> {
-    try {
-        const dimensions = await readTokenImageSourceDimensions({
-            sourceBuffer: buffer,
-            sharpLoader: loadSharp,
-        });
-        return {
-            width: dimensions.width,
-            height: dimensions.height,
-            error: null,
-        };
-    } catch (error) {
-        return {
-            width: null,
-            height: null,
-            error: compactError(error),
-        };
-    }
-}
-
-function emptyMediaSizeError(error: unknown): {
-    bytes: null;
-    source: null;
-    contentType: null;
-    width: null;
-    height: null;
-    error: string;
-} {
-    return {
-        bytes: null,
-        source: null,
-        contentType: null,
-        width: null,
-        height: null,
-        error: compactError(error),
-    };
-}
-
-function asString(value: unknown): string | null {
-    if (typeof value === "string" && value.trim()) return value;
-    if (typeof value === "number" || typeof value === "boolean") {
-        return String(value);
-    }
-    return null;
 }
 
 function compactError(error: unknown): string {

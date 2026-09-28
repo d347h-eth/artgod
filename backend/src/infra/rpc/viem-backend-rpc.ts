@@ -51,6 +51,7 @@ export const BACKEND_RPC_LOG_FIELD = {
 // Span names owned by the backend RPC adapter.
 const BACKEND_RPC_SPAN_NAME = {
     GetBytecode: "backend.rpc.get_bytecode",
+    GetProbeBlock: "backend.rpc.get_probe_block",
 } as const;
 
 // Component label used to split backend RPC logs and metrics.
@@ -259,14 +260,48 @@ export class ViemBackendRpcClient {
         );
     }
 
-    async getBytecode(address: BackendRpcHex): Promise<BackendRpcHex | null> {
+    /** Resolve one finalized observation, or re-check a previously pinned block. */
+    async getProbeBlock(
+        blockNumber?: number,
+    ): Promise<{ blockNumber: number; blockHash: string }> {
+        return this.withRpcSpan(
+            BACKEND_RPC_SPAN_NAME.GetProbeBlock,
+            {},
+            async (client) => {
+                const block = await client.getBlock(
+                    blockNumber === undefined
+                        ? { blockTag: "finalized" }
+                        : { blockNumber: BigInt(blockNumber) },
+                );
+                if (block.number === null || block.hash === null)
+                    throw new Error("Probe block is unavailable");
+                const number = Number(block.number);
+                if (!Number.isSafeInteger(number))
+                    throw new Error(
+                        "Probe block number exceeds supported range",
+                    );
+                return { blockNumber: number, blockHash: block.hash };
+            },
+        );
+    }
+
+    async getBytecode(
+        address: BackendRpcHex,
+        blockNumber?: number,
+    ): Promise<BackendRpcHex | null> {
         return this.withRpcSpan(
             BACKEND_RPC_SPAN_NAME.GetBytecode,
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.ContractAddress]: address,
             },
             async (client) => {
-                const value = await client.getBytecode({ address });
+                const value = await client.getBytecode({
+                    address,
+                    blockNumber:
+                        blockNumber === undefined
+                            ? undefined
+                            : BigInt(blockNumber),
+                });
                 return (value ?? null) as BackendRpcHex | null;
             },
         );

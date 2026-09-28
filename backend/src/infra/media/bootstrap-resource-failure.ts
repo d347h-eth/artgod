@@ -29,11 +29,11 @@ function bootstrapResourceFailureMessage(
             : error instanceof HttpFetchRequestTimeoutError
               ? `${resource} download timed out.`
               : `${resource} could not be downloaded.`;
-    const retry = resource === "Metadata" ? "probe" : "estimate";
+    const retry = resource === "Metadata" ? "inspect" : "estimate";
     const ipfs = sourceUri.startsWith("ipfs://") || isIpfsGatewayUrl(sourceUri);
     const recovery = ipfs
         ? `Check the IPFS gateway in Admin config, restart infra after changes, then press ${retry}.`
-        : `Press ${retry} to retry, or try another Sample token ID and press probe.`;
+        : `Press ${retry} to retry, or choose another sample token ID and press inspect.`;
     return `${failure} ${recovery}`;
 }
 

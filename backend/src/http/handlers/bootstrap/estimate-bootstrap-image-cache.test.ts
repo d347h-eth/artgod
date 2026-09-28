@@ -10,7 +10,10 @@ import { EstimateBootstrapImageCacheUseCase } from "../../../application/use-cas
 import { SharpBootstrapImageCacheEstimateAdapter } from "../../../infra/media/sharp-bootstrap-image-cache-estimate.js";
 import { registerApiErrorHandlers } from "../../common/error-handlers.js";
 import { EstimateBootstrapImageCacheHttpAdapter } from "./estimate-bootstrap-image-cache.js";
-import type { SharpFactoryLoader } from "../../../infra/media/sharp-loader.js";
+import {
+    loadSharp,
+    type SharpFactoryLoader,
+} from "../../../infra/media/sharp-loader.js";
 
 const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="cyan"/></svg>';
@@ -19,7 +22,6 @@ const input = {
     sampleTokenId: "1",
     sourceImageUrl,
     sourceImageBytes: null,
-    totalSupply: "3333",
     imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
     maxDimension: 64,
 };
@@ -28,7 +30,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("bootstrap image cache HTTP and native image processing", () => {
     async function estimate(
-        body: typeof input,
+        body: Omit<typeof input, "maxDimension"> & {
+            maxDimension: number | null;
+        },
         sharpLoader?: SharpFactoryLoader,
     ) {
         const app = Fastify({ logger: false });
@@ -76,7 +80,7 @@ describe("bootstrap image cache HTTP and native image processing", () => {
         }
     }
 
-    it("transforms real inline image bytes and projects the selected collection supply", async () => {
+    it("transforms real inline image bytes independently of the selected count", async () => {
         const result = await estimate(input);
         expect(result.status).toBe(200);
         expect(result.body).toMatchObject({
@@ -86,16 +90,58 @@ describe("bootstrap image cache HTTP and native image processing", () => {
             width: 64,
             height: 32,
             contentType: "image/webp",
-            totalSupply: "3333",
         });
         expect(result.body.sampleCachedBytes).toBeGreaterThan(0);
-        expect(result.body.projectedCachedBytes).toBe(
-            String(result.body.sampleCachedBytes * 3333),
-        );
+        expect(result.body).not.toHaveProperty("projectedCachedBytes");
+        expect(result.body).not.toHaveProperty("totalSupply");
         expect(result.body.sampleCachedImageDataUrl).toMatch(
             /^data:image\/webp;base64,/,
         );
     });
+
+    it.each(["png", "jpeg", "webp"] as const)(
+        "measures real %s images with resized and original dimensions",
+        async (format) => {
+            const sharp = await loadSharp();
+            const bytes = await sharp({
+                create: {
+                    width: 128,
+                    height: 64,
+                    channels: 3,
+                    background: "cyan",
+                },
+            })
+                .toFormat(format)
+                .toBuffer();
+            const sourceImageUrl = `data:image/${format};base64,${bytes.toString("base64")}`;
+            for (const maxDimension of [64, null]) {
+                const result = await estimate({
+                    ...input,
+                    sampleTokenId: "00042",
+                    sourceImageUrl,
+                    maxDimension,
+                });
+                expect(result.status).toBe(200);
+                expect(result.body).toMatchObject({
+                    sampleTokenId: "42",
+                    sourceWidth: 128,
+                    sourceHeight: 64,
+                    sampleSourceBytes: bytes.byteLength,
+                    width: maxDimension ?? 128,
+                    height: maxDimension === null ? 64 : 32,
+                });
+                const measured = Buffer.from(
+                    result.body.sampleCachedImageDataUrl.split(",")[1],
+                    "base64",
+                );
+                expect(measured.byteLength).toBe(result.body.sampleCachedBytes);
+                const output = await sharp(measured).metadata();
+                expect(output.width).toBe(result.body.width);
+                expect(output.height).toBe(result.body.height);
+                if (maxDimension === null) expect(measured).toEqual(bytes);
+            }
+        },
+    );
 
     it.each([429, 404])(
         "reports an upstream HTTP %i with gateway recovery instead of an internal error",

@@ -17,7 +17,6 @@ export type EstimateBootstrapImageCacheRoute = {
         sampleTokenId?: unknown;
         sourceImageUrl?: unknown;
         sourceImageBytes?: unknown;
-        totalSupply?: unknown;
         imageCacheMode?: unknown;
         maxDimension?: unknown;
     };
@@ -53,7 +52,6 @@ export class EstimateBootstrapImageCacheHttpAdapter {
                 body.sourceImageBytes,
                 "sourceImageBytes",
             ),
-            totalSupply: mustString(body.totalSupply, "totalSupply"),
             imageCacheMode: mustImageCacheMode(body.imageCacheMode),
             maxDimension: optionalPositiveInteger(
                 body.maxDimension,
