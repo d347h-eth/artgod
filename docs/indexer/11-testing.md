@@ -431,6 +431,30 @@ collection to exercise the entire flow.
 | Rendered journey       | Compact desktop grid and inspector, narrow stacking, single-line apply actions, inline progress and resolved badge.                                              | `yarn test:bootstrap:probe` plus rendered inspection                                        |
 | Late OpenSea setup     | A positively owned local sample identifies the collection. Missing ownership and runtime capability have separate recovery states.                               | Late-sync use-case/API and collection browser scenarios                                     |
 
+For real RPC, metadata and image requests, use the maintained read-only check:
+
+```sh
+yarn debug:bootstrap --backend-origin http://127.0.0.1:42710 --chain ethereum --address 0x5af0d9827e0c53e4799bb226655a1de152a425a5 --first-token-id 0 --token-count 10000 --sample-token-id 0 --output tmp/bootstrap-live-milady
+```
+
+This calls discovery, sample inspection and image estimation, saves the raw
+responses, and writes the returned WebP preview plus timings to the output
+directory. Repeat `--sample-token-id` to check several IDs. Failed metadata or
+image checks produce a nonzero exit status. It never creates collections or
+queues work. Only use trusted contracts, as with the form.
+
+To test another gateway without changing the running app, replace
+`--backend-origin` with `--rpc-url "$BOOTSTRAP_RPC_URL" --ipfs-gateway "$BOOTSTRAP_IPFS_GATEWAY"`.
+Both values are required. This mode uses `app.inject()` with the production
+HTTP handlers, use cases, RPC adapter, download policy and Sharp processor.
+Only Ethereum chain routing is a fixture, checked against the real RPC chain
+ID; it opens no database, queue or listener. This mode does not prove the
+desktop launcher's environment or HTTP security middleware. Run
+`yarn test:desktop:runtime-environment` against staged resources to cover the
+packaged Node/Sharp launch boundary as well. Record external failures separately
+from native import/processing failures; metadata and image CIDs can have
+different availability at the same gateway.
+
 Run `yarn test:bootstrap:probe` for desktop/mobile coverage. Artifacts are under
 `tmp/bootstrap-revamp-playwright/`; see [UI testing](../ui/03-testing.md).
 RPC and marketplace responses are deterministic fixtures. Image tests execute

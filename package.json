@@ -67,6 +67,7 @@
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
         "check:version": "node ./scripts/build/sync-version.mjs --check",
         "debug:ethereum-node": "node ./scripts/debug/ethereum-node-probe.mjs",
+        "debug:bootstrap": "tsx ./scripts/debug/bootstrap-live-check.ts",
         "sync:version": "node ./scripts/build/sync-version.mjs",
         "clean:build": "node ./scripts/build/clean-build-artifacts.mjs",
         "build:frontend": "yarn build:web",
