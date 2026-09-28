@@ -7,7 +7,7 @@
 	} from '$lib/json-preview';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 
-	let { text }: { text: string } = $props();
+	let { text, title = 'tokenURI response' }: { text: string; title?: string } = $props();
 	let theme = $state<JsonPreviewTheme | null>(null);
 	let previewDocument = $derived(theme ? buildJsonPreviewDocument(text, theme) : null);
 	onMount(() => {
@@ -21,7 +21,7 @@
 {#if previewDocument !== null}
 	<TokenMediaFrame
 		iframeSource={{ kind: 'srcdoc', value: previewDocument }}
-		title="tokenURI response"
+		{title}
 		className="json-payload-frame"
 		allowScripts={false}
 	/>

@@ -58,7 +58,9 @@
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import WarningIcon from '$lib/components/WarningIcon.svelte';
-	import JsonPayloadPreview from '$lib/components/JsonPayloadPreview.svelte';
+	import BootstrapOperationLog from '$lib/components/BootstrapOperationLog.svelte';
+	import { appendBootstrapOutput, emptyBootstrapLog, type BootstrapRequestOutput } from '$lib/bootstrap-output';
+	import { BOOTSTRAP_OPERATION, BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE, type BootstrapOperation, type BootstrapProgressRecord } from '@artgod/shared/bootstrap/operation-output';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
@@ -151,6 +153,19 @@
 	} as const;
 
 	let bootstrapSlug = $state('');
+	let operationLog = $state(emptyBootstrapLog());
+	const operationControllers = new Map<BootstrapOperation, AbortController>();
+	function recordOutput(record: BootstrapProgressRecord): void {
+		if (contractAddressSafetyAcknowledged) operationLog = appendBootstrapOutput(operationLog, record);
+	}
+	function outputRequest(operation: BootstrapOperation, current: () => boolean): BootstrapRequestOutput {
+		operationControllers.get(operation)?.abort();
+		const controller = new AbortController();
+		operationControllers.set(operation, controller);
+		return { signal: controller.signal, onOutput: record => {
+			if (!controller.signal.aborted && current()) recordOutput(record);
+		} };
+	}
 	let collectionSlugInputElement = $state<HTMLInputElement | null>(null);
 	let bootstrapAddress = $state('');
 	let contractAddressSafetyAcknowledged = $state(false);
@@ -319,6 +334,7 @@
 	});
 
 	onDestroy(() => {
+		for (const controller of operationControllers.values()) controller.abort();
 		sampleRequestId += 1;
 		contractProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
@@ -338,6 +354,8 @@
 	}
 
 	function invalidateContractProbe(): void {
+		for (const controller of operationControllers.values()) controller.abort();
+		operationLog = emptyBootstrapLog();
 		probeInputsChanged = probeInputsChanged || probeStatus !== BOOTSTRAP_PROBE_UI_STATUS.Idle;
 		samplePreviewOpen = false;
 		contractProbeRequestId += 1;
@@ -351,6 +369,7 @@
 	}
 
 	function invalidateSample(): void {
+		operationControllers.get(BOOTSTRAP_OPERATION.Inspect)?.abort();
 		sampleRequestId += 1;
 		sampleResult = null;
 		sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Idle;
@@ -368,6 +387,7 @@
 	}
 
 	function resetImageCacheEstimateState(): void {
+		operationControllers.get(BOOTSTRAP_OPERATION.Estimate)?.abort();
 		cachePreviewOpen = false;
 		imageCacheEstimateRequestId += 1;
 		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Idle;
@@ -453,7 +473,8 @@
 		probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Loading;
 		probeError = null;
 		try {
-			const result = await probeBootstrapCollectionContract(fetch, chainRef, address);
+			const result = await probeBootstrapCollectionContract(fetch, chainRef, address,
+				outputRequest(BOOTSTRAP_OPERATION.Probe, () => requestId === contractProbeRequestId));
 			if (requestId !== contractProbeRequestId || chainRef !== chain?.slug) return;
 			probeResult = result;
 			probeAddress = result.address;
@@ -500,7 +521,7 @@
 				scope: selection.scope,
 				discoveredTokenId: latestProbeMatchesAddress ? probeResult?.discovery.sampleTokenId : null,
 				observation: latestProbeMatchesAddress ? probeResult?.observation : null
-			});
+			}, outputRequest(BOOTSTRAP_OPERATION.Inspect, () => requestId === sampleRequestId));
 			if (
 				requestId !== sampleRequestId ||
 				chainRef !== chain?.slug ||
@@ -744,7 +765,7 @@
 				sourceImageBytes: null,
 				imageCacheMode,
 				maxDimension
-			});
+			}, outputRequest(BOOTSTRAP_OPERATION.Estimate, () => requestId === imageCacheEstimateRequestId));
 			if (requestId !== imageCacheEstimateRequestId) return;
 			imageCacheEstimateStatus = imageCacheEstimateUiStatus.Ready;
 			imageCacheEstimateResult = result;
@@ -902,13 +923,13 @@
 					imageCacheMode,
 					maxDimension: imageCacheMode === IMAGE_CACHE_MODE.Off ? null : imageCacheMaxDimensionValue
 				}
-			});
+			}, outputRequest(BOOTSTRAP_OPERATION.Queue, () => true));
 			await goto(runHref(result.runId));
 		} catch (error) {
 			submitError =
 				error instanceof BackendApiError && [400, 409, 422].includes(error.status)
 					? error.message
-					: 'Bootstrap could not be queued. Press queue bootstrap to retry.';
+					: BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE;
 		} finally {
 			submitting = false;
 		}
@@ -1346,6 +1367,7 @@
 					<OpenSeaSlugResolverControl chainSlug={chain?.slug ?? null} contractAddress={normalizedBootstrapAddress}
 						bind:this={openSeaSlugResolver} sampleTokenId={effectiveSampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
 						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
+						onOutput={recordOutput}
 						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
 					{#if openSeaSlugResolved && !sampleMatchesScope}
 						<p class="bootstrap-row-note bootstrap-check-warning">
@@ -1370,19 +1392,7 @@
 			</div>
 		</fieldset>
 	</form>
-	<aside class="bootstrap-metadata-panel" aria-label="tokenURI response">
-		<header class="bootstrap-metadata-heading">
-			<h2 class="panel-title">tokenURI response</h2>
-			{#if sample?.tokenId}
-				<span class="muted">token #{sample!.tokenId} · {formatByteSize(sample!.tokenUriPayloadBytes)}</span>
-			{/if}
-		</header>
-		{#if sample?.tokenUriPayload != null}
-			<JsonPayloadPreview text={sample!.tokenUriPayload} />
-		{:else}
-			<p class="muted">{samplePending || contractProbePending ? 'waiting for metadata…' : sampleProbeFailure ? 'No response available. Press inspect to retry.' : 'probe or inspect to load metadata'}</p>
-		{/if}
-	</aside>
+	<BootstrapOperationLog log={operationLog} />
 	</div>
 
 	<div class="table-wrap">

@@ -2,6 +2,13 @@ import { expect, test, type Locator, type Page } from 'playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import {
+	BOOTSTRAP_OPERATION as Operation,
+	BOOTSTRAP_OUTPUT_STEP as Step,
+	BOOTSTRAP_OUTPUT_STATUS as OutputStatus,
+	BOOTSTRAP_OUTPUT_MAX_ENTRIES
+} from '@artgod/shared/bootstrap/operation-output';
+import { bootstrapTestContract } from '@artgod/shared/testing/bootstrap-probe';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_ENUMERATION_MODE,
@@ -21,7 +28,8 @@ import {
 	BOOTSTRAP_PROBE_CONTRACTS,
 	BOOTSTRAP_PROBE_MEDIA,
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
-	installBootstrapProbeApiMock
+	installBootstrapProbeApiMock,
+	fulfillBootstrapOutput
 } from './helpers/bootstrap-probe-api';
 import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
@@ -54,6 +62,86 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
+	test('shows the exact failed URL, supports copying and preserves earlier attempts', async ({
+		page
+	}, info) => {
+		const failedUrl =
+			'https://ipfs.filebase.io/ipfs/bafybeie63jlvjy46pnltbkkytjsi5r6fsmimvlmdmtxhyntprjhsjdrqvi/1000?format=json';
+		await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+		await installBootstrapProbeApiMock(page, {
+			sample: (response) => ({
+				...response,
+				sample: {
+					...response.sample,
+					tokenUri: failedUrl,
+					tokenUriPayload: null,
+					tokenUriPayloadError: 'Metadata download failed (HTTP 504). Press inspect to retry.'
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-sample').fill('1000');
+		await page.locator('#bootstrap-range-count').fill('3333');
+		await probeButton(page).click();
+		const log = page.getByRole('log', { name: 'bootstrap checks' });
+		await expect(log).toContainText('HTTP 504');
+		await expect(log.locator('code').last()).toHaveText(failedUrl);
+		await log
+			.getByRole('button', { name: `copy url ${failedUrl}`, exact: true })
+			.last()
+			.click();
+		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(failedUrl);
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		await expect(
+			log.getByText('Metadata download failed (HTTP 504). Press inspect to retry.', { exact: true })
+		).toHaveCount(2);
+		await expect(queueButton(page)).toBeEnabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('output-metadata-failure.png'), fullPage: true });
+		if (info.project.name === 'desktop-1080p') {
+			await page.setViewportSize({ width: 1290, height: 900 });
+			await expectGridAlignment(page);
+			await page.screenshot({ path: info.outputPath('output-1290.png'), fullPage: true });
+		}
+	});
+
+	test('bounds output history and stops following while earlier lines are being read', async ({
+		page
+	}, info) => {
+		await installBootstrapProbeApiMock(page);
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.route('**/collections/bootstrap/probe?**', (route) =>
+			fulfillBootstrapOutput(
+				route,
+				Operation.Probe,
+				Array.from({ length: BOOTSTRAP_OUTPUT_MAX_ENTRIES + 20 }, (_, index) => ({
+					step: Step.Ownership,
+					status: OutputStatus.Succeeded,
+					message: `Token #${index} owner confirmed`
+				})),
+				bootstrapTestContract()
+			)
+		);
+		await probeButton(page).click();
+		const log = page.getByRole('log', { name: 'bootstrap checks' });
+		await expect(log).toContainText('earlier entries removed');
+		await expect(log.locator('.bootstrap-output-entry')).toHaveCount(BOOTSTRAP_OUTPUT_MAX_ENTRIES);
+		await log.evaluate((element) => {
+			element.scrollTop = 0;
+			element.dispatchEvent(new Event('scroll'));
+		});
+		await expect(page.getByRole('button', { name: 'latest', exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		await expect.poll(() => log.evaluate((element) => element.scrollTop)).toBeLessThan(50);
+		await page.getByRole('button', { name: 'latest', exact: true }).click();
+		await expect
+			.poll(() =>
+				log.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+			)
+			.toBeLessThan(32);
+		await page.screenshot({ path: info.outputPath('output-bounded.png'), fullPage: true });
+	});
+
 	test('locks the entire form and retains entered values when acknowledgement is removed', async ({
 		page
 	}, info) => {
@@ -120,7 +208,9 @@ test.describe('bootstrap setup', () => {
 		);
 		await queueButton(page).click();
 		await expect(
-			page.getByText('Bootstrap could not be queued. Press queue bootstrap to retry.')
+			page
+				.locator('.bootstrap-create-form')
+				.getByText('Queue response unavailable. Check bootstrap runs before retrying.')
 		).toBeVisible();
 		await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
 		await queueButton(page).click();
@@ -222,10 +312,10 @@ test.describe('bootstrap setup', () => {
 		);
 		expect(api.sampleRequests).toHaveLength(1);
 		await page.locator('#bootstrap-sample').fill('42');
-		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(1);
 		await expect(formRow(page, 'Contract total supply')).toContainText('10000');
 		await page.getByRole('button', { name: 'inspect', exact: true }).click();
-		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.getByTitle('tokenURI response', { exact: true }).last()).toBeVisible();
 		expect(api.probeRequests).toHaveLength(1);
 		expect(api.sampleRequests.map((r) => r.requestedTokenId)).toEqual(['2', '42']);
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
@@ -448,6 +538,9 @@ test.describe('bootstrap setup', () => {
 		);
 		await probeButton(page).click();
 		await expect(probeButton(page)).toContainText('probing');
+		const oldRequestFailed = page.waitForEvent('requestfailed', (request) =>
+			request.url().includes('/ethereum/collections/bootstrap/probe?')
+		);
 		await page
 			.getByRole('navigation', { name: 'Test chain' })
 			.getByRole('link', { name: 'Arbitrum' })
@@ -457,12 +550,8 @@ test.describe('bootstrap setup', () => {
 		await expect(probeButton(page)).toBeEnabled();
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
-		const oldResponse = page.waitForResponse((response) =>
-			response.url().includes('/ethereum/collections/bootstrap/probe?')
-		);
 		release();
-		await (await oldResponse).finished();
-		await expect.poll(() => api.probeRequests.length).toBe(2);
+		await oldRequestFailed;
 		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
 		expect(api.sampleRequests).toHaveLength(1);
 		await expect(page.locator('#bootstrap-slug')).toHaveValue('retained-draft');
@@ -477,7 +566,7 @@ test.describe('bootstrap setup', () => {
 				: route.fallback()
 		);
 		await probeButton(page).click();
-		// GET reads exhaust the shared 12-second startup retry window before reporting failure.
+		// Streaming operations report transport failure once; retry is an explicit action.
 		await expect(page.getByRole('alert')).toContainText('Contract checks failed', {
 			timeout: 20_000
 		});
@@ -508,13 +597,13 @@ test.describe('bootstrap setup', () => {
 		await expect(resolve.getByRole('img', { name: 'resolving OpenSea slug' })).toBeVisible();
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('opensea-loading.png'), fullPage: true });
+		const oldRequestFailed = page.waitForEvent('requestfailed', (request) =>
+			request.url().includes('opensea-slug-probe')
+		);
 		await page.locator('#bootstrap-sample').fill('3');
 		await page.locator('#bootstrap-opensea-slug').fill('user-edited-slug');
-		const oldResponse = page.waitForResponse((response) =>
-			response.url().includes('opensea-slug-probe')
-		);
 		release();
-		await oldResponse;
+		await oldRequestFailed;
 		await expect(page.locator('#bootstrap-opensea-slug')).toHaveValue('user-edited-slug');
 		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveCount(0);
 		await resolve.click();
@@ -552,18 +641,21 @@ test.describe('bootstrap setup', () => {
 		await expect(estimate.getByRole('img', { name: 'estimating image cache size' })).toBeVisible();
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('image-loading.png'), fullPage: true });
+		const oldRequestFailed = page.waitForEvent(
+			'requestfailed',
+			(request) =>
+				request.url().includes('image-cache-estimate') &&
+				request.postDataJSON().maxDimension === 1080
+		);
 		await rowControl(page, 'Max dimension (px)').fill('64');
 		await estimate.click();
 		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
-		const oldResponse = page.waitForResponse(
-			(response) =>
-				response.url().includes('image-cache-estimate') &&
-				response.request().postDataJSON().maxDimension === 1080
-		);
 		release();
-		await oldResponse;
+		await oldRequestFailed;
 		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
-		expect(api.imageCacheEstimateRequests).toHaveLength(2);
+		expect(api.imageCacheEstimateRequests).toEqual(
+			expect.arrayContaining([expect.objectContaining({ maxDimension: 64 })])
+		);
 		await rowControl(page, 'Image source field').fill('image_url');
 		await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
@@ -811,7 +903,7 @@ test.describe('bootstrap setup', () => {
 		await expect(iframe).toHaveCount(0);
 	});
 
-	test('retains a malformed tokenURI response for inspection and clears stale metadata', async ({
+	test('retains earlier malformed metadata in operation history after the sample changes', async ({
 		page
 	}) => {
 		const payload = '<html>metadata unavailable</html>';
@@ -832,7 +924,7 @@ test.describe('bootstrap setup', () => {
 		await expect(frame.getByText(payload, { exact: true })).toBeVisible();
 		await expect(queueButton(page)).toBeEnabled();
 		await page.locator('input[name="sampleTokenId"]').fill('3');
-		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(1);
 	});
 });
 function probeButton(page: Page) {
@@ -915,7 +1007,7 @@ async function expectGridAlignment(page: Page) {
 	}
 	if (page.viewportSize()!.width >= 1200) {
 		const inspectorBox = await page
-			.getByRole('complementary', { name: 'tokenURI response' })
+			.getByRole('complementary', { name: 'setup output' })
 			.boundingBox();
 		expect(Math.abs(inspectorBox!.width - formBox!.width)).toBeLessThan(2);
 		expect(inspectorBox!.x).toBeGreaterThan(formBox!.x + formBox!.width);

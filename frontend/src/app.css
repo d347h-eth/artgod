@@ -352,6 +352,83 @@ a:hover {
 	border: 0;
 }
 
+.runtime-log-stream.bootstrap-output-scroll {
+	height: min(75dvh, 52rem);
+	min-height: 18rem;
+	flex: none;
+	font: 11px/1.45 monospace;
+	margin-top: 0.5rem;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.bootstrap-output-entry {
+	padding-block: 0.25rem;
+}
+
+.bootstrap-output-line {
+	display: grid;
+	grid-template-columns: max-content 21ch minmax(0, 1fr);
+	gap: 0.5rem;
+	align-items: baseline;
+}
+
+.bootstrap-output-line time {
+	font-size: inherit;
+	white-space: nowrap;
+}
+
+.bootstrap-output-status {
+	color: var(--c-cyan);
+	white-space: nowrap;
+}
+.bootstrap-output-failed .bootstrap-output-status {
+	color: var(--c-pink);
+}
+.bootstrap-output-retry .bootstrap-output-status {
+	color: var(--c-yellow);
+}
+.bootstrap-output-message {
+	white-space: pre-wrap;
+}
+.bootstrap-output-resource {
+	display: flex;
+	align-items: start;
+	gap: 0.5rem;
+	margin-block: 0.25rem;
+}
+.bootstrap-output-resource code {
+	min-width: 0;
+	flex: 1;
+	font: inherit;
+	white-space: pre-wrap;
+}
+.bootstrap-output-resource button {
+	flex: none;
+	white-space: nowrap;
+}
+.bootstrap-output-document summary {
+	color: var(--c-cyan);
+	cursor: pointer;
+}
+.bootstrap-output-document summary:hover,
+.bootstrap-output-document summary:focus-visible {
+	color: var(--c-yellow);
+}
+.bootstrap-output-document .json-payload-frame {
+	height: 22rem;
+	min-height: 0;
+}
+
+@media (max-width: 600px) {
+	.bootstrap-output-line {
+		grid-template-columns: 8ch minmax(0, 1fr);
+	}
+	.bootstrap-output-message {
+		grid-column: 1 / -1;
+	}
+}
+
 @media (max-width: 1199px) {
 	.bootstrap-workspace {
 		grid-template-columns: minmax(0, 1fr);

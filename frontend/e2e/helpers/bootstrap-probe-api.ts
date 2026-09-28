@@ -1,5 +1,14 @@
 import type { Page, Route } from 'playwright/test';
 import {
+	BOOTSTRAP_OPERATION as Operation,
+	BOOTSTRAP_OUTPUT_STEP as Step,
+	BOOTSTRAP_OUTPUT_STATUS as Status,
+	BOOTSTRAP_STREAM_CONTENT_TYPE,
+	BOOTSTRAP_STREAM_RECORD as RecordType,
+	type BootstrapOutput,
+	type BootstrapOperation
+} from '@artgod/shared/bootstrap/operation-output';
+import {
 	BOOTSTRAP_CONTRACT_CASES,
 	bootstrapTestContract,
 	bootstrapTestSample
@@ -326,5 +335,85 @@ function sampleResponse(
 	return response;
 }
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
+	if (route.request().headers().accept === BOOTSTRAP_STREAM_CONTENT_TYPE) {
+		const path = new URL(route.request().url()).pathname;
+		const operation: BootstrapOperation = path.endsWith('/probe')
+			? Operation.Probe
+			: path.endsWith('/sample')
+				? Operation.Inspect
+				: path.endsWith('/image-cache-estimate')
+					? Operation.Estimate
+					: path.endsWith('/opensea-slug-probe')
+						? Operation.Resolve
+						: Operation.Queue;
+		const output: BootstrapOutput[] = [
+			{ step: Step.Operation, status: Status.Started, message: operation }
+		];
+		if (operation === Operation.Probe) {
+			const contract = body as BootstrapContractProbeResponse;
+			output.push({
+				step: Step.Supply,
+				status: Status.Succeeded,
+				message: `Contract total supply: ${contract.totalSupply.value}`
+			});
+		}
+		if (operation === Operation.Inspect) {
+			const sample = (body as BootstrapSampleInspectionResponse).sample;
+			output.push({
+				step: Step.Ownership,
+				status: sample.ownership?.exists ? Status.Succeeded : Status.Failed,
+				message: `Token #${sample.tokenId} ownership checked`
+			});
+			if (sample.tokenUri)
+				output.push({
+					step: Step.TokenUri,
+					status: Status.Succeeded,
+					message: `Token #${sample.tokenId} URI`,
+					url: sample.tokenUri
+				});
+			if (sample.tokenUriPayload !== null)
+				output.push({
+					step: Step.Metadata,
+					status: Status.Succeeded,
+					message: `Token #${sample.tokenId} metadata`,
+					text: sample.tokenUriPayload
+				});
+			if (sample.tokenUriPayloadError)
+				output.push({
+					step: Step.Metadata,
+					status: Status.Failed,
+					message: sample.tokenUriPayloadError,
+					url: sample.tokenUri ?? undefined
+				});
+		}
+		output.push({
+			step: Step.Operation,
+			status: Status.Completed,
+			message: `${operation} finished`
+		});
+		return fulfillBootstrapOutput(route, operation, output, body);
+	}
 	await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+}
+
+export async function fulfillBootstrapOutput(
+	route: Route,
+	operation: BootstrapOperation,
+	output: BootstrapOutput[],
+	result: unknown
+) {
+	const records = output.map((entry, index) => ({
+		...entry,
+		type: RecordType.Progress,
+		operation,
+		sequence: index + 1,
+		timestamp: '2026-09-28T20:00:00Z'
+	}));
+	await route.fulfill({
+		status: 200,
+		contentType: BOOTSTRAP_STREAM_CONTENT_TYPE,
+		body: [...records, { type: RecordType.Result, result }]
+			.map((record) => JSON.stringify(record) + '\n')
+			.join('')
+	});
 }

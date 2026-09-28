@@ -354,7 +354,7 @@ The contract-safety acknowledgement precedes and unlocks the entire form;
 unchecking it locks the controls again without discarding the entered definition.
 
 The desktop workspace divides equally between the left-aligned form and a
-tokenURI response inspector on the right. Every form section shares one
+read-only setup output log on the right. Every form section shares one
 three-column grid: label, input, action/status. Inputs start at the same column
 and are sized for their content; counts and dimensions stay compact. Inputs and
 their first action or standalone status share a vertical centerline. Additional
@@ -372,11 +372,20 @@ Long suggested values use the shared
 hover title. Narrow screens stack the workspace and, when necessary, label,
 input, then action without squeezing controls or causing horizontal overflow.
 
-The inspector formats metadata as escaped text in `TokenMediaFrame` with scripts
+The log uses the shared runtime log chrome, a bounded scroll area, explicit step
+statuses and exact selectable resource URLs with a standard copy action. It
+follows incoming output only while the reader is at the bottom; `latest` resumes
+following. Retain at most 400 entries and 12 MiB of text and show when older
+entries were removed. It has no command input, terminal escape processing or
+evaluation. Streaming, retries and completed checks all remain visible together.
+
+The log formats metadata as escaped text in `TokenMediaFrame` with scripts
 disabled and a restrictive content policy. Large keys and values use expandable
 masks. It never renders metadata HTML or follows its media URLs. The inspector
-uses the separate sample-inspection response. Sample/address/chain changes or
-removing acknowledgement clear it; media-field and scope edits retain the text.
+uses the separate sample-inspection output. Address/chain changes or removing
+acknowledgement clear history. Sample edits invalidate current findings while
+retaining earlier output labeled with its token ID. Media-field and scope edits
+retain the text. Superseded requests cannot append late output.
 
 Contract findings appear before sample inspection finishes. The address action
 checks the contract, then inspects a sample; the sample's `inspect` action retries

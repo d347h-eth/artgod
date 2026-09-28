@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import type { BootstrapProgressRecord } from '@artgod/shared/bootstrap/operation-output';
 	import {
 		OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
 		OPENSEA_COLLECTION_SLUG_PROBE_ERROR
@@ -39,7 +40,8 @@
 		openSeaEnabled,
 		disabledReason = null,
 		resetKey = 0,
-		onStateChange
+		onStateChange,
+		onOutput
 	}: {
 		chainSlug: string | null;
 		contractAddress: string | null;
@@ -54,6 +56,7 @@
 		disabledReason?: string | null;
 		resetKey?: number;
 		onStateChange?: (state: OpenSeaSlugResolverState) => void;
+		onOutput?: (record: BootstrapProgressRecord) => void;
 	} = $props();
 
 	let slugValue = $state('');
@@ -61,6 +64,7 @@
 	let probeResult = $state<BootstrapOpenSeaSlugProbeApiResponse | null>(null);
 	let probeError = $state<string | null>(null);
 	let probeRequestId = 0;
+	let requestController: AbortController | undefined;
 	let normalizedContractAddress = $derived(normalizeBootstrapAddress(contractAddress ?? ''));
 	let slugInputHasValue = $derived(slugValue.trim().length > 0);
 	let probePending = $derived(probeStatus === openSeaSlugProbeUiStatus.Loading);
@@ -106,6 +110,7 @@
 	});
 
 	onDestroy(() => {
+		requestController?.abort();
 		probeRequestId += 1;
 	});
 
@@ -123,6 +128,7 @@
 	});
 
 	function invalidate(): void {
+		requestController?.abort();
 		probeRequestId += 1;
 		probeStatus = openSeaSlugProbeUiStatus.Idle;
 		probeResult = null;
@@ -137,6 +143,8 @@
 			return;
 		}
 		const requestId = ++probeRequestId;
+		requestController?.abort();
+		requestController = new AbortController();
 		const slug = slugValue.trim().toLowerCase() || undefined;
 		probeStatus = openSeaSlugProbeUiStatus.Loading;
 		probeError = null;
@@ -148,7 +156,9 @@
 						address: normalizedContractAddress,
 						sampleTokenId: sampleTokenId!.trim(),
 						slug
-					});
+					}, onOutput ? { signal: requestController.signal, onOutput: record => {
+						if (requestId === probeRequestId) onOutput?.(record);
+					} } : undefined);
 			if (requestId !== probeRequestId) return;
 			probeResult = result;
 			probeStatus = openSeaSlugProbeUiStatus.Ready;
