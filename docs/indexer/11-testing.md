@@ -414,28 +414,55 @@ separates a short preflight, declared scope, and the anchored present subset.
 Keep regression coverage at each boundary rather than relying on one live NFT
 collection to exercise the entire flow.
 
-| Case                                    | Required behavior                                                                                                                                                                                                                         | Maintained coverage                                                                                                                                                  |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Standalone Enumerable contract          | Address-only diagnostics and explicitly accepted fields can lead to whole-contract queueing; enumeration remains a user choice.                                                                                                           | `frontend/e2e/bootstrap-probe.spec.ts`, `backend/src/application/use-cases/bootstrap/probe-collection-contract.test.ts`                                              |
-| Shared Enumerable contract              | The exact sample is used; capability does not overwrite the user's project range.                                                                                                                                                         | The same UI/use-case suites and `backend/src/infra/bootstrap/viem-bootstrap-contract-probe.test.ts`                                                                  |
-| Misleading supply or an unminted sample | No range inferred from a minted counter; ownership precedes metadata, and correction preserves staged scope and media fields.                                                                                                             | Probe adapter/use-case suites and the unminted-sample UI scenario                                                                                                    |
-| Sparse range or explicit list           | Anchor reads seed only confirmed present IDs; uncertain errors fail, and an entirely absent anchor set is rejected.                                                                                                                       | `indexer/tests/bootstrap-token-enumeration.test.ts`, `indexer/tests/bootstrap-token-ownership.test.ts`                                                               |
-| Optional marketplace identity           | One exact NFT request, matching/mismatching slug, missing NFT, and no boundary or contract fallback; unresolved OpenSea does not block valid onchain queueing.                                                                            | `backend/src/application/open-sea/open-sea-collection-identity-verifier.test.ts`, `shared/network/opensea-contract-lookup.test.ts`, probe use-case/API and UI suites |
-| Explicit editing and recovery           | Edits make no requests; apply changes one field; invalid scopes block queueing. An out-of-scope sample prevents including its OpenSea slug, not the manual bootstrap. CLI sample checks remain stricter.                                  | `frontend/e2e/bootstrap-probe.spec.ts`, `frontend/src/lib/bootstrap-setup.test.ts`, `indexer/tests/bootstrap-api-trigger.test.ts`                                    |
-| Per-field probe suggestions | Suggestions change only their own input. AEON supply 3333 remains available after metadata HTTP 429; applying it changes Token count without shifting the first ID. | `frontend/e2e/bootstrap-probe.spec.ts` |
-| Metadata host or parsing failure | Owned samples remain confirmed; errors stay beside probe. A complete entered definition can be queued after HTTP 429, RPC failure, or without any probe. Invalid JSON remains inspectable. | Probe adapter tests, frontend setup/probe unit tests, and the metadata-failure/manual-queue UI scenarios |
-| Metadata inspection isolation | Original responses are bounded to 10 MiB. Script-free sandbox and CSP isolate escaped text; large keys and values are masked, deep/wide JSON has bounded rendering, and stale responses clear. | Probe adapter/API tests, `frontend/src/lib/json-preview.test.ts`, and inspector browser scenarios |
-| Image-cache estimate failure and retry  | Real native image transformation succeeds; HTTP/download and decode errors have safe messages; retries work, and scope changes invalidate completed estimates.                                                                            | `backend/src/http/handlers/bootstrap/estimate-bootstrap-image-cache.test.ts`, `frontend/e2e/bootstrap-probe.spec.ts`                                                 |
-| Optional checks and guided layout | Verification locks every form control until checked. A valid definition survives failed checks. Desktop form and inspector split equally; content-sized controls and centered hints share stable columns. Progress stays inside action buttons; resolved OpenSea replaces its action. | `frontend/e2e/bootstrap-probe.spec.ts`, `frontend/src/lib/bootstrap-setup.test.ts` |
-| Late OpenSea setup                      | Resolve/start use one positively owned local token; unavailable ownership and startup capability have distinct recovery states.                                                                                                           | `backend/src/application/use-cases/collections/start-opensea-collection-sync.test.ts`, `backend/src/api.test.ts`, collection UI scenarios                            |
+| Case                   | Required behavior                                                                                                                                                | Maintained coverage                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Contract discovery     | Independent interface/name/supply/proxy checks; bounded 0/1 and enumeration candidates; one verified finalized observation; no sample-dependent recommendations. | Backend probe adapter, use-case and RPC suites                                              |
+| Named contracts        | Milady, Remilio, Meridian, Grailers and AEON preserve explicit scope despite contract-wide findings and metadata failures. Synthetic assumptions are marked.     | `shared/testing/bootstrap-probe.ts`; backend, CLI and browser suites                        |
+| Scope validation       | Canonical uint256 IDs, range bounds, count/list limits, deduplication, overlap and membership. No successful-probe prerequisite.                                 | Shared token-ID/scope tests, API and frontend setup tests                                   |
+| Sample selection       | Exact overrides never fall back. Automatic selection checks at most four declared candidates plus an optional discovery fallback; no arbitrary scan.             | `shared/bootstrap/sample-selection.test.ts`, backend inspection and browser suites          |
+| Metadata and selectors | Distinct ownership/URI/download/parse failures; configured retries for 429/server/transport failures; field edits re-evaluate retained JSON.                     | Probe adapter, shared metadata/selector/resilience tests, browser tests                     |
+| Inspection isolation   | 10 MiB bounds; inert sandbox/CSP; escaped and masked long values; deep/wide DOM bounds; malformed JSON retained.                                                 | Probe adapter/HTTP, `frontend/src/lib/json-preview.test.ts`, inspector browser cases        |
+| Image measurements     | Real PNG/JPEG/WebP/SVG processing, resize/original dimensions, isolated failure/retry. Count edits reuse bytes; outside samples lose collection totals.          | `backend/src/http/handlers/bootstrap/estimate-bootstrap-image-cache.test.ts`, browser tests |
+| OpenSea identity       | Exact NFT lookup, missing/mismatched/disabled/error recovery, no contract fallback. Outside samples are excluded without blocking manual queueing.               | Identity verifier, shared lookup, CLI, API and browser suites                               |
+| Edits and late results | Sample/media edits retain contract facts. Late contract/sample/image/OpenSea results cannot replace newer input. Acknowledgement gates all controls.             | `frontend/e2e/bootstrap-probe.spec.ts`, frontend helper tests                               |
+| Manual admission       | Explicit range/list/entire-contract mode reaches the worker. Complete media fields need no probe. Requested unverified OpenSea attachment has explicit recovery. | CLI, backend API and browser suites                                                         |
+| Sparse inventory       | Grailers-shaped 0–999 declared count stays 1000 while 704 synthetic present IDs are materialized. Unknown ownership and entirely absent scope fail.              | Indexer enumeration/ownership tests                                                         |
+| Protocol boundaries    | Separate discovery/inspection, large IDs, stage failures, removed legacy fields, CSRF and admin/public guards.                                                   | `backend/src/api.test.ts`, sample-inspection HTTP tests                                     |
+| Rendered journey       | Compact desktop grid and inspector, narrow stacking, single-line apply actions, inline progress and resolved badge.                                              | `yarn test:bootstrap:probe` plus rendered inspection                                        |
+| Late OpenSea setup     | A positively owned local sample identifies the collection. Missing ownership and runtime capability have separate recovery states.                               | Late-sync use-case/API and collection browser scenarios                                     |
 
-Run the maintained desktop/mobile browser coverage with
-`yarn test:bootstrap:probe`; see [UI testing](../ui/03-testing.md) for the
-harness and rendered-inspection boundary. These frontend requests and backend
-RPC/marketplace dependencies are mocked. Passing them is not evidence of live
-OpenSea availability, a real collection bootstrap, or crash-safe task seeding.
-Keep public addresses in optional manual regression guidance, not as a reason
-to require credentials or live network calls in deterministic tests.
+Run `yarn test:bootstrap:probe` for desktop/mobile coverage. Artifacts are under
+`tmp/bootstrap-revamp-playwright/`; see [UI testing](../ui/03-testing.md).
+RPC and marketplace responses are deterministic fixtures. Image tests execute
+the real native processor. These checks do not establish live OpenSea availability
+or a real collection bootstrap.
+
+Measure the pure decision modules independently:
+
+```sh
+yarn vitest run shared/bootstrap/scope.test.ts shared/bootstrap/sample-selection.test.ts shared/bootstrap/metadata.test.ts shared/collections/token-scope.test.ts shared/evm/token-id.test.ts frontend/src/lib/bootstrap-setup.test.ts frontend/src/lib/bootstrap-contract-probe.test.ts --coverage --coverage.include=shared/bootstrap/scope.ts --coverage.include=shared/bootstrap/sample-selection.ts --coverage.include=shared/bootstrap/metadata.ts --coverage.include=shared/bootstrap/probe.ts --coverage.include=shared/collections/token-scope.ts --coverage.include=shared/evm/token-id.ts --coverage.include=frontend/src/lib/bootstrap-setup.ts --coverage.include=frontend/src/lib/bootstrap-contract-probe.ts --coverage.reporter=json-summary --coverage.reporter=text --coverage.reportsDirectory=tmp/bootstrap-revamp-coverage
+```
+
+The measured module set is explicit. This coverage supplements HTTP, CLI,
+anchored-worker and rendered interaction checks.
+
+### User-Supplied Contract Fixtures
+
+Expectations supplied on 2026-09-28; these are not fresh live observations:
+
+| Collection   | Address                                      | Declared start/count | Enumerable                         | OpenSea slug                   |
+| ------------ | -------------------------------------------- | -------------------- | ---------------------------------- | ------------------------------ |
+| Milady       | `0x5af0d9827e0c53e4799bb226655a1de152a425a5` | 0 / 10000            | yes                                | `milady`                       |
+| Remilio      | `0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab` | 1 / 10000            | no                                 | `remilio-babies`               |
+| Meridian     | `0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270` | 163000000 / 1000     | check independently                | `meridian-by-matt-deslauriers` |
+| Grailers DAO | `0xd89239186180617cfe17e8b73b2b8bd9c96d0a15` | 0 / 1000             | check independently                | `grailers-dao`                 |
+| AEON         | `0xc374a204334d4edd4c6a62f0867c752d65e9579c` | 1 / 3333             | earlier non-Enumerable observation | not supplied                   |
+
+Meridian requires a manually declared project scope. An ArtBlocks registry helper
+is deferred; the generic probe contains no project arithmetic or address cases.
+Grailers has approximately 704 minted tokens, but the declared range remains
+0–999. Its deterministic worker fixture selects exactly 704 IDs, omits the first
+ten and includes additional holes. That set is synthetic.
 
 ### Shared-Contract Manual Fixture
 
@@ -464,27 +491,16 @@ not become a general inference rule.
 
 ### Partially Minted Manual Fixture
 
-Use **Grailers DAO** to keep range boundaries independent from minted samples:
+Use Grailers DAO's user-supplied range 0–999 to keep declared boundaries
+independent from minted samples. Bounded discovery may find no owner for 0/1
+or the first four range candidates. Choose a known owned sample manually;
+the deterministic fixture uses ID 10.
 
-- Ethereum contract: `0xd89239186180617cfe17e8b73b2b8bd9c96d0a15`
-- sample: `2`; first ID: `1`
-- intended published supply: `999`; inclusive range: `1..999`
-- OpenSea slug: `grailers-dao`
-
-The pre-implementation source investigation found that migration claims
-preserved legacy token IDs without incrementing the direct-mint supply counter;
-this explained a reported `totalSupply()` of `40` despite many more owned
-tokens. Legacy public minting started at `1`, while later direct minting used
-a mutable next-token value initially set to `821`. The historical OpenSea
-checks found token `1` missing but token `2` associated with the expected
-slug. Absence of token `1` was not evidence that the intended scope began at
-`2`.
-
-This is retained diagnostic context, not a current minted count, immutable cap
-guarantee, or generic contract rule. Recheck sample ownership/metadata when
-performing manual QA. The regression invariant is that `1..999` can remain the
-requested range while sample `2` drives preview and the single-NFT slug
-lookup; neither endpoint of that range must be queried to resolve the slug.
+Historical investigations reported different counters and samples. Those
+observations are not a current inventory, cap or authoritative boundary.
+The regression preserves the entered range regardless of an absent lower
+ID or a contract-wide count. Only the anchored worker materializes the present
+subset; uncertain RPC failures remain errors.
 
 ### Manual Verification Boundary
 

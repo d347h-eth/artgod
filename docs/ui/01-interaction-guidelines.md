@@ -356,9 +356,13 @@ unchecking it locks the controls again without discarding the entered definition
 The desktop workspace divides equally between the left-aligned form and a
 tokenURI response inspector on the right. Every form section shares one
 three-column grid: label, input, action/status. Inputs start at the same column
-and are sized for their content; counts and dimensions stay compact. Status hints
-are vertically centered against controls. Actions use the standard form button
-and `.action-button-positive` family, including probe, per-field apply, estimate,
+and are sized for their content; counts and dimensions stay compact. Inputs and
+their first action or standalone status share a vertical centerline. Additional
+actions and status text occupy later rows in the same action column, so they
+cannot shift the input away from its button. Field messages stay in that right
+column and cover only validation, constraints, or recovery. Do not repeat the
+field help already available through the info pop-up. Actions use the standard
+form button and `.action-button-positive` family, including probe, per-field apply, estimate,
 resolve, preview toggles, and queue bootstrap. Action labels are lowercase, and
 pending text and `LoadingBladeBar` appear inside the initiating button. A resolved
 OpenSea slug replaces resolve with the existing cyan status badge; editing it
@@ -371,7 +375,16 @@ input, then action without squeezing controls or causing horizontal overflow.
 The inspector formats metadata as escaped text in `TokenMediaFrame` with scripts
 disabled and a restrictive content policy. Large keys and values use expandable
 masks. It never renders metadata HTML or follows its media URLs. The inspector
-uses the same probe response and clears when that response is invalidated.
+uses the separate sample-inspection response. Sample/address/chain changes or
+removing acknowledgement clear it; media-field and scope edits retain the text.
+
+Contract findings appear before sample inspection finishes. The address action
+checks the contract, then inspects a sample; the sample's `inspect` action retries
+only that operation. An empty sample override uses the effective sample without
+an apply prerequisite. Field selectors re-evaluate the retained JSON locally.
+Scope edits retain usable image measurements and recalculate totals; a sample
+outside the new scope remains inspectable but cannot supply its collection
+estimate or OpenSea association. Pending responses cannot replace newer edits.
 
 Detailed probe results and media previews open on request. Scope choices remain
 editable without probing. A whole-contract choice is explicit and carries a

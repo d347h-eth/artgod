@@ -39,35 +39,34 @@ launch.
 
 ## CLI Triggers
 
-Trigger collection bootstrap with `metadata-mode` defaulting to `best_effort`.
-The trigger calls the backend bootstrap API, probes the contract first, applies
-the returned extension/image-cache suggestion, then
-creates the durable run through the backend step planner. Run it only while the
-backend is in an admin-capable deployment mode; public single-collection mode
-does not register bootstrap write routes.
+The trigger uses the admin-capable backend API and defaults to
+`metadata-mode=best_effort`. Every request requires an explicit scope:
+`--entire-contract`, `--manual-token-ids`, or both manual range flags.
+Enumerable support never chooses scope for the user.
 
 ```sh
-yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
-yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
-yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --opensea-slug <opensea-slug> --metadata-mode strict
-yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --sample-token-id <id> --manual-range-start-token-id <id> --manual-range-total-supply <count>
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --entire-contract --image-source-field image
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --manual-range-start-token-id <id> --manual-range-total-supply <count> --image-source-field image
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --manual-token-ids "1,42,1000" --sample-token-id 42
 ```
 
-When `--opensea-slug` is present, the trigger asks the backend to compare it
-with `nft.collection` from exactly one OpenSea NFT endpoint lookup for the
-contract and sample token. It uses the explicit `--sample-token-id`, or the
-probed sample if no sample was supplied. It never sends range boundaries or
-uses the contract-only endpoint. An explicitly requested but unavailable or
-mismatched slug stops the CLI before run creation; omit that optional flag to
-bootstrap onchain independently.
+A complete definition with `--image-source-field` queues without probing or
+downloading metadata. If that field is omitted, the trigger discovers contract
+facts and inspects a sample to suggest it. A failed check reports its stage;
+the recovery is to supply the field explicitly. Other explicit options include
+`--animation-source-field`, `--image-cache-mode`, and
+`--image-cache-max-dimension <pixels|original>`. User settings take precedence
+over scope-specific extension hints.
 
-`--sample-token-id` selects the token used for metadata, estimates, and optional
-OpenSea identity. It does not define collection scope. Supply explicit scope
-with either `--manual-token-ids <comma-or-space-separated-ids>` or both
-`--manual-range-start-token-id <id>` and
-`--manual-range-total-supply <count>`. Explicit manual scope takes precedence
-even on Enumerable contracts or over an inferred suggestion. Non-Enumerable
-probes do not infer a range from the current minted count.
+`--sample-token-id` selects an inspection example only. It does not change
+the declared range/list or require a minted token at its lower boundary.
+Manual ranges remain usable on Enumerable contracts.
+
+When `--opensea-slug` is present, the trigger verifies it against the exact
+sample's OpenSea NFT identity. That sample must belong to the selected scope.
+An unavailable, missing or mismatched association stops this explicitly requested
+attachment with recovery guidance. Omit the optional flag to queue onchain
+independently. No contract-only lookup or range-boundary verification is used.
 
 Inside the deploy `backend` container, the trigger defaults to the local backend
 listener at `http://127.0.0.1:<BACKEND_PORT>`. Use `--backend-origin` only when
@@ -95,53 +94,92 @@ title and accessible name. The desktop form occupies the left half of the page;
 the right half displays the sample's formatted tokenURI response. Narrow viewports
 stack these panels and then each row in label, input, action order.
 
-Edits do not make network requests. **probe**, beside the address, checks the
-staged sample and metadata fields. Progress appears inside the initiating button;
-errors and retry guidance stay in the Contract section. Each detected sample,
-image field, animation field, collection slug, and bounded contract supply has
-an independent apply action. It changes only that input;
-a matching value disables it. Neither probing nor applying a suggestion silently
-replaces the configured scope. Applying contract supply changes Token count only;
-it does not establish a first ID or a shared-contract project's boundaries.
-Media previews and detailed checks open on request. Probe, estimate, resolve,
-and queue actions share lowercase labels and inline progress. Successful OpenSea
-resolution replaces its button with the cyan resolved badge until inputs change.
+Edits do not make network requests. **probe**, beside the address, first discovers
+contract facts, then starts sample inspection. Contract supply and capability
+suggestions become available while metadata is still loading. **inspect**, beside
+the optional sample input, retries that inspection without repeating discovery.
+Each action shows progress inside its button and a failure beside its section.
 
-The existing probe response adds nullable `firstToken.tokenUriPayload`: the
-original metadata text from the same download or decoded data URI, bounded by
-`BOOTSTRAP_TOKEN_URI_MAX_BYTES` (10 MiB). Invalid JSON remains inspectable; unavailable
-or oversized responses return null and the existing error fields. No additional
-endpoint, request parameters, or metadata download is needed.
+Every suggestion has its own **apply "value"** action. Applying the start candidate,
+contract supply, sample, image/animation field, local slug or entire-contract mode
+changes only that setting. A matching value disables the action. A confirmed
+conventional ID 0/1 is an editable start suggestion, not a proven minimum.
+The first enumeration entry is never presented as a range boundary.
+Contract-wide supply never establishes one shared project's count.
 
-The response inspector treats all keys and values as escaped text. It reuses the
-token-detail iframe boundary with an empty sandbox (scripts disabled), no referrer,
-and CSP denying network access, forms, and base URL changes. Keys and values over
-240 characters are collapsed behind native disclosure controls; deeply nested or
-wide documents fall back to collapsed original text to bound DOM generation.
-Editing probe inputs or removing acknowledgement clears the inspector.
+An empty sample override uses the effective sample immediately for inspection,
+estimates and optional OpenSea resolution. It does not need to be copied into the
+input first. An explicit override inspects exactly that ID; failed ownership
+never silently selects a different token.
 
-Queue eligibility depends on the declared address, local slug, image source field,
-token scope, and valid cache settings. Animation is optional. A sample, successful
-probe, metadata fetch, image-cache estimate, or OpenSea lookup is not required.
-The request uses the entered media fields, including when they could not be
-checked. Input format, size limits, scope-overlap checks, and worker chain checks
-remain enforced. Queueing does not guarantee metadata or images can be recovered.
+The desktop inspector shows `sample.tokenUriPayload` from the inspection response:
+the original metadata text from HTTP/IPFS or a decoded JSON data URI, bounded by
+`BOOTSTRAP_TOKEN_URI_MAX_BYTES` (10 MiB). Invalid JSON remains inspectable;
+unavailable or oversized responses return null with a separate download/parse
+outcome. No image is downloaded during contract discovery or sample inspection.
 
-The first token ID (editable default `1`) and total supply define the inclusive
-scope `first .. first + supply - 1`, not the currently minted inventory.
-A sample is one existing token for optional checks; it need not be the first ID.
-ERC721Enumerable support is a diagnostic, not permission to select every project
-on a shared contract. **Token scope** offers a range, explicit token list, or
-**Entire contract (ERC721Enumerable)**. All choices are available without a probe.
-Unconfirmed Enumerable support produces a local warning, not a disabled control.
+The inspector treats keys and values as escaped text in the token-detail iframe
+boundary: empty sandbox, no referrer, and CSP denying scripts, network access,
+forms and base URL changes. Keys/values over 240 characters have expandable masks.
+Deep/wide documents use collapsed original text to bound DOM generation.
 
-The short preflight reads contract capabilities and validates sample ownership
-through Ethereum JSON-RPC before fetching tokenURI metadata over HTTP/IPFS.
-It does not scan the range, paginate a marketplace, or read historical events.
-When a supplied sample resolves, belongs to the declared scope, and OpenSea is enabled, the explicit Probe
-action also starts the optional single-NFT slug lookup. An unresolved or
-unavailable slug does not block onchain setup: queueing omits that slug and
-bidding remains unavailable until late OpenSea setup succeeds.
+Queue eligibility depends on the entered address, local slug, image source field,
+explicit scope and valid cache settings. Animation is optional. Successful
+probing, a sample, metadata, image estimation and OpenSea are optional.
+Structural limits, overlap checks and anchored worker ownership checks remain
+enforced. Queueing does not promise recovery of unavailable metadata.
+
+**Token scope** offers a range, explicit IDs or **Entire contract** through
+ERC721Enumerable at any time after acknowledgement. The range's first ID
+(editable default `1`) and token count define `first .. first + count - 1`,
+including unminted IDs. Unknown/false Enumerable support produces a warning when
+entire-contract mode is selected, not a disabled control.
+
+Successful sample ownership can trigger an exact OpenSea lookup even when
+metadata fails. The association is included only while the effective sample
+belongs to the selected scope. A resolved slug replaces the resolve button with
+the cyan badge; editing it restores the action.
+
+### Separate API Operations
+
+| Operation            | Route                                                             | Contract                                                                                                                                        |
+| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discover contract    | `GET /api/:chain_ref/collections/bootstrap/probe?address=...`     | Independent interface, supply, proxy, name and token candidates at one finalized block.                                                         |
+| Inspect sample       | `POST /api/:chain_ref/collections/bootstrap/sample`               | Address, optional requested/discovered ID, observation and declared scope; returns ownership, URI, bounded text and scope-specific cache hints. |
+| Measure cached image | `POST /api/:chain_ref/collections/bootstrap/image-cache-estimate` | Image, sample ID and cache settings; returns a per-image measurement, without a collection count.                                               |
+| Resolve OpenSea      | Existing `opensea-slug-probe` GET                                 | Exact address/sample and optional slug.                                                                                                         |
+| Queue bootstrap      | `POST /api/:chain_ref/collections/bootstrap`                      | Explicit `scope`, slug, media fields, cache settings and optional verified OpenSea association.                                                 |
+
+`scope` is exactly one of:
+
+- `{mode: "enumerable"}`
+- `{mode: "manual_range", startTokenId: "1", tokenCount: 3333}`
+- `{mode: "manual_token_ids", tokenIds: ["1", "42"]}`
+
+Token IDs are decimal uint256 values, normalized and deduplicated where applicable.
+The shared owner validates range end, count and list limits. No collection scope
+storage migration is needed; create maps the explicit scope to the existing
+worker representation.
+
+This is a coordinated API migration. The old `firstToken`, probe-wide `ready`,
+`suggestedInput`, and create `supportsEnumerable/manualInput` fields are removed.
+Deploy backend, frontend and CLI together. POST inspection uses the normal
+host/origin/CSRF checks despite making no persistent changes.
+The [OpenAPI document](../backend/openapi.yaml) defines the complete wire contract.
+
+### Edits and Reuse
+
+- Address or chain edits discard all findings. Removing acknowledgement also
+  invalidates pending operations while preserving the entered definition.
+- Sample edits discard sample-dependent results, retaining contract findings.
+- Image/animation field edits re-evaluate the retained JSON locally through the
+  shared metadata selectors. Only image-field edits invalidate image measurements.
+- Range/list/count edits retain the inspected sample and measured image.
+  Membership and totals are recalculated locally. An outside sample remains
+  inspectable, but provides no collection estimate or attached OpenSea slug.
+- Image settings invalidate their measurement. Changing only the count reuses
+  measured bytes and recalculates the total without downloading the image again.
+- Late responses cannot replace newer identity, sample, image or OpenSea state.
 
 ### Scope Is Not Minted Inventory
 
@@ -160,8 +198,8 @@ that universe by walking tokens. Keep these facts separate:
 - Explicit token IDs are the fallback when a collection cannot be represented
   by a reasonable bounded interval. The form warns when a sample is outside the
   selected range/list and omits its OpenSea slug when queueing; the declared
-  bootstrap scope remains valid. The CLI still requires a sample within its
-  selected scope. Run creation separately
+  bootstrap scope remains valid in the form and CLI. An explicitly requested
+  OpenSea attachment requires an in-scope sample. Run creation separately
   validates the scope and rejects overlap with existing collections.
 
 Manual form submission does not require successful sample/metadata checks. It
@@ -171,18 +209,25 @@ for shared-contract and partially minted examples.
 
 ### Probe Data Sources and Guarantees
 
-| Question                               | Source used by ArtGod                                                                                      | What the result establishes                                                                                    |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Contract capabilities and name         | Current-state Ethereum JSON-RPC: bytecode/proxy reads, `supportsInterface`, `name`, and `totalSupply`      | Contract-level diagnostics, not subcollection identity or a mint cap.                                          |
-| Sample selection when none was entered | Ethereum JSON-RPC: `tokenByIndex(0)` for Enumerable, with bounded `0`/`1` ownership candidates as fallback | A preview candidate only, not the collection's first token. An explicit sample never falls back to another ID. |
-| Sample existence                       | Ethereum JSON-RPC: `ownerOf(sample)`, before metadata                                                      | A valid nonzero owner now. A successful `tokenURI` alone is not existence evidence.                            |
-| Preview, media fields, and estimates   | `tokenURI(sample)` over Ethereum JSON-RPC, then inline metadata or HTTP/IPFS metadata/media reads          | Sample-derived display data and estimates, not an inventory scan.                                              |
-| Manual scope                           | User input and local validation                                                                            | The inclusive range or explicit list to scan during bootstrap, not a claim that every ID is minted.            |
-| Optional OpenSea identity              | One OpenSea REST NFT lookup for the exact contract/sample                                                  | OpenSea associates that sample with a slug; it does not verify the whole ArtGod scope.                         |
+All related chain reads carry a block number and hash. Discovery selects a
+finalized block, and dependent inspection verifies the supplied observation before
+and after its reads. A changed block fails the operation rather than combining
+facts from different chain states.
 
-No preflight path scans historical events, iterates the requested range, or
-paginates OpenSea NFT inventory. OpenSea failure is independent of contract
-probing and onchain queue eligibility.
+| Question                                      | Source                                                                            | Meaning                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Contract capabilities, proxy, name and supply | Pinned bytecode/storage and independent ABI reads                                 | Contract-level facts, not shared-project identity or a mint cap.                              |
+| Discovery candidates                          | `tokenByIndex(0)` when supported; independent ownership checks of 0/1             | Bounded candidates. Enumeration order is not numeric order.                                   |
+| Automatic sample within a declared scope      | At most four range/list ownership candidates, then an optional discovery fallback | An inspection example only; no range scan or boundary inference.                              |
+| Explicit sample existence                     | `ownerOf(sample)` before metadata                                                 | Owned, proven absent or unknown at the observed block. URI success is not ownership evidence. |
+| Metadata and selected fields                  | Pinned `tokenURI(sample)`, then bounded inline/HTTP/IPFS text                     | Sample display data. Shared selectors run locally over retained JSON.                         |
+| Cached-image measurement                      | Explicit estimate through the worker's image processor                            | Per-image bytes/dimensions; totals use the current declared count.                            |
+| Scope                                         | User input and shared validation                                                  | Declared coverage; the worker later determines its present subset.                            |
+| OpenSea identity                              | One exact NFT lookup                                                              | Association of that sample with a slug, not verification of the whole scope.                  |
+
+No preflight path reads historical events, scans arbitrary ranges or paginates
+marketplace inventory. A discovered sample outside the selected scope may be
+inspected, but is excluded from collection estimates and OpenSea attachment.
 
 The OpenSea adapter currently requests
 `GET /api/v2/chain/ethereum/contract/{address}/nfts/{sample_token_id}` with its
@@ -204,14 +249,13 @@ The sample is preflight input, not persisted bootstrap identity. Current sample
 ownership does not prove ownership at the older safe anchor. Bootstrap requires
 a nonempty present subset of the configured scope at that anchor, not presence
 of the exact preview sample. Existing collections need no scope migration;
-API callers must send `sample_token_id` to the OpenSea probe, so deploy backend
-and UI/CLI changes together.
+OpenSea callers must send `sample_token_id` to the exact-NFT probe.
 
 ### Metadata and Image Failure Recovery
 
 Sample ownership is independent of metadata availability. A confirmed owner keeps
 the sample marked **owner confirmed** when metadata download or parsing fails;
-the form shows that failure beside Probe and allows queueing a complete definition.
+the form shows that failure beside **inspect** and allows queueing a complete definition.
 It must not label
 an owned token incorrect merely because its metadata host returned HTTP 429/404,
 timed out, or returned unreadable metadata. Contract and supply diagnostics remain
@@ -220,16 +264,19 @@ available, and the entered sample, scope, and source fields remain intact.
 Expected image download/processing failures return HTTP 502 with a safe recovery
 message; upstream status codes remain visible, while raw error details go to logs.
 A failed image-cache estimate can be retried with **estimate**. Changing the sample,
-source, cache settings, or collection scope invalidates the old estimate and ignores
-pending stale responses. Caching can remain enabled when an estimate fails or was
+image source or cache settings invalidates the old estimate and ignores stale
+responses. Scope edits preserve the measurement and recalculate totals only while
+the sample remains inside the scope. Caching can remain enabled when an estimate fails or was
 never run. Estimate failures do not change the submitted cache policy. Switching
 **Image cache mode** to **off** disables local image caching.
 
 For IPFS download failures, check `COMMON_IPFS_GATEWAY_ORIGIN` in Admin config,
-restart infra after changing it, and repeat Probe/estimate. Metadata and image
+restart infra after changing it, and repeat **inspect**/**estimate**. Metadata and image
 objects may have different availability even through the same gateway. Use a
 gateway that serves HTTP clients; a successful browser view alone does not prove
-backend access. No gateway is switched automatically.
+backend access. No gateway is switched automatically. Both operations use the existing configured
+HTTP retry policy, including retriable 429/server/transport failures. A manual retry
+starts another operation through that same policy; there is no feature-local loop.
 
 ## Current Lifecycle
 
