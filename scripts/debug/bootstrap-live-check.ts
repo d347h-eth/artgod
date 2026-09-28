@@ -19,6 +19,7 @@ import type {
     BootstrapSampleInspectionResponse,
 } from "../../shared/bootstrap/probe.js";
 import { IMAGE_CACHE_MODE } from "../../shared/media/token-image-cache.js";
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "../../shared/config/bootstrap.js";
 import { COLLECTION_STANDARD } from "../../shared/types/browse.js";
 import { normalizeEvmTokenId } from "../../shared/evm/token-id.js";
 import { BOOTSTRAP_STREAM_CONTENT_TYPE } from "../../shared/bootstrap/operation-output.js";
@@ -213,7 +214,7 @@ try {
                     sourceImageUrl: fields.image,
                     sourceImageBytes: null,
                     imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-                    maxDimension: 1080,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
                 },
             );
             const { sampleCachedImageDataUrl, ...summaryMeasurement } =

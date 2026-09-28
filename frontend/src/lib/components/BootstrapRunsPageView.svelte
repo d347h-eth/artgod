@@ -45,6 +45,7 @@
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
 	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
+	import { updateFlash } from '$lib/update-flash';
 	import {
 		bootstrapSetupScope,
 		bootstrapSetupIssues,
@@ -206,9 +207,6 @@
 	let openSeaSlugResolver: OpenSeaSlugResolverControl | undefined = $state();
 	let contractProbeRequestId = 0;
 	let probeInputsChanged = $state(false);
-	let probeDetailsOpen = $state(false);
-	let samplePreviewOpen = $state(false);
-	let cachePreviewOpen = $state(false);
 	let imageCacheEstimateRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
@@ -227,9 +225,7 @@
 	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
 	let sourceFieldsReady = $derived(sampleResult !== null && imageSourceFieldResolved);
 	let animationSourceFieldResolved = $derived(isAnimationSourceFieldResolved());
-	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
 	let sampleTokenIdResolved = $derived(isSampleTokenIdResolved());
-	let sampleTokenIdIncorrect = $derived(isSampleTokenIdIncorrect());
 	let samplePending = $derived(sampleStatus === BOOTSTRAP_PROBE_UI_STATUS.Loading);
 	let metadataSuggestions = $derived(
 		inspectBootstrapMetadata({
@@ -262,9 +258,6 @@
 	);
 	let imageCacheEstimateReady = $derived(
 		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Ready && imageCacheEstimateResult !== null
-	);
-	let imageCacheEstimateFailed = $derived(
-		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Error
 	);
 	let imageCacheEstimateCanRun = $derived(canRunImageCacheEstimate());
 	let setupDraft: BootstrapSetupDraft = $derived({
@@ -357,7 +350,6 @@
 		for (const controller of operationControllers.values()) controller.abort();
 		operationLog = emptyBootstrapLog();
 		probeInputsChanged = probeInputsChanged || probeStatus !== BOOTSTRAP_PROBE_UI_STATUS.Idle;
-		samplePreviewOpen = false;
 		contractProbeRequestId += 1;
 		probeStatus = BOOTSTRAP_PROBE_UI_STATUS.Idle;
 		probeResult = null;
@@ -374,7 +366,6 @@
 		sampleResult = null;
 		sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Idle;
 		sampleError = null;
-		samplePreviewOpen = false;
 		resetImageCacheEstimateState();
 	}
 
@@ -388,7 +379,6 @@
 
 	function resetImageCacheEstimateState(): void {
 		operationControllers.get(BOOTSTRAP_OPERATION.Estimate)?.abort();
-		cachePreviewOpen = false;
 		imageCacheEstimateRequestId += 1;
 		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Idle;
 		imageCacheEstimateResult = null;
@@ -572,21 +562,8 @@
 		);
 	}
 
-	function isAnimationSourceFieldIncorrect(): boolean {
-		return Boolean(
-			animationSourceField.trim() &&
-			sampleResult?.sample.tokenUriPayload &&
-			!sampleProbeFailure &&
-			!animationSourceFieldResolved
-		);
-	}
-
 	function isSampleTokenIdResolved(): boolean {
 		return sample?.ownership?.exists === true;
-	}
-
-	function isSampleTokenIdIncorrect(): boolean {
-		return sample?.ownership?.exists === false;
 	}
 
 	function interfaceLabel(value: boolean | null): string {
@@ -947,9 +924,11 @@
 	{@const section = setupSections[index]}
 	<div class="bootstrap-step-heading">
 		<h3 id={section.id + '-heading'}>{index + 1}. {section.title} <span class="muted">{section.optional ? 'optional' : 'required'}</span></h3>
-		<span class="bootstrap-step-status" class:bootstrap-step-incomplete={!section.ready && index < 4}>
-			{section.optional ? (section.ready ? (index === 4 ? 'resolved' : 'configured') : (index === 4 ? 'skipped until resolved' : 'check settings')) : section.ready ? '✓ complete' : 'needs input'}
-		</span>
+		{#if !section.optional || (!section.ready && index === 3)}
+			<span class="bootstrap-step-status" class:bootstrap-step-incomplete={!section.ready} class:bootstrap-step-complete={section.ready}>
+				{section.ready ? '✓ complete' : section.optional ? 'check settings' : 'needs input'}
+			</span>
+		{/if}
 	</div>
 {/snippet}
 
@@ -969,7 +948,8 @@
 	{#if contractAddressSafetyAcknowledged && value}
 		<button
 			type="button"
-			class="action-button-positive"
+			class="action-button-neutral update-flash-cyan"
+			use:updateFlash={{ key: value, playOnMount: true }}
 			title={`apply "${label ?? value}"`}
 			disabled={value === current.trim()}
 			onclick={() => apply(value)}
@@ -1029,25 +1009,19 @@
 					<input id="bootstrap-address" value={bootstrapAddress} class={bootstrapInputClass}
 						type="text" name="address" required oninput={onBootstrapAddressInput}
 						aria-invalid={Boolean(bootstrapAddress && setupIssues.address)}
-						aria-describedby={setupIssues.address || probeError ? 'bootstrap-address-help' : undefined} />
+						aria-describedby={(bootstrapAddress.trim() && setupIssues.address) || probeError ? 'bootstrap-address-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						<button type="button" class="action-button-positive"
 							disabled={!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain || contractProbePending}
 							aria-label="probe" aria-busy={contractProbePending} onclick={() => void onProbe()}>
 							{#if contractProbePending}{@render inProgressStatus('probing', 'probing contract')}{:else}probe{/if}
 						</button>
-						<span class="bootstrap-row-status" role="status" hidden={contractProbePending}>
-							{#if probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Error}
-								probe failed
-							{:else if latestProbeMatchesAddress}
-								contract checked
-							{:else}
-								{probeInputsChanged ? 'inputs changed — probe again' : 'not checked'}
-							{/if}
-						</span>
-						{#if setupIssues.address || probeError}
+						{#if probeInputsChanged && !latestProbeMatchesAddress && !contractProbePending && !probeError}
+							<p class="bootstrap-row-note muted">Inputs changed — probe again.</p>
+						{/if}
+						{#if (bootstrapAddress.trim() && setupIssues.address) || probeError}
 							<p id="bootstrap-address-help" class="bootstrap-row-note" class:muted={!probeError} class:bootstrap-check-warning={Boolean(probeError)} role={probeError ? 'alert' : undefined}>
-								{probeError ?? (bootstrapAddress.trim() ? setupIssues.address : 'required')}
+								{probeError ?? setupIssues.address}
 							</p>
 						{/if}
 					</div>
@@ -1065,13 +1039,6 @@
 							disabled={!addressCanBeProbed || samplePending || contractProbePending} onclick={() => void onInspectSample()}>
 							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}inspect{/if}
 						</button>
-						{#if sampleTokenIdResolved}
-							<span class="bootstrap-row-status">{!sampleTokenId.trim() ? `sample #${effectiveSampleTokenId} · ` : ''}owner confirmed</span>
-						{:else if sampleTokenIdIncorrect}
-							<span class="bootstrap-row-status">no owner found</span>
-						{:else}
-							<span class="bootstrap-row-status">optional</span>
-						{/if}
 						{#if sampleProbeFailure || (effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue)}
 							<p id="bootstrap-sample-help" class="bootstrap-row-note bootstrap-check-warning" role={sampleProbeFailure ? 'alert' : undefined}>
 								{#if sampleProbeFailure}{sampleProbeFailure}{/if}
@@ -1088,34 +1055,28 @@
 						<div class="bootstrap-read-value">
 							{probeResult.contractName ?? 'Name unavailable'} · ERC721 {interfaceLabel(probeResult.erc721.supported)}
 						</div>
-						<div class="bootstrap-row-actions">
-							<button type="button" class="action-button-positive" aria-expanded={probeDetailsOpen}
-								onclick={() => probeDetailsOpen = !probeDetailsOpen}>{probeDetailsOpen ? 'hide checks' : 'view checks'}</button>
-						</div>
 					</div>
-					{#if probeDetailsOpen}
+					<div class="bootstrap-form-row">
+						{@render fieldLabel('ERC721 interface', bootstrapFieldHelp.erc721Interface)}
+						<div class="bootstrap-read-value">{interfaceLabel(probeResult.erc721.supported)}</div>
+					</div>
+					<div class="bootstrap-form-row">
+						{@render fieldLabel('ERC721Enumerable interface', bootstrapFieldHelp.enumerableInterface)}
+						<div class="bootstrap-read-value">{interfaceLabel(probeResult.enumerable.supported)}</div>
+					</div>
+					<div class="bootstrap-form-row">
+						<span class="bootstrap-form-label-cell">Metadata (1 token)</span>
+						<div class="bootstrap-read-value mono">{formatByteSize(sample?.tokenUriPayloadBytes)}</div>
+					</div>
+					<div class="bootstrap-form-row">
+						<span class="bootstrap-form-label-cell">Est. metadata (selected scope)</span>
+						<div class="bootstrap-read-value mono">{projectedMetadataSize()}</div>
+					</div>
+					{#if probeResult.proxy}
 						<div class="bootstrap-form-row">
-							{@render fieldLabel('ERC721 interface', bootstrapFieldHelp.erc721Interface)}
-							<div class="bootstrap-read-value">{interfaceLabel(probeResult.erc721.supported)}</div>
+							<span class="bootstrap-form-label-cell">Implementation address</span>
+							<div class="bootstrap-read-value mono">{probeResult.proxy.implementationAddress}</div>
 						</div>
-						<div class="bootstrap-form-row">
-							{@render fieldLabel('ERC721Enumerable interface', bootstrapFieldHelp.enumerableInterface)}
-							<div class="bootstrap-read-value">{interfaceLabel(probeResult.enumerable.supported)}</div>
-						</div>
-						<div class="bootstrap-form-row">
-							<span class="bootstrap-form-label-cell">Metadata (1 token)</span>
-							<div class="bootstrap-read-value mono">{formatByteSize(sample?.tokenUriPayloadBytes)}</div>
-						</div>
-						<div class="bootstrap-form-row">
-							<span class="bootstrap-form-label-cell">Est. metadata (selected scope)</span>
-							<div class="bootstrap-read-value mono">{projectedMetadataSize()}</div>
-						</div>
-						{#if probeResult.proxy}
-							<div class="bootstrap-form-row">
-								<span class="bootstrap-form-label-cell">Implementation address</span>
-								<div class="bootstrap-read-value mono">{probeResult.proxy.implementationAddress}</div>
-							</div>
-						{/if}
 					{/if}
 				{/if}
 			</section>
@@ -1134,9 +1095,20 @@
 					<div class="bootstrap-row-actions">
 						{#if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
 							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
+							{#if !entireContractSelected}
+								<p class="bootstrap-row-note bootstrap-check-warning">
+									{#if probeResult.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects on this contract.
+									{:else}Contract token count unavailable.{/if}
+								</p>
+							{/if}
 						{/if}
 						{#if entireContractSelected}
-							<p class="bootstrap-row-note muted">Includes every project on this contract.</p>
+							<p class="bootstrap-row-note muted">
+								Includes every project on this contract.
+								{#if latestProbeMatchesAddress && probeResult?.totalSupply.value != null}
+									<span class="bootstrap-check-warning">{probeResult.totalSupply.value} tokens in total.</span>
+								{:else}<span class="bootstrap-check-warning">Contract token count unavailable.</span>{/if}
+							</p>
 							{#if !latestProbeMatchesAddress || probeResult?.enumerable.supported !== true}
 								<p class="bootstrap-row-note bootstrap-check-warning">
 									ERC721Enumerable not confirmed. Use Token range or Token ID list if enumeration is unavailable.
@@ -1150,11 +1122,13 @@
 						<label for="bootstrap-token-ids">{@render fieldLabel('Token IDs', bootstrapFieldHelp.tokenIds)}</label>
 						<textarea id="bootstrap-token-ids" value={manualTokenIds} class={bootstrapTextareaClass}
 							rows="3" required oninput={onManualTokenIdsInput}
-							aria-invalid={Boolean(manualTokenIds && setupIssues.tokenIds)} aria-describedby="bootstrap-token-ids-help"></textarea>
+							aria-invalid={Boolean(manualTokenIds && setupIssues.tokenIds)} aria-describedby={manualTokenIds.trim() ? 'bootstrap-token-ids-help' : undefined}></textarea>
 						<div class="bootstrap-row-actions">
-							<p id="bootstrap-token-ids-help" class="bootstrap-row-note muted">
-								{manualTokenIds.trim() ? setupIssues.tokenIds ?? `${resolvedBootstrapScopeTotalSupply()} token IDs selected.` : 'required'}
-							</p>
+							{#if manualTokenIds.trim()}
+								<p id="bootstrap-token-ids-help" class="bootstrap-row-note muted">
+									{setupIssues.tokenIds ?? `${resolvedBootstrapScopeTotalSupply()} token IDs selected.`}
+								</p>
+							{/if}
 						</div>
 					</div>
 				{:else if !entireContractSelected}
@@ -1162,14 +1136,12 @@
 						<label for="bootstrap-range-start">{@render fieldLabel('First token ID', bootstrapFieldHelp.startTokenId)}</label>
 						<input id="bootstrap-range-start" value={manualRangeStartTokenId} class={bootstrapInputClass}
 							type="text" inputmode="numeric" required oninput={onManualRangeStartTokenIdInput}
-							aria-invalid={Boolean(setupIssues.startTokenId)}
-							aria-describedby={setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
+							aria-invalid={Boolean(manualRangeStartTokenId.trim() && setupIssues.startTokenId)}
+							aria-describedby={manualRangeStartTokenId.trim() && setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(probeResult?.discovery.rangeStartCandidate, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
-							{#if setupIssues.startTokenId}
-								<p id="bootstrap-range-start-help" class="bootstrap-row-note muted">{manualRangeStartTokenId.trim() ? setupIssues.startTokenId : 'required'}</p>
-							{:else if probeResult?.discovery.rangeStartCandidate != null}
-								<span class="bootstrap-row-status">confirmed ID · review range</span>
+							{#if manualRangeStartTokenId.trim() && setupIssues.startTokenId}
+								<p id="bootstrap-range-start-help" class="bootstrap-row-note muted">{setupIssues.startTokenId}</p>
 							{/if}
 						</div>
 					</div>
@@ -1177,18 +1149,18 @@
 						<label for="bootstrap-range-count">{@render fieldLabel('Token count', bootstrapFieldHelp.manualRangeTotalSupply)}</label>
 						<input id="bootstrap-range-count" value={manualRangeTotalSupply} class={bootstrapInputClass}
 							type="text" inputmode="numeric" required oninput={onManualRangeTotalSupplyInput}
-							aria-invalid={Boolean(manualRangeTotalSupply && setupIssues.totalSupply)} aria-describedby="bootstrap-range-help" />
+							aria-invalid={Boolean(manualRangeTotalSupply && setupIssues.totalSupply)}
+							aria-describedby={manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue) ? 'bootstrap-range-help' : undefined} />
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(probeResult?.totalSupply.bootstrapRangeValue?.toString(), manualRangeTotalSupply, (value) => {
 								manualRangeTotalSupply = value;
 							})}
-							{#if latestProbeMatchesAddress && probeResult?.totalSupply.bootstrapRangeValue}
-								<span class="bootstrap-row-status">contract supply suggestion</span>
+							{#if manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue)}
+								<p id="bootstrap-range-help" class="bootstrap-row-note muted">
+									{#if setupIssues.totalSupply}{setupIssues.totalSupply}
+									{:else if !scopeIssue}IDs {manualRangeStartTokenId.trim()}–{BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}{/if}
+								</p>
 							{/if}
-							<p id="bootstrap-range-help" class="bootstrap-row-note muted">
-								{#if setupIssues.totalSupply}{manualRangeTotalSupply.trim() ? setupIssues.totalSupply : 'required'}
-								{:else if !scopeIssue}IDs {manualRangeStartTokenId.trim()}–{BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}{/if}
-							</p>
 						</div>
 					</div>
 				{/if}
@@ -1196,7 +1168,6 @@
 					<div class="bootstrap-form-row">
 						{@render fieldLabel('Contract total supply', bootstrapFieldHelp.contractTotalSupply)}
 						<div class="bootstrap-read-value mono">{probeResult.totalSupply.value}</div>
-						<div class="bootstrap-row-actions"><span class="bootstrap-row-status">reported by contract</span></div>
 					</div>
 				{/if}
 			</section>
@@ -1208,25 +1179,18 @@
 					<input id="bootstrap-slug" bind:this={collectionSlugInputElement} value={bootstrapSlug}
 						class={bootstrapInputClass} type="text" name="slug" required oninput={onCollectionSlugInput}
 						aria-invalid={Boolean(bootstrapSlug && setupIssues.slug)}
-						aria-describedby={setupIssues.slug ? 'bootstrap-slug-help' : undefined} />
+						aria-describedby={bootstrapSlug.trim() && setupIssues.slug ? 'bootstrap-slug-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(contractNameToBootstrapSlug(probeResult?.contractName), bootstrapSlug, setCollectionSlugInputValue)}
-						{#if setupIssues.slug}<p id="bootstrap-slug-help" class="bootstrap-row-note muted">{bootstrapSlug.trim() ? setupIssues.slug : 'required'}</p>{/if}
+						{#if bootstrapSlug.trim() && setupIssues.slug}<p id="bootstrap-slug-help" class="bootstrap-row-note muted">{setupIssues.slug}</p>{/if}
 					</div>
 				</div>
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-image-field">{@render fieldLabel('Image source field', bootstrapFieldHelp.imageSourceField)}</label>
 					<input id="bootstrap-image-field" bind:this={imageSourceFieldInputElement} value={imageSourceField}
-						class={bootstrapInputClass} type="text" name="imageSourceField" required oninput={onImageSourceFieldInput}
-						aria-describedby={setupIssues.imageSourceField ? 'bootstrap-image-help' : undefined} />
+						class={bootstrapInputClass} type="text" name="imageSourceField" required oninput={onImageSourceFieldInput} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(metadataSuggestions.imageSourceField, imageSourceField, setImageSourceFieldValue)}
-						{#if imageSourceFieldResolved}<span class="bootstrap-row-status">found in sample</span>{/if}
-						{#if setupIssues.imageSourceField}
-							<span id="bootstrap-image-help" class="bootstrap-row-status">required</span>
-						{:else if !imageSourceFieldResolved && sampleResult?.sample.tokenUriPayload && !sampleProbeFailure}
-							<span class="bootstrap-row-status">not found in sample</span>
-						{/if}
 					</div>
 				</div>
 				<div class="bootstrap-form-row">
@@ -1235,48 +1199,39 @@
 						class={bootstrapInputClass} type="text" name="animationSourceField" oninput={onAnimationSourceFieldInput} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(metadataSuggestions.animationSourceField, animationSourceField, setAnimationSourceFieldValue)}
-						{#if animationSourceFieldResolved}<span class="bootstrap-row-status">found in sample</span>
-						{:else if animationSourceFieldIncorrect}<span class="bootstrap-row-status">not found in sample</span>
-						{:else if !animationSourceField}<span class="bootstrap-row-status">skip animation</span>{/if}
 					</div>
 				</div>
 				{#if formDetailsReady && sampleTokenCard}
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Sample preview</span>
 						<div class="bootstrap-read-value">Token #{sampleTokenCard.tokenId}</div>
-						<div class="bootstrap-row-actions">
-							<button type="button" class="action-button-positive" aria-expanded={samplePreviewOpen}
-								onclick={() => samplePreviewOpen = !samplePreviewOpen}>{samplePreviewOpen ? 'hide preview' : 'preview sample'}</button>
-						</div>
 					</div>
-					{#if samplePreviewOpen}
-						<div class="bootstrap-setup-preview">
-							<div class="secondary-tabs bootstrap-preview-source-tabs" aria-label="Sample token preview source">
-								<button type="button" class:secondary-tab-active={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
-									disabled={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
-									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Image)}>image</button>
-								{#if animationPreviewAvailable}
-									<button type="button" class:secondary-tab-active={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
-										disabled={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
-										onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Animation)}>animation</button>
-								{/if}
-							</div>
-							<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
-								{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation && animationPreviewIframeSource}
-									<div class="bootstrap-animation-preview-frame-wrap">
-										<TokenMediaFrame className="bootstrap-animation-preview-frame" iframeSource={animationPreviewIframeSource}
-											hideScrollbars title={`${tokenMediaTitle(sampleTokenCard.tokenId)} animation preview`} />
-									</div>
-								{:else}
-									<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
-										<TokenCardTile {chain} collection={null} token={sampleTokenCard} href="#"
-											selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot} availableMediaModes={bootstrapPreviewMediaModes}
-											{tokenPreview} showMeta={false} />
-									</div>
-								{/if}
-							</aside>
+					<div class="bootstrap-setup-preview">
+						<div class="secondary-tabs bootstrap-preview-source-tabs" aria-label="Sample token preview source">
+							<button type="button" class:secondary-tab-active={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
+								disabled={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
+								onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Image)}>image</button>
+							{#if animationPreviewAvailable}
+								<button type="button" class:secondary-tab-active={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
+									disabled={selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
+									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Animation)}>animation</button>
+							{/if}
 						</div>
-					{/if}
+						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation && animationPreviewIframeSource}
+								<div class="bootstrap-animation-preview-frame-wrap">
+									<TokenMediaFrame className="bootstrap-animation-preview-frame" iframeSource={animationPreviewIframeSource}
+										hideScrollbars title={`${tokenMediaTitle(sampleTokenCard.tokenId)} animation preview`} />
+								</div>
+							{:else}
+								<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
+									<TokenCardTile {chain} collection={null} token={sampleTokenCard} href="#"
+										selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot} availableMediaModes={bootstrapPreviewMediaModes}
+										{tokenPreview} showMeta={false} />
+								</div>
+							{/if}
+						</aside>
+					</div>
 				{/if}
 			</section>
 
@@ -1291,7 +1246,6 @@
 					</select>
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(imageCacheSuggestion?.config.imageCacheMode, imageCacheMode, (value) => { imageCacheMode = parseImageCacheMode(value); resetImageCacheEstimateState(); }, imageCacheSuggestion ? imageCacheModeLabel(imageCacheSuggestion.config.imageCacheMode) : undefined)}
-						{#if imageCacheSuggestion}<span class="bootstrap-row-status">extension suggestion</span>{/if}
 					</div>
 				</div>
 				{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
@@ -1307,11 +1261,6 @@
 								aria-label="estimate" aria-busy={imageCacheEstimatePending} onclick={() => void onEstimateImageCache()}>
 								{#if imageCacheEstimatePending}{@render inProgressStatus('estimating', 'estimating image cache size')}{:else}estimate{/if}
 							</button>
-							<span class="bootstrap-row-status" role="status" hidden={imageCacheEstimatePending}>
-								{#if imageCacheEstimateReady}estimated
-								{:else if imageCacheEstimateFailed}estimate failed
-								{:else}not estimated{/if}
-							</span>
 							{#if setupIssues.maxDimension || (!imageCacheEstimateCanRun && !imageCacheEstimatePending && !imageCacheEstimateReady)}
 								<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
 									{setupIssues.maxDimension ?? (scopeIssue ? 'Define the token scope to estimate.' : 'Inspect a token in this scope and select its image field to estimate.')}
@@ -1336,16 +1285,12 @@
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Cached image (1 token)</span>
 						<div class="bootstrap-read-value mono">{imageCacheSampleOutputValue()} · {imageCacheOutputDimensionsValue()}</div>
-						<div class="bootstrap-row-actions">
-							<button type="button" class="action-button-positive" aria-expanded={cachePreviewOpen}
-								onclick={() => cachePreviewOpen = !cachePreviewOpen}>{cachePreviewOpen ? 'hide preview' : 'preview cached image'}</button>
-						</div>
 					</div>
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Estimated cache (selected scope)</span>
 						<div class="bootstrap-read-value mono">{imageCacheProjectedOutputValue()} · {resolvedBootstrapScopeTotalSupply()} tokens</div>
 					</div>
-					{#if cachePreviewOpen && cachedTokenCard}
+					{#if cachedTokenCard}
 						<div class="bootstrap-setup-preview">
 							<aside class="bootstrap-token-card-pane" aria-label="Cached token image preview">
 								<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapCacheTokenCard}>

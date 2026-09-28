@@ -204,7 +204,7 @@
 			{:else}
 				<button
 					type="button"
-					class="action-button-positive"
+					class={gridLayout ? 'action-button-neutral' : 'action-button-positive'}
 					aria-label="resolve"
 					aria-busy={probePending}
 					disabled={!canResolve || probePending}
@@ -217,8 +217,8 @@
 						</span>
 					{:else}resolve{/if}
 				</button>
-				{#if slugIncorrect}
-					<span class={gridLayout ? 'bootstrap-row-status' : 'bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge'}>
+				{#if slugIncorrect && !gridLayout}
+					<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
 						incorrect
 					</span>
 				{/if}

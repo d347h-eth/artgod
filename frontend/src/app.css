@@ -322,24 +322,15 @@ a:hover {
 	opacity: 0.55;
 }
 
-.bootstrap-metadata-panel {
+.bootstrap-metadata-panel.runtime-logs-section {
+	align-self: start;
 	position: sticky;
-	top: 1rem;
+	top: 0.75rem;
+	height: max(0px, calc(100dvh - var(--bootstrap-output-offset, 0px) - 0.75rem));
+	/* Output scrolls within the first-screen budget, independently of form height. */
+	contain: size;
 	min-width: 0;
-}
-
-.bootstrap-metadata-heading {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 0.75rem;
-	flex-wrap: wrap;
-	border-bottom: 1px solid var(--c-blue);
-	padding-bottom: 0.75rem;
-}
-
-.bootstrap-metadata-heading .panel-title {
-	margin: 0;
+	padding-bottom: 0;
 }
 
 .bootstrap-metadata-panel .muted {
@@ -354,11 +345,12 @@ a:hover {
 }
 
 .runtime-log-stream.bootstrap-output-scroll {
-	height: min(75dvh, 52rem);
-	min-height: 18rem;
-	flex: none;
+	/* Fill the panel's fixed height without letting output increase it. */
+	height: 0;
+	min-height: 0;
+	flex: 1;
 	font: 11px/1.45 monospace;
-	margin-top: 0.5rem;
+	margin-top: 0;
 	overflow-wrap: anywhere;
 	user-select: text;
 }
@@ -393,20 +385,11 @@ a:hover {
 	white-space: pre-wrap;
 }
 .bootstrap-output-resource {
-	display: flex;
-	align-items: start;
-	gap: 0.5rem;
 	margin-block: 0.25rem;
 }
 .bootstrap-output-resource code {
-	min-width: 0;
-	flex: 1;
 	font: inherit;
 	white-space: pre-wrap;
-}
-.bootstrap-output-resource button {
-	flex: none;
-	white-space: nowrap;
 }
 .bootstrap-output-document summary {
 	color: var(--c-cyan);
@@ -435,14 +418,15 @@ a:hover {
 		grid-template-columns: minmax(0, 1fr);
 	}
 
-	.bootstrap-metadata-panel {
+	.bootstrap-metadata-panel.runtime-logs-section {
 		position: static;
+		height: calc(100dvh - 1.5rem);
 	}
 }
 
 .bootstrap-form-fields {
 	display: grid;
-	gap: 0.85rem;
+	gap: 1.85rem;
 	align-items: start;
 	justify-items: stretch;
 	width: 100%;
@@ -569,6 +553,11 @@ a:hover {
 	width: min(100%, 44ch);
 }
 
+.bootstrap-create-form #bootstrap-slug,
+.bootstrap-create-form #bootstrap-opensea-slug {
+	width: min(100%, 37.5ch);
+}
+
 .bootstrap-create-form #bootstrap-sample,
 .bootstrap-create-form #bootstrap-range-start {
 	width: min(100%, 22ch);
@@ -585,9 +574,10 @@ a:hover {
 
 .bootstrap-step-heading {
 	align-items: baseline;
-	padding-bottom: 0.6rem;
+	padding: 0.75rem;
 	margin-bottom: 0.25rem;
-	border-bottom: 1px solid var(--c-blue);
+	background: rgb(0 0 0 / 33%);
+	box-sizing: border-box;
 }
 
 .bootstrap-step-heading h3 {
@@ -603,8 +593,7 @@ a:hover {
 	margin-inline-start: 0.6rem;
 }
 
-.bootstrap-step-status,
-.bootstrap-row-status {
+.bootstrap-step-status {
 	color: var(--c-sand);
 	font-size: 0.72rem;
 	line-height: 1.4;
@@ -613,6 +602,15 @@ a:hover {
 .bootstrap-step-incomplete,
 .bootstrap-check-warning {
 	color: var(--c-yellow);
+}
+
+.bootstrap-step-complete {
+	color: var(--c-cyan);
+}
+
+.update-flash-cyan {
+	--update-flash-peak-background: color-mix(in srgb, var(--c-cyan) 55%, transparent);
+	--update-flash-rest-background: transparent;
 }
 
 .bootstrap-row-actions {
@@ -690,7 +688,14 @@ a:hover {
 
 .bootstrap-create-form .bootstrap-form-section {
 	gap: 0.8rem;
+	padding: 0 0 0.75rem;
+	background: transparent;
 	scroll-margin-top: 1rem;
+}
+
+.bootstrap-create-form .bootstrap-form-section > .bootstrap-form-row {
+	padding-inline: 0.75rem;
+	box-sizing: border-box;
 }
 
 .bootstrap-setup-submit {
@@ -1334,6 +1339,11 @@ button:not(:disabled):hover {
 .action-button-positive:not(:disabled) {
 	border-color: var(--c-cyan);
 	color: var(--c-cyan);
+}
+
+.action-button-neutral:not(:disabled) {
+	border-color: var(--c-ice);
+	color: var(--c-ice);
 }
 
 .table-wrap {

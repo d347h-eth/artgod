@@ -157,7 +157,7 @@ requests are aborted and cannot append output or replace the current result.
 
 The panel retains at most 400 entries and 12 MiB of text, reports discarded
 entries, and follows new output only while the user remains at the bottom.
-Public URLs stay selectable and have a copy action. Metadata uses the existing
+Public URLs stay fully selectable. Metadata uses the existing
 script-free iframe and large-value masks. Backend output buffering and individual
 wire records are capped at 96 MiB (including escaped metadata or image data URIs);
 ordinary metadata remains capped at 10 MiB. No RPC endpoint credentials,
@@ -182,6 +182,10 @@ ERC721Enumerable at any time after acknowledgement. The range's first ID
 (editable default `1`) and token count define `first .. first + count - 1`,
 including unminted IDs. Unknown/false Enumerable support produces a warning when
 entire-contract mode is selected, not a disabled control.
+The suggestion and selected mode both show the detected contract-wide token
+count, including all projects on shared contracts. This count is independent of
+any entered manual range. Image caching defaults to a 2400 px maximum dimension;
+an explicit saved dimension remains unchanged.
 
 Successful sample ownership can trigger an exact OpenSea lookup even when
 metadata fails. The association is included only while the effective sample

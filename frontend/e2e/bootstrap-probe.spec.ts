@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from 'playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import {
 	BOOTSTRAP_OPERATION as Operation,
 	BOOTSTRAP_OUTPUT_STEP as Step,
@@ -62,12 +63,106 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
-	test('shows the exact failed URL, supports copying and preserves earlier attempts', async ({
+	test('shows the whole shared-contract count before applying and after selecting entire contract', async ({
+		page
+	}, info) => {
+		await installBootstrapProbeApiMock(page, {
+			contract: (result) => ({
+				...result,
+				totalSupply: {
+					...result.totalSupply,
+					value: '198051',
+					safeIntegerValue: 198051,
+					bootstrapRangeValue: 198051
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page.locator('#bootstrap-range-start').fill('163000000');
+		await page.locator('#bootstrap-range-count').fill('1000');
+		await probeButton(page).click();
+		const scopeRow = formRow(page, 'Token scope');
+		await expect(scopeRow).toContainText('198051 tokens across all projects');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
+		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('yes');
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: info.outputPath('shared-contract-suggestion.png'),
+			fullPage: true
+		});
+		await scopeRow.getByRole('button', { name: 'apply "entire contract"' }).click();
+		await expect(scopeRow).toContainText('Includes every project on this contract.');
+		await expect(scopeRow).toContainText('198051 tokens in total.');
+		await page.screenshot({
+			path: info.outputPath('shared-contract-selected.png'),
+			fullPage: true
+		});
+		// A new target must not inherit the previous contract's count.
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await page.locator('#bootstrap-scope-mode').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+		await expect(scopeRow).not.toContainText('198051');
+		await expect(scopeRow).toContainText('Contract token count unavailable.');
+	});
+
+	test('flashes new and changed suggestions while leaving edited inputs alone', async ({
+		page
+	}, info) => {
+		// Pause the production animation so both viewports can inspect the real cyan flash.
+		await page.addInitScript(() => {
+			const animate = Element.prototype.animate;
+			Element.prototype.animate = function (...args) {
+				const animation = animate.apply(this, args);
+				if (this.getAttribute('title')?.startsWith('apply "')) {
+					animation.pause();
+					animation.currentTime = 0;
+				}
+				return animation;
+			};
+		});
+		let imageField = 'image';
+		await installBootstrapProbeApiMock(page, {
+			sample: (result) => ({
+				...result,
+				sample: {
+					...result.sample,
+					tokenUriPayload: JSON.stringify({ [imageField]: BOOTSTRAP_PROBE_MEDIA.RasterImage })
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await probeButton(page).click();
+		const suggestion = formRow(page, 'Image source field').getByRole('button', {
+			name: 'apply "image"',
+			exact: true
+		});
+		await expect(suggestion).toBeVisible();
+		await expect
+			.poll(() => suggestion.evaluate((element) => element.getAnimations().length))
+			.toBe(1);
+		await page.screenshot({ path: info.outputPath('cyan-suggestion-flash.png'), fullPage: true });
+		await suggestion.evaluate((element) =>
+			element.getAnimations().forEach((animation) => animation.finish())
+		);
+		await rowControl(page, 'Image source field').fill('custom_image');
+		await expect
+			.poll(() => suggestion.evaluate((element) => element.getAnimations().length))
+			.toBe(0);
+		imageField = 'image_url';
+		await page.getByRole('button', { name: 'inspect', exact: true }).click();
+		const changed = formRow(page, 'Image source field').getByRole('button', {
+			name: 'apply "image_url"',
+			exact: true
+		});
+		await expect(changed).toBeVisible();
+		await expect.poll(() => changed.evaluate((element) => element.getAnimations().length)).toBe(1);
+		await expect(rowControl(page, 'Image source field')).toHaveValue('custom_image');
+	});
+
+	test('shows the exact selectable failed URL and preserves earlier attempts', async ({
 		page
 	}, info) => {
 		const failedUrl =
 			'https://ipfs.filebase.io/ipfs/bafybeie63jlvjy46pnltbkkytjsi5r6fsmimvlmdmtxhyntprjhsjdrqvi/1000?format=json';
-		await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 		await installBootstrapProbeApiMock(page, {
 			sample: (response) => ({
 				...response,
@@ -86,11 +181,9 @@ test.describe('bootstrap setup', () => {
 		const log = page.getByRole('log', { name: 'bootstrap checks' });
 		await expect(log).toContainText('HTTP 504');
 		await expect(log.locator('code').last()).toHaveText(failedUrl);
-		await log
-			.getByRole('button', { name: `copy url ${failedUrl}`, exact: true })
-			.last()
-			.click();
-		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(failedUrl);
+		await expect(log).toHaveCSS('user-select', 'text');
+		await expect(log.getByRole('button', { name: /copy url/ })).toHaveCount(0);
+		await expect(page.getByRole('heading', { name: 'setup output' })).toHaveCount(0);
 		await page.getByRole('button', { name: 'inspect', exact: true }).click();
 		await expect(
 			log.getByText('Metadata download failed (HTTP 504). Press inspect to retry.', { exact: true })
@@ -110,6 +203,25 @@ test.describe('bootstrap setup', () => {
 	}, info) => {
 		await installBootstrapProbeApiMock(page);
 		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.evaluate(() => window.scrollTo(0, 0));
+		const terminal = page.getByRole('complementary', { name: 'setup output' });
+		await expect
+			.poll(async () => {
+				const box = await terminal.boundingBox();
+				const viewportHeight = page.viewportSize()!.height;
+				return info.project.name === 'desktop-1080p'
+					? viewportHeight - (box!.y + box!.height)
+					: viewportHeight - box!.height;
+			})
+			.toBeGreaterThanOrEqual(0);
+		const initialBox = (await terminal.boundingBox())!;
+		const viewportHeight = page.viewportSize()!.height;
+		expect(
+			info.project.name === 'desktop-1080p'
+				? viewportHeight - (initialBox.y + initialBox.height)
+				: viewportHeight - initialBox.height
+		).toBeLessThanOrEqual(24);
+		await page.screenshot({ path: info.outputPath('output-first-screen.png') });
 		await page.route('**/collections/bootstrap/probe?**', (route) =>
 			fulfillBootstrapOutput(
 				route,
@@ -126,6 +238,12 @@ test.describe('bootstrap setup', () => {
 		const log = page.getByRole('log', { name: 'bootstrap checks' });
 		await expect(log).toContainText('earlier entries removed');
 		await expect(log.locator('.bootstrap-output-entry')).toHaveCount(BOOTSTRAP_OUTPUT_MAX_ENTRIES);
+		await expect
+			.poll(async () => Math.abs((await terminal.boundingBox())!.height - initialBox.height))
+			.toBeLessThan(1);
+		await expect
+			.poll(() => log.evaluate((element) => element.scrollHeight - element.clientHeight))
+			.toBeGreaterThan(0);
 		await log.evaluate((element) => {
 			element.scrollTop = 0;
 			element.dispatchEvent(new Event('scroll'));
@@ -140,6 +258,17 @@ test.describe('bootstrap setup', () => {
 			)
 			.toBeLessThan(32);
 		await page.screenshot({ path: info.outputPath('output-bounded.png'), fullPage: true });
+		if (info.project.name === 'desktop-1080p') {
+			await page.setViewportSize({ width: 1290, height: 600 });
+			await page.evaluate(() => window.scrollTo(0, 0));
+			await expect
+				.poll(async () => {
+					const bounds = (await terminal.boundingBox())!;
+					return Math.abs(bounds.y + bounds.height - 588);
+				})
+				.toBeLessThan(1);
+			await page.screenshot({ path: info.outputPath('output-short-viewport.png') });
+		}
 	});
 
 	test('locks the entire form and retains entered values when acknowledgement is removed', async ({
@@ -242,7 +371,7 @@ test.describe('bootstrap setup', () => {
 				.getByRole('button', { name: 'inspect', exact: true })
 				.getByRole('img', { name: 'inspecting sample' })
 		).toBeVisible();
-		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
+		await expect(formRow(page, 'Contract checks')).toBeVisible();
 		await expectGridAlignment(page);
 		await page.screenshot({
 			path: info.outputPath('contract-ready-sample-loading.png'),
@@ -305,11 +434,17 @@ test.describe('bootstrap setup', () => {
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		await page.locator('#bootstrap-image-field').fill('image_url');
-		await expect(formRow(page, 'Image source field')).toContainText('found in sample');
-		await page.locator('#bootstrap-animation-field').fill('generator_url');
-		await expect(formRow(page, 'Animation source field (optional)')).toContainText(
-			'found in sample'
+		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard).locator('img')).toHaveAttribute(
+			'src',
+			BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage
 		);
+		await page.locator('#bootstrap-animation-field').fill('missing_field');
+		const animationTab = page
+			.getByLabel('Sample token preview source')
+			.getByRole('button', { name: 'animation', exact: true });
+		await expect(animationTab).toHaveCount(0);
+		await page.locator('#bootstrap-animation-field').fill('generator_url');
+		await expect(animationTab).toBeVisible();
 		expect(api.sampleRequests).toHaveLength(1);
 		await page.locator('#bootstrap-sample').fill('42');
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(1);
@@ -357,7 +492,7 @@ test.describe('bootstrap setup', () => {
 		await page.locator('#bootstrap-range-count').fill('1000');
 		await page.locator('#bootstrap-sample').fill('0');
 		await probeButton(page).click();
-		await expect(sampleTokenInputRow(page)).toContainText('no owner found');
+		await expect(sampleTokenInputRow(page)).toContainText('Choose another sample token ID.');
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('sparse-absent-sample.png'), fullPage: true });
 		await page.locator('#bootstrap-sample').fill('10');
@@ -552,7 +687,7 @@ test.describe('bootstrap setup', () => {
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		release();
 		await oldRequestFailed;
-		await expect(page.getByText('contract checked', { exact: true })).toBeVisible();
+		await expect(formRow(page, 'Contract checks')).toBeVisible();
 		expect(api.sampleRequests).toHaveLength(1);
 		await expect(page.locator('#bootstrap-slug')).toHaveValue('retained-draft');
 	});
@@ -607,7 +742,9 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-opensea-slug')).toHaveValue('user-edited-slug');
 		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveCount(0);
 		await resolve.click();
-		await expect(page.locator('#bootstrap-opensea')).toContainText('incorrect');
+		await expect(page.locator('#bootstrap-opensea')).toContainText(
+			'OpenSea did not confirm this collection slug'
+		);
 		await expectGridAlignment(page);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-incorrect.png'), fullPage: true });
@@ -645,11 +782,12 @@ test.describe('bootstrap setup', () => {
 			'requestfailed',
 			(request) =>
 				request.url().includes('image-cache-estimate') &&
-				request.postDataJSON().maxDimension === 1080
+				request.postDataJSON().maxDimension === BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
 		);
 		await rowControl(page, 'Max dimension (px)').fill('64');
 		await estimate.click();
 		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
+		await expect(page.getByTestId(TEST_IDS.BootstrapCacheTokenCard)).toBeVisible();
 		release();
 		await oldRequestFailed;
 		await expect(formRow(page, 'Cached image (1 token)')).toContainText('64 x 64px');
@@ -726,7 +864,9 @@ test.describe('bootstrap setup', () => {
 		});
 		await expect(mode).toBeVisible();
 		await mode.click();
-		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue('1080');
+		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue(
+			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
+		);
 		await formRow(page, 'Max dimension (px)').getByRole('button', { name: 'apply "64"' }).click();
 		await expect(rowControl(page, 'Max dimension (px)')).toHaveValue('64');
 		await expect(rowControl(page, 'Image cache mode')).toHaveValue(IMAGE_CACHE_MODE.CacheOnce);

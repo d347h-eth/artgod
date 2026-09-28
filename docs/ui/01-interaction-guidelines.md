@@ -330,6 +330,7 @@ Action polarity and placement:
 - when the row is compact instead of full-width, keep a significant visual gap between the negative-left and positive-right buttons
 - do not render a positive/confirm button before the matching negative/cancel button
 - use the shared `.action-button-negative` and `.action-button-positive` classes unless a component has an existing documented equivalent
+- use `.action-button-neutral` for ice-colored secondary actions
 
 Button-like controls should not retain pointer focus after mouse or touch activation.
 
@@ -361,9 +362,19 @@ their first action or standalone status share a vertical centerline. Additional
 actions and status text occupy later rows in the same action column, so they
 cannot shift the input away from its button. Field messages stay in that right
 column and cover only validation, constraints, or recovery. Do not repeat the
-field help already available through the info pop-up. Actions use the standard
-form button and `.action-button-positive` family, including probe, per-field apply, estimate,
-resolve, preview toggles, and queue bootstrap. Action labels are lowercase, and
+field help already available through the info pop-up. Omit idle field notes such
+as `required`, `optional` and `not checked`; section headings retain required or
+optional labels. Omit short status notes beneath actions, including checked,
+confirmed, detected and estimated labels; keep only actionable explanations,
+validation and scope constraints there. The dark section fill belongs only to the
+heading, without a bottom rule. Completed required sections show cyan `✓ complete`; optional
+sections do not repeat configured/resolved status in their headings.
+Actions use the standard form buttons: probe, inspect, estimate and queue
+bootstrap use the cyan `.action-button-positive` family; per-field apply,
+resolve and the log's latest action use the ice `.action-button-neutral` family.
+New or changed apply suggestions use the shared update flash from the bid book,
+colored cyan.
+Action labels are lowercase, and
 pending text and `LoadingBladeBar` appear inside the initiating button. A resolved
 OpenSea slug replaces resolve with the existing cyan status badge; editing it
 restores the action. Action widths follow their shared column; labels do not wrap.
@@ -372,8 +383,14 @@ Long suggested values use the shared
 hover title. Narrow screens stack the workspace and, when necessary, label,
 input, then action without squeezing controls or causing horizontal overflow.
 
-The log uses the shared runtime log chrome, a bounded scroll area, explicit step
-statuses and exact selectable resource URLs with a standard copy action. It
+The desktop log fills the first screen from its initial top edge to the bottom
+page gutter. Its height follows viewport resizing and stays stable as the form
+and output grow. It stays beside the form during page scrolling. On narrow
+screens, the stacked log uses the viewport height minus page gutters. Output
+scrolls inside that bounded box and cannot increase its outer height.
+It uses the shared runtime log chrome, explicit step
+statuses and exact selectable resource URLs. It has no visible heading or copy
+buttons. It
 follows incoming output only while the reader is at the bottom; `latest` resumes
 following. Retain at most 400 entries and 12 MiB of text and show when older
 entries were removed. It has no command input, terminal escape processing or
@@ -395,9 +412,12 @@ Scope edits retain usable image measurements and recalculate totals; a sample
 outside the new scope remains inspectable but cannot supply its collection
 estimate or OpenSea association. Pending responses cannot replace newer edits.
 
-Detailed probe results and media previews open on request. Scope choices remain
-editable without probing. A whole-contract choice is explicit and carries a
-warning when support is unconfirmed. It never follows automatically from a
+Detailed probe results, sample media and cached-image previews appear as soon as
+available, without expand/collapse actions. Scope choices remain editable without
+probing. Both the whole-contract suggestion and selected scope show the detected
+contract-wide token count in yellow and identify that every project is included.
+If supply is unavailable, say so. A whole-contract choice is explicit and carries
+a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.
 
 The logical groups and explicit optional stages follow the
