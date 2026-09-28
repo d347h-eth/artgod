@@ -112,11 +112,59 @@ estimates and optional OpenSea resolution. It does not need to be copied into th
 input first. An explicit override inspects exactly that ID; failed ownership
 never silently selects a different token.
 
-The desktop inspector shows `sample.tokenUriPayload` from the inspection response:
+The desktop setup output includes `sample.tokenUriPayload` from inspection:
 the original metadata text from HTTP/IPFS or a decoded JSON data URI, bounded by
 `BOOTSTRAP_TOKEN_URI_MAX_BYTES` (10 MiB). Invalid JSON remains inspectable;
 unavailable or oversized responses return null with a separate download/parse
 outcome. No image is downloaded during contract discovery or sample inspection.
+
+### Live Setup Output
+
+All five setup routes accept `Accept: application/x-ndjson`. Without that header,
+their existing JSON responses and HTTP error statuses remain unchanged. The form
+uses the streaming representation; CLI callers can keep the ordinary response.
+Authentication, origin and CSRF checks apply before either representation starts.
+
+Each UTF-8 line is one JSON record. A `progress` record carries `operation`,
+request-local ascending `sequence` (starting at 1), UTC `timestamp`, `step`,
+`status`, `message`, and optional exact resource `url` or bounded original `text`.
+Statuses are `started`, `succeeded`, `failed`, `skipped`, `retrying`, and
+`completed` (operation finished, including any reported partial failures). Parallel
+checks appear in completion order. An operation ends with exactly one `result`
+record containing its ordinary response, or an `error` record containing
+`statusCode`, `error` and `message`. After streaming headers, the error record
+carries the failure status; the outer HTTP response remains 200. A missing final
+record is an interrupted operation, never a successful check. Partial metadata
+failure can return a result while its individual step reports failure.
+
+| Operation  | Required output                                                                                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `probe`    | Finalized block/hash; code and proxy checks; interface support; name; contract-wide supply; enumeration candidate; each ownership candidate; block verification.                             |
+| `inspect`  | Block and ownership checks; chosen sample; exact tokenURI; resolved public HTTP URL; each request/status/retry delay; received bytes and original text; JSON validation; block verification. |
+| `estimate` | Exact source URL and HTTP attempts; received bytes/type; processing settings; source/output dimensions and cached bytes; distinct download and processing failures.                          |
+| `resolve`  | Exact public OpenSea NFT URL and attempts; discovered association and requested-slug verification. API keys and request headers are excluded.                                                |
+| `queue`    | Definition validation; collection/scope conflict checks; admitted run ID and queue result. Subsequent worker progress belongs to the existing run-detail page.                               |
+
+Output contracts live in `shared/bootstrap/operation-output.ts`; the form and
+live-check command share the reader in `shared/bootstrap/operation-stream.ts`. Reports are
+request-local callbacks through the owning use cases and adapters; there is no
+durable setup job, command interpreter or separate logging service. Existing
+HTTP/RPC/OpenSea retry policies remain authoritative. The frontend never replays
+a started streaming operation automatically. Explicit retry appends new history.
+Address/chain changes and removing acknowledgement clear history; sample edits
+retain labeled earlier output but invalidate its suggestions. Superseded browser
+requests are aborted and cannot append output or replace the current result.
+
+The panel retains at most 400 entries and 12 MiB of text, reports discarded
+entries, and follows new output only while the user remains at the bottom.
+Public URLs stay selectable and have a copy action. Metadata uses the existing
+script-free iframe and large-value masks. Backend output buffering and individual
+wire records are capped at 96 MiB (including escaped metadata or image data URIs);
+ordinary metadata remains capped at 10 MiB. No RPC endpoint credentials,
+authorization headers, exception stacks or executable terminal content are sent.
+
+`yarn debug:bootstrap --stream` retains the negotiated output as `.ndjson` beside
+the normal read-only live-check artifacts. No bootstrap runs are queued by it.
 
 The inspector treats keys and values as escaped text in the token-detail iframe
 boundary: empty sandbox, no referrer, and CSP denying scripts, network access,

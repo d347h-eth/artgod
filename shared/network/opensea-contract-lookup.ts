@@ -1,5 +1,9 @@
 import type { OpenSeaHttpConfig } from "../config/opensea-http.js";
 import {
+    HTTP_FETCH_PHASE,
+    type HttpFetchObserver,
+} from "./http-fetch-observation.js";
+import {
     OpenSeaApiRateLimiter,
     retryOpenSeaApiCall,
 } from "./opensea-api-resilience.js";
@@ -46,6 +50,7 @@ export type OpenSeaContractLookupPort = {
     ): Promise<OpenSeaResolvedContractCollection | null>;
     resolveCollectionByToken(
         input: OpenSeaContractTokenLookupInput,
+        observe?: HttpFetchObserver,
     ): Promise<OpenSeaResolvedTokenCollection | null>;
 };
 
@@ -172,14 +177,59 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
 
     async resolveCollectionByToken(
         input: OpenSeaContractTokenLookupInput,
+        observe?: HttpFetchObserver,
     ): Promise<OpenSeaResolvedTokenCollection | null> {
         await this.rateLimiter.wait(1, 0);
+        let attempt = 0;
+        const url = buildNftUrl(input.address, input.tokenId);
+        const maxAttempts = Math.max(1, this.config.retryPolicy.maxAttempts);
         const response = await retryOpenSeaApiCall({
             component: OPENSEA_CONTRACT_LOOKUP_LOG_COMPONENT,
             action: OPENSEA_CONTRACT_LOOKUP_ACTION.FetchNft,
             retryPolicy: this.config.retryPolicy,
             shouldRetry: shouldRetryOpenSeaContractLookupError,
-            call: () => this.fetchNft(input.address, input.tokenId),
+            onRetryScheduled: ({ delayMs, error }) =>
+                observe?.({
+                    phase: HTTP_FETCH_PHASE.Retry,
+                    url,
+                    attempt,
+                    maxAttempts,
+                    delayMs,
+                    status:
+                        error instanceof OpenSeaContractLookupStatusError
+                            ? error.status
+                            : undefined,
+                }),
+            call: () => {
+                attempt += 1;
+                observe?.({
+                    phase: HTTP_FETCH_PHASE.Request,
+                    url,
+                    attempt,
+                    maxAttempts,
+                });
+                return this.fetchNft(input.address, input.tokenId, (response) =>
+                    observe?.({
+                        phase: HTTP_FETCH_PHASE.Response,
+                        url: response.url || url,
+                        attempt,
+                        maxAttempts,
+                        status: response.status,
+                    }),
+                );
+            },
+        }).catch((error: unknown) => {
+            observe?.({
+                phase: HTTP_FETCH_PHASE.Failure,
+                url,
+                attempt,
+                maxAttempts,
+                status:
+                    error instanceof OpenSeaContractLookupStatusError
+                        ? error.status
+                        : undefined,
+            });
+            throw error;
         });
         const slug = normalizeOpenSeaSlug(
             readRecordValue(response?.nft, "collection"),
@@ -228,12 +278,14 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
     private async fetchNft(
         address: string,
         tokenId: string,
+        observe?: (response: Response) => void,
     ): Promise<OpenSeaNftResponse | null> {
         const response = await this.fetchImpl(buildNftUrl(address, tokenId), {
             headers: {
                 [OPENSEA_API_KEY_HEADER_NAME]: this.config.apiKey,
             },
         });
+        observe?.(response);
         if (response.status === 404) {
             await response.body?.cancel().catch(() => undefined);
             return null;

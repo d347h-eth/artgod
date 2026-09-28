@@ -1548,6 +1548,9 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/BootstrapContractProbeResponse"
+                        application/x-ndjson:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOperationStream"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -1587,6 +1590,9 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/BootstrapSampleInspectionResponse"
+                        application/x-ndjson:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOperationStream"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "403":
@@ -1627,6 +1633,9 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/CreateBootstrapRunResponse"
+                        application/x-ndjson:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOperationStream"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "403":
@@ -1666,6 +1675,9 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/BootstrapImageCacheEstimateResponse"
+                        application/x-ndjson:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOperationStream"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "403":
@@ -1726,6 +1738,9 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/BootstrapOpenSeaSlugProbeResponse"
+                        application/x-ndjson:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOperationStream"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -2164,6 +2179,19 @@ components:
                         message: Internal server error
 
     schemas:
+        BootstrapOperationStream:
+            type: string
+            description: |
+                Opt-in UTF-8 newline-delimited JSON selected with Accept: application/x-ndjson.
+                Progress records have type=progress, operation (probe, inspect, estimate, resolve,
+                queue), sequence (ascending from 1), timestamp (UTC), step, status (started,
+                succeeded, failed, skipped, retrying, completed), message, and optional exact public url
+                and bounded original text. Exactly one terminal record has type=result and
+                result matching the ordinary response schema, or type=error with statusCode,
+                error and message. After headers are sent, failure is carried in that record
+                while HTTP remains 200. An interrupted stream is never a successful operation.
+                See docs/indexer/14-collection-bootstrap.md, Live Setup Output, for per-operation
+                requirements, retention bounds and retry behavior. Security checks are unchanged.
         # OpenAPI 3.0 nullable does not widen an allOf reference or its enum.
         # See https://spec.openapis.org/oas/v3.0.3.html#schema-object
         NullValue:

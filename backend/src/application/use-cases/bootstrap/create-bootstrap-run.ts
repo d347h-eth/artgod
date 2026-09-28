@@ -45,6 +45,11 @@ import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media
 import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from "@artgod/shared/config/bootstrap";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -78,7 +83,13 @@ export class CreateBootstrapRunUseCase {
 
     async createRun(
         input: CreateBootstrapRunInput,
+        report?: BootstrapOutputReporter,
     ): Promise<CreateBootstrapRunOutput> {
+        report?.({
+            step: Step.Definition,
+            status: Status.Started,
+            message: `Validate collection ${input.slug} · ${input.address}`,
+        });
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -114,6 +125,7 @@ export class CreateBootstrapRunUseCase {
             enumeration,
         );
 
+        // Conflict checks use the stored collection definition, never probe success.
         const existing = this.bootstrapRunsPort.findCollectionBySlug(
             chain.publicChainId,
             slug,
@@ -135,6 +147,11 @@ export class CreateBootstrapRunUseCase {
                 (collection) =>
                     collection.collectionId !== existing?.collectionId,
             );
+        report?.({
+            step: Step.Scope,
+            status: Status.Started,
+            message: `Check scope overlap · ${siblingCollections.length} other collection(s) on this contract`,
+        });
         assertCollectionScopeDoesNotOverlap(
             chain.publicChainId,
             siblingCollections,
@@ -142,6 +159,11 @@ export class CreateBootstrapRunUseCase {
             this.bootstrapRunsPort,
         );
 
+        report?.({
+            step: Step.Scope,
+            status: Status.Succeeded,
+            message: "No collection scope overlap",
+        });
         const collection = this.bootstrapRunsPort.upsertCollectionForBootstrap({
             chainId: chain.publicChainId,
             slug,
@@ -170,6 +192,11 @@ export class CreateBootstrapRunUseCase {
             requestImageCache.selectedSource,
             requestExtensionKey,
         );
+        report?.({
+            step: Step.Definition,
+            status: Status.Succeeded,
+            message: `Collection definition accepted · ${slug}`,
+        });
         const plannedSteps = planBootstrapRunSteps({
             imageCache: requestImageCache.config,
             openseaSlug,
@@ -219,6 +246,11 @@ export class CreateBootstrapRunUseCase {
             payloadJson: null,
         });
 
+        report?.({
+            step: Step.Queue,
+            status: Status.Started,
+            message: `Queue bootstrap run #${run.runId}`,
+        });
         await this.bootstrapQueuePort.publishBootstrapStart({
             chainId: run.chainId,
             runId: run.runId,
@@ -245,6 +277,11 @@ export class CreateBootstrapRunUseCase {
         );
         const createdAt = queued?.createdAt ?? run.createdAt;
         const status = queued?.status ?? BOOTSTRAP_RUN_STATUS.Queued;
+        report?.({
+            step: Step.Queue,
+            status: Status.Succeeded,
+            message: `Bootstrap run #${run.runId} queued · collection ${slug}`,
+        });
         return {
             runId: run.runId,
             collectionId: run.collectionId,

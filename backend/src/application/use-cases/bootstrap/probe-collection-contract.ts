@@ -3,6 +3,7 @@ import type {
     BootstrapContractProbeResponse,
 } from "@artgod/shared/bootstrap/probe";
 import type { ChainRefResolverPort } from "./ports.js";
+import type { BootstrapOutputReporter } from "@artgod/shared/bootstrap/operation-output";
 import { BootstrapValidationError } from "./types.js";
 
 export type ProbeCollectionContractInput = {
@@ -12,7 +13,10 @@ export type ProbeCollectionContractInput = {
 };
 export type ProbeCollectionContractOutput = BootstrapContractProbeResponse;
 export interface CollectionContractProbePort {
-    discoverContract(address: string): Promise<BootstrapContractFindings>;
+    discoverContract(
+        address: string,
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapContractFindings>;
 }
 
 /** Contract discovery has no sample, metadata or selected-scope dependency. */
@@ -25,6 +29,7 @@ export class ProbeCollectionContractUseCase {
 
     async probe(
         input: ProbeCollectionContractInput,
+        report?: BootstrapOutputReporter,
     ): Promise<ProbeCollectionContractOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -36,6 +41,7 @@ export class ProbeCollectionContractUseCase {
         return {
             ...(await this.collectionContractProbePort.discoverContract(
                 address,
+                report,
             )),
             chain,
             address,

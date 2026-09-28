@@ -21,6 +21,8 @@ import type {
 import { IMAGE_CACHE_MODE } from "../../shared/media/token-image-cache.js";
 import { COLLECTION_STANDARD } from "../../shared/types/browse.js";
 import { normalizeEvmTokenId } from "../../shared/evm/token-id.js";
+import { BOOTSTRAP_STREAM_CONTENT_TYPE } from "../../shared/bootstrap/operation-output.js";
+import { readBootstrapStream } from "../../shared/bootstrap/operation-stream.js";
 
 // Live diagnostics exercise the real API, RPC and resource hosts. These routes
 // inspect and measure only: this command never creates a collection or a run.
@@ -35,6 +37,7 @@ const { values } = parseArgs({
         "token-count": { type: "string" },
         "sample-token-id": { type: "string", multiple: true },
         output: { type: "string" },
+        stream: { type: "boolean", default: false },
     },
 });
 function required(name: keyof typeof values): string {
@@ -94,15 +97,26 @@ async function request<T>(
             method: body === undefined ? "GET" : "POST",
             url: route,
             payload: body === undefined ? undefined : JSON.stringify(body),
-            headers: { "content-type": "application/json" },
+            headers: {
+                "content-type": "application/json",
+                ...(values.stream
+                    ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE }
+                    : {}),
+            },
         });
-        response = new Response(result.body, { status: result.statusCode });
+        response = new Response(result.body, {
+            status: result.statusCode,
+            headers: { "content-type": String(result.headers["content-type"]) },
+        });
     } else if (origin) {
         response = await fetch(origin + route, {
             method: body === undefined ? "GET" : "POST",
             headers: {
                 origin,
                 "content-type": "application/json",
+                ...(values.stream
+                    ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE }
+                    : {}),
                 cookie: `${API_CSRF_COOKIE_NAME}=${token}`,
                 [API_CSRF_HEADER_NAME]: token,
             },
@@ -112,7 +126,19 @@ async function request<T>(
     } else {
         throw new Error("Live HTTP target was not initialized");
     }
-    const data = await response.json();
+    let data: unknown;
+    if (
+        response.headers
+            .get("content-type")
+            ?.includes(BOOTSTRAP_STREAM_CONTENT_TYPE)
+    ) {
+        const text = await response.text();
+        await writeFile(path.join(output, `${name}.ndjson`), text);
+        data = await readBootstrapStream<T>(
+            new Response(text),
+            () => undefined,
+        );
+    } else data = await response.json();
     await writeFile(
         path.join(output, `${name}.json`),
         JSON.stringify(data, null, 2),

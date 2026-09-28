@@ -40,6 +40,13 @@ import {
     type EvmProxyResolution,
 } from "@artgod/shared/evm/proxy-detection";
 import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
+import { bootstrapResourceObserver } from "./resource-output.js";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    observeBootstrapStep,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 import { logger } from "@artgod/shared/utils";
 import {
     BOOTSTRAP_TOKEN_URI_MAX_BYTES,
@@ -153,6 +160,7 @@ export class ViemBootstrapContractProbe
 
     async observation(
         reference?: BootstrapProbeObservation | null,
+        report?: BootstrapOutputReporter,
     ): Promise<BootstrapProbeObservation> {
         if (
             reference &&
@@ -164,7 +172,18 @@ export class ViemBootstrapContractProbe
                 "Invalid probe observation. Press probe again.",
             );
         }
-        const observed = await this.rpc.getProbeBlock(reference?.blockNumber);
+        const observed = await observeBootstrapStep(
+            report,
+            Step.Observation,
+            reference
+                ? `Verify block #${reference.blockNumber}`
+                : "Read finalized block",
+            () => this.rpc.getProbeBlock(reference?.blockNumber),
+            (value) => ({
+                status: Status.Succeeded,
+                message: `Block #${value.blockNumber} · ${value.blockHash}`,
+            }),
+        );
         if (
             reference &&
             observed.blockHash.toLowerCase() !==
@@ -179,36 +198,108 @@ export class ViemBootstrapContractProbe
 
     async verifyObservation(
         reference: BootstrapProbeObservation,
+        report?: BootstrapOutputReporter,
     ): Promise<void> {
-        await this.observation(reference);
+        await this.observation(reference, report);
     }
 
     async discoverContract(
         rawAddress: string,
+        report?: BootstrapOutputReporter,
     ): Promise<BootstrapContractFindings> {
         const address = rawAddress as Hex;
-        const observation = await this.observation();
+        const observation = await this.observation(undefined, report);
         const blockNumber = observation.blockNumber;
-        const bytecode = await this.rpc.getBytecode(address, blockNumber);
+        const bytecode = await observeBootstrapStep(
+            report,
+            Step.Code,
+            `Contract code · ${address}`,
+            () => this.rpc.getBytecode(address, blockNumber),
+            (code) => ({
+                status:
+                    code && code !== "0x" ? Status.Succeeded : Status.Failed,
+                message:
+                    code && code !== "0x"
+                        ? `Contract code · ${(code.length - 2) / 2} bytes`
+                        : "No contract code. Check the address and chain.",
+            }),
+        );
         if (!bytecode || bytecode === "0x")
             throw new BootstrapValidationError(
                 NON_CONTRACT_ADDRESS_PROBE_ERROR,
             );
         const [proxyResult, erc721, enumerable, name, totalSupply] =
             await Promise.all([
-                this.readProxy(address, bytecode, blockNumber),
-                this.readInterfaceSupport(
-                    address,
-                    ERC721_INTERFACE_ID,
-                    blockNumber,
+                observeBootstrapStep(
+                    report,
+                    Step.Proxy,
+                    "Check proxy implementation",
+                    () =>
+                        this.readProxy(address, bytecode, blockNumber, report),
+                    (value) => ({
+                        status: value.error ? Status.Failed : Status.Succeeded,
+                        message: value.proxy
+                            ? `Proxy implementation · ${value.proxy.implementationAddress}`
+                            : value.error
+                              ? "Proxy check unavailable. Check RPC settings and retry."
+                              : "No recognized proxy found",
+                    }),
                 ),
-                this.readInterfaceSupport(
-                    address,
-                    ERC721_ENUMERABLE_INTERFACE_ID,
-                    blockNumber,
+                observeBootstrapStep(
+                    report,
+                    Step.Erc721,
+                    `supportsInterface(${ERC721_INTERFACE_ID}) · ERC721`,
+                    () =>
+                        this.readInterfaceSupport(
+                            address,
+                            ERC721_INTERFACE_ID,
+                            blockNumber,
+                        ),
+                    (value) => ({
+                        status: value.error ? Status.Failed : Status.Succeeded,
+                        message: `ERC721 · ${value.supported === null ? "check failed; retry probe" : value.supported ? "supported" : "not supported"}`,
+                    }),
                 ),
-                this.readContractName(address, blockNumber),
-                this.readTotalSupply(address, blockNumber),
+                observeBootstrapStep(
+                    report,
+                    Step.Enumerable,
+                    `supportsInterface(${ERC721_ENUMERABLE_INTERFACE_ID}) · ERC721Enumerable`,
+                    () =>
+                        this.readInterfaceSupport(
+                            address,
+                            ERC721_ENUMERABLE_INTERFACE_ID,
+                            blockNumber,
+                        ),
+                    (value) => ({
+                        status: value.error ? Status.Failed : Status.Succeeded,
+                        message: `ERC721Enumerable · ${value.supported === null ? "check failed; retry probe" : value.supported ? "supported" : "not supported"}`,
+                    }),
+                ),
+                observeBootstrapStep(
+                    report,
+                    Step.Name,
+                    "name()",
+                    () => this.readContractName(address, blockNumber),
+                    (value) => ({
+                        status: value.error ? Status.Failed : Status.Succeeded,
+                        message: value.value
+                            ? `Contract name: ${value.value}`
+                            : "Contract name unavailable. Enter the collection slug manually.",
+                    }),
+                ),
+                observeBootstrapStep(
+                    report,
+                    Step.Supply,
+                    "totalSupply()",
+                    () => this.readTotalSupply(address, blockNumber),
+                    (value) => ({
+                        status: value.error ? Status.Failed : Status.Succeeded,
+                        message:
+                            value.value !== null
+                                ? `Contract total supply: ${value.value}`
+                                : "Contract total supply unavailable. Enter token scope manually.",
+                    }),
+                ),
             ]);
         const enumeration: BootstrapTokenDiscovery["enumeration"] = {
             checked: false,
@@ -217,6 +308,11 @@ export class ViemBootstrapContractProbe
         };
         if (enumerable.supported === true && totalSupply.value !== "0") {
             enumeration.checked = true;
+            report?.({
+                step: Step.Enumeration,
+                status: Status.Started,
+                message: "tokenByIndex(0)",
+            });
             try {
                 const id = await this.rpc.readContract<bigint>({
                     address,
@@ -228,9 +324,29 @@ export class ViemBootstrapContractProbe
                 enumeration.tokenId = normalizeEvmTokenId(id.toString());
                 if (enumeration.tokenId === null)
                     throw new Error("Invalid enumeration token ID");
+                report?.({
+                    step: Step.Enumeration,
+                    status: Status.Succeeded,
+                    message: `tokenByIndex(0): ${enumeration.tokenId} · sample candidate`,
+                });
             } catch (error) {
                 enumeration.error = compactError(error);
+                report?.({
+                    step: Step.Enumeration,
+                    status: Status.Failed,
+                    message:
+                        "tokenByIndex(0) failed. Choose a sample token ID manually.",
+                });
             }
+        } else {
+            report?.({
+                step: Step.Enumeration,
+                status: Status.Skipped,
+                message:
+                    totalSupply.value === "0"
+                        ? "Enumeration skipped: contract supply is zero."
+                        : "Enumeration skipped: ERC721Enumerable support was not confirmed.",
+            });
         }
         // The first enumeration entry is not necessarily the smallest ID. Check conventional IDs independently.
         const ids = [
@@ -242,10 +358,10 @@ export class ViemBootstrapContractProbe
         ];
         const candidates = await Promise.all(
             ids.map((tokenId) =>
-                this.checkOwnership({ address, tokenId, observation }),
+                this.checkOwnership({ address, tokenId, observation }, report),
             ),
         );
-        await this.verifyObservation(observation);
+        await this.verifyObservation(observation, report);
         return {
             observation,
             proxy: proxyResult.proxy,
@@ -259,11 +375,19 @@ export class ViemBootstrapContractProbe
         };
     }
 
-    async checkOwnership(input: {
-        address: string;
-        tokenId: string;
-        observation: BootstrapProbeObservation;
-    }): Promise<BootstrapProbeTokenCandidate> {
+    async checkOwnership(
+        input: {
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapProbeTokenCandidate> {
+        report?.({
+            step: Step.Ownership,
+            status: Status.Started,
+            message: `ownerOf(${input.tokenId})`,
+        });
         try {
             const owner = await this.rpc.readContract<string>({
                 address: input.address as Hex,
@@ -273,9 +397,21 @@ export class ViemBootstrapContractProbe
                 blockNumber: input.observation.blockNumber,
             });
             normalizeErc721Owner(owner);
+            report?.({
+                step: Step.Ownership,
+                status: Status.Succeeded,
+                message: `Token #${input.tokenId} owner: ${owner}`,
+            });
             return { tokenId: input.tokenId, exists: true, error: null };
         } catch (error) {
             const absent = isErc721TokenAbsentError(error);
+            report?.({
+                step: Step.Ownership,
+                status: Status.Failed,
+                message: absent
+                    ? `Token #${input.tokenId} has no owner at block #${input.observation.blockNumber}. Choose another sample.`
+                    : `ownerOf(${input.tokenId}) failed. Check RPC settings and retry.`,
+            });
             logger.debug("Bootstrap ownership check failed", {
                 address: input.address,
                 tokenId: input.tokenId,
@@ -291,12 +427,20 @@ export class ViemBootstrapContractProbe
         }
     }
 
-    async readMetadata(input: {
-        address: string;
-        tokenId: string;
-        observation: BootstrapProbeObservation;
-    }): Promise<BootstrapSampleMetadata> {
+    async readMetadata(
+        input: {
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapSampleMetadata> {
         const result = emptyBootstrapSampleMetadata();
+        report?.({
+            step: Step.TokenUri,
+            status: Status.Started,
+            message: `tokenURI(${input.tokenId})`,
+        });
         try {
             const uri = await this.rpc.readContract<string>({
                 address: input.address as Hex,
@@ -308,6 +452,12 @@ export class ViemBootstrapContractProbe
             if (typeof uri !== "string" || !uri.trim())
                 throw new Error("tokenURI returned no URI");
             result.tokenUri = uri;
+            report?.({
+                step: Step.TokenUri,
+                status: Status.Succeeded,
+                message: `Token #${input.tokenId} URI`,
+                ...(uri.startsWith("data:") ? { text: uri } : { url: uri }),
+            });
         } catch (error) {
             logger.warn("Bootstrap tokenURI read failed", {
                 address: input.address,
@@ -316,6 +466,11 @@ export class ViemBootstrapContractProbe
             });
             result.tokenUriError =
                 "Token URI could not be read. Retry inspection or choose another sample token ID.";
+            report?.({
+                step: Step.TokenUri,
+                status: Status.Failed,
+                message: result.tokenUriError,
+            });
             return result;
         }
         try {
@@ -324,6 +479,7 @@ export class ViemBootstrapContractProbe
                 this.ipfsGatewayOrigin,
                 this.fetchResilience,
                 BOOTSTRAP_TOKEN_URI_MAX_BYTES,
+                report,
             );
             Object.assign(result, {
                 tokenUriPayload: payload.text,
@@ -334,6 +490,17 @@ export class ViemBootstrapContractProbe
                 text: payload.text,
                 ipfsGatewayOrigin: this.ipfsGatewayOrigin,
             }).error;
+            report?.({
+                step: Step.Metadata,
+                status: Status.Succeeded,
+                message: `Token #${input.tokenId} metadata · ${payload.byteSize} bytes`,
+                text: payload.text,
+            });
+            report?.({
+                step: Step.Json,
+                status: result.metadataError ? Status.Failed : Status.Succeeded,
+                message: result.metadataError ?? "Metadata JSON parsed",
+            });
         } catch (error) {
             logger.warn("Bootstrap sample metadata fetch failed", {
                 address: input.address,
@@ -344,6 +511,16 @@ export class ViemBootstrapContractProbe
                 error,
                 result.tokenUri,
             );
+            report?.({
+                step: Step.Metadata,
+                status: Status.Failed,
+                message: result.tokenUriPayloadError,
+                url: result.tokenUri.startsWith("data:")
+                    ? undefined
+                    : (resolveTokenResourceUri(result.tokenUri, {
+                          ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+                      }) ?? result.tokenUri),
+            });
         }
         return result;
     }
@@ -352,35 +529,73 @@ export class ViemBootstrapContractProbe
         address: Hex,
         bytecode: Hex,
         blockNumber: number,
+        report?: BootstrapOutputReporter,
     ): Promise<{ proxy: EvmProxyResolution | null; error: string | null }> {
         const detected = detectEvmProxy(bytecode);
+        report?.({
+            step: Step.Proxy,
+            status: Status.Succeeded,
+            message: detected
+                ? `Bytecode proxy · ${detected.implementationAddress}`
+                : "No recognized proxy in bytecode; checking ERC1967 storage",
+        });
         if (detected) return { proxy: detected, error: null };
         const errors: string[] = [];
         try {
-            const value = await this.rpc.getStorageAt({
-                address,
-                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
-                blockNumber,
-            });
+            const value = await observeBootstrapStep(
+                report,
+                Step.Proxy,
+                "Read ERC1967 implementation slot",
+                () =>
+                    this.rpc.getStorageAt({
+                        address,
+                        slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+                        blockNumber,
+                    }),
+                (value) => ({
+                    status: Status.Succeeded,
+                    message: `ERC1967 implementation slot: ${value ?? "empty"}`,
+                }),
+            );
             const proxy = detectErc1967ImplementationProxy(value);
             if (proxy) return { proxy, error: null };
         } catch (error) {
             errors.push(compactError(error));
         }
         try {
-            const slot = await this.rpc.getStorageAt({
-                address,
-                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
-                blockNumber,
-            });
+            const slot = await observeBootstrapStep(
+                report,
+                Step.Proxy,
+                "Read ERC1967 beacon slot",
+                () =>
+                    this.rpc.getStorageAt({
+                        address,
+                        slot: EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
+                        blockNumber,
+                    }),
+                (value) => ({
+                    status: Status.Succeeded,
+                    message: `ERC1967 beacon slot: ${value ?? "empty"}`,
+                }),
+            );
             const beaconAddress = readErc1967BeaconAddress(slot);
             if (beaconAddress) {
-                const implementationAddress = await this.rpc.readContract<Hex>({
-                    address: beaconAddress,
-                    abi: BEACON_PROXY_ABI,
-                    functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
-                    blockNumber,
-                });
+                const implementationAddress = await observeBootstrapStep(
+                    report,
+                    Step.Proxy,
+                    `Beacon implementation() · ${beaconAddress}`,
+                    () =>
+                        this.rpc.readContract<Hex>({
+                            address: beaconAddress,
+                            abi: BEACON_PROXY_ABI,
+                            functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+                            blockNumber,
+                        }),
+                    (value) => ({
+                        status: Status.Succeeded,
+                        message: `Beacon implementation: ${value}`,
+                    }),
+                );
                 return {
                     proxy: detectErc1967BeaconProxy({
                         beaconAddress,
@@ -480,6 +695,7 @@ async function fetchTokenUriPayload(
     ipfsGatewayOrigin: string,
     fetchResilience: HttpFetchResilienceConfig,
     maxBytes: number,
+    report?: BootstrapOutputReporter,
 ): Promise<TokenUriPayload> {
     if (uri.startsWith("data:")) {
         const text = parseJsonDataUriText(uri);
@@ -494,6 +710,7 @@ async function fetchTokenUriPayload(
     const response = await fetchWithHttpResilience({
         input: resolved,
         config: fetchResilience,
+        observe: bootstrapResourceObserver(report, Step.Metadata),
         init: {
             headers: { accept: "application/json,text/plain;q=0.9,*/*;q=0.1" },
         },

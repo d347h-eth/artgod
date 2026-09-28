@@ -1,4 +1,9 @@
 import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import {
     BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
@@ -44,11 +49,14 @@ export type EstimateBootstrapImageCacheOutput = {
 };
 
 export interface BootstrapImageCacheEstimatePort {
-    estimateCacheOutput(input: {
-        sourceImageUrl: string;
-        sourceImageBytes: number | null;
-        maxDimension: number | null;
-    }): Promise<{
+    estimateCacheOutput(
+        input: {
+            sourceImageUrl: string;
+            sourceImageBytes: number | null;
+            maxDimension: number | null;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<{
         sourceBytes: number | null;
         cachedBytes: number;
         contentType: string | null;
@@ -69,6 +77,7 @@ export class EstimateBootstrapImageCacheUseCase {
 
     async estimate(
         input: EstimateBootstrapImageCacheInput,
+        report?: BootstrapOutputReporter,
     ): Promise<EstimateBootstrapImageCacheOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -85,6 +94,11 @@ export class EstimateBootstrapImageCacheUseCase {
         }
 
         if (input.imageCacheMode === IMAGE_CACHE_MODE.Off) {
+            report?.({
+                step: Step.ImageProcessing,
+                status: Status.Skipped,
+                message: "Image cache is off.",
+            });
             return {
                 chain,
                 sampleTokenId,
@@ -109,11 +123,14 @@ export class EstimateBootstrapImageCacheUseCase {
         }
 
         validateMaxDimension(input.maxDimension);
-        const estimate = await this.imageCacheEstimatePort.estimateCacheOutput({
-            sourceImageUrl: input.sourceImageUrl.trim(),
-            sourceImageBytes: input.sourceImageBytes,
-            maxDimension: input.maxDimension,
-        });
+        const estimate = await this.imageCacheEstimatePort.estimateCacheOutput(
+            {
+                sourceImageUrl: input.sourceImageUrl.trim(),
+                sourceImageBytes: input.sourceImageBytes,
+                maxDimension: input.maxDimension,
+            },
+            report,
+        );
         return {
             chain,
             sampleTokenId,

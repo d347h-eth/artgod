@@ -1,9 +1,52 @@
 import { describe, expect, it } from "vitest";
 import { OpenSeaContractLookupClient } from "./opensea-contract-lookup.js";
+import {
+    HTTP_FETCH_PHASE as Phase,
+    type HttpFetchObservation,
+} from "./http-fetch-observation.js";
 
 const CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
 
 describe("OpenSeaContractLookupClient", () => {
+    it("reports exact NFT URLs and normal retries without exposing the API key", async () => {
+        const output: HttpFetchObservation[] = [];
+        let attempts = 0;
+        const config = makeConfig();
+        config.retryPolicy.maxAttempts = 3;
+        const client = new OpenSeaContractLookupClient(config, {
+            fetch: async () =>
+                ++attempts === 1
+                    ? new Response(null, { status: 429 })
+                    : Response.json({ nft: { collection: "milady" } }),
+        });
+        await expect(
+            client.resolveCollectionByToken(
+                { address: CONTRACT_ADDRESS, tokenId: "42" },
+                (event) => output.push(event),
+            ),
+        ).resolves.toEqual({ slug: "milady" });
+        expect(output.map((event) => event.phase)).toEqual([
+            Phase.Request,
+            Phase.Response,
+            Phase.Retry,
+            Phase.Request,
+            Phase.Response,
+        ]);
+        expect(
+            output.every(
+                (event) =>
+                    event.url ===
+                    `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}/nfts/42`,
+            ),
+        ).toBe(true);
+        expect(output[2]).toMatchObject({
+            attempt: 1,
+            maxAttempts: 3,
+            delayMs: 0,
+            status: 429,
+        });
+        expect(JSON.stringify(output)).not.toContain(config.apiKey);
+    });
     it("fetches the OpenSea contract endpoint with the configured API key", async () => {
         const requests: Array<{ url: string; apiKey: string | null }> = [];
         const client = new OpenSeaContractLookupClient(makeConfig(), {

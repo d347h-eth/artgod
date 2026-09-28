@@ -60,7 +60,7 @@ describe("bootstrap probe use cases", () => {
             address: " " + ADDRESS.toUpperCase().replace("0X", "0x") + " ",
             standard: "erc721",
         });
-        expect(discoverContract).toHaveBeenCalledWith(ADDRESS);
+        expect(discoverContract).toHaveBeenCalledWith(ADDRESS, undefined);
         expect(result).not.toHaveProperty("firstToken");
         expect(result).not.toHaveProperty("suggestedInput");
         await expect(

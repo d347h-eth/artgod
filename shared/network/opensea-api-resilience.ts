@@ -10,6 +10,11 @@ export type OpenSeaApiRetryOptions<T> = {
     retryPolicy: OpenSeaHttpRetryPolicy;
     call: () => Promise<T>;
     shouldRetry?: (error: unknown) => boolean;
+    onRetryScheduled?: (context: {
+        attempt: number;
+        delayMs: number;
+        error: unknown;
+    }) => void;
     sleep?: (ms: number) => Promise<void>;
 };
 
@@ -108,6 +113,7 @@ export async function retryOpenSeaApiCall<T>(
                 delayMs,
                 error: String(error),
             });
+            options.onRetryScheduled?.({ attempt, delayMs, error });
             await sleep(delayMs);
         }
     }

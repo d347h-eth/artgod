@@ -7,6 +7,11 @@ import {
     type BootstrapSampleInspectionResponse,
     type BootstrapImageCacheSuggestion,
 } from "@artgod/shared/bootstrap/probe";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 import { bootstrapSampleCandidates } from "@artgod/shared/bootstrap/sample-selection";
 import {
     parseBootstrapScope,
@@ -33,18 +38,28 @@ import { BootstrapValidationError } from "./types.js";
 export interface BootstrapSampleInspectionPort {
     observation(
         reference?: BootstrapProbeObservation | null,
+        report?: BootstrapOutputReporter,
     ): Promise<BootstrapProbeObservation>;
-    verifyObservation(reference: BootstrapProbeObservation): Promise<void>;
-    checkOwnership(input: {
-        address: string;
-        tokenId: string;
-        observation: BootstrapProbeObservation;
-    }): Promise<BootstrapProbeTokenCandidate>;
-    readMetadata(input: {
-        address: string;
-        tokenId: string;
-        observation: BootstrapProbeObservation;
-    }): Promise<BootstrapSampleMetadata>;
+    verifyObservation(
+        reference: BootstrapProbeObservation,
+        report?: BootstrapOutputReporter,
+    ): Promise<void>;
+    checkOwnership(
+        input: {
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapProbeTokenCandidate>;
+    readMetadata(
+        input: {
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapSampleMetadata>;
 }
 export interface ProbeCollectionExtensionResolverPort extends EmbeddedCollectionExtensionResolverPort {
     resolveImageCachePolicyConfig(input: {
@@ -64,6 +79,7 @@ export class InspectBootstrapSampleUseCase {
 
     async inspect(
         input: BootstrapSampleInspectionRequest & { chainRef: string },
+        report?: BootstrapOutputReporter,
     ): Promise<BootstrapSampleInspectionResponse> {
         const chain = this.chainRefResolver.resolveChainRef(
             input.chainRef,
@@ -75,6 +91,7 @@ export class InspectBootstrapSampleUseCase {
         const scope = optionalScope(input.scope);
         const observation = await this.inspection.observation(
             input.observation,
+            report,
         );
         const candidates: BootstrapProbeTokenCandidate[] = [];
         const sample: BootstrapSampleInspectionResponse["sample"] = {
@@ -90,21 +107,32 @@ export class InspectBootstrapSampleUseCase {
             scope,
         })) {
             // A caller's discovery hint is only a candidate, never trusted ownership evidence.
-            const ownership = await this.inspection.checkOwnership({
-                address,
-                tokenId: candidate.tokenId,
-                observation,
-            });
+            const ownership = await this.inspection.checkOwnership(
+                {
+                    address,
+                    tokenId: candidate.tokenId,
+                    observation,
+                },
+                report,
+            );
             candidates.push(ownership);
             if (requestedTokenId !== null || ownership.exists === true) {
+                report?.({
+                    step: Step.Sample,
+                    status: Status.Succeeded,
+                    message: `Sample token #${candidate.tokenId} · ${candidate.source.replaceAll("_", " ")}`,
+                });
                 if (ownership.exists === true)
                     Object.assign(
                         sample,
-                        await this.inspection.readMetadata({
-                            address,
-                            tokenId: candidate.tokenId,
-                            observation,
-                        }),
+                        await this.inspection.readMetadata(
+                            {
+                                address,
+                                tokenId: candidate.tokenId,
+                                observation,
+                            },
+                            report,
+                        ),
                     );
                 Object.assign(sample, {
                     tokenId: candidate.tokenId,
@@ -115,7 +143,14 @@ export class InspectBootstrapSampleUseCase {
                 break;
             }
         }
-        await this.inspection.verifyObservation(observation);
+        if (sample.tokenId === null)
+            report?.({
+                step: Step.Sample,
+                status: Status.Failed,
+                message:
+                    "No existing sample found. Enter a sample token ID and press inspect.",
+            });
+        await this.inspection.verifyObservation(observation, report);
         return {
             chain,
             address,

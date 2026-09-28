@@ -22,10 +22,13 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
             ).resolves.toBe(collection?.slug ?? null);
             expect(
                 lookup.resolveCollectionByToken,
-            ).toHaveBeenCalledExactlyOnceWith({
-                address: ADDRESS,
-                tokenId: SAMPLE,
-            });
+            ).toHaveBeenCalledExactlyOnceWith(
+                {
+                    address: ADDRESS,
+                    tokenId: SAMPLE,
+                },
+                undefined,
+            );
         },
     );
 });

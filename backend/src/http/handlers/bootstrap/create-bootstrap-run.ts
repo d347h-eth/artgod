@@ -2,7 +2,12 @@ import {
     parseBootstrapScope,
     BootstrapScopeValidationError,
 } from "@artgod/shared/bootstrap/scope";
-import type { FastifyRequest } from "fastify";
+import type { FastifyRequest, FastifyReply } from "fastify";
+import {
+    BOOTSTRAP_OPERATION,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
+import { bootstrapOperationResponse } from "./operation-response.js";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     CreateBootstrapRunInput,
@@ -50,16 +55,25 @@ export class CreateBootstrapRunHttpAdapter {
         private readonly createBootstrapRunPort: {
             createRun(
                 input: CreateBootstrapRunInput,
+                report?: BootstrapOutputReporter,
             ): MaybePromise<CreateBootstrapRunOutput>;
         },
     ) {}
 
     readonly handle = async (
         request: FastifyRequest<CreateBootstrapRunRoute>,
+        reply: FastifyReply,
     ) => {
         const input = this.mapRequestToInput(request);
-        const output = await this.createBootstrapRunPort.createRun(input);
-        return this.mapOutputToResponse(output);
+        return bootstrapOperationResponse(
+            request,
+            reply,
+            BOOTSTRAP_OPERATION.Queue,
+            async (report) =>
+                this.mapOutputToResponse(
+                    await this.createBootstrapRunPort.createRun(input, report),
+                ),
+        );
     };
 
     private mapRequestToInput(

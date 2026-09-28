@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import type { HttpFetchObserver } from "../network/http-fetch-observation.js";
 import {
     fetchWithHttpResilience,
     HttpFetchStatusError,
@@ -19,6 +20,7 @@ export async function fetchTokenImageCacheSource(input: {
     ipfsGatewayOrigin: string;
     maxSourceBytes: number;
     fetchResilience: HttpFetchResilienceConfig;
+    observe?: HttpFetchObserver;
 }): Promise<TokenImageCacheSourcePayload> {
     const resolved = resolveTokenResourceUri(input.sourceImageUrl, {
         ipfsGatewayOrigin: input.ipfsGatewayOrigin,
@@ -43,6 +45,7 @@ export async function fetchTokenImageCacheSource(input: {
     const response = await fetchWithHttpResilience({
         input: resolved,
         config: input.fetchResilience,
+        observe: input.observe,
         init: {
             headers: { accept: "image/*,*/*;q=0.1" },
         },

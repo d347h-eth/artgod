@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutput,
+} from "@artgod/shared/bootstrap/operation-output";
 import { ContractFunctionRevertedError } from "viem";
 import {
     ERC721_OWNERSHIP_ABI,
@@ -103,6 +108,78 @@ const metadataInput = {
 
 describe("independent pinned contract discovery", () => {
     afterEach(() => vi.unstubAllGlobals());
+    it("reports independent checks and exact metadata URLs through HTTP retries", async () => {
+        const output: BootstrapOutput[] = [];
+        const report = (event: BootstrapOutput) => output.push(event);
+        const uri = "ipfs://bafy-test/1000?format=json";
+        const { adapter } = fixture({ uri, enumerable: false, supply: 3333n });
+        await adapter.discoverContract(ADDRESS, report);
+        expect(output).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    step: Step.Supply,
+                    status: Status.Succeeded,
+                    message: "Contract total supply: 3333",
+                }),
+                expect.objectContaining({
+                    step: Step.Enumerable,
+                    status: Status.Succeeded,
+                }),
+                expect.objectContaining({
+                    step: Step.Enumeration,
+                    status: Status.Skipped,
+                }),
+            ]),
+        );
+        const fetch = vi
+            .fn()
+            .mockImplementation(
+                async () => new Response(null, { status: 504 }),
+            );
+        vi.stubGlobal("fetch", fetch);
+        const sample = await adapter.readMetadata(metadataInput, report);
+        expect(sample.tokenUriPayloadError).toContain("HTTP 504");
+        expect(fetch).toHaveBeenCalledTimes(3);
+        const requests = output.filter(
+            (event) =>
+                event.step === Step.Metadata && event.status === Status.Started,
+        );
+        expect(requests).toHaveLength(3);
+        expect(
+            requests.every(
+                (event) =>
+                    event.url ===
+                    "https://ipfs.filebase.io/ipfs/bafy-test/1000?format=json",
+            ),
+        ).toBe(true);
+        expect(
+            output.filter((event) => event.status === Status.Retrying),
+        ).toHaveLength(2);
+        expect(output.at(-1)).toMatchObject({
+            status: Status.Failed,
+            url: requests[0].url,
+        });
+    });
+    it("streams received text even when metadata is invalid JSON", async () => {
+        const output: BootstrapOutput[] = [];
+        const { adapter } = fixture({
+            uri: inline("<script>not JSON</script>"),
+        });
+        const sample = await adapter.readMetadata(metadataInput, (event) =>
+            output.push(event),
+        );
+        expect(sample.metadataError).toBeTruthy();
+        expect(output).toContainEqual(
+            expect.objectContaining({
+                step: Step.Metadata,
+                text: "<script>not JSON</script>",
+            }),
+        );
+        expect(output.at(-1)).toMatchObject({
+            step: Step.Json,
+            status: Status.Failed,
+        });
+    });
     it.each(
         [true, false].flatMap((enumerable) =>
             ["0", "1"].map((start) => ({ enumerable, start })),

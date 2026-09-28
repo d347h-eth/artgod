@@ -1,4 +1,9 @@
-import type { FastifyRequest } from "fastify";
+import type { FastifyRequest, FastifyReply } from "fastify";
+import {
+    BOOTSTRAP_OPERATION,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
+import { bootstrapOperationResponse } from "./operation-response.js";
 import { BOOTSTRAP_API_QUERY_PARAM } from "@artgod/shared/http/bootstrap-routes";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
@@ -23,15 +28,22 @@ export class ProbeCollectionContractHttpAdapter {
         private readonly probeCollectionContractPort: {
             probe(
                 input: ProbeCollectionContractInput,
+                report?: BootstrapOutputReporter,
             ): MaybePromise<ProbeCollectionContractOutput>;
         },
     ) {}
 
     readonly handle = async (
         request: FastifyRequest<ProbeCollectionContractRoute>,
+        reply: FastifyReply,
     ) => {
         const input = this.mapRequestToInput(request);
-        return this.probeCollectionContractPort.probe(input);
+        return bootstrapOperationResponse(
+            request,
+            reply,
+            BOOTSTRAP_OPERATION.Probe,
+            (report) => this.probeCollectionContractPort.probe(input, report),
+        );
     };
 
     private mapRequestToInput(
