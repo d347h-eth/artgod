@@ -37,6 +37,7 @@
 		inputId,
 		gridLayout = false,
 		inputClass = 'bootstrap-control bootstrap-input-slug',
+		inputDisabled,
 		openSeaEnabled,
 		disabledReason = null,
 		resetKey = 0,
@@ -53,6 +54,8 @@
 		inputId?: string;
 		gridLayout?: boolean;
 		inputClass?: string;
+		// Callers can allow manual slug entry for browsing without enabling API lookups.
+		inputDisabled?: boolean;
 		openSeaEnabled: boolean;
 		disabledReason?: string | null;
 		resetKey?: number;
@@ -201,7 +204,7 @@
 			class={inputClass}
 			type="text"
 			name={inputName}
-			disabled={!openSeaEnabled}
+			disabled={inputDisabled ?? !openSeaEnabled}
 			oninput={invalidate}
 			onkeydown={onSlugKeydown}
 		/>

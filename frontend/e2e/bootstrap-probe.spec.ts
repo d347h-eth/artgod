@@ -1041,6 +1041,7 @@ test.describe('bootstrap setup', () => {
 		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('1.95 MB');
 		expect(api.imageCacheEstimateRequests).toHaveLength(1);
 		expect(api.imageCacheEstimateRequests[0]).not.toHaveProperty('totalSupply');
+		await page.screenshot({ path: info.outputPath('cache-estimate-total.png'), fullPage: true });
 		await page.locator('#bootstrap-range-count').fill('500');
 		await expect(formRow(page, 'Estimated cache (selected scope)')).toContainText('not available');
 		await expect(estimate).toBeDisabled();
@@ -1246,6 +1247,22 @@ test.describe('bootstrap setup', () => {
 			'resolved'
 		);
 		await expect(slugRow.getByRole('button', { name: /^apply / })).toHaveCount(2);
+		await expect(
+			page
+				.locator('#bootstrap-opensea')
+				.getByRole('link', { name: '[collection page]', exact: true })
+		).toHaveAttribute(
+			'href',
+			`https://opensea.io/collection/${BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable}`
+		);
+		await expect(
+			page
+				.locator('#bootstrap-opensea')
+				.getByRole('link', { name: '[sample token #3]', exact: true })
+		).toHaveAttribute(
+			'href',
+			`https://opensea.io/item/ethereum/${BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable}/3`
+		);
 		await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
 		await expect(openSeaSuggestion).toBeEnabled();
 		await expectGridAlignment(page);
@@ -1400,14 +1417,54 @@ test.describe('bootstrap setup', () => {
 	test('keeps manual queueing available when OpenSea is disabled', async ({ page }, info) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH + '?opensea=disabled');
+		const openSeaSection = page.locator('#bootstrap-opensea');
+		const collectionLink = openSeaSection.getByRole('link', {
+			name: '[collection page]',
+			exact: true
+		});
+		const sampleLink = openSeaSection.getByRole('link', { name: /^\[sample token #/ });
+		const slugInput = page.locator('#bootstrap-opensea-slug');
+		await expect(openSeaSection.getByRole('link')).toHaveCount(0);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await expect(slugInput).toBeEnabled();
+		await slugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
+		await expect(collectionLink).toHaveAttribute(
+			'href',
+			`https://opensea.io/collection/${BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable}`
+		);
+		await page.locator('#bootstrap-sample').fill('0');
+		await expect(sampleLink).toHaveAttribute(
+			'href',
+			`https://opensea.io/item/ethereum/${BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable}/0`
+		);
+		await expect(sampleLink).toHaveAttribute('target', '_blank');
+		await expect(collectionLink).toHaveAttribute('rel', 'noreferrer noopener');
+		expect(api.probeRequests).toEqual([]);
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: info.outputPath('opensea-links-without-key.png'),
+			fullPage: true
+		});
+		await contractAddressSafetyAcknowledgement(page).uncheck();
+		await expect(openSeaSection.getByRole('link')).toHaveCount(0);
+		await expect(slugInput).toBeDisabled();
+		await contractAddressSafetyAcknowledgement(page).check();
+		await expect(collectionLink).toBeVisible();
+		await page.locator('#bootstrap-sample').fill('-1');
+		await expect(sampleLink).toHaveCount(0);
+		await page.locator('#bootstrap-sample').fill('');
 		await page.locator('#bootstrap-slug').fill('remilio');
 		await page.locator('#bootstrap-range-count').fill('10000');
 		await rowControl(page, 'Image source field').fill('image');
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'resolve #1', exact: true })).toBeDisabled();
+		await expect(sampleLink).toHaveAttribute(
+			'href',
+			`https://opensea.io/item/ethereum/${BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable}/1`
+		);
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-disabled.png'), fullPage: true });

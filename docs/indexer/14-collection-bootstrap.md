@@ -114,6 +114,9 @@ changes only that setting. A matching value disables the action. A confirmed
 OpenSea slug adds another Collection slug suggestion alongside the contract-name
 suggestion, with identical values shown only once. Editing the OpenSea slug,
 sample or target invalidates its suggestion without changing the local slug.
+OpenSea page links use the entered slug and sample identity without requiring an
+API key or a successful lookup. Manual slug entry remains available without a key;
+resolution and attaching the OpenSea association still require it.
 A confirmed conventional ID 0/1 is an editable start suggestion, not a proven minimum.
 The first enumeration entry is never presented as a range boundary.
 Contract-wide supply never establishes one shared project's count. On positively

@@ -35,6 +35,11 @@ export function openseaItemHref(params: {
 	return `https://opensea.io/item/${params.chainSlug}/${params.collectionAddress}/${encodeURIComponent(params.tokenId)}`;
 }
 
+export function openseaCollectionHref(slug: string | null): string | null {
+	const normalized = slug?.trim();
+	return normalized ? `https://opensea.io/collection/${encodeURIComponent(normalized)}` : null;
+}
+
 export function blockExplorerTransactionHref(
 	txHash: string | null,
 	config: BlockExplorerConfig = getDefaultBlockExplorerConfig()

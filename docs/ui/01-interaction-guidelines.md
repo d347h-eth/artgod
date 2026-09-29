@@ -397,6 +397,10 @@ A confirmed OpenSea slug is also offered beside Collection slug through its own
 apply button. Preserve the contract-name suggestion, omit duplicate values and
 remove the OpenSea suggestion when its resolution is invalidated. Applying a
 local slug never changes the resolved OpenSea association.
+Compact bracketed collection and sample-token links in the OpenSea section use
+the current slug and token inputs, including before resolution or without an API
+key. Allow manual slug entry without the key; keep resolution disabled. Omit a
+link until its target is available and keep both behind the contract acknowledgement.
 Action widths follow their shared column; labels do not wrap.
 Long suggested values use the shared
 `.action-button-value` clipping treatment with a complete accessible name and
@@ -457,6 +461,7 @@ Sample image, animation and cached-image previews share a square media viewport
 up to 400 px per side, shrinking to fit narrow screens. The image card must not
 inherit the browsing grid's fixed height or padding. The cache preview's recovery
 message has one line of space above it.
+Highlight the estimated cache size for the selected scope in yellow.
 
 The logical groups and explicit optional stages follow the
 [W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,

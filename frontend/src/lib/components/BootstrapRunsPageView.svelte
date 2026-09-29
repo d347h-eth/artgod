@@ -45,7 +45,7 @@
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
 	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
-	import { parseNftUrl } from '$lib/marketplace-links';
+	import { openseaCollectionHref, openseaItemHref, parseNftUrl } from '$lib/marketplace-links';
 	import { updateFlash } from '$lib/update-flash';
 	import {
 		bootstrapSetupScope,
@@ -263,6 +263,12 @@
 	let effectiveSampleTokenId = $derived(
 		sampleTokenId.trim() ? (normalizeEvmTokenId(sampleTokenId) ?? '') : (sample?.tokenId ?? '')
 	);
+	let openSeaCollectionHref = $derived(openseaCollectionHref(bootstrapOpenSeaSlug));
+	let openSeaSampleHref = $derived(openseaItemHref({
+		chainSlug: chain?.slug ?? null,
+		collectionAddress: addressCanBeProbed ? normalizedBootstrapAddress : null,
+		tokenId: effectiveSampleTokenId
+	}));
 	let sampleProbeFailure = $derived(sampleError ?? (sample ? bootstrapSampleFailure(sample) : null));
 	let imageCacheSuggestion = $derived(
 		sampleResult?.imageCacheSuggestion.extensionKey &&
@@ -1372,7 +1378,7 @@
 					</div>
 					<div class="bootstrap-form-row">
 						<span class="bootstrap-form-label-cell">Estimated cache (selected scope)</span>
-						<div class="bootstrap-read-value mono">{imageCacheProjectedOutputValue()} · {resolvedBootstrapScopeTotalSupply()} tokens</div>
+						<div class="bootstrap-read-value mono"><span class="bootstrap-check-warning">{imageCacheProjectedOutputValue()}</span> · {resolvedBootstrapScopeTotalSupply()} tokens</div>
 					</div>
 					{#if cachedTokenCard}
 						<div class="bootstrap-setup-preview">
@@ -1396,11 +1402,18 @@
 					<OpenSeaSlugResolverControl chainSlug={chain?.slug ?? null} contractAddress={normalizedBootstrapAddress}
 						bind:this={openSeaSlugResolver} sampleTokenId={effectiveSampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
 						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
+						inputDisabled={!contractAddressSafetyAcknowledged}
 						resolvedScopeHref={!sampleMatchesScope ? '#bootstrap-scope' : null}
 						onOutput={recordOutput}
 						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
 					{#if openSeaEnabled && !effectiveSampleTokenId}
 						<p class="bootstrap-row-note muted">Inspect a sample token to resolve.</p>
+					{/if}
+					{#if contractAddressSafetyAcknowledged && (openSeaCollectionHref || openSeaSampleHref)}
+						<div class="bootstrap-row-note">
+							{#if openSeaCollectionHref}<div><a href={openSeaCollectionHref} target="_blank" rel="noreferrer noopener">[collection page]</a></div>{/if}
+							{#if openSeaSampleHref}<div><a href={openSeaSampleHref} target="_blank" rel="noreferrer noopener">[sample token #{effectiveSampleTokenId}]</a></div>{/if}
+						</div>
 					{/if}
 				</div>
 			</section>
