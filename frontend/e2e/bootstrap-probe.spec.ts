@@ -856,16 +856,21 @@ test.describe('bootstrap setup', () => {
 	}, info) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('');
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
 		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toBeDisabled();
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		await expect(page.locator('#bootstrap-sample')).toHaveValue('0');
-		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('');
 		await formRow(page, 'Token count').getByRole('button', { name: 'apply "10000"' }).click();
-		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('');
+		await expect(queueButton(page)).toBeDisabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('range-start-empty.png'), fullPage: true });
 		await formRow(page, 'First token ID').getByRole('button', { name: 'apply "0"' }).click();
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('0');
 		await formRow(page, 'Image source field')
 			.getByRole('button', { name: 'apply "image"' })
 			.click();
@@ -1456,6 +1461,7 @@ test.describe('bootstrap setup', () => {
 		await expect(sampleLink).toHaveCount(0);
 		await page.locator('#bootstrap-sample').fill('');
 		await page.locator('#bootstrap-slug').fill('remilio');
+		await page.locator('#bootstrap-range-start').fill('1');
 		await page.locator('#bootstrap-range-count').fill('10000');
 		await rowControl(page, 'Image source field').fill('image');
 		await probeButton(page).click();

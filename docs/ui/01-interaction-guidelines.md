@@ -454,6 +454,7 @@ count. Separate minted and maximum choices when they differ, explaining only
 that the maximum includes unminted IDs. Metadata failure does not discard project
 facts. Editing the sample clears its project suggestions; changing scope keeps
 them. No suggestion silently changes entered values.
+First token ID starts empty and is filled only by typing or applying a suggestion.
 If supply is unavailable, say so. A whole-contract choice is explicit and carries
 a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.

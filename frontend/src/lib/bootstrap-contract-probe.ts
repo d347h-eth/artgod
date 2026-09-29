@@ -22,9 +22,6 @@ export function bootstrapRangeSuggestions(
 	};
 }
 
-// Editable conventional range start; it does not claim a token is minted.
-export const BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID = '1';
-
 // Local lifecycle of an explicitly submitted bootstrap probe.
 export const BOOTSTRAP_PROBE_UI_STATUS = {
 	Idle: 'idle',

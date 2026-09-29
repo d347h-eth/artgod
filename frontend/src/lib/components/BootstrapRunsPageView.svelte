@@ -35,7 +35,6 @@
 	import {
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
 		BOOTSTRAP_PROBE_UI_STATUS,
-		BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID,
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapSampleFailure,
 		bootstrapRangeSuggestions,
@@ -199,7 +198,7 @@
 	let entireContractSelected = $state(false);
 	let manualMode = $state<BootstrapManualEnumerationMode>(BOOTSTRAP_ENUMERATION_MODE.ManualRange);
 	let manualTokenIds = $state('');
-	let manualRangeStartTokenId = $state(BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID);
+	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
 	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
 	let imageCacheMaxDimensionDraft = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));

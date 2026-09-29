@@ -110,9 +110,11 @@ Each action shows progress inside its button and a failure beside its section.
 
 Every suggestion has its own **apply "value"** action. Applying the start candidate,
 contract supply, image/animation field, local slug or entire-contract mode
-changes only that setting. A matching value disables the action. A confirmed
-OpenSea slug adds another Collection slug suggestion alongside the contract-name
-suggestion, with identical values shown only once. Editing the OpenSea slug,
+changes only that setting. First token ID starts empty and requires manual entry
+or an explicit apply action; probing never fills it automatically. A matching
+value disables the action. A confirmed OpenSea slug adds another Collection slug
+suggestion alongside the contract-name suggestion, with identical values shown
+only once. Editing the OpenSea slug,
 sample or target invalidates its suggestion without changing the local slug.
 OpenSea page links use the entered slug and sample identity without requiring an
 API key or a successful lookup. Manual slug entry remains available without a key;
