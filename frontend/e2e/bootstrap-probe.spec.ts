@@ -430,10 +430,18 @@ test.describe('bootstrap setup', () => {
 		page
 	}, info) => {
 		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		const slugRow = formRow(page, 'Collection slug');
+		await page.locator('#bootstrap-slug').fill('');
 		await page.locator('#bootstrap-sample').fill('163000681');
 		await page.locator('#bootstrap-range-count').fill('1000');
 		await probeButton(page).click();
 		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toBeVisible();
+		await expect(slugRow.getByRole('button', { name: /^apply / })).toHaveCount(0);
+		await expect(
+			page.locator('#bootstrap-details').getByText('needs input', { exact: true })
+		).toBeVisible();
+		await expect(queueButton(page)).toBeDisabled();
+		await page.screenshot({ path: info.outputPath('shared-slug-needs-input.png'), fullPage: true });
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
 		await page.getByRole('button', { name: 'resolve #163000681', exact: true }).click();
 		await expect(
@@ -442,6 +450,8 @@ test.describe('bootstrap setup', () => {
 				exact: true
 			})
 		).toBeVisible();
+		await expect(slugRow.getByRole('button', { name: /^apply / })).toHaveCount(1);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('');
 		const scopeLink = page.locator('#bootstrap-opensea').getByRole('link', { name: 'check scope' });
 		await expect(scopeLink).toBeVisible();
 		await scopeLink.hover();
@@ -472,6 +482,18 @@ test.describe('bootstrap setup', () => {
 		).toBeVisible();
 		await expect(page.locator('#bootstrap-scope-sample-help')).toHaveCount(0);
 		await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+		await slugRow
+			.getByRole('button', {
+				name: `apply "${BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope}"`,
+				exact: true
+			})
+			.click();
+		await expect(page.locator('#bootstrap-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+		);
+		await expect(
+			page.locator('#bootstrap-details').getByText('✓ complete', { exact: true })
+		).toBeVisible();
 		expect(api.sampleRequests).toHaveLength(1);
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual(['163000681']);
 		await page.screenshot({
@@ -481,6 +503,7 @@ test.describe('bootstrap setup', () => {
 		await queueButton(page).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0].body).toMatchObject({
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope,
 			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope,
 			scope: {
 				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
@@ -583,6 +606,9 @@ test.describe('bootstrap setup', () => {
 		await expect(scopeRow).toContainText('Likely shared contract.');
 		await expect(scopeRow).toContainText('198051 tokens across all projects');
 		await expect(scopeRow.getByRole('button', { name: 'apply "entire contract"' })).toHaveCount(0);
+		await expect(
+			formRow(page, 'Collection slug').getByRole('button', { name: /^apply / })
+		).toHaveCount(0);
 		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
 		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('yes');
 		await expectGridAlignment(page);
@@ -1597,6 +1623,30 @@ test.describe('bootstrap setup', () => {
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-disabled.png'), fullPage: true });
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page.locator('#bootstrap-sample').fill('163000485');
+		await page.locator('#bootstrap-range-start').fill('163000000');
+		await page.locator('#bootstrap-range-count').fill('1000');
+		await page.locator('#bootstrap-slug').fill('');
+		await slugInput.fill('');
+		await probeButton(page).click();
+		await expect(formRow(page, 'Token scope')).toContainText('Meridian · project #163.');
+		await expect(
+			formRow(page, 'Collection slug').getByRole('button', { name: /^apply / })
+		).toHaveCount(0);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+		await expect(
+			page.locator('#bootstrap-details').getByText('needs input', { exact: true })
+		).toBeVisible();
+		await expect(queueButton(page)).toBeDisabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('shared-slug-without-key.png'), fullPage: true });
+		await page.locator('#bootstrap-slug').fill('meridian');
+		await expect(
+			page.locator('#bootstrap-details').getByText('✓ complete', { exact: true })
+		).toBeVisible();
+		await expect(queueButton(page)).toBeEnabled();
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 	});
 
 	for (const status of [429, 502])

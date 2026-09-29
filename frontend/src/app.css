@@ -599,6 +599,13 @@ a:hover {
 	line-height: 1.4;
 }
 
+.bootstrap-step-status.bid-book-own-status {
+	justify-self: start;
+	margin-inline-start: 0;
+	font-size: 0.72rem;
+	line-height: 1.4;
+}
+
 .bootstrap-step-incomplete,
 .bootstrap-check-warning {
 	color: var(--c-yellow);

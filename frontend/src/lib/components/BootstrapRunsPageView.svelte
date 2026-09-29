@@ -238,7 +238,6 @@
 			probeResult.chain.slug === chain?.slug &&
 			probeAddress === normalizedBootstrapAddress
 	);
-	let contractSlugSuggestion = $derived(contractNameToBootstrapSlug(probeResult?.contractName));
 	let contractProbePending = $derived(probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Loading);
 	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
 	let sourceFieldsReady = $derived(sampleResult !== null && imageSourceFieldResolved);
@@ -304,6 +303,8 @@
 	let projectScope = $derived(sampleResult?.projectScope ?? null);
 	let rangeSuggestions = $derived(bootstrapRangeSuggestions(latestProbeMatchesAddress ? probeResult : null, projectScope));
 	let likelySharedContract = $derived(Boolean(projectScope) || (latestProbeMatchesAddress && Boolean(probeResult?.sharedContract)));
+	let contractSlugSuggestion = $derived(latestProbeMatchesAddress && !likelySharedContract
+		? contractNameToBootstrapSlug(probeResult?.contractName) : '');
 	let contractReady = $derived(
 		Boolean(chain) && addressCanBeProbed && contractAddressSafetyAcknowledged
 	);
@@ -991,7 +992,7 @@
 	<div class="bootstrap-step-heading">
 		<h3 id={section.id + '-heading'}>{index + 1}. {section.title} <span class="muted">{section.optional ? 'optional' : 'required'}</span></h3>
 		{#if !section.optional || (!section.ready && index === 3)}
-			<span class="bootstrap-step-status" class:bootstrap-step-incomplete={!section.ready} class:bootstrap-step-complete={section.ready}>
+			<span class="bootstrap-step-status" class:bid-book-own-status={!section.ready} class:bootstrap-step-incomplete={!section.ready} class:bootstrap-step-complete={section.ready}>
 				{section.ready ? '✓ complete' : section.optional ? 'check settings' : 'needs input'}
 			</span>
 		{/if}

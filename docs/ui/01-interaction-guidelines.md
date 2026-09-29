@@ -377,7 +377,9 @@ as `required`, `optional` and `not checked`; section headings retain required or
 optional labels. Omit short status notes beneath actions, including checked,
 confirmed, detected and estimated labels; keep only actionable explanations,
 validation and scope constraints there. The dark section fill belongs only to the
-heading, without a bottom rule. Completed required sections show cyan `✓ complete`; optional
+heading, without a bottom rule. Incomplete sections use the existing filled yellow
+status badge with dark text for `needs input` or `check settings`, fitted to its
+label and aligned to the action column. Completed required sections show cyan `✓ complete`; optional
 sections do not repeat configured/resolved status in their headings.
 Actions use the standard form buttons: probe contract, inspect token, estimate,
 OpenSea resolve and queue bootstrap use the cyan `.action-button-positive` family;
@@ -394,8 +396,9 @@ and show a yellow `check scope` link to the scope section. Correcting the range
 or list restores `resolved` without another lookup or inspection. The scope
 section explains that the slug will be omitted until the conflict is corrected.
 A confirmed OpenSea slug is also offered beside Collection slug through its own
-apply button. Preserve the contract-name suggestion, omit duplicate values and
-remove the OpenSea suggestion when its resolution is invalidated. Applying a
+apply button. Preserve the contract-name suggestion for standalone contracts;
+detected shared contracts offer only a confirmed OpenSea slug or manual entry.
+Omit duplicate values and remove the OpenSea suggestion when its resolution is invalidated. Applying a
 local slug never changes the resolved OpenSea association.
 Compact bracketed collection and sample-token links in the OpenSea section use
 the current slug and token inputs, including before resolution or without an API
