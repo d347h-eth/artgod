@@ -52,6 +52,8 @@ export type BootstrapOutput = {
     url?: string;
     /** Bounded untrusted text, displayed through the script-free JSON inspector. */
     text?: string;
+    /** Selected sample ID, emitted by inspect/sample before metadata is fetched. */
+    tokenId?: string;
 };
 export type BootstrapOutputReporter = (output: BootstrapOutput) => void;
 

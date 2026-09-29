@@ -728,12 +728,13 @@ a:hover {
 }
 
 .bootstrap-setup-preview {
-	width: min(18rem, 100%);
+	width: min(400px, 100%);
 	justify-self: center;
 }
 
 .bootstrap-setup-preview p {
 	font-size: 0.75rem;
+	margin-block: 1lh 0;
 }
 
 .bootstrap-form label {
@@ -872,6 +873,7 @@ a:hover {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.35rem;
+	max-width: 100%;
 	white-space: nowrap;
 }
 

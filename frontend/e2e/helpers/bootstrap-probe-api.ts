@@ -21,7 +21,10 @@ import {
 	type BootstrapSampleInspectionResponse,
 	type BootstrapSampleInspectionRequest
 } from '@artgod/shared/bootstrap/probe';
-import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
+import {
+	BOOTSTRAP_API_QUERY_PARAM,
+	buildInspectBootstrapSamplePath
+} from '@artgod/shared/http/bootstrap-routes';
 import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
@@ -64,6 +67,58 @@ export const BOOTSTRAP_PROBE_CREATED_RUN_ID = 1;
 export const BOOTSTRAP_PROBE_CREATED_RUN_API_PATH = `/api/${BOOTSTRAP_PROBE_E2E_CHAIN.slug}/bootstrap-runs/${BOOTSTRAP_PROBE_CREATED_RUN_ID}`;
 
 export type CapturedBootstrapMutation = { method: string; path: string; body: unknown };
+
+// Hold the fixture's remaining stream after selection to exercise the real
+// reader/UI while metadata is still pending. No additional server is needed.
+export async function pauseBootstrapSampleMetadata(page: Page) {
+	return page.evaluateHandle(
+		({ path, step, contentType }) => {
+			const originalFetch = window.fetch;
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			window.fetch = async (...args) => {
+				const response = await originalFetch(...args);
+				const input = args[0];
+				const url = new URL(
+					input instanceof Request ? input.url : String(input),
+					window.location.href
+				);
+				if (url.pathname !== path || !response.headers.get('content-type')?.includes(contentType))
+					return response;
+				window.fetch = originalFetch;
+				const lines = (await response.text()).trimEnd().split('\n');
+				const selected = lines.findIndex((line) => JSON.parse(line).step === step);
+				if (selected < 0) throw new Error('Sample selection output is required for this fixture');
+				const encoder = new TextEncoder();
+				let cancelled = false;
+				return new Response(
+					new ReadableStream({
+						async start(controller) {
+							controller.enqueue(encoder.encode(lines.slice(0, selected + 1).join('\n') + '\n'));
+							await gate;
+							if (cancelled) return;
+							controller.enqueue(encoder.encode(lines.slice(selected + 1).join('\n') + '\n'));
+							controller.close();
+						},
+						cancel() {
+							cancelled = true;
+						}
+					}),
+					{ status: response.status, headers: response.headers }
+				);
+			};
+			return release;
+		},
+		{
+			path: buildInspectBootstrapSamplePath(BOOTSTRAP_PROBE_E2E_CHAIN.slug),
+			step: Step.Sample,
+			contentType: BOOTSTRAP_STREAM_CONTENT_TYPE
+		}
+	);
+}
+
 export async function installBootstrapProbeApiMock(
 	page: Page,
 	transforms: {
@@ -369,6 +424,13 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
 				status: sample.ownership?.exists ? Status.Succeeded : Status.Failed,
 				message: `Token #${sample.tokenId} ownership checked`
 			});
+			if (sample.tokenId !== null)
+				output.push({
+					step: Step.Sample,
+					status: Status.Succeeded,
+					message: `Sample token #${sample.tokenId}`,
+					tokenId: sample.tokenId
+				});
 			if (sample.tokenUri)
 				output.push({
 					step: Step.TokenUri,

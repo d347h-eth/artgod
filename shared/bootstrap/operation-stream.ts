@@ -7,6 +7,7 @@ import {
     type BootstrapProgressRecord,
     type BootstrapStreamRecord,
 } from "./operation-output.js";
+import { normalizeEvmTokenId } from "../evm/token-id.js";
 
 export class BootstrapStreamError extends Error {
     constructor(
@@ -50,7 +51,15 @@ export async function readBootstrapStream<T>(
                 ) ||
                 !Object.values(BOOTSTRAP_OUTPUT_STEP).includes(record.step) ||
                 (record.url !== undefined && typeof record.url !== "string") ||
-                (record.text !== undefined && typeof record.text !== "string")
+                (record.text !== undefined &&
+                    typeof record.text !== "string") ||
+                (record.tokenId !== undefined &&
+                    (typeof record.tokenId !== "string" ||
+                        normalizeEvmTokenId(record.tokenId) !==
+                            record.tokenId ||
+                        record.operation !== BOOTSTRAP_OPERATION.Inspect ||
+                        record.step !== BOOTSTRAP_OUTPUT_STEP.Sample ||
+                        record.status !== BOOTSTRAP_OUTPUT_STATUS.Succeeded))
             )
                 throw new Error("Invalid progress record");
             sequence = record.sequence;

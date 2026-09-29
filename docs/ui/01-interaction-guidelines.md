@@ -369,9 +369,11 @@ confirmed, detected and estimated labels; keep only actionable explanations,
 validation and scope constraints there. The dark section fill belongs only to the
 heading, without a bottom rule. Completed required sections show cyan `✓ complete`; optional
 sections do not repeat configured/resolved status in their headings.
-Actions use the standard form buttons: probe contract, inspect token, estimate and queue
-bootstrap use the cyan `.action-button-positive` family; per-field apply,
-resolve and the log's latest action use the ice `.action-button-neutral` family.
+Actions use the standard form buttons: probe contract, inspect token, estimate,
+OpenSea resolve and queue bootstrap use the cyan `.action-button-positive` family;
+per-field apply and the log's latest action use the ice `.action-button-neutral` family.
+Bootstrap's resolve button includes the sample token ID used for the lookup,
+including while it is resolving.
 New or changed apply suggestions use the shared update flash from the bid book,
 colored cyan.
 Action labels are lowercase, and
@@ -410,8 +412,10 @@ retain the text. Superseded requests cannot append late output.
 
 Contract findings appear before sample inspection finishes. The address action
 checks the contract, then inspects a sample; the sample's `inspect token` action retries
-only that operation. An empty sample override uses the effective sample without
-an apply prerequisite. Field selectors re-evaluate the retained JSON locally.
+only that operation and is disabled while the sample input is empty. Automatic
+inspection fills an empty sample input as soon as the backend selects the token,
+before downloading metadata. It preserves any entered sample ID. Field selectors
+re-evaluate the retained JSON locally.
 Scope edits retain usable image measurements and recalculate totals; a sample
 outside the new scope remains inspectable but cannot supply its collection
 estimate or OpenSea association. Pending responses cannot replace newer edits.
@@ -427,8 +431,10 @@ does not participate in contract classification.
 If supply is unavailable, say so. A whole-contract choice is explicit and carries
 a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.
-Sample image and animation previews share the same square media viewport; the
-image card must not inherit the full browsing grid's fixed height or padding.
+Sample image, animation and cached-image previews share a square media viewport
+up to 400 px per side, shrinking to fit narrow screens. The image card must not
+inherit the browsing grid's fixed height or padding. The cache preview's recovery
+message has one line of space above it.
 
 The logical groups and explicit optional stages follow the
 [W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,

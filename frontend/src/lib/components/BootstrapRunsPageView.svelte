@@ -37,7 +37,6 @@
 		BOOTSTRAP_PROBE_UI_STATUS,
 		BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID,
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
-		bootstrapSampleOwnership,
 		bootstrapSampleFailure,
 		contractNameToBootstrapSlug,
 		formatByteSize,
@@ -61,7 +60,15 @@
 	import WarningIcon from '$lib/components/WarningIcon.svelte';
 	import BootstrapOperationLog from '$lib/components/BootstrapOperationLog.svelte';
 	import { appendBootstrapOutput, emptyBootstrapLog, type BootstrapRequestOutput } from '$lib/bootstrap-output';
-	import { BOOTSTRAP_ACTION_LABEL as Action, BOOTSTRAP_OPERATION, BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE, type BootstrapOperation, type BootstrapProgressRecord } from '@artgod/shared/bootstrap/operation-output';
+	import {
+		BOOTSTRAP_ACTION_LABEL as Action,
+		BOOTSTRAP_OPERATION,
+		BOOTSTRAP_OUTPUT_STEP,
+		BOOTSTRAP_OUTPUT_STATUS,
+		BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE,
+		type BootstrapOperation,
+		type BootstrapProgressRecord
+	} from '@artgod/shared/bootstrap/operation-output';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
@@ -159,12 +166,19 @@
 	function recordOutput(record: BootstrapProgressRecord): void {
 		if (contractAddressSafetyAcknowledged) operationLog = appendBootstrapOutput(operationLog, record);
 	}
-	function outputRequest(operation: BootstrapOperation, current: () => boolean): BootstrapRequestOutput {
+	function outputRequest(
+		operation: BootstrapOperation,
+		current: () => boolean,
+		onOutput?: (record: BootstrapProgressRecord) => void
+	): BootstrapRequestOutput {
 		operationControllers.get(operation)?.abort();
 		const controller = new AbortController();
 		operationControllers.set(operation, controller);
 		return { signal: controller.signal, onOutput: record => {
-			if (!controller.signal.aborted && current()) recordOutput(record);
+			if (!controller.signal.aborted && current()) {
+				recordOutput(record);
+				onOutput?.(record);
+			}
 		} };
 	}
 	let collectionSlugInputElement = $state<HTMLInputElement | null>(null);
@@ -513,13 +527,25 @@
 				scope: selection.scope,
 				discoveredTokenId: latestProbeMatchesAddress ? probeResult?.discovery.sampleTokenId : null,
 				observation: latestProbeMatchesAddress ? probeResult?.observation : null
-			}, outputRequest(BOOTSTRAP_OPERATION.Inspect, () => requestId === sampleRequestId));
+			}, outputRequest(BOOTSTRAP_OPERATION.Inspect, () => requestId === sampleRequestId, record => {
+				// Selection arrives before metadata, which may be slow or unavailable.
+				if (
+					record.step === BOOTSTRAP_OUTPUT_STEP.Sample &&
+					record.status === BOOTSTRAP_OUTPUT_STATUS.Succeeded &&
+					record.tokenId &&
+					!sampleTokenId.trim()
+				)
+					setSampleTokenIdValue(record.tokenId);
+			}));
 			if (
 				requestId !== sampleRequestId ||
 				chainRef !== chain?.slug ||
 				address !== normalizedBootstrapAddress
 			)
 				return;
+			// Keep the same field state for ordinary JSON responses.
+			if (!sampleTokenId.trim() && result.sample.tokenId)
+				setSampleTokenIdValue(result.sample.tokenId);
 			sampleResult = result;
 			sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Ready;
 			await tick();
@@ -537,7 +563,9 @@
 			sampleError =
 				error instanceof BackendApiError && [400, 422].includes(error.status)
 					? error.message
-					: `Sample inspection failed. Press ${Action.Inspect} to retry.`;
+					: sampleTokenId.trim()
+						? `Sample inspection failed. Press ${Action.Inspect} to retry.`
+						: `Sample inspection failed. Press ${Action.Probe} to retry or enter a sample token ID.`;
 		}
 	}
 
@@ -1035,10 +1063,8 @@
 						oninput={onSampleTokenIdInput}
 						aria-describedby={sampleProbeFailure ? 'bootstrap-sample-help' : undefined} />
 					<div class="bootstrap-row-actions">
-						{@render applySuggestion(sample && bootstrapSampleOwnership(sample) === true
-							? sample.tokenId : null, sampleTokenId, setSampleTokenIdValue)}
 						<button type="button" class="action-button-positive" aria-label={Action.Inspect} aria-busy={samplePending}
-							disabled={!addressCanBeProbed || samplePending || contractProbePending} onclick={() => void onInspectSample()}>
+							disabled={!sampleTokenId.trim() || !addressCanBeProbed || samplePending || contractProbePending} onclick={() => void onInspectSample()}>
 							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}{Action.Inspect}{/if}
 						</button>
 						{#if sampleProbeFailure}
@@ -1172,7 +1198,7 @@
 							{#if manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue)}
 								<p id="bootstrap-range-help" class="bootstrap-row-note muted">
 									{#if setupIssues.totalSupply}{setupIssues.totalSupply}
-									{:else if !scopeIssue}IDs {manualRangeStartTokenId.trim()}–{BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}{/if}
+									{:else if !scopeIssue}Specified token IDs range: {manualRangeStartTokenId.trim()}–{BigInt(manualRangeStartTokenId.trim()) + BigInt(manualRangeTotalSupply.trim()) - 1n}{/if}
 								</p>
 							{/if}
 						</div>

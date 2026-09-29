@@ -94,23 +94,24 @@ title and accessible name. The desktop form occupies the left half of the page;
 the right half displays the sample's formatted tokenURI response. Narrow viewports
 stack these panels and then each row in label, input, action order.
 
-Edits do not make network requests. **probe**, beside the address, first discovers
+Edits do not make network requests. **probe contract**, beside the address, first discovers
 contract facts, then starts sample inspection. Contract supply and capability
-suggestions become available while metadata is still loading. **inspect**, beside
+suggestions become available while metadata is still loading. **inspect token**, beside
 the optional sample input, retries that inspection without repeating discovery.
 Each action shows progress inside its button and a failure beside its section.
 
 Every suggestion has its own **apply "value"** action. Applying the start candidate,
-contract supply, sample, image/animation field, local slug or entire-contract mode
+contract supply, image/animation field, local slug or entire-contract mode
 changes only that setting. A matching value disables the action. A confirmed
 conventional ID 0/1 is an editable start suggestion, not a proven minimum.
 The first enumeration entry is never presented as a range boundary.
 Contract-wide supply never establishes one shared project's count.
 
-An empty sample override uses the effective sample immediately for inspection,
-estimates and optional OpenSea resolution. It does not need to be copied into the
-input first. An explicit override inspects exactly that ID; failed ownership
-never silently selects a different token.
+Contract probing can start automatic sample inspection when the sample input is
+empty. As soon as the backend selects a token, its progress record fills that
+empty input before metadata is downloaded. An explicit override inspects exactly
+that ID and is preserved; failed ownership never silently selects a different
+token. The separate inspect action is disabled while the input is empty.
 
 The desktop setup output includes `sample.tokenUriPayload` from inspection:
 the original metadata text from HTTP/IPFS or a decoded JSON data URI, bounded by
@@ -128,6 +129,8 @@ Authentication, origin and CSRF checks apply before either representation starts
 Each UTF-8 line is one JSON record. A `progress` record carries `operation`,
 request-local ascending `sequence` (starting at 1), UTC `timestamp`, `step`,
 `status`, `message`, and optional exact resource `url` or bounded original `text`.
+The successful `inspect` / `sample` record also carries the selected `tokenId`
+as a canonical decimal uint256 string, before metadata work starts.
 Statuses are `started`, `succeeded`, `failed`, `skipped`, `retrying`, and
 `completed` (operation finished, including any reported partial failures). Parallel
 checks appear in completion order. An operation ends with exactly one `result`
@@ -200,7 +203,8 @@ can remain undetected. A finding warns beside Token scope and suppresses the
 whole-contract suggestion, while preserving explicit manual control.
 
 Successful sample ownership can trigger an exact OpenSea lookup even when
-metadata fails. The association is included only while the effective sample
+metadata fails. The cyan resolve button displays the exact sample token ID used
+for the lookup. The association is included only while the effective sample
 belongs to the selected scope. A resolved slug replaces the resolve button with
 the cyan badge; editing it restores the action. An out-of-scope sample changes
 the badge to a yellow `check scope` link and keeps the resolved slug. Correcting

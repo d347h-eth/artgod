@@ -31,6 +31,7 @@ import {
 	BOOTSTRAP_PROBE_MEDIA,
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
 	installBootstrapProbeApiMock,
+	pauseBootstrapSampleMetadata,
 	fulfillBootstrapOutput
 } from './helpers/bootstrap-probe-api';
 import {
@@ -73,7 +74,7 @@ test.describe('bootstrap setup', () => {
 		await probeButton(page).click();
 		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toBeVisible();
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
-		await page.getByRole('button', { name: 'resolve', exact: true }).click();
+		await page.getByRole('button', { name: 'resolve #163000681', exact: true }).click();
 		const scopeLink = page.locator('#bootstrap-opensea').getByRole('link', { name: 'check scope' });
 		await expect(scopeLink).toBeVisible();
 		await scopeLink.hover();
@@ -138,6 +139,8 @@ test.describe('bootstrap setup', () => {
 		await expect(image).toBeVisible();
 		const imageBox = await image.boundingBox();
 		expect(Math.abs(imageBox!.width - imageBox!.height)).toBeLessThan(1);
+		const sectionBox = await page.locator('#bootstrap-details').boundingBox();
+		expect(Math.abs(imageBox!.width - Math.min(400, sectionBox!.width))).toBeLessThan(1);
 		await page.screenshot({ path: info.outputPath('sample-image-size.png'), fullPage: true });
 		await page
 			.getByLabel('Sample token preview source')
@@ -150,6 +153,20 @@ test.describe('bootstrap setup', () => {
 		for (const dimension of ['width', 'height'] as const)
 			expect(Math.abs(animationBox![dimension] - imageBox![dimension])).toBeLessThan(1);
 		await page.screenshot({ path: info.outputPath('sample-animation-size.png'), fullPage: true });
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await page.getByRole('button', { name: 'estimate', exact: true }).click();
+		const cached = page.getByTestId(TEST_IDS.BootstrapCacheTokenCard);
+		await expect(cached).toBeVisible();
+		const cachedBox = await cached.boundingBox();
+		expect(Math.abs(cachedBox!.width - imageBox!.width)).toBeLessThan(1);
+		const note = page.locator('#bootstrap-cache .bootstrap-setup-preview p');
+		const noteBox = await note.boundingBox();
+		expect(noteBox!.y - (cachedBox!.y + cachedBox!.height)).toBeGreaterThanOrEqual(
+			(await note.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight))) -
+				1
+		);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('cached-image-size.png'), fullPage: true });
 	});
 
 	test('warns about non-enumerable shared contracts with unavailable supply without blocking manual setup', async ({
@@ -501,16 +518,82 @@ test.describe('bootstrap setup', () => {
 		expect(api.probeRequests).toHaveLength(1);
 	});
 
-	test('uses an automatic sample without applying it and applies scope suggestions independently', async ({
+	for (const enteredSample of ['', '163000681'])
+		test(`shows the selected sample before metadata finishes with override ${JSON.stringify(enteredSample)}`, async ({
+			page
+		}, info) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+			await page.locator('#bootstrap-sample').fill(enteredSample);
+			await page.locator('#bootstrap-range-start').fill('163000000');
+			await page.locator('#bootstrap-range-count').fill('1000');
+			const release = await pauseBootstrapSampleMetadata(page);
+			await probeButton(page).click();
+			const selectedId = enteredSample || '163000000';
+			await expect(page.locator('#bootstrap-sample')).toHaveValue(selectedId);
+			await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toHaveAttribute(
+				'aria-busy',
+				'true'
+			);
+			await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+			await expect(
+				page.getByRole('button', { name: `resolve #${selectedId}`, exact: true })
+			).toBeEnabled();
+			await expectGridAlignment(page);
+			await page.screenshot({
+				path: info.outputPath('selected-sample-loading.png'),
+				fullPage: true
+			});
+			await release.evaluate((resume) => resume());
+			await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+			await expect(page.locator('#bootstrap-sample')).toHaveValue(selectedId);
+			expect(api.sampleRequests[0].requestedTokenId).toBe(enteredSample);
+			expect(api.openSeaSlugProbeSampleTokenIds).toEqual([selectedId]);
+		});
+
+	test('recovers from automatic inspection failure before a sample is selected', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-sample').fill('');
+		await page.route(
+			'**/collections/bootstrap/sample',
+			(route) =>
+				route.fulfill({
+					status: 502,
+					contentType: 'application/json',
+					body: '{}'
+				}),
+			{ times: 1 }
+		);
+		await probeButton(page).click();
+		await expect(page.locator('#bootstrap-sample-help')).toContainText(
+			`Press ${Action.Probe} to retry or enter a sample token ID.`
+		);
+		const inspect = page.getByRole('button', { name: Action.Inspect, exact: true });
+		await expect(inspect).toBeDisabled();
+		await expect(probeButton(page)).toBeEnabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('sample-selection-failed.png'), fullPage: true });
+		await page.locator('#bootstrap-sample').fill('42');
+		await expect(inspect).toBeEnabled();
+		await inspect.click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('42');
+		expect(api.sampleRequests[0].requestedTokenId).toBe('42');
+		expect(api.probeRequests).toHaveLength(1);
+	});
+
+	test('fills the automatic sample and applies scope suggestions independently', async ({
 		page
 	}, info) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toBeDisabled();
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
-		await expect(page.locator('#bootstrap-sample')).toHaveValue('');
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('0');
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
 		await formRow(page, 'Token count').getByRole('button', { name: 'apply "10000"' }).click();
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
@@ -523,7 +606,6 @@ test.describe('bootstrap setup', () => {
 			.getByRole('button', { name: 'apply "animation_url"' })
 			.click();
 		await expect(page.locator('#bootstrap-animation-field')).toHaveValue('animation_url');
-		await formRow(page, 'Sample token ID').getByRole('button', { name: 'apply "0"' }).click();
 		await expect(page.locator('#bootstrap-sample')).toHaveValue('0');
 		await expect(page.locator('#bootstrap-range-count')).toHaveValue('10000');
 		expect(api.sampleRequests).toHaveLength(1);
@@ -590,7 +672,9 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
 		await expect(formRow(page, 'Contract total supply')).toContainText('200000');
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual(['163000000']);
-		await expect(page.getByRole('button', { name: 'resolve', exact: true })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'resolve #163000000', exact: true })).toHaveCount(
+			0
+		);
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('meridian-resolved.png'), fullPage: true });
 		await queueButton(page).click();
@@ -837,7 +921,7 @@ test.describe('bootstrap setup', () => {
 	test('keeps OpenSea progress inside resolve and ignores a late result after sample and slug edits', async ({
 		page
 	}, info) => {
-		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => (release = resolve));
 		await page.route(
@@ -849,8 +933,10 @@ test.describe('bootstrap setup', () => {
 			{ times: 1 }
 		);
 		await probeButton(page).click();
-		const resolve = page.getByRole('button', { name: 'resolve', exact: true });
-		await expect(resolve).toContainText('resolving');
+		const resolve = page.locator('#bootstrap-opensea').getByRole('button', { name: /^resolve #/ });
+		await expect(resolve).toHaveAccessibleName('resolve #2');
+		await expect(resolve).toContainText('resolving #2');
+		await expect(resolve).toHaveClass('action-button-positive');
 		await expect(resolve.getByRole('img', { name: 'resolving OpenSea slug' })).toBeVisible();
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('opensea-loading.png'), fullPage: true });
@@ -858,6 +944,7 @@ test.describe('bootstrap setup', () => {
 			request.url().includes('opensea-slug-probe')
 		);
 		await page.locator('#bootstrap-sample').fill('3');
+		await expect(resolve).toHaveAccessibleName('resolve #3');
 		await page.locator('#bootstrap-opensea-slug').fill('user-edited-slug');
 		release();
 		await oldRequestFailed;
@@ -875,6 +962,9 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
 			'resolved'
 		);
+		expect(api.openSeaSlugProbeSampleTokenIds.at(-1)).toBe('3');
+		await page.locator('#bootstrap-sample').fill('');
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toBeDisabled();
 	});
 
 	test('ignores an old image measurement after cache settings change and a newer estimate finishes', async ({
@@ -1012,7 +1102,7 @@ test.describe('bootstrap setup', () => {
 		await rowControl(page, 'Image source field').fill('image');
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'resolve', exact: true })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'resolve #1', exact: true })).toBeDisabled();
 		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-disabled.png'), fullPage: true });
@@ -1036,7 +1126,7 @@ test.describe('bootstrap setup', () => {
 			await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 			await page.screenshot({ path: info.outputPath('opensea-error.png'), fullPage: true });
 			failed = false;
-			await page.getByRole('button', { name: 'resolve', exact: true }).click();
+			await page.getByRole('button', { name: 'resolve #2', exact: true }).click();
 			await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
 				'resolved'
 			);

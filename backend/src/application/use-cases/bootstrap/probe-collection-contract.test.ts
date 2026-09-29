@@ -9,6 +9,10 @@ import {
 } from "@artgod/shared/testing/bootstrap-probe";
 import { BOOTSTRAP_ENUMERATION_MODE as Mode } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_SAMPLE_SOURCE as Source } from "@artgod/shared/bootstrap/probe";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+} from "@artgod/shared/bootstrap/operation-output";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND as SourceKind } from "@artgod/shared/types";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND as ScopeKind } from "@artgod/shared/extensions";
 import { defaultImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
@@ -50,6 +54,35 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
     };
 }
 describe("bootstrap probe use cases", () => {
+    it("reports the selected existing sample before waiting for metadata", async () => {
+        const { inspector, port } = fixture((id) => id === "7");
+        const report = vi.fn();
+        vi.mocked(port.readMetadata).mockImplementation(async () => {
+            expect(report).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    step: Step.Sample,
+                    status: Status.Succeeded,
+                    tokenId: "7",
+                }),
+            );
+            return bootstrapTestSample().sample;
+        });
+        const result = await inspector.inspect(
+            {
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                discoveredTokenId: "100",
+                scope: { mode: Mode.ManualTokenIds, tokenIds: ["5", "7"] },
+            },
+            report,
+        );
+        expect(result.sample.tokenId).toBe("7");
+        expect(
+            report.mock.calls.filter(
+                ([output]) => output.tokenId !== undefined,
+            ),
+        ).toEqual([[expect.objectContaining({ tokenId: "7" })]]);
+    });
     it("passes the public chain ID to registry recognition, independently of the local chain record ID", async () => {
         const discoverContract = vi.fn(async () => bootstrapTestContract());
         const chain = { ...CHAIN, id: 3, publicChainId: 10 };

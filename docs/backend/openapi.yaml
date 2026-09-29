@@ -2186,7 +2186,9 @@ components:
                 Progress records have type=progress, operation (probe, inspect, estimate, resolve,
                 queue), sequence (ascending from 1), timestamp (UTC), step, status (started,
                 succeeded, failed, skipped, retrying, completed), message, and optional exact public url
-                and bounded original text. Exactly one terminal record has type=result and
+                and bounded original text. A succeeded inspect/sample record carries tokenId
+                as a canonical decimal uint256 string before metadata is downloaded.
+                Exactly one terminal record has type=result and
                 result matching the ordinary response schema, or type=error with statusCode,
                 error and message. After headers are sent, failure is carried in that record
                 while HTTP remains 200. An interrupted stream is never a successful operation.

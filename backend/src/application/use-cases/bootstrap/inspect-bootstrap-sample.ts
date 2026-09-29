@@ -122,6 +122,7 @@ export class InspectBootstrapSampleUseCase {
                     step: Step.Sample,
                     status: Status.Succeeded,
                     message: `Sample token #${candidate.tokenId} · ${candidate.source.replaceAll("_", " ")}`,
+                    tokenId: candidate.tokenId,
                 });
                 if (ownership.exists === true)
                     Object.assign(

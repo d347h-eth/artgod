@@ -92,6 +92,10 @@
 			isBootstrapProbeableAddress(normalizedContractAddress) &&
 			(collectionRef !== null || /^\d+$/.test(sampleTokenId?.trim() ?? ''))
 	);
+	let sampleLabel = $derived(
+		!collectionRef && sampleTokenId?.trim() ? ` #${sampleTokenId.trim()}` : ''
+	);
+	let resolveLabel = $derived(`resolve${sampleLabel}`);
 
 	$effect(() => {
 		const initial = initialSlug ?? '';
@@ -211,18 +215,19 @@
 			{:else}
 				<button
 					type="button"
-					class={gridLayout ? 'action-button-neutral' : 'action-button-positive'}
-					aria-label="resolve"
+					class="action-button-positive"
+					aria-label={resolveLabel}
+					title={resolveLabel}
 					aria-busy={probePending}
 					disabled={!canResolve || probePending}
 					onclick={() => void resolveSlug()}
 				>
 					{#if probePending}
 						<span class="bootstrap-inline-progress">
-							<span>resolving</span>
+							<span class="action-button-value">resolving{sampleLabel}</span>
 							<LoadingBladeBar ariaLabel="resolving OpenSea slug" barLength={2} />
 						</span>
-					{:else}resolve{/if}
+					{:else}<span class="action-button-value">{resolveLabel}</span>{/if}
 				</button>
 				{#if slugIncorrect && !gridLayout}
 					<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">

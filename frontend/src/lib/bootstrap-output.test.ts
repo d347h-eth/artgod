@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { EVM_TOKEN_ID_MAX } from '@artgod/shared/evm/token-id';
 import {
 	BOOTSTRAP_OPERATION,
 	BOOTSTRAP_OUTPUT_STEP,
@@ -38,6 +39,50 @@ function chunked(text: string) {
 	);
 }
 describe('bootstrap output protocol', () => {
+	it('delivers the selected sample ID before metadata or a final response', async () => {
+		let controller!: ReadableStreamDefaultController<Uint8Array>;
+		const onOutput = vi.fn();
+		const reading = readBootstrapStream(
+			new Response(
+				new ReadableStream({
+					start(value) {
+						controller = value;
+					}
+				})
+			),
+			onOutput
+		);
+		const selected = {
+			...progress,
+			step: BOOTSTRAP_OUTPUT_STEP.Sample,
+			status: BOOTSTRAP_OUTPUT_STATUS.Succeeded,
+			tokenId: EVM_TOKEN_ID_MAX.toString()
+		};
+		controller.enqueue(new TextEncoder().encode(JSON.stringify(selected) + '\n'));
+		await vi.waitFor(() => expect(onOutput).toHaveBeenCalledWith(selected));
+		controller.enqueue(new TextEncoder().encode(JSON.stringify(result) + '\n'));
+		controller.close();
+		await reading;
+	});
+	it.each(['-1', '01', ' ', 123, null, (EVM_TOKEN_ID_MAX + 1n).toString()])(
+		'rejects invalid selected token ID %s',
+		async (tokenId) => {
+			const selected = {
+				...progress,
+				step: BOOTSTRAP_OUTPUT_STEP.Sample,
+				status: BOOTSTRAP_OUTPUT_STATUS.Succeeded,
+				tokenId
+			};
+			const onOutput = vi.fn();
+			await expect(
+				readBootstrapStream(
+					chunked(JSON.stringify(selected) + '\n' + JSON.stringify(result) + '\n'),
+					onOutput
+				)
+			).rejects.toBeInstanceOf(BootstrapStreamError);
+			expect(onOutput).not.toHaveBeenCalled();
+		}
+	);
 	it('preserves exact URLs and split unicode while delivering progress before completion', async () => {
 		let controller!: ReadableStreamDefaultController<Uint8Array>;
 		const onOutput = vi.fn();
