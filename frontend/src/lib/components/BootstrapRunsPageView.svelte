@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { normalizeEvmTokenId } from '@artgod/shared/evm/token-id';
+	import { BOOTSTRAP_CONVENTIONAL_TOKEN_IDS } from '@artgod/shared/bootstrap/sample-selection';
 	import { inspectBootstrapMetadata } from '@artgod/shared/bootstrap/metadata';
 	import type { BootstrapSampleInspectionResponse } from '@artgod/shared/bootstrap/probe';
 	import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
@@ -1222,6 +1223,13 @@
 							aria-describedby={manualRangeStartTokenId.trim() && setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
 						<div class="bootstrap-row-actions">
 							{@render applySuggestion(rangeSuggestions.startTokenId, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
+							{#if contractReady && !rangeSuggestions.startTokenIdConfirmed}
+								<div class="bootstrap-row-note">
+									{#each BOOTSTRAP_CONVENTIONAL_TOKEN_IDS as tokenId}
+										<a href={openseaItemHref({ chainSlug: chain?.slug ?? null, collectionAddress: normalizedBootstrapAddress, tokenId })} target="_blank" rel="noreferrer noopener">[token #{tokenId}]</a>{' '}
+									{/each}
+								</div>
+							{/if}
 							{#if manualRangeStartTokenId.trim() && setupIssues.startTokenId}
 								<p id="bootstrap-range-start-help" class="bootstrap-row-note muted">{setupIssues.startTokenId}</p>
 							{/if}

@@ -14,7 +14,11 @@ import {
 	bootstrapTestSample,
 	BOOTSTRAP_TEST_PROJECT_SCOPE
 } from '@artgod/shared/testing/bootstrap-probe';
-import { bootstrapSampleCandidates } from '@artgod/shared/bootstrap/sample-selection';
+import {
+	bootstrapSampleCandidates,
+	bootstrapTokenDiscovery,
+	BOOTSTRAP_CONVENTIONAL_TOKEN_IDS
+} from '@artgod/shared/bootstrap/sample-selection';
 import {
 	BOOTSTRAP_SHARED_CONTRACT_REASON,
 	emptyBootstrapSampleMetadata,
@@ -338,16 +342,18 @@ function contractResponse(address: string): BootstrapContractProbeResponse {
 	};
 	const id =
 		fixture.name === 'grailers' ? null : fixture.name === 'meridian' ? '0' : fixture.sample;
-	response.discovery = {
-		enumeration: {
+	response.discovery = bootstrapTokenDiscovery(
+		{
 			checked: fixture.enumerable,
 			tokenId: fixture.enumerable ? id : null,
 			error: null
 		},
-		candidates: id === null ? [] : [{ tokenId: id, exists: true, error: null }],
-		sampleTokenId: id,
-		rangeStartCandidate: id
-	};
+		BOOTSTRAP_CONVENTIONAL_TOKEN_IDS.map((tokenId) => ({
+			tokenId,
+			exists: id !== null && BigInt(tokenId) >= BigInt(id),
+			error: null
+		}))
+	);
 	return response;
 }
 function sampleResponse(

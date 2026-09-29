@@ -455,6 +455,13 @@ that the maximum includes unminted IDs. Metadata failure does not discard projec
 facts. Editing the sample clears its project suggestions; changing scope keeps
 them. No suggestion silently changes entered values.
 First token ID starts empty and is filled only by typing or applying a suggestion.
+Its apply suggestion requires confirmed ownership of that ID. When the boundary
+is uncertain, show compact `[token #0]` and `[token #1]` OpenSea links in its action
+column, below any apply button. Keep them for a conventional start of 1 because
+current absence of 0 cannot establish its history. Hide them for an owned 0 or an
+ownership-confirmed project start. Links need a valid acknowledged address and
+use the selected chain without an API key or an API call. Manual entry does not
+silently turn an uncertain boundary into a confirmed one.
 If supply is unavailable, say so. A whole-contract choice is explicit and carries
 a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.

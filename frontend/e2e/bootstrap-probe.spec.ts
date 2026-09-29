@@ -3,6 +3,8 @@ import { writeFile } from 'node:fs/promises';
 import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { bootstrapTokenDiscovery } from '@artgod/shared/bootstrap/sample-selection';
+import { openseaItemHref } from '../src/lib/marketplace-links';
 import {
 	BOOTSTRAP_ACTION_LABEL as Action,
 	BOOTSTRAP_OPERATION as Operation,
@@ -68,6 +70,102 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
+	test('keeps first-ID review links through unknown reads and removes them after confirming zero', async ({
+		page
+	}, info) => {
+		let inconclusive = true;
+		const api = await installBootstrapProbeApiMock(page, {
+			contract: (response) => ({
+				...response,
+				discovery: inconclusive
+					? bootstrapTokenDiscovery({ checked: true, tokenId: '0', error: null }, [
+							{ tokenId: '0', exists: null, error: 'RPC timeout' },
+							{ tokenId: '1', exists: true, error: null }
+						])
+					: response.discovery
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-sample').fill('');
+		await page.locator('#bootstrap-range-start').fill('');
+		const row = formRow(page, 'First token ID');
+		for (const tokenId of ['0', '1']) {
+			await expect(
+				row.getByRole('link', { name: `[token #${tokenId}]`, exact: true })
+			).toHaveAttribute(
+				'href',
+				openseaItemHref({
+					chainSlug: 'ethereum',
+					collectionAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					tokenId
+				})!
+			);
+		}
+		await contractAddressSafetyAcknowledgement(page).uncheck();
+		await expect(row.getByRole('link')).toHaveCount(0);
+		await contractAddressSafetyAcknowledgement(page).check();
+		await probeButton(page).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('1');
+		await expect(row.getByRole('button', { name: /^apply/ })).toHaveCount(0);
+		await expect(row.getByRole('link')).toHaveCount(2);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('first-id-unknown.png'), fullPage: true });
+		await page
+			.locator('#bootstrap-scope')
+			.screenshot({ path: info.outputPath('first-id-unknown-scope.png') });
+		await page.locator('#bootstrap-range-start').fill('10');
+		await expect(queueButton(page)).toBeEnabled();
+		await expect(row.getByRole('link')).toHaveCount(2);
+		inconclusive = false;
+		await probeButton(page).click();
+		await expect(row.getByRole('button', { name: 'apply "0"', exact: true })).toBeVisible();
+		await expect(row.getByRole('link')).toHaveCount(0);
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('10');
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('first-id-confirmed-zero.png'), fullPage: true });
+		expect(api.sampleRequests[0].discoveredTokenId).toBe('1');
+	});
+
+	for (const exists of [false, null])
+		test(`keeps project counts and manual setup when project-start ownership is ${exists}`, async ({
+			page
+		}, info) => {
+			await installBootstrapProbeApiMock(page, {
+				sample: (response) => ({
+					...response,
+					projectScope: {
+						...BOOTSTRAP_TEST_PROJECT_SCOPE,
+						startTokenOwnership: {
+							tokenId: BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId,
+							exists,
+							error: 'ownership failed'
+						}
+					}
+				})
+			});
+			await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+			await page.locator('#bootstrap-sample').fill('163000485');
+			await probeButton(page).click();
+			await expect(formRow(page, 'Token scope')).toContainText('Meridian · project #163.');
+			await expect(
+				formRow(page, 'Token count').getByRole('button', { name: 'apply "1000"', exact: true })
+			).toBeVisible();
+			const row = formRow(page, 'First token ID');
+			await expect(row.getByRole('button', { name: /^apply/ })).toHaveCount(0);
+			await expect(row.getByRole('link')).toHaveCount(2);
+			await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+			await expect(queueButton(page)).toBeEnabled();
+			await expectGridAlignment(page);
+			await page.screenshot({
+				path: info.outputPath('project-start-unconfirmed.png'),
+				fullPage: true
+			});
+			await page
+				.locator('#bootstrap-scope')
+				.screenshot({ path: info.outputPath('project-start-unconfirmed-scope.png') });
+		});
+
 	test('offers the sampled Art Blocks project range after a pasted URL without changing entered scope', async ({
 		page
 	}, info) => {
@@ -98,6 +196,7 @@ test.describe('bootstrap setup', () => {
 			exact: true
 		});
 		await expect(applyStart).toBeVisible();
+		await expect(formRow(page, 'First token ID').getByRole('link')).toHaveCount(0);
 		await expect(applyCount).toBeVisible();
 		await expect(formRow(page, 'Token scope')).toContainText('Meridian · project #163.');
 		await expect(page.getByRole('button', { name: 'apply "entire contract"' })).toHaveCount(0);
@@ -977,6 +1076,10 @@ test.describe('bootstrap setup', () => {
 		await page.locator('#bootstrap-sample').fill('0');
 		await probeButton(page).click();
 		await expect(sampleTokenInputRow(page)).toContainText('Choose another sample token ID.');
+		await expect(formRow(page, 'First token ID').getByRole('link')).toHaveCount(2);
+		await expect(
+			formRow(page, 'First token ID').getByRole('button', { name: /^apply/ })
+		).toHaveCount(0);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('sparse-absent-sample.png'), fullPage: true });
 		await page.locator('#bootstrap-sample').fill('10');
@@ -1011,6 +1114,7 @@ test.describe('bootstrap setup', () => {
 		await expect(
 			formRow(page, 'First token ID').getByRole('button', { name: 'apply "1"' })
 		).toBeVisible();
+		await expect(formRow(page, 'First token ID').getByRole('link')).toHaveCount(2);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('aeon-metadata-429.png'), fullPage: true });
 		await page.getByRole('button', { name: Action.Inspect, exact: true }).click();
@@ -1171,6 +1275,16 @@ test.describe('bootstrap setup', () => {
 		await expect(page.getByText('Arbitrum (arbitrum / 42161)', { exact: true })).toBeVisible();
 		await expect(page.locator('#bootstrap-slug')).toHaveValue('retained-draft');
 		await expect(probeButton(page)).toBeEnabled();
+		await expect(
+			formRow(page, 'First token ID').getByRole('link', { name: '[token #0]', exact: true })
+		).toHaveAttribute(
+			'href',
+			openseaItemHref({
+				chainSlug: 'arbitrum',
+				collectionAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+				tokenId: '0'
+			})!
+		);
 		await probeButton(page).click();
 		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
 		release();
@@ -1432,6 +1546,10 @@ test.describe('bootstrap setup', () => {
 		await expect(openSeaSection.getByRole('link')).toHaveCount(0);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		const firstTokenLinks = formRow(page, 'First token ID').getByRole('link');
+		await expect(firstTokenLinks).toHaveCount(2);
+		await expect(firstTokenLinks.first()).toHaveAttribute('target', '_blank');
+		await expect(firstTokenLinks.first()).toHaveAttribute('rel', 'noreferrer noopener');
 		await expect(slugInput).toBeEnabled();
 		await slugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
 		await expect(collectionLink).toHaveAttribute(
@@ -1455,8 +1573,13 @@ test.describe('bootstrap setup', () => {
 		await contractAddressSafetyAcknowledgement(page).uncheck();
 		await expect(openSeaSection.getByRole('link')).toHaveCount(0);
 		await expect(slugInput).toBeDisabled();
+		await expect(firstTokenLinks).toHaveCount(0);
 		await contractAddressSafetyAcknowledgement(page).check();
 		await expect(collectionLink).toBeVisible();
+		await page.locator('#bootstrap-address').fill('invalid');
+		await expect(firstTokenLinks).toHaveCount(0);
+		await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await expect(firstTokenLinks).toHaveCount(2);
 		await page.locator('#bootstrap-sample').fill('-1');
 		await expect(sampleLink).toHaveCount(0);
 		await page.locator('#bootstrap-sample').fill('');

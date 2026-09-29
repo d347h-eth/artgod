@@ -119,14 +119,24 @@ sample or target invalidates its suggestion without changing the local slug.
 OpenSea page links use the entered slug and sample identity without requiring an
 API key or a successful lookup. Manual slug entry remains available without a key;
 resolution and attaching the OpenSea association still require it.
-A confirmed conventional ID 0/1 is an editable start suggestion, not a proven minimum.
+A conventional start suggestion must have confirmed ownership. ID 1 additionally
+requires a recognized absence response for ID 0; an unknown read of 0, or
+enumeration contradicting its absence, withholds that suggestion. An owned ID 1
+can still be used for sample inspection. Current absence does not prove that ID 0
+was never minted or cannot be minted later. The First token ID row therefore shows
+compact OpenSea links for tokens 0 and 1 whenever the boundary is uncertain,
+including beside a conventional ID 1 suggestion, before probing, and after
+inconclusive checks. These links use the selected chain/address, require the
+contract acknowledgement, and need no OpenSea API key. A confirmed owned ID 0
+establishes the smallest possible ID; enumeration order alone cannot do that.
 The first enumeration entry is never presented as a range boundary.
 Contract-wide supply never establishes one shared project's count. On positively
 identified shared contracts, neither global supply nor conventional start IDs
 are offered as project range suggestions.
 
 Sample inspection can return `projectScope`: the project ID/name, exact first
-token ID, minted count and current configured maximum. For Ethereum Art Blocks,
+token ID, its separate `startTokenOwnership` result, minted count and current
+configured maximum. For Ethereum Art Blocks,
 this requires current membership in the official mainnet Core Registry and a
 supported project model. Legacy cores use `tokenIdToProjectId` and
 `projectTokenInfo`; registered V3, Engine and Engine Flex cores use the recognized
@@ -134,7 +144,11 @@ supported project model. Legacy cores use `tokenIdToProjectId` and
 An available token-to-project mapping must agree with the million-ID encoding.
 The sample must be owned and lie inside the reported minted span; counters must
 fit the namespace and the suggested range must fit uint256. All reads use the
-same verified block. Getter compatibility without registry membership remains
+same verified block. The first-ID apply suggestion requires confirmed ownership
+of the project start at that block; re-use the sample's ownership when it is the
+start, otherwise check the start separately. An absent or unknown start withholds
+only that apply suggestion and retains project identity and both counts, with
+the same token links for manual review. Getter compatibility without registry membership remains
 advisory and cannot produce these suggestions.
 
 These are bounded reads for one sampled project, not project enumeration or
@@ -187,13 +201,13 @@ carries the failure status; the outer HTTP response remains 200. A missing final
 record is an interrupted operation, never a successful check. Partial metadata
 failure can return a result while its individual step reports failure.
 
-| Operation  | Required output                                                                                                                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `probe`    | Finalized block/hash; code and proxy checks; interface support; name; contract-wide supply; enumeration candidate; each ownership candidate; block verification.                             |
+| Operation  | Required output                                                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `probe`    | Finalized block/hash; code and proxy checks; interface support; name; contract-wide supply; enumeration candidate; each ownership candidate; block verification.                                                                                       |
 | `inspect`  | Block and ownership checks; chosen sample; optional recognized project lookup and range/count facts; exact tokenURI; resolved public HTTP URL; each request/status/retry delay; received bytes and original text; JSON validation; block verification. |
-| `estimate` | Exact source URL and HTTP attempts; received bytes/type; processing settings; source/output dimensions and cached bytes; distinct download and processing failures.                          |
-| `resolve`  | Exact public OpenSea NFT URL and attempts; discovered association and requested-slug verification. API keys and request headers are excluded.                                                |
-| `queue`    | Definition validation; collection/scope conflict checks; admitted run ID and queue result. Subsequent worker progress belongs to the existing run-detail page.                               |
+| `estimate` | Exact source URL and HTTP attempts; received bytes/type; processing settings; source/output dimensions and cached bytes; distinct download and processing failures.                                                                                    |
+| `resolve`  | Exact public OpenSea NFT URL and attempts; discovered association and requested-slug verification. API keys and request headers are excluded.                                                                                                          |
+| `queue`    | Definition validation; collection/scope conflict checks; admitted run ID and queue result. Subsequent worker progress belongs to the existing run-detail page.                                                                                         |
 
 Output contracts live in `shared/bootstrap/operation-output.ts`; the form and
 live-check command share the reader in `shared/bootstrap/operation-stream.ts`. Reports are
@@ -262,13 +276,13 @@ beside Token scope, not beneath the sample or OpenSea controls.
 
 ### Separate API Operations
 
-| Operation            | Route                                                             | Contract                                                                                                                                        |
-| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Discover contract    | `GET /api/:chain_ref/collections/bootstrap/probe?address=...`     | Independent interface, supply, proxy, name and token candidates at one finalized block.                                                         |
+| Operation            | Route                                                             | Contract                                                                                                                                                             |
+| -------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discover contract    | `GET /api/:chain_ref/collections/bootstrap/probe?address=...`     | Independent interface, supply, proxy, name and token candidates at one finalized block.                                                                              |
 | Inspect sample       | `POST /api/:chain_ref/collections/bootstrap/sample`               | Address, optional requested/discovered ID, observation and declared scope; returns ownership, project range facts, URI, bounded text and scope-specific cache hints. |
-| Measure cached image | `POST /api/:chain_ref/collections/bootstrap/image-cache-estimate` | Image, sample ID and cache settings; returns a per-image measurement, without a collection count.                                               |
-| Resolve OpenSea      | Existing `opensea-slug-probe` GET                                 | Exact address/sample and optional slug.                                                                                                         |
-| Queue bootstrap      | `POST /api/:chain_ref/collections/bootstrap`                      | Explicit `scope`, slug, media fields, cache settings and optional verified OpenSea association.                                                 |
+| Measure cached image | `POST /api/:chain_ref/collections/bootstrap/image-cache-estimate` | Image, sample ID and cache settings; returns a per-image measurement, without a collection count.                                                                    |
+| Resolve OpenSea      | Existing `opensea-slug-probe` GET                                 | Exact address/sample and optional slug.                                                                                                                              |
+| Queue bootstrap      | `POST /api/:chain_ref/collections/bootstrap`                      | Explicit `scope`, slug, media fields, cache settings and optional verified OpenSea association.                                                                      |
 
 `scope` is exactly one of:
 
