@@ -8,6 +8,11 @@ export const BOOTSTRAP_OPERATION = {
 } as const;
 export type BootstrapOperation =
     (typeof BOOTSTRAP_OPERATION)[keyof typeof BOOTSTRAP_OPERATION];
+// Recovery messages and controls share these action names; wire operations stay stable.
+export const BOOTSTRAP_ACTION_LABEL = {
+    Probe: "probe contract",
+    Inspect: "inspect token",
+} as const;
 export const BOOTSTRAP_OUTPUT_STATUS = {
     Started: "started",
     Succeeded: "succeeded",
@@ -25,6 +30,7 @@ export const BOOTSTRAP_OUTPUT_STEP = {
     Enumerable: "enumerable",
     Name: "name",
     Supply: "supply",
+    SharedContract: "shared_contract",
     Enumeration: "enumeration",
     Ownership: "ownership",
     Sample: "sample",

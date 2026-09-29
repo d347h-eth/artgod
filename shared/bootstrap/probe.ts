@@ -4,6 +4,7 @@ import type { CollectionExtensionKey } from "../extensions/index.js";
 import type { CollectionCustomizationSourceKind } from "../types/index.js";
 import type { ImageCachePolicyConfig } from "../media/token-image-cache.js";
 import type { BootstrapScope } from "./scope.js";
+import { BOOTSTRAP_ACTION_LABEL as Action } from "./operation-output.js";
 
 export const BOOTSTRAP_PROBE_READ_STATUS = {
     Available: "available",
@@ -15,6 +16,15 @@ export const BOOTSTRAP_SAMPLE_SOURCE = {
     DeclaredScope: "declared_scope",
     Discovery: "discovery",
 } as const;
+export const BOOTSTRAP_SHARED_CONTRACT_REASON = {
+    Registry: "multi_project_registry",
+    ProjectInterface: "multi_project_interface",
+} as const;
+/** Positive warning evidence only. Absence never establishes a standalone collection. */
+export type BootstrapSharedContractFinding = {
+    reason: (typeof BOOTSTRAP_SHARED_CONTRACT_REASON)[keyof typeof BOOTSTRAP_SHARED_CONTRACT_REASON];
+    registryAddress: string | null;
+};
 export type BootstrapSampleSource =
     (typeof BOOTSTRAP_SAMPLE_SOURCE)[keyof typeof BOOTSTRAP_SAMPLE_SOURCE];
 
@@ -60,6 +70,7 @@ export type BootstrapContractFindings = {
     erc721: BootstrapProbeInterfaceCheck;
     enumerable: BootstrapProbeInterfaceCheck;
     totalSupply: BootstrapProbeTotalSupply;
+    sharedContract: BootstrapSharedContractFinding | null;
     discovery: BootstrapTokenDiscovery;
 };
 
@@ -131,11 +142,11 @@ export function bootstrapSampleFailure(
     sample: BootstrapProbeSample,
 ): string | null {
     if (!sample.tokenId)
-        return "No sample was confirmed. Enter an existing sample token ID, then press inspect.";
+        return `No sample was confirmed. Enter an existing sample token ID, then press ${Action.Inspect}.`;
     if (sample.ownership?.exists !== true)
         return (
             sample.ownership?.error ??
-            "Ownership could not be checked. Press inspect to retry."
+            `Ownership could not be checked. Press ${Action.Inspect} to retry.`
         );
     return (
         sample.tokenUriError ??

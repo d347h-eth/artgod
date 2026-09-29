@@ -1,3 +1,4 @@
+import { BOOTSTRAP_ACTION_LABEL as Action } from "@artgod/shared/bootstrap/operation-output";
 import {
     HttpFetchRequestTimeoutError,
     HttpFetchStatusError,
@@ -29,11 +30,11 @@ function bootstrapResourceFailureMessage(
             : error instanceof HttpFetchRequestTimeoutError
               ? `${resource} download timed out.`
               : `${resource} could not be downloaded.`;
-    const retry = resource === "Metadata" ? "inspect" : "estimate";
+    const retry = resource === "Metadata" ? Action.Inspect : "estimate";
     const ipfs = sourceUri.startsWith("ipfs://") || isIpfsGatewayUrl(sourceUri);
     const recovery = ipfs
         ? `Check the IPFS gateway in Admin config, restart infra after changes, then press ${retry}.`
-        : `Press ${retry} to retry, or choose another sample token ID and press inspect.`;
+        : `Press ${retry} to retry, or choose another sample token ID and press ${Action.Inspect}.`;
     return `${failure} ${recovery}`;
 }
 

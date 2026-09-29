@@ -5616,6 +5616,7 @@ components:
                     erc721,
                     enumerable,
                     totalSupply,
+                    sharedContract,
                     discovery,
                 ]
             additionalProperties: false
@@ -5648,6 +5649,19 @@ components:
                     $ref: "#/components/schemas/BootstrapProbeInterfaceCheck"
                 totalSupply:
                     $ref: "#/components/schemas/BootstrapProbeTotalSupply"
+                sharedContract:
+                    type: object
+                    nullable: true
+                    description: Positive on-chain evidence of a multi-project contract. Null is unknown, never proof of a standalone collection. Advisory only; does not define token scope.
+                    required: [reason, registryAddress]
+                    additionalProperties: false
+                    properties:
+                        reason:
+                            type: string
+                            enum: [multi_project_registry, multi_project_interface]
+                        registryAddress:
+                            type: string
+                            nullable: true
                 discovery:
                     $ref: "#/components/schemas/BootstrapTokenDiscovery"
 

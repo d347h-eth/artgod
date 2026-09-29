@@ -1,3 +1,4 @@
+import { BOOTSTRAP_ACTION_LABEL as Action } from "./operation-output.js";
 import { selectTokenMetadataImageSource } from "../media/token-metadata-image-source.js";
 import { selectTokenMetadataAnimationSource } from "../media/token-metadata-animation-source.js";
 import { resolveTokenResourceUri } from "../media/token-resource-uri.js";
@@ -47,7 +48,7 @@ export function inspectBootstrapMetadata(input: {
     } catch {
         return {
             ...empty,
-            error: "Metadata is not a JSON object. Choose another sample token ID, then press inspect.",
+            error: `Metadata is not a JSON object. Choose another sample token ID, then press ${Action.Inspect}.`,
         };
     }
 }

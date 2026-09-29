@@ -93,6 +93,7 @@ export function bootstrapTestContract(
         proxyError: null,
         contractName: "Example collection",
         contractNameError: null,
+        sharedContract: null,
         erc721: { supported: true, error: null },
         enumerable: { supported: true, error: null },
         totalSupply: {

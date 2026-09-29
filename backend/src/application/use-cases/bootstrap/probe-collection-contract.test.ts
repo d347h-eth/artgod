@@ -50,6 +50,25 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
     };
 }
 describe("bootstrap probe use cases", () => {
+    it("passes the public chain ID to registry recognition, independently of the local chain record ID", async () => {
+        const discoverContract = vi.fn(async () => bootstrapTestContract());
+        const chain = { ...CHAIN, id: 3, publicChainId: 10 };
+        const useCase = new ProbeCollectionContractUseCase(
+            chain.id,
+            { resolveChainRef: () => chain },
+            { discoverContract },
+        );
+        await useCase.probe({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            standard: "erc721",
+        });
+        expect(discoverContract).toHaveBeenCalledWith(
+            ADDRESS,
+            chain.publicChainId,
+            undefined,
+        );
+    });
     it("discovers facts without sample or scope recommendations", async () => {
         const discoverContract = vi.fn(async () => bootstrapTestContract());
         const useCase = new ProbeCollectionContractUseCase(1, resolver, {
@@ -60,7 +79,11 @@ describe("bootstrap probe use cases", () => {
             address: " " + ADDRESS.toUpperCase().replace("0X", "0x") + " ",
             standard: "erc721",
         });
-        expect(discoverContract).toHaveBeenCalledWith(ADDRESS, undefined);
+        expect(discoverContract).toHaveBeenCalledWith(
+            ADDRESS,
+            CHAIN.publicChainId,
+            undefined,
+        );
         expect(result).not.toHaveProperty("firstToken");
         expect(result).not.toHaveProperty("suggestedInput");
         await expect(

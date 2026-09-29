@@ -187,10 +187,26 @@ count, including all projects on shared contracts. This count is independent of
 any entered manual range. Image caching defaults to a 2400 px maximum dimension;
 an explicit saved dimension remains unchanged.
 
+Contract discovery also returns nullable `sharedContract` warning evidence.
+The RPC adapter recognizes membership in the official Art Blocks mainnet Core
+Registry, or compatible project getters with a populated project and consistent
+counters. It checks at most one project; it never enumerates projects or derives
+their token boundaries. Registry addresses and getter interpretation belong to
+the family adapter, not collection-specific setup rules. All reads share the
+probe's pinned block and final hash verification. No OpenSea or metadata call
+participates in this check. Registry/getter failures remain optional check output.
+No finding means unknown, not standalone; unrecognized shared-contract families
+can remain undetected. A finding warns beside Token scope and suppresses the
+whole-contract suggestion, while preserving explicit manual control.
+
 Successful sample ownership can trigger an exact OpenSea lookup even when
 metadata fails. The association is included only while the effective sample
 belongs to the selected scope. A resolved slug replaces the resolve button with
-the cyan badge; editing it restores the action.
+the cyan badge; editing it restores the action. An out-of-scope sample changes
+the badge to a yellow `check scope` link and keeps the resolved slug. Correcting
+the entered range/list makes it usable without inspecting or resolving again;
+queueing before that correction still omits the association. The warning belongs
+beside Token scope, not beneath the sample or OpenSea controls.
 
 ### Separate API Operations
 

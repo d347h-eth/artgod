@@ -8,6 +8,7 @@ import {
     type BootstrapImageCacheSuggestion,
 } from "@artgod/shared/bootstrap/probe";
 import {
+    BOOTSTRAP_ACTION_LABEL as Action,
     BOOTSTRAP_OUTPUT_STEP as Step,
     BOOTSTRAP_OUTPUT_STATUS as Status,
     type BootstrapOutputReporter,
@@ -147,8 +148,7 @@ export class InspectBootstrapSampleUseCase {
             report?.({
                 step: Step.Sample,
                 status: Status.Failed,
-                message:
-                    "No existing sample found. Enter a sample token ID and press inspect.",
+                message: `No existing sample found. Enter a sample token ID and press ${Action.Inspect}.`,
             });
         await this.inspection.verifyObservation(observation, report);
         return {

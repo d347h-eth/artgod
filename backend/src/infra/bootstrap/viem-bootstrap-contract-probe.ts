@@ -41,7 +41,9 @@ import {
 } from "@artgod/shared/evm/proxy-detection";
 import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
 import { bootstrapResourceObserver } from "./resource-output.js";
+import { probeArtBlocksSharedContract } from "./contract-families/art-blocks.js";
 import {
+    BOOTSTRAP_ACTION_LABEL as Action,
     BOOTSTRAP_OUTPUT_STEP as Step,
     BOOTSTRAP_OUTPUT_STATUS as Status,
     observeBootstrapStep,
@@ -54,7 +56,7 @@ import {
 } from "@artgod/shared/config/bootstrap";
 
 type Hex = `0x${string}`;
-type BootstrapProbeRpc = {
+export type BootstrapProbeRpc = {
     getProbeBlock(blockNumber?: number): Promise<BootstrapProbeObservation>;
     getBytecode(address: Hex, blockNumber?: number): Promise<Hex | null>;
     getStorageAt(params: {
@@ -169,7 +171,7 @@ export class ViemBootstrapContractProbe
                 !/^0x[0-9a-f]{64}$/i.test(reference.blockHash))
         ) {
             throw new BootstrapValidationError(
-                "Invalid probe observation. Press probe again.",
+                `Invalid probe observation. Press ${Action.Probe} again.`,
             );
         }
         const observed = await observeBootstrapStep(
@@ -190,7 +192,7 @@ export class ViemBootstrapContractProbe
                 reference.blockHash.toLowerCase()
         ) {
             throw new BootstrapValidationError(
-                "The observed block changed. Press probe again.",
+                `The observed block changed. Press ${Action.Probe} again.`,
             );
         }
         return observed;
@@ -205,6 +207,7 @@ export class ViemBootstrapContractProbe
 
     async discoverContract(
         rawAddress: string,
+        chainId: number,
         report?: BootstrapOutputReporter,
     ): Promise<BootstrapContractFindings> {
         const address = rawAddress as Hex;
@@ -228,79 +231,89 @@ export class ViemBootstrapContractProbe
             throw new BootstrapValidationError(
                 NON_CONTRACT_ADDRESS_PROBE_ERROR,
             );
-        const [proxyResult, erc721, enumerable, name, totalSupply] =
-            await Promise.all([
-                observeBootstrapStep(
-                    report,
-                    Step.Proxy,
-                    "Check proxy implementation",
-                    () =>
-                        this.readProxy(address, bytecode, blockNumber, report),
-                    (value) => ({
-                        status: value.error ? Status.Failed : Status.Succeeded,
-                        message: value.proxy
-                            ? `Proxy implementation · ${value.proxy.implementationAddress}`
-                            : value.error
-                              ? "Proxy check unavailable. Check RPC settings and retry."
-                              : "No recognized proxy found",
-                    }),
-                ),
-                observeBootstrapStep(
-                    report,
-                    Step.Erc721,
-                    `supportsInterface(${ERC721_INTERFACE_ID}) · ERC721`,
-                    () =>
-                        this.readInterfaceSupport(
-                            address,
-                            ERC721_INTERFACE_ID,
-                            blockNumber,
-                        ),
-                    (value) => ({
-                        status: value.error ? Status.Failed : Status.Succeeded,
-                        message: `ERC721 · ${value.supported === null ? "check failed; retry probe" : value.supported ? "supported" : "not supported"}`,
-                    }),
-                ),
-                observeBootstrapStep(
-                    report,
-                    Step.Enumerable,
-                    `supportsInterface(${ERC721_ENUMERABLE_INTERFACE_ID}) · ERC721Enumerable`,
-                    () =>
-                        this.readInterfaceSupport(
-                            address,
-                            ERC721_ENUMERABLE_INTERFACE_ID,
-                            blockNumber,
-                        ),
-                    (value) => ({
-                        status: value.error ? Status.Failed : Status.Succeeded,
-                        message: `ERC721Enumerable · ${value.supported === null ? "check failed; retry probe" : value.supported ? "supported" : "not supported"}`,
-                    }),
-                ),
-                observeBootstrapStep(
-                    report,
-                    Step.Name,
-                    "name()",
-                    () => this.readContractName(address, blockNumber),
-                    (value) => ({
-                        status: value.error ? Status.Failed : Status.Succeeded,
-                        message: value.value
-                            ? `Contract name: ${value.value}`
-                            : "Contract name unavailable. Enter the collection slug manually.",
-                    }),
-                ),
-                observeBootstrapStep(
-                    report,
-                    Step.Supply,
-                    "totalSupply()",
-                    () => this.readTotalSupply(address, blockNumber),
-                    (value) => ({
-                        status: value.error ? Status.Failed : Status.Succeeded,
-                        message:
-                            value.value !== null
-                                ? `Contract total supply: ${value.value}`
-                                : "Contract total supply unavailable. Enter token scope manually.",
-                    }),
-                ),
-            ]);
+        const [
+            proxyResult,
+            erc721,
+            enumerable,
+            name,
+            totalSupply,
+            sharedContract,
+        ] = await Promise.all([
+            observeBootstrapStep(
+                report,
+                Step.Proxy,
+                "Check proxy implementation",
+                () => this.readProxy(address, bytecode, blockNumber, report),
+                (value) => ({
+                    status: value.error ? Status.Failed : Status.Succeeded,
+                    message: value.proxy
+                        ? `Proxy implementation · ${value.proxy.implementationAddress}`
+                        : value.error
+                          ? "Proxy check unavailable. Check RPC settings and retry."
+                          : "No recognized proxy found",
+                }),
+            ),
+            observeBootstrapStep(
+                report,
+                Step.Erc721,
+                `supportsInterface(${ERC721_INTERFACE_ID}) · ERC721`,
+                () =>
+                    this.readInterfaceSupport(
+                        address,
+                        ERC721_INTERFACE_ID,
+                        blockNumber,
+                    ),
+                (value) => ({
+                    status: value.error ? Status.Failed : Status.Succeeded,
+                    message: `ERC721 · ${value.supported === null ? `check failed; retry ${Action.Probe}` : value.supported ? "supported" : "not supported"}`,
+                }),
+            ),
+            observeBootstrapStep(
+                report,
+                Step.Enumerable,
+                `supportsInterface(${ERC721_ENUMERABLE_INTERFACE_ID}) · ERC721Enumerable`,
+                () =>
+                    this.readInterfaceSupport(
+                        address,
+                        ERC721_ENUMERABLE_INTERFACE_ID,
+                        blockNumber,
+                    ),
+                (value) => ({
+                    status: value.error ? Status.Failed : Status.Succeeded,
+                    message: `ERC721Enumerable · ${value.supported === null ? `check failed; retry ${Action.Probe}` : value.supported ? "supported" : "not supported"}`,
+                }),
+            ),
+            observeBootstrapStep(
+                report,
+                Step.Name,
+                "name()",
+                () => this.readContractName(address, blockNumber),
+                (value) => ({
+                    status: value.error ? Status.Failed : Status.Succeeded,
+                    message: value.value
+                        ? `Contract name: ${value.value}`
+                        : "Contract name unavailable. Enter the collection slug manually.",
+                }),
+            ),
+            observeBootstrapStep(
+                report,
+                Step.Supply,
+                "totalSupply()",
+                () => this.readTotalSupply(address, blockNumber),
+                (value) => ({
+                    status: value.error ? Status.Failed : Status.Succeeded,
+                    message:
+                        value.value !== null
+                            ? `Contract total supply: ${value.value}`
+                            : "Contract total supply unavailable. Enter token scope manually.",
+                }),
+            ),
+            probeArtBlocksSharedContract(
+                this.rpc,
+                { address, chainId, blockNumber },
+                report,
+            ),
+        ]);
         const enumeration: BootstrapTokenDiscovery["enumeration"] = {
             checked: false,
             tokenId: null,
@@ -371,6 +384,7 @@ export class ViemBootstrapContractProbe
             erc721,
             enumerable,
             totalSupply,
+            sharedContract,
             discovery: bootstrapTokenDiscovery(enumeration, candidates),
         };
     }

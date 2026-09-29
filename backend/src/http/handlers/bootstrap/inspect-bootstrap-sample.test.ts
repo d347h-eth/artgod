@@ -43,7 +43,7 @@ describe("sample inspection HTTP mapping", () => {
                     ...bootstrapTestSample().sample,
                     tokenUriPayload: null,
                     tokenUriPayloadError:
-                        "Metadata download failed (HTTP 429). Press inspect to retry.",
+                        "Metadata download failed (HTTP 429). Press inspect token to retry.",
                 }),
             },
             {

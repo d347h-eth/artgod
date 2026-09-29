@@ -15,6 +15,7 @@ export type ProbeCollectionContractOutput = BootstrapContractProbeResponse;
 export interface CollectionContractProbePort {
     discoverContract(
         address: string,
+        chainId: number,
         report?: BootstrapOutputReporter,
     ): Promise<BootstrapContractFindings>;
 }
@@ -41,6 +42,7 @@ export class ProbeCollectionContractUseCase {
         return {
             ...(await this.collectionContractProbePort.discoverContract(
                 address,
+                chain.publicChainId,
                 report,
             )),
             chain,

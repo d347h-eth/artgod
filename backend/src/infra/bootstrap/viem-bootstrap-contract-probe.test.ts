@@ -5,6 +5,8 @@ import {
     type BootstrapOutput,
 } from "@artgod/shared/bootstrap/operation-output";
 import { ContractFunctionRevertedError } from "viem";
+import { ART_BLOCKS_FUNCTION } from "./contract-families/art-blocks.js";
+import { BOOTSTRAP_SHARED_CONTRACT_REASON } from "@artgod/shared/bootstrap/probe";
 import {
     ERC721_OWNERSHIP_ABI,
     ERC721_ABSENT_TOKEN_ERROR,
@@ -19,6 +21,7 @@ import {
     BOOTSTRAP_TEST_OWNER as OWNER,
     BOOTSTRAP_TEST_OBSERVATION as OBSERVATION,
     BOOTSTRAP_CONTRACT_CASES,
+    BOOTSTRAP_TEST_CHAIN,
 } from "@artgod/shared/testing/bootstrap-probe";
 import {
     ViemBootstrapContractProbe,
@@ -47,6 +50,7 @@ function fixture(
         supply?: bigint | Error;
         index?: bigint | Error;
         name?: string | Error;
+        registeredShared?: boolean;
         uri?: string | Error;
         owner?: (id: string) => string | Error;
         rpc?: Partial<Rpc>;
@@ -64,6 +68,13 @@ function fixture(
         async readContract<T>(params: Read): Promise<T> {
             calls.push(params);
             switch (params.functionName) {
+                case ART_BLOCKS_FUNCTION.Registered:
+                    return (options.registeredShared ?? false) as T;
+                case ART_BLOCKS_FUNCTION.NextProject:
+                    throw new ContractFunctionRevertedError({
+                        abi: [],
+                        functionName: ART_BLOCKS_FUNCTION.NextProject,
+                    });
                 case "supportsInterface":
                     return value(
                         params.args?.[0] === "0x80ac58cd"
@@ -108,12 +119,34 @@ const metadataInput = {
 
 describe("independent pinned contract discovery", () => {
     afterEach(() => vi.unstubAllGlobals());
+    it("returns shared-contract warning evidence while preserving independent supply and Enumerable findings", async () => {
+        const { adapter, calls } = fixture({
+            registeredShared: true,
+            supply: 198051n,
+        });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.sharedContract?.reason).toBe(
+            BOOTSTRAP_SHARED_CONTRACT_REASON.Registry,
+        );
+        expect(result.enumerable.supported).toBe(true);
+        expect(result.totalSupply.value).toBe("198051");
+        expect(
+            calls.every((call) => call.blockNumber === OBSERVATION.blockNumber),
+        ).toBe(true);
+    });
     it("reports independent checks and exact metadata URLs through HTTP retries", async () => {
         const output: BootstrapOutput[] = [];
         const report = (event: BootstrapOutput) => output.push(event);
         const uri = "ipfs://bafy-test/1000?format=json";
         const { adapter } = fixture({ uri, enumerable: false, supply: 3333n });
-        await adapter.discoverContract(ADDRESS, report);
+        await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+            report,
+        );
         expect(output).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
@@ -193,7 +226,10 @@ describe("independent pinned contract discovery", () => {
                 index: BigInt(start),
                 owner: (id) => (start === "1" && id === "0" ? absent() : OWNER),
             });
-            const result = await adapter.discoverContract(ADDRESS);
+            const result = await adapter.discoverContract(
+                ADDRESS,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
             expect(result.discovery.rangeStartCandidate).toBe(start);
             expect(result.totalSupply.bootstrapRangeValue).toBe(10000);
             expect(result.enumerable.supported).toBe(enumerable);
@@ -224,7 +260,10 @@ describe("independent pinned contract discovery", () => {
                           ? absent()
                           : OWNER,
             });
-            const discovery = await adapter.discoverContract(c.address);
+            const discovery = await adapter.discoverContract(
+                c.address,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
             expect(discovery.enumerable.supported).toBe(c.enumerable);
             expect(discovery.totalSupply.value).toBe(String(c.supply));
             expect(calls.filter((x) => x.functionName === "tokenURI")).toEqual(
@@ -266,7 +305,10 @@ describe("independent pinned contract discovery", () => {
                     String(enumerable),
                 async () => {
                     const { adapter } = fixture({ erc721, enumerable });
-                    const result = await adapter.discoverContract(ADDRESS);
+                    const result = await adapter.discoverContract(
+                        ADDRESS,
+                        BOOTSTRAP_TEST_CHAIN.publicChainId,
+                    );
                     expect(result.erc721.supported).toBe(
                         erc721 instanceof Error ? null : erc721,
                     );
@@ -289,7 +331,10 @@ describe("independent pinned contract discovery", () => {
         new Error("no supply"),
     ])("classifies supply independently: %s", async (supply) => {
         const { adapter, calls } = fixture({ supply });
-        const result = await adapter.discoverContract(ADDRESS);
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
         expect(result.totalSupply.value).toBe(
             supply instanceof Error ? null : supply.toString(),
         );
@@ -304,14 +349,20 @@ describe("independent pinned contract discovery", () => {
         const unordered = await fixture({
             index: 500n,
             owner: (id) => (id === "0" ? absent() : OWNER),
-        }).adapter.discoverContract(ADDRESS);
+        }).adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
         expect(unordered.discovery).toMatchObject({
             sampleTokenId: "500",
             rangeStartCandidate: "1",
         });
         const failed = await fixture({
             index: new Error("index read failed"),
-        }).adapter.discoverContract(ADDRESS);
+        }).adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
         expect(failed.discovery).toMatchObject({
             sampleTokenId: "0",
             enumeration: { error: "index read failed" },
@@ -328,7 +379,10 @@ describe("independent pinned contract discovery", () => {
                 },
             },
         });
-        const result = await adapter.discoverContract(ADDRESS);
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
         expect(result.contractNameError).toBe("no name");
         expect(result.proxyError).toContain("storage failed");
         expect(
@@ -346,9 +400,12 @@ describe("independent pinned contract discovery", () => {
                     },
                 },
             });
-            await expect(adapter.discoverContract(ADDRESS)).rejects.toThrow(
-                NON_CONTRACT_ADDRESS_PROBE_ERROR,
-            );
+            await expect(
+                adapter.discoverContract(
+                    ADDRESS,
+                    BOOTSTRAP_TEST_CHAIN.publicChainId,
+                ),
+            ).rejects.toThrow(NON_CONTRACT_ADDRESS_PROBE_ERROR);
             expect(calls).toEqual([]);
         },
     );
@@ -415,14 +472,21 @@ describe("independent pinned contract discovery", () => {
                 },
             },
         });
-        const result = await adapter.discoverContract(ADDRESS);
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
         expect(result.proxy).toMatchObject({
             kind,
             implementationAddress: implementation,
         });
         expect(
             calls
-                .filter((x) => x.functionName !== "implementation")
+                .filter(
+                    (x) =>
+                        x.functionName !== "implementation" &&
+                        x.functionName !== ART_BLOCKS_FUNCTION.Registered,
+                )
                 .every((x) => x.address === ADDRESS),
         ).toBe(true);
     });
