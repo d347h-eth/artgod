@@ -9,6 +9,7 @@ import { bootstrapScopeContainsToken, type BootstrapScope } from "./scope.js";
 
 // A preview must not scan an arbitrary collection. The operator can choose any ID.
 export const BOOTSTRAP_SCOPE_SAMPLE_CANDIDATE_LIMIT = 4;
+export const BOOTSTRAP_CONVENTIONAL_TOKEN_IDS = ["0", "1"] as const;
 
 export function bootstrapSampleCandidates(input: {
     requestedTokenId: string | null;
@@ -69,9 +70,14 @@ export function bootstrapTokenDiscovery(
             (candidate) =>
                 candidate.tokenId === id && candidate.exists === true,
         );
+    // An unknown read of 0 cannot justify moving the range to 1. Enumeration
+    // returning 0 contradicts an absence response and also requires review.
+    const zeroAbsent = candidates.some(
+        (candidate) => candidate.tokenId === "0" && candidate.exists === false,
+    );
     const rangeStartCandidate = confirmed("0")
         ? "0"
-        : confirmed("1")
+        : zeroAbsent && enumeration.tokenId !== "0" && confirmed("1")
           ? "1"
           : null;
     return {
@@ -81,6 +87,6 @@ export function bootstrapTokenDiscovery(
         sampleTokenId:
             enumeration.tokenId !== null && confirmed(enumeration.tokenId)
                 ? enumeration.tokenId
-                : rangeStartCandidate,
+                : (BOOTSTRAP_CONVENTIONAL_TOKEN_IDS.find(confirmed) ?? null),
     };
 }

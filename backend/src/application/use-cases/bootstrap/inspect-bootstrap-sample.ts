@@ -6,6 +6,7 @@ import {
     type BootstrapSampleInspectionRequest,
     type BootstrapSampleInspectionResponse,
     type BootstrapImageCacheSuggestion,
+    type BootstrapProjectScope,
     type BootstrapProjectScopeSuggestion,
 } from "@artgod/shared/bootstrap/probe";
 import {
@@ -73,7 +74,7 @@ export interface BootstrapSampleInspectionPort {
             observation: BootstrapProbeObservation;
         },
         report?: BootstrapOutputReporter,
-    ): Promise<BootstrapProjectScopeSuggestion | null>;
+    ): Promise<BootstrapProjectScope | null>;
 }
 export interface ProbeCollectionExtensionResolverPort extends EmbeddedCollectionExtensionResolverPort {
     resolveImageCachePolicyConfig(input: {
@@ -147,8 +148,9 @@ export class InspectBootstrapSampleUseCase {
                     // Project facts do not depend on an available metadata server.
                     const [metadata, project] = await Promise.all([
                         this.inspection.readMetadata(target, report),
-                        this.inspection.readProjectScope(
+                        this.inspectProjectScope(
                             { ...target, chainId: chain.publicChainId },
+                            ownership,
                             report,
                         ),
                     ]);
@@ -186,6 +188,34 @@ export class InspectBootstrapSampleUseCase {
                 scope,
             ),
         };
+    }
+
+    private async inspectProjectScope(
+        input: {
+            chainId: number;
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        sampleOwnership: BootstrapProbeTokenCandidate,
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapProjectScopeSuggestion | null> {
+        const project = await this.inspection.readProjectScope(input, report);
+        if (!project) return null;
+        // Project facts survive an absent/unknown start. Only the first-ID apply
+        // suggestion needs positive ownership evidence at this observation.
+        const startTokenOwnership =
+            project.startTokenId === input.tokenId
+                ? sampleOwnership
+                : await this.inspection.checkOwnership(
+                      {
+                          address: input.address,
+                          tokenId: project.startTokenId,
+                          observation: input.observation,
+                      },
+                      report,
+                  );
+        return { ...project, startTokenOwnership };
     }
 
     private imageCacheSuggestion(

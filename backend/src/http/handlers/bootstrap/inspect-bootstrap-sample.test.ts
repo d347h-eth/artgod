@@ -28,6 +28,7 @@ describe("sample inspection HTTP mapping", () => {
     });
     function fixture(
         projectScope: typeof BOOTSTRAP_TEST_PROJECT_SCOPE | null = null,
+        startExists: boolean | null = true,
     ) {
         const app = Fastify({ logger: false });
         apps.push(app);
@@ -35,8 +36,16 @@ describe("sample inspection HTTP mapping", () => {
         const checkOwnership = vi.fn(
             async ({ tokenId }: { tokenId: string }) => ({
                 tokenId,
-                exists: true,
-                error: null,
+                exists:
+                    projectScope && tokenId === projectScope.startTokenId
+                        ? startExists
+                        : true,
+                error:
+                    projectScope &&
+                    tokenId === projectScope.startTokenId &&
+                    startExists !== true
+                        ? "ownership failed"
+                        : null,
             }),
         );
         const inspect = new InspectBootstrapSampleUseCase(
@@ -93,6 +102,46 @@ describe("sample inspection HTTP mapping", () => {
             expect(body.projectScope).toEqual(BOOTSTRAP_TEST_PROJECT_SCOPE);
             expect(body.sample.tokenUriPayloadError).toContain("HTTP 429");
             expect(body.scope).toBeNull();
+        },
+    );
+
+    it.each([
+        { stream: false, exists: false },
+        { stream: false, exists: null },
+        { stream: true, exists: false },
+        { stream: true, exists: null },
+    ])(
+        "retains project facts and uncertain start ownership over HTTP: %j",
+        async ({ stream, exists }) => {
+            const { app } = fixture(BOOTSTRAP_TEST_PROJECT_SCOPE, exists);
+            const response = await app.inject({
+                method: "POST",
+                url: buildInspectBootstrapSamplePath(CHAIN.slug),
+                headers: stream
+                    ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE }
+                    : {},
+                payload: { address: ADDRESS, requestedTokenId: "163000485" },
+            });
+            expect(response.statusCode).toBe(200);
+            const body = stream
+                ? response.body
+                      .trim()
+                      .split("\n")
+                      .map((line) => JSON.parse(line))
+                      .find(
+                          (record) =>
+                              record.type === BOOTSTRAP_STREAM_RECORD.Result,
+                      ).result
+                : response.json();
+            expect(body.projectScope).toEqual({
+                ...BOOTSTRAP_TEST_PROJECT_SCOPE,
+                startTokenOwnership: {
+                    tokenId: BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId,
+                    exists,
+                    error: "ownership failed",
+                },
+            });
+            expect(body.sample.ownership.exists).toBe(true);
         },
     );
 

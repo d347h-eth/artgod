@@ -111,7 +111,7 @@ describe("bounded sample selection", () => {
                 owned("1"),
                 { tokenId: "42", exists: null, error: "timeout" },
             ]),
-        ).toMatchObject({ sampleTokenId: "1", rangeStartCandidate: "1" });
+        ).toMatchObject({ sampleTokenId: "1", rangeStartCandidate: null });
         expect(
             bootstrapTokenDiscovery(
                 { checked: false, tokenId: null, error: null },
@@ -119,4 +119,42 @@ describe("bounded sample selection", () => {
             ),
         ).toMatchObject({ sampleTokenId: null, rangeStartCandidate: null });
     });
+    it.each([
+        [true, true, "0", "0"],
+        [true, false, "0", "0"],
+        [true, null, "0", "0"],
+        [false, true, "1", "1"],
+        [false, false, null, null],
+        [false, null, null, null],
+        [null, true, null, "1"],
+        [null, false, null, null],
+        [null, null, null, null],
+    ] as const)(
+        "separates range and sample for ownerOf(0)=%s, ownerOf(1)=%s",
+        (zero, one, rangeStartCandidate, sampleTokenId) => {
+            expect(
+                bootstrapTokenDiscovery(
+                    { checked: false, tokenId: null, error: null },
+                    [
+                        { tokenId: "0", exists: zero, error: null },
+                        { tokenId: "1", exists: one, error: null },
+                    ],
+                ),
+            ).toMatchObject({ rangeStartCandidate, sampleTokenId });
+        },
+    );
+    it.each([false, null])(
+        "does not suggest 1 when enumeration returned 0 and its ownership is %s",
+        (exists) => {
+            expect(
+                bootstrapTokenDiscovery(
+                    { checked: true, tokenId: "0", error: null },
+                    [
+                        { tokenId: "0", exists, error: "ownership failed" },
+                        { tokenId: "1", exists: true, error: null },
+                    ],
+                ),
+            ).toMatchObject({ rangeStartCandidate: null, sampleTokenId: "1" });
+        },
+    );
 });

@@ -20,6 +20,7 @@ describe('bootstrap display helpers', () => {
 		const contract = bootstrapTestContract();
 		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
 			startTokenId: '0',
+			startTokenIdConfirmed: true,
 			tokenCount: 100,
 			maxTokenCount: null
 		});
@@ -29,17 +30,78 @@ describe('bootstrap display helpers', () => {
 		};
 		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
 			startTokenId: null,
+			startTokenIdConfirmed: false,
 			tokenCount: null,
 			maxTokenCount: null
 		});
 		expect(bootstrapRangeSuggestions(contract, BOOTSTRAP_TEST_PROJECT_SCOPE)).toEqual({
 			startTokenId: '163000000',
+			startTokenIdConfirmed: true,
 			tokenCount: 1000,
 			maxTokenCount: null
 		});
 		expect(
 			bootstrapRangeSuggestions(null, { ...BOOTSTRAP_TEST_PROJECT_SCOPE, mintedTokenCount: 486 })
-		).toEqual({ startTokenId: '163000000', tokenCount: 486, maxTokenCount: 1000 });
+		).toEqual({
+			startTokenId: '163000000',
+			startTokenIdConfirmed: true,
+			tokenCount: 486,
+			maxTokenCount: 1000
+		});
+	});
+	it.each([false, null])(
+		'keeps project counts while withholding an unconfirmed start (%s)',
+		(exists) => {
+			const project = {
+				...BOOTSTRAP_TEST_PROJECT_SCOPE,
+				startTokenOwnership: {
+					tokenId: BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId,
+					exists,
+					error: 'ownership failed'
+				}
+			};
+			expect(bootstrapRangeSuggestions(bootstrapTestContract(), project)).toEqual({
+				startTokenId: null,
+				startTokenIdConfirmed: false,
+				tokenCount: 1000,
+				maxTokenCount: null
+			});
+		}
+	);
+	it('does not accept ownership evidence for another project token', () => {
+		expect(
+			bootstrapRangeSuggestions(null, {
+				...BOOTSTRAP_TEST_PROJECT_SCOPE,
+				startTokenOwnership: { tokenId: '163000485', exists: true, error: null }
+			})
+		).toMatchObject({ startTokenId: null, startTokenIdConfirmed: false });
+	});
+	it.each([false, null])(
+		'keeps a conventional 1 suggestion under review or withholds it when 0 ownership is %s',
+		(zero) => {
+			const contract = bootstrapTestContract();
+			contract.discovery = {
+				enumeration: { checked: false, tokenId: null, error: null },
+				candidates: [
+					{ tokenId: '0', exists: zero, error: null },
+					{ tokenId: '1', exists: true, error: null }
+				],
+				rangeStartCandidate: '1',
+				sampleTokenId: '1'
+			};
+			expect(bootstrapRangeSuggestions(contract, null)).toMatchObject({
+				startTokenId: zero === false ? '1' : null,
+				startTokenIdConfirmed: false
+			});
+		}
+	);
+	it('requires review when no contract or project evidence is available', () => {
+		expect(bootstrapRangeSuggestions(null, null)).toEqual({
+			startTokenId: null,
+			startTokenIdConfirmed: false,
+			tokenCount: null,
+			maxTokenCount: null
+		});
 	});
 	it('normalizes addresses', () => {
 		expect(isBootstrapProbeableAddress('0x' + 'a'.repeat(40))).toBe(true);

@@ -106,12 +106,16 @@ export type BootstrapImageCacheSuggestion = {
  * Counts describe consecutive IDs from startTokenId, not contract-wide supply.
  * The configured maximum can include tokens that have not been minted yet.
  */
-export type BootstrapProjectScopeSuggestion = {
+export type BootstrapProjectScope = {
     projectId: string;
     projectName: string | null;
     startTokenId: string;
     mintedTokenCount: number;
     maxTokenCount: number;
+};
+/** Start ownership is checked separately: project counters may outlive a burned token. */
+export type BootstrapProjectScopeSuggestion = BootstrapProjectScope & {
+    startTokenOwnership: BootstrapProbeTokenCandidate;
 };
 export type BootstrapSampleInspectionRequest = {
     address: string;

@@ -6,7 +6,7 @@ import {
 import {
     BOOTSTRAP_SHARED_CONTRACT_REASON as Reason,
     type BootstrapSharedContractFinding,
-    type BootstrapProjectScopeSuggestion,
+    type BootstrapProjectScope,
 } from "@artgod/shared/bootstrap/probe";
 import { EVM_TOKEN_ID_MAX } from "@artgod/shared/evm/token-id";
 import {
@@ -212,7 +212,7 @@ export async function inspectArtBlocksProjectScope(
     rpc: Pick<BootstrapProbeRpc, "readContract">,
     input: ReadInput & { tokenId: string },
     report?: BootstrapOutputReporter,
-): Promise<BootstrapProjectScopeSuggestion | null> {
+): Promise<BootstrapProjectScope | null> {
     if (input.chainId !== ART_BLOCKS_MAINNET_REGISTRY.chainId) return null;
     const read = artBlocksReader(rpc, input, report, Step.ProjectScope);
     if (
@@ -285,7 +285,7 @@ export async function inspectArtBlocksProjectScope(
         Array.isArray(details) && typeof details[0] === "string"
             ? details[0].trim() || null
             : null;
-    const result: BootstrapProjectScopeSuggestion = {
+    const result: BootstrapProjectScope = {
         projectId: projectId.toString(),
         projectName,
         startTokenId: start.toString(),

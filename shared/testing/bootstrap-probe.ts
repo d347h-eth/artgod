@@ -31,6 +31,11 @@ export const BOOTSTRAP_TEST_PROJECT_SCOPE: BootstrapProjectScopeSuggestion = {
     startTokenId: "163000000",
     mintedTokenCount: 1000,
     maxTokenCount: 1000,
+    startTokenOwnership: {
+        tokenId: "163000000",
+        exists: true,
+        error: null,
+    },
 };
 
 // User-provided boundaries with deterministic chain responses, not live observations.

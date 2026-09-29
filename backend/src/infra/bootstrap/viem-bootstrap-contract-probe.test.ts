@@ -119,6 +119,34 @@ const metadataInput = {
 
 describe("independent pinned contract discovery", () => {
     afterEach(() => vi.unstubAllGlobals());
+    it.each([
+        { failure: absent(), exists: false },
+        { failure: new Error("RPC timeout"), exists: null },
+    ])(
+        "retains an owned sample without suggesting 1 when enumeration returned 0 and its ownership is $exists",
+        async ({ failure, exists }) => {
+            const { adapter } = fixture({
+                index: 0n,
+                owner: (id) => (id === "0" ? failure : OWNER),
+            });
+            const result = await adapter.discoverContract(
+                ADDRESS,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
+            expect(result.discovery).toMatchObject({
+                enumeration: { tokenId: "0" },
+                rangeStartCandidate: null,
+                sampleTokenId: "1",
+                candidates: [
+                    {
+                        tokenId: "0",
+                        exists,
+                    },
+                    { tokenId: "1", exists: true },
+                ],
+            });
+        },
+    );
     it("returns shared-contract warning evidence while preserving independent supply and Enumerable findings", async () => {
         const { adapter, calls } = fixture({
             registeredShared: true,

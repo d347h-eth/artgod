@@ -4,19 +4,35 @@ import type {
 	BootstrapContractFindings,
 	BootstrapProjectScopeSuggestion
 } from '@artgod/shared/bootstrap/probe';
+import { bootstrapTokenDiscovery } from '@artgod/shared/bootstrap/sample-selection';
 
 /** Contract-wide facts must not become one shared project's range suggestions. */
 export function bootstrapRangeSuggestions(
 	contract: BootstrapContractFindings | null,
 	project: BootstrapProjectScopeSuggestion | null
 ) {
+	const projectStartConfirmed = Boolean(
+		project?.startTokenOwnership?.exists === true &&
+		project.startTokenOwnership.tokenId === project.startTokenId
+	);
+	const conventionalStart =
+		contract && !contract.sharedContract
+			? bootstrapTokenDiscovery(contract.discovery.enumeration, contract.discovery.candidates)
+					.rangeStartCandidate
+			: null;
+	const startTokenId = project
+		? projectStartConfirmed
+			? project.startTokenId
+			: null
+		: conventionalStart;
 	return {
-		startTokenId:
-			project?.startTokenId ??
-			(contract?.sharedContract ? null : contract?.discovery.rangeStartCandidate),
+		startTokenId,
+		// A current absence of 0 cannot prove it was never part of this range.
+		startTokenIdConfirmed: project ? projectStartConfirmed : startTokenId === '0',
 		tokenCount:
 			project?.mintedTokenCount ??
-			(contract?.sharedContract ? null : contract?.totalSupply.bootstrapRangeValue),
+			(contract?.sharedContract ? null : contract?.totalSupply.bootstrapRangeValue) ??
+			null,
 		maxTokenCount:
 			project && project.maxTokenCount !== project.mintedTokenCount ? project.maxTokenCount : null
 	};

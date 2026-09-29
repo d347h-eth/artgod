@@ -1,4 +1,5 @@
 import { zeroAddress } from "viem";
+import { normalizeEvmTokenId } from "./token-id.js";
 import {
     isRpcProviderHeadLagError,
     isRpcProviderStateUnavailableError,
@@ -34,17 +35,16 @@ export const ERC721_OWNERSHIP_ABI = [
 ] as const;
 
 const MAX_OWNERSHIP_ERROR_CAUSE_DEPTH = 6;
-const ABSENT_TOKEN_ERROR_NAMES = new Set<string>([
-    ERC721_ABSENT_TOKEN_ERROR.NonexistentToken,
-    ERC721_ABSENT_TOKEN_ERROR.OwnerQuery,
-]);
 const ABSENT_TOKEN_ERROR_REASONS = new Set<string>([
     ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery,
     ERC721_ABSENT_TOKEN_ERROR.LegacyInvalidId,
 ]);
 
 // Classifies only decoded absence evidence; generic reverts and provider errors remain failures.
-export function isErc721TokenAbsentError(error: unknown): boolean {
+export function isErc721TokenAbsentError(
+    error: unknown,
+    requestedTokenId: string,
+): boolean {
     if (
         isRpcProviderHeadLagError(error) ||
         isRpcProviderStateUnavailableError(error) ||
@@ -60,9 +60,19 @@ export function isErc721TokenAbsentError(error: unknown): boolean {
             cause?: unknown;
         };
         if (
-            candidate.data?.errorName &&
-            ABSENT_TOKEN_ERROR_NAMES.has(candidate.data.errorName)
-        )
+            candidate.data?.errorName ===
+            ERC721_ABSENT_TOKEN_ERROR.NonexistentToken
+        ) {
+            // ERC-6093 identifies the missing ID. An error about another token
+            // is not absence evidence for the ownership read we requested.
+            const tokenId = normalizeEvmTokenId(requestedTokenId);
+            return (
+                tokenId !== null &&
+                candidate.data.args?.length === 1 &&
+                candidate.data.args[0] === BigInt(tokenId)
+            );
+        }
+        if (candidate.data?.errorName === ERC721_ABSENT_TOKEN_ERROR.OwnerQuery)
             return true;
         if (
             candidate.reason &&

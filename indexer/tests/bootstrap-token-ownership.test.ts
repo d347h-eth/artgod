@@ -63,6 +63,22 @@ describe("anchored token ownership", () => {
         ).resolves.toBeNull();
     });
 
+    it("keeps a nonexistent-token error about a different ID as a failure", async () => {
+        const revert = new ContractFunctionRevertedError({
+            abi: ERC721_OWNERSHIP_ABI,
+            functionName: ERC721_OWNER_OF_FUNCTION,
+            data: encodeErrorResult({
+                abi: ERC721_OWNERSHIP_ABI,
+                errorName: ERC721_ABSENT_TOKEN_ERROR.NonexistentToken,
+                args: [0n],
+            }),
+        });
+        const rpc = { readContract: vi.fn().mockRejectedValue(revert) };
+        await expect(
+            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+        ).rejects.toBe(revert);
+    });
+
     it.each([
         "RPC timeout",
         "execution reverted",

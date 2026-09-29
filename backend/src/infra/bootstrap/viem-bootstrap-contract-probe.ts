@@ -16,7 +16,10 @@ import {
     type BootstrapSampleMetadata,
     type BootstrapTokenDiscovery,
 } from "@artgod/shared/bootstrap/probe";
-import { bootstrapTokenDiscovery } from "@artgod/shared/bootstrap/sample-selection";
+import {
+    bootstrapTokenDiscovery,
+    BOOTSTRAP_CONVENTIONAL_TOKEN_IDS,
+} from "@artgod/shared/bootstrap/sample-selection";
 import { inspectBootstrapMetadata } from "@artgod/shared/bootstrap/metadata";
 import type { CollectionContractProbePort } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
 import type { BootstrapSampleInspectionPort } from "../../application/use-cases/bootstrap/inspect-bootstrap-sample.js";
@@ -367,8 +370,7 @@ export class ViemBootstrapContractProbe
         // The first enumeration entry is not necessarily the smallest ID. Check conventional IDs independently.
         const ids = [
             ...new Set([
-                "0",
-                "1",
+                ...BOOTSTRAP_CONVENTIONAL_TOKEN_IDS,
                 ...(enumeration.tokenId === null ? [] : [enumeration.tokenId]),
             ]),
         ];
@@ -421,7 +423,7 @@ export class ViemBootstrapContractProbe
             });
             return { tokenId: input.tokenId, exists: true, error: null };
         } catch (error) {
-            const absent = isErc721TokenAbsentError(error);
+            const absent = isErc721TokenAbsentError(error, input.tokenId);
             report?.({
                 step: Step.Ownership,
                 status: Status.Failed,

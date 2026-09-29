@@ -94,6 +94,62 @@ describe("bootstrap probe use cases", () => {
             undefined,
         );
     });
+    it.each([true, false, null])(
+        "checks the project start at the same block and retains counts when ownership is %s",
+        async (exists) => {
+            const startTokenId = BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId;
+            const { inspector, port } = fixture((id) =>
+                id === startTokenId ? exists : true,
+            );
+            vi.mocked(port.readProjectScope).mockResolvedValue(
+                BOOTSTRAP_TEST_PROJECT_SCOPE,
+            );
+            const result = await inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                requestedTokenId: "163000485",
+                observation: OBSERVATION,
+            });
+            expect(result.projectScope).toEqual({
+                ...BOOTSTRAP_TEST_PROJECT_SCOPE,
+                startTokenOwnership: {
+                    tokenId: startTokenId,
+                    exists,
+                    error: exists === true ? null : "ownership failed",
+                },
+            });
+            expect(port.checkOwnership).toHaveBeenLastCalledWith(
+                {
+                    address: ADDRESS,
+                    tokenId: startTokenId,
+                    observation: OBSERVATION,
+                },
+                undefined,
+            );
+            expect(
+                result.sample.candidates.map((candidate) => candidate.tokenId),
+            ).toEqual(["163000485"]);
+            expect(result.sample.ownership?.exists).toBe(true);
+            expect(port.verifyObservation).toHaveBeenCalledAfter(
+                vi.mocked(port.checkOwnership),
+            );
+        },
+    );
+    it("reuses confirmed ownership when the inspected token is the project start", async () => {
+        const { inspector, port } = fixture();
+        vi.mocked(port.readProjectScope).mockResolvedValue(
+            BOOTSTRAP_TEST_PROJECT_SCOPE,
+        );
+        const result = await inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            requestedTokenId: BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId,
+        });
+        expect(result.projectScope?.startTokenOwnership).toEqual(
+            result.sample.ownership,
+        );
+        expect(port.checkOwnership).toHaveBeenCalledTimes(1);
+    });
     it.each([false, null])(
         "never looks up a project when sample ownership is %s",
         async (exists) => {
