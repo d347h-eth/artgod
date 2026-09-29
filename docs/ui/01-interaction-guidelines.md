@@ -129,6 +129,9 @@ feature-local markup or CSS:
 Do not fall back to raw browser-default inputs, fieldsets, checkboxes, or number
 spinners when an established ArtGod control family already exists.
 
+`InfoTooltip` keeps its popup inside the visible viewport on activation,
+scrolling and resizing, while preserving its placement beside the trigger.
+
 ### Admin setting summaries
 
 Read-only summaries of Admin configuration must remain visibly connected to the
@@ -353,6 +356,13 @@ instructions belong in their section; probe feedback stays beside the contract
 controls. Optional check failures never gate a complete manual definition.
 The contract-safety acknowledgement precedes and unlocks the entire form;
 unchecking it locks the controls again without discarding the entered definition.
+The contract input also accepts a pasted NFT URL. Read only its
+`<contract address>/<decimal token ID>` path pair, regardless of hostname or
+preceding path, and immediately fill the address and sample inputs together.
+Pasting does not change the selected chain or token scope, or make network
+requests. Clear superseded findings just as for an address edit. Invalid input
+stays editable with validation beside the field; manually typed URLs settle when
+the edit is committed so a partial token ID is never applied during typing.
 
 The desktop workspace divides equally between the left-aligned form and a
 read-only setup output log on the right. Every form section shares one

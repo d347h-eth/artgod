@@ -86,6 +86,14 @@ settings. Section headings identify incomplete setup. The contract-safety
 acknowledgement must be checked before any form control can be used. Unchecking
 it locks the form again and clears check results while preserving entered fields.
 
+**Contract address or NFT URL** accepts a plain address or a pasted URL containing
+an adjacent `<contract address>/<decimal token ID>` path pair. The frontend
+immediately replaces a pasted URL with the address and fills **Sample token ID**.
+Hostname and preceding path do not select a provider or chain. The selected chain,
+token scope and other entered settings stay unchanged. This only parses text;
+the next explicit probe or inspection uses the two extracted values through the
+existing API. Invalid pairs remain in the input for correction.
+
 Each section uses the same label/input/action grid. Inputs share a left edge and
 are sized for their intended content, with single-line **apply "value"** suggestions
 in the action column. Status hints are centered vertically against their inputs.

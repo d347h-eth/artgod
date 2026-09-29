@@ -44,6 +44,7 @@
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
 	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
+	import { parseNftUrl } from '$lib/marketplace-links';
 	import { updateFlash } from '$lib/update-flash';
 	import {
 		bootstrapSetupScope,
@@ -135,7 +136,8 @@
 	];
 	const tokenPreview = getTokenPreviewController();
 	const bootstrapFieldHelp = {
-		address: 'ERC721 contract address to bootstrap on the selected chain.',
+		address:
+			'Paste a contract address or an NFT URL containing <contract address>/<decimal token ID>. A URL fills this address and Sample token ID. The website is ignored; the selected chain and token scope stay unchanged.',
 		imageSourceField:
 			'Required metadata property used for token images, for example image or image_url.',
 		animationSourceField:
@@ -447,6 +449,30 @@
 	function onBootstrapAddressInput(event: Event): void {
 		bootstrapAddress = (event.currentTarget as HTMLInputElement).value;
 		invalidateContractProbe();
+	}
+
+	function applyBootstrapNftUrl(input: HTMLInputElement, value: string): boolean {
+		if (!contractAddressSafetyAcknowledged) return false;
+		const nft = parseNftUrl(value);
+		if (!nft) return false;
+		bootstrapAddress = nft.contractAddress;
+		input.value = bootstrapAddress;
+		setSampleTokenIdValue(nft.tokenId);
+		invalidateContractProbe();
+		return true;
+	}
+
+	function onBootstrapAddressPaste(event: ClipboardEvent): void {
+		const text = event.clipboardData?.getData('text/plain');
+		if (text && applyBootstrapNftUrl(event.currentTarget as HTMLInputElement, text)) {
+			event.preventDefault();
+		}
+	}
+
+	function onBootstrapAddressChange(event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		// Typed URLs settle on change, so the first token-ID digit never ends an edit.
+		applyBootstrapNftUrl(input, input.value);
 	}
 
 	function onContractAddressSafetyAcknowledgementChange(event: Event): void {
@@ -1035,9 +1061,10 @@
 			<section class="bootstrap-form-section" id={setupSections[0].id} aria-labelledby="bootstrap-contract-heading">
 				{@render sectionHeading(0)}
 				<div class="bootstrap-form-row">
-					<label for="bootstrap-address">{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}</label>
+					<label for="bootstrap-address">{@render fieldLabel('Contract address or NFT URL', bootstrapFieldHelp.address)}</label>
 					<input id="bootstrap-address" value={bootstrapAddress} class={bootstrapInputClass}
 						type="text" name="address" required oninput={onBootstrapAddressInput}
+						onpaste={onBootstrapAddressPaste} onchange={onBootstrapAddressChange}
 						aria-invalid={Boolean(bootstrapAddress && setupIssues.address)}
 						aria-describedby={(bootstrapAddress.trim() && setupIssues.address) || probeError ? 'bootstrap-address-help' : undefined} />
 					<div class="bootstrap-row-actions">

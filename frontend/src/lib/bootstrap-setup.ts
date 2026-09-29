@@ -44,7 +44,8 @@ export function bootstrapSetupScope(draft: BootstrapSetupDraft): BootstrapScope 
 export function bootstrapSetupIssues(draft: BootstrapSetupDraft) {
 	const issues: Partial<Record<keyof BootstrapSetupDraft, string>> = {};
 	if (!isBootstrapProbeableAddress(draft.address)) {
-		issues.address = 'Enter a contract address: 0x followed by 40 hexadecimal characters.';
+		issues.address =
+			'Enter a contract address (0x + 40 hex characters), or paste an NFT URL containing <contract address>/<decimal token ID>.';
 	}
 	const slug = draft.slug.trim().toLowerCase();
 	if (!slug) issues.slug = 'Enter a collection slug, or apply the probe suggestion.';

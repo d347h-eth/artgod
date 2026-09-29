@@ -65,6 +65,142 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
+	for (const prefix of [
+		'https://opensea.io/item/ethereum',
+		'https://gallery.example/any/chain/path'
+	])
+		test(`pastes an NFT URL into the contract and sample inputs from ${prefix}`, async ({
+			page
+		}, info) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+			const address = BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope;
+			await pasteBootstrapAddress(page, `${prefix}/${address}/163000681?ref=shared#media`);
+			await expect(page.locator('#bootstrap-address')).toHaveValue(address);
+			await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+			await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+			await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+			await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
+			await expect(page.getByText('Ethereum (ethereum / 1)', { exact: true })).toBeVisible();
+			await expect(probeButton(page)).toBeEnabled();
+			await expect(queueButton(page)).toBeEnabled();
+			expect(api.probeRequests).toEqual([]);
+			expect(api.sampleRequests).toEqual([]);
+			expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+			const addressRow = formRow(page, 'Contract address or NFT URL');
+			await addressRow.getByRole('button', { name: 'Help' }).press('Enter');
+			await expect(addressRow.getByRole('tooltip')).toContainText(
+				'A URL fills this address and Sample token ID.'
+			);
+			await expect(addressRow.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+			await page.screenshot({ path: info.outputPath('nft-url-help.png') });
+			await page.mouse.wheel(0, 100);
+			await expect(addressRow.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+			const viewport = page.viewportSize()!;
+			await page.setViewportSize({
+				width: viewport.width > 640 ? 1290 : 320,
+				height: viewport.height
+			});
+			await expect(addressRow.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+			await page.screenshot({ path: info.outputPath('nft-url-help-resized.png') });
+			await page.setViewportSize(viewport);
+			await addressRow.getByRole('button', { name: 'Help' }).press('Escape');
+			await expect(addressRow.getByRole('tooltip')).toBeHidden();
+			await expectGridAlignment(page);
+			await page.screenshot({ path: info.outputPath('nft-url-ready.png') });
+			await probeButton(page).click();
+			await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+			expect(api.probeRequests).toEqual([address]);
+			expect(api.sampleRequests).toHaveLength(1);
+			expect(api.sampleRequests[0]).toMatchObject({
+				address,
+				requestedTokenId: '163000681',
+				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange, startTokenId: '1', tokenCount: 999 }
+			});
+			await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+			await expectGridAlignment(page);
+			await page.screenshot({ path: info.outputPath('nft-url-inspected.png'), fullPage: true });
+		});
+
+	test('keeps invalid NFT URLs editable and preserves the sample until a valid paste', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		const address = BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope;
+		const invalidUrl = `https://gallery.example/${address}/123abc`;
+		await pasteBootstrapAddress(page, invalidUrl);
+		await expect(page.locator('#bootstrap-address')).toHaveValue(invalidUrl);
+		await expect(page.locator('#bootstrap-address')).toHaveAttribute('aria-invalid', 'true');
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('2');
+		await expect(page.locator('#bootstrap-address-help')).toContainText(
+			'<contract address>/<decimal token ID>'
+		);
+		await expect(probeButton(page)).toBeDisabled();
+		await expect(queueButton(page)).toBeDisabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('nft-url-invalid.png') });
+		await pasteBootstrapAddress(page, `https://another.example/${address}/163000681`);
+		await expect(page.locator('#bootstrap-address')).toHaveValue(address);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+		await expect(page.locator('#bootstrap-address-help')).toHaveCount(0);
+		await expect(probeButton(page)).toBeEnabled();
+		expect(api.probeRequests).toEqual([]);
+		expect(api.sampleRequests).toEqual([]);
+	});
+
+	test('pastes a plain address without replacing the entered sample', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		await pasteBootstrapAddress(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await expect(page.locator('#bootstrap-address')).toHaveValue(
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
+		);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('2');
+		await expect(probeButton(page)).toBeEnabled();
+		expect(api.probeRequests).toEqual([]);
+	});
+
+	test('waits for a typed NFT URL to finish before extracting its token ID', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+		const addressInput = page.locator('#bootstrap-address');
+		const address = BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope;
+		const url = `https://gallery.example/${address}/163000681`;
+		await addressInput.fill(`https://gallery.example/${address}/`);
+		await addressInput.pressSequentially('163000681');
+		await expect(addressInput).toHaveValue(url);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('2');
+		await addressInput.press('Tab');
+		await expect(addressInput).toHaveValue(address);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+		expect(api.probeRequests).toEqual([]);
+	});
+
+	test('discards an old inspection when an NFT URL selects another token on the same contract', async ({
+		page
+	}) => {
+		const address = BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope;
+		const api = await stageManualProbe(page, address);
+		await page.locator('#bootstrap-sample').fill('163000000');
+		const release = await pauseBootstrapSampleMetadata(page);
+		await probeButton(page).click();
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toHaveAttribute(
+			'aria-busy',
+			'true'
+		);
+		await pasteBootstrapAddress(page, `https://gallery.example/${address}/163000681`);
+		await release.evaluate((resume) => resume());
+		await expect(page.locator('#bootstrap-address')).toHaveValue(address);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+		await expect(formRow(page, 'Contract checks')).toHaveCount(0);
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toBeEnabled();
+		await page.getByRole('button', { name: Action.Inspect, exact: true }).click();
+		await expect(page.getByTitle('tokenURI response', { exact: true })).toBeVisible();
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('163000681');
+		expect(api.sampleRequests.map((request) => request.requestedTokenId)).toEqual([
+			'163000000',
+			'163000681'
+		]);
+	});
+
 	test('retains the exact Meridian resolution while the user corrects the token range', async ({
 		page
 	}, info) => {
@@ -1302,6 +1438,20 @@ async function stageManualProbeInputs(page: Page, address: string) {
 	await rowControl(page, 'Token count').fill('999');
 	await page.locator('input[name="slug"]').fill('curated-collection');
 	await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+}
+
+async function pasteBootstrapAddress(page: Page, value: string) {
+	const input = page.locator('#bootstrap-address');
+	await input.selectText();
+	const useDefault = await input.evaluate((element, text) => {
+		const clipboardData = new DataTransfer();
+		clipboardData.setData('text/plain', text);
+		return element.dispatchEvent(
+			new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true })
+		);
+	}, value);
+	// Synthetic clipboard events do not perform the browser's default text insertion.
+	if (useDefault) await page.keyboard.insertText(value);
 }
 
 async function expectGridAlignment(page: Page) {
