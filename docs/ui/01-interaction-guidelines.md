@@ -438,6 +438,14 @@ Positive on-chain multi-project evidence replaces the whole-contract suggestion
 with a likely-shared warning and the contract token count. It asks the user to
 specify a manual range or list; it never selects or edits that scope. OpenSea
 does not participate in contract classification.
+When inspection identifies a supported Art Blocks project, show its name and
+project ID beside the scope selector and offer its range through the existing
+per-field apply controls. Project start/count replace contract-wide suggestions;
+recognized shared contracts never suggest their global supply as one project's
+count. Separate minted and maximum choices when they differ, explaining only
+that the maximum includes unminted IDs. Metadata failure does not discard project
+facts. Editing the sample clears its project suggestions; changing scope keeps
+them. No suggestion silently changes entered values.
 If supply is unavailable, say so. A whole-contract choice is explicit and carries
 a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.

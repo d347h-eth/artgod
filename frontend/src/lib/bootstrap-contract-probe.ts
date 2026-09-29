@@ -1,5 +1,26 @@
 export { bootstrapSampleOwnership, bootstrapSampleFailure } from '@artgod/shared/bootstrap/probe';
 import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
+import type {
+	BootstrapContractFindings,
+	BootstrapProjectScopeSuggestion
+} from '@artgod/shared/bootstrap/probe';
+
+/** Contract-wide facts must not become one shared project's range suggestions. */
+export function bootstrapRangeSuggestions(
+	contract: BootstrapContractFindings | null,
+	project: BootstrapProjectScopeSuggestion | null
+) {
+	return {
+		startTokenId:
+			project?.startTokenId ??
+			(contract?.sharedContract ? null : contract?.discovery.rangeStartCandidate),
+		tokenCount:
+			project?.mintedTokenCount ??
+			(contract?.sharedContract ? null : contract?.totalSupply.bootstrapRangeValue),
+		maxTokenCount:
+			project && project.maxTokenCount !== project.mintedTokenCount ? project.maxTokenCount : null
+	};
+}
 
 // Editable conventional range start; it does not claim a token is minted.
 export const BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID = '1';

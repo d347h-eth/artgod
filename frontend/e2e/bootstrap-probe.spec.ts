@@ -10,7 +10,10 @@ import {
 	BOOTSTRAP_OUTPUT_STATUS as OutputStatus,
 	BOOTSTRAP_OUTPUT_MAX_ENTRIES
 } from '@artgod/shared/bootstrap/operation-output';
-import { bootstrapTestContract } from '@artgod/shared/testing/bootstrap-probe';
+import {
+	bootstrapTestContract,
+	BOOTSTRAP_TEST_PROJECT_SCOPE
+} from '@artgod/shared/testing/bootstrap-probe';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_ENUMERATION_MODE,
@@ -65,6 +68,129 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap setup', () => {
+	test('offers the sampled Art Blocks project range after a pasted URL without changing entered scope', async ({
+		page
+	}, info) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await pasteBootstrapAddress(
+			page,
+			`https://opensea.io/item/ethereum/${BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope}/163000485`
+		);
+		const release = await pauseBootstrapSampleMetadata(page);
+		await probeButton(page).click();
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toContainText(
+			'inspecting'
+		);
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+		await expect(formRow(page, 'Token count').getByRole('button', { name: /^apply/ })).toHaveCount(
+			0
+		);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('project-inspecting.png'), fullPage: true });
+		await release.evaluate((resume) => resume());
+		const applyStart = formRow(page, 'First token ID').getByRole('button', {
+			name: 'apply "163000000"',
+			exact: true
+		});
+		const applyCount = formRow(page, 'Token count').getByRole('button', {
+			name: 'apply "1000"',
+			exact: true
+		});
+		await expect(applyStart).toBeVisible();
+		await expect(applyCount).toBeVisible();
+		await expect(formRow(page, 'Token scope')).toContainText('Meridian · project #163.');
+		await expect(page.getByRole('button', { name: 'apply "entire contract"' })).toHaveCount(0);
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('999');
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('project-suggestions.png'), fullPage: true });
+		await applyCount.click();
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await applyStart.click();
+		await expect(applyCount).toBeDisabled();
+		await expect(applyStart).toBeDisabled();
+		await expect(formRow(page, 'Token count')).toContainText(
+			'Specified token IDs range: 163000000–163000999'
+		);
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('project-applied.png'), fullPage: true });
+		await queueButton(page).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0].body).toMatchObject({
+			scope: {
+				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+				startTokenId: '163000000',
+				tokenCount: 1000
+			}
+		});
+	});
+	test('offers minted and maximum project counts despite unavailable metadata and preserves explicit scope choices', async ({
+		page
+	}, info) => {
+		await installBootstrapProbeApiMock(page, {
+			sample: (response) => ({
+				...response,
+				projectScope: { ...BOOTSTRAP_TEST_PROJECT_SCOPE, mintedTokenCount: 486 },
+				sample: {
+					...response.sample,
+					tokenUriPayload: null,
+					tokenUriPayloadError: 'Metadata download failed (HTTP 429). Press inspect token to retry.'
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page.locator('#bootstrap-sample').fill('163000485');
+		await page.locator('#bootstrap-scope-mode').selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+		await page.getByRole('button', { name: Action.Inspect, exact: true }).click();
+		await expect(formRow(page, 'Sample token ID')).toContainText('HTTP 429');
+		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
+			BOOTSTRAP_ENUMERATION_MODE.Enumerable
+		);
+		await formRow(page, 'Token scope')
+			.getByRole('button', { name: 'apply "token range"', exact: true })
+			.click();
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		const counts = formRow(page, 'Token count');
+		const minted = counts.getByRole('button', { name: 'apply "486" minted', exact: true });
+		const maximum = counts.getByRole('button', { name: 'apply "1000" maximum', exact: true });
+		await expect(minted).toBeVisible();
+		await expect(maximum).toBeVisible();
+		await expect(counts).toContainText('includes unminted token IDs');
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: info.outputPath('project-partially-minted.png'),
+			fullPage: true
+		});
+		await minted.click();
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('486');
+		await maximum.click();
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
+		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
+		await expect(queueButton(page)).toBeEnabled();
+		await page.locator('#bootstrap-sample').fill('164000001');
+		await expect(minted).toHaveCount(0);
+		await expect(maximum).toHaveCount(0);
+		await expect(formRow(page, 'Token scope')).not.toContainText('Meridian');
+		await expect(page.locator('#bootstrap-range-count')).toHaveValue('1000');
+	});
+	test('discards a late project suggestion after the sample changes', async ({ page }) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page.locator('#bootstrap-sample').fill('163000485');
+		const release = await pauseBootstrapSampleMetadata(page);
+		await probeButton(page).click();
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toContainText(
+			'inspecting'
+		);
+		await page.locator('#bootstrap-sample').fill('164000001');
+		await release.evaluate((resume) => resume());
+		await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toBeEnabled();
+		await expect(page.getByRole('button', { name: 'apply "163000000"' })).toHaveCount(0);
+		await expect(formRow(page, 'Token count').getByRole('button', { name: /^apply/ })).toHaveCount(
+			0
+		);
+		await expect(page.locator('#bootstrap-sample')).toHaveValue('164000001');
+	});
 	for (const prefix of [
 		'https://opensea.io/item/ethereum',
 		'https://gallery.example/any/chain/path'

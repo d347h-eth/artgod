@@ -1,15 +1,46 @@
 import { describe, expect, it } from 'vitest';
 import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
-import { bootstrapTestSample } from '@artgod/shared/testing/bootstrap-probe';
+import {
+	bootstrapTestSample,
+	bootstrapTestContract,
+	BOOTSTRAP_TEST_PROJECT_SCOPE
+} from '@artgod/shared/testing/bootstrap-probe';
+import { BOOTSTRAP_SHARED_CONTRACT_REASON } from '@artgod/shared/bootstrap/probe';
 import {
 	bootstrapSampleOwnership,
 	bootstrapSampleFailure,
+	bootstrapRangeSuggestions,
 	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
 } from './bootstrap-contract-probe';
 describe('bootstrap display helpers', () => {
+	it('prefers project scope and separates partial-mint choices, suppressing shared contract-wide guesses', () => {
+		const contract = bootstrapTestContract();
+		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
+			startTokenId: '0',
+			tokenCount: 100,
+			maxTokenCount: null
+		});
+		contract.sharedContract = {
+			reason: BOOTSTRAP_SHARED_CONTRACT_REASON.Registry,
+			registryAddress: null
+		};
+		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
+			startTokenId: null,
+			tokenCount: null,
+			maxTokenCount: null
+		});
+		expect(bootstrapRangeSuggestions(contract, BOOTSTRAP_TEST_PROJECT_SCOPE)).toEqual({
+			startTokenId: '163000000',
+			tokenCount: 1000,
+			maxTokenCount: null
+		});
+		expect(
+			bootstrapRangeSuggestions(null, { ...BOOTSTRAP_TEST_PROJECT_SCOPE, mintedTokenCount: 486 })
+		).toEqual({ startTokenId: '163000000', tokenCount: 486, maxTokenCount: 1000 });
+	});
 	it('normalizes addresses', () => {
 		expect(isBootstrapProbeableAddress('0x' + 'a'.repeat(40))).toBe(true);
 		expect(isBootstrapProbeableAddress('0x1')).toBe(false);

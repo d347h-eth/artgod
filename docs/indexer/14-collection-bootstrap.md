@@ -113,7 +113,38 @@ contract supply, image/animation field, local slug or entire-contract mode
 changes only that setting. A matching value disables the action. A confirmed
 conventional ID 0/1 is an editable start suggestion, not a proven minimum.
 The first enumeration entry is never presented as a range boundary.
-Contract-wide supply never establishes one shared project's count.
+Contract-wide supply never establishes one shared project's count. On positively
+identified shared contracts, neither global supply nor conventional start IDs
+are offered as project range suggestions.
+
+Sample inspection can return `projectScope`: the project ID/name, exact first
+token ID, minted count and current configured maximum. For Ethereum Art Blocks,
+this requires current membership in the official mainnet Core Registry and a
+supported project model. Legacy cores use `tokenIdToProjectId` and
+`projectTokenInfo`; registered V3, Engine and Engine Flex cores use the recognized
+`coreType` and `projectStateData`. V3 Explorations reports the flagship V3 type.
+An available token-to-project mapping must agree with the million-ID encoding.
+The sample must be owned and lie inside the reported minted span; counters must
+fit the namespace and the suggested range must fit uint256. All reads use the
+same verified block. Getter compatibility without registry membership remains
+advisory and cannot produce these suggestions.
+
+These are bounded reads for one sampled project, not project enumeration or
+generic decimal rounding. A missing project name does not discard valid range
+facts. Unsupported models, inconsistent data or failed required reads produce no
+project suggestion and leave manual setup available. Project lookup runs
+independently of metadata retrieval. Its facts survive metadata errors and are
+returned in both the JSON and streamed inspection result; `project_scope`
+progress reports the checks and counts as they finish.
+
+The form offers these values beside First token ID and Token count, with a
+Token range suggestion beside the scope selector. Each apply action changes
+only its own setting. If minted count differs from the configured maximum,
+separate **minted** and **maximum** apply buttons make the choice explicit;
+maximum includes unminted IDs. Matching counts have one button. The project
+identity appears beside the scope selector, while Contract total supply remains
+contract-wide. Sample/address/chain edits discard project suggestions without
+overwriting the entered scope. OpenSea does not participate in this lookup.
 
 Contract probing can start automatic sample inspection when the sample input is
 empty. As soon as the backend selects a token, its progress record fills that
@@ -151,7 +182,7 @@ failure can return a result while its individual step reports failure.
 | Operation  | Required output                                                                                                                                                                              |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `probe`    | Finalized block/hash; code and proxy checks; interface support; name; contract-wide supply; enumeration candidate; each ownership candidate; block verification.                             |
-| `inspect`  | Block and ownership checks; chosen sample; exact tokenURI; resolved public HTTP URL; each request/status/retry delay; received bytes and original text; JSON validation; block verification. |
+| `inspect`  | Block and ownership checks; chosen sample; optional recognized project lookup and range/count facts; exact tokenURI; resolved public HTTP URL; each request/status/retry delay; received bytes and original text; JSON validation; block verification. |
 | `estimate` | Exact source URL and HTTP attempts; received bytes/type; processing settings; source/output dimensions and cached bytes; distinct download and processing failures.                          |
 | `resolve`  | Exact public OpenSea NFT URL and attempts; discovered association and requested-slug verification. API keys and request headers are excluded.                                                |
 | `queue`    | Definition validation; collection/scope conflict checks; admitted run ID and queue result. Subsequent worker progress belongs to the existing run-detail page.                               |
@@ -201,8 +232,9 @@ an explicit saved dimension remains unchanged.
 Contract discovery also returns nullable `sharedContract` warning evidence.
 The RPC adapter recognizes membership in the official Art Blocks mainnet Core
 Registry, or compatible project getters with a populated project and consistent
-counters. It checks at most one project; it never enumerates projects or derives
-their token boundaries. Registry addresses and getter interpretation belong to
+counters. Discovery checks at most one project and does not derive its token
+boundaries; the separate inspection operation can suggest the sampled project's
+range as described above. Registry addresses and getter interpretation belong to
 the family adapter, not collection-specific setup rules. All reads share the
 probe's pinned block and final hash verification. No OpenSea or metadata call
 participates in this check. Registry/getter failures remain optional check output.
@@ -225,7 +257,7 @@ beside Token scope, not beneath the sample or OpenSea controls.
 | Operation            | Route                                                             | Contract                                                                                                                                        |
 | -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Discover contract    | `GET /api/:chain_ref/collections/bootstrap/probe?address=...`     | Independent interface, supply, proxy, name and token candidates at one finalized block.                                                         |
-| Inspect sample       | `POST /api/:chain_ref/collections/bootstrap/sample`               | Address, optional requested/discovered ID, observation and declared scope; returns ownership, URI, bounded text and scope-specific cache hints. |
+| Inspect sample       | `POST /api/:chain_ref/collections/bootstrap/sample`               | Address, optional requested/discovered ID, observation and declared scope; returns ownership, project range facts, URI, bounded text and scope-specific cache hints. |
 | Measure cached image | `POST /api/:chain_ref/collections/bootstrap/image-cache-estimate` | Image, sample ID and cache settings; returns a per-image measurement, without a collection count.                                               |
 | Resolve OpenSea      | Existing `opensea-slug-probe` GET                                 | Exact address/sample and optional slug.                                                                                                         |
 | Queue bootstrap      | `POST /api/:chain_ref/collections/bootstrap`                      | Explicit `scope`, slug, media fields, cache settings and optional verified OpenSea association.                                                 |

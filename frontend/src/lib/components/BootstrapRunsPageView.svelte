@@ -38,6 +38,7 @@
 		BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID,
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapSampleFailure,
+		bootstrapRangeSuggestions,
 		contractNameToBootstrapSlug,
 		formatByteSize,
 		isBootstrapProbeableAddress,
@@ -293,7 +294,9 @@
 	);
 	let sampleMatchesScope = $derived(bootstrapSampleMatchesScope(effectiveSampleTokenId, setupDraft));
 	let sampleScopeConflict = $derived(Boolean(effectiveSampleTokenId && (sample || openSeaSlugResolved) && !sampleMatchesScope));
-	let likelySharedContract = $derived(latestProbeMatchesAddress && Boolean(probeResult?.sharedContract));
+	let projectScope = $derived(sampleResult?.projectScope ?? null);
+	let rangeSuggestions = $derived(bootstrapRangeSuggestions(latestProbeMatchesAddress ? probeResult : null, projectScope));
+	let likelySharedContract = $derived(Boolean(projectScope) || (latestProbeMatchesAddress && Boolean(probeResult?.sharedContract)));
 	let contractReady = $derived(
 		Boolean(chain) && addressCanBeProbed && contractAddressSafetyAcknowledged
 	);
@@ -999,18 +1002,19 @@
 	value: string | null | undefined,
 	current: string,
 	apply: (value: string) => void,
-	label?: string
+	label?: string,
+	qualifier?: string
 )}
 	{#if contractAddressSafetyAcknowledged && value}
 		<button
 			type="button"
 			class="action-button-neutral update-flash-cyan"
 			use:updateFlash={{ key: value, playOnMount: true }}
-			title={`apply "${label ?? value}"`}
+			title={`apply "${label ?? value}"${qualifier ? ` ${qualifier}` : ''}`}
 			disabled={value === current.trim()}
 			onclick={() => apply(value)}
 		>
-			<span class="action-button-value">apply <code>"{label ?? value}"</code></span>
+			<span class="action-button-value">apply <code>"{label ?? value}"</code>{qualifier ? ` ${qualifier}` : ''}</span>
 		</button>
 	{/if}
 {/snippet}
@@ -1147,8 +1151,13 @@
 					</select>
 					<div class="bootstrap-row-actions">
 						{#if likelySharedContract}
+							{#if projectScope}
+								{@render applySuggestion('token range', !entireContractSelected && manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange ? 'token range' : '', () => { entireContractSelected = false; manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange; })}
+							{/if}
 							<p id="bootstrap-shared-contract-help" class="bootstrap-row-note bootstrap-check-warning">
-								Likely shared contract. Specify this collection's Token range or Token ID list manually.
+								{#if projectScope}
+									{projectScope.projectName ? `${projectScope.projectName} · ` : ''}project #{projectScope.projectId}.
+								{:else}Likely shared contract. Specify this collection's Token range or Token ID list manually.{/if}
 								{#if probeResult?.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects.
 								{:else}Contract token count unavailable.{/if}
 							</p>
@@ -1206,7 +1215,7 @@
 							aria-invalid={Boolean(manualRangeStartTokenId.trim() && setupIssues.startTokenId)}
 							aria-describedby={manualRangeStartTokenId.trim() && setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
 						<div class="bootstrap-row-actions">
-							{@render applySuggestion(probeResult?.discovery.rangeStartCandidate, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
+							{@render applySuggestion(rangeSuggestions.startTokenId, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
 							{#if manualRangeStartTokenId.trim() && setupIssues.startTokenId}
 								<p id="bootstrap-range-start-help" class="bootstrap-row-note muted">{setupIssues.startTokenId}</p>
 							{/if}
@@ -1219,9 +1228,13 @@
 							aria-invalid={Boolean(manualRangeTotalSupply && setupIssues.totalSupply)}
 							aria-describedby={manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue) ? 'bootstrap-range-help' : undefined} />
 						<div class="bootstrap-row-actions">
-							{@render applySuggestion(probeResult?.totalSupply.bootstrapRangeValue?.toString(), manualRangeTotalSupply, (value) => {
+							{@render applySuggestion(rangeSuggestions.tokenCount?.toString(), manualRangeTotalSupply, (value) => {
 								manualRangeTotalSupply = value;
-							})}
+							}, undefined, rangeSuggestions.maxTokenCount !== null ? 'minted' : undefined)}
+							{#if rangeSuggestions.maxTokenCount !== null}
+								{@render applySuggestion(String(rangeSuggestions.maxTokenCount), manualRangeTotalSupply, (value) => manualRangeTotalSupply = value, undefined, 'maximum')}
+								<p class="bootstrap-row-note bootstrap-check-warning">The configured maximum includes unminted token IDs.</p>
+							{/if}
 							{#if manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue)}
 								<p id="bootstrap-range-help" class="bootstrap-row-note muted">
 									{#if setupIssues.totalSupply}{setupIssues.totalSupply}

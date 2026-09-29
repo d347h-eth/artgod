@@ -11,7 +11,8 @@ import {
 import {
 	BOOTSTRAP_CONTRACT_CASES,
 	bootstrapTestContract,
-	bootstrapTestSample
+	bootstrapTestSample,
+	BOOTSTRAP_TEST_PROJECT_SCOPE
 } from '@artgod/shared/testing/bootstrap-probe';
 import { bootstrapSampleCandidates } from '@artgod/shared/bootstrap/sample-selection';
 import {
@@ -392,6 +393,15 @@ function sampleResponse(
 		tokenUriPayload: exists ? text : null,
 		tokenUriPayloadBytes: exists ? Buffer.byteLength(text) : null
 	};
+	if (
+		input.address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope &&
+		tokenId !== null &&
+		BigInt(tokenId) >= BigInt(BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId) &&
+		BigInt(tokenId) <
+			BigInt(BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId) +
+				BigInt(BOOTSTRAP_TEST_PROJECT_SCOPE.mintedTokenCount)
+	)
+		response.projectScope = BOOTSTRAP_TEST_PROJECT_SCOPE;
 	return response;
 }
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
