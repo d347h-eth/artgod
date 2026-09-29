@@ -337,6 +337,12 @@ test.describe('bootstrap setup', () => {
 		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toBeVisible();
 		await expect(page.locator('#bootstrap-range-start')).toHaveValue('1');
 		await page.getByRole('button', { name: 'resolve #163000681', exact: true }).click();
+		await expect(
+			formRow(page, 'Collection slug').getByRole('button', {
+				name: `apply "${BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope}"`,
+				exact: true
+			})
+		).toBeVisible();
 		const scopeLink = page.locator('#bootstrap-opensea').getByRole('link', { name: 'check scope' });
 		await expect(scopeLink).toBeVisible();
 		await scopeLink.hover();
@@ -875,6 +881,14 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-scope-mode')).toHaveValue(
 			BOOTSTRAP_ENUMERATION_MODE.ManualRange
 		);
+		await page.getByRole('button', { name: 'resolve #0', exact: true }).click();
+		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+			'resolved'
+		);
+		// Both sources suggest the same local slug; one apply control is enough.
+		await expect(
+			formRow(page, 'Collection slug').getByRole('button', { name: /^apply / })
+		).toHaveCount(1);
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('suggestions-ready.png'), fullPage: true });
 		await formRow(page, 'Token scope')
@@ -1196,6 +1210,12 @@ test.describe('bootstrap setup', () => {
 		);
 		await probeButton(page).click();
 		const resolve = page.locator('#bootstrap-opensea').getByRole('button', { name: /^resolve #/ });
+		const slugRow = formRow(page, 'Collection slug');
+		const openSeaSuggestion = slugRow.getByRole('button', {
+			name: `apply "${BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable}"`,
+			exact: true
+		});
+		await expect(openSeaSuggestion).toHaveCount(0);
 		await expect(resolve).toHaveAccessibleName('resolve #2');
 		await expect(resolve).toContainText('resolving #2');
 		await expect(resolve).toHaveClass('action-button-positive');
@@ -1216,6 +1236,7 @@ test.describe('bootstrap setup', () => {
 		await expect(page.locator('#bootstrap-opensea')).toContainText(
 			'OpenSea did not confirm this collection slug'
 		);
+		await expect(openSeaSuggestion).toHaveCount(0);
 		await expectGridAlignment(page);
 		await expect(queueButton(page)).toBeEnabled();
 		await page.screenshot({ path: info.outputPath('opensea-incorrect.png'), fullPage: true });
@@ -1223,6 +1244,28 @@ test.describe('bootstrap setup', () => {
 		await resolve.click();
 		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
 			'resolved'
+		);
+		await expect(slugRow.getByRole('button', { name: /^apply / })).toHaveCount(2);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('curated-collection');
+		await expect(openSeaSuggestion).toBeEnabled();
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('opensea-slug-suggestion.png'), fullPage: true });
+		await openSeaSuggestion.click();
+		await expect(page.locator('#bootstrap-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
+		);
+		await expect(page.locator('#bootstrap-opensea-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
+		);
+		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+			'resolved'
+		);
+		await expect(openSeaSuggestion).toBeDisabled();
+		await page.screenshot({ path: info.outputPath('opensea-slug-applied.png'), fullPage: true });
+		await page.locator('#bootstrap-opensea-slug').fill('another-slug');
+		await expect(openSeaSuggestion).toHaveCount(0);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
 		expect(api.openSeaSlugProbeSampleTokenIds.at(-1)).toBe('3');
 		await page.locator('#bootstrap-sample').fill('');

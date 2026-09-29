@@ -238,6 +238,7 @@
 			probeResult.chain.slug === chain?.slug &&
 			probeAddress === normalizedBootstrapAddress
 	);
+	let contractSlugSuggestion = $derived(contractNameToBootstrapSlug(probeResult?.contractName));
 	let contractProbePending = $derived(probeStatus === BOOTSTRAP_PROBE_UI_STATUS.Loading);
 	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
 	let sourceFieldsReady = $derived(sampleResult !== null && imageSourceFieldResolved);
@@ -1261,7 +1262,10 @@
 						aria-invalid={Boolean(bootstrapSlug && setupIssues.slug)}
 						aria-describedby={bootstrapSlug.trim() && setupIssues.slug ? 'bootstrap-slug-help' : undefined} />
 					<div class="bootstrap-row-actions">
-						{@render applySuggestion(contractNameToBootstrapSlug(probeResult?.contractName), bootstrapSlug, setCollectionSlugInputValue)}
+						{@render applySuggestion(contractSlugSuggestion, bootstrapSlug, setCollectionSlugInputValue)}
+						{#if openSeaSlugResolved && bootstrapOpenSeaSlug !== contractSlugSuggestion}
+							{@render applySuggestion(bootstrapOpenSeaSlug, bootstrapSlug, setCollectionSlugInputValue)}
+						{/if}
 						{#if bootstrapSlug.trim() && setupIssues.slug}<p id="bootstrap-slug-help" class="bootstrap-row-note muted">{setupIssues.slug}</p>{/if}
 					</div>
 				</div>

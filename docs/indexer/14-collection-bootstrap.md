@@ -111,7 +111,10 @@ Each action shows progress inside its button and a failure beside its section.
 Every suggestion has its own **apply "value"** action. Applying the start candidate,
 contract supply, image/animation field, local slug or entire-contract mode
 changes only that setting. A matching value disables the action. A confirmed
-conventional ID 0/1 is an editable start suggestion, not a proven minimum.
+OpenSea slug adds another Collection slug suggestion alongside the contract-name
+suggestion, with identical values shown only once. Editing the OpenSea slug,
+sample or target invalidates its suggestion without changing the local slug.
+A confirmed conventional ID 0/1 is an editable start suggestion, not a proven minimum.
 The first enumeration entry is never presented as a range boundary.
 Contract-wide supply never establishes one shared project's count. On positively
 identified shared contracts, neither global supply nor conventional start IDs

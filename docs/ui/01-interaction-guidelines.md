@@ -393,6 +393,10 @@ restores the action. If its sample is outside the entered scope, retain the slug
 and show a yellow `check scope` link to the scope section. Correcting the range
 or list restores `resolved` without another lookup or inspection. The scope
 section explains that the slug will be omitted until the conflict is corrected.
+A confirmed OpenSea slug is also offered beside Collection slug through its own
+apply button. Preserve the contract-name suggestion, omit duplicate values and
+remove the OpenSea suggestion when its resolution is invalidated. Applying a
+local slug never changes the resolved OpenSea association.
 Action widths follow their shared column; labels do not wrap.
 Long suggested values use the shared
 `.action-button-value` clipping treatment with a complete accessible name and
