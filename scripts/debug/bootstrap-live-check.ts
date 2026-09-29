@@ -186,6 +186,7 @@ try {
             });
             const summary = {
                 sampleTokenId,
+                projectScope: result.projectScope,
                 owned: sample.ownership?.exists,
                 tokenUri: sample.tokenUri?.startsWith("data:")
                     ? "inline"

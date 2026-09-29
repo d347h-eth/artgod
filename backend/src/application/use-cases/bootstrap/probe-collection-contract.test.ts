@@ -6,6 +6,7 @@ import {
     bootstrapTestContract,
     bootstrapTestSample,
     BOOTSTRAP_CONTRACT_CASES,
+    BOOTSTRAP_TEST_PROJECT_SCOPE,
 } from "@artgod/shared/testing/bootstrap-probe";
 import { BOOTSTRAP_ENUMERATION_MODE as Mode } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_SAMPLE_SOURCE as Source } from "@artgod/shared/bootstrap/probe";
@@ -34,6 +35,7 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
             error: existing(tokenId) === true ? null : "ownership failed",
         })),
         readMetadata: vi.fn(async () => metadata),
+        readProjectScope: vi.fn(async () => null),
     };
     const extensions = {
         resolveExtensionKey: vi.fn((): string | null => null),
@@ -54,6 +56,73 @@ function fixture(existing: (id: string) => boolean | null = () => true) {
     };
 }
 describe("bootstrap probe use cases", () => {
+    it("retains project facts through metadata failure without replacing the entered scope", async () => {
+        const { inspector, port } = fixture();
+        vi.mocked(port.readProjectScope).mockResolvedValue(
+            BOOTSTRAP_TEST_PROJECT_SCOPE,
+        );
+        vi.mocked(port.readMetadata).mockResolvedValue({
+            ...bootstrapTestSample().sample,
+            tokenUriPayload: null,
+            tokenUriPayloadError: "HTTP 429",
+        });
+        const scope = {
+            mode: Mode.ManualRange,
+            startTokenId: "1",
+            tokenCount: 999,
+        } as const;
+        const result = await inspector.inspect({
+            chainRef: CHAIN.slug,
+            address: ADDRESS,
+            requestedTokenId: "163000485",
+            scope,
+        });
+        expect(result.projectScope).toEqual(BOOTSTRAP_TEST_PROJECT_SCOPE);
+        expect(result.sample.tokenUriPayloadError).toBe("HTTP 429");
+        expect(result.scope).toEqual(scope);
+        expect(port.readProjectScope).toHaveBeenCalledWith(
+            {
+                chainId: CHAIN.publicChainId,
+                address: ADDRESS,
+                tokenId: "163000485",
+                observation: OBSERVATION,
+            },
+            undefined,
+        );
+        expect(port.verifyObservation).toHaveBeenCalledWith(
+            OBSERVATION,
+            undefined,
+        );
+    });
+    it.each([false, null])(
+        "never looks up a project when sample ownership is %s",
+        async (exists) => {
+            const { inspector, port } = fixture(() => exists);
+            const result = await inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                requestedTokenId: "163000485",
+            });
+            expect(result.projectScope).toBeNull();
+            expect(port.readProjectScope).not.toHaveBeenCalled();
+        },
+    );
+    it("does not return project suggestions when the pinned observation fails verification", async () => {
+        const { inspector, port } = fixture();
+        vi.mocked(port.readProjectScope).mockResolvedValue(
+            BOOTSTRAP_TEST_PROJECT_SCOPE,
+        );
+        vi.mocked(port.verifyObservation).mockRejectedValue(
+            new Error("block changed"),
+        );
+        await expect(
+            inspector.inspect({
+                chainRef: CHAIN.slug,
+                address: ADDRESS,
+                requestedTokenId: "163000485",
+            }),
+        ).rejects.toThrow("block changed");
+    });
     it("reports the selected existing sample before waiting for metadata", async () => {
         const { inspector, port } = fixture((id) => id === "7");
         const report = vi.fn();

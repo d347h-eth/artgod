@@ -5543,6 +5543,7 @@ components:
                     requestedTokenId,
                     scope,
                     sample,
+                    projectScope,
                     ipfsGatewayOrigin,
                     imageCacheSuggestion,
                 ]
@@ -5563,10 +5564,44 @@ components:
                         - $ref: "#/components/schemas/NullValue"
                 sample:
                     $ref: "#/components/schemas/BootstrapProbeSample"
+                projectScope:
+                    anyOf:
+                        - $ref: "#/components/schemas/BootstrapProjectScopeSuggestion"
+                        - $ref: "#/components/schemas/NullValue"
                 ipfsGatewayOrigin:
                     type: string
                 imageCacheSuggestion:
                     $ref: "#/components/schemas/BootstrapProbeImageCacheSuggestion"
+
+        BootstrapProjectScopeSuggestion:
+            type: object
+            description: Optional project facts for the ownership-confirmed sample at the inspection block; independent of metadata and entered scope. Suggestions never change the declared scope automatically.
+            required:
+                [
+                    projectId,
+                    projectName,
+                    startTokenId,
+                    mintedTokenCount,
+                    maxTokenCount,
+                ]
+            additionalProperties: false
+            properties:
+                projectId:
+                    type: string
+                projectName:
+                    type: string
+                    nullable: true
+                startTokenId:
+                    type: string
+                    description: Exact project range start as a decimal uint256.
+                mintedTokenCount:
+                    type: integer
+                    minimum: 1
+                    description: Consecutive minted IDs from the start, not contract-wide inventory.
+                maxTokenCount:
+                    type: integer
+                    minimum: 1
+                    description: Current configured project maximum; can include unminted IDs.
 
         BootstrapProbeImageCacheSuggestion:
             type: object
@@ -5660,7 +5695,11 @@ components:
                     properties:
                         reason:
                             type: string
-                            enum: [multi_project_registry, multi_project_interface]
+                            enum:
+                                [
+                                    multi_project_registry,
+                                    multi_project_interface,
+                                ]
                         registryAddress:
                             type: string
                             nullable: true

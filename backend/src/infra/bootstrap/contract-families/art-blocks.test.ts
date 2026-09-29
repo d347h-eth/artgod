@@ -15,7 +15,11 @@ import {
     ART_BLOCKS_FUNCTION as F,
     ART_BLOCKS_MAINNET_REGISTRY as Registry,
     probeArtBlocksSharedContract,
+    inspectArtBlocksProjectScope,
+    ART_BLOCKS_PROJECT_TOKEN_STRIDE as STRIDE,
+    ART_BLOCKS_V3_CORE_TYPES,
 } from "./art-blocks.js";
+import { EVM_TOKEN_ID_MAX } from "@artgod/shared/evm/token-id";
 
 type Read = Parameters<BootstrapProbeRpc["readContract"]>[0];
 const input = {
@@ -50,6 +54,15 @@ function fixture(values: Record<string, unknown> = {}) {
             probeArtBlocksSharedContract(
                 rpc,
                 { ...input, ...overrides },
+                (event) => output.push(event),
+            ),
+        inspect: (
+            tokenId = "163000485",
+            overrides: Partial<typeof input> = {},
+        ) =>
+            inspectArtBlocksProjectScope(
+                rpc,
+                { ...input, ...overrides, tokenId },
                 (event) => output.push(event),
             ),
     };
@@ -163,5 +176,154 @@ describe("advisory on-chain shared-contract recognition", () => {
                 [F.Registered]: new Error("Registry unavailable"),
             }).probe(),
         ).toMatchObject({ reason: Reason.ProjectInterface });
+    });
+});
+
+const legacyProject = {
+    [F.Registered]: true,
+    [F.TokenProject]: 163n,
+    [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, 1000n, 1000n],
+    [F.Details]: ["Meridian", "Matt DesLauriers", "", "", ""],
+};
+describe("Art Blocks sample project range suggestions", () => {
+    it("uses the sampled legacy project, with pinned reads and no global supply or project scan", async () => {
+        const f = fixture(legacyProject);
+        expect(await f.inspect()).toEqual({
+            projectId: "163",
+            projectName: "Meridian",
+            startTokenId: "163000000",
+            mintedTokenCount: 1000,
+            maxTokenCount: 1000,
+        });
+        expect(f.calls.map((call) => call.functionName)).toEqual([
+            F.Registered,
+            F.CoreType,
+            F.TokenProject,
+            F.TokenInfo,
+            F.Details,
+        ]);
+        expect(
+            f.calls.every((call) => call.blockNumber === input.blockNumber),
+        ).toBe(true);
+        expect(
+            f.calls.find((call) => call.functionName === F.TokenInfo)?.args,
+        ).toEqual([163n]);
+    });
+    for (const coreType of ART_BLOCKS_V3_CORE_TYPES) {
+        it(`reads a registered ${coreType} project and separates minted count from maximum`, async () => {
+            const f = fixture({
+                [F.Registered]: true,
+                [F.CoreType]: coreType,
+                [F.State]: [486n, 1000n],
+            });
+            expect(await f.inspect()).toEqual({
+                projectId: "163",
+                projectName: null,
+                startTokenId: "163000000",
+                mintedTokenCount: 486,
+                maxTokenCount: 1000,
+            });
+        });
+    }
+    it("reads V3 state counters even when tokenIdToProjectId is present, as on live Engine cores", async () => {
+        const f = fixture({
+            ...legacyProject,
+            [F.TokenProject]: 0n,
+            [F.CoreType]: ART_BLOCKS_V3_CORE_TYPES[1],
+            [F.State]: [441n, 500n],
+        });
+        expect(await f.inspect("0")).toMatchObject({
+            projectId: "0",
+            startTokenId: "0",
+            mintedTokenCount: 441,
+            maxTokenCount: 500,
+        });
+        expect(f.calls.some((call) => call.functionName === F.TokenInfo)).toBe(
+            false,
+        );
+    });
+    it("supports project zero and large project IDs without numeric precision loss", async () => {
+        for (const id of [0n, 9007199254740993n]) {
+            expect(
+                await fixture({
+                    ...legacyProject,
+                    [F.TokenProject]: id,
+                }).inspect(String(id * STRIDE + 1n)),
+            ).toMatchObject({
+                projectId: String(id),
+                startTokenId: String(id * STRIDE),
+            });
+        }
+    });
+    it("never treats compatible unregistered forks or another chain as recognized Art Blocks", async () => {
+        const f = fixture({ ...legacyProject, [F.Registered]: false });
+        expect(await f.inspect()).toBeNull();
+        expect(f.calls).toHaveLength(1);
+        const otherChain = fixture(legacyProject);
+        expect(await otherChain.inspect(undefined, { chainId: 10 })).toBeNull();
+        expect(otherChain.calls).toHaveLength(0);
+    });
+    for (const [name, values] of Object.entries({
+        "registry failure": { [F.Registered]: new Error("offline") },
+        "core identity transport failure": {
+            [F.CoreType]: new Error("offline"),
+        },
+        "mapping mismatch": { [F.TokenProject]: 162n },
+        "malformed mapping": { [F.TokenProject]: "163" },
+        "mapping transport failure": {
+            [F.TokenProject]: new Error("offline"),
+            [F.CoreType]: ART_BLOCKS_V3_CORE_TYPES[0],
+            [F.State]: [1000n, 1000n],
+        },
+        "counts unavailable": { [F.TokenInfo]: new Error("offline") },
+        "minted exceeds maximum": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, 1001n, 1000n],
+        },
+        "zero invocations": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, 0n, 1000n],
+        },
+        "sample beyond minted span": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, 485n, 1000n],
+        },
+        "maximum exceeds namespace": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, 1000n, STRIDE + 1n],
+        },
+        "negative counts": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, -1n, 1000n],
+        },
+        "malformed counts": {
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, "1000", "1000"],
+        },
+        "unknown v3 model": {
+            [F.TokenProject]: unsupported(),
+            [F.CoreType]: "future core",
+            [F.State]: [1000n, 1000n],
+        },
+    })) {
+        it(`withholds suggestions on ${name}`, async () => {
+            const f = fixture({ ...legacyProject, ...values });
+            expect(await f.inspect()).toBeNull();
+            if (name === "mapping transport failure")
+                expect(
+                    f.calls.some((call) => call.functionName === F.State),
+                ).toBe(false);
+        });
+    }
+    it("rejects a suggested maximum outside uint256 even when the sample fits", async () => {
+        const projectId = EVM_TOKEN_ID_MAX / STRIDE;
+        const f = fixture({
+            ...legacyProject,
+            [F.TokenProject]: projectId,
+            [F.TokenInfo]: [BOOTSTRAP_TEST_OWNER, 0n, STRIDE, STRIDE],
+        });
+        expect(await f.inspect(String(EVM_TOKEN_ID_MAX))).toBeNull();
+    });
+    it("keeps valid range facts when the optional project name fails", async () => {
+        expect(
+            await fixture({
+                ...legacyProject,
+                [F.Details]: new Error("offline"),
+            }).inspect(),
+        ).toMatchObject({ projectName: null, mintedTokenCount: 1000 });
     });
 });

@@ -41,7 +41,10 @@ import {
 } from "@artgod/shared/evm/proxy-detection";
 import { bootstrapMetadataFetchFailure } from "../media/bootstrap-resource-failure.js";
 import { bootstrapResourceObserver } from "./resource-output.js";
-import { probeArtBlocksSharedContract } from "./contract-families/art-blocks.js";
+import {
+    probeArtBlocksSharedContract,
+    inspectArtBlocksProjectScope,
+} from "./contract-families/art-blocks.js";
 import {
     BOOTSTRAP_ACTION_LABEL as Action,
     BOOTSTRAP_OUTPUT_STEP as Step,
@@ -439,6 +442,22 @@ export class ViemBootstrapContractProbe
                     : "Ownership could not be checked. Retry inspection.",
             };
         }
+    }
+
+    readProjectScope(
+        input: Parameters<BootstrapSampleInspectionPort["readProjectScope"]>[0],
+        report?: BootstrapOutputReporter,
+    ) {
+        return inspectArtBlocksProjectScope(
+            this.rpc,
+            {
+                address: input.address as Hex,
+                chainId: input.chainId,
+                blockNumber: input.observation.blockNumber,
+                tokenId: input.tokenId,
+            },
+            report,
+        );
     }
 
     async readMetadata(

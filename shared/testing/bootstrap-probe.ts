@@ -5,6 +5,7 @@ import {
     emptyBootstrapSampleMetadata,
     type BootstrapContractProbeResponse,
     type BootstrapSampleInspectionResponse,
+    type BootstrapProjectScopeSuggestion,
 } from "../bootstrap/probe.js";
 import { defaultImageCachePolicyConfig } from "../media/token-image-cache.js";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "../types/index.js";
@@ -24,6 +25,13 @@ export const BOOTSTRAP_TEST_ADDRESS =
     "0x1111111111111111111111111111111111111111";
 export const BOOTSTRAP_TEST_OWNER =
     "0x2222222222222222222222222222222222222222";
+export const BOOTSTRAP_TEST_PROJECT_SCOPE: BootstrapProjectScopeSuggestion = {
+    projectId: "163",
+    projectName: "Meridian",
+    startTokenId: "163000000",
+    mintedTokenCount: 1000,
+    maxTokenCount: 1000,
+};
 
 // User-provided boundaries with deterministic chain responses, not live observations.
 export const BOOTSTRAP_CONTRACT_CASES = [
@@ -141,6 +149,7 @@ export function bootstrapTestSample(
             tokenUriPayloadBytes: new TextEncoder().encode(text).byteLength,
         },
         ipfsGatewayOrigin: "https://ipfs.io",
+        projectScope: null,
         imageCacheSuggestion: {
             selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
             extensionKey: null,

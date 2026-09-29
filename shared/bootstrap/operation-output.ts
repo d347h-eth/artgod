@@ -31,6 +31,7 @@ export const BOOTSTRAP_OUTPUT_STEP = {
     Name: "name",
     Supply: "supply",
     SharedContract: "shared_contract",
+    ProjectScope: "project_scope",
     Enumeration: "enumeration",
     Ownership: "ownership",
     Sample: "sample",

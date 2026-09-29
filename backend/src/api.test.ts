@@ -782,6 +782,9 @@ beforeAll(async () => {
             async readMetadata() {
                 return bootstrapTestSample().sample;
             },
+            async readProjectScope() {
+                return null;
+            },
         },
         builtInCollectionExtensionResolver,
         "https://ipfs.io",

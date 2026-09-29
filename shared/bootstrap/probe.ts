@@ -102,6 +102,17 @@ export type BootstrapImageCacheSuggestion = {
     extensionKey: CollectionExtensionKey | null;
     config: ImageCachePolicyConfig;
 };
+/** Sample-specific project facts from a recognized on-chain implementation.
+ * Counts describe consecutive IDs from startTokenId, not contract-wide supply.
+ * The configured maximum can include tokens that have not been minted yet.
+ */
+export type BootstrapProjectScopeSuggestion = {
+    projectId: string;
+    projectName: string | null;
+    startTokenId: string;
+    mintedTokenCount: number;
+    maxTokenCount: number;
+};
 export type BootstrapSampleInspectionRequest = {
     address: string;
     requestedTokenId?: string | null;
@@ -116,6 +127,7 @@ export type BootstrapSampleInspectionResponse = {
     requestedTokenId: string | null;
     scope: BootstrapScope | null;
     sample: BootstrapProbeSample;
+    projectScope: BootstrapProjectScopeSuggestion | null;
     ipfsGatewayOrigin: string;
     imageCacheSuggestion: BootstrapImageCacheSuggestion;
 };

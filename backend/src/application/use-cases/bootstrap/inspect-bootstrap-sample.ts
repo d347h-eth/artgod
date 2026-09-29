@@ -6,6 +6,7 @@ import {
     type BootstrapSampleInspectionRequest,
     type BootstrapSampleInspectionResponse,
     type BootstrapImageCacheSuggestion,
+    type BootstrapProjectScopeSuggestion,
 } from "@artgod/shared/bootstrap/probe";
 import {
     BOOTSTRAP_ACTION_LABEL as Action,
@@ -61,6 +62,18 @@ export interface BootstrapSampleInspectionPort {
         },
         report?: BootstrapOutputReporter,
     ): Promise<BootstrapSampleMetadata>;
+    /** Optional on-chain project lookup for an ownership-confirmed sample.
+     * Unsupported families and failed advisory reads return null with output.
+     */
+    readProjectScope(
+        input: {
+            chainId: number;
+            address: string;
+            tokenId: string;
+            observation: BootstrapProbeObservation;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<BootstrapProjectScopeSuggestion | null>;
 }
 export interface ProbeCollectionExtensionResolverPort extends EmbeddedCollectionExtensionResolverPort {
     resolveImageCachePolicyConfig(input: {
@@ -95,6 +108,7 @@ export class InspectBootstrapSampleUseCase {
             report,
         );
         const candidates: BootstrapProbeTokenCandidate[] = [];
+        let projectScope: BootstrapProjectScopeSuggestion | null = null;
         const sample: BootstrapSampleInspectionResponse["sample"] = {
             ...emptyBootstrapSampleMetadata(),
             tokenId: null,
@@ -124,18 +138,23 @@ export class InspectBootstrapSampleUseCase {
                     message: `Sample token #${candidate.tokenId} · ${candidate.source.replaceAll("_", " ")}`,
                     tokenId: candidate.tokenId,
                 });
-                if (ownership.exists === true)
-                    Object.assign(
-                        sample,
-                        await this.inspection.readMetadata(
-                            {
-                                address,
-                                tokenId: candidate.tokenId,
-                                observation,
-                            },
+                if (ownership.exists === true) {
+                    const target = {
+                        address,
+                        tokenId: candidate.tokenId,
+                        observation,
+                    };
+                    // Project facts do not depend on an available metadata server.
+                    const [metadata, project] = await Promise.all([
+                        this.inspection.readMetadata(target, report),
+                        this.inspection.readProjectScope(
+                            { ...target, chainId: chain.publicChainId },
                             report,
                         ),
-                    );
+                    ]);
+                    Object.assign(sample, metadata);
+                    projectScope = project;
+                }
                 Object.assign(sample, {
                     tokenId: candidate.tokenId,
                     source: candidate.source,
@@ -159,6 +178,7 @@ export class InspectBootstrapSampleUseCase {
             requestedTokenId,
             scope,
             sample,
+            projectScope,
             ipfsGatewayOrigin: this.ipfsGatewayOrigin,
             imageCacheSuggestion: this.imageCacheSuggestion(
                 chain.publicChainId,

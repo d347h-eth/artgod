@@ -11,17 +11,24 @@ import {
     BOOTSTRAP_TEST_CHAIN as CHAIN,
     BOOTSTRAP_TEST_OBSERVATION as OBSERVATION,
     bootstrapTestSample,
+    BOOTSTRAP_TEST_PROJECT_SCOPE,
 } from "@artgod/shared/testing/bootstrap-probe";
 import { InspectBootstrapSampleUseCase } from "../../../application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { registerApiErrorHandlers } from "../../common/error-handlers.js";
 import { InspectBootstrapSampleHttpAdapter } from "./inspect-bootstrap-sample.js";
+import {
+    BOOTSTRAP_STREAM_CONTENT_TYPE,
+    BOOTSTRAP_STREAM_RECORD,
+} from "@artgod/shared/bootstrap/operation-output";
 
 describe("sample inspection HTTP mapping", () => {
     const apps: ReturnType<typeof Fastify>[] = [];
     afterEach(async () => {
         await Promise.all(apps.splice(0).map((app) => app.close()));
     });
-    function fixture() {
+    function fixture(
+        projectScope: typeof BOOTSTRAP_TEST_PROJECT_SCOPE | null = null,
+    ) {
         const app = Fastify({ logger: false });
         apps.push(app);
         registerApiErrorHandlers(app);
@@ -39,6 +46,7 @@ describe("sample inspection HTTP mapping", () => {
                 observation: async () => OBSERVATION,
                 verifyObservation: async () => {},
                 checkOwnership,
+                readProjectScope: async () => projectScope,
                 readMetadata: async () => ({
                     ...bootstrapTestSample().sample,
                     tokenUriPayload: null,
@@ -58,6 +66,35 @@ describe("sample inspection HTTP mapping", () => {
         );
         return { app, checkOwnership };
     }
+
+    it.each([false, true])(
+        "preserves project facts and failed metadata over HTTP (stream=%s)",
+        async (stream) => {
+            const { app } = fixture(BOOTSTRAP_TEST_PROJECT_SCOPE);
+            const response = await app.inject({
+                method: "POST",
+                url: buildInspectBootstrapSamplePath(CHAIN.slug),
+                headers: stream
+                    ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE }
+                    : {},
+                payload: { address: ADDRESS, requestedTokenId: "163000485" },
+            });
+            expect(response.statusCode).toBe(200);
+            const body = stream
+                ? response.body
+                      .trim()
+                      .split("\n")
+                      .map((line) => JSON.parse(line))
+                      .find(
+                          (record) =>
+                              record.type === BOOTSTRAP_STREAM_RECORD.Result,
+                      ).result
+                : response.json();
+            expect(body.projectScope).toEqual(BOOTSTRAP_TEST_PROJECT_SCOPE);
+            expect(body.sample.tokenUriPayloadError).toContain("HTTP 429");
+            expect(body.scope).toBeNull();
+        },
+    );
 
     it("serializes canonical uint256 IDs and partial failures without losing owned sample or selected scope", async () => {
         const { app } = fixture();
