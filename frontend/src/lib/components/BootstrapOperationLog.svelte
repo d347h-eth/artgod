@@ -45,7 +45,6 @@
 	<div class="runtime-log-stream bootstrap-output-scroll" bind:this={viewport} onscroll={onScroll}
 		role="log" aria-label="bootstrap checks" aria-live="off" tabindex="0">
 		{#if log.discarded}<p class="muted">{log.discarded} earlier entries removed.</p>{/if}
-		{#if !log.entries.length}<p class="muted">Run a check to see its output.</p>{/if}
 		{#each log.entries as entry (entry.id)}
 			<div class="bootstrap-output-entry" class:bootstrap-output-failed={entry.status === BOOTSTRAP_OUTPUT_STATUS.Failed}
 				class:bootstrap-output-retry={entry.status === BOOTSTRAP_OUTPUT_STATUS.Retrying}>

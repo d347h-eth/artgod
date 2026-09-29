@@ -40,6 +40,7 @@
 		openSeaEnabled,
 		disabledReason = null,
 		resetKey = 0,
+		resolvedScopeHref = null,
 		onStateChange,
 		onOutput
 	}: {
@@ -55,6 +56,8 @@
 		openSeaEnabled: boolean;
 		disabledReason?: string | null;
 		resetKey?: number;
+		// Preserve the successful lookup while the caller fixes its independent token scope.
+		resolvedScopeHref?: string | null;
 		onStateChange?: (state: OpenSeaSlugResolverState) => void;
 		onOutput?: (record: BootstrapProgressRecord) => void;
 	} = $props();
@@ -200,7 +203,11 @@
 		/>
 		<div class:bootstrap-row-actions={gridLayout} class:bootstrap-resolver-actions={!gridLayout}>
 			{#if slugResolved}
-				<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">resolved</span>
+				{#if resolvedScopeHref}
+					<a href={resolvedScopeHref} class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">check scope</a>
+				{:else}
+					<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">resolved</span>
+				{/if}
 			{:else}
 				<button
 					type="button"

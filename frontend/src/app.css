@@ -898,6 +898,30 @@ a:hover {
 	max-width: 100%;
 }
 
+/* Setup's image and animation share the same square media viewport. Keep the
+   canonical token card, without its browsing-grid height or metadata padding. */
+.bootstrap-probe-token-card .token-grid-card {
+	border: 0;
+	padding: 0;
+	gap: 0;
+}
+
+.bootstrap-probe-token-card .token-grid-media {
+	position: relative;
+	width: 100%;
+	height: auto;
+	min-height: 0;
+	max-height: none;
+	aspect-ratio: 1;
+}
+
+.bootstrap-probe-token-card .token-preview-trigger-grid {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+
 .bootstrap-preview-source-tabs {
 	justify-content: center;
 	width: 100%;
@@ -2611,6 +2635,13 @@ th {
 .bid-book-own-status-cancelled {
 	background: var(--c-yellow);
 	color: var(--c-bg);
+}
+
+/* A status that links to its recovery action must retain readable contrast. */
+a.bid-book-own-status:hover,
+a.bid-book-own-status:focus-visible {
+	background: var(--c-bg);
+	color: var(--c-yellow);
 }
 
 .token-grid-own-statuses {

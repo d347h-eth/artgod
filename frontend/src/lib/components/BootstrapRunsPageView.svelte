@@ -61,7 +61,7 @@
 	import WarningIcon from '$lib/components/WarningIcon.svelte';
 	import BootstrapOperationLog from '$lib/components/BootstrapOperationLog.svelte';
 	import { appendBootstrapOutput, emptyBootstrapLog, type BootstrapRequestOutput } from '$lib/bootstrap-output';
-	import { BOOTSTRAP_OPERATION, BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE, type BootstrapOperation, type BootstrapProgressRecord } from '@artgod/shared/bootstrap/operation-output';
+	import { BOOTSTRAP_ACTION_LABEL as Action, BOOTSTRAP_OPERATION, BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE, type BootstrapOperation, type BootstrapProgressRecord } from '@artgod/shared/bootstrap/operation-output';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
@@ -276,6 +276,8 @@
 		setupIssues.startTokenId ?? setupIssues.totalSupply ?? setupIssues.tokenIds
 	);
 	let sampleMatchesScope = $derived(bootstrapSampleMatchesScope(effectiveSampleTokenId, setupDraft));
+	let sampleScopeConflict = $derived(Boolean(effectiveSampleTokenId && (sample || openSeaSlugResolved) && !sampleMatchesScope));
+	let likelySharedContract = $derived(latestProbeMatchesAddress && Boolean(probeResult?.sharedContract));
 	let contractReady = $derived(
 		Boolean(chain) && addressCanBeProbed && contractAddressSafetyAcknowledged
 	);
@@ -475,7 +477,7 @@
 			probeError =
 				error instanceof BackendApiError && [400, 422].includes(error.status)
 					? error.message
-					: 'Contract checks failed. Check RPC settings, then press probe.';
+					: `Contract checks failed. Check RPC settings, then press ${Action.Probe}.`;
 		}
 		if (
 			requestId === contractProbeRequestId &&
@@ -535,7 +537,7 @@
 			sampleError =
 				error instanceof BackendApiError && [400, 422].includes(error.status)
 					? error.message
-					: 'Sample inspection failed. Press inspect to retry.';
+					: `Sample inspection failed. Press ${Action.Inspect} to retry.`;
 		}
 	}
 
@@ -1013,11 +1015,11 @@
 					<div class="bootstrap-row-actions">
 						<button type="button" class="action-button-positive"
 							disabled={!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain || contractProbePending}
-							aria-label="probe" aria-busy={contractProbePending} onclick={() => void onProbe()}>
-							{#if contractProbePending}{@render inProgressStatus('probing', 'probing contract')}{:else}probe{/if}
+							aria-label={Action.Probe} aria-busy={contractProbePending} onclick={() => void onProbe()}>
+							{#if contractProbePending}{@render inProgressStatus('probing', 'probing contract')}{:else}{Action.Probe}{/if}
 						</button>
 						{#if probeInputsChanged && !latestProbeMatchesAddress && !contractProbePending && !probeError}
-							<p class="bootstrap-row-note muted">Inputs changed — probe again.</p>
+							<p class="bootstrap-row-note muted">Inputs changed — press {Action.Probe} again.</p>
 						{/if}
 						{#if (bootstrapAddress.trim() && setupIssues.address) || probeError}
 							<p id="bootstrap-address-help" class="bootstrap-row-note" class:muted={!probeError} class:bootstrap-check-warning={Boolean(probeError)} role={probeError ? 'alert' : undefined}>
@@ -1031,20 +1033,17 @@
 					<input id="bootstrap-sample" bind:this={sampleTokenIdInputElement} value={sampleTokenId}
 						class={bootstrapInputClass} type="text" inputmode="numeric" name="sampleTokenId"
 						oninput={onSampleTokenIdInput}
-						aria-describedby={sampleProbeFailure || (effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue) ? 'bootstrap-sample-help' : undefined} />
+						aria-describedby={sampleProbeFailure ? 'bootstrap-sample-help' : undefined} />
 					<div class="bootstrap-row-actions">
 						{@render applySuggestion(sample && bootstrapSampleOwnership(sample) === true
 							? sample.tokenId : null, sampleTokenId, setSampleTokenIdValue)}
-						<button type="button" class="action-button-positive" aria-label="inspect" aria-busy={samplePending}
+						<button type="button" class="action-button-positive" aria-label={Action.Inspect} aria-busy={samplePending}
 							disabled={!addressCanBeProbed || samplePending || contractProbePending} onclick={() => void onInspectSample()}>
-							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}inspect{/if}
+							{#if samplePending}{@render inProgressStatus('inspecting', 'inspecting sample')}{:else}{Action.Inspect}{/if}
 						</button>
-						{#if sampleProbeFailure || (effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue)}
-							<p id="bootstrap-sample-help" class="bootstrap-row-note bootstrap-check-warning" role={sampleProbeFailure ? 'alert' : undefined}>
-								{#if sampleProbeFailure}{sampleProbeFailure}{/if}
-								{#if effectiveSampleTokenId && !sampleMatchesScope && !scopeIssue}
-									Sample #{effectiveSampleTokenId} is outside this scope. Inspect a token inside it for estimates and OpenSea.
-								{/if}
+						{#if sampleProbeFailure}
+							<p id="bootstrap-sample-help" class="bootstrap-row-note bootstrap-check-warning" role="alert">
+								{sampleProbeFailure}
 							</p>
 						{/if}
 					</div>
@@ -1086,6 +1085,7 @@
 				<div class="bootstrap-form-row">
 					<label for="bootstrap-scope-mode">{@render fieldLabel('Token scope', bootstrapFieldHelp.manualMode)}</label>
 					<select id="bootstrap-scope-mode" class={bootstrapSelectClass}
+						aria-describedby={[likelySharedContract ? 'bootstrap-shared-contract-help' : '', sampleScopeConflict ? 'bootstrap-scope-sample-help' : ''].filter(Boolean).join(' ') || undefined}
 						value={entireContractSelected ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode}
 						onchange={onScopeModeChange}>
 						<option value={BOOTSTRAP_ENUMERATION_MODE.ManualRange}>Token range</option>
@@ -1093,7 +1093,13 @@
 						<option value={BOOTSTRAP_ENUMERATION_MODE.Enumerable}>Entire contract</option>
 					</select>
 					<div class="bootstrap-row-actions">
-						{#if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
+						{#if likelySharedContract}
+							<p id="bootstrap-shared-contract-help" class="bootstrap-row-note bootstrap-check-warning">
+								Likely shared contract. Specify this collection's Token range or Token ID list manually.
+								{#if probeResult?.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects.
+								{:else}Contract token count unavailable.{/if}
+							</p>
+						{:else if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
 							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
 							{#if !entireContractSelected}
 								<p class="bootstrap-row-note bootstrap-check-warning">
@@ -1102,18 +1108,26 @@
 								</p>
 							{/if}
 						{/if}
-						{#if entireContractSelected}
+						{#if entireContractSelected && !likelySharedContract}
 							<p class="bootstrap-row-note muted">
 								Includes every project on this contract.
 								{#if latestProbeMatchesAddress && probeResult?.totalSupply.value != null}
 									<span class="bootstrap-check-warning">{probeResult.totalSupply.value} tokens in total.</span>
 								{:else}<span class="bootstrap-check-warning">Contract token count unavailable.</span>{/if}
 							</p>
-							{#if !latestProbeMatchesAddress || probeResult?.enumerable.supported !== true}
-								<p class="bootstrap-row-note bootstrap-check-warning">
-									ERC721Enumerable not confirmed. Use Token range or Token ID list if enumeration is unavailable.
-								</p>
-							{/if}
+						{/if}
+						{#if entireContractSelected && (!latestProbeMatchesAddress || probeResult?.enumerable.supported !== true)}
+							<p class="bootstrap-row-note bootstrap-check-warning">
+								ERC721Enumerable not confirmed. Use Token range or Token ID list if enumeration is unavailable.
+							</p>
+						{/if}
+						{#if sampleScopeConflict}
+							<p id="bootstrap-scope-sample-help" class="bootstrap-row-note bootstrap-check-warning">
+								{#if scopeIssue}Complete this collection's token scope, then check that sample #{effectiveSampleTokenId} belongs to it.
+								{:else}Sample #{effectiveSampleTokenId} is outside this scope. Correct the range or token list, or inspect a token inside it.{/if}
+								{#if openSeaSlugResolved}Until then, its resolved OpenSea slug will be kept here but skipped when queueing.
+								{/if}
+							</p>
 						{/if}
 					</div>
 				</div>
@@ -1312,13 +1326,10 @@
 					<OpenSeaSlugResolverControl chainSlug={chain?.slug ?? null} contractAddress={normalizedBootstrapAddress}
 						bind:this={openSeaSlugResolver} sampleTokenId={effectiveSampleTokenId} initialSlug="" inputId="bootstrap-opensea-slug"
 						inputClass={bootstrapInputClass} gridLayout openSeaEnabled={openSeaEnabled && contractAddressSafetyAcknowledged} onStateChange={onOpenSeaSlugStateChange}
+						resolvedScopeHref={!sampleMatchesScope ? '#bootstrap-scope' : null}
 						onOutput={recordOutput}
 						disabledReason={!contractAddressSafetyAcknowledged ? null : openSeaDisabledReason ? `${openSeaDisabledReason}. ${openSeaSetupMessage}` : openSeaSetupMessage} />
-					{#if openSeaSlugResolved && !sampleMatchesScope}
-						<p class="bootstrap-row-note bootstrap-check-warning">
-							OpenSea will be skipped. Inspect a token inside this scope and resolve again.
-						</p>
-					{:else if openSeaEnabled && !effectiveSampleTokenId}
+					{#if openSeaEnabled && !effectiveSampleTokenId}
 						<p class="bootstrap-row-note muted">Inspect a sample token to resolve.</p>
 					{/if}
 				</div>

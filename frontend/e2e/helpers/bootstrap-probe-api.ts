@@ -15,6 +15,7 @@ import {
 } from '@artgod/shared/testing/bootstrap-probe';
 import { bootstrapSampleCandidates } from '@artgod/shared/bootstrap/sample-selection';
 import {
+	BOOTSTRAP_SHARED_CONTRACT_REASON,
 	emptyBootstrapSampleMetadata,
 	type BootstrapContractProbeResponse,
 	type BootstrapSampleInspectionResponse,
@@ -267,6 +268,10 @@ function contractResponse(address: string): BootstrapContractProbeResponse {
 	const response = bootstrapTestContract({
 		address,
 		contractName: fixture.name,
+		sharedContract:
+			fixture.name === 'meridian'
+				? { reason: BOOTSTRAP_SHARED_CONTRACT_REASON.ProjectInterface, registryAddress: null }
+				: null,
 		enumerable: { supported: fixture.enumerable, error: null }
 	});
 	response.totalSupply = {

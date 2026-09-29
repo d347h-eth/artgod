@@ -369,7 +369,7 @@ confirmed, detected and estimated labels; keep only actionable explanations,
 validation and scope constraints there. The dark section fill belongs only to the
 heading, without a bottom rule. Completed required sections show cyan `✓ complete`; optional
 sections do not repeat configured/resolved status in their headings.
-Actions use the standard form buttons: probe, inspect, estimate and queue
+Actions use the standard form buttons: probe contract, inspect token, estimate and queue
 bootstrap use the cyan `.action-button-positive` family; per-field apply,
 resolve and the log's latest action use the ice `.action-button-neutral` family.
 New or changed apply suggestions use the shared update flash from the bid book,
@@ -377,7 +377,11 @@ colored cyan.
 Action labels are lowercase, and
 pending text and `LoadingBladeBar` appear inside the initiating button. A resolved
 OpenSea slug replaces resolve with the existing cyan status badge; editing it
-restores the action. Action widths follow their shared column; labels do not wrap.
+restores the action. If its sample is outside the entered scope, retain the slug
+and show a yellow `check scope` link to the scope section. Correcting the range
+or list restores `resolved` without another lookup or inspection. The scope
+section explains that the slug will be omitted until the conflict is corrected.
+Action widths follow their shared column; labels do not wrap.
 Long suggested values use the shared
 `.action-button-value` clipping treatment with a complete accessible name and
 hover title. Narrow screens stack the workspace and, when necessary, label,
@@ -405,7 +409,7 @@ retaining earlier output labeled with its token ID. Media-field and scope edits
 retain the text. Superseded requests cannot append late output.
 
 Contract findings appear before sample inspection finishes. The address action
-checks the contract, then inspects a sample; the sample's `inspect` action retries
+checks the contract, then inspects a sample; the sample's `inspect token` action retries
 only that operation. An empty sample override uses the effective sample without
 an apply prerequisite. Field selectors re-evaluate the retained JSON locally.
 Scope edits retain usable image measurements and recalculate totals; a sample
@@ -416,9 +420,15 @@ Detailed probe results, sample media and cached-image previews appear as soon as
 available, without expand/collapse actions. Scope choices remain editable without
 probing. Both the whole-contract suggestion and selected scope show the detected
 contract-wide token count in yellow and identify that every project is included.
+Positive on-chain multi-project evidence replaces the whole-contract suggestion
+with a likely-shared warning and the contract token count. It asks the user to
+specify a manual range or list; it never selects or edits that scope. OpenSea
+does not participate in contract classification.
 If supply is unavailable, say so. A whole-contract choice is explicit and carries
 a warning when support is unconfirmed. It never follows automatically from a
 contract-wide capability or supply read.
+Sample image and animation previews share the same square media viewport; the
+image card must not inherit the full browsing grid's fixed height or padding.
 
 The logical groups and explicit optional stages follow the
 [W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,
