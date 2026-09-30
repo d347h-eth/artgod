@@ -444,7 +444,9 @@ estimate or OpenSea association. Pending responses cannot replace newer edits.
 Detailed probe results, sample media and cached-image previews appear as soon as
 available, without expand/collapse actions. Scope choices remain editable without
 probing. Both the whole-contract suggestion and selected scope show the detected
-contract-wide token count in yellow and identify that every project is included.
+contract-wide token count in yellow and use neutral wording about including all
+tokens on the contract. Generic scope messages and help must not imply a shared
+contract. Reserve explicit project/shared warnings for positive findings.
 Positive on-chain multi-project evidence replaces the whole-contract suggestion
 with a likely-shared warning and the contract token count. It asks the user to
 specify a manual range or list; it never selects or edits that scope. OpenSea

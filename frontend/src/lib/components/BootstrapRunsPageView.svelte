@@ -156,7 +156,7 @@
 		imageMaxDimension:
 			'Maximum cached image width or height in pixels. Leave blank to keep original dimensions.',
 		manualMode:
-			'Choose this collection’s token range or explicit token IDs. Entire contract uses ERC721Enumerable and includes every project on the contract.',
+			'Choose this collection’s token range or explicit token IDs. Entire contract uses ERC721Enumerable to include all tokens on the contract.',
 		tokenIds: 'Required explicit token IDs, separated by commas or whitespace.',
 		startTokenId: 'First token ID in the declared range, including IDs that are not yet minted.',
 		manualRangeTotalSupply:
@@ -1173,14 +1173,14 @@
 							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
 							{#if !entireContractSelected}
 								<p class="bootstrap-row-note bootstrap-check-warning">
-									{#if probeResult.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects on this contract.
+									{#if probeResult.totalSupply.value != null}{probeResult.totalSupply.value} tokens on this contract.
 									{:else}Contract token count unavailable.{/if}
 								</p>
 							{/if}
 						{/if}
 						{#if entireContractSelected && !likelySharedContract}
 							<p class="bootstrap-row-note muted">
-								Includes every project on this contract.
+								Includes all tokens on this contract.
 								{#if latestProbeMatchesAddress && probeResult?.totalSupply.value != null}
 									<span class="bootstrap-check-warning">{probeResult.totalSupply.value} tokens in total.</span>
 								{:else}<span class="bootstrap-check-warning">Contract token count unavailable.</span>{/if}
