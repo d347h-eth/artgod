@@ -37,6 +37,7 @@ import {
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
 	installBootstrapProbeApiMock,
 	pauseBootstrapSampleMetadata,
+	pauseBootstrapImageCacheEstimate,
 	fulfillBootstrapOutput
 } from './helpers/bootstrap-probe-api';
 import {
@@ -1177,6 +1178,130 @@ test.describe('bootstrap setup', () => {
 		expect(api.sampleRequests).toEqual([]);
 		await expect(queueButton(page)).toBeEnabled();
 	});
+
+	test('waits for repeat inspection before estimating replacement metadata', async ({
+		page
+	}, info) => {
+		let image: string = BOOTSTRAP_PROBE_MEDIA.RasterImage;
+		const api = await installBootstrapProbeApiMock(page, {
+			sample: (response) => ({
+				...response,
+				sample: {
+					...response.sample,
+					tokenUriPayload: JSON.stringify({ image })
+				}
+			})
+		});
+		await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await probeButton(page).click();
+		const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+		const inspect = page.getByRole('button', { name: Action.Inspect, exact: true });
+		const cached = page.getByTestId(TEST_IDS.BootstrapCacheTokenCard);
+		await expect(estimate).toBeEnabled();
+		await estimate.click();
+		await expect(cached).toBeVisible();
+
+		image = BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage;
+		const release = await pauseBootstrapSampleMetadata(page);
+		await inspect.click();
+		await expect(inspect).toContainText('inspecting');
+		await expect(estimate).toBeDisabled();
+		await expect(page.locator('#bootstrap-cache-help')).toHaveText(
+			'Wait for token inspection to finish.'
+		);
+		await rowControl(page, 'Max dimension (px)').press('Enter');
+		await expect(cached).toHaveCount(0);
+		await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
+		expect(api.imageCacheEstimateRequests).toHaveLength(1);
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: info.outputPath('repeat-inspection-pending.png'),
+			fullPage: true
+		});
+		await page
+			.locator('#bootstrap-cache')
+			.screenshot({ path: info.outputPath('repeat-inspection-pending-cache.png') });
+		await release.evaluate((resume) => resume());
+		await expect(inspect).toHaveAttribute('aria-busy', 'false');
+		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard).locator('img')).toHaveAttribute(
+			'src',
+			image
+		);
+		await expect(cached).toHaveCount(0);
+		await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
+		await expect(estimate).toBeEnabled();
+		await estimate.click();
+		await expect(cached).toBeVisible();
+		expect(api.imageCacheEstimateRequests).toEqual([
+			expect.objectContaining({
+				sampleTokenId: '2',
+				sourceImageUrl: BOOTSTRAP_PROBE_MEDIA.RasterImage
+			}),
+			expect.objectContaining({ sampleTokenId: '2', sourceImageUrl: image })
+		]);
+		expect(api.sampleRequests).toHaveLength(2);
+		await expectGridAlignment(page);
+		await page.screenshot({
+			path: info.outputPath('repeat-inspection-estimated.png'),
+			fullPage: true
+		});
+		await page
+			.locator('#bootstrap-cache')
+			.screenshot({ path: info.outputPath('repeat-inspection-estimated-cache.png') });
+	});
+
+	for (const estimateFinishesFirst of [true, false])
+		test(`rejects the preceding image estimate when ${estimateFinishesFirst ? 'estimate' : 'replacement inspection'} finishes first`, async ({
+			page
+		}) => {
+			let image: string = BOOTSTRAP_PROBE_MEDIA.RasterImage;
+			const api = await installBootstrapProbeApiMock(page, {
+				sample: (response) => ({
+					...response,
+					sample: {
+						...response.sample,
+						tokenUriPayload: JSON.stringify({ image })
+					}
+				})
+			});
+			await stageManualProbeInputs(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+			await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+			await probeButton(page).click();
+			const estimate = page.getByRole('button', { name: 'estimate', exact: true });
+			const inspect = page.getByRole('button', { name: Action.Inspect, exact: true });
+			await expect(estimate).toBeEnabled();
+			const releaseEstimate = await pauseBootstrapImageCacheEstimate(page);
+			await estimate.click();
+			await expect(
+				page
+					.getByRole('log', { name: 'bootstrap checks' })
+					.getByText(Operation.Estimate, { exact: true })
+			).toBeVisible();
+			image = BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage;
+			const releaseInspection = await pauseBootstrapSampleMetadata(page);
+			await inspect.click();
+			await expect(inspect).toContainText('inspecting');
+			if (estimateFinishesFirst) {
+				await releaseEstimate.evaluate((resume) => resume());
+				await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
+				await expect(page.getByTestId(TEST_IDS.BootstrapCacheTokenCard)).toHaveCount(0);
+				await releaseInspection.evaluate((resume) => resume());
+			} else {
+				await releaseInspection.evaluate((resume) => resume());
+				await releaseEstimate.evaluate((resume) => resume());
+			}
+			await expect(inspect).toHaveAttribute('aria-busy', 'false');
+			await expect(
+				page.getByTestId(TEST_IDS.BootstrapProbeTokenCard).locator('img')
+			).toHaveAttribute('src', image);
+			await expect(formRow(page, 'Cached image (1 token)')).toHaveCount(0);
+			await expect(page.getByTestId(TEST_IDS.BootstrapCacheTokenCard)).toHaveCount(0);
+			await expect(estimate).toBeEnabled();
+			expect(api.imageCacheEstimateRequests).toEqual([
+				expect.objectContaining({ sourceImageUrl: BOOTSTRAP_PROBE_MEDIA.RasterImage })
+			]);
+		});
 
 	test('retains measured images across count edits and suppresses totals/OpenSea outside scope', async ({
 		page

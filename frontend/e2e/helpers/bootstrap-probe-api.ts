@@ -28,7 +28,8 @@ import {
 } from '@artgod/shared/bootstrap/probe';
 import {
 	BOOTSTRAP_API_QUERY_PARAM,
-	buildInspectBootstrapSamplePath
+	buildInspectBootstrapSamplePath,
+	buildEstimateBootstrapImageCachePath
 } from '@artgod/shared/http/bootstrap-routes';
 import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
@@ -76,12 +77,33 @@ export type CapturedBootstrapMutation = { method: string; path: string; body: un
 // Hold the fixture's remaining stream after selection to exercise the real
 // reader/UI while metadata is still pending. No additional server is needed.
 export async function pauseBootstrapSampleMetadata(page: Page) {
+	return pauseBootstrapOutput(page, {
+		path: buildInspectBootstrapSamplePath(BOOTSTRAP_PROBE_E2E_CHAIN.slug),
+		step: Step.Sample
+	});
+}
+
+export async function pauseBootstrapImageCacheEstimate(page: Page) {
+	return pauseBootstrapOutput(page, {
+		path: buildEstimateBootstrapImageCachePath(BOOTSTRAP_PROBE_E2E_CHAIN.slug),
+		step: Step.Operation
+	});
+}
+
+async function pauseBootstrapOutput(
+	page: Page,
+	selection: { path: string; step: BootstrapOutput['step'] }
+) {
 	return page.evaluateHandle(
 		({ path, step, contentType }) => {
 			const originalFetch = window.fetch;
 			let release!: () => void;
 			const gate = new Promise<void>((resolve) => {
 				release = resolve;
+			});
+			let forwarded!: () => void;
+			const tailForwarded = new Promise<void>((resolve) => {
+				forwarded = resolve;
 			});
 			window.fetch = async (...args) => {
 				const response = await originalFetch(...args);
@@ -93,9 +115,11 @@ export async function pauseBootstrapSampleMetadata(page: Page) {
 				if (url.pathname !== path || !response.headers.get('content-type')?.includes(contentType))
 					return response;
 				window.fetch = originalFetch;
+				// Buffer before pausing so a completed fetch can still deliver a late
+				// result after abort; the component's request guards must reject it.
 				const lines = (await response.text()).trimEnd().split('\n');
 				const selected = lines.findIndex((line) => JSON.parse(line).step === step);
-				if (selected < 0) throw new Error('Sample selection output is required for this fixture');
+				if (selected < 0) throw new Error('Selected output step is required for this fixture');
 				const encoder = new TextEncoder();
 				let cancelled = false;
 				return new Response(
@@ -103,9 +127,11 @@ export async function pauseBootstrapSampleMetadata(page: Page) {
 						async start(controller) {
 							controller.enqueue(encoder.encode(lines.slice(0, selected + 1).join('\n') + '\n'));
 							await gate;
-							if (cancelled) return;
-							controller.enqueue(encoder.encode(lines.slice(selected + 1).join('\n') + '\n'));
-							controller.close();
+							if (!cancelled) {
+								controller.enqueue(encoder.encode(lines.slice(selected + 1).join('\n') + '\n'));
+								controller.close();
+							}
+							forwarded();
 						},
 						cancel() {
 							cancelled = true;
@@ -114,11 +140,15 @@ export async function pauseBootstrapSampleMetadata(page: Page) {
 					{ status: response.status, headers: response.headers }
 				);
 			};
-			return release;
+			return async () => {
+				release();
+				await tailForwarded;
+				// Let the real reader and Svelte process the delivered response before assertions.
+				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+			};
 		},
 		{
-			path: buildInspectBootstrapSamplePath(BOOTSTRAP_PROBE_E2E_CHAIN.slug),
-			step: Step.Sample,
+			...selection,
 			contentType: BOOTSTRAP_STREAM_CONTENT_TYPE
 		}
 	);

@@ -614,6 +614,9 @@
 			// Keep the same field state for ordinary JSON responses.
 			if (!sampleTokenId.trim() && result.sample.tokenId)
 				setSampleTokenIdValue(result.sample.tokenId);
+			// The same tokenURI can serve different metadata on a repeat inspection.
+			// Measurements must belong to the accepted response, not the retained sample.
+			resetImageCacheEstimateState();
 			sampleResult = result;
 			sampleStatus = BOOTSTRAP_PROBE_UI_STATUS.Ready;
 			await tick();
@@ -833,6 +836,7 @@
 			!sampleMatchesScope ||
 			scopeIssue ||
 			setupIssues.maxDimension ||
+			samplePending ||
 			!formDetailsReady ||
 			imageCacheMode === IMAGE_CACHE_MODE.Off
 		)
@@ -1425,7 +1429,7 @@
 							</button>
 							{#if setupIssues.maxDimension || (!imageCacheEstimateCanRun && !imageCacheEstimatePending && !imageCacheEstimateReady)}
 								<p id="bootstrap-cache-help" class="bootstrap-row-note muted">
-									{setupIssues.maxDimension ?? (scopeIssue ? 'Define the token scope to estimate.' : 'Inspect a token in this scope and select its image field to estimate.')}
+									{setupIssues.maxDimension ?? (scopeIssue ? 'Define the token scope to estimate.' : samplePending ? 'Wait for token inspection to finish.' : 'Inspect a token in this scope and select its image field to estimate.')}
 								</p>
 							{/if}
 							{#if imageCacheEstimateError}
