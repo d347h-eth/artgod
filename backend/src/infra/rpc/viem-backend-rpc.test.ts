@@ -3,6 +3,8 @@ import { NOOP_APM } from "@artgod/shared/observability/apm";
 import { RPC_OBSERVABILITY_LOG_MESSAGE } from "@artgod/shared/observability/rpc";
 import { BOOTSTRAP_TEST_OBSERVATION } from "@artgod/shared/testing/bootstrap-probe";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { encodeAbiParameters, parseAbiParameters } from "viem";
+import { JSON_RPC_ERROR_CODE } from "@artgod/shared/evm/rpc-errors";
 import {
     BACKEND_RPC_LOG_FIELD,
     type BackendRpcClientFactory,
@@ -31,6 +33,32 @@ const TEST_CONTRACT_ARG_TEXT = "renderer";
 const TEST_CONTRACT_RESULT = "<html>live</html>";
 const TEST_HTTP_FAILURE_RESPONSE_BODY = "upstream failed";
 const TEST_HTTP_FAILURE_STATUS = 500;
+const TEST_CONTRACT_ABI = [
+    {
+        type: "function",
+        name: TEST_CONTRACT_FUNCTION_NAME,
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "string" }],
+    },
+] as const;
+const TEST_CONTRACT_READ = {
+    address: TEST_CONTRACT_ADDRESS,
+    functionName: TEST_CONTRACT_FUNCTION_NAME,
+    abi: TEST_CONTRACT_ABI,
+} as const;
+const TEST_ENCODED_CONTRACT_RESULT = encodeAbiParameters(
+    parseAbiParameters("string"),
+    [TEST_CONTRACT_RESULT],
+);
+function rpcResponse(payload: {
+    result?: string;
+    error?: { code: number; message: string; data?: string };
+}): Response {
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, ...payload }), {
+        headers: { "content-type": "application/json" },
+    });
+}
 
 const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
     requestTimeoutMs: TEST_REQUEST_TIMEOUT_MS,
@@ -85,6 +113,163 @@ describe("ViemBackendRpcClient", () => {
             TEST_RPC_ENDPOINT_A_URL,
             TEST_RPC_ENDPOINT_B_URL,
         ]);
+    });
+
+    it.each([
+        { name: "empty successful response", payload: { result: "0x" } },
+        {
+            name: "empty revert",
+            payload: {
+                error: { code: 3, message: "execution reverted", data: "0x" },
+            },
+        },
+        {
+            name: "unknown custom revert",
+            payload: {
+                error: {
+                    code: 3,
+                    message: "execution reverted",
+                    data: "0xdeadbeef",
+                },
+            },
+        },
+        {
+            name: "missing selector",
+            payload: {
+                error: {
+                    code: -32000,
+                    message: "function selector was not recognized",
+                    data: "0x",
+                },
+            },
+        },
+    ])(
+        "does not retry or open the circuit for an optional $name through real viem decoding",
+        async ({ payload }) => {
+            const fetchMock = vi.fn(async () => rpcResponse(payload));
+            vi.stubGlobal("fetch", fetchMock);
+            const sleep = vi.fn(async () => {});
+            const client = new ViemBackendRpcClient(
+                [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+                NOOP_APM,
+                undefined,
+                {
+                    retryPolicy: { ...TEST_RETRY_POLICY, maxAttempts: 10 },
+                    sleep,
+                    resilience: {
+                        ...DISABLED_RATE_LIMIT_RESILIENCE,
+                        circuitBreaker: {
+                            ...DISABLED_RATE_LIMIT_RESILIENCE.circuitBreaker,
+                            failureThreshold: 1,
+                        },
+                    },
+                },
+            );
+            for (let call = 0; call < 2; call += 1) {
+                await expect(
+                    client.readContract({
+                        ...TEST_CONTRACT_READ,
+                        retryZeroData: false,
+                    }),
+                ).rejects.toThrow();
+                expect(fetchMock).toHaveBeenCalledTimes(call + 1);
+                expect(sleep).not.toHaveBeenCalled();
+            }
+        },
+    );
+
+    it.each([
+        {
+            name: "HTTP 503",
+            response: () => new Response(null, { status: 503 }),
+        },
+        {
+            name: "unavailable historical state",
+            response: () =>
+                rpcResponse({
+                    error: {
+                        code: JSON_RPC_ERROR_CODE.InvalidParams,
+                        message: "historical state is not available",
+                    },
+                }),
+        },
+        {
+            name: "historical state reported as an internal JSON-RPC error",
+            response: () =>
+                rpcResponse({
+                    error: {
+                        code: -32603,
+                        message: "historical state is not available",
+                    },
+                }),
+        },
+        {
+            name: "transport failure",
+            response: () => {
+                throw new Error("fetch failed");
+            },
+        },
+    ])(
+        "retains the standard retry policy for optional reads after $name",
+        async ({ response }) => {
+            const fetchMock = vi
+                .fn()
+                .mockImplementationOnce(async () => response())
+                .mockImplementation(async () =>
+                    rpcResponse({ result: TEST_ENCODED_CONTRACT_RESULT }),
+                );
+            vi.stubGlobal("fetch", fetchMock);
+            const sleep = vi.fn(async () => {});
+            const client = new ViemBackendRpcClient(
+                [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+                NOOP_APM,
+                undefined,
+                {
+                    retryPolicy: TEST_RETRY_POLICY,
+                    resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+                    sleep,
+                },
+            );
+            await expect(
+                client.readContract({
+                    ...TEST_CONTRACT_READ,
+                    retryZeroData: false,
+                }),
+            ).resolves.toBe(TEST_CONTRACT_RESULT);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(sleep).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it("retains zero-data endpoint failover for required reads through real viem decoding", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockImplementationOnce(async () => rpcResponse({ result: "0x" }))
+            .mockImplementation(async () =>
+                rpcResponse({ result: TEST_ENCODED_CONTRACT_RESULT }),
+            );
+        vi.stubGlobal("fetch", fetchMock);
+        const sleep = vi.fn(async () => {});
+        const client = new ViemBackendRpcClient(
+            [
+                { url: TEST_RPC_ENDPOINT_A_URL, weight: 1 },
+                { url: TEST_RPC_ENDPOINT_B_URL, weight: 1 },
+            ],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: TEST_RETRY_POLICY,
+                resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+                sleep,
+            },
+        );
+        await expect(client.readContract(TEST_CONTRACT_READ)).resolves.toBe(
+            TEST_CONTRACT_RESULT,
+        );
+        expect(
+            fetchMock.mock.calls.map((call) => new URL(String(call[0])).origin),
+        ).toEqual([TEST_RPC_ENDPOINT_A_URL, TEST_RPC_ENDPOINT_B_URL]);
+        expect(sleep).toHaveBeenCalledTimes(1);
     });
 
     it("disables viem internal retries under the backend RPC retry policy", async () => {

@@ -1,8 +1,7 @@
 import {
-    BaseError,
-    ContractFunctionRevertedError,
-    ContractFunctionZeroDataError,
-} from "viem";
+    isRpcDeterministicContractError,
+    isRpcProviderZeroDataError,
+} from "@artgod/shared/evm/rpc-errors";
 import {
     BOOTSTRAP_SHARED_CONTRACT_REASON as Reason,
     type BootstrapSharedContractFinding,
@@ -86,6 +85,7 @@ function artBlocksReader(
             const result = await rpc.readContract({
                 address,
                 blockNumber: input.blockNumber,
+                retryZeroData: false,
                 functionName,
                 abi: [
                     {
@@ -118,12 +118,8 @@ function artBlocksReader(
             return result;
         } catch (error) {
             const unsupported =
-                error instanceof BaseError &&
-                error.walk(
-                    (cause) =>
-                        cause instanceof ContractFunctionRevertedError ||
-                        cause instanceof ContractFunctionZeroDataError,
-                );
+                isRpcDeterministicContractError(error) ||
+                isRpcProviderZeroDataError(error);
             report?.({
                 step,
                 status: unsupported ? Status.Skipped : Status.Failed,

@@ -127,6 +127,8 @@ domain mapping, and any integration-specific wrappers such as APM spans.
   beacon storage-slot reads, optional beacon `implementation()` read, ERC165
   `supportsInterface`, ERC721 Metadata `name` and `tokenURI`, ERC721
   `totalSupply`, ERC721Enumerable `tokenByIndex`, and ERC721 `ownerOf` checks.
+  Shared-contract recognition and project inspection also read the Art Blocks
+  registry and bounded project getters through this same adapter.
   Sample ownership is validated before tokenURI; tokenURI success alone is not
   existence evidence. An explicit sample never falls back to a different ID.
 - Proxy handling: recognized EIP-1167 minimal proxy bytecode and ERC-1967
@@ -138,9 +140,15 @@ domain mapping, and any integration-specific wrappers such as APM spans.
   selection, dynamic endpoint weight drift, adapter retry, per-endpoint rate
   limiting, and per-endpoint circuit breaker. Missing ERC165/enumerable
   methods and EVM reverts short-circuit as deterministic contract-call failures
-  instead of exhausting retry attempts. Provider zero-data responses and
-  unavailable historical-state responses are retried through the shared RPC
-  harness because they can indicate endpoint state/indexing failure.
+  instead of exhausting retry attempts. All bootstrap contract reads pass
+  `retryZeroData: false`: a successful empty result ends that optional check as
+  unavailable immediately, without retry delays, endpoint demotion or circuit
+  failures. This includes missing project getters on non-Art Blocks contracts;
+  an empty ownership result remains unknown and never proves token absence.
+  Transport, head-lag and unavailable historical-state failures retain the
+  shared retry policy. Explicit provider-state failure takes precedence when
+  viem wraps an internal JSON-RPC error as a contract revert. Other RPC consumers
+  retain zero-data failover by default.
 - Non-JSON-RPC follow-up: after `tokenURI` resolves, metadata payload fetches
   and token image size probes use HTTP/media fetches through the configured IPFS
   gateway origin when needed.

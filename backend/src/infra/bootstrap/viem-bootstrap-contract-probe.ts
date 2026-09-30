@@ -76,6 +76,7 @@ export type BootstrapProbeRpc = {
         functionName: string;
         args?: readonly unknown[];
         blockNumber?: number;
+        retryZeroData?: boolean;
     }): Promise<T>;
 };
 type TokenUriPayload = { text: string; byteSize: number; truncated: boolean };
@@ -339,6 +340,7 @@ export class ViemBootstrapContractProbe
                     functionName: ERC721_TOKEN_BY_INDEX_FUNCTION,
                     args: [0n],
                     blockNumber,
+                    retryZeroData: false,
                 });
                 enumeration.tokenId = normalizeEvmTokenId(id.toString());
                 if (enumeration.tokenId === null)
@@ -414,6 +416,7 @@ export class ViemBootstrapContractProbe
                 functionName: ERC721_OWNER_OF_FUNCTION,
                 args: [BigInt(input.tokenId)],
                 blockNumber: input.observation.blockNumber,
+                retryZeroData: false,
             });
             normalizeErc721Owner(owner);
             report?.({
@@ -483,6 +486,7 @@ export class ViemBootstrapContractProbe
                 functionName: ERC721_TOKEN_URI_FUNCTION,
                 args: [BigInt(input.tokenId)],
                 blockNumber: input.observation.blockNumber,
+                retryZeroData: false,
             });
             if (typeof uri !== "string" || !uri.trim())
                 throw new Error("tokenURI returned no URI");
@@ -625,6 +629,7 @@ export class ViemBootstrapContractProbe
                             abi: BEACON_PROXY_ABI,
                             functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
                             blockNumber,
+                            retryZeroData: false,
                         }),
                     (value) => ({
                         status: Status.Succeeded,
@@ -657,6 +662,7 @@ export class ViemBootstrapContractProbe
                 functionName: ERC165_SUPPORTS_INTERFACE_FUNCTION,
                 args: [interfaceId],
                 blockNumber,
+                retryZeroData: false,
             });
             if (typeof supported !== "boolean")
                 throw new Error("Invalid interface response");
@@ -676,6 +682,7 @@ export class ViemBootstrapContractProbe
                 abi: ERC721_NAME_ABI,
                 functionName: ERC721_NAME_FUNCTION,
                 blockNumber,
+                retryZeroData: false,
             });
             return { value: name.trim() || null, error: null };
         } catch (error) {
@@ -693,6 +700,7 @@ export class ViemBootstrapContractProbe
                 abi: ERC721_SUPPLY_ABI,
                 functionName: ERC721_TOTAL_SUPPLY_FUNCTION,
                 blockNumber,
+                retryZeroData: false,
             });
             if (
                 typeof value !== "bigint" ||

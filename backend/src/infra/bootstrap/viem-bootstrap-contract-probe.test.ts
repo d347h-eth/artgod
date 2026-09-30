@@ -5,6 +5,12 @@ import {
     type BootstrapOutput,
 } from "@artgod/shared/bootstrap/operation-output";
 import { ContractFunctionRevertedError } from "viem";
+import { ViemBackendRpcClient } from "../rpc/viem-backend-rpc.js";
+import { NOOP_APM } from "@artgod/shared/observability/apm";
+import {
+    getDefaultRpcRetryPolicy,
+    getDefaultRpcEndpointResilienceConfig,
+} from "@artgod/shared/config/rpc-resilience";
 import { ART_BLOCKS_FUNCTION } from "./contract-families/art-blocks.js";
 import { BOOTSTRAP_SHARED_CONTRACT_REASON } from "@artgod/shared/bootstrap/probe";
 import {
@@ -119,6 +125,61 @@ const metadataInput = {
 
 describe("independent pinned contract discovery", () => {
     afterEach(() => vi.unstubAllGlobals());
+
+    it("finishes all empty setup contract reads without retries while ownership remains unknown", async () => {
+        const fetchMock = vi.fn(async (_url, init) => {
+            const request = JSON.parse(String(init?.body));
+            return new Response(
+                JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: request.id,
+                    result: "0x",
+                }),
+                {
+                    headers: { "content-type": "application/json" },
+                },
+            );
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        const sleep = vi.fn(async () => {});
+        const rpc = new ViemBackendRpcClient(
+            [{ url: "https://rpc.example", weight: 1 }],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: getDefaultRpcRetryPolicy(),
+                resilience: {
+                    ...getDefaultRpcEndpointResilienceConfig(),
+                    rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                },
+                sleep,
+            },
+        );
+        const { adapter } = fixture({
+            rpc: { readContract: rpc.readContract.bind(rpc) },
+        });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.erc721.supported).toBeNull();
+        expect(result.enumerable.supported).toBeNull();
+        expect(result.contractName).toBeNull();
+        expect(result.totalSupply.value).toBeNull();
+        expect(result.sharedContract).toBeNull();
+        expect(result.discovery.rangeStartCandidate).toBeNull();
+        expect(
+            result.discovery.candidates.map((candidate) => candidate.exists),
+        ).toEqual([null, null]);
+        // Two interfaces, name, supply, registry, nextProjectId and two owners.
+        expect(fetchMock).toHaveBeenCalledTimes(8);
+        const metadata = await adapter.readMetadata(metadataInput);
+        expect(metadata.tokenUri).toBeNull();
+        expect(metadata.tokenUriError).toBeTruthy();
+        expect(fetchMock).toHaveBeenCalledTimes(9);
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
     it.each([
         { failure: absent(), exists: false },
         { failure: new Error("RPC timeout"), exists: null },

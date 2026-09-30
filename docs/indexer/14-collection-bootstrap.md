@@ -262,6 +262,13 @@ range as described above. Registry addresses and getter interpretation belong to
 the family adapter, not collection-specific setup rules. All reads share the
 probe's pinned block and final hash verification. No OpenSea or metadata call
 participates in this check. Registry/getter failures remain optional check output.
+Successful empty contract replies end all optional bootstrap contract reads
+immediately as unavailable, without retries or penalizing the RPC endpoint.
+An empty ownership reply stays unknown; it does not establish token absence.
+Explicit reverts also stop immediately. Network, head-lag and historical-state
+failures retain the shared retry policy, including provider errors wrapped by
+the SDK as a contract revert. Required reads outside setup retain zero-data
+endpoint failover.
 No finding means unknown, not standalone; unrecognized shared-contract families
 can remain undetected. A finding warns beside Token scope and suppresses the
 whole-contract suggestion, while preserving explicit manual control.

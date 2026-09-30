@@ -1,5 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
-import { ContractFunctionRevertedError } from "viem";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+    ContractFunctionRevertedError,
+    encodeAbiParameters,
+    getFunctionSelector,
+    parseAbiParameters,
+} from "viem";
+import { ViemBackendRpcClient } from "../../rpc/viem-backend-rpc.js";
+import { NOOP_APM } from "@artgod/shared/observability/apm";
+import {
+    getDefaultRpcRetryPolicy,
+    getDefaultRpcEndpointResilienceConfig,
+} from "@artgod/shared/config/rpc-resilience";
 import { BOOTSTRAP_SHARED_CONTRACT_REASON as Reason } from "@artgod/shared/bootstrap/probe";
 import {
     BOOTSTRAP_OUTPUT_STATUS as Status,
@@ -68,6 +79,63 @@ function fixture(values: Record<string, unknown> = {}) {
     };
 }
 describe("advisory on-chain shared-contract recognition", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("stops an empty nextProjectId response through production RPC retry and viem decoding", async () => {
+        const selectors: string[] = [];
+        const registrySelector = getFunctionSelector(
+            `${F.Registered}(address)`,
+        );
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (_url, init) => {
+                const request = JSON.parse(String(init?.body));
+                const selector = request.params[0].data.slice(0, 10);
+                selectors.push(selector);
+                return new Response(
+                    JSON.stringify({
+                        jsonrpc: "2.0",
+                        id: request.id,
+                        result:
+                            selector === registrySelector
+                                ? encodeAbiParameters(
+                                      parseAbiParameters("bool"),
+                                      [false],
+                                  )
+                                : "0x",
+                    }),
+                    { headers: { "content-type": "application/json" } },
+                );
+            }),
+        );
+        const sleep = vi.fn(async () => {});
+        const rpc = new ViemBackendRpcClient(
+            [{ url: "https://rpc.example", weight: 1 }],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: getDefaultRpcRetryPolicy(),
+                resilience: {
+                    ...getDefaultRpcEndpointResilienceConfig(),
+                    rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                },
+                sleep,
+            },
+        );
+        const output: BootstrapOutput[] = [];
+        expect(
+            await probeArtBlocksSharedContract(rpc, input, (event) =>
+                output.push(event),
+            ),
+        ).toBeNull();
+        expect(selectors).toEqual([
+            registrySelector,
+            getFunctionSelector(`${F.NextProject}()`),
+        ]);
+        expect(sleep).not.toHaveBeenCalled();
+        expect(output.at(-1)).toMatchObject({ status: Status.Skipped });
+    });
+
     it("recognizes registered multi-project contracts without scanning their inventory", async () => {
         const f = fixture({ [F.Registered]: true });
         expect(await f.probe()).toEqual({
@@ -176,6 +244,20 @@ describe("advisory on-chain shared-contract recognition", () => {
                 [F.Registered]: new Error("Registry unavailable"),
             }).probe(),
         ).toMatchObject({ reason: Reason.ProjectInterface });
+    });
+
+    it("reports a provider state error wrapped as a revert as a failed check", async () => {
+        const stateError = new ContractFunctionRevertedError({
+            abi: [],
+            functionName: F.NextProject,
+            message: "historical state is not available",
+        });
+        const f = fixture({
+            [F.Registered]: false,
+            [F.NextProject]: stateError,
+        });
+        expect(await f.probe()).toBeNull();
+        expect(f.output.at(-1)).toMatchObject({ status: Status.Failed });
     });
 });
 

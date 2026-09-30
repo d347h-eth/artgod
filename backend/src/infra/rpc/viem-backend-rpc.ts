@@ -8,6 +8,7 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import type { RpcErrorPolicy } from "@artgod/shared/evm/rpc-errors";
 import {
     CircuitBreaker,
     type RpcEndpointResilienceConfig,
@@ -230,6 +231,9 @@ export class ViemBackendRpcClient {
         functionName: string;
         args?: readonly unknown[];
         blockNumber?: number;
+        // Optional setup checks accept zero data as unavailable without retrying
+        // or penalizing the node. This does not establish token absence.
+        retryZeroData?: boolean;
     }): Promise<T> {
         return this.withRpcSpan(
             "backend.rpc.read_contract",
@@ -257,6 +261,7 @@ export class ViemBackendRpcClient {
                 return result as T;
             },
             buildReadContractLogFields(params),
+            { retryZeroData: params.retryZeroData },
         );
     }
 
@@ -344,6 +349,7 @@ export class ViemBackendRpcClient {
         attributes: Record<string, unknown>,
         read: (client: BackendViemClient) => Promise<T>,
         logFields?: Record<string, unknown>,
+        errorPolicy?: RpcErrorPolicy,
     ): Promise<T> {
         const method = backendRpcMethodLabel(name);
         return executeObservedRpcEndpointCall({
@@ -352,6 +358,7 @@ export class ViemBackendRpcClient {
             logFields,
             rpcObservability: this.rpcObservability,
             retryPolicy: this.retryPolicy,
+            errorPolicy,
             sleep: this.options.sleep,
             circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
             rateLimiter: (endpoint) => endpoint.value.rateLimiter,

@@ -65,6 +65,12 @@ const DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES = new Set<string>(
 const MAX_RPC_ERROR_CAUSE_SCAN_DEPTH = 6;
 const MAX_RPC_ERROR_TEXT_OBJECT_SCAN_DEPTH = 3;
 
+// Optional capability checks can accept an empty result as unavailable. Other
+// callers retain endpoint failover because zero data can be a provider failure.
+export type RpcErrorPolicy = {
+    retryZeroData?: boolean;
+};
+
 // Wraps head-lag failures when adapters need a concrete domain error.
 export class RpcProviderHeadLagError extends Error {
     constructor(cause: unknown) {
@@ -90,7 +96,7 @@ export function isRpcProviderHeadLagError(error: unknown): boolean {
     return false;
 }
 
-// Detects provider zero-data responses that should be retried on other endpoints.
+// Detects empty contract responses; the caller decides whether to retry them.
 export function isRpcProviderZeroDataError(error: unknown): boolean {
     for (const candidate of walkRpcErrorChain(error)) {
         if (rpcErrorClassIndicatesProviderZeroData(candidate)) {
@@ -115,6 +121,14 @@ export function isRpcProviderStateUnavailableError(error: unknown): boolean {
 
 // Detects contract-call failures that retrying another endpoint cannot fix.
 export function isRpcDeterministicContractError(error: unknown): boolean {
+    // Viem can wrap an internal JSON-RPC state error as a contract revert.
+    // Explicit provider failures still require failover, regardless of that label.
+    if (
+        isRpcProviderHeadLagError(error) ||
+        isRpcProviderStateUnavailableError(error)
+    ) {
+        return false;
+    }
     for (const candidate of walkRpcErrorChain(error)) {
         if (rpcErrorClassIndicatesDeterministicContract(candidate)) {
             return true;
@@ -146,16 +160,25 @@ export function classifiedRpcErrorClassName(
 }
 
 // Deterministic contract failures should surface immediately to callers.
-export function shouldRetryRpcError(error: unknown): boolean {
-    return !isRpcDeterministicContractError(error);
+export function shouldRetryRpcError(
+    error: unknown,
+    policy?: RpcErrorPolicy,
+): boolean {
+    return (
+        !isRpcDeterministicContractError(error) &&
+        !(policy?.retryZeroData === false && isRpcProviderZeroDataError(error))
+    );
 }
 
 // Head-lag and deterministic contract failures are not endpoint breakage.
-// Provider zero-data and unavailable-state responses are retried and penalized.
-export function shouldPenalizeRpcEndpointFailure(error: unknown): boolean {
+// Optional zero-data reads also avoid demoting or opening circuits on healthy
+// nodes. Required zero-data and unavailable-state responses retain failover.
+export function shouldPenalizeRpcEndpointFailure(
+    error: unknown,
+    policy?: RpcErrorPolicy,
+): boolean {
     return (
-        !isRpcProviderHeadLagError(error) &&
-        !isRpcDeterministicContractError(error)
+        !isRpcProviderHeadLagError(error) && shouldRetryRpcError(error, policy)
     );
 }
 
