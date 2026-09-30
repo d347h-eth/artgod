@@ -395,9 +395,14 @@ restores the action. If its sample is outside the entered scope, retain the slug
 and show a yellow `check scope` link to the scope section. Correcting the range
 or list restores `resolved` without another lookup or inspection. The scope
 section explains that the slug will be omitted until the conflict is corrected.
+The sample identity in the scope warning links directly to its OpenSea token page.
 A confirmed OpenSea slug is also offered beside Collection slug through its own
 apply button. Preserve the contract-name suggestion for standalone contracts;
 detected shared contracts offer only a confirmed OpenSea slug or manual entry.
+Successful OpenSea resolution fills an empty Collection slug. Clear that automatic
+value when the sample or scope changes, or probe contract or inspect token runs
+again; preserve manually entered or applied local slugs. A pending lookup cannot
+refill the field after those changes. Scope edits retain completed OpenSea evidence.
 Omit duplicate values and remove the OpenSea suggestion when its resolution is invalidated. Applying a
 local slug never changes the resolved OpenSea association.
 Compact bracketed collection and sample-token links in the OpenSea section use
@@ -452,7 +457,9 @@ with a likely-shared warning and the contract token count. It asks the user to
 specify a manual range or list; it never selects or edits that scope. OpenSea
 does not participate in contract classification.
 When inspection identifies a supported Art Blocks project, show its name and
-project ID beside the scope selector and offer its range through the existing
+project ID on one line beside the scope selector, with the contract-wide count
+on the next line labeled as tokens across all projects on the contract. Offer its
+range through the existing
 per-field apply controls. Project start/count replace contract-wide suggestions;
 recognized shared contracts never suggest their global supply as one project's
 count. Separate minted and maximum choices when they differ, explaining only
@@ -475,6 +482,8 @@ up to 400 px per side, shrinking to fit narrow screens. The image card must not
 inherit the browsing grid's fixed height or padding. The cache preview's recovery
 message has one line of space above it.
 Highlight the estimated cache size for the selected scope in yellow.
+Image cache mode help warns that onchain collections often need caching off and
+asks the user to verify the resized preview through estimate.
 
 The logical groups and explicit optional stages follow the
 [W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,

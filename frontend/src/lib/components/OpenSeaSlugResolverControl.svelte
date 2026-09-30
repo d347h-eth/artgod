@@ -137,7 +137,8 @@
 		untrack(() => onStateChange?.(state));
 	});
 
-	function invalidate(): void {
+	// Cancel a superseded check without discarding the user's OpenSea slug input.
+	export function invalidate(): void {
 		requestController?.abort();
 		probeRequestId += 1;
 		probeStatus = openSeaSlugProbeUiStatus.Idle;

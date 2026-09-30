@@ -115,9 +115,13 @@ or an explicit apply action; probing never fills it automatically. A matching
 value disables the action. A confirmed OpenSea slug adds another Collection slug
 suggestion alongside the contract-name suggestion for standalone contracts, with
 identical values shown only once. Detected shared contracts suppress the
-contract-name suggestion; enter a local slug manually or apply the confirmed
-OpenSea slug. Neither source automatically fills the field. Editing the OpenSea slug,
-sample or target invalidates its suggestion without changing the local slug.
+contract-name suggestion. A successful OpenSea resolution fills Collection slug
+only when it is empty. That automatically filled value clears when the sample or
+token scope changes, or when probe contract or inspect token runs again. Slugs
+entered manually or through an apply action are preserved. A pending lookup
+cannot refill the field after one of those changes. Contract-name suggestions
+always require apply. Editing the OpenSea slug, sample or target invalidates the
+OpenSea suggestion.
 OpenSea page links use the entered slug and sample identity without requiring an
 API key or a successful lookup. Manual slug entry remains available without a key;
 resolution and attaching the OpenSea association still require it.
@@ -320,6 +324,10 @@ The [OpenAPI document](../backend/openapi.yaml) defines the complete wire contra
 - Range/list/count edits retain the inspected sample and measured image.
   Membership and totals are recalculated locally. An outside sample remains
   inspectable, but provides no collection estimate or attached OpenSea slug.
+- OpenSea fills an empty local slug after a successful resolution. Changing the
+  sample or scope, or repeating probe/inspect, clears only that automatic value;
+  manually entered or applied local slugs are preserved. Scope edits retain a
+  completed OpenSea resolution but cancel a pending lookup.
 - Image settings invalidate their measurement. Changing only the count reuses
   measured bytes and recalculates the total without downloading the image again.
 - Late responses cannot replace newer identity, sample, image or OpenSea state.

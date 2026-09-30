@@ -152,7 +152,8 @@
 		enumerableInterface: 'Whether the contract reports ERC721Enumerable support.',
 		contractTotalSupply:
 			'The contract totalSupply() value. This may cover several projects or only minted tokens.',
-		imageCacheMode: 'Whether to store token images locally, and when to refresh them.',
+		imageCacheMode:
+			'Whether to store token images locally, and when to refresh them. Onchain collections often need caching off. Run estimate and check the resized preview before choosing.',
 		imageMaxDimension:
 			'Maximum cached image width or height in pixels. Leave blank to keep original dimensions.',
 		manualMode:
@@ -164,6 +165,8 @@
 	} as const;
 
 	let bootstrapSlug = $state('');
+	// Only a slug filled automatically from OpenSea follows sample/scope invalidation.
+	let autoFilledCollectionSlug: string | null = null;
 	let operationLog = $state(emptyBootstrapLog());
 	const operationControllers = new Map<BootstrapOperation, AbortController>();
 	function recordOutput(record: BootstrapProgressRecord): void {
@@ -196,6 +199,7 @@
 	let selectedBootstrapPreviewSource = $state<BootstrapPreviewSource>(BOOTSTRAP_PREVIEW_SOURCE.Image);
 	let bootstrapOpenSeaSlug = $state('');
 	let openSeaSlugResolved = $state(false);
+	let openSeaSlugPending = $state(false);
 	let entireContractSelected = $state(false);
 	let manualMode = $state<BootstrapManualEnumerationMode>(BOOTSTRAP_ENUMERATION_MODE.ManualRange);
 	let manualTokenIds = $state('');
@@ -390,6 +394,8 @@
 	}
 
 	function invalidateSample(): void {
+		clearAutoFilledCollectionSlug();
+		invalidateOpenSeaResolution();
 		operationControllers.get(BOOTSTRAP_OPERATION.Inspect)?.abort();
 		sampleRequestId += 1;
 		sampleResult = null;
@@ -419,12 +425,33 @@
 	}
 
 	function setCollectionSlugInputValue(value: string): void {
+		autoFilledCollectionSlug = null;
 		bootstrapSlug = value;
 		if (collectionSlugInputElement) collectionSlugInputElement.value = value;
 	}
 
 	function readCollectionSlugInputValue(): string {
 		return normalizeFieldValue(collectionSlugInputElement?.value ?? bootstrapSlug).toLowerCase();
+	}
+
+	function clearAutoFilledCollectionSlug(): void {
+		if (autoFilledCollectionSlug !== null && bootstrapSlug === autoFilledCollectionSlug) {
+			setCollectionSlugInputValue('');
+		}
+		autoFilledCollectionSlug = null;
+	}
+
+	function invalidateOpenSeaResolution(): void {
+		openSeaSlugResolver?.invalidate();
+		openSeaSlugResolved = false;
+		openSeaSlugPending = false;
+	}
+
+	function onScopeInputsChange(): void {
+		clearAutoFilledCollectionSlug();
+		// Keep completed NFT identity evidence while correcting scope. A pending
+		// lookup must not refill the local slug after the user has changed it.
+		if (openSeaSlugPending) invalidateOpenSeaResolution();
 	}
 
 	function setImageSourceFieldValue(value: string): void {
@@ -454,7 +481,7 @@
 	function onCollectionSlugInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
-		bootstrapSlug = target.value;
+		setCollectionSlugInputValue(target.value);
 	}
 
 	function onBootstrapAddressInput(event: Event): void {
@@ -507,6 +534,8 @@
 
 	async function onProbe(): Promise<void> {
 		if (!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain) return;
+		clearAutoFilledCollectionSlug();
+		invalidateOpenSeaResolution();
 		const requestId = ++contractProbeRequestId;
 		const chainRef = chain.slug;
 		const address = normalizedBootstrapAddress;
@@ -542,6 +571,8 @@
 		selection = { requestedTokenId: sampleTokenId, scope: currentScope() }
 	): Promise<void> {
 		if (!contractAddressSafetyAcknowledged || !addressCanBeProbed || !chain) return;
+		clearAutoFilledCollectionSlug();
+		invalidateOpenSeaResolution();
 		const requestId = ++sampleRequestId;
 		const chainRef = chain.slug;
 		const address = normalizedBootstrapAddress;
@@ -607,8 +638,14 @@
 	}
 
 	function onOpenSeaSlugStateChange(state: OpenSeaSlugResolverState): void {
+		const newlyResolved = state.resolved && (!openSeaSlugResolved || state.slug !== bootstrapOpenSeaSlug);
 		bootstrapOpenSeaSlug = state.slug;
 		openSeaSlugResolved = state.resolved;
+		openSeaSlugPending = state.pending;
+		if (newlyResolved && !readCollectionSlugInputValue()) {
+			setCollectionSlugInputValue(state.slug);
+			autoFilledCollectionSlug = state.slug;
+		}
 	}
 
 	function isImageSourceFieldResolved(): boolean {
@@ -738,8 +775,9 @@
 		void onEstimateImageCache();
 	}
 
-	function onScopeModeChange(event: Event): void {
-		const mode = (event.currentTarget as HTMLSelectElement).value;
+	function setScopeMode(mode: BootstrapScope['mode']): void {
+		if (mode === (entireContractSelected ? BOOTSTRAP_ENUMERATION_MODE.Enumerable : manualMode)) return;
+		onScopeInputsChange();
 		entireContractSelected = mode === BOOTSTRAP_ENUMERATION_MODE.Enumerable;
 		if (!entireContractSelected) {
 			manualMode =
@@ -749,22 +787,44 @@
 		}
 	}
 
+	function onScopeModeChange(event: Event): void {
+		setScopeMode((event.currentTarget as HTMLSelectElement).value as BootstrapScope['mode']);
+	}
+
+	function setManualTokenIds(value: string): void {
+		if (manualTokenIds === value) return;
+		onScopeInputsChange();
+		manualTokenIds = value;
+	}
+
+	function setManualRangeStartTokenId(value: string): void {
+		if (manualRangeStartTokenId === value) return;
+		onScopeInputsChange();
+		manualRangeStartTokenId = value;
+	}
+
+	function setManualRangeTotalSupply(value: string): void {
+		if (manualRangeTotalSupply === value) return;
+		onScopeInputsChange();
+		manualRangeTotalSupply = value;
+	}
+
 	function onManualTokenIdsInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLTextAreaElement)) return;
-		manualTokenIds = target.value;
+		setManualTokenIds(target.value);
 	}
 
 	function onManualRangeStartTokenIdInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
-		manualRangeStartTokenId = target.value;
+		setManualRangeStartTokenId(target.value);
 	}
 
 	function onManualRangeTotalSupplyInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
-		manualRangeTotalSupply = target.value;
+		setManualRangeTotalSupply(target.value);
 	}
 
 	function canRunImageCacheEstimate(): boolean {
@@ -987,6 +1047,12 @@
 	</span>
 {/snippet}
 
+{#snippet scopeSampleLink(label: string)}
+	{#if openSeaSampleHref}
+		<a href={openSeaSampleHref} target="_blank" rel="noreferrer noopener">{label} #{effectiveSampleTokenId}</a>
+	{:else}{label} #{effectiveSampleTokenId}{/if}
+{/snippet}
+
 {#snippet sectionHeading(index: number)}
 	{@const section = setupSections[index]}
 	<div class="bootstrap-step-heading">
@@ -1160,17 +1226,17 @@
 					<div class="bootstrap-row-actions">
 						{#if likelySharedContract}
 							{#if projectScope}
-								{@render applySuggestion('token range', !entireContractSelected && manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange ? 'token range' : '', () => { entireContractSelected = false; manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange; })}
+								{@render applySuggestion('token range', !entireContractSelected && manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange ? 'token range' : '', () => setScopeMode(BOOTSTRAP_ENUMERATION_MODE.ManualRange))}
 							{/if}
 							<p id="bootstrap-shared-contract-help" class="bootstrap-row-note bootstrap-check-warning">
 								{#if projectScope}
-									{projectScope.projectName ? `${projectScope.projectName} · ` : ''}project #{projectScope.projectId}.
+									{projectScope.projectName ? `${projectScope.projectName} · ` : ''}project #{projectScope.projectId}.<br />
 								{:else}Likely shared contract. Specify this collection's Token range or Token ID list manually.{/if}
-								{#if probeResult?.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects.
+								{#if probeResult?.totalSupply.value != null}{probeResult.totalSupply.value} tokens across all projects on the contract.
 								{:else}Contract token count unavailable.{/if}
 							</p>
 						{:else if latestProbeMatchesAddress && probeResult?.enumerable.supported === true}
-							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => entireContractSelected = true)}
+							{@render applySuggestion('entire contract', entireContractSelected ? 'entire contract' : '', () => setScopeMode(BOOTSTRAP_ENUMERATION_MODE.Enumerable))}
 							{#if !entireContractSelected}
 								<p class="bootstrap-row-note bootstrap-check-warning">
 									{#if probeResult.totalSupply.value != null}{probeResult.totalSupply.value} tokens on this contract.
@@ -1193,8 +1259,8 @@
 						{/if}
 						{#if sampleScopeConflict}
 							<p id="bootstrap-scope-sample-help" class="bootstrap-row-note bootstrap-check-warning">
-								{#if scopeIssue}Complete this collection's token scope, then check that sample #{effectiveSampleTokenId} belongs to it.
-								{:else}Sample #{effectiveSampleTokenId} is outside this scope. Correct the range or token list, or inspect a token inside it.{/if}
+								{#if scopeIssue}Complete this collection's token scope, then check that {@render scopeSampleLink('sample')} belongs to it.
+								{:else}{@render scopeSampleLink('Sample')} is outside this scope. Correct the range or token list, or inspect a token inside it.{/if}
 								{#if openSeaSlugResolved}Until then, its resolved OpenSea slug will be kept here but skipped when queueing.
 								{/if}
 							</p>
@@ -1223,7 +1289,7 @@
 							aria-invalid={Boolean(manualRangeStartTokenId.trim() && setupIssues.startTokenId)}
 							aria-describedby={manualRangeStartTokenId.trim() && setupIssues.startTokenId ? 'bootstrap-range-start-help' : undefined} />
 						<div class="bootstrap-row-actions">
-							{@render applySuggestion(rangeSuggestions.startTokenId, manualRangeStartTokenId, (value) => manualRangeStartTokenId = value)}
+							{@render applySuggestion(rangeSuggestions.startTokenId, manualRangeStartTokenId, setManualRangeStartTokenId)}
 							{#if contractReady && !rangeSuggestions.startTokenIdConfirmed}
 								<div class="bootstrap-row-note">
 									{#each BOOTSTRAP_CONVENTIONAL_TOKEN_IDS as tokenId}
@@ -1243,11 +1309,9 @@
 							aria-invalid={Boolean(manualRangeTotalSupply && setupIssues.totalSupply)}
 							aria-describedby={manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue) ? 'bootstrap-range-help' : undefined} />
 						<div class="bootstrap-row-actions">
-							{@render applySuggestion(rangeSuggestions.tokenCount?.toString(), manualRangeTotalSupply, (value) => {
-								manualRangeTotalSupply = value;
-							}, undefined, rangeSuggestions.maxTokenCount !== null ? 'minted' : undefined)}
+							{@render applySuggestion(rangeSuggestions.tokenCount?.toString(), manualRangeTotalSupply, setManualRangeTotalSupply, undefined, rangeSuggestions.maxTokenCount !== null ? 'minted' : undefined)}
 							{#if rangeSuggestions.maxTokenCount !== null}
-								{@render applySuggestion(String(rangeSuggestions.maxTokenCount), manualRangeTotalSupply, (value) => manualRangeTotalSupply = value, undefined, 'maximum')}
+								{@render applySuggestion(String(rangeSuggestions.maxTokenCount), manualRangeTotalSupply, setManualRangeTotalSupply, undefined, 'maximum')}
 								<p class="bootstrap-row-note bootstrap-check-warning">The configured maximum includes unminted token IDs.</p>
 							{/if}
 							{#if manualRangeTotalSupply.trim() && (setupIssues.totalSupply || !scopeIssue)}

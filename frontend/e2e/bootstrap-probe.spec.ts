@@ -451,7 +451,9 @@ test.describe('bootstrap setup', () => {
 			})
 		).toBeVisible();
 		await expect(slugRow.getByRole('button', { name: /^apply / })).toHaveCount(1);
-		await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+		await expect(page.locator('#bootstrap-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+		);
 		const scopeLink = page.locator('#bootstrap-opensea').getByRole('link', { name: 'check scope' });
 		await expect(scopeLink).toBeVisible();
 		await scopeLink.hover();
@@ -471,11 +473,27 @@ test.describe('bootstrap setup', () => {
 			'Sample #163000681 is outside this scope'
 		);
 		await expect(formRow(page, 'Token scope')).toContainText('skipped when queueing');
+		await expect(
+			page
+				.locator('#bootstrap-scope-sample-help')
+				.getByRole('link', { name: 'Sample #163000681', exact: true })
+		).toHaveAttribute(
+			'href',
+			openseaItemHref({
+				chainSlug: 'ethereum',
+				collectionAddress: BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope,
+				tokenId: '163000681'
+			})!
+		);
 		await scopeLink.click();
 		await expect(page.locator('#bootstrap-scope-mode')).toBeInViewport();
 		await expectGridAlignment(page);
 		await page.screenshot({ path: info.outputPath('meridian-scope-conflict.png'), fullPage: true });
+		await page
+			.locator('#bootstrap-scope')
+			.screenshot({ path: info.outputPath('meridian-scope-conflict-detail.png') });
 		await page.locator('#bootstrap-range-start').fill('163000000');
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('');
 		await expect(scopeLink).toHaveCount(0);
 		await expect(
 			page.locator('#bootstrap-opensea').getByText('resolved', { exact: true })
@@ -1340,6 +1358,270 @@ test.describe('bootstrap setup', () => {
 		expect(api.probeRequests).toHaveLength(1);
 	});
 
+	const automaticSlugResetCases: {
+		name: string;
+		contract?: string;
+		prepare?: (page: Page) => Promise<void>;
+		change: (page: Page) => Promise<unknown>;
+	}[] = [
+		{ name: 'a sample edit', change: (page) => page.locator('#bootstrap-sample').fill('3') },
+		{
+			name: 'a range start edit',
+			change: (page) => page.locator('#bootstrap-range-start').fill('0')
+		},
+		{
+			name: 'a range count edit',
+			change: (page) => page.locator('#bootstrap-range-count').fill('1000')
+		},
+		{
+			name: 'a scope mode edit',
+			change: (page) =>
+				page
+					.locator('#bootstrap-scope-mode')
+					.selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds)
+		},
+		{
+			name: 'a token list edit',
+			prepare: async (page) => {
+				await page
+					.locator('#bootstrap-scope-mode')
+					.selectOption(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds);
+				await page.locator('#bootstrap-token-ids').fill('2, 3');
+			},
+			change: (page) => page.locator('#bootstrap-token-ids').fill('2, 4')
+		},
+		{
+			name: 'applying the first ID',
+			change: (page) =>
+				formRow(page, 'First token ID')
+					.getByRole('button', { name: 'apply "0"', exact: true })
+					.click()
+		},
+		{
+			name: 'applying the token count',
+			change: (page) =>
+				formRow(page, 'Token count')
+					.getByRole('button', { name: 'apply "10000"', exact: true })
+					.click()
+		},
+		{
+			name: 'applying entire contract',
+			change: (page) =>
+				formRow(page, 'Token scope')
+					.getByRole('button', { name: 'apply "entire contract"', exact: true })
+					.click()
+		},
+		{
+			name: 'applying the project range mode',
+			contract: BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope,
+			prepare: async (page) => {
+				await page.locator('#bootstrap-sample').fill('163000681');
+				await page
+					.locator('#bootstrap-scope-mode')
+					.selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+			},
+			change: (page) =>
+				formRow(page, 'Token scope')
+					.getByRole('button', { name: 'apply "token range"', exact: true })
+					.click()
+		}
+	];
+	for (const reset of automaticSlugResetCases)
+		test(`clears the auto-filled collection slug after ${reset.name}`, async ({ page }) => {
+			await stageManualProbe(page, reset.contract ?? BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+			await page.locator('#bootstrap-slug').fill('');
+			await reset.prepare?.(page);
+			await probeButton(page).click();
+			const expectedSlug = reset.contract
+				? BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+				: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster;
+			await expect(page.locator('#bootstrap-slug')).toHaveValue(expectedSlug);
+			await reset.change(page);
+			await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+			await expectGridAlignment(page);
+		});
+
+	for (const action of [Action.Probe, Action.Inspect])
+		test(`clears the auto-filled collection slug immediately when ${action} runs again`, async ({
+			page
+		}) => {
+			await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+			await page.locator('#bootstrap-slug').fill('');
+			await probeButton(page).click();
+			await expect(page.locator('#bootstrap-slug')).toHaveValue(
+				BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+			);
+			const release = await pauseBootstrapSampleMetadata(page);
+			await page.getByRole('button', { name: action, exact: true }).click();
+			await expect(page.getByRole('button', { name: Action.Inspect, exact: true })).toContainText(
+				'inspecting'
+			);
+			await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+			await release.evaluate((unlock) => unlock());
+			await release.dispose();
+			// A new successful lookup after the fresh inspection may fill it again.
+			await expect(page.locator('#bootstrap-slug')).toHaveValue(
+				BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+			);
+		});
+
+	for (const change of ['sample', 'scope', Action.Probe, Action.Inspect])
+		test(`rejects a pending OpenSea auto-fill after ${change} changes`, async ({ page }) => {
+			await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+			await page.locator('#bootstrap-slug').fill('');
+			const release = await pauseBootstrapOpenSeaResolution(page);
+			await probeButton(page).click();
+			await expect(page.getByRole('button', { name: 'resolve #2', exact: true })).toContainText(
+				'resolving'
+			);
+			const oldRequestFailed = page.waitForEvent('requestfailed', (request) =>
+				request.url().includes('opensea-slug-probe')
+			);
+			if (change === 'sample') await page.locator('#bootstrap-sample').fill('3');
+			else if (change === 'scope') await page.locator('#bootstrap-range-start').fill('0');
+			else await page.getByRole('button', { name: change, exact: true }).click();
+			await oldRequestFailed;
+			await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+			release();
+			if (change === 'sample' || change === 'scope') {
+				await expect(page.getByRole('button', { name: /^resolve #/, exact: true })).toBeEnabled();
+				await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveCount(0);
+				await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+			} else {
+				await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+					'resolved'
+				);
+				await expect(page.locator('#bootstrap-slug')).toHaveValue(
+					BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+				);
+			}
+		});
+
+	for (const source of ['entered', 'applied'])
+		test(`preserves ${source} local slugs after scope edits and repeated checks`, async ({
+			page
+		}) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+			await page.locator('#bootstrap-slug').fill('');
+			await probeButton(page).click();
+			await expect(page.locator('#bootstrap-slug')).toHaveValue(
+				BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+			);
+			if (source === 'entered') await page.locator('#bootstrap-slug').fill('my-collection');
+			else {
+				await page.locator('#bootstrap-range-count').fill('1000');
+				await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+				await formRow(page, 'Collection slug')
+					.getByRole('button', { name: 'apply "milady"', exact: true })
+					.click();
+			}
+			const expectedSlug =
+				source === 'entered' ? 'my-collection' : BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster;
+			await page.locator('#bootstrap-range-count').fill('1001');
+			await expect(page.locator('#bootstrap-slug')).toHaveValue(expectedSlug);
+			for (const action of [Action.Inspect, Action.Probe]) {
+				const count = api.openSeaSlugProbeSampleTokenIds.length;
+				await page.getByRole('button', { name: action, exact: true }).click();
+				await expect.poll(() => api.openSeaSlugProbeSampleTokenIds.length).toBe(count + 1);
+				await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+					'resolved'
+				);
+				await expect(page.locator('#bootstrap-slug')).toHaveValue(expectedSlug);
+			}
+		});
+
+	test('preserves a local slug entered while OpenSea is resolving', async ({ page }, info) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-slug').fill('');
+		const release = await pauseBootstrapOpenSeaResolution(page);
+		await probeButton(page).click();
+		await expect(page.getByRole('button', { name: 'resolve #2', exact: true })).toContainText(
+			'resolving'
+		);
+		await page.locator('#bootstrap-slug').fill('my-collection');
+		release();
+		await expect(page.locator('#bootstrap-opensea .bootstrap-resolution-badge')).toHaveText(
+			'resolved'
+		);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('my-collection');
+		await expectGridAlignment(page);
+		await page.screenshot({ path: info.outputPath('manual-slug-preserved.png'), fullPage: true });
+	});
+
+	test('fills a blank local slug only after OpenSea confirms it', async ({ page }) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-slug').fill('');
+		await page.locator('#bootstrap-opensea-slug').fill('wrong-collection');
+		await probeButton(page).click();
+		await expect(page.locator('#bootstrap-opensea')).toContainText(
+			'OpenSea did not confirm this collection slug'
+		);
+		await expect(page.locator('#bootstrap-slug')).toHaveValue('');
+		await page.locator('#bootstrap-opensea-slug').fill('');
+		await page.getByRole('button', { name: 'resolve #2', exact: true }).click();
+		await expect(page.locator('#bootstrap-slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		);
+	});
+
+	test('shows onchain cache guidance and links the sample in an incomplete scope', async ({
+		page
+	}, info) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('#bootstrap-range-start').fill('');
+		await probeButton(page).click();
+		await expect(page.getByTestId(TEST_IDS.BootstrapProbeTokenCard)).toBeVisible();
+		const warning = page.locator('#bootstrap-scope-sample-help');
+		await expect(warning).toContainText("Complete this collection's token scope");
+		await expect(warning.getByRole('link', { name: 'sample #2', exact: true })).toHaveAttribute(
+			'href',
+			openseaItemHref({
+				chainSlug: 'ethereum',
+				collectionAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+				tokenId: '2'
+			})!
+		);
+		await page
+			.locator('#bootstrap-scope')
+			.screenshot({ path: info.outputPath('incomplete-scope-token-link.png') });
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await formRow(page, 'Token count')
+			.getByRole('button', { name: 'apply "10000"', exact: true })
+			.click();
+		await formRow(page, 'First token ID')
+			.getByRole('button', { name: 'apply "0"', exact: true })
+			.click();
+		await page.getByRole('button', { name: 'estimate', exact: true }).click();
+		await expect(page.getByTestId(TEST_IDS.BootstrapCacheTokenCard)).toBeVisible();
+		await expectGridAlignment(page);
+		const help = formRow(page, 'Image cache mode').getByRole('button');
+		await help.hover();
+		await help.focus();
+		await help.press('Enter');
+		await expect(help.getByRole('tooltip')).toContainText(
+			'Onchain collections often need caching off'
+		);
+		await expect(help.getByRole('tooltip')).toContainText('resized preview');
+		await expect
+			.poll(async () => {
+				const box = await help.getByRole('tooltip').boundingBox();
+				const viewport = page.viewportSize()!;
+				return Boolean(
+					box &&
+					box.x >= 0 &&
+					box.y >= 0 &&
+					box.x + box.width <= viewport.width &&
+					box.y + box.height <= viewport.height
+				);
+			})
+			.toBe(true);
+		await help.getByRole('tooltip').screenshot({ path: info.outputPath('cache-mode-popup.png') });
+		await page
+			.locator('#bootstrap-cache')
+			.screenshot({ path: info.outputPath('cache-settings-preview.png') });
+		await page.screenshot({ path: info.outputPath('onchain-cache-help.png'), fullPage: true });
+	});
+
 	test('keeps OpenSea progress inside resolve and ignores a late result after sample and slug edits', async ({
 		page
 	}, info) => {
@@ -1831,6 +2113,16 @@ async function stageManualProbe(page: Page, address: string) {
 	const api = await installBootstrapProbeApiMock(page);
 	await stageManualProbeInputs(page, address);
 	return api;
+}
+
+async function pauseBootstrapOpenSeaResolution(page: Page): Promise<() => void> {
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	await page.route('**/collections/bootstrap/opensea-slug-probe?**', async (route) => {
+		await gate;
+		await route.fallback();
+	});
+	return release;
 }
 
 async function stageManualProbeInputs(page: Page, address: string) {
