@@ -5581,6 +5581,7 @@ components:
                     projectId,
                     projectName,
                     startTokenId,
+                    startTokenOwnership,
                     mintedTokenCount,
                     maxTokenCount,
                 ]
@@ -5594,6 +5595,10 @@ components:
                 startTokenId:
                     type: string
                     description: Exact project range start as a decimal uint256.
+                startTokenOwnership:
+                    description: Ownership check for the project start at the inspection block. Failed or unknown ownership preserves project facts but suppresses the first-ID suggestion.
+                    allOf:
+                        - $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
                 mintedTokenCount:
                     type: integer
                     minimum: 1

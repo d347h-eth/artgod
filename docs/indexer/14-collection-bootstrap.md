@@ -249,7 +249,7 @@ enforced. Queueing does not promise recovery of unavailable metadata.
 
 **Token scope** offers a range, explicit IDs or **Entire contract** through
 ERC721Enumerable at any time after acknowledgement. The range's first ID
-(editable default `1`) and token count define `first .. first + count - 1`,
+(initially empty) and token count define `first .. first + count - 1`,
 including unminted IDs. Unknown/false Enumerable support produces a warning when
 entire-contract mode is selected, not a disabled control.
 The suggestion and selected mode both show the detected contract-wide token
@@ -343,7 +343,8 @@ that universe by walking tokens. Keep these facts separate:
 - A shared contract can genuinely implement ERC721Enumerable while its global
   indexes interleave several projects. A successful address-only sample and
   contract-wide supply do not identify which project the user wants.
-- The editable first-token default of `1` is a convention, not a discovered
+- First token ID starts empty; the user enters it or applies an ownership-confirmed
+  suggestion. A conventional suggestion of `1` does not prove the historical
   boundary. A missing low ID may be unminted, burned, or not yet migrated. Do not
   shift the requested range to the first token that happens to have an owner.
 - Explicit token IDs are the fallback when a collection cannot be represented
@@ -404,9 +405,9 @@ OpenSea callers must send `sample_token_id` to the exact-NFT probe.
 
 ### Metadata and Image Failure Recovery
 
-Sample ownership is independent of metadata availability. A confirmed owner keeps
-the sample marked **owner confirmed** when metadata download or parsing fails;
-the form shows that failure beside **inspect** and allows queueing a complete definition.
+Sample ownership is independent of metadata availability. Confirmed ownership
+remains available when metadata download or parsing fails; the form shows that
+failure beside **inspect token** and allows queueing a complete definition.
 It must not label
 an owned token incorrect merely because its metadata host returned HTTP 429/404,
 timed out, or returned unreadable metadata. Contract and supply diagnostics remain
@@ -416,7 +417,10 @@ Expected image download/processing failures return HTTP 502 with a safe recovery
 message; upstream status codes remain visible, while raw error details go to logs.
 A failed image-cache estimate can be retried with **estimate**. Changing the sample,
 image source or cache settings invalidates the old estimate and ignores stale
-responses. Scope edits preserve the measurement and recalculate totals only while
+responses. Repeating sample inspection clears measurements and the cached preview;
+**estimate** waits until that inspection finishes. Replacement metadata invalidates
+any intervening estimate, even for the same token ID and tokenURI. Scope edits
+preserve the measurement and recalculate totals only while
 the sample remains inside the scope. Caching can remain enabled when an estimate fails or was
 never run. Estimate failures do not change the submitted cache policy. Switching
 **Image cache mode** to **off** disables local image caching.

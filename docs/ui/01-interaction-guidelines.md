@@ -445,6 +445,9 @@ re-evaluate the retained JSON locally.
 Scope edits retain usable image measurements and recalculate totals; a sample
 outside the new scope remains inspectable but cannot supply its collection
 estimate or OpenSea association. Pending responses cannot replace newer edits.
+Repeating token inspection clears measurements and the cached preview. Estimate
+stays disabled until inspection finishes, and replacement sample findings
+invalidate any intervening measurement, even when the token ID is unchanged.
 
 Detailed probe results, sample media and cached-image previews appear as soon as
 available, without expand/collapse actions. Scope choices remain editable without

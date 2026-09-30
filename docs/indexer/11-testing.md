@@ -484,11 +484,13 @@ Expectations supplied on 2026-09-28; these are not fresh live observations:
 | Grailers DAO | `0xd89239186180617cfe17e8b73b2b8bd9c96d0a15` | 0 / 1000             | check independently                | `grailers-dao`                 |
 | AEON         | `0xc374a204334d4edd4c6a62f0867c752d65e9579c` | 1 / 3333             | earlier non-Enumerable observation | not supplied                   |
 
-Meridian requires a manually declared project scope. An ArtBlocks registry helper
-is deferred; the generic probe contains no project arithmetic or address cases.
-Grailers has approximately 704 minted tokens, but the declared range remains
-0–999. Its deterministic worker fixture selects exactly 704 IDs, omits the first
-ten and includes additional holes. That set is synthetic.
+Meridian's project scope remains an explicit user choice. For supported,
+registry-confirmed Art Blocks contracts, inspection suggests the sampled project's
+exact start and separate minted/maximum counts. The generic probe does not infer
+project ranges for arbitrary contracts.
+The user estimated approximately 704 minted Grailers tokens; this is not a verified
+live inventory. Its deterministic worker fixture selects exactly 704 IDs from
+0–999, omits the first ten and includes additional holes. That set is synthetic.
 
 ### Shared-Contract Manual Fixture
 

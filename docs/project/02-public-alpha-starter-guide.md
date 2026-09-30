@@ -205,12 +205,12 @@ Typing or clearing a field sends no probe. Required setup can be completed
 manually even when optional network checks fail.
 
 1. **Contract:** enter the verified address. You may enter a
-   **Sample token ID** for checks or leave it blank for **probe** to find one.
+   **Sample token ID** for checks or leave it blank for **probe contract** to find one.
    Probing is optional; progress appears inside the button and errors stay nearby.
    The sample is one existing NFT, not necessarily the first token in the scope.
 2. **Token scope:** choose a range or token ID list. For a range, set **First
-   token ID** and **Token count**; the last ID is `first + count - 1`. The default
-   first ID of `1` is editable, not a detected fact. Choose **Entire contract
+   token ID** and **Token count**; the last ID is `first + count - 1`. First token
+   ID starts empty; enter it or apply a suggestion. Choose **Entire contract
    (ERC721Enumerable)** only when you want every token on that contract, including
    all projects if the contract is shared. Unconfirmed support produces a warning.
    A detected contract supply can be applied to Token count explicitly; check
@@ -218,7 +218,8 @@ manually even when optional network checks fail.
 3. **Collection details:** set the local **Collection slug** and required **Image
    source field**. Animation is optional. Each available **apply "value"** button
    previews and accepts only that field's suggestion. You can also enter known
-   fields manually. To check edited sample/media fields, press **probe** again.
+   fields manually. Changing media fields reuses the inspected metadata. Press
+   **inspect token** to retry metadata checks for the sample.
 4. **Image cache (optional):** choose whether to cache images locally and their
    maximum dimension. **estimate** checks one image and projects storage for the
    selected scope. An unavailable or failed estimate does not prevent queueing.
