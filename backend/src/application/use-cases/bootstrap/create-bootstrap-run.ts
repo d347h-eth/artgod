@@ -1,4 +1,10 @@
 import {
+    parseBootstrapScope,
+    bootstrapScopeModel,
+    BootstrapScopeValidationError,
+    type BootstrapScope,
+} from "@artgod/shared/bootstrap/scope";
+import {
     BootstrapConflictError,
     BootstrapValidationError,
     type CreateBootstrapRunInput,
@@ -23,13 +29,10 @@ import type {
     BootstrapRunsWritePort,
     ChainRefResolverPort,
 } from "./ports.js";
-import {
-    BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
-    BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
-} from "./bootstrap-limits.js";
 import { planBootstrapRunSteps } from "./bootstrap-pipeline-planner.js";
 import {
     BOOTSTRAP_METADATA_MODE,
+    BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_RUN_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
@@ -41,6 +44,12 @@ import {
 import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media/token-metadata-animation-source";
 import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from "@artgod/shared/config/bootstrap";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -74,7 +83,13 @@ export class CreateBootstrapRunUseCase {
 
     async createRun(
         input: CreateBootstrapRunInput,
+        report?: BootstrapOutputReporter,
     ): Promise<CreateBootstrapRunOutput> {
+        report?.({
+            step: Step.Definition,
+            status: Status.Started,
+            message: `Validate collection ${input.slug} · ${input.address}`,
+        });
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -101,10 +116,7 @@ export class CreateBootstrapRunUseCase {
             throw new BootstrapValidationError("Only ERC-721 is supported");
         }
 
-        const enumeration = resolveEnumerationInput(
-            input.supportsEnumerable,
-            input.manualInput,
-        );
+        const enumeration = resolveEnumerationInput(input.scope);
         const requestImageCache = resolveImageCacheInput(input.imageCache);
         const requestExtensionKey = resolveRequestedExtensionKey(
             this.embeddedExtensionResolverPort,
@@ -113,6 +125,7 @@ export class CreateBootstrapRunUseCase {
             enumeration,
         );
 
+        // Conflict checks use the stored collection definition, never probe success.
         const existing = this.bootstrapRunsPort.findCollectionBySlug(
             chain.publicChainId,
             slug,
@@ -134,6 +147,11 @@ export class CreateBootstrapRunUseCase {
                 (collection) =>
                     collection.collectionId !== existing?.collectionId,
             );
+        report?.({
+            step: Step.Scope,
+            status: Status.Started,
+            message: `Check scope overlap · ${siblingCollections.length} other collection(s) on this contract`,
+        });
         assertCollectionScopeDoesNotOverlap(
             chain.publicChainId,
             siblingCollections,
@@ -141,6 +159,11 @@ export class CreateBootstrapRunUseCase {
             this.bootstrapRunsPort,
         );
 
+        report?.({
+            step: Step.Scope,
+            status: Status.Succeeded,
+            message: "No collection scope overlap",
+        });
         const collection = this.bootstrapRunsPort.upsertCollectionForBootstrap({
             chainId: chain.publicChainId,
             slug,
@@ -169,6 +192,11 @@ export class CreateBootstrapRunUseCase {
             requestImageCache.selectedSource,
             requestExtensionKey,
         );
+        report?.({
+            step: Step.Definition,
+            status: Status.Succeeded,
+            message: `Collection definition accepted · ${slug}`,
+        });
         const plannedSteps = planBootstrapRunSteps({
             imageCache: requestImageCache.config,
             openseaSlug,
@@ -218,6 +246,11 @@ export class CreateBootstrapRunUseCase {
             payloadJson: null,
         });
 
+        report?.({
+            step: Step.Queue,
+            status: Status.Started,
+            message: `Queue bootstrap run #${run.runId}`,
+        });
         await this.bootstrapQueuePort.publishBootstrapStart({
             chainId: run.chainId,
             runId: run.runId,
@@ -244,6 +277,11 @@ export class CreateBootstrapRunUseCase {
         );
         const createdAt = queued?.createdAt ?? run.createdAt;
         const status = queued?.status ?? BOOTSTRAP_RUN_STATUS.Queued;
+        report?.({
+            step: Step.Queue,
+            status: Status.Succeeded,
+            message: `Bootstrap run #${run.runId} queued · collection ${slug}`,
+        });
         return {
             runId: run.runId,
             collectionId: run.collectionId,
@@ -393,7 +431,7 @@ function normalizeSlug(raw: string): string {
     if (!/^[a-z0-9-]+$/.test(value)) {
         throw new BootstrapValidationError("Invalid slug");
     }
-    if (value.length > 80) {
+    if (value.length > BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH) {
         throw new BootstrapValidationError("Slug is too long");
     }
     return value;
@@ -414,10 +452,7 @@ function normalizeAddress(raw: string): string {
     return value;
 }
 
-function resolveEnumerationInput(
-    supportsEnumerable: boolean,
-    manualInput: CreateBootstrapRunInput["manualInput"],
-): {
+function resolveEnumerationInput(input: BootstrapScope): {
     mode: "enumerable" | "manual_token_ids" | "manual_range";
     tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
     scopeStartTokenId: string | null;
@@ -427,82 +462,33 @@ function resolveEnumerationInput(
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
 } {
-    if (supportsEnumerable) {
-        return {
-            mode: "enumerable",
-            tokenScopeKind:
-                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-            scopeStartTokenId: null,
-            scopeTotalSupply: null,
-            explicitTokenIds: [],
-            manualTokenIdsJson: null,
-            manualRangeStartTokenId: null,
-            manualRangeTotalSupply: null,
-        };
-    }
-
-    if (!manualInput) {
-        throw new BootstrapValidationError(
-            "Manual input is required when enumerable support is disabled",
-        );
-    }
-
-    if (manualInput.mode === "manual_token_ids") {
-        if (manualInput.tokenIds.length === 0) {
-            throw new BootstrapValidationError(
-                "Token IDs list cannot be empty",
-            );
-        }
-        if (manualInput.tokenIds.length > BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT) {
-            throw new BootstrapValidationError("Token IDs list is too large");
-        }
-        const normalized = manualInput.tokenIds.map((tokenId) =>
-            normalizeTokenId(tokenId),
-        );
-        return {
-            mode: "manual_token_ids",
-            tokenScopeKind:
-                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds,
-            scopeStartTokenId: null,
-            scopeTotalSupply: null,
-            explicitTokenIds: normalized,
-            manualTokenIdsJson: JSON.stringify(normalized),
-            manualRangeStartTokenId: null,
-            manualRangeTotalSupply: null,
-        };
-    }
-
-    const startTokenId = normalizeTokenId(manualInput.startTokenId);
-    const totalSupply = manualInput.totalSupply;
-    if (!Number.isInteger(totalSupply) || totalSupply <= 0) {
-        throw new BootstrapValidationError(
-            "totalSupply must be a positive integer",
-        );
-    }
-    if (totalSupply > BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT) {
-        throw new BootstrapValidationError("totalSupply is too large");
+    let scope: BootstrapScope;
+    try {
+        scope = parseBootstrapScope(input);
+    } catch (error) {
+        if (!(error instanceof BootstrapScopeValidationError)) throw error;
+        throw new BootstrapValidationError(error.message);
     }
     return {
-        mode: "manual_range",
-        tokenScopeKind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
-        scopeStartTokenId: startTokenId,
-        scopeTotalSupply: totalSupply,
-        explicitTokenIds: [],
-        manualTokenIdsJson: null,
-        manualRangeStartTokenId: startTokenId,
-        manualRangeTotalSupply: totalSupply,
+        mode: scope.mode,
+        ...bootstrapScopeModel(scope).toPersistence(),
+        explicitTokenIds:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+                ? scope.tokenIds
+                : [],
+        manualTokenIdsJson:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+                ? JSON.stringify(scope.tokenIds)
+                : null,
+        manualRangeStartTokenId:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+                ? scope.startTokenId
+                : null,
+        manualRangeTotalSupply:
+            scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+                ? scope.tokenCount
+                : null,
     };
-}
-
-function normalizeTokenId(raw: string): string {
-    const value = raw.trim();
-    if (!/^\d+$/.test(value)) {
-        throw new BootstrapValidationError("Invalid token id");
-    }
-    if (value.length > 78) {
-        throw new BootstrapValidationError("Token id is too large");
-    }
-    return value;
 }
 
 // Protects bootstrap collection scopes from overlapping existing collections.

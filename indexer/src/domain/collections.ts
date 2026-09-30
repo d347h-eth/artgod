@@ -17,33 +17,16 @@ export const COLLECTION_STANDARD = {
 export type CollectionStandard =
     (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
 
-// Keep raw scope literals private to this module.
-const TOKEN_SCOPE_KIND = {
-    AllContractTokens: "contract_all_tokens",
-    TokenRange: "token_range",
-    ExplicitTokenIds: "explicit_token_ids",
-} as const;
-
-type TokenScopeKind = (typeof TOKEN_SCOPE_KIND)[keyof typeof TOKEN_SCOPE_KIND];
-
-type ContinuousTokenRange = {
-    fromTokenId: string;
-    toTokenId: string;
-};
+import {
+    CollectionTokenScope,
+    type ContinuousTokenRange,
+} from "@artgod/shared/collections/token-scope";
+export { CollectionTokenScope } from "@artgod/shared/collections/token-scope";
 
 // This is the post-anchor part of a range that may update current state.
 export type CurrentStateProjectionWindow = {
     fromBlock: number;
     toBlock: number;
-};
-
-// Serialized scope shape used only at adapter boundaries. Raw persistence
-// carries stringly-typed scope kinds; the domain wraps that data in
-// CollectionTokenScope before business logic touches it.
-type SerializedCollectionScope = {
-    tokenScopeKind: string;
-    scopeStartTokenId: string | null;
-    scopeTotalSupply: number | null;
 };
 
 // Serialized collection snapshot used for DB/adapter translation only. This is
@@ -76,157 +59,6 @@ type SerializedCollectionRecord = {
     openseaLastStreamHealthyAt: string | null;
     openseaLastError: string | null;
 };
-
-// CollectionTokenScope owns all scope semantics. Consumers should use these
-// methods instead of branching on raw scope-kind values.
-export class CollectionTokenScope {
-    private constructor(
-        private readonly kind: TokenScopeKind,
-        public readonly scopeStartTokenId: string | null,
-        public readonly scopeTotalSupply: number | null,
-    ) {}
-
-    static fromPersistence(
-        input: SerializedCollectionScope,
-    ): CollectionTokenScope {
-        switch (input.tokenScopeKind) {
-            case TOKEN_SCOPE_KIND.AllContractTokens:
-                return CollectionTokenScope.allContractTokens();
-            case TOKEN_SCOPE_KIND.TokenRange:
-                return CollectionTokenScope.tokenRange(
-                    input.scopeStartTokenId,
-                    input.scopeTotalSupply,
-                );
-            case TOKEN_SCOPE_KIND.ExplicitTokenIds:
-                return CollectionTokenScope.explicitTokenIds();
-            default:
-                throw new Error(
-                    `Unknown collection token scope kind: ${input.tokenScopeKind}`,
-                );
-        }
-    }
-
-    static allContractTokens(): CollectionTokenScope {
-        return new CollectionTokenScope(
-            TOKEN_SCOPE_KIND.AllContractTokens,
-            null,
-            null,
-        );
-    }
-
-    // This scope covers one continuous token range.
-    static tokenRange(
-        scopeStartTokenId: string | null,
-        scopeTotalSupply: number | null,
-    ): CollectionTokenScope {
-        if (scopeStartTokenId === null || scopeTotalSupply === null) {
-            throw new Error(
-                "Token-range scope requires start token and supply",
-            );
-        }
-        if (scopeTotalSupply <= 0) {
-            throw new Error("Token-range scope requires positive supply");
-        }
-        return new CollectionTokenScope(
-            TOKEN_SCOPE_KIND.TokenRange,
-            scopeStartTokenId,
-            scopeTotalSupply,
-        );
-    }
-
-    static explicitTokenIds(): CollectionTokenScope {
-        return new CollectionTokenScope(
-            TOKEN_SCOPE_KIND.ExplicitTokenIds,
-            null,
-            null,
-        );
-    }
-
-    // Use these helpers instead of raw scope-kind checks.
-    isAllContractTokensScope(): boolean {
-        return this.kind === TOKEN_SCOPE_KIND.AllContractTokens;
-    }
-
-    isTokenRangeScope(): boolean {
-        return this.kind === TOKEN_SCOPE_KIND.TokenRange;
-    }
-
-    isExplicitTokenIdsScope(): boolean {
-        return this.kind === TOKEN_SCOPE_KIND.ExplicitTokenIds;
-    }
-
-    containsToken(
-        tokenId: string,
-        hasExplicitToken: (tokenId: string) => boolean = () => false,
-    ): boolean {
-        // Explicit-token membership comes from the caller.
-        if (this.isAllContractTokensScope()) {
-            return true;
-        }
-
-        if (this.isExplicitTokenIdsScope()) {
-            return hasExplicitToken(tokenId);
-        }
-
-        const scopeStartTokenId = this.scopeStartTokenId;
-        const scopeTotalSupply = this.scopeTotalSupply;
-        if (scopeStartTokenId === null || scopeTotalSupply === null) {
-            return false;
-        }
-
-        const start = BigInt(scopeStartTokenId);
-        const end = start + BigInt(scopeTotalSupply - 1);
-        const value = BigInt(tokenId);
-        return value >= start && value <= end;
-    }
-
-    // Intersect a decoded token range with this scope.
-    intersectContinuousRange(
-        fromTokenId: string,
-        toTokenId: string,
-    ): ContinuousTokenRange | null {
-        if (this.isExplicitTokenIdsScope()) {
-            return null;
-        }
-
-        if (this.isAllContractTokensScope()) {
-            return {
-                fromTokenId,
-                toTokenId,
-            };
-        }
-
-        const scopeStartTokenId = this.scopeStartTokenId;
-        const scopeTotalSupply = this.scopeTotalSupply;
-        if (scopeStartTokenId === null || scopeTotalSupply === null) {
-            return null;
-        }
-
-        const rangeStart = BigInt(fromTokenId);
-        const rangeEnd = BigInt(toTokenId);
-        const scopeStart = BigInt(scopeStartTokenId);
-        const scopeEnd = scopeStart + BigInt(scopeTotalSupply - 1);
-        const intersectStart =
-            scopeStart > rangeStart ? scopeStart : rangeStart;
-        const intersectEnd = scopeEnd < rangeEnd ? scopeEnd : rangeEnd;
-        if (intersectStart > intersectEnd) {
-            return null;
-        }
-
-        return {
-            fromTokenId: intersectStart.toString(),
-            toTokenId: intersectEnd.toString(),
-        };
-    }
-
-    toPersistence(): SerializedCollectionScope {
-        return {
-            tokenScopeKind: this.kind,
-            scopeStartTokenId: this.scopeStartTokenId,
-            scopeTotalSupply: this.scopeTotalSupply,
-        };
-    }
-}
 
 // CollectionRecord is the canonical business model for collection identity in
 // the indexer runtime. It exposes scope behavior explicitly so callers do not
@@ -305,7 +137,9 @@ export class CollectionRecord {
     }
 
     // True when current-state projection is anchored.
-    static hasBootstrapAnchorValue(bootstrapAnchorBlock: number | null): boolean {
+    static hasBootstrapAnchorValue(
+        bootstrapAnchorBlock: number | null,
+    ): boolean {
         return bootstrapAnchorBlock !== null;
     }
 
@@ -347,7 +181,9 @@ export class CollectionRecord {
 
     // Instance form of the anchor helpers.
     hasBootstrapAnchor(): boolean {
-        return CollectionRecord.hasBootstrapAnchorValue(this.bootstrapAnchorBlock);
+        return CollectionRecord.hasBootstrapAnchorValue(
+            this.bootstrapAnchorBlock,
+        );
     }
 
     canProjectCurrentStateAt(blockNumber: number): boolean {

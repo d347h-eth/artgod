@@ -98,6 +98,44 @@ describe("RPC error classification", () => {
         expect(shouldRetryRpcError(error)).toBe(true);
     });
 
+    it("allows optional reads to stop on zero data without claiming a deterministic revert", () => {
+        const error = buildProviderZeroDataError();
+        const policy = { retryZeroData: false };
+        expect(shouldRetryRpcError(error, policy)).toBe(false);
+        expect(shouldPenalizeRpcEndpointFailure(error, policy)).toBe(false);
+        expect(isRpcDeterministicContractError(error)).toBe(false);
+        expect(shouldRetryRpcError(error)).toBe(true);
+    });
+
+    it.each(Object.values(RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES))(
+        "never retries deterministic %s failures under either read policy",
+        (name) => {
+            const error = Object.assign(
+                new Error(TEST_CONTRACT_READ_FAILURE_MESSAGE),
+                { name },
+            );
+            for (const policy of [undefined, { retryZeroData: false }]) {
+                expect(shouldRetryRpcError(error, policy)).toBe(false);
+                expect(shouldPenalizeRpcEndpointFailure(error, policy)).toBe(
+                    false,
+                );
+            }
+        },
+    );
+
+    it("retains transport and historical-state retries for optional reads", () => {
+        const policy = { retryZeroData: false };
+        for (const error of [
+            new Error(TEST_TIMEOUT_MESSAGE),
+            buildViemInvalidParamsError(
+                `${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.HistoricalState} ${TEST_HISTORICAL_STATE_HASH} ${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.IsNotAvailable}`,
+            ),
+        ]) {
+            expect(shouldRetryRpcError(error, policy)).toBe(true);
+            expect(shouldPenalizeRpcEndpointFailure(error, policy)).toBe(true);
+        }
+    });
+
     it("classifies unavailable historical state as a retryable endpoint failure", () => {
         const error = buildViemInvalidParamsError(
             `${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.HistoricalState} ${TEST_HISTORICAL_STATE_HASH} ${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.IsNotAvailable}`,
@@ -110,6 +148,25 @@ describe("RPC error classification", () => {
         );
         expect(shouldPenalizeRpcEndpointFailure(error)).toBe(true);
         expect(shouldRetryRpcError(error)).toBe(true);
+    });
+
+    it("preserves explicit historical-state failure when the SDK wraps it as a contract revert", () => {
+        const error = Object.assign(
+            new Error(TEST_CONTRACT_READ_FAILURE_MESSAGE),
+            {
+                name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionReverted,
+                cause: buildViemInvalidParamsError(
+                    `${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.HistoricalState} ${TEST_HISTORICAL_STATE_HASH} ${RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_DATA.IsNotAvailable}`,
+                ),
+            },
+        );
+        expect(isRpcDeterministicContractError(error)).toBe(false);
+        expect(classifiedRpcErrorClassName(error)).toBe(
+            RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME,
+        );
+        expect(shouldRetryRpcError(error)).toBe(true);
+        expect(shouldRetryRpcError(error, { retryZeroData: false })).toBe(true);
+        expect(shouldPenalizeRpcEndpointFailure(error)).toBe(true);
     });
 
     it("classifies provider revert text as deterministic contract failure", () => {

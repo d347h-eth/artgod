@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 
 use super::app_config::load_app_config_state;
 use super::bot_lifecycle::{BotLifecycleCoordinator, BotStartReservation, BotWorkerLifecycleLease};
-use super::env_keys::NATS_STREAM_PREFIX_ENV_KEY;
+use super::env_keys::{NATS_STREAM_PREFIX_ENV_KEY, NODE_OPTIONS_ENV_KEY, NODE_PATH_ENV_KEY};
 use super::nats_store::{
     PREPARE_STORE_ARG, PREPARE_STORE_PROCESS_NAME, acquire_runtime_store_lock,
 };
@@ -2802,6 +2802,18 @@ struct ManagedProcess {
     cleanup: Option<ProcessCleanupSpec>,
 }
 
+fn configure_runtime_process_environment(
+    command: &mut Command,
+    process_env: &HashMap<String, String>,
+) {
+    command.envs(process_env);
+    // `yarn dev:desktop` supplies PnP loaders for build tools. Packaged children
+    // resolve their own staged node_modules; inheriting those loaders breaks
+    // lazy imports such as Sharp even though the staged native packages work.
+    command.env_remove(NODE_OPTIONS_ENV_KEY);
+    command.env_remove(NODE_PATH_ENV_KEY);
+}
+
 fn spawn_process(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
@@ -2825,9 +2837,7 @@ fn spawn_process(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    for (key, value) in &config.process_env {
-        command.env(key, value);
-    }
+    configure_runtime_process_environment(&mut command, &config.process_env);
 
     let mut child = command.spawn().map_err(|error| {
         let message = format!(
@@ -3465,9 +3475,6 @@ mod tests {
     // Exceeds normal pipe capacity so the fixture cannot finish before Stop arrives.
     #[cfg(unix)]
     const BLOCKED_SECRET_HANDOFF_TEST_BYTES: usize = 2 * 1024 * 1024;
-
-    // Node startup option used to model an ambient pre-entrypoint injection attempt.
-    const NODE_OPTIONS_ENV_KEY: &str = "NODE_OPTIONS";
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -4196,5 +4203,68 @@ mod tests {
 
         assert_eq!(explicit_env, config.process_env);
         assert!(!explicit_env.contains_key(NODE_OPTIONS_ENV_KEY));
+    }
+
+    #[test]
+    fn runtime_environment_excludes_development_loaders_and_keeps_config() {
+        let mut config = build_test_runtime_config();
+        config.process_env.insert(
+            NODE_OPTIONS_ENV_KEY.to_owned(),
+            "--require=build-loader.cjs".to_owned(),
+        );
+        let mut command = Command::new(&config.node_bin);
+        command.env(NODE_PATH_ENV_KEY, "/build-only/node_modules");
+        configure_runtime_process_environment(&mut command, &config.process_env);
+        let explicit_env = command.get_envs().collect::<HashMap<_, _>>();
+        for key in [NODE_OPTIONS_ENV_KEY, NODE_PATH_ENV_KEY] {
+            assert_eq!(explicit_env.get(std::ffi::OsStr::new(key)), Some(&None));
+        }
+        for (key, value) in &config.process_env {
+            if key != NODE_OPTIONS_ENV_KEY {
+                assert_eq!(
+                    explicit_env.get(std::ffi::OsStr::new(key)),
+                    Some(&Some(std::ffi::OsStr::new(value)))
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires staged desktop Node and native dependencies"]
+    fn runtime_environment_loads_staged_sharp_despite_ambient_loader() {
+        let runtime_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/runtime");
+        let node = runtime_dir
+            .join("node")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
+        let mut command = Command::new(node);
+        command.current_dir(runtime_dir.join("backend"));
+        // Model the development launcher's inherited loader without mutating
+        // this test process's global environment or depending on Yarn itself.
+        command.env(
+            NODE_OPTIONS_ENV_KEY,
+            "--require=artgod-missing-build-loader.cjs",
+        );
+        command.env(NODE_PATH_ENV_KEY, "/build-only/node_modules");
+        command.args(["--input-type=module", "--eval", r#"
+            const sharp = (await import('sharp')).default;
+            const image = await sharp({create: {width: 2, height: 1, channels: 3, background: 'red'}}).webp().toBuffer();
+            const decoded = await sharp(image).metadata();
+            if (decoded.width !== 2 || decoded.height !== 1 || decoded.format !== 'webp') throw new Error('Invalid Sharp output');
+        "#]);
+        let before = command.output().expect("staged Node must be executable");
+        assert!(
+            !before.status.success(),
+            "the injected build loader must fail before sanitizing"
+        );
+        assert!(
+            String::from_utf8_lossy(&before.stderr).contains("artgod-missing-build-loader.cjs")
+        );
+        configure_runtime_process_environment(&mut command, &HashMap::new());
+        let after = command.output().expect("sanitized staged Node must start");
+        assert!(
+            after.status.success(),
+            "{}",
+            String::from_utf8_lossy(&after.stderr)
+        );
     }
 }

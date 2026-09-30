@@ -129,6 +129,9 @@ feature-local markup or CSS:
 Do not fall back to raw browser-default inputs, fieldsets, checkboxes, or number
 spinners when an established ArtGod control family already exists.
 
+`InfoTooltip` keeps its popup inside the visible viewport on activation,
+scrolling and resizing, while preserving its placement beside the trigger.
+
 ### Admin setting summaries
 
 Read-only summaries of Admin configuration must remain visibly connected to the
@@ -330,6 +333,7 @@ Action polarity and placement:
 - when the row is compact instead of full-width, keep a significant visual gap between the negative-left and positive-right buttons
 - do not render a positive/confirm button before the matching negative/cancel button
 - use the shared `.action-button-negative` and `.action-button-positive` classes unless a component has an existing documented equivalent
+- use `.action-button-neutral` for ice-colored secondary actions
 
 Button-like controls should not retain pointer focus after mouse or touch activation.
 
@@ -342,6 +346,151 @@ Rules:
 - active/selected navigation controls must be visually selected but inert, with no pointer cursor and no hover affordance
 - stateful toggles such as `filter`, `tiers`, and `traits` remain clickable while active and should keep the normal hover/focus color behavior
 - reset or clear-state controls must use `.facet-panel-action-button.facet-reset-button`; they are pink by default and must not use orange, which is reserved for selected or active toggle and enum states
+
+### Bootstrap setup
+
+The creation form uses ordered sections: Contract, Token
+scope, Collection details, Image cache, and OpenSea. Required sections show
+completion independently of optional network checks. Field errors and recovery
+instructions belong in their section; probe feedback stays beside the contract
+controls. Optional check failures never gate a complete manual definition.
+The contract-safety acknowledgement precedes and unlocks the entire form;
+unchecking it locks the controls again without discarding the entered definition.
+The contract input also accepts a pasted NFT URL. Read only its
+`<contract address>/<decimal token ID>` path pair, regardless of hostname or
+preceding path, and immediately fill the address and sample inputs together.
+Pasting does not change the selected chain or token scope, or make network
+requests. Clear superseded findings just as for an address edit. Invalid input
+stays editable with validation beside the field; manually typed URLs settle when
+the edit is committed so a partial token ID is never applied during typing.
+
+The desktop workspace divides equally between the left-aligned form and a
+read-only setup output log on the right. Every form section shares one
+three-column grid: label, input, action/status. Inputs start at the same column
+and are sized for their content; counts and dimensions stay compact. Inputs and
+their first action or standalone status share a vertical centerline. Additional
+actions and status text occupy later rows in the same action column, so they
+cannot shift the input away from its button. Field messages stay in that right
+column and cover only validation, constraints, or recovery. Do not repeat the
+field help already available through the info pop-up. Omit idle field notes such
+as `required`, `optional` and `not checked`; section headings retain required or
+optional labels. Omit short status notes beneath actions, including checked,
+confirmed, detected and estimated labels; keep only actionable explanations,
+validation and scope constraints there. The dark section fill belongs only to the
+heading, without a bottom rule. Incomplete sections use the existing filled yellow
+status badge with dark text for `needs input` or `check settings`, fitted to its
+label and aligned to the action column. Completed required sections show cyan `✓ complete`; optional
+sections do not repeat configured/resolved status in their headings.
+Actions use the standard form buttons: probe contract, inspect token, estimate,
+OpenSea resolve and queue bootstrap use the cyan `.action-button-positive` family;
+per-field apply and the log's latest action use the ice `.action-button-neutral` family.
+Bootstrap's resolve button includes the sample token ID used for the lookup,
+including while it is resolving.
+New or changed apply suggestions use the shared update flash from the bid book,
+colored cyan.
+Action labels are lowercase, and
+pending text and `LoadingBladeBar` appear inside the initiating button. A resolved
+OpenSea slug replaces resolve with the existing cyan status badge; editing it
+restores the action. If its sample is outside the entered scope, retain the slug
+and show a yellow `check scope` link to the scope section. Correcting the range
+or list restores `resolved` without another lookup or inspection. The scope
+section explains that the slug will be omitted until the conflict is corrected.
+The sample identity in the scope warning links directly to its OpenSea token page.
+A confirmed OpenSea slug is also offered beside Collection slug through its own
+apply button. Preserve the contract-name suggestion for standalone contracts;
+detected shared contracts offer only a confirmed OpenSea slug or manual entry.
+Successful OpenSea resolution fills an empty Collection slug. Clear that automatic
+value when the sample or scope changes, or probe contract or inspect token runs
+again; preserve manually entered or applied local slugs. A pending lookup cannot
+refill the field after those changes. Scope edits retain completed OpenSea evidence.
+Omit duplicate values and remove the OpenSea suggestion when its resolution is invalidated. Applying a
+local slug never changes the resolved OpenSea association.
+Compact bracketed collection and sample-token links in the OpenSea section use
+the current slug and token inputs, including before resolution or without an API
+key. Allow manual slug entry without the key; keep resolution disabled. Omit a
+link until its target is available and keep both behind the contract acknowledgement.
+Action widths follow their shared column; labels do not wrap.
+Long suggested values use the shared
+`.action-button-value` clipping treatment with a complete accessible name and
+hover title. Narrow screens stack the workspace and, when necessary, label,
+input, then action without squeezing controls or causing horizontal overflow.
+
+The desktop log fills the first screen from its initial top edge to the bottom
+page gutter. Its height follows viewport resizing and stays stable as the form
+and output grow. It stays beside the form during page scrolling. On narrow
+screens, the stacked log uses the viewport height minus page gutters. Output
+scrolls inside that bounded box and cannot increase its outer height.
+It uses the shared runtime log chrome, explicit step
+statuses and exact selectable resource URLs. It has no visible heading or copy
+buttons. It
+follows incoming output only while the reader is at the bottom; `latest` resumes
+following. Retain at most 400 entries and 12 MiB of text and show when older
+entries were removed. It has no command input, terminal escape processing or
+evaluation. Streaming, retries and completed checks all remain visible together.
+
+The log formats metadata as escaped text in `TokenMediaFrame` with scripts
+disabled and a restrictive content policy. Large keys and values use expandable
+masks. It never renders metadata HTML or follows its media URLs. The inspector
+uses the separate sample-inspection output. Address/chain changes or removing
+acknowledgement clear history. Sample edits invalidate current findings while
+retaining earlier output labeled with its token ID. Media-field and scope edits
+retain the text. Superseded requests cannot append late output.
+
+Contract findings appear before sample inspection finishes. The address action
+checks the contract, then inspects a sample; the sample's `inspect token` action retries
+only that operation and is disabled while the sample input is empty. Automatic
+inspection fills an empty sample input as soon as the backend selects the token,
+before downloading metadata. It preserves any entered sample ID. Field selectors
+re-evaluate the retained JSON locally.
+Scope edits retain usable image measurements and recalculate totals; a sample
+outside the new scope remains inspectable but cannot supply its collection
+estimate or OpenSea association. Pending responses cannot replace newer edits.
+Repeating token inspection clears measurements and the cached preview. Estimate
+stays disabled until inspection finishes, and replacement sample findings
+invalidate any intervening measurement, even when the token ID is unchanged.
+
+Detailed probe results, sample media and cached-image previews appear as soon as
+available, without expand/collapse actions. Scope choices remain editable without
+probing. Both the whole-contract suggestion and selected scope show the detected
+contract-wide token count in yellow and use neutral wording about including all
+tokens on the contract. Generic scope messages and help must not imply a shared
+contract. Reserve explicit project/shared warnings for positive findings.
+Positive on-chain multi-project evidence replaces the whole-contract suggestion
+with a likely-shared warning and the contract token count. It asks the user to
+specify a manual range or list; it never selects or edits that scope. OpenSea
+does not participate in contract classification.
+When inspection identifies a supported Art Blocks project, show its name and
+project ID on one line beside the scope selector, with the contract-wide count
+on the next line labeled as tokens across all projects on the contract. Offer its
+range through the existing
+per-field apply controls. Project start/count replace contract-wide suggestions;
+recognized shared contracts never suggest their global supply as one project's
+count. Separate minted and maximum choices when they differ, explaining only
+that the maximum includes unminted IDs. Metadata failure does not discard project
+facts. Editing the sample clears its project suggestions; changing scope keeps
+them. No suggestion silently changes entered values.
+First token ID starts empty and is filled only by typing or applying a suggestion.
+Its apply suggestion requires confirmed ownership of that ID. When the boundary
+is uncertain, show compact `[token #0]` and `[token #1]` OpenSea links in its action
+column, below any apply button. Keep them for a conventional start of 1 because
+current absence of 0 cannot establish its history. Hide them for an owned 0 or an
+ownership-confirmed project start. Links need a valid acknowledged address and
+use the selected chain without an API key or an API call. Manual entry does not
+silently turn an uncertain boundary into a confirmed one.
+If supply is unavailable, say so. A whole-contract choice is explicit and carries
+a warning when support is unconfirmed. It never follows automatically from a
+contract-wide capability or supply read.
+Sample image, animation and cached-image previews share a square media viewport
+up to 400 px per side, shrinking to fit narrow screens. The image card must not
+inherit the browsing grid's fixed height or padding. The cache preview's recovery
+message has one line of space above it.
+Highlight the estimated cache size for the selected scope in yellow.
+Image cache mode help warns that onchain collections often need caching off and
+asks the user to verify the resized preview through estimate.
+
+The logical groups and explicit optional stages follow the
+[W3C form guidance](https://www.w3.org/WAI/tutorials/forms/multi-page/); labels,
+colors and controls remain ArtGod's existing visual system.
 
 ## Trait Panel Behavior
 

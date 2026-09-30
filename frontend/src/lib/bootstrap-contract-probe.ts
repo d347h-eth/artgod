@@ -1,9 +1,42 @@
-import type { BootstrapContractProbeApiResponse } from '$lib/api-types';
+export { bootstrapSampleOwnership, bootstrapSampleFailure } from '@artgod/shared/bootstrap/probe';
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
+import type {
+	BootstrapContractFindings,
+	BootstrapProjectScopeSuggestion
+} from '@artgod/shared/bootstrap/probe';
+import { bootstrapTokenDiscovery } from '@artgod/shared/bootstrap/sample-selection';
 
-const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
-
-// Editable conventional range start; it does not claim a token is minted.
-export const BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID = '1';
+/** Contract-wide facts must not become one shared project's range suggestions. */
+export function bootstrapRangeSuggestions(
+	contract: BootstrapContractFindings | null,
+	project: BootstrapProjectScopeSuggestion | null
+) {
+	const projectStartConfirmed = Boolean(
+		project?.startTokenOwnership?.exists === true &&
+		project.startTokenOwnership.tokenId === project.startTokenId
+	);
+	const conventionalStart =
+		contract && !contract.sharedContract
+			? bootstrapTokenDiscovery(contract.discovery.enumeration, contract.discovery.candidates)
+					.rangeStartCandidate
+			: null;
+	const startTokenId = project
+		? projectStartConfirmed
+			? project.startTokenId
+			: null
+		: conventionalStart;
+	return {
+		startTokenId,
+		// A current absence of 0 cannot prove it was never part of this range.
+		startTokenIdConfirmed: project ? projectStartConfirmed : startTokenId === '0',
+		tokenCount:
+			project?.mintedTokenCount ??
+			(contract?.sharedContract ? null : contract?.totalSupply.bootstrapRangeValue) ??
+			null,
+		maxTokenCount:
+			project && project.maxTokenCount !== project.mintedTokenCount ? project.maxTokenCount : null
+	};
+}
 
 // Local lifecycle of an explicitly submitted bootstrap probe.
 export const BOOTSTRAP_PROBE_UI_STATUS = {
@@ -23,14 +56,6 @@ export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING =
 // Explicit user acknowledgment required before the bootstrap probe form is enabled.
 export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT =
 	'I have verified the contract address and want to continue.';
-
-// Contract probe status labels drive bootstrap form flow hints.
-export const BOOTSTRAP_PROBE_STATUS_LABEL = {
-	Enumerable: 'enumerable',
-	RangeInferred: 'range inferred',
-	NeedsTokenStart: 'needs token start',
-	NeedsManualScope: 'needs manual scope'
-} as const;
 
 export function isBootstrapAddressComplete(value: string): boolean {
 	return value.trim().length === BOOTSTRAP_CONTRACT_ADDRESS_LENGTH;
@@ -77,19 +102,6 @@ export function formatByteSize(value: number | string | null | undefined): strin
 	}
 	const decimals = scaled >= 100 || unitIndex === 0 ? 0 : scaled >= 10 ? 1 : 2;
 	return `${scaled.toFixed(decimals)} ${units[unitIndex]}`;
-}
-
-export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
-	if (probe.suggestedInput.supportsEnumerable) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
-	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
-	if (!probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue !== null) {
-		return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;
-	}
-	return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
-}
-
-export function bootstrapProbeNeedsManualScope(probe: BootstrapContractProbeApiResponse): boolean {
-	return bootstrapProbeStatusLabel(probe) === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
 }
 
 function parseByteString(value: string): bigint | null {

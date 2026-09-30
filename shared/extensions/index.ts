@@ -1,3 +1,4 @@
+import { COLLECTION_TOKEN_SCOPE_KIND } from "../collections/token-scope.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
 // Core collection media sources available without an installed extension.
@@ -84,11 +85,8 @@ export type EmbeddedCollectionExtensionInstall = {
     configJson: string;
 };
 
-export const EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND = {
-    AllContractTokens: "contract_all_tokens",
-    TokenRange: "token_range",
-    ExplicitTokenIds: "explicit_token_ids",
-} as const;
+export const EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND =
+    COLLECTION_TOKEN_SCOPE_KIND;
 
 export type EmbeddedCollectionExtensionScopeKind =
     (typeof EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND)[keyof typeof EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND];

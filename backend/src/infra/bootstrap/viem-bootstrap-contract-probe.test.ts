@@ -1,599 +1,708 @@
-import { describe, expect, it } from "vitest";
-import { ContractFunctionRevertedError } from "viem";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-    ERC721_OWNER_OF_FUNCTION,
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutput,
+} from "@artgod/shared/bootstrap/operation-output";
+import { ContractFunctionRevertedError } from "viem";
+import { ViemBackendRpcClient } from "../rpc/viem-backend-rpc.js";
+import { NOOP_APM } from "@artgod/shared/observability/apm";
+import {
+    getDefaultRpcRetryPolicy,
+    getDefaultRpcEndpointResilienceConfig,
+} from "@artgod/shared/config/rpc-resilience";
+import { ART_BLOCKS_FUNCTION } from "./contract-families/art-blocks.js";
+import { BOOTSTRAP_SHARED_CONTRACT_REASON } from "@artgod/shared/bootstrap/probe";
+import {
     ERC721_OWNERSHIP_ABI,
     ERC721_ABSENT_TOKEN_ERROR,
 } from "@artgod/shared/evm/erc721-ownership";
-import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
-import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
-    EVM_PROXY_CONFIDENCE,
     EVM_PROXY_KIND,
     EVM_PROXY_STORAGE_SLOT,
 } from "@artgod/shared/evm/proxy-detection";
+import { BOOTSTRAP_TOKEN_URI_MAX_BYTES } from "@artgod/shared/config/bootstrap";
 import {
-    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
-    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
-    BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
-} from "../../application/use-cases/bootstrap/probe-collection-contract.js";
-import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
+    BOOTSTRAP_TEST_ADDRESS as ADDRESS,
+    BOOTSTRAP_TEST_OWNER as OWNER,
+    BOOTSTRAP_TEST_OBSERVATION as OBSERVATION,
+    BOOTSTRAP_CONTRACT_CASES,
+    BOOTSTRAP_TEST_CHAIN,
+} from "@artgod/shared/testing/bootstrap-probe";
 import {
-    BEACON_PROXY_IMPLEMENTATION_FUNCTION,
-    NON_CONTRACT_ADDRESS_PROBE_ERROR,
     ViemBootstrapContractProbe,
+    NON_CONTRACT_ADDRESS_PROBE_ERROR,
 } from "./viem-bootstrap-contract-probe.js";
 
-const TEST_EMPTY_ADDRESS = "0xae59ef400dec8fc951f2ec6de2af1b0500ef62eb";
-const TEST_CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
-const TEST_PROXY_ADDRESS = "0xc292e3e1160500cb9832b7e40f5585d66c639503";
-const TEST_PROXY_IMPLEMENTATION_ADDRESS =
-    "0xa968ab882ad106b14c3d2c60686315a7c4d0d2f4";
-const TEST_BEACON_ADDRESS = "0x2222222222222222222222222222222222222222";
-const TEST_EIP1167_PROXY_BYTECODE =
-    "0x363d3d373d3d3d363d73a968ab882ad106b14c3d2c60686315a7c4d0d2f45af43d82803e903d91602b57fd5bf3";
-const TEST_ONE_PIXEL_PNG =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
-
-describe("ViemBootstrapContractProbe", () => {
-    it("rejects addresses without contract bytecode before ERC165 reads", async () => {
-        const calls: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode(address) {
-                calls.push("getBytecode");
-                expect(address).toBe(TEST_EMPTY_ADDRESS);
-                return "0x";
-            },
-            async getStorageAt() {
-                calls.push("getStorageAt");
-                throw new Error("getStorageAt should not run");
-            },
-            async readContract() {
-                calls.push("readContract");
-                throw new Error("readContract should not run");
-            },
-        });
-
-        let thrown: unknown = null;
-        try {
-            await probe.probeErc721Contract({
-                address: TEST_EMPTY_ADDRESS,
-                imageSourceField: null,
-                animationSourceField: null,
-                sampleTokenId: null,
-            });
-        } catch (error) {
-            thrown = error;
-        }
-
-        expect(thrown).toBeInstanceOf(BootstrapValidationError);
-        expect(thrown).toMatchObject({
-            message: NON_CONTRACT_ADDRESS_PROBE_ERROR,
-        });
-        expect(calls).toEqual(["getBytecode"]);
+type Rpc = ConstructorParameters<typeof ViemBootstrapContractProbe>[0];
+type Read = Parameters<Rpc["readContract"]>[0];
+const inline = (text: string) =>
+    "data:application/json," + encodeURIComponent(text);
+const resilience = {
+    requestTimeoutMs: 20,
+    retryPolicy: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 },
+};
+function absent(): Error {
+    return new ContractFunctionRevertedError({
+        abi: ERC721_OWNERSHIP_ABI,
+        functionName: "ownerOf",
+        message: ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery,
     });
-
-    it("reads sample image dimensions during the contract probe", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                name: "Sample 1",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.imageSourceField).toBe(
-            TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-        );
-        expect(result.firstToken.imageBytesSource).toBe(
-            BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.DataUri,
-        );
-        expect(result.firstToken.imageContentType).toBe("image/png");
-        expect(result.firstToken.imageBytes).toBeGreaterThan(0);
-        expect(result.firstToken.imageWidth).toBe(1);
-        expect(result.firstToken.imageHeight).toBe(1);
-    });
-
-    it("uses generator_url as the sample token animation fallback", async () => {
-        const generatorUrl = "https://generator.example/token/1";
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                name: "Sample 1",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
-                    generatorUrl,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.animationSourceField).toBe(
-            TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
-        );
-        expect(result.firstToken.animationUrl).toBe(generatorUrl);
-    });
-
-    it("uses the requested animation source field when supplied", async () => {
-        const generatorUrl = "https://generator.example/token/1";
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
-                    "https://example.com/animation.html",
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
-                    generatorUrl,
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField:
-                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.animationSourceField).toBe(
-            TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
-        );
-        expect(result.firstToken.animationUrl).toBe(generatorUrl);
-    });
-
-    it("does not fall back when the requested animation source field is invalid", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
-                    "not a uri",
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
-                    "https://generator.example/token/1",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField:
-                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.animationSourceField).toBeNull();
-        expect(result.firstToken.animationUrl).toBeNull();
-    });
-
-    it("selects onchain image_data when canonical image fields are absent", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                name: "Onchain 1",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.ImageData]:
-                    TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.imageSourceField).toBe(
-            TOKEN_METADATA_IMAGE_SOURCE_FIELD.ImageData,
-        );
-        expect(result.firstToken.image).toBe(TEST_ONE_PIXEL_PNG);
-        expect(result.firstToken.imageWidth).toBe(1);
-        expect(result.firstToken.imageHeight).toBe(1);
-    });
-
-    it("uses the requested image source field when supplied", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]:
-                    "https://example.com/preview.png",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData]:
-                    TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const probe = makeEnumerableProbe(tokenUri);
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.firstToken.imageSourceField).toBe(
-            TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
-        );
-        expect(result.firstToken.image).toBe(TEST_ONE_PIXEL_PNG);
-    });
-
-    it("uses the requested sample token id instead of automatic token discovery", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const tokenUriTokenIds: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x01";
-            },
-            async getStorageAt() {
-                return null;
-            },
-            async readContract<T = unknown>(params: {
-                functionName: string;
-                args?: readonly unknown[];
-            }): Promise<T> {
-                if (params.functionName === "supportsInterface")
-                    return true as T;
-                if (params.functionName === "name") return "Sample" as T;
-                if (params.functionName === "totalSupply") return 100n as T;
-                if (params.functionName === "tokenByIndex") {
-                    throw new Error("tokenByIndex should not run");
-                }
-                if (params.functionName === "tokenURI") {
-                    tokenUriTokenIds.push(String(params.args?.[0]));
-                    return tokenUri as T;
-                }
-                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
-                    return TEST_CONTRACT_ADDRESS as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: "42",
-        });
-
-        expect(result.firstToken.tokenId).toBe("42");
-        expect(result.firstToken.source).toBe(
-            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf,
-        );
-        expect(result.firstToken.imageSourceField).toBe(
-            TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-        );
-        expect(result.firstToken.candidates).toEqual([
-            {
-                tokenId: "42",
-                exists: true,
-                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf,
-                error: null,
-            },
-        ]);
-        expect(tokenUriTokenIds).toEqual(["42"]);
-    });
-
-    it("does not fetch metadata from tokenURI when ownerOf proves the sample absent", async () => {
-        const tokenUriCalls: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x60006000";
-            },
-            async getStorageAt() {
-                return "0x";
-            },
-            async readContract<T>(params: {
-                functionName: string;
-                args?: readonly unknown[];
-            }): Promise<T> {
-                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+}
+function fixture(
+    options: {
+        erc721?: boolean | Error;
+        enumerable?: boolean | Error;
+        supply?: bigint | Error;
+        index?: bigint | Error;
+        name?: string | Error;
+        registeredShared?: boolean;
+        uri?: string | Error;
+        owner?: (id: string) => string | Error;
+        rpc?: Partial<Rpc>;
+    } = {},
+) {
+    const calls: Read[] = [];
+    const value = (item: unknown) => {
+        if (item instanceof Error) throw item;
+        return item;
+    };
+    const rpc: Rpc = {
+        getProbeBlock: vi.fn(async () => OBSERVATION),
+        getBytecode: vi.fn(async () => "0x01" as const),
+        getStorageAt: vi.fn(async () => null),
+        async readContract<T>(params: Read): Promise<T> {
+            calls.push(params);
+            switch (params.functionName) {
+                case ART_BLOCKS_FUNCTION.Registered:
+                    return (options.registeredShared ?? false) as T;
+                case ART_BLOCKS_FUNCTION.NextProject:
                     throw new ContractFunctionRevertedError({
-                        abi: ERC721_OWNERSHIP_ABI,
-                        functionName: ERC721_OWNER_OF_FUNCTION,
-                        message: ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery,
+                        abi: [],
+                        functionName: ART_BLOCKS_FUNCTION.NextProject,
                     });
-                if (params.functionName === "supportsInterface")
-                    return false as T;
-                if (params.functionName === "name")
-                    return "Sparse collection" as T;
-                if (params.functionName === "totalSupply") return 40n as T;
-                if (params.functionName === "tokenURI") {
-                    tokenUriCalls.push(String(params.args?.[0]));
-                    return "data:application/json,%7B%7D" as T;
-                }
-                throw new Error("unexpected contract call");
-            },
-        });
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            sampleTokenId: "1",
-            imageSourceField: null,
-            animationSourceField: null,
-        });
-        expect(result.firstToken.candidates).toEqual([
-            {
-                tokenId: "1",
-                exists: false,
-                source: null,
-                error: expect.any(String),
-            },
-        ]);
-        expect(result.firstToken.tokenUri).toBeNull();
-        expect(tokenUriCalls).toEqual([]);
-    });
-
-    it("returns an unresolved sample token result for invalid custom token ids", async () => {
-        const probe = makeEnumerableProbe(
-            `data:application/json,${encodeURIComponent(
-                JSON.stringify({
-                    [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]:
-                        TEST_ONE_PIXEL_PNG,
-                }),
-            )}`,
-        );
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_CONTRACT_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: "not-a-number",
-        });
-
-        expect(result.firstToken.tokenId).toBe("not-a-number");
-        expect(result.firstToken.source).toBeNull();
-        expect(result.firstToken.tokenUriPayloadError).not.toBeNull();
-        expect(result.firstToken.imageSourceField).toBeNull();
-        expect(result.firstToken.candidates).toHaveLength(1);
-        expect(result.firstToken.candidates[0]?.exists).toBeNull();
-    });
-
-    it("detects EIP-1167 minimal proxies while probing through the proxy address", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                name: "Proxy Sample 0",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const readAddresses: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode(address) {
-                expect(address).toBe(TEST_PROXY_ADDRESS);
-                return TEST_EIP1167_PROXY_BYTECODE;
-            },
-            async getStorageAt() {
-                throw new Error("getStorageAt should not run");
-            },
-            async readContract<T = unknown>(params: {
-                address: string;
-                functionName: string;
-                args?: readonly unknown[];
-            }): Promise<T> {
-                readAddresses.push(params.address);
-                if (params.functionName === "supportsInterface") {
-                    return (params.args?.[0] === "0x80ac58cd") as T;
-                }
-                if (params.functionName === "name") return "Sketchbook B" as T;
-                if (params.functionName === "totalSupply") return 64n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                if (params.functionName === "ownerOf") {
-                    return "0x2222222222222222222222222222222222222222" as T;
-                }
-                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
-                    return TEST_CONTRACT_ADDRESS as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_PROXY_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.proxy).toEqual({
-            kind: EVM_PROXY_KIND.Eip1167Minimal,
-            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
-            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
-            beaconAddress: null,
-        });
-        expect(result.contractName).toBe("Sketchbook B");
-        expect(result.erc721.supported).toBe(true);
-        expect(result.enumerable.supported).toBe(false);
-        expect(result.totalSupply.value).toBe("64");
-        expect(result.firstToken.tokenId).toBe("0");
-        expect(result.firstToken.source).toBe(
-            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf,
-        );
-        expect(result.firstToken.imageSourceField).toBe(
-            TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-        );
-        expect(new Set(readAddresses)).toEqual(new Set([TEST_PROXY_ADDRESS]));
-    });
-
-    it("detects ERC-1967 implementation proxies while probing through the proxy address", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const readAddresses: string[] = [];
-        const storageSlots: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode(address) {
-                expect(address).toBe(TEST_PROXY_ADDRESS);
-                return "0x6080604052";
-            },
-            async getStorageAt(params) {
-                storageSlots.push(params.slot);
-                expect(params.address).toBe(TEST_PROXY_ADDRESS);
-                if (
-                    params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Implementation
-                ) {
-                    return storageWord(TEST_PROXY_IMPLEMENTATION_ADDRESS);
-                }
-                throw new Error(`unexpected slot ${params.slot}`);
-            },
-            async readContract<T = unknown>(params: {
-                address: string;
-                functionName: string;
-                args?: readonly unknown[];
-            }): Promise<T> {
-                readAddresses.push(params.address);
-                if (params.functionName === "supportsInterface") {
-                    return (params.args?.[0] === "0x80ac58cd") as T;
-                }
-                if (params.functionName === "name")
-                    return "Proxy Collection" as T;
-                if (params.functionName === "totalSupply") return 10n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                if (params.functionName === "ownerOf") {
-                    return "0x2222222222222222222222222222222222222222" as T;
-                }
-                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
-                    return TEST_CONTRACT_ADDRESS as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_PROXY_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.proxy).toEqual({
-            kind: EVM_PROXY_KIND.Erc1967Implementation,
-            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
-            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
-            beaconAddress: null,
-        });
-        expect(storageSlots).toEqual([
-            EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
-        ]);
-        expect(new Set(readAddresses)).toEqual(new Set([TEST_PROXY_ADDRESS]));
-    });
-
-    it("detects ERC-1967 beacon proxies through the beacon implementation", async () => {
-        const tokenUri = `data:application/json,${encodeURIComponent(
-            JSON.stringify({
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
-            }),
-        )}`;
-        const readAddresses: string[] = [];
-        const storageSlots: string[] = [];
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode(address) {
-                expect(address).toBe(TEST_PROXY_ADDRESS);
-                return "0x6080604052";
-            },
-            async getStorageAt(params) {
-                storageSlots.push(params.slot);
-                expect(params.address).toBe(TEST_PROXY_ADDRESS);
-                if (
-                    params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Implementation
-                ) {
-                    return storageWord(null);
-                }
-                if (params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Beacon) {
-                    return storageWord(TEST_BEACON_ADDRESS);
-                }
-                throw new Error(`unexpected slot ${params.slot}`);
-            },
-            async readContract<T = unknown>(params: {
-                address: string;
-                functionName: string;
-                args?: readonly unknown[];
-            }): Promise<T> {
-                readAddresses.push(params.address);
-                if (params.address === TEST_BEACON_ADDRESS) {
-                    if (
-                        params.functionName ===
-                        BEACON_PROXY_IMPLEMENTATION_FUNCTION
-                    ) {
-                        return TEST_PROXY_IMPLEMENTATION_ADDRESS as T;
-                    }
+                case "supportsInterface":
+                    return value(
+                        params.args?.[0] === "0x80ac58cd"
+                            ? (options.erc721 ?? true)
+                            : (options.enumerable ?? true),
+                    ) as T;
+                case "name":
+                    return value(options.name ?? "Sample") as T;
+                case "totalSupply":
+                    return value(options.supply ?? 100n) as T;
+                case "tokenByIndex":
+                    return value(options.index ?? 0n) as T;
+                case "ownerOf":
+                    return value(
+                        options.owner?.(String(params.args?.[0])) ?? OWNER,
+                    ) as T;
+                case "tokenURI":
+                    return value(
+                        options.uri ??
+                            inline('{"image":"https://example.com/0.png"}'),
+                    ) as T;
+                default:
                     throw new Error(
-                        `unexpected beacon read ${params.functionName}`,
+                        "Unexpected contract read: " + params.functionName,
                     );
-                }
-                if (params.functionName === "supportsInterface") {
-                    return (params.args?.[0] === "0x80ac58cd") as T;
-                }
-                if (params.functionName === "name")
-                    return "Beacon Collection" as T;
-                if (params.functionName === "totalSupply") return 10n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                if (params.functionName === "ownerOf") {
-                    return "0x2222222222222222222222222222222222222222" as T;
-                }
-                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
-                    return TEST_CONTRACT_ADDRESS as T;
-                throw new Error(`unexpected read ${params.functionName}`);
+            }
+        },
+        ...options.rpc,
+    };
+    const adapter = new ViemBootstrapContractProbe(
+        rpc,
+        "https://ipfs.filebase.io",
+        resilience,
+    );
+    return { adapter, calls, rpc };
+}
+const metadataInput = {
+    address: ADDRESS,
+    tokenId: "0",
+    observation: OBSERVATION,
+};
+
+describe("independent pinned contract discovery", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("finishes all empty setup contract reads without retries while ownership remains unknown", async () => {
+        const fetchMock = vi.fn(async (_url, init) => {
+            const request = JSON.parse(String(init?.body));
+            return new Response(
+                JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: request.id,
+                    result: "0x",
+                }),
+                {
+                    headers: { "content-type": "application/json" },
+                },
+            );
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        const sleep = vi.fn(async () => {});
+        const rpc = new ViemBackendRpcClient(
+            [{ url: "https://rpc.example", weight: 1 }],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: getDefaultRpcRetryPolicy(),
+                resilience: {
+                    ...getDefaultRpcEndpointResilienceConfig(),
+                    rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                },
+                sleep,
+            },
+        );
+        const { adapter } = fixture({
+            rpc: { readContract: rpc.readContract.bind(rpc) },
+        });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.erc721.supported).toBeNull();
+        expect(result.enumerable.supported).toBeNull();
+        expect(result.contractName).toBeNull();
+        expect(result.totalSupply.value).toBeNull();
+        expect(result.sharedContract).toBeNull();
+        expect(result.discovery.rangeStartCandidate).toBeNull();
+        expect(
+            result.discovery.candidates.map((candidate) => candidate.exists),
+        ).toEqual([null, null]);
+        // Two interfaces, name, supply, registry, nextProjectId and two owners.
+        expect(fetchMock).toHaveBeenCalledTimes(8);
+        const metadata = await adapter.readMetadata(metadataInput);
+        expect(metadata.tokenUri).toBeNull();
+        expect(metadata.tokenUriError).toBeTruthy();
+        expect(fetchMock).toHaveBeenCalledTimes(9);
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { failure: absent(), exists: false },
+        { failure: new Error("RPC timeout"), exists: null },
+    ])(
+        "retains an owned sample without suggesting 1 when enumeration returned 0 and its ownership is $exists",
+        async ({ failure, exists }) => {
+            const { adapter } = fixture({
+                index: 0n,
+                owner: (id) => (id === "0" ? failure : OWNER),
+            });
+            const result = await adapter.discoverContract(
+                ADDRESS,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
+            expect(result.discovery).toMatchObject({
+                enumeration: { tokenId: "0" },
+                rangeStartCandidate: null,
+                sampleTokenId: "1",
+                candidates: [
+                    {
+                        tokenId: "0",
+                        exists,
+                    },
+                    { tokenId: "1", exists: true },
+                ],
+            });
+        },
+    );
+    it("returns shared-contract warning evidence while preserving independent supply and Enumerable findings", async () => {
+        const { adapter, calls } = fixture({
+            registeredShared: true,
+            supply: 198051n,
+        });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.sharedContract?.reason).toBe(
+            BOOTSTRAP_SHARED_CONTRACT_REASON.Registry,
+        );
+        expect(result.enumerable.supported).toBe(true);
+        expect(result.totalSupply.value).toBe("198051");
+        expect(
+            calls.every((call) => call.blockNumber === OBSERVATION.blockNumber),
+        ).toBe(true);
+    });
+    it("reports independent checks and exact metadata URLs through HTTP retries", async () => {
+        const output: BootstrapOutput[] = [];
+        const report = (event: BootstrapOutput) => output.push(event);
+        const uri = "ipfs://bafy-test/1000?format=json";
+        const { adapter } = fixture({ uri, enumerable: false, supply: 3333n });
+        await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+            report,
+        );
+        expect(output).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    step: Step.Supply,
+                    status: Status.Succeeded,
+                    message: "Contract total supply: 3333",
+                }),
+                expect.objectContaining({
+                    step: Step.Enumerable,
+                    status: Status.Succeeded,
+                }),
+                expect.objectContaining({
+                    step: Step.Enumeration,
+                    status: Status.Skipped,
+                }),
+            ]),
+        );
+        const fetch = vi
+            .fn()
+            .mockImplementation(
+                async () => new Response(null, { status: 504 }),
+            );
+        vi.stubGlobal("fetch", fetch);
+        const sample = await adapter.readMetadata(metadataInput, report);
+        expect(sample.tokenUriPayloadError).toContain("HTTP 504");
+        expect(fetch).toHaveBeenCalledTimes(3);
+        const requests = output.filter(
+            (event) =>
+                event.step === Step.Metadata && event.status === Status.Started,
+        );
+        expect(requests).toHaveLength(3);
+        expect(
+            requests.every(
+                (event) =>
+                    event.url ===
+                    "https://ipfs.filebase.io/ipfs/bafy-test/1000?format=json",
+            ),
+        ).toBe(true);
+        expect(
+            output.filter((event) => event.status === Status.Retrying),
+        ).toHaveLength(2);
+        expect(output.at(-1)).toMatchObject({
+            status: Status.Failed,
+            url: requests[0].url,
+        });
+    });
+    it("streams received text even when metadata is invalid JSON", async () => {
+        const output: BootstrapOutput[] = [];
+        const { adapter } = fixture({
+            uri: inline("<script>not JSON</script>"),
+        });
+        const sample = await adapter.readMetadata(metadataInput, (event) =>
+            output.push(event),
+        );
+        expect(sample.metadataError).toBeTruthy();
+        expect(output).toContainEqual(
+            expect.objectContaining({
+                step: Step.Metadata,
+                text: "<script>not JSON</script>",
+            }),
+        );
+        expect(output.at(-1)).toMatchObject({
+            step: Step.Json,
+            status: Status.Failed,
+        });
+    });
+    it.each(
+        [true, false].flatMap((enumerable) =>
+            ["0", "1"].map((start) => ({ enumerable, start })),
+        ),
+    )(
+        "discovers conventional start $start with Enumerable=$enumerable",
+        async ({ enumerable, start }) => {
+            const { adapter, calls } = fixture({
+                enumerable,
+                supply: 10000n,
+                index: BigInt(start),
+                owner: (id) => (start === "1" && id === "0" ? absent() : OWNER),
+            });
+            const result = await adapter.discoverContract(
+                ADDRESS,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
+            expect(result.discovery.rangeStartCandidate).toBe(start);
+            expect(result.totalSupply.bootstrapRangeValue).toBe(10000);
+            expect(result.enumerable.supported).toBe(enumerable);
+            expect(
+                calls.some((call) => call.functionName === "tokenByIndex"),
+            ).toBe(enumerable);
+            expect(
+                calls
+                    .filter((call) => call.functionName === "ownerOf")
+                    .map((call) => String(call.args?.[0]))
+                    .sort(),
+            ).toEqual(["0", "1"]);
+        },
+    );
+    it.each(BOOTSTRAP_CONTRACT_CASES)(
+        "keeps $name facts independent from sample reads",
+        async (c) => {
+            const { adapter, calls } = fixture({
+                enumerable: c.enumerable,
+                supply: c.supply,
+                index: c.name === "meridian" ? 1000000n : BigInt(c.sample),
+                owner: (id) =>
+                    c.name === "grailers"
+                        ? id === "10"
+                            ? OWNER
+                            : absent()
+                        : c.start === "1" && id === "0"
+                          ? absent()
+                          : OWNER,
+            });
+            const discovery = await adapter.discoverContract(
+                c.address,
+                BOOTSTRAP_TEST_CHAIN.publicChainId,
+            );
+            expect(discovery.enumerable.supported).toBe(c.enumerable);
+            expect(discovery.totalSupply.value).toBe(String(c.supply));
+            expect(calls.filter((x) => x.functionName === "tokenURI")).toEqual(
+                [],
+            );
+            const before = calls.slice();
+            for (const tokenId of [c.sample, "42"])
+                await adapter.readMetadata({
+                    ...metadataInput,
+                    address: c.address,
+                    tokenId,
+                });
+            expect(calls.slice(0, before.length)).toEqual(before);
+            expect(
+                calls.every((x) => x.blockNumber === OBSERVATION.blockNumber),
+            ).toBe(true);
+            expect(discovery.discovery.rangeStartCandidate).toBe(
+                c.name === "grailers" ? null : c.start === "1" ? "1" : "0",
+            );
+            expect(
+                new Set(
+                    calls
+                        .filter((x) => x.functionName === "ownerOf")
+                        .map((x) => String(x.args?.[0])),
+                ).size,
+            ).toBe(calls.filter((x) => x.functionName === "ownerOf").length);
+        },
+    );
+    for (const erc721 of [true, false, new Error("ERC165 unavailable")]) {
+        for (const enumerable of [
+            true,
+            false,
+            new Error("Enumerable check failed"),
+        ]) {
+            it(
+                "preserves independent interface results: " +
+                    String(erc721) +
+                    "/" +
+                    String(enumerable),
+                async () => {
+                    const { adapter } = fixture({ erc721, enumerable });
+                    const result = await adapter.discoverContract(
+                        ADDRESS,
+                        BOOTSTRAP_TEST_CHAIN.publicChainId,
+                    );
+                    expect(result.erc721.supported).toBe(
+                        erc721 instanceof Error ? null : erc721,
+                    );
+                    expect(result.enumerable.supported).toBe(
+                        enumerable instanceof Error ? null : enumerable,
+                    );
+                    expect(result.discovery.enumeration.checked).toBe(
+                        enumerable === true,
+                    );
+                    expect(result.totalSupply.value).toBe("100");
+                },
+            );
+        }
+    }
+    it.each([
+        0n,
+        1n,
+        1000001n,
+        BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+        new Error("no supply"),
+    ])("classifies supply independently: %s", async (supply) => {
+        const { adapter, calls } = fixture({ supply });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.totalSupply.value).toBe(
+            supply instanceof Error ? null : supply.toString(),
+        );
+        expect(result.totalSupply.bootstrapRangeValue).toBe(
+            supply === 1n ? 1 : null,
+        );
+        expect(calls.some((x) => x.functionName === "tokenByIndex")).toBe(
+            supply !== 0n,
+        );
+    });
+    it("does not mistake enumeration order for a numeric minimum, and falls back after failed enumeration", async () => {
+        const unordered = await fixture({
+            index: 500n,
+            owner: (id) => (id === "0" ? absent() : OWNER),
+        }).adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(unordered.discovery).toMatchObject({
+            sampleTokenId: "500",
+            rangeStartCandidate: "1",
+        });
+        const failed = await fixture({
+            index: new Error("index read failed"),
+        }).adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(failed.discovery).toMatchObject({
+            sampleTokenId: "0",
+            enumeration: { error: "index read failed" },
+        });
+        expect(failed.enumerable.supported).toBe(true);
+    });
+    it("retains unknown ownership, name and proxy failures without inventing absence", async () => {
+        const { adapter } = fixture({
+            name: new Error("no name"),
+            owner: () => new Error("RPC timeout"),
+            rpc: {
+                async getStorageAt() {
+                    throw new Error("storage failed");
+                },
             },
         });
-
-        const result = await probe.probeErc721Contract({
-            address: TEST_PROXY_ADDRESS,
-            imageSourceField: null,
-            animationSourceField: null,
-            sampleTokenId: null,
-        });
-
-        expect(result.proxy).toEqual({
-            kind: EVM_PROXY_KIND.Erc1967Beacon,
-            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
-            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
-            beaconAddress: TEST_BEACON_ADDRESS,
-        });
-        expect(storageSlots).toEqual([
-            EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
-            EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
-        ]);
-        expect(new Set(readAddresses)).toEqual(
-            new Set([TEST_PROXY_ADDRESS, TEST_BEACON_ADDRESS]),
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
         );
+        expect(result.contractNameError).toBe("no name");
+        expect(result.proxyError).toContain("storage failed");
+        expect(
+            result.discovery.candidates.every((x) => x.exists === null),
+        ).toBe(true);
+        expect(result.discovery.sampleTokenId).toBeNull();
+    });
+    it.each(["0x", null] as const)(
+        "rejects non-contract code %s before ABI reads",
+        async (code) => {
+            const { adapter, calls } = fixture({
+                rpc: {
+                    async getBytecode() {
+                        return code;
+                    },
+                },
+            });
+            await expect(
+                adapter.discoverContract(
+                    ADDRESS,
+                    BOOTSTRAP_TEST_CHAIN.publicChainId,
+                ),
+            ).rejects.toThrow(NON_CONTRACT_ADDRESS_PROBE_ERROR);
+            expect(calls).toEqual([]);
+        },
+    );
+    it("validates observations and detects a changed block", async () => {
+        const { adapter, rpc } = fixture();
+        await expect(
+            adapter.observation({
+                blockNumber: -1,
+                blockHash: OBSERVATION.blockHash,
+            }),
+        ).rejects.toThrow("Invalid probe observation");
+        await expect(
+            adapter.observation({ ...OBSERVATION, blockHash: "bad" }),
+        ).rejects.toThrow("Invalid probe observation");
+        await expect(
+            adapter.observation({
+                ...OBSERVATION,
+                blockHash: "0x" + "cc".repeat(32),
+            }),
+        ).rejects.toThrow("observed block changed");
+        await adapter.observation(OBSERVATION);
+        expect(rpc.getProbeBlock).toHaveBeenLastCalledWith(
+            OBSERVATION.blockNumber,
+        );
+    });
+    it.each([
+        EVM_PROXY_KIND.Eip1167Minimal,
+        EVM_PROXY_KIND.Erc1967Implementation,
+        EVM_PROXY_KIND.Erc1967Beacon,
+    ])("keeps NFT reads at the proxy: %s", async (kind) => {
+        const implementation = "0xa968ab882ad106b14c3d2c60686315a7c4d0d2f4";
+        const beacon = OWNER;
+        const word = (address: string) =>
+            ("0x" + "0".repeat(24) + address.slice(2)) as `0x${string}`;
+        const base = fixture();
+        const { adapter, calls } = fixture({
+            rpc: {
+                async getBytecode() {
+                    return kind === EVM_PROXY_KIND.Eip1167Minimal
+                        ? "0x363d3d373d3d3d363d73a968ab882ad106b14c3d2c60686315a7c4d0d2f45af43d82803e903d91602b57fd5bf3"
+                        : "0x01";
+                },
+                async getStorageAt(p) {
+                    expect(p.blockNumber).toBe(OBSERVATION.blockNumber);
+                    if (
+                        kind === EVM_PROXY_KIND.Erc1967Implementation &&
+                        p.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Implementation
+                    )
+                        return word(implementation);
+                    if (
+                        kind === EVM_PROXY_KIND.Erc1967Beacon &&
+                        p.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Beacon
+                    )
+                        return word(beacon);
+                    return null;
+                },
+                async readContract<T>(p: Read): Promise<T> {
+                    calls.push(p);
+                    if (p.functionName === "implementation") {
+                        expect(p.address).toBe(beacon);
+                        return implementation as T;
+                    }
+                    return base.rpc.readContract<T>(p);
+                },
+            },
+        });
+        const result = await adapter.discoverContract(
+            ADDRESS,
+            BOOTSTRAP_TEST_CHAIN.publicChainId,
+        );
+        expect(result.proxy).toMatchObject({
+            kind,
+            implementationAddress: implementation,
+        });
+        expect(
+            calls
+                .filter(
+                    (x) =>
+                        x.functionName !== "implementation" &&
+                        x.functionName !== ART_BLOCKS_FUNCTION.Registered,
+                )
+                .every((x) => x.address === ADDRESS),
+        ).toBe(true);
     });
 });
 
-function makeEnumerableProbe(tokenUri: string): ViemBootstrapContractProbe {
-    return new ViemBootstrapContractProbe({
-        async getBytecode() {
-            return "0x01";
+describe("sample metadata and the standard HTTP retry policy", () => {
+    afterEach(() => vi.unstubAllGlobals());
+    it.each([404, 429, 500, 503])(
+        "retains tokenURI and reports HTTP %i after configured attempts",
+        async (status) => {
+            const fetcher = vi.fn(
+                async (_url: unknown) =>
+                    new Response("unavailable", { status }),
+            );
+            vi.stubGlobal("fetch", fetcher);
+            const { adapter } = fixture({ uri: "ipfs://sample/1" });
+            const result = await adapter.readMetadata(metadataInput);
+            expect(result.tokenUri).toBe("ipfs://sample/1");
+            expect(result.tokenUriPayloadError).toContain("HTTP " + status);
+            expect(fetcher).toHaveBeenCalledTimes(
+                status === 404 ? 1 : resilience.retryPolicy.maxAttempts,
+            );
+            expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+                "https://ipfs.filebase.io/ipfs/sample/1",
+            );
         },
-        async getStorageAt() {
-            return null;
-        },
-        async readContract<T = unknown>(params: {
-            functionName: string;
-        }): Promise<T> {
-            if (params.functionName === "supportsInterface") return true as T;
-            if (params.functionName === "name") return "Sample" as T;
-            if (params.functionName === "totalSupply") return 1n as T;
-            if (params.functionName === "tokenByIndex") return 1n as T;
-            if (params.functionName === "tokenURI") return tokenUri as T;
-            if (params.functionName === ERC721_OWNER_OF_FUNCTION)
-                return TEST_CONTRACT_ADDRESS as T;
-            throw new Error(`unexpected read ${params.functionName}`);
-        },
+    );
+    it("retries transport failures and explicit retry uses the same policy", async () => {
+        const fetcher = vi.fn(async () => {
+            throw new TypeError("connection failed");
+        });
+        vi.stubGlobal("fetch", fetcher);
+        const { adapter } = fixture({ uri: "https://example.com/1" });
+        await adapter.readMetadata(metadataInput);
+        await adapter.readMetadata(metadataInput);
+        expect(fetcher).toHaveBeenCalledTimes(
+            resilience.retryPolicy.maxAttempts * 2,
+        );
     });
-}
-
-function storageWord(address: string | null): `0x${string}` {
-    if (!address) return `0x${"0".repeat(64)}`;
-    return `0x${"0".repeat(24)}${address.slice(2)}`;
-}
+    it("times out through the configured common fetch policy", async () => {
+        const fetcher = vi.fn(
+            async (_url: unknown, init?: RequestInit) =>
+                new Promise<Response>((_resolve, reject) => {
+                    init?.signal?.addEventListener("abort", () =>
+                        reject(new Error("aborted")),
+                    );
+                }),
+        );
+        vi.stubGlobal("fetch", fetcher);
+        const result = await fixture({
+            uri: "https://example.com/1",
+        }).adapter.readMetadata(metadataInput);
+        expect(result.tokenUriPayloadError).toContain("timed out");
+        expect(fetcher).toHaveBeenCalledTimes(
+            resilience.retryPolicy.maxAttempts,
+        );
+    });
+    it.each([new Error("reverted"), ""])(
+        "keeps a tokenURI failure separate: %s",
+        async (uri) => {
+            const result = await fixture({ uri }).adapter.readMetadata(
+                metadataInput,
+            );
+            expect(result.tokenUriError).not.toBeNull();
+            expect(result.tokenUriPayloadError).toBeNull();
+        },
+    );
+    it.each(["{broken", "null", "[]", ""])(
+        "preserves invalid metadata text: %s",
+        async (text) => {
+            const result = await fixture({
+                uri: inline(text),
+            }).adapter.readMetadata(metadataInput);
+            expect(result.tokenUriPayload).toBe(text);
+            expect(result.metadataError).not.toBeNull();
+            expect(result.tokenUriPayloadError).toBeNull();
+        },
+    );
+    it("keeps large embedded artwork as bounded text and never fetches the image", async () => {
+        const text = JSON.stringify({
+            image: "https://example.com/image.png",
+            animation_url: "data:text/html,<script>alert(1)</script>",
+            artwork: "A".repeat(60000),
+        });
+        const fetcher = vi.fn(async () => new Response(text));
+        vi.stubGlobal("fetch", fetcher);
+        const result = await fixture({
+            uri: "https://example.com/1",
+        }).adapter.readMetadata(metadataInput);
+        expect(result.tokenUriPayload).toBe(text);
+        expect(result.tokenUriPayloadBytes).toBe(Buffer.byteLength(text));
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        const base64 = await fixture({
+            uri:
+                "data:application/json;base64," +
+                Buffer.from(text).toString("base64"),
+        }).adapter.readMetadata(metadataInput);
+        expect(base64.tokenUriPayload).toBe(text);
+    });
+    it.each(["inline", "header", "stream"] as const)(
+        "bounds %s metadata",
+        async (mode) => {
+            const text = "x".repeat(BOOTSTRAP_TOKEN_URI_MAX_BYTES + 1);
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(
+                    async () =>
+                        new Response(
+                            text,
+                            mode === "header"
+                                ? {
+                                      headers: {
+                                          "content-length": String(text.length),
+                                      },
+                                  }
+                                : undefined,
+                        ),
+                ),
+            );
+            const result = await fixture({
+                uri:
+                    mode === "inline"
+                        ? inline(text)
+                        : "https://example.com/large",
+            }).adapter.readMetadata(metadataInput);
+            expect(result.tokenUriPayload).toBeNull();
+            expect(result.tokenUriPayloadError).not.toBeNull();
+        },
+    );
+});

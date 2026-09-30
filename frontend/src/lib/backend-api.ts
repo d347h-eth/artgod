@@ -1,3 +1,23 @@
+import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
+import {
+	BOOTSTRAP_STREAM_CONTENT_TYPE,
+	BOOTSTRAP_OPERATION as Operation,
+	BOOTSTRAP_OUTPUT_STATUS as OutputStatus,
+	BOOTSTRAP_OUTPUT_STEP as OutputStep,
+	BOOTSTRAP_STREAM_RECORD,
+	BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE,
+	type BootstrapOperation
+} from '@artgod/shared/bootstrap/operation-output';
+import {
+	readBootstrapStream,
+	BootstrapStreamError,
+	type BootstrapRequestOutput
+} from '$lib/bootstrap-output';
+import type {
+	BootstrapSampleInspectionRequest,
+	BootstrapSampleInspectionResponse
+} from '@artgod/shared/bootstrap/probe';
+import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -185,22 +205,26 @@ export async function probeBootstrapCollectionContract(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	address: string,
-	options: {
-		imageSourceField?: string | null;
-		animationSourceField?: string | null;
-		sampleTokenId?: string | null;
-	} = {}
+	output?: BootstrapRequestOutput
 ): Promise<BootstrapContractProbeApiResponse> {
-	return requestJson<BootstrapContractProbeApiResponse>(
-		fetchFn,
-		buildProbeBootstrapCollectionPath({
-			chainRef,
-			address,
-			standard: 'erc721',
-			imageSourceField: options.imageSourceField,
-			animationSourceField: options.animationSourceField,
-			sampleTokenId: options.sampleTokenId
-		})
+	return withBootstrapOutput(Operation.Probe, output, (output) =>
+		requestJson(
+			fetchFn,
+			buildProbeBootstrapCollectionPath({ chainRef, address, standard: 'erc721' }),
+			undefined,
+			output
+		)
+	);
+}
+
+export async function inspectBootstrapSample(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	input: BootstrapSampleInspectionRequest,
+	output?: BootstrapRequestOutput
+): Promise<BootstrapSampleInspectionResponse> {
+	return withBootstrapOutput(Operation.Inspect, output, (output) =>
+		requestJsonWithBody(fetchFn, buildInspectBootstrapSamplePath(chainRef), 'POST', input, output)
 	);
 }
 
@@ -847,45 +871,43 @@ export async function createBootstrapRun(
 		animationSourceField?: string | null;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
-		supportsEnumerable: boolean;
-		manualInput?:
-			| {
-					mode: 'manual_token_ids';
-					tokenIds: string[];
-			  }
-			| {
-					mode: 'manual_range';
-					startTokenId: string;
-					totalSupply: number;
-			  };
+		scope: BootstrapScope;
 		imageCache?: {
 			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;
 			maxDimension: number | null;
 		};
 		deploymentBlock?: number;
-	}
+	},
+	output?: BootstrapRequestOutput
 ): Promise<BootstrapRunCreateResponse> {
-	await ensureCsrfToken(fetchFn);
-	return requestJsonWithBody<BootstrapRunCreateResponse>(
-		fetchFn,
-		buildCreateBootstrapRunPath(chainRef),
-		'POST',
-		body
+	return withBootstrapOutput(Operation.Queue, output, (output) =>
+		requestJsonWithBody<BootstrapRunCreateResponse>(
+			fetchFn,
+			buildCreateBootstrapRunPath(chainRef),
+			'POST',
+			body,
+			output
+		)
 	);
 }
 
 export async function probeBootstrapOpenSeaSlug(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	input: { address: string; slug?: string; sampleTokenId: string }
+	input: { address: string; slug?: string; sampleTokenId: string },
+	output?: BootstrapRequestOutput
 ): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
-	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
-		fetchFn,
-		buildProbeBootstrapOpenSeaSlugPath({
-			chainRef,
-			...input
-		})
+	return withBootstrapOutput(Operation.Resolve, output, (output) =>
+		requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
+			fetchFn,
+			buildProbeBootstrapOpenSeaSlugPath({
+				chainRef,
+				...input
+			}),
+			undefined,
+			output
+		)
 	);
 }
 
@@ -896,16 +918,19 @@ export async function estimateBootstrapImageCache(
 		sampleTokenId: string;
 		sourceImageUrl: string;
 		sourceImageBytes: number | null;
-		totalSupply: string;
 		imageCacheMode: ApiImageCacheMode;
 		maxDimension: number | null;
-	}
+	},
+	output?: BootstrapRequestOutput
 ): Promise<BootstrapImageCacheEstimateApiResponse> {
-	return requestJsonWithBody<BootstrapImageCacheEstimateApiResponse>(
-		fetchFn,
-		buildEstimateBootstrapImageCachePath(chainRef),
-		'POST',
-		body
+	return withBootstrapOutput(Operation.Estimate, output, (output) =>
+		requestJsonWithBody<BootstrapImageCacheEstimateApiResponse>(
+			fetchFn,
+			buildEstimateBootstrapImageCachePath(chainRef),
+			'POST',
+			body,
+			output
+		)
 	);
 }
 
@@ -941,14 +966,20 @@ export async function applyBootstrapStepAction(
 	);
 }
 
-async function requestJson<T>(fetchFn: typeof fetch, path: string, init?: RequestInit): Promise<T> {
-	return (await requestJsonResponse<T>(fetchFn, path, init)).payload;
+async function requestJson<T>(
+	fetchFn: typeof fetch,
+	path: string,
+	init?: RequestInit,
+	output?: BootstrapRequestOutput
+): Promise<T> {
+	return (await requestJsonResponse<T>(fetchFn, path, init, output)).payload;
 }
 
 async function requestJsonResponse<T>(
 	fetchFn: typeof fetch,
 	path: string,
-	init?: RequestInit
+	init?: RequestInit,
+	output?: BootstrapRequestOutput
 ): Promise<BackendJsonResponse<T>> {
 	let backendOrigin: string;
 	try {
@@ -961,10 +992,10 @@ async function requestJsonResponse<T>(
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
 	for (;;) {
 		try {
-			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`, init);
+			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`, init, output);
 		} catch (cause) {
 			const mapped = toBackendApiError(cause);
-			if (!isRetryableStartupError(mapped) || Date.now() >= deadline) {
+			if (output || !isRetryableStartupError(mapped) || Date.now() >= deadline) {
 				throw mapped;
 			}
 			await sleep(STARTUP_RETRY_DELAY_MS);
@@ -975,20 +1006,33 @@ async function requestJsonResponse<T>(
 async function requestJsonOnce<T>(
 	fetchFn: typeof fetch,
 	url: string,
-	init?: RequestInit
+	init?: RequestInit,
+	output?: BootstrapRequestOutput
 ): Promise<BackendJsonResponse<T>> {
 	const requestLog = createSsrBackendRequestLogContext('GET', url);
 	let response: Response;
 	try {
 		response = await fetchFn(
 			url,
-			buildBackendRequestInit({ ...init, credentials: 'include' }, requestLog)
+			buildBackendRequestInit(
+				{
+					...init,
+					credentials: 'include',
+					...(output
+						? {
+								headers: { ...init?.headers, accept: BOOTSTRAP_STREAM_CONTENT_TYPE },
+								signal: output.signal
+							}
+						: {})
+				},
+				requestLog
+			)
 		);
 	} catch (cause) {
 		logSsrBackendApiFailure(requestLog, cause);
 		throw cause;
 	}
-	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	const payload = (await readApiPayload<T>(response, output)) as { message?: string } | null;
 	logSsrBackendApiResponse(requestLog, response);
 
 	if (!response.ok) {
@@ -1017,7 +1061,8 @@ async function requestJsonWithBody<T>(
 	fetchFn: typeof fetch,
 	path: string,
 	method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-	body: unknown
+	body: unknown,
+	output?: BootstrapRequestOutput
 ): Promise<T> {
 	await ensureCsrfToken(fetchFn);
 	const backendOrigin = await resolveBackendOrigin();
@@ -1033,9 +1078,11 @@ async function requestJsonWithBody<T>(
 				buildBackendRequestInit(
 					{
 						method,
+						signal: output?.signal,
 						credentials: 'include',
 						headers: {
 							'content-type': 'application/json',
+							...(output ? { accept: BOOTSTRAP_STREAM_CONTENT_TYPE } : {}),
 							[API_CSRF_HEADER_NAME]: csrfTokenCache ?? ''
 						},
 						body: JSON.stringify(body)
@@ -1047,7 +1094,7 @@ async function requestJsonWithBody<T>(
 			logSsrBackendApiFailure(requestLog, cause);
 			throw cause;
 		}
-		const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+		const payload = (await readApiPayload<T>(response, output)) as { message?: string } | null;
 		logSsrBackendApiResponse(requestLog, response);
 		if (response.ok) {
 			return payload as T;
@@ -1064,6 +1111,66 @@ async function requestJsonWithBody<T>(
 		);
 	}
 	throw new BackendApiError('Backend request failed', 500);
+}
+
+/** Retain a failed action even when the connection/validation fails before stream headers. */
+async function withBootstrapOutput<T>(
+	operation: BootstrapOperation,
+	output: BootstrapRequestOutput | undefined,
+	run: (output?: BootstrapRequestOutput) => Promise<T>
+): Promise<T> {
+	if (!output) return run();
+	let sequence = 0;
+	let failureReported = false;
+	try {
+		return await run({
+			...output,
+			onOutput: (record) => {
+				sequence = record.sequence;
+				failureReported =
+					record.step === OutputStep.Operation && record.status === OutputStatus.Failed;
+				output.onOutput(record);
+			}
+		});
+	} catch (error) {
+		if (!output.signal?.aborted && !failureReported)
+			output.onOutput({
+				type: BOOTSTRAP_STREAM_RECORD.Progress,
+				operation,
+				sequence: sequence + 1,
+				timestamp: new Date().toISOString(),
+				step: OutputStep.Operation,
+				status: OutputStatus.Failed,
+				message:
+					operation === Operation.Queue &&
+					!(error instanceof BackendApiError && [400, 409, 422].includes(error.status))
+						? BOOTSTRAP_QUEUE_RESPONSE_UNAVAILABLE_MESSAGE
+						: error instanceof BackendApiError
+							? error.message
+							: `Could not reach the backend. Check infra and retry ${operation}.`
+			});
+		throw error;
+	}
+}
+
+async function readApiPayload<T>(
+	response: Response,
+	output?: BootstrapRequestOutput
+): Promise<T | null> {
+	if (
+		response.ok &&
+		output &&
+		response.headers.get('content-type')?.split(';')[0] === BOOTSTRAP_STREAM_CONTENT_TYPE
+	) {
+		try {
+			return await readBootstrapStream<T>(response, output.onOutput);
+		} catch (error) {
+			if (error instanceof BootstrapStreamError)
+				throw new BackendApiError(error.message, error.status);
+			throw error;
+		}
+	}
+	return response.json().catch(() => null) as Promise<T | null>;
 }
 
 async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {

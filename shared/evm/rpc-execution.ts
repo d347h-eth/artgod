@@ -14,7 +14,11 @@ import {
     TokenBucketRateLimiter,
     type RpcRetryPolicy,
 } from "./rpc-resilience.js";
-import { shouldPenalizeRpcEndpointFailure } from "./rpc-errors.js";
+import {
+    shouldPenalizeRpcEndpointFailure,
+    shouldRetryRpcError,
+    type RpcErrorPolicy,
+} from "./rpc-errors.js";
 
 // Result returned after one observed endpoint execution attempt.
 export type ObservedRpcEndpointExecution<TEndpoint, TValue> = {
@@ -38,6 +42,7 @@ export type ObservedRpcEndpointCallOptions<TEndpoint, TValue> = {
     ) => Promise<TValue>;
     rpcObservability?: RpcObservability;
     retryPolicy?: RpcRetryPolicy;
+    errorPolicy?: RpcErrorPolicy;
     sleep?: (ms: number) => Promise<void>;
     circuitBreaker?: (
         endpoint: WeightedEndpointSelection<TEndpoint>,
@@ -92,6 +97,8 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
             ? await executeWithRpcRetry({
                   policy: options.retryPolicy,
                   sleep: options.sleep,
+                  shouldRetry: (error) =>
+                      shouldRetryRpcError(error, options.errorPolicy),
                   executeAttempt,
                   onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
                       if (!lastEndpoint) return;
@@ -208,7 +215,10 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
             endpoint: updatedEndpoint,
         };
     } catch (error) {
-        const shouldPenalize = shouldPenalizeRpcEndpointFailure(error);
+        const shouldPenalize = shouldPenalizeRpcEndpointFailure(
+            error,
+            input.options.errorPolicy,
+        );
         const updatedEndpoint = shouldPenalize
             ? (input.options.selector.recordFailure(endpoint.id) ?? endpoint)
             : endpoint;
@@ -256,7 +266,8 @@ async function runWithOptionalCircuit<TEndpoint, TValue>(
     const circuitBreaker = options.circuitBreaker?.(endpoint);
     return circuitBreaker
         ? circuitBreaker.execute(run, {
-              shouldRecordFailure: shouldPenalizeRpcEndpointFailure,
+              shouldRecordFailure: (error) =>
+                  shouldPenalizeRpcEndpointFailure(error, options.errorPolicy),
           })
         : run();
 }

@@ -22,10 +22,13 @@ describe("OpenSeaCollectionIdentityVerifier", () => {
             ).resolves.toBe(SLUG);
             expect(
                 lookup.resolveCollectionSlugByToken,
-            ).toHaveBeenCalledExactlyOnceWith({
-                address: ADDRESS,
-                tokenId: SAMPLE,
-            });
+            ).toHaveBeenCalledExactlyOnceWith(
+                {
+                    address: ADDRESS,
+                    tokenId: SAMPLE,
+                },
+                undefined,
+            );
         },
     );
 

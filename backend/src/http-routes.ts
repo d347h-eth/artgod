@@ -1,4 +1,8 @@
 import type {
+    InspectBootstrapSampleHttpAdapter,
+    InspectBootstrapSampleRoute,
+} from "./http/handlers/bootstrap/inspect-bootstrap-sample.js";
+import type {
     FastifyInstance,
     FastifyReply,
     FastifyRequest,
@@ -267,6 +271,7 @@ export function registerApiRoutes(
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
     startCollectionBootstrapAdapter: StartCollectionBootstrapHttpAdapter,
     probeCollectionContractAdapter: ProbeCollectionContractHttpAdapter,
+    inspectBootstrapSampleAdapter: InspectBootstrapSampleHttpAdapter,
     estimateBootstrapImageCacheAdapter: EstimateBootstrapImageCacheHttpAdapter,
     probeOpenSeaCollectionSlugAdapter: ProbeOpenSeaCollectionSlugHttpAdapter,
     listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
@@ -605,6 +610,12 @@ export function registerApiRoutes(
         options,
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         probeCollectionContractAdapter.handle,
+    );
+    registerObservedPost<InspectBootstrapSampleRoute>(
+        app,
+        options,
+        BOOTSTRAP_API_ROUTE_TEMPLATE.InspectSample,
+        inspectBootstrapSampleAdapter.handle,
     );
     registerObservedPost<EstimateBootstrapImageCacheRoute>(
         app,

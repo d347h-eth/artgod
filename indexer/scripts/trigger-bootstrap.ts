@@ -21,25 +21,24 @@ try {
     const input = resolveBootstrapTriggerInput(args);
     const result = await triggerBootstrapViaApi(input);
     const requestBody = result.requestBody;
-    const manualInput = requestBody.manualInput;
-    const enumerationMode = requestBody.supportsEnumerable
-        ? BOOTSTRAP_ENUMERATION_MODE.Enumerable
-        : manualInput?.mode;
+    const scope = requestBody.scope;
+    const enumerationMode = scope.mode;
 
     // Summarize the submitted scope without printing a potentially large token list.
     const explicitTokenCount =
-        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
-            ? manualInput.tokenIds.length
+        scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+            ? scope.tokenIds.length
             : null;
     const manualRangeStartTokenId =
-        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
-            ? manualInput.startTokenId
+        scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? scope.startTokenId
             : null;
     const manualRangeTotalSupply =
-        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
-            ? manualInput.totalSupply
+        scope.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? scope.tokenCount
             : null;
 
+    for (const warning of result.warnings) console.warn(warning);
     console.log(
         [
             "Queued bootstrap run:",
@@ -53,7 +52,6 @@ try {
             `slug=${input.slug}`,
             `openseaSlug=${input.openseaSlug ?? "none"}`,
             `metadataMode=${input.metadataMode}`,
-            `supportsEnumerable=${String(requestBody.supportsEnumerable)}`,
             `sampleTokenId=${input.sampleTokenId ?? "auto"}`,
             `enumerationMode=${enumerationMode ?? "none"}`,
             `explicitTokenCount=${explicitTokenCount ?? "none"}`,

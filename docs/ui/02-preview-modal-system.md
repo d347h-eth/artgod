@@ -236,6 +236,9 @@ choices.
   shortcuts.
 - `frontend/src/lib/components/TokenMediaFrame.svelte` owns the sandboxed iframe
   boundary.
+  It also supports inert text inspection with `allowScripts={false}`. The
+  bootstrap JSON inspector uses that stricter sandbox, escaped text, and a CSP
+  denying network access. Token media retains its existing script allowance.
 - `frontend/src/app.css` owns viewport, contain-fit, controls, and request-state
   styling through the shared chrome color contract.
 

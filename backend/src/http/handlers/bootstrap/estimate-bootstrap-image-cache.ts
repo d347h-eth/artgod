@@ -1,4 +1,9 @@
-import type { FastifyRequest } from "fastify";
+import type { FastifyRequest, FastifyReply } from "fastify";
+import {
+    BOOTSTRAP_OPERATION,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
+import { bootstrapOperationResponse } from "./operation-response.js";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
     IMAGE_CACHE_MODE,
@@ -17,7 +22,6 @@ export type EstimateBootstrapImageCacheRoute = {
         sampleTokenId?: unknown;
         sourceImageUrl?: unknown;
         sourceImageBytes?: unknown;
-        totalSupply?: unknown;
         imageCacheMode?: unknown;
         maxDimension?: unknown;
     };
@@ -30,15 +34,23 @@ export class EstimateBootstrapImageCacheHttpAdapter {
         private readonly estimateBootstrapImageCachePort: {
             estimate(
                 input: EstimateBootstrapImageCacheInput,
+                report?: BootstrapOutputReporter,
             ): MaybePromise<EstimateBootstrapImageCacheOutput>;
         },
     ) {}
 
     readonly handle = async (
         request: FastifyRequest<EstimateBootstrapImageCacheRoute>,
+        reply: FastifyReply,
     ) => {
         const input = this.mapRequestToInput(request);
-        return this.estimateBootstrapImageCachePort.estimate(input);
+        return bootstrapOperationResponse(
+            request,
+            reply,
+            BOOTSTRAP_OPERATION.Estimate,
+            (report) =>
+                this.estimateBootstrapImageCachePort.estimate(input, report),
+        );
     };
 
     private mapRequestToInput(
@@ -53,7 +65,6 @@ export class EstimateBootstrapImageCacheHttpAdapter {
                 body.sourceImageBytes,
                 "sourceImageBytes",
             ),
-            totalSupply: mustString(body.totalSupply, "totalSupply"),
             imageCacheMode: mustImageCacheMode(body.imageCacheMode),
             maxDimension: optionalPositiveInteger(
                 body.maxDimension,

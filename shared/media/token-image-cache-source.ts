@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
+import type { HttpFetchObserver } from "../network/http-fetch-observation.js";
 import {
     fetchWithHttpResilience,
+    HttpFetchStatusError,
     type HttpFetchResilienceConfig,
 } from "../network/http-fetch-resilience.js";
 import {
@@ -18,6 +20,7 @@ export async function fetchTokenImageCacheSource(input: {
     ipfsGatewayOrigin: string;
     maxSourceBytes: number;
     fetchResilience: HttpFetchResilienceConfig;
+    observe?: HttpFetchObserver;
 }): Promise<TokenImageCacheSourcePayload> {
     const resolved = resolveTokenResourceUri(input.sourceImageUrl, {
         ipfsGatewayOrigin: input.ipfsGatewayOrigin,
@@ -42,21 +45,20 @@ export async function fetchTokenImageCacheSource(input: {
     const response = await fetchWithHttpResilience({
         input: resolved,
         config: input.fetchResilience,
+        observe: input.observe,
         init: {
             headers: { accept: "image/*,*/*;q=0.1" },
         },
     });
     if (!response.ok) {
-        throw new Error(`Image fetch failed: HTTP ${response.status}`);
+        throw new HttpFetchStatusError(response.status);
     }
     const contentLength = Number(response.headers.get("content-length"));
     if (
         Number.isFinite(contentLength) &&
         contentLength > input.maxSourceBytes
     ) {
-        throw new Error(
-            `Image payload exceeds ${input.maxSourceBytes} bytes`,
-        );
+        throw new Error(`Image payload exceeds ${input.maxSourceBytes} bytes`);
     }
 
     return {

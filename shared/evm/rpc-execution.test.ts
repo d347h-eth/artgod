@@ -21,6 +21,7 @@ import {
     RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES,
     RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT,
     RPC_PROVIDER_HEAD_LAG_ERROR_DATA,
+    RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES,
 } from "./rpc-errors.js";
 import {
     executeObservedRpcEndpointCall,
@@ -369,6 +370,60 @@ describe("executeObservedRpcEndpointCall", () => {
                 selector,
                 method: TEST_RPC_METHOD,
                 rpcObservability: observer,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => TEST_RPC_RESULT,
+            }),
+        ).resolves.toBe(TEST_RPC_RESULT);
+    });
+
+    it("does not retry, demote or open circuits for optional zero-data reads", async () => {
+        const circuitBreaker = new CircuitBreaker(
+            TEST_CIRCUIT_BREAKER_CONFIG,
+            () => 0,
+        );
+        const selector = createTestSelector([
+            { url: TEST_RPC_ENDPOINT_A_URL, circuitBreaker },
+        ]);
+        const metrics = new CapturingMetrics();
+        const observer = createTestRpcObservability(metrics);
+        let attempts = 0;
+        let sleeps = 0;
+        const error = Object.assign(
+            new Error(TEST_CONTRACT_READ_FAILURE_MESSAGE),
+            {
+                name: RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES.ContractFunctionZeroData,
+            },
+        );
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                retryPolicy: TEST_RETRY_POLICY,
+                errorPolicy: { retryZeroData: false },
+                sleep: async () => {
+                    sleeps += 1;
+                },
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => {
+                    attempts += 1;
+                    throw error;
+                },
+            }),
+        ).rejects.toBe(error);
+        expect(attempts).toBe(1);
+        expect(sleeps).toBe(0);
+        expect(selector.snapshot()[0]?.effectiveWeight).toBe(1);
+        expect(
+            metrics.increments.some(
+                (metric) =>
+                    metric.name === RPC_OBSERVABILITY_METRIC.RetryAttempt,
+            ),
+        ).toBe(false);
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
                 circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
                 execute: async () => TEST_RPC_RESULT,
             }),

@@ -1,3 +1,8 @@
+import {
+    HTTP_FETCH_PHASE,
+    type HttpFetchObserver,
+} from "./http-fetch-observation.js";
+
 // Policy values that configure normal HTTP request retries.
 export type HttpFetchRetryPolicy = {
     maxAttempts: number;
@@ -26,6 +31,7 @@ export type FetchWithHttpResilienceOptions = {
     fetchImpl?: typeof fetch;
     sleep?: (ms: number) => Promise<void>;
     onRetryScheduled?: (context: HttpFetchRetryScheduledContext) => void;
+    observe?: HttpFetchObserver;
 };
 
 const HTTP_FETCH_REQUEST_TIMEOUT_ERROR_MESSAGE = "HTTP request timed out";
@@ -38,16 +44,26 @@ const HTTP_FETCH_RETRYABLE_STATUS_CODES = new Set([
 // Error raised when a normal HTTP attempt exceeds its request timeout.
 export class HttpFetchRequestTimeoutError extends Error {
     constructor(timeoutMs: number, cause?: unknown) {
-        super(`${HTTP_FETCH_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`);
+        super(
+            `${HTTP_FETCH_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`,
+        );
         this.name = "HttpFetchRequestTimeoutError";
         this.cause = cause;
     }
 }
 
-// Error raised internally to retry transient HTTP responses.
-export class HttpFetchRetryableStatusError extends Error {
+// Retains the response status without exposing an upstream body or URL to callers.
+export class HttpFetchStatusError extends Error {
     constructor(readonly status: number) {
         super(`HTTP ${status}`);
+        this.name = "HttpFetchStatusError";
+    }
+}
+
+// Error raised internally to retry transient HTTP responses.
+export class HttpFetchRetryableStatusError extends HttpFetchStatusError {
+    constructor(status: number) {
+        super(status);
         this.name = "HttpFetchRetryableStatusError";
     }
 }
@@ -59,16 +75,35 @@ export async function fetchWithHttpResilience(
     const fetchImpl = options.fetchImpl ?? fetch;
     const sleep = options.sleep ?? sleepMs;
     const maxAttempts = Math.max(1, options.config.retryPolicy.maxAttempts);
+    const url =
+        typeof options.input === "string"
+            ? options.input
+            : options.input instanceof URL
+              ? options.input.href
+              : options.input.url;
     let attempt = 1;
 
     for (;;) {
         try {
+            options.observe?.({
+                phase: HTTP_FETCH_PHASE.Request,
+                url,
+                attempt,
+                maxAttempts,
+            });
             const response = await fetchWithHttpRequestTimeout(
                 fetchImpl,
                 options.input,
                 options.init ?? {},
                 options.config.requestTimeoutMs,
             );
+            options.observe?.({
+                phase: HTTP_FETCH_PHASE.Response,
+                url: response.url || url,
+                attempt,
+                maxAttempts,
+                status: response.status,
+            });
             if (isRetryableResponse(response)) {
                 await response.body?.cancel().catch(() => undefined);
                 throw new HttpFetchRetryableStatusError(response.status);
@@ -79,6 +114,20 @@ export async function fetchWithHttpResilience(
                 attempt >= maxAttempts ||
                 options.init?.signal?.aborted === true
             ) {
+                options.observe?.({
+                    phase: HTTP_FETCH_PHASE.Failure,
+                    url,
+                    attempt,
+                    maxAttempts,
+                    status:
+                        error instanceof HttpFetchStatusError
+                            ? error.status
+                            : undefined,
+                    reason:
+                        error instanceof HttpFetchRequestTimeoutError
+                            ? error.message
+                            : "Request failed",
+                });
                 throw error;
             }
             const delayMs = getHttpFetchRetryDelayMs(
@@ -90,6 +139,21 @@ export async function fetchWithHttpResilience(
                 nextAttempt: attempt + 1,
                 delayMs,
                 error,
+            });
+            options.observe?.({
+                phase: HTTP_FETCH_PHASE.Retry,
+                url,
+                attempt,
+                maxAttempts,
+                delayMs,
+                status:
+                    error instanceof HttpFetchStatusError
+                        ? error.status
+                        : undefined,
+                reason:
+                    error instanceof HttpFetchRequestTimeoutError
+                        ? error.message
+                        : "Request failed",
             });
             await sleep(delayMs);
             attempt += 1;

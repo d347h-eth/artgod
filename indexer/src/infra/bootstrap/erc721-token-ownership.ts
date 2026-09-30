@@ -25,7 +25,7 @@ export class Erc721TokenOwnership {
             });
             return normalizeErc721Owner(owner);
         } catch (error) {
-            if (isErc721TokenAbsentError(error)) return null;
+            if (isErc721TokenAbsentError(error, tokenId)) return null;
             throw error;
         }
     }

@@ -1,3 +1,4 @@
+import { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
@@ -317,7 +318,13 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         bootstrapContractProbe,
+    );
+    const inspectBootstrapSampleUseCase = new InspectBootstrapSampleUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapContractProbe,
         builtInCollectionExtensionResolver,
+        config.ipfs.gatewayOrigin,
     );
     const estimateBootstrapImageCacheUseCase =
         new EstimateBootstrapImageCacheUseCase(
@@ -677,6 +684,7 @@ export function createBackendApp(
         createBootstrapRunUseCase,
         startPreparedCollectionBootstrapUseCase,
         probeCollectionContractUseCase,
+        inspectBootstrapSampleUseCase,
         estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,

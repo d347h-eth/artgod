@@ -16,6 +16,44 @@
 	const tooltipId = $props.id();
 	const popupId = `${tooltipId}-popup`;
 	let dismissed = $state(false);
+	let hovered = $state(false);
+	let focused = $state(false);
+	let popupElement = $state<HTMLSpanElement | null>(null);
+
+	$effect(() => {
+		const popup = popupElement;
+		if (!popup || dismissed || (!hovered && !focused)) return;
+		// Keep the existing anchored placement, shifting only to avoid viewport clipping.
+		const positionPopup = () => {
+			popup.style.translate = '';
+			if (!popup.getClientRects().length) return;
+			const rect = popup.getBoundingClientRect();
+			const viewport = window.visualViewport;
+			const padding = 8;
+			const left = (viewport?.offsetLeft ?? 0) + padding;
+			const top = (viewport?.offsetTop ?? 0) + padding;
+			const right = left + (viewport?.width ?? document.documentElement.clientWidth) - padding * 2;
+			const bottom = top + (viewport?.height ?? document.documentElement.clientHeight) - padding * 2;
+			const x = Math.max(left, Math.min(rect.left, right - rect.width)) - rect.left;
+			const y = Math.max(top, Math.min(rect.top, bottom - rect.height)) - rect.top;
+			popup.style.translate = `${x}px ${y}px`;
+		};
+		const frame = requestAnimationFrame(positionPopup);
+		const observer = new ResizeObserver(positionPopup);
+		observer.observe(popup);
+		window.addEventListener('resize', positionPopup);
+		window.addEventListener('scroll', positionPopup, true);
+		window.visualViewport?.addEventListener('resize', positionPopup);
+		window.visualViewport?.addEventListener('scroll', positionPopup);
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+			window.removeEventListener('resize', positionPopup);
+			window.removeEventListener('scroll', positionPopup, true);
+			window.visualViewport?.removeEventListener('resize', positionPopup);
+			window.visualViewport?.removeEventListener('scroll', positionPopup);
+		};
+	});
 
 	function showFromActivation(event: MouseEvent): void {
 		event.preventDefault();
@@ -51,8 +89,16 @@
 		aria-label={tone === 'warning' ? 'Warning details' : 'Help'}
 		aria-describedby={popupId}
 		tabindex="0"
-		onmouseenter={() => (dismissed = false)}
-		onfocus={() => (dismissed = false)}
+		onmouseenter={() => {
+			hovered = true;
+			dismissed = false;
+		}}
+		onmouseleave={() => (hovered = false)}
+		onfocus={() => {
+			focused = true;
+			dismissed = false;
+		}}
+		onblur={() => (focused = false)}
 		onclick={showFromActivation}
 		onkeydown={handleKeydown}
 	>
@@ -63,7 +109,7 @@
 				<InfoIcon />
 			{/if}
 		</span>
-		<span id={popupId} class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
+		<span bind:this={popupElement} id={popupId} class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
 	</span>
 {/if}
 

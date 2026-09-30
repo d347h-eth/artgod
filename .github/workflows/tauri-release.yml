@@ -273,6 +273,9 @@ jobs:
             - name: Verify staged desktop runtime resources
               run: yarn check:desktop-runtime-resources
 
+            - name: Test desktop runtime loader isolation
+              run: yarn test:desktop:runtime-environment
+
             - name: Verify Linux bundled runtime integrity
               if: runner.os == 'Linux'
               run: yarn check:linux-bundled-runtime "src-tauri/target/${{ matrix.target }}/release/bundle"

@@ -33,6 +33,8 @@ The harness is appropriate for:
   request shapes;
 - public read-only guardrails;
 - bootstrap probe states;
+- live setup output framing, exact failed URLs, retained history, bounded
+  scrolling and sandboxed metadata;
 - token preview source/variant behavior;
 - Terraforms media and Hypercastle interactions.
 

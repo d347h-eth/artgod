@@ -7,7 +7,7 @@ const persistSuccessArtifacts = process.env.COMMON_E2E_PERSIST_SUCCESS_ARTIFACTS
 
 export default defineConfig({
 	testDir: './e2e',
-	outputDir: './test-results/playwright-bootstrap-probe',
+	outputDir: '../tmp/bootstrap-revamp-playwright',
 	timeout: 45_000,
 	expect: {
 		timeout: 10_000

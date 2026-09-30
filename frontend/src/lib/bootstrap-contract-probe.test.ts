@@ -1,158 +1,151 @@
 import { describe, expect, it } from 'vitest';
-import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
-import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
-import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
+import { BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH } from '@artgod/shared/config/bootstrap';
 import {
-	BOOTSTRAP_PROBE_STATUS_LABEL,
-	bootstrapProbeNeedsManualScope,
-	bootstrapProbeStatusLabel,
+	bootstrapTestSample,
+	bootstrapTestContract,
+	BOOTSTRAP_TEST_PROJECT_SCOPE
+} from '@artgod/shared/testing/bootstrap-probe';
+import { BOOTSTRAP_SHARED_CONTRACT_REASON } from '@artgod/shared/bootstrap/probe';
+import {
+	bootstrapSampleOwnership,
+	bootstrapSampleFailure,
+	bootstrapRangeSuggestions,
 	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
 } from './bootstrap-contract-probe';
-import type { BootstrapContractProbeApiResponse } from './api-types';
-
-describe('bootstrap contract probe helpers', () => {
-	it('normalizes and validates contract addresses', () => {
-		expect(isBootstrapProbeableAddress('0x1111111111111111111111111111111111111111')).toBe(true);
-		expect(isBootstrapProbeableAddress('0x111')).toBe(false);
-		expect(normalizeBootstrapAddress(' 0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD ')).toBe(
-			'0xabcdefabcdefabcdefabcdefabcdefabcdefabcd'
-		);
-	});
-
-	it('labels enumerable and inferred-range probes', () => {
-		expect(bootstrapProbeStatusLabel(makeProbe({ enumerable: true, totalSupply: 940 }))).toBe(
-			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
-		);
-		expect(
-			bootstrapProbeStatusLabel(
-				makeProbe({
-					enumerable: false,
-					startTokenId: '1',
-					totalSupply: 940
-				})
-			)
-		).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred);
-	});
-
-	it('keeps shared-contract capability separate from required manual scope', () => {
-		const probe = makeProbe({
-			enumerable: true,
-			suggestedEnumerable: false,
-			inferManualRange: false,
-			startTokenId: '282000000',
-			totalSupply: 198051
+describe('bootstrap display helpers', () => {
+	it('prefers project scope and separates partial-mint choices, suppressing shared contract-wide guesses', () => {
+		const contract = bootstrapTestContract();
+		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
+			startTokenId: '0',
+			startTokenIdConfirmed: true,
+			tokenCount: 100,
+			maxTokenCount: null
 		});
-		expect(probe.enumerable.supported).toBe(true);
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
+		contract.sharedContract = {
+			reason: BOOTSTRAP_SHARED_CONTRACT_REASON.Registry,
+			registryAddress: null
+		};
+		expect(bootstrapRangeSuggestions(contract, null)).toEqual({
+			startTokenId: null,
+			startTokenIdConfirmed: false,
+			tokenCount: null,
+			maxTokenCount: null
+		});
+		expect(bootstrapRangeSuggestions(contract, BOOTSTRAP_TEST_PROJECT_SCOPE)).toEqual({
+			startTokenId: '163000000',
+			startTokenIdConfirmed: true,
+			tokenCount: 1000,
+			maxTokenCount: null
+		});
+		expect(
+			bootstrapRangeSuggestions(null, { ...BOOTSTRAP_TEST_PROJECT_SCOPE, mintedTokenCount: 486 })
+		).toEqual({
+			startTokenId: '163000000',
+			startTokenIdConfirmed: true,
+			tokenCount: 486,
+			maxTokenCount: 1000
+		});
 	});
-
-	it('formats byte counts for tokenURI payload estimates', () => {
-		expect(formatByteSize(512)).toBe('512 B');
-		expect(formatByteSize(1536)).toBe('1.50 KB');
-		expect(formatByteSize('10485760')).toBe('10.0 MB');
+	it.each([false, null])(
+		'keeps project counts while withholding an unconfirmed start (%s)',
+		(exists) => {
+			const project = {
+				...BOOTSTRAP_TEST_PROJECT_SCOPE,
+				startTokenOwnership: {
+					tokenId: BOOTSTRAP_TEST_PROJECT_SCOPE.startTokenId,
+					exists,
+					error: 'ownership failed'
+				}
+			};
+			expect(bootstrapRangeSuggestions(bootstrapTestContract(), project)).toEqual({
+				startTokenId: null,
+				startTokenIdConfirmed: false,
+				tokenCount: 1000,
+				maxTokenCount: null
+			});
+		}
+	);
+	it('does not accept ownership evidence for another project token', () => {
+		expect(
+			bootstrapRangeSuggestions(null, {
+				...BOOTSTRAP_TEST_PROJECT_SCOPE,
+				startTokenOwnership: { tokenId: '163000485', exists: true, error: null }
+			})
+		).toMatchObject({ startTokenId: null, startTokenIdConfirmed: false });
 	});
-
+	it.each([false, null])(
+		'keeps a conventional 1 suggestion under review or withholds it when 0 ownership is %s',
+		(zero) => {
+			const contract = bootstrapTestContract();
+			contract.discovery = {
+				enumeration: { checked: false, tokenId: null, error: null },
+				candidates: [
+					{ tokenId: '0', exists: zero, error: null },
+					{ tokenId: '1', exists: true, error: null }
+				],
+				rangeStartCandidate: '1',
+				sampleTokenId: '1'
+			};
+			expect(bootstrapRangeSuggestions(contract, null)).toMatchObject({
+				startTokenId: zero === false ? '1' : null,
+				startTokenIdConfirmed: false
+			});
+		}
+	);
+	it('requires review when no contract or project evidence is available', () => {
+		expect(bootstrapRangeSuggestions(null, null)).toEqual({
+			startTokenId: null,
+			startTokenIdConfirmed: false,
+			tokenCount: null,
+			maxTokenCount: null
+		});
+	});
+	it('normalizes addresses', () => {
+		expect(isBootstrapProbeableAddress('0x' + 'a'.repeat(40))).toBe(true);
+		expect(isBootstrapProbeableAddress('0x1')).toBe(false);
+		expect(isBootstrapProbeableAddress('0x' + 'g'.repeat(40))).toBe(false);
+		expect(normalizeBootstrapAddress(' 0xAB ')).toBe('0xab');
+	});
+	it.each([
+		[null, '-'],
+		[undefined, '-'],
+		['bad', '-'],
+		['12', '12 B'],
+		[1536, '1.50 KB'],
+		['10485760', '10.0 MB'],
+		[102400, '100 KB']
+	])('formats %s', (value, result) => {
+		expect(formatByteSize(value)).toBe(result);
+	});
+	it('keeps ownership separate from each metadata failure', () => {
+		const sample = bootstrapTestSample().sample;
+		for (const field of ['tokenUriError', 'tokenUriPayloadError', 'metadataError'] as const) {
+			sample[field] = 'HTTP 429';
+			expect(bootstrapSampleFailure(sample)).toBe('HTTP 429');
+			expect(bootstrapSampleOwnership(sample)).toBe(true);
+			sample[field] = null;
+		}
+		expect(bootstrapSampleFailure(sample)).toBeNull();
+		sample.ownership = { tokenId: '0', exists: false, error: 'No owner' };
+		expect(bootstrapSampleOwnership(sample)).toBe(false);
+		expect(bootstrapSampleFailure(sample)).toBe('No owner');
+		sample.ownership = null;
+		expect(bootstrapSampleOwnership(sample)).toBeNull();
+		expect(bootstrapSampleFailure(sample)).toContain('Ownership could not');
+		sample.tokenId = null;
+		expect(bootstrapSampleFailure(sample)).toContain('No sample was confirmed');
+	});
 	it('normalizes ERC721 names into editable bootstrap slug suggestions', () => {
+		expect(contractNameToBootstrapSlug(null)).toBe('');
 		expect(contractNameToBootstrapSlug('  Milady by Remilia Corporation!!!  ')).toBe(
 			'milady-by-remilia-corporation'
 		);
 		expect(contractNameToBootstrapSlug('Æther / Test: 2026')).toBe('ther-test-2026');
-		expect(contractNameToBootstrapSlug(`${'A'.repeat(70)}!`)).toBe('a'.repeat(64));
+		expect(
+			contractNameToBootstrapSlug(`${'A'.repeat(BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH + 10)}!`)
+		).toBe('a'.repeat(BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH));
 	});
 });
-
-function makeProbe(input: {
-	enumerable: boolean;
-	suggestedEnumerable?: boolean;
-	inferManualRange?: boolean;
-	startTokenId?: string;
-	totalSupply?: number;
-	bootstrapRangeValue?: number | null;
-}): BootstrapContractProbeApiResponse {
-	const suggestedEnumerable = input.suggestedEnumerable ?? input.enumerable;
-	const bootstrapRangeValue =
-		input.bootstrapRangeValue === undefined
-			? (input.totalSupply ?? null)
-			: input.bootstrapRangeValue;
-	const manualInput =
-		input.inferManualRange === false ||
-		suggestedEnumerable ||
-		!input.startTokenId ||
-		!bootstrapRangeValue
-			? null
-			: {
-					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-					startTokenId: input.startTokenId,
-					totalSupply: bootstrapRangeValue
-				};
-	return {
-		chain: {
-			id: 1,
-			type: 'evm',
-			publicChainId: 1,
-			slug: 'ethereum',
-			name: 'Ethereum'
-		},
-		address: '0x1111111111111111111111111111111111111111',
-		standard: 'erc721',
-		proxy: null,
-		contractName: null,
-		erc721: {
-			supported: true,
-			error: null
-		},
-		enumerable: {
-			supported: input.enumerable,
-			error: null
-		},
-		totalSupply: {
-			status: input.totalSupply ? 'available' : 'unavailable',
-			value: input.totalSupply ? String(input.totalSupply) : null,
-			safeIntegerValue: input.totalSupply ?? null,
-			bootstrapRangeValue,
-			error: null
-		},
-		firstToken: {
-			tokenId: input.startTokenId ?? null,
-			source: input.enumerable ? 'token_by_index' : 'candidate_token_uri',
-			tokenUri: null,
-			tokenUriPayloadBytes: null,
-			tokenUriPayloadTruncated: false,
-			tokenUriPayloadError: null,
-			name: null,
-			imageSourceField: null,
-			image: null,
-			imageBytes: null,
-			imageBytesSource: null,
-			imageContentType: null,
-			imageBytesError: null,
-			imageWidth: null,
-			imageHeight: null,
-			animationSourceField: null,
-			animationUrl: null,
-			metadataError: null,
-			candidates: []
-		},
-		storageEstimate: null,
-		imageStorageEstimate: null,
-		suggestedInput: {
-			supportsEnumerable: suggestedEnumerable,
-			manualInput,
-			ready: suggestedEnumerable || manualInput !== null,
-			warnings: []
-		},
-		imageCacheSuggestion: {
-			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-			extensionKey: null,
-			config: {
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			}
-		}
-	};
-}

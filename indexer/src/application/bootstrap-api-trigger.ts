@@ -1,10 +1,33 @@
+import {
+    parseBootstrapScope,
+    bootstrapScopeContainsToken,
+    type BootstrapScope,
+} from "@artgod/shared/bootstrap/scope";
+import {
+    bootstrapSampleFailure,
+    type BootstrapContractProbeResponse,
+    type BootstrapSampleInspectionResponse,
+} from "@artgod/shared/bootstrap/probe";
+import { inspectBootstrapMetadata } from "@artgod/shared/bootstrap/metadata";
+import {
+    defaultImageCachePolicyConfig,
+    IMAGE_CACHE_MODE,
+} from "@artgod/shared/media/token-image-cache";
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
+import {
+    BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH,
+    BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
+    BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+} from "@artgod/shared/config/bootstrap";
 import { SETTINGS_DEFAULTS } from "@artgod/shared/config/generated-settings-defaults";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 import {
     API_CSRF_COOKIE_NAME,
     API_CSRF_HEADER_NAME,
     API_CSRF_ROUTE_PATH,
 } from "@artgod/shared/http/api-security";
 import {
+    buildInspectBootstrapSamplePath,
     buildCreateBootstrapRunPath,
     buildProbeBootstrapCollectionPath,
     buildProbeBootstrapOpenSeaSlugPath,
@@ -21,13 +44,15 @@ import {
 } from "@artgod/shared/opensea/collection-slug-probe";
 import { type ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
-import {
-    COLLECTION_STANDARD,
-    CollectionTokenScope,
-} from "../domain/collections.js";
+import { COLLECTION_STANDARD } from "../domain/collections.js";
 
 // CLI flags owned by the bootstrap trigger entrypoint.
 export const BOOTSTRAP_TRIGGER_CLI_FLAG = {
+    EntireContract: "--entire-contract",
+    ImageSourceField: "--image-source-field",
+    AnimationSourceField: "--animation-source-field",
+    ImageCacheMode: "--image-cache-mode",
+    ImageCacheMaxDimension: "--image-cache-max-dimension",
     Address: "--address",
     Slug: "--slug",
     OpenSeaSlug: "--opensea-slug",
@@ -63,6 +88,11 @@ const BOOTSTRAP_TRIGGER_HEADER = {
 } as const;
 
 export type BootstrapTriggerCliArgs = {
+    entireContract?: boolean;
+    imageSourceField?: string;
+    animationSourceField?: string;
+    imageCacheMode?: ImageCacheMode;
+    imageCacheMaxDimension?: number | null;
     address?: string;
     slug?: string;
     openseaSlug?: string;
@@ -88,51 +118,14 @@ export type BootstrapTriggerResolvedInput = {
     deploymentBlock: number | null;
     metadataMode: BootstrapMetadataMode;
     sampleTokenId: string | null;
-    manualInput: BootstrapManualInput | null;
+    scope: BootstrapScope;
+    imageSourceField: string | null;
+    animationSourceField: string | null | undefined;
+    imageCacheMode: ImageCacheMode | null;
+    imageCacheMaxDimension: number | null | undefined;
 };
 
-type BootstrapManualTokenIdsInput = {
-    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds;
-    tokenIds: string[];
-};
-
-type BootstrapManualRangeInput = {
-    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
-    startTokenId: string;
-    totalSupply: number;
-};
-
-type BootstrapManualInput =
-    | BootstrapManualTokenIdsInput
-    | BootstrapManualRangeInput;
-
-type BootstrapProbeManualInput = {
-    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
-    startTokenId: string;
-    totalSupply: number;
-};
-
-export type BootstrapProbeApiResponse = {
-    firstToken: {
-        tokenId: string | null;
-        imageSourceField: string | null;
-        animationSourceField: string | null;
-    };
-    suggestedInput: {
-        supportsEnumerable: boolean;
-        manualInput: BootstrapProbeManualInput | null;
-        ready: boolean;
-        warnings: string[];
-    };
-    imageCacheSuggestion: {
-        selectedSource: CollectionCustomizationSourceKind;
-        extensionKey: string | null;
-        config: {
-            imageCacheMode: ImageCacheMode;
-            maxDimension: number | null;
-        };
-    };
-};
+export type BootstrapProbeApiResponse = BootstrapContractProbeResponse;
 
 export type BootstrapRunCreateBody = {
     slug: string;
@@ -142,8 +135,7 @@ export type BootstrapRunCreateBody = {
     animationSourceField: string | null;
     standard: typeof COLLECTION_STANDARD.Erc721;
     metadataMode: BootstrapMetadataMode;
-    supportsEnumerable: boolean;
-    manualInput?: BootstrapManualInput;
+    scope: BootstrapScope;
     imageCache: {
         selectedSource: CollectionCustomizationSourceKind;
         imageCacheMode: ImageCacheMode;
@@ -169,7 +161,9 @@ type BootstrapOpenSeaSlugProbeApiResponse = {
 
 export type BootstrapTriggerResult = BootstrapRunCreateApiResponse & {
     requestBody: BootstrapRunCreateBody;
-    probe: BootstrapProbeApiResponse;
+    probe: BootstrapProbeApiResponse | null;
+    sample: BootstrapSampleInspectionResponse | null;
+    warnings: string[];
 };
 
 type FetchLike = typeof fetch;
@@ -183,6 +177,39 @@ export function parseBootstrapTriggerArgs(
         const arg = raw[i];
         if (!arg) continue;
         switch (arg) {
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.EntireContract:
+                parsed.entireContract = true;
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ImageSourceField:
+                parsed.imageSourceField = requireFlagValue(raw, i++, arg);
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.AnimationSourceField:
+                parsed.animationSourceField = requireFlagValue(raw, i++, arg);
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ImageCacheMode: {
+                const value = requireFlagValue(raw, i++, arg);
+                if (
+                    !Object.values(IMAGE_CACHE_MODE).includes(
+                        value as ImageCacheMode,
+                    )
+                )
+                    throw new Error("Invalid image cache mode");
+                parsed.imageCacheMode = value as ImageCacheMode;
+                break;
+            }
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ImageCacheMaxDimension: {
+                const value = requireFlagValue(raw, i++, arg);
+                const dimension = value === "original" ? null : Number(value);
+                if (
+                    dimension !== null &&
+                    (!Number.isInteger(dimension) ||
+                        dimension < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+                        dimension > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION)
+                )
+                    throw new Error("Invalid image cache max dimension");
+                parsed.imageCacheMaxDimension = dimension;
+                break;
+            }
             case BOOTSTRAP_TRIGGER_CLI_FLAG.Help:
                 parsed.help = true;
                 break;
@@ -281,157 +308,147 @@ export function resolveBootstrapTriggerInput(
         deploymentBlock: args.deploymentBlock ?? null,
         metadataMode: args.metadataMode ?? BOOTSTRAP_METADATA_MODE.BestEffort,
         sampleTokenId: normalizeOptionalTokenId(args.sampleTokenId),
-        manualInput: resolveManualInput(args),
+        scope: resolveScope(args),
+        imageSourceField: normalizeProbeField(args.imageSourceField),
+        animationSourceField:
+            args.animationSourceField === undefined
+                ? undefined
+                : normalizeProbeField(args.animationSourceField),
+        imageCacheMode: args.imageCacheMode ?? null,
+        imageCacheMaxDimension: args.imageCacheMaxDimension,
     };
 }
 
-// Builds the create-run body from the same probe fields used by the frontend form.
+// Entered scope and media settings remain authoritative even when optional checks fail.
 export function buildBootstrapRunCreateBody(
     input: BootstrapTriggerResolvedInput,
-    probe: BootstrapProbeApiResponse,
+    sample: BootstrapSampleInspectionResponse | null,
 ): BootstrapRunCreateBody {
-    const enumeration = resolveBootstrapEnumeration(input, probe);
-    if (enumeration.manualInput) {
-        assertSampleInManualScope(
-            enumeration.manualInput,
-            input.sampleTokenId ?? probe.firstToken.tokenId,
+    const fields = inspectBootstrapMetadata({
+        text: sample?.sample.tokenUriPayload ?? null,
+        ipfsGatewayOrigin: sample?.ipfsGatewayOrigin ?? "",
+    });
+    const imageSourceField = input.imageSourceField ?? fields.imageSourceField;
+    if (!imageSourceField) {
+        const failure = sample ? bootstrapSampleFailure(sample.sample) : null;
+        throw new Error(
+            [
+                failure,
+                "Enter --image-source-field to queue without readable sample metadata.",
+            ]
+                .filter(Boolean)
+                .join(" "),
         );
     }
-
-    const imageSourceField = normalizeProbeField(
-        probe.firstToken.imageSourceField,
-    );
-    if (!imageSourceField) {
-        throw new Error("Bootstrap probe did not resolve image source field");
-    }
-    const animationSourceField = normalizeProbeField(
-        probe.firstToken.animationSourceField,
-    );
-
-    const body: BootstrapRunCreateBody = {
+    const suggestion = sample?.imageCacheSuggestion;
+    const config = suggestion?.config ?? defaultImageCachePolicyConfig();
+    const imageCacheMode = input.imageCacheMode ?? config.imageCacheMode;
+    const hasCacheOverride =
+        input.imageCacheMode !== null ||
+        input.imageCacheMaxDimension !== undefined;
+    return {
         slug: input.slug,
         address: input.address,
+        ...(input.openseaSlug ? { openseaSlug: input.openseaSlug } : {}),
         imageSourceField,
-        animationSourceField,
+        animationSourceField:
+            input.animationSourceField === undefined
+                ? fields.animationSourceField
+                : input.animationSourceField,
         standard: COLLECTION_STANDARD.Erc721,
         metadataMode: input.metadataMode,
-        supportsEnumerable: enumeration.supportsEnumerable,
+        scope: parseBootstrapScope(input.scope),
         imageCache: {
-            selectedSource: probe.imageCacheSuggestion.selectedSource,
-            imageCacheMode: probe.imageCacheSuggestion.config.imageCacheMode,
-            maxDimension: probe.imageCacheSuggestion.config.maxDimension,
+            selectedSource: hasCacheOverride
+                ? COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
+                : (suggestion?.selectedSource ??
+                  COLLECTION_CUSTOMIZATION_SOURCE_KIND.User),
+            imageCacheMode,
+            maxDimension:
+                imageCacheMode === IMAGE_CACHE_MODE.Off
+                    ? null
+                    : input.imageCacheMaxDimension !== undefined
+                      ? input.imageCacheMaxDimension
+                      : config.maxDimension,
         },
+        ...(input.deploymentBlock !== null
+            ? { deploymentBlock: input.deploymentBlock }
+            : {}),
     };
-
-    if (input.openseaSlug) {
-        body.openseaSlug = input.openseaSlug;
-    }
-    if (enumeration.manualInput) {
-        body.manualInput = enumeration.manualInput;
-    }
-    if (input.deploymentBlock !== null) {
-        body.deploymentBlock = input.deploymentBlock;
-    }
-
-    return body;
 }
 
-function assertSampleInManualScope(
-    input: BootstrapManualInput,
-    sampleTokenId: string | null,
-): void {
-    const sample = normalizeOptionalTokenId(sampleTokenId ?? undefined);
-    if (sample === null) {
-        throw new Error(
-            "Probe an existing sample token before queueing bootstrap",
-        );
-    }
-    const containsSample =
-        input.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
-            ? CollectionTokenScope.tokenRange(
-                  input.startTokenId,
-                  input.totalSupply,
-              ).containsToken(sample)
-            : CollectionTokenScope.explicitTokenIds().containsToken(
-                  sample,
-                  (id) =>
-                      input.tokenIds.some(
-                          (tokenId) => BigInt(tokenId) === BigInt(id),
-                      ),
-              );
-    if (!containsSample) {
-        throw new Error(
-            "Probe sample token must be inside the requested manual collection scope",
-        );
-    }
-}
-
-function resolveBootstrapEnumeration(
-    input: BootstrapTriggerResolvedInput,
-    probe: BootstrapProbeApiResponse,
-): {
-    supportsEnumerable: boolean;
-    manualInput: BootstrapManualInput | null;
-} {
-    if (input.manualInput) {
-        return {
-            supportsEnumerable: false,
-            manualInput: input.manualInput,
-        };
-    }
-    if (probe.suggestedInput.supportsEnumerable) {
-        if (!probe.suggestedInput.ready) {
-            throwProbeInputNotReady(probe);
-        }
-        return {
-            supportsEnumerable: true,
-            manualInput: null,
-        };
-    }
-    if (probe.suggestedInput.manualInput) {
-        return {
-            supportsEnumerable: false,
-            manualInput: probe.suggestedInput.manualInput,
-        };
-    }
-    throwProbeInputNotReady(probe);
-}
-
-function throwProbeInputNotReady(probe: BootstrapProbeApiResponse): never {
-    const warnings = probe.suggestedInput.warnings
-        .map((warning) => warning.trim())
-        .filter((warning) => warning.length > 0);
-    const suffix = warnings.length ? `: ${warnings.join("; ")}` : "";
-    throw new Error(`Bootstrap probe requires explicit manual input${suffix}`);
-}
-
-// Runs the backend API flow used by the normal bootstrap UI.
 export async function triggerBootstrapViaApi(
     input: BootstrapTriggerResolvedInput,
     fetchFn: FetchLike = globalThis.fetch,
 ): Promise<BootstrapTriggerResult> {
     assertFetchAvailable(fetchFn);
-
-    const probe = await fetchBootstrapProbe(input, fetchFn);
-    const requestBody = buildBootstrapRunCreateBody(input, probe);
-    await verifyOpenSeaSlug(
-        input,
-        input.sampleTokenId ?? probe.firstToken.tokenId,
-        fetchFn,
-    );
+    let probe: BootstrapProbeApiResponse | null = null;
+    let sample: BootstrapSampleInspectionResponse | null = null;
+    const warnings: string[] = [];
     const csrfToken = await fetchCsrfToken(input.backendOrigin, fetchFn);
+    // A fully specified manual definition needs no successful probe.
+    if (!input.imageSourceField) {
+        try {
+            probe = await fetchBootstrapProbe(input, fetchFn);
+        } catch (error) {
+            warnings.push(
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+        try {
+            sample = await requestJson<BootstrapSampleInspectionResponse>(
+                fetchFn,
+                {
+                    url:
+                        input.backendOrigin +
+                        buildInspectBootstrapSamplePath(input.chainRef),
+                    method: BOOTSTRAP_TRIGGER_HTTP_METHOD.Post,
+                    headers: csrfHeaders(input.backendOrigin, csrfToken),
+                    body: JSON.stringify({
+                        address: input.address,
+                        scope: input.scope,
+                        requestedTokenId: input.sampleTokenId,
+                        discoveredTokenId: probe?.discovery.sampleTokenId,
+                        observation: probe?.observation,
+                    }),
+                },
+            );
+        } catch (error) {
+            warnings.push(
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+    }
+    let requestBody: BootstrapRunCreateBody;
+    try {
+        requestBody = buildBootstrapRunCreateBody(input, sample);
+    } catch (error) {
+        throw new Error(
+            [
+                ...warnings,
+                error instanceof Error ? error.message : String(error),
+            ].join("\n"),
+            { cause: error },
+        );
+    }
+    const sampleTokenId = input.sampleTokenId ?? sample?.sample.tokenId ?? null;
+    if (
+        input.openseaSlug &&
+        (sampleTokenId === null ||
+            !bootstrapScopeContainsToken(input.scope, sampleTokenId))
+    ) {
+        throw new Error(
+            "Choose --sample-token-id inside the selected scope to verify --opensea-slug, or omit --opensea-slug to queue onchain only.",
+        );
+    }
+    await verifyOpenSeaSlug(input, sampleTokenId, fetchFn);
     const created = await createBootstrapRun(
         input,
         requestBody,
         csrfToken,
         fetchFn,
     );
-
-    return {
-        ...created,
-        requestBody,
-        probe,
-    };
+    return { ...created, requestBody, probe, sample, warnings };
 }
 
 export function printBootstrapTriggerUsage(): void {
@@ -440,6 +457,11 @@ export function printBootstrapTriggerUsage(): void {
             "Usage: yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> [options]",
             "",
             "Options:",
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.EntireContract}          Explicitly select every contract token using ERC721Enumerable`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ImageSourceField} <field> Required image property; enables manual queueing without a probe`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.AnimationSourceField} <field> Optional animation property; empty string skips animation`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ImageCacheMode} <off|cache_once|refresh_on_metadata> Image cache policy`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ImageCacheMaxDimension} <pixels|original> Cached image limit`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.Slug} <slug>               Slug (defaults to address)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.OpenSeaSlug} <slug>       Optional OpenSea collection slug for orderbook bootstrap`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ChainId} <number>         Chain id (defaults to CHAIN_ID or manifest default)`,
@@ -447,7 +469,7 @@ export function printBootstrapTriggerUsage(): void {
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.BackendOrigin} <url>      Backend origin (defaults to http://127.0.0.1:<BACKEND_PORT>)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.DeploymentBlock} <number> Deployment block (optional)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.MetadataMode} <strict|best_effort> Metadata snapshot completion mode (defaults to best_effort)`,
-            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.SampleTokenId} <id>       Sample token used by the contract probe (optional)`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.SampleTokenId} <id>       Sample for inspection and OpenSea (optional)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds} <ids>     Comma- or space-separated explicit token IDs`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId} <id> Manual range first token ID`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeTotalSupply} <number> Manual range token count`,
@@ -464,7 +486,6 @@ async function fetchBootstrapProbe(
         chainRef: input.chainRef,
         address: input.address,
         standard: COLLECTION_STANDARD.Erc721,
-        sampleTokenId: input.sampleTokenId,
     });
     return requestJson<BootstrapProbeApiResponse>(fetchFn, {
         url: `${input.backendOrigin}${path}`,
@@ -529,13 +550,7 @@ async function createBootstrapRun(
     return requestJson<BootstrapRunCreateApiResponse>(fetchFn, {
         url: `${input.backendOrigin}${buildCreateBootstrapRunPath(input.chainRef)}`,
         method: BOOTSTRAP_TRIGGER_HTTP_METHOD.Post,
-        headers: {
-            [BOOTSTRAP_TRIGGER_HEADER.ContentType]:
-                BOOTSTRAP_TRIGGER_JSON_CONTENT_TYPE,
-            [BOOTSTRAP_TRIGGER_HEADER.Cookie]: `${API_CSRF_COOKIE_NAME}=${csrfToken}`,
-            [BOOTSTRAP_TRIGGER_HEADER.Origin]: input.backendOrigin,
-            [API_CSRF_HEADER_NAME]: csrfToken,
-        },
+        headers: csrfHeaders(input.backendOrigin, csrfToken),
         body: JSON.stringify(body),
     });
 }
@@ -654,7 +669,10 @@ function normalizeSlug(raw: string): string {
     if (!value) {
         throw new Error(`Invalid ${BOOTSTRAP_TRIGGER_CLI_FLAG.Slug}`);
     }
-    if (!/^[a-z0-9-]+$/.test(value) || value.length > 80) {
+    if (
+        !/^[a-z0-9-]+$/.test(value) ||
+        value.length > BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH
+    ) {
         throw new Error(`Invalid ${BOOTSTRAP_TRIGGER_CLI_FLAG.Slug}`);
     }
     return value;
@@ -681,9 +699,7 @@ function normalizeOptionalTokenId(raw: string | undefined): string | null {
     );
 }
 
-function resolveManualInput(
-    args: BootstrapTriggerCliArgs,
-): BootstrapManualInput | null {
+function resolveScope(args: BootstrapTriggerCliArgs): BootstrapScope {
     const manualTokenIds = args.manualTokenIds?.trim();
     const rangeStartTokenId = args.manualRangeStartTokenId?.trim();
     const rangeTotalSupply = args.manualRangeTotalSupply;
@@ -701,43 +717,36 @@ function resolveManualInput(
             `${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId} and ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeTotalSupply} must be provided together`,
         );
     }
-    if (manualTokenIds) {
-        const tokenIds = manualTokenIds
-            .split(/[\s,]+/)
-            .map((tokenId) => tokenId.trim())
-            .filter((tokenId) => tokenId.length > 0)
-            .map((tokenId) =>
-                normalizeDecimalTokenId(
-                    tokenId,
-                    BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds,
-                ),
-            );
-        if (tokenIds.length === 0) {
-            throw new Error(
-                `${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds} requires at least one token ID`,
-            );
-        }
-        return {
+    if (
+        args.entireContract &&
+        (hasTokenIds || hasRangeStart || hasRangeTotalSupply)
+    )
+        throw new Error(
+            "--entire-contract cannot be combined with a range or token list",
+        );
+    if (args.entireContract)
+        return parseBootstrapScope({
+            mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+        });
+    if (manualTokenIds)
+        return parseBootstrapScope({
             mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
-            tokenIds,
-        };
-    }
-    if (rangeStartTokenId && rangeTotalSupply !== undefined) {
-        return {
+            tokenIds: manualTokenIds.split(/[\s,]+/).filter(Boolean),
+        });
+    if (rangeStartTokenId && rangeTotalSupply !== undefined)
+        return parseBootstrapScope({
             mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-            startTokenId: normalizeDecimalTokenId(
-                rangeStartTokenId,
-                BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId,
-            ),
-            totalSupply: rangeTotalSupply,
-        };
-    }
-    return null;
+            startTokenId: rangeStartTokenId,
+            tokenCount: rangeTotalSupply,
+        });
+    throw new Error(
+        "Choose --entire-contract, --manual-token-ids, or a manual range before queueing.",
+    );
 }
 
 function normalizeDecimalTokenId(raw: string, option: string): string {
-    const value = raw.trim();
-    if (!/^\d+$/.test(value)) {
+    const value = normalizeEvmTokenId(raw);
+    if (value === null) {
         throw new Error(`${option} must contain decimal token IDs`);
     }
     return value;
@@ -783,8 +792,21 @@ function parsePositiveInteger(
 
 function requireFlagValue(raw: string[], index: number, flag: string): string {
     const value = raw[index + 1];
-    if (!value || value.startsWith("--")) {
+    if (value === undefined || value.startsWith("--")) {
         throw new Error(`${flag} requires a value`);
     }
     return value;
+}
+
+function csrfHeaders(
+    backendOrigin: string,
+    csrfToken: string,
+): Record<string, string> {
+    return {
+        [BOOTSTRAP_TRIGGER_HEADER.ContentType]:
+            BOOTSTRAP_TRIGGER_JSON_CONTENT_TYPE,
+        [BOOTSTRAP_TRIGGER_HEADER.Cookie]: `${API_CSRF_COOKIE_NAME}=${csrfToken}`,
+        [BOOTSTRAP_TRIGGER_HEADER.Origin]: backendOrigin,
+        [API_CSRF_HEADER_NAME]: csrfToken,
+    };
 }

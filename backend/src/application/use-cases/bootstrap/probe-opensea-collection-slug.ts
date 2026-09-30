@@ -1,4 +1,9 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import {
+    BOOTSTRAP_OUTPUT_STEP as Step,
+    BOOTSTRAP_OUTPUT_STATUS as Status,
+    type BootstrapOutputReporter,
+} from "@artgod/shared/bootstrap/operation-output";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import {
     OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
@@ -7,6 +12,7 @@ import {
 } from "@artgod/shared/opensea/collection-slug-probe";
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
+import { normalizeEvmTokenId } from "@artgod/shared/evm/token-id";
 
 export type ProbeOpenSeaCollectionSlugInput = {
     chainRef: string;
@@ -26,11 +32,14 @@ export type ProbeOpenSeaCollectionSlugOutput = {
 
 // Outbound lookup boundary for OpenSea collection identity probing.
 export interface OpenSeaCollectionSlugProbePort {
-    resolveVerifiedSlug(input: {
-        address: string;
-        requestedSlug: string | null;
-        sampleTokenId: string;
-    }): Promise<string | null>;
+    resolveVerifiedSlug(
+        input: {
+            address: string;
+            requestedSlug: string | null;
+            sampleTokenId: string;
+        },
+        report?: BootstrapOutputReporter,
+    ): Promise<string | null>;
 }
 
 export class ProbeOpenSeaCollectionSlugUseCase {
@@ -43,6 +52,7 @@ export class ProbeOpenSeaCollectionSlugUseCase {
 
     async probe(
         input: ProbeOpenSeaCollectionSlugInput,
+        report?: BootstrapOutputReporter,
     ): Promise<ProbeOpenSeaCollectionSlugOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -51,6 +61,13 @@ export class ProbeOpenSeaCollectionSlugUseCase {
         const address = normalizeAddress(input.address);
         const requestedSlug = input.slug ? normalizeSlug(input.slug) : null;
         if (!this.openseaIntegration.enabled) {
+            report?.({
+                step: Step.OpenSea,
+                status: Status.Skipped,
+                message:
+                    this.openseaIntegration.reason ??
+                    "OpenSea integration is disabled.",
+            });
             return {
                 chain,
                 address,
@@ -69,11 +86,21 @@ export class ProbeOpenSeaCollectionSlugUseCase {
         const sampleTokenId = normalizeSampleTokenId(input.sampleTokenId);
         // Resolve through the metadata sample independently of the collection range.
         const slug =
-            await this.openSeaCollectionSlugProbePort.resolveVerifiedSlug({
-                address,
-                requestedSlug,
-                sampleTokenId,
-            });
+            await this.openSeaCollectionSlugProbePort.resolveVerifiedSlug(
+                {
+                    address,
+                    requestedSlug,
+                    sampleTokenId,
+                },
+                report,
+            );
+        report?.({
+            step: Step.OpenSea,
+            status: slug ? Status.Succeeded : Status.Failed,
+            message: slug
+                ? `OpenSea slug: ${slug}`
+                : "No matching OpenSea collection. Check the sample token ID and slug, then press resolve.",
+        });
         if (requestedSlug && slug !== requestedSlug) {
             return {
                 chain,
@@ -128,9 +155,10 @@ function normalizeSampleTokenId(raw: string | undefined): string {
         throw new BootstrapValidationError(
             OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired,
         );
-    if (!/^\d+$/.test(value))
+    const normalized = normalizeEvmTokenId(value);
+    if (normalized === null)
         throw new BootstrapValidationError(
             OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleInvalid,
         );
-    return BigInt(value).toString();
+    return normalized;
 }
