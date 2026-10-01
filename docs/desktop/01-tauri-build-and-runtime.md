@@ -967,6 +967,10 @@ Admin session; `eventId` orders its records independently of asynchronous IPC
 completion, and `clientAtIso` retains the WebView timestamp alongside native `t`.
 The record includes both the WebView's observed operation/revision and a native
 runtime snapshot taken when the log command executes.
+Every record, starting with `boot.session.started` before backend probing,
+includes the compiled frontend version, full commit hash, build target,
+deployment mode and public collection scope. Admin displays the same commit's
+first seven characters in parentheses beside the app version.
 
 Each API retry and final failure retains the original exception name, message,
 stack and immediate cause, request/probe stage, frontend and backend origins,

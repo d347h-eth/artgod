@@ -11,6 +11,7 @@ import {
 	createTauriRuntimePort
 } from './lifecycle/adapters/tauri-runtime-port';
 import { createLifecycleDiagnostics, type RuntimeDiagnosticsPort } from './diagnostics';
+import { appBuildContext } from './app-build-context';
 import { createLifecycleOrchestrator } from './lifecycle/orchestrator';
 import type {
 	BackendProbePort,
@@ -78,7 +79,8 @@ export function createDesktopRuntimeStore(
 ) {
 	const runtimePort = options.runtimePort ?? createTauriRuntimePort();
 	const diagnostics = createLifecycleDiagnostics(
-		options.diagnosticsPort ?? createTauriDiagnosticsPort()
+		options.diagnosticsPort ?? createTauriDiagnosticsPort(),
+		appBuildContext()
 	);
 	let observedStatus: RuntimeStatus | null = null;
 	const backendProbePort =

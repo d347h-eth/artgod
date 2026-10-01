@@ -3,14 +3,15 @@ import tailwindcss from '@tailwindcss/vite';
 import { resolveProjectPath } from '@artgod/shared/utils/paths';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
+import { readFrontendBuildCommit } from '../scripts/build/frontend-build-metadata.mjs';
 import {
 	buildFrontendDevProxy,
 	DEFAULT_FRONTEND_DEV_BACKEND_ORIGIN
 } from './src/lib/dev-server-proxy';
 
-const rootPackageJson = JSON.parse(
-	readFileSync(resolveProjectPath('package.json'), 'utf8')
-) as { version?: string };
+const rootPackageJson = JSON.parse(readFileSync(resolveProjectPath('package.json'), 'utf8')) as {
+	version?: string;
+};
 const rootVersion = rootPackageJson.version?.trim();
 
 export default defineConfig(({ mode }) => {
@@ -21,6 +22,10 @@ export default defineConfig(({ mode }) => {
 		...process.env
 	};
 	const appVersion = (rootVersion ? `v${rootVersion}` : 'v0.0.0-dev') as string;
+	const frontendTarget = resolvedEnv.VITE_FRONTEND_BUILD_TARGET?.trim() || 'web';
+	const appCommit = readFrontendBuildCommit(resolveProjectPath('.'), {
+		required: frontendTarget === 'admin' || frontendTarget === 'desktop'
+	});
 	const publicBackendOrigin = resolvedEnv.PUBLIC_BACKEND_ORIGIN?.trim() || '';
 	const internalBackendOrigin = resolvedEnv.INTERNAL_BACKEND_ORIGIN?.trim() || '';
 	const publicDeploymentMode = resolvedEnv.PUBLIC_APP_DEPLOYMENT_MODE?.trim() || '';
@@ -34,6 +39,7 @@ export default defineConfig(({ mode }) => {
 		envDir: resolveProjectPath('.'),
 		define: {
 			__APP_VERSION__: JSON.stringify(appVersion),
+			__APP_COMMIT__: JSON.stringify(appCommit),
 			'import.meta.env.PUBLIC_BACKEND_ORIGIN': JSON.stringify(publicBackendOrigin),
 			'import.meta.env.PUBLIC_APP_DEPLOYMENT_MODE': JSON.stringify(publicDeploymentMode),
 			'import.meta.env.PUBLIC_APP_CHAIN_REF': JSON.stringify(publicChainRef),

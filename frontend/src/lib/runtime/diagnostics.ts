@@ -69,7 +69,10 @@ export function diagnosticError(error: unknown): LifecycleEventMeta {
 }
 
 /** Buffer boot events until IPC is ready; file I/O never gates readiness or Stop. */
-export function createLifecycleDiagnostics(port: RuntimeDiagnosticsPort) {
+export function createLifecycleDiagnostics(
+	port: RuntimeDiagnosticsPort,
+	buildContext: Readonly<LifecycleEventMeta> = {}
+) {
 	const sessionId =
 		globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	const pending: RuntimeDiagnostic[] = [];
@@ -112,6 +115,7 @@ export function createLifecycleDiagnostics(port: RuntimeDiagnosticsPort) {
 		},
 		record(event: Omit<LifecycleEvent, 'id'> & { id?: number }, status: RuntimeStatus | null) {
 			const meta: LifecycleEventMeta = {
+				...buildContext,
 				...event.meta,
 				observedRuntimeState: status?.state ?? 'unavailable',
 				observedOperationId: status?.operationId ?? -1,

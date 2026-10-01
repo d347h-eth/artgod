@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { APP_DEPLOYMENT_MODE } from '@artgod/shared/config/deployment';
 import {
 	createLifecycleDiagnostics,
 	diagnosticError,
@@ -20,6 +21,29 @@ async function flush() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('persisted lifecycle diagnostics', () => {
+	it('saves compiled deployment and revision context on boot before a backend probe is made', async () => {
+		const written: RuntimeDiagnostic[] = [];
+		const buildContext = {
+			frontendVersion: 'v0.1.2-alpha.3',
+			frontendCommit: '1234567890abcdef1234567890abcdef12345678',
+			frontendBuildTarget: 'admin',
+			frontendDeploymentMode: APP_DEPLOYMENT_MODE.PublicSingleCollection
+		};
+		const diagnostics = createLifecycleDiagnostics(
+			{
+				async write(record) {
+					written.push(record);
+				}
+			},
+			buildContext
+		);
+		diagnostics.record({ ...event, code: 'boot.session.started', meta: {} }, null);
+		diagnostics.setAvailable(true);
+		await flush();
+		expect(written[0].meta).toMatchObject(buildContext);
+		expect(written[0].meta.observedRuntimeState).toBe('unavailable');
+	});
+
 	it('buffers boot events, preserves session identity and copies metadata before async writes', async () => {
 		const written: RuntimeDiagnostic[] = [];
 		const diagnostics = createLifecycleDiagnostics({

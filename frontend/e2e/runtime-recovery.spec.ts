@@ -1,6 +1,10 @@
 import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import {
+	APP_DEPLOYMENT_MODE,
+	PUBLIC_APP_DEPLOYMENT_ENV_KEY
+} from '@artgod/shared/config/deployment';
+import {
 	RECOVERY_HARNESS_PATH,
 	RECOVERY_HARNESS_SCENARIOS,
 	RECOVERY_HARNESS_SCENARIO_KEY,
@@ -18,6 +22,8 @@ import {
 const diagnostics: PageDiagnosticsRegistry = new Map();
 // Deliberately asserts the public HTTP wire route through interception and saved request context.
 const DEFAULT_CHAIN_WIRE_PATH = '/api/chains/default';
+const expectedDeploymentMode =
+	process.env[PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode]?.trim() || APP_DEPLOYMENT_MODE.Standard;
 
 test.beforeEach(async ({ page }, info) => {
 	captureDiagnosticsForTest(diagnostics, page, info);
@@ -60,6 +66,13 @@ test('manual start, extended checking, services and confirmed Userland readiness
 	page
 }, info) => {
 	await open(page);
+	await page.waitForFunction(() => window.runtimeRecoveryFixture.diagnostics.length > 0);
+	const build = await page.evaluate(() => window.runtimeRecoveryFixture.diagnostics[0].meta);
+	expect(build.frontendCommit).toMatch(/^[a-f0-9]{40}$/);
+	expect(build.frontendDeploymentMode).toBe(expectedDeploymentMode);
+	await expect(page.locator('.admin-shell-eyebrow')).toHaveText(
+		`${build.frontendVersion} (${String(build.frontendCommit).slice(0, 7)})`
+	);
 	await expect(page.getByRole('button', { name: 'start infra', exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'stop infra', exact: true })).toBeDisabled();
 	await surface(page, info, 'before-start');
@@ -123,7 +136,7 @@ test('browser fetch failure saves diagnostic context through failure, Stop and r
 		frontendOrigin: new URL(page.url()).origin,
 		// The browser harness renders Admin with injected ports under the web build target.
 		frontendBuildTarget: 'web',
-		frontendDeploymentMode: 'standard',
+		frontendDeploymentMode: expectedDeploymentMode,
 		probeStage: BACKEND_PROBE_STAGES.fetch,
 		requestPath: DEFAULT_CHAIN_WIRE_PATH,
 		observedRuntimeState: 'running',

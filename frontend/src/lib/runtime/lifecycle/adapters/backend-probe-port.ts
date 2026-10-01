@@ -1,8 +1,7 @@
 import { browser } from '$app/environment';
 import { RUNTIME_API_ROUTES } from '@artgod/shared/http/runtime-routes';
 import { backendOriginDiagnostics, resolveBackendOrigin } from '$lib/runtime/backend-origin';
-import { getFrontendBuildTarget } from '$lib/runtime/frontend-target';
-import { getFrontendDeploymentMode, PUBLIC_COLLECTION_SCOPE } from '$lib/runtime/public-deployment';
+import { appBuildContext } from '$lib/runtime/app-build-context';
 import { diagnosticError, diagnosticUrl } from '../../diagnostics';
 import type { LifecycleEvent, LifecycleEventMeta } from '../core/types';
 import { BACKEND_PROBE_STAGES, type BackendProbePort } from '../ports';
@@ -72,10 +71,7 @@ export function createBackendProbePort(
 			const current: LifecycleEventMeta = {
 				probeSequence: sequence,
 				probeStage: BACKEND_PROBE_STAGES.originResolution,
-				frontendBuildTarget: getFrontendBuildTarget(),
-				frontendDeploymentMode: getFrontendDeploymentMode(),
-				publicChainRef: PUBLIC_COLLECTION_SCOPE?.chainRef ?? '',
-				publicCollectionRef: PUBLIC_COLLECTION_SCOPE?.collectionRef ?? '',
+				...appBuildContext(),
 				frontendOrigin: browser ? window.location.origin : 'server',
 				frontendUrl: browser ? diagnosticUrl(window.location.href) : '',
 				frontendProtocol: browser ? window.location.protocol : '',
