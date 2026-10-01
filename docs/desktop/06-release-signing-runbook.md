@@ -561,8 +561,12 @@ upgrade notes, and compare with the preceding published application release
 rather than an intervening test tag. The
 [changelog maintenance convention](../development/01-local-development.md#changelog)
 owns the format and preparation steps. The tagged commit must contain its own
-notes; a test build uses the same application-version entry without creating
-another historical release section.
+dated section and `### Release summary` with short bullets. A test build uses
+the same application-version entry without creating another historical release
+section. Signed-tag admission validates this entry before initial or resumed
+release work. Assembly generates the GitHub body from those bullets plus a
+changelog link pinned to the tag's full commit SHA. Draft staging and publication
+consume the same notes file automatically on both paths.
 
 After the version and changelog commit is merged to `main`, prepare a dry run
 from that exact commit:
@@ -590,10 +594,10 @@ attestation succeed.
 When `publish-release` requests approval for the protected environment, approve
 that job only after the upstream jobs are green. The job then performs the
 complete publication transaction: it attests the bundles, creates and fills a
-draft, validates the draft by its numeric release ID, and publishes that same
-draft. A draft may be visible briefly while the job is running. Do not publish
-or edit a workflow-owned draft in the GitHub UI, and do not create another
-release for the tag.
+draft with the generated summary and changelog link, validates the draft's body
+and numeric release ID, and publishes that same draft. A draft may be visible
+briefly while the job is running. Do not publish or edit a workflow-owned draft
+in the GitHub UI, and do not create another release for the tag.
 
 If `publish-release` fails, inspect the release page before retrying:
 
@@ -618,6 +622,8 @@ For the dry run, confirm:
 - `publish-release` ran instead of being skipped
 - the GitHub Release is a public pre-release and is not marked Latest
 - the release page displays `Immutable`
+- the body shows the short release summary and a full changelog link pinned to
+  the signed tag's commit, with a test-build heading for this dry run
 - the AppImage, `.deb`, DMG, public key, Linux detached signatures,
   `SHA256SUMS.txt`, and `SHA256SUMS.txt.asc` are present
 - OpenPGP verification succeeds from a clean keyring using fingerprints checked

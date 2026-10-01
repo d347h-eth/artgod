@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { appendFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,6 +10,11 @@ import {
     classifyReleaseTag,
     RELEASE_TAG_REF_TYPE,
 } from "./desktop-release-contract.mjs";
+import {
+    ENV_DESKTOP_RELEASE_NOTES_PATH,
+    formatGitHubReleaseNotes,
+    readReleaseSummary,
+} from "./desktop-release-notes.mjs";
 import {
     assertGitHubJsonRecord,
     createGitHubApiUrl,
@@ -58,6 +63,8 @@ export async function validateReleaseAdmission(options = {}) {
     const classification = classifyReleaseTag(tagName, projectVersion);
 
     assertReleaseTagContext(environment, tagName);
+    // Reject missing or ambiguous notes before dependency, build, or signing work.
+    await readReleaseSummary(projectRoot, projectVersion);
     const repository = parseGitHubRepository(
         requireEnvironmentValue(environment, ENV_GITHUB_REPOSITORY),
     );
@@ -133,13 +140,33 @@ export async function validateReleaseAdmission(options = {}) {
     });
 }
 
-// Writes the centralized release-channel decision to GitHub step outputs.
+// Prepares channel outputs and concise notes from the admitted tag's checkout.
 export async function writeReleaseMetadata(environment, projectRoot = rootDir) {
     const projectVersion = await assertProjectVersionsSynchronized(projectRoot);
     const tagName = requireEnvironmentValue(environment, ENV_GITHUB_REF_NAME);
     assertReleaseTagContext(environment, tagName);
     const classification = classifyReleaseTag(tagName, projectVersion);
     const outputPath = requireEnvironmentValue(environment, ENV_GITHUB_OUTPUT);
+    const notesPath = path.resolve(
+        projectRoot,
+        requireEnvironmentValue(environment, ENV_DESKTOP_RELEASE_NOTES_PATH),
+    );
+    // Admission already binds this workflow SHA to the signed tag and checkout.
+    const targetCommit = normalizeGitObjectSha(
+        requireEnvironmentValue(environment, ENV_GITHUB_SHA),
+        ENV_GITHUB_SHA,
+    );
+    const repository = parseGitHubRepository(
+        requireEnvironmentValue(environment, ENV_GITHUB_REPOSITORY),
+    );
+    const summary = await readReleaseSummary(projectRoot, projectVersion);
+    const notes = formatGitHubReleaseNotes(
+        summary,
+        { ...classification, targetCommit },
+        repository,
+    );
+    await mkdir(path.dirname(notesPath), { recursive: true });
+    await writeFile(notesPath, notes, "utf8");
     await appendFile(
         outputPath,
         [

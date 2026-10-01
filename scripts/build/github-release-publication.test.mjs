@@ -5,11 +5,13 @@ import {
     formatReleasePublicationFailure,
     publishStagedGitHubRelease,
 } from "./github-release-publication.mjs";
+import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 
 const releaseId = 352395900;
 const releaseTag = "v0.0.1-pre-alpha.66-test.12";
 const githubToken = "github-publication-token-sentinel-54D28B91";
 const releaseApiUrl = `https://api.github.test/repos/owner/artgod/releases/${releaseId}`;
+const releaseNotes = `- Easier collection setup.\n\n[Full changelog](https://github.com/owner/artgod/blob/${"a".repeat(40)}/CHANGELOG.md)\n`;
 
 function createEnvironment(overrides = {}) {
     return {
@@ -20,6 +22,7 @@ function createEnvironment(overrides = {}) {
         STAGED_GITHUB_RELEASE_ID: String(releaseId),
         RELEASE_PRERELEASE: "true",
         RELEASE_MAKE_LATEST: "false",
+        [ENV_DESKTOP_RELEASE_NOTES_PATH]: "tmp/github-release-notes.md",
         ...overrides,
     };
 }
@@ -31,6 +34,7 @@ function createRelease(overrides = {}) {
         draft: true,
         prerelease: true,
         immutable: false,
+        body: releaseNotes,
         assets: [
             { id: 1, name: "ArtGod.AppImage", state: "uploaded" },
             { id: 2, name: "SHA256SUMS.txt", state: "uploaded" },
@@ -51,6 +55,9 @@ function createPublicationHarness(overrides = {}) {
 
     return {
         requests,
+        async readFileImplementation() {
+            return overrides.releaseNotes ?? releaseNotes;
+        },
         async fetchImplementation(url, options) {
             requests.push({ url, options });
             const response =
@@ -71,6 +78,7 @@ test("publishes the exact staged prerelease by numeric release ID", async () => 
     const result = await publishStagedGitHubRelease({
         environment: createEnvironment(),
         fetchImplementation: harness.fetchImplementation,
+        readFileImplementation: harness.readFileImplementation,
     });
 
     assert.deepEqual(result, {
@@ -118,6 +126,7 @@ test("publishes a stable staged release as Latest", async () => {
             RELEASE_MAKE_LATEST: "true",
         }),
         fetchImplementation: harness.fetchImplementation,
+        readFileImplementation: harness.readFileImplementation,
     });
 
     assert.deepEqual(JSON.parse(harness.requests[1].options.body), {
@@ -133,6 +142,9 @@ test("rejects a mismatched or incomplete staged release before publication", asy
         [{ tag_name: `${releaseTag}-wrong` }, /tag does not match/],
         [{ prerelease: false }, /channel does not match/],
         [{ draft: false }, /is not a draft/],
+        [{ body: null }, /body does not match/],
+        [{ body: "" }, /body does not match/],
+        [{ body: "Old or verbose release notes." }, /body does not match/],
         [{ assets: [] }, /has no uploaded assets/],
         [
             { assets: [{ id: 1, name: "artifact", state: "new" }] },
@@ -146,6 +158,7 @@ test("rejects a mismatched or incomplete staged release before publication", asy
             publishStagedGitHubRelease({
                 environment: createEnvironment(),
                 fetchImplementation: harness.fetchImplementation,
+                readFileImplementation: harness.readFileImplementation,
             }),
             expectedError,
         );
@@ -158,6 +171,10 @@ test("rejects invalid publication metadata before calling GitHub", async () => {
         [{ STAGED_GITHUB_RELEASE_ID: "0" }, /positive integer release ID/],
         [{ RELEASE_PRERELEASE: "yes" }, /must be true or false/],
         [{ RELEASE_MAKE_LATEST: "legacy" }, /must be true or false/],
+        [
+            { [ENV_DESKTOP_RELEASE_NOTES_PATH]: "" },
+            /Missing environment variable/,
+        ],
         [
             { RELEASE_MAKE_LATEST: "true" },
             /pre-release cannot be marked Latest/,
@@ -186,7 +203,27 @@ test("rejects invalid publication metadata before calling GitHub", async () => {
     }
 });
 
-test("requires GitHub to report an immutable release with preserved assets", async () => {
+test("rejects missing or empty generated notes before calling GitHub", async () => {
+    for (const failure of ["missing", "empty"]) {
+        const harness = createPublicationHarness();
+        await assert.rejects(
+            publishStagedGitHubRelease({
+                environment: createEnvironment(),
+                fetchImplementation: harness.fetchImplementation,
+                async readFileImplementation() {
+                    if (failure === "missing") {
+                        throw new Error("ENOENT: notes file missing");
+                    }
+                    return " \n";
+                },
+            }),
+            failure === "missing" ? /ENOENT/ : /release notes are empty/,
+        );
+        assert.equal(harness.requests.length, 0);
+    }
+});
+
+test("requires GitHub to report an immutable release with preserved assets and notes", async () => {
     const mutableHarness = createPublicationHarness({
         publishedRelease: { immutable: false },
     });
@@ -194,6 +231,7 @@ test("requires GitHub to report an immutable release with preserved assets", asy
         publishStagedGitHubRelease({
             environment: createEnvironment(),
             fetchImplementation: mutableHarness.fetchImplementation,
+            readFileImplementation: mutableHarness.readFileImplementation,
         }),
         /not immutable/,
     );
@@ -207,8 +245,21 @@ test("requires GitHub to report an immutable release with preserved assets", asy
         publishStagedGitHubRelease({
             environment: createEnvironment(),
             fetchImplementation: missingAssetHarness.fetchImplementation,
+            readFileImplementation: missingAssetHarness.readFileImplementation,
         }),
         /assets differ/,
+    );
+
+    const changedNotesHarness = createPublicationHarness({
+        publishedRelease: { body: "Unexpected release notes." },
+    });
+    await assert.rejects(
+        publishStagedGitHubRelease({
+            environment: createEnvironment(),
+            fetchImplementation: changedNotesHarness.fetchImplementation,
+            readFileImplementation: changedNotesHarness.readFileImplementation,
+        }),
+        /body does not match/,
     );
 });
 
@@ -217,6 +268,7 @@ test("does not include API response bodies in publication failures", async () =>
     await assert.rejects(
         publishStagedGitHubRelease({
             environment: createEnvironment(),
+            readFileImplementation: async () => releaseNotes,
             async fetchImplementation() {
                 return {
                     ok: false,

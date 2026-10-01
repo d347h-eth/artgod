@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
+import {
+    copyFile,
+    mkdir,
+    mkdtemp,
+    readFile,
+    writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -14,7 +19,16 @@ import {
     classifyReleaseTag,
     RELEASE_TAG_REF_TYPE,
 } from "./desktop-release-contract.mjs";
-import { readCanonicalProjectVersion } from "./sync-version.mjs";
+import {
+    ENV_DESKTOP_RELEASE_NOTES_PATH,
+    readReleaseSummary,
+    RELEASE_CHANGELOG_PATH,
+    RELEASE_SUMMARY_HEADING,
+} from "./desktop-release-notes.mjs";
+import {
+    PROJECT_VERSION_FILE_PATHS,
+    readCanonicalProjectVersion,
+} from "./sync-version.mjs";
 
 const projectRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -203,6 +217,46 @@ test("rejects mismatched versions and commits outside main", async () => {
     );
 });
 
+test("rejects invalid changelogs before contacting GitHub or running Git", async () => {
+    const temporaryRoot = path.join(projectRoot, "tmp");
+    await mkdir(temporaryRoot, { recursive: true });
+    const fixtureRoot = await mkdtemp(
+        path.join(temporaryRoot, "release-admission-"),
+    );
+    for (const relativePath of PROJECT_VERSION_FILE_PATHS) {
+        const target = path.join(fixtureRoot, relativePath);
+        await mkdir(path.dirname(target), { recursive: true });
+        await copyFile(path.join(projectRoot, relativePath), target);
+    }
+    const entry = `## ${projectVersion} - 2026-10-01\n\n${RELEASE_SUMMARY_HEADING}\n\n- Useful update.\n`;
+    for (const [changelog, expectedError] of [
+        [undefined, /ENOENT/],
+        ["## Unreleased\n", /exactly one section.*found 0/],
+        [`${entry}\n${entry}`, /exactly one section.*found 2/],
+        [entry.replace("- Useful update.", ""), /summary is empty/],
+    ]) {
+        if (changelog !== undefined) {
+            await writeFile(
+                path.join(fixtureRoot, RELEASE_CHANGELOG_PATH),
+                changelog,
+                "utf8",
+            );
+        }
+        const harness = createAdmissionHarness();
+        await assert.rejects(
+            validateReleaseAdmission({
+                environment: createEnvironment(),
+                projectRoot: fixtureRoot,
+                fetchImplementation: harness.fetchImplementation,
+                gitRunner: harness.gitRunner,
+            }),
+            expectedError,
+        );
+        assert.equal(harness.observations.requests.length, 0);
+        assert.equal(harness.observations.gitCalls.length, 0);
+    }
+});
+
 test("does not include API response bodies in request failures", async () => {
     const secretResponseBody = "server-body-secret-sentinel";
     await assert.rejects(
@@ -248,26 +302,37 @@ test("redacts workflow tokens from public admission failures", () => {
     );
 });
 
-test("writes centralized GitHub Release metadata for test tags", async () => {
+test("writes channel metadata and commit-pinned summaries for shipped and test tags", async () => {
+    const temporaryRoot = path.join(projectRoot, "tmp");
+    await mkdir(temporaryRoot, { recursive: true });
     const temporaryDirectory = await mkdtemp(
-        path.join(os.tmpdir(), "artgod-release-metadata-test-"),
+        path.join(temporaryRoot, "artgod-release-metadata-test-"),
     );
-    const outputPath = path.join(temporaryDirectory, "github-output.txt");
+    const summary = await readReleaseSummary(projectRoot, projectVersion);
 
-    try {
+    for (const tagName of [releaseTag, testReleaseTag]) {
+        const isTestRelease = tagName === testReleaseTag;
+        const outputPath = path.join(
+            temporaryDirectory,
+            `${tagName}-output.txt`,
+        );
+        const notesPath = path.join(temporaryDirectory, `${tagName}-notes.md`);
         const classification = await writeReleaseMetadata(
             {
-                ...createEnvironment(testReleaseTag),
+                ...createEnvironment(tagName),
                 GITHUB_OUTPUT: outputPath,
+                [ENV_DESKTOP_RELEASE_NOTES_PATH]: notesPath,
             },
             projectRoot,
         );
-        assert.equal(classification.isTestRelease, true);
+        assert.equal(classification.isTestRelease, isTestRelease);
         assert.equal(
             await readFile(outputPath, "utf8"),
-            "prerelease=true\nmake_latest=false\n",
+            `prerelease=${isTestRelease}\nmake_latest=${!isTestRelease}\n`,
         );
-    } finally {
-        await rm(temporaryDirectory, { recursive: true, force: true });
+        assert.equal(
+            await readFile(notesPath, "utf8"),
+            `${isTestRelease ? `**Test build: ${tagName}**\n\n` : ""}${summary}\n\n[Full changelog](https://github.com/owner/artgod/blob/${targetCommit}/CHANGELOG.md)\n`,
+        );
     }
 });

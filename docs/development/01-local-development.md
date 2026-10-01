@@ -315,13 +315,22 @@ For release preparation:
 2. Describe changes since the preceding published application release. Add
    prominent `Upgrade notes` for required operator actions, data loss, or
    configuration/API compatibility changes.
-3. Update the root version, run `yarn sync:version` and `yarn check:version`, and
+3. Include exactly one `### Release summary` in the version section, with a few
+   short `- ` bullets covering the main user-visible changes. Keep them
+   self-contained; Markdown line wrapping is allowed, nested lists are not.
+   These bullets become the GitHub Release description.
+4. Update the root version, run `yarn sync:version` and `yarn check:version`, and
    commit the synchronized version files with that version's changelog entry.
    Run `yarn check:docs` and check formatting before review.
-4. Use the finalized section from the tagged commit when preparing the GitHub
-   Release description, with download and verification information supplied
-   separately. Keep copied links valid outside this file. The current workflow
-   does not automatically extract changelog sections.
+
+The automated release workflow validates the dated version section and its
+nonempty summary during signed-tag admission, before builds or signing. Assembly
+exports only the summary bullets and a full `CHANGELOG.md` link pinned to the
+signed tag's commit SHA. The notes file travels with the release-ready workflow
+artifact into draft staging; it is not a downloadable release asset. Publication
+checks that the staged and published bodies match that file. Detailed categories
+and upgrade notes remain in the linked changelog; no generic upgrade prompt is
+added. Test tags reuse the application-version summary with a test-build heading.
 
 The [release signing runbook](../desktop/06-release-signing-runbook.md#release-tag-procedure)
 owns signed tags and publication. Changelog preparation does not publish a
