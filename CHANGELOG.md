@@ -9,8 +9,7 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 ## 0.1.3-alpha - 2026-10-01
 
-Prepared for release; publication pending. Changes since the previous published
-application release,
+Changes since the previous published application release,
 [v0.1.1-alpha.3](https://github.com/d347h-eth/artgod/releases/tag/v0.1.1-alpha.3).
 Intermediate version bumps and test builds are included in this comparison.
 
