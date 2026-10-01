@@ -134,7 +134,7 @@ const tauriRuntimeOutputReconciliationStepName =
     "Test Tauri runtime output reconciliation";
 const desktopAdminManifestTestScriptName = "test:desktop:admin-manifest";
 const desktopAdminManifestTestCommand =
-    "node ./scripts/build/test-desktop-admin-manifest.mjs";
+    "node --test ./scripts/build/frontend-build-metadata.test.mjs && node ./scripts/build/test-desktop-admin-manifest.mjs";
 const desktopAdminManifestStepName = "Test desktop Admin manifest";
 const desktopAdminManifestWorkflowCommand = "yarn test:desktop:admin-manifest";
 const sqliteNativeBuildStepName = "Build trusted native SQLite dependency";
