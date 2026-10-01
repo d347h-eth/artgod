@@ -11,7 +11,7 @@
         "@artgod/shared": "workspace:*",
         "better-sqlite3": "12.10.0",
         "dotenv": "17.4.2",
-        "fastify": "5.12.1",
+        "fastify": "5.12.5",
         "nats": "2.29.3",
         "sharp": "0.35.4",
         "viem": "2.54.6"
