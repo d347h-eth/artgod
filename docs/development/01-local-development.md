@@ -270,7 +270,8 @@ Notes:
   when the frontend build or dev server starts. Admin builds require a Git
   checkout with a committed `HEAD`; web builds from source archives may omit it.
   Verify checkout/worktree resolution with
-  `node --test scripts/build/frontend-build-metadata.test.mjs`.
+  `node --test scripts/build/frontend-build-metadata.test.mjs`; the same tests
+  also run through the CI desktop gate `yarn test:desktop:admin-manifest`.
 - Desktop release tags should match the root version with a leading `v`, for
   example root `0.0.1-pre-alpha.3` -> shipped tag
   `v0.0.1-pre-alpha.3`. Dry-run tags append `-test.N`, where `N` is a positive
