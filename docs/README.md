@@ -9,6 +9,7 @@ this page routes maintainers and agents to the owning topic.
 | Need                                               | Read                                                  |
 | -------------------------------------------------- | ----------------------------------------------------- |
 | Public-alpha scope and user workflow               | [Project](project/README.md)                          |
+| Release changes and upgrade notes                  | [Changelog](../CHANGELOG.md)                          |
 | Local setup, builds, validation, and SQLite policy | [Development](development/README.md)                  |
 | Backend HTTP boundary                              | [Backend](backend/README.md)                          |
 | Indexing, bootstrap, queues, and storage           | [Indexer](indexer/README.md)                          |

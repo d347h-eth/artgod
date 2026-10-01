@@ -108,10 +108,10 @@ Workflow policy:
   dispatch path only resumes delayed macOS notarization from an existing tag
   run; it does not rebuild or create another Apple submission.
 - A shipped tag must exactly equal `v<root-package-version>`, such as
-  `v0.0.1-pre-alpha.63` or `v1.0.0`. It publishes as a normal GitHub release
+  `v0.1.3-alpha` or `v1.0.0`. It publishes as a normal GitHub release
   and is marked Latest.
 - A dry-run tag appends `-test.N` to the exact shipped tag, where `N` is a
-  positive integer, such as `v0.0.1-pre-alpha.63-test.1`. It publishes as a
+  positive integer, such as `v0.1.3-alpha-test.1`. It publishes as a
   GitHub pre-release and is not marked Latest. Test tags and their assets are
   public, not private staging releases.
 - Initial and resumed runs require a GitHub-verified OpenPGP annotated tag whose
@@ -554,8 +554,18 @@ GitHub Environment. Before the first run:
    The required listener-boundary and staged NATS socket proofs must pass; do
    not accept a missing-resource or unavailable-socket skip.
 
-After the version commit is merged to `main`, prepare a dry run from that exact
-commit:
+Prepare the release section in the root [CHANGELOG.md](../../CHANGELOG.md)
+together with the synchronized version files. Before tagging a shipped release,
+confirm the publication date, remove any publication-pending marker, review
+upgrade notes, and compare with the preceding published application release
+rather than an intervening test tag. The
+[changelog maintenance convention](../development/01-local-development.md#changelog)
+owns the format and preparation steps. The tagged commit must contain its own
+notes; a test build uses the same application-version entry without creating
+another historical release section.
+
+After the version and changelog commit is merged to `main`, prepare a dry run
+from that exact commit:
 
 ```sh
 git switch main
