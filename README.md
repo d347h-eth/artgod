@@ -81,7 +81,8 @@ Long-form setup, configuration, versioning, test, and command details live in
 ## Desktop Releases
 
 Official desktop builds are published under
-[GitHub Releases](https://github.com/d347h-eth/artgod/releases). The public
+[GitHub Releases](https://github.com/d347h-eth/artgod/releases). Read the
+[changelog](CHANGELOG.md) for changes and upgrade requirements. The public
 alpha ships Linux x64 AppImage and `.deb` bundles plus one macOS DMG containing
 a Universal 2 app. In [Apple's universal-binary
 model](https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary),
@@ -177,6 +178,8 @@ between current domain references, remaining work, and retained status history.
 
 The shortest routes are:
 
+- [Changelog](CHANGELOG.md) for notable changes and upgrade notes, beginning with
+  `0.1.3-alpha`.
 - [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md) for a
   first public-alpha run.
 - [Local development](docs/development/01-local-development.md) for setup,

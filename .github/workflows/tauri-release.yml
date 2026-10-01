@@ -20,6 +20,7 @@ env:
     DESKTOP_RELEASE_READY_ARTIFACT_NAME: artgod-desktop-release-ready
     DESKTOP_RELEASE_PUBLIC_KEY_PATH: docs/desktop/keys/artgod-release-public.asc
     DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME: artgod-release-public.asc
+    DESKTOP_RELEASE_NOTES_PATH: tmp/github-release-notes.md
     MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME: artgod-macos-notarization-input
     MACOS_NOTARIZATION_STATE_ARTIFACT_NAME: artgod-macos-notarization-state
     MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME: artgod-macos-notarization-diagnostics
@@ -598,6 +599,7 @@ jobs:
                       release-assets/**
                       SHA256SUMS.txt
                       SHA256SUMS.txt.asc
+                      ${{ env.DESKTOP_RELEASE_NOTES_PATH }}
                   retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
@@ -647,6 +649,9 @@ jobs:
                   tag_name: ${{ github.ref_name }}
                   draft: true
                   prerelease: ${{ needs.assemble-release.outputs.prerelease }}
+                  body_path: ${{ env.DESKTOP_RELEASE_NOTES_PATH }}
+                  append_body: false
+                  generate_release_notes: false
                   fail_on_unmatched_files: true
                   files: |
                       release-assets/**

@@ -243,6 +243,15 @@ manual admin model, see:
 
 ## Versioning
 
+Starting with `0.1.3-alpha`, the public-alpha convention is
+`0.<milestone>.<shipped-update>-alpha`, with no additional `.N` alpha counter.
+Version selection is manual: increment the patch for shipped incremental
+updates, including packaging fixes; increment the minor and reset the patch for
+substantial milestones or breaking data, configuration, or API changes.
+Ordinary development commits do not need a version bump or release tag.
+Published versions and their artifacts are not replaced; a correction that
+needs another download receives a new version. Earlier version names are retained.
+
 The canonical project version lives in the root `package.json` `version` field.
 
 When you bump the version, update it there first, then run:
@@ -273,13 +282,59 @@ Notes:
   `node --test scripts/build/frontend-build-metadata.test.mjs`; the same tests
   also run through the CI desktop gate `yarn test:desktop:admin-manifest`.
 - Desktop release tags should match the root version with a leading `v`, for
-  example root `0.0.1-pre-alpha.3` -> shipped tag
-  `v0.0.1-pre-alpha.3`. Dry-run tags append `-test.N`, where `N` is a positive
-  integer, to that exact tag.
+  example root `0.1.3-alpha` -> shipped tag `v0.1.3-alpha`. Dry-run tags append
+  `-test.N`, where `N` is a positive integer, to that exact tag. Those tags still
+  publish public test artifacts; the new alpha convention does not change the
+  signed-tag admission or publication-channel policy.
 - Run `yarn sync:version` before building release artifacts or pushing a
   release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
 - `yarn check:version` performs the same contract check without modifying any
   file. The release workflow runs this through its signed-tag admission gate.
+
+## Changelog
+
+The root [CHANGELOG.md](../../CHANGELOG.md) is the authoritative editable record
+of notable changes for users, following Keep a Changelog 1.1.0. Curated coverage
+starts with `0.1.3-alpha`, compared with the preceding published application
+release, `v0.1.1-alpha.3`; internal version bumps and test tags are not separate
+shipped-release baselines.
+
+During development, accumulate noteworthy changes under `Unreleased`. Group
+related commits by their observable effect under `Added`, `Changed`,
+`Deprecated`, `Removed`, `Fixed`, or `Security`, including only categories with
+entries. Include packaging-only releases and explain whether users with working
+installations need the new download. Routine refactors, tests, and formatting
+belong in Git history unless they change something users need to know.
+
+For release preparation:
+
+1. Move the accumulated notes into a newest-first section headed
+   `## <version> - YYYY-MM-DD`, leaving a fresh `Unreleased` section. Use the
+   actual publication date; an entry prepared in advance must remain marked
+   publication pending until its date and notes are finalized before tagging.
+2. Describe changes since the preceding published application release. Add
+   prominent `Upgrade notes` for required operator actions, data loss, or
+   configuration/API compatibility changes.
+3. Include exactly one `### Release summary` in the version section, with a few
+   short `- ` bullets covering the main user-visible changes. Keep them
+   self-contained; Markdown line wrapping is allowed, nested lists are not.
+   These bullets become the GitHub Release description.
+4. Update the root version, run `yarn sync:version` and `yarn check:version`, and
+   commit the synchronized version files with that version's changelog entry.
+   Run `yarn check:docs` and check formatting before review.
+
+The automated release workflow validates the dated version section and its
+nonempty summary during signed-tag admission, before builds or signing. Assembly
+exports only the summary bullets and a full `CHANGELOG.md` link pinned to the
+signed tag's commit SHA. The notes file travels with the release-ready workflow
+artifact into draft staging; it is not a downloadable release asset. Publication
+checks that the staged and published bodies match that file. Detailed categories
+and upgrade notes remain in the linked changelog; no generic upgrade prompt is
+added. Test tags reuse the application-version summary with a test-build heading.
+
+The [release signing runbook](../desktop/06-release-signing-runbook.md#release-tag-procedure)
+owns signed tags and publication. Changelog preparation does not publish a
+release or authorize replacing existing artifacts.
 
 ## Node Dependency Security Verification
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createSecretRedactor } from "./secret-output-redaction.mjs";
+import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 import {
     assertGitHubJsonRecord,
     createGitHubApiUrl,
@@ -16,6 +18,10 @@ import {
     resolveGitHubApiBaseUrl,
 } from "./github-api.mjs";
 
+const rootDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../..",
+);
 const COMMAND_PUBLISH = "publish";
 const ENV_STAGED_RELEASE_ID = "STAGED_GITHUB_RELEASE_ID";
 const ENV_RELEASE_PRERELEASE = "RELEASE_PRERELEASE";
@@ -28,6 +34,7 @@ const MAKE_LATEST_VALUES = new Set(["true", "false"]);
 export async function publishStagedGitHubRelease(options = {}) {
     const environment = options.environment ?? process.env;
     const fetchImplementation = options.fetchImplementation ?? globalThis.fetch;
+    const readFileImplementation = options.readFileImplementation ?? readFile;
     const repository = parseGitHubRepository(
         requireEnvironmentValue(environment, ENV_GITHUB_REPOSITORY),
     );
@@ -44,6 +51,21 @@ export async function publishStagedGitHubRelease(options = {}) {
         requireEnvironmentValue(environment, ENV_RELEASE_MAKE_LATEST),
     );
     assertReleaseChannel(prerelease, makeLatest);
+    const expectedBody = (
+        await readFileImplementation(
+            path.resolve(
+                options.projectRoot ?? rootDir,
+                requireEnvironmentValue(
+                    environment,
+                    ENV_DESKTOP_RELEASE_NOTES_PATH,
+                ),
+            ),
+            "utf8",
+        )
+    ).trim();
+    if (!expectedBody) {
+        throw new Error("Generated GitHub release notes are empty.");
+    }
 
     const releaseUrl = createGitHubApiUrl(
         resolveGitHubApiBaseUrl(environment),
@@ -63,6 +85,7 @@ export async function publishStagedGitHubRelease(options = {}) {
         releaseId,
         tagName,
         prerelease,
+        expectedBody,
     );
 
     // Publish by numeric release ID so tag lookup cannot create a duplicate.
@@ -86,13 +109,21 @@ export async function publishStagedGitHubRelease(options = {}) {
         tagName,
         prerelease,
         assetCount,
+        expectedBody,
     );
 
     return Object.freeze({ releaseId, tagName, prerelease, assetCount });
 }
 
-function assertStagedRelease(release, releaseId, tagName, prerelease) {
+function assertStagedRelease(
+    release,
+    releaseId,
+    tagName,
+    prerelease,
+    expectedBody,
+) {
     assertReleaseIdentity(release, releaseId, tagName, prerelease);
+    assertReleaseNotes(release, expectedBody);
     if (release.draft !== true) {
         throw new Error("Staged GitHub release is not a draft.");
     }
@@ -116,8 +147,10 @@ function assertPublishedRelease(
     tagName,
     prerelease,
     expectedAssetCount,
+    expectedBody,
 ) {
     assertReleaseIdentity(release, releaseId, tagName, prerelease);
+    assertReleaseNotes(release, expectedBody);
     if (release.draft !== false) {
         throw new Error("GitHub release remained a draft after publication.");
     }
@@ -130,6 +163,17 @@ function assertPublishedRelease(
     ) {
         throw new Error(
             "Published GitHub release assets differ from the staged draft.",
+        );
+    }
+}
+
+function assertReleaseNotes(release, expectedBody) {
+    if (
+        typeof release.body !== "string" ||
+        release.body.trim() !== expectedBody
+    ) {
+        throw new Error(
+            "GitHub release body does not match the generated changelog summary.",
         );
     }
 }

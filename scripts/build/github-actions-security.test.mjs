@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME } from "./prepare-tauri-linux-bundler-tools.mjs";
+import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -133,7 +134,7 @@ const tauriRuntimeOutputReconciliationStepName =
     "Test Tauri runtime output reconciliation";
 const desktopAdminManifestTestScriptName = "test:desktop:admin-manifest";
 const desktopAdminManifestTestCommand =
-    "node ./scripts/build/test-desktop-admin-manifest.mjs";
+    "node --test ./scripts/build/frontend-build-metadata.test.mjs && node ./scripts/build/test-desktop-admin-manifest.mjs";
 const desktopAdminManifestStepName = "Test desktop Admin manifest";
 const desktopAdminManifestWorkflowCommand = "yarn test:desktop:admin-manifest";
 const sqliteNativeBuildStepName = "Build trusted native SQLite dependency";
@@ -322,6 +323,60 @@ test("publishes only after successful release assembly", async () => {
     );
     assert.match(publishJob, /!cancelled\(\)/);
     assert.match(publishJob, /needs\.assemble-release\.result == 'success'/);
+});
+
+test("carries generated summaries through assembly to draft staging on both release paths", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const notesPathReference = `\${{ env.${ENV_DESKTOP_RELEASE_NOTES_PATH} }}`;
+    assert.match(
+        releaseWorkflow,
+        new RegExp(`^ {4}${ENV_DESKTOP_RELEASE_NOTES_PATH}: tmp/\\S+$`, "m"),
+    );
+    const assembleJob = extractWorkflowJob(releaseWorkflow, "assemble-release");
+    const metadataStep = extractWorkflowStep(
+        assembleJob,
+        "Prepare release metadata",
+    );
+    assertStepRunsCommand(
+        metadataStep,
+        "node ./scripts/build/desktop-release-admission.mjs metadata",
+    );
+    assertStepIsRequired(metadataStep);
+    const preserveStep = extractWorkflowStep(
+        assembleJob,
+        "Preserve release-ready artifacts",
+    );
+    assert.ok(preserveStep.includes(notesPathReference));
+    assertStepIsRequired(preserveStep);
+    assertStepPrecedes(
+        assembleJob,
+        "Prepare release metadata",
+        "Preserve release-ready artifacts",
+    );
+
+    const publishJob = extractWorkflowJob(releaseWorkflow, "publish-release");
+    const stageStep = extractWorkflowStep(
+        publishJob,
+        "Stage GitHub release assets",
+    );
+    assert.ok(stageStep.includes(`body_path: ${notesPathReference}`));
+    assert.match(stageStep, /append_body:\s*false/);
+    assert.match(stageStep, /generate_release_notes:\s*false/);
+    assertStepIsRequired(stageStep);
+    assertStepPrecedes(
+        publishJob,
+        "Download release-ready artifacts",
+        "Stage GitHub release assets",
+    );
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    assert.ok(
+        manifest.scripts["test:desktop:release-inputs"].includes(
+            "desktop-release-notes.test.mjs",
+        ),
+    );
 });
 
 test("executes the finalized macOS runtime on Apple Silicon and Intel", async () => {
