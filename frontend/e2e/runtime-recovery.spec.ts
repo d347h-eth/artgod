@@ -1,4 +1,9 @@
 import { test, expect, type Page, type TestInfo } from 'playwright/test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import {
+	APP_DEPLOYMENT_MODE,
+	PUBLIC_APP_DEPLOYMENT_ENV_KEY
+} from '@artgod/shared/config/deployment';
 import {
 	RECOVERY_HARNESS_PATH,
 	RECOVERY_HARNESS_SCENARIOS,
@@ -6,6 +11,8 @@ import {
 	type RecoveryHarnessScenario
 } from '../src/lib/e2e/runtime-recovery-contract';
 import { RECOVERY_FAILURE_REASONS } from '../src/lib/runtime/lifecycle/ports';
+import { LIFECYCLE_API_EVENT_CODES } from '../src/lib/runtime/lifecycle/orchestrator';
+import { BACKEND_PROBE_STAGES } from '../src/lib/runtime/lifecycle/ports';
 import {
 	captureDiagnosticsForTest,
 	attachDiagnosticsForTestFailure,
@@ -13,6 +20,10 @@ import {
 } from './attached-app';
 
 const diagnostics: PageDiagnosticsRegistry = new Map();
+// Deliberately asserts the public HTTP wire route through interception and saved request context.
+const DEFAULT_CHAIN_WIRE_PATH = '/api/chains/default';
+const expectedDeploymentMode =
+	process.env[PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode]?.trim() || APP_DEPLOYMENT_MODE.Standard;
 
 test.beforeEach(async ({ page }, info) => {
 	captureDiagnosticsForTest(diagnostics, page, info);
@@ -55,6 +66,13 @@ test('manual start, extended checking, services and confirmed Userland readiness
 	page
 }, info) => {
 	await open(page);
+	await page.waitForFunction(() => window.runtimeRecoveryFixture.diagnostics.length > 0);
+	const build = await page.evaluate(() => window.runtimeRecoveryFixture.diagnostics[0].meta);
+	expect(build.frontendCommit).toMatch(/^[a-f0-9]{40}$/);
+	expect(build.frontendDeploymentMode).toBe(expectedDeploymentMode);
+	await expect(page.locator('.admin-shell-eyebrow')).toHaveText(
+		`${build.frontendVersion} (${String(build.frontendCommit).slice(0, 7)})`
+	);
 	await expect(page.getByRole('button', { name: 'start infra', exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'stop infra', exact: true })).toBeDisabled();
 	await surface(page, info, 'before-start');
@@ -89,6 +107,77 @@ test('manual start, extended checking, services and confirmed Userland readiness
 	await surface(page, info, 'ready');
 	await page.getByRole('button', { name: 'enter the userland' }).click();
 	expect(await page.evaluate(() => window.runtimeRecoveryFixture.calls)).toContain('openUserland');
+});
+
+test('browser fetch failure saves diagnostic context through failure, Stop and retry', async ({
+	page
+}, info) => {
+	const requestPattern = `**${DEFAULT_CHAIN_WIRE_PATH}`;
+	await page.route(requestPattern, (route) => route.abort('failed'));
+	await open(page);
+	await page.evaluate(() => window.runtimeRecoveryFixture.useBrowserProbe());
+	await page.getByRole('button', { name: 'start infra', exact: true }).click();
+	await page.evaluate(() => window.runtimeRecoveryFixture.running());
+	await expect
+		.poll(() =>
+			page.evaluate(
+				(code) => window.runtimeRecoveryFixture.diagnostics.some((record) => record.code === code),
+				LIFECYCLE_API_EVENT_CODES.retry
+			)
+		)
+		.toBe(true);
+	await page.clock.fastForward(12_100);
+	await expect(page.getByRole('heading', { name: 'Runtime Failed' })).toBeVisible();
+	const failure = await page.evaluate(
+		(code) => window.runtimeRecoveryFixture.diagnostics.findLast((record) => record.code === code),
+		LIFECYCLE_API_EVENT_CODES.failure
+	);
+	expect(failure?.meta).toMatchObject({
+		frontendOrigin: new URL(page.url()).origin,
+		// The browser harness renders Admin with injected ports under the web build target.
+		frontendBuildTarget: 'web',
+		frontendDeploymentMode: expectedDeploymentMode,
+		probeStage: BACKEND_PROBE_STAGES.fetch,
+		requestPath: DEFAULT_CHAIN_WIRE_PATH,
+		observedRuntimeState: 'running',
+		observedOperationId: 1,
+		remainingMs: 0
+	});
+	const retry = await page.evaluate(
+		(code) => window.runtimeRecoveryFixture.diagnostics.find((record) => record.code === code),
+		LIFECYCLE_API_EVENT_CODES.retry
+	);
+	expect(retry?.meta.causeName).toBe('TypeError');
+	expect(failure?.meta.previousCauseName).toBe('TypeError');
+	const diagnosticPath = info.outputPath('readiness-diagnostics.json');
+	await mkdir(info.outputDir, { recursive: true });
+	await writeFile(
+		diagnosticPath,
+		JSON.stringify(await page.evaluate(() => window.runtimeRecoveryFixture.diagnostics), null, 2)
+	);
+	await info.attach('readiness-diagnostics.json', {
+		path: diagnosticPath,
+		contentType: 'application/json'
+	});
+	await surface(page, info, 'browser-fetch-failure');
+	await expect(page.getByRole('button', { name: 'enter the userland' })).toBeDisabled();
+	await page.getByRole('button', { name: 'stop infra', exact: true }).click();
+	await page.evaluate(() => window.runtimeRecoveryFixture.finishStop());
+	await expect(page.getByRole('button', { name: 'start infra', exact: true })).toBeEnabled();
+	await page.unroute(requestPattern);
+	await page.route(requestPattern, (route) =>
+		route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+	);
+	await page.getByRole('button', { name: 'start infra', exact: true }).click();
+	await page.evaluate(() => window.runtimeRecoveryFixture.running());
+	await expect(page.getByRole('button', { name: 'enter the userland' })).toBeEnabled();
+	const success = await page.evaluate(
+		(code) => window.runtimeRecoveryFixture.diagnostics.findLast((record) => record.code === code),
+		LIFECYCLE_API_EVENT_CODES.success
+	);
+	expect(success?.sessionId).toBe(failure?.sessionId);
+	expect(success?.meta.httpStatus).toBe(200);
+	expect(success?.meta.observedOperationId).toBe(2);
 });
 
 for (const reason of Object.values(RECOVERY_FAILURE_REASONS)) {

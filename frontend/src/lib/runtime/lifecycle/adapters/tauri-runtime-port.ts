@@ -1,4 +1,6 @@
 import { browser } from '$app/environment';
+import type { RuntimeDiagnosticsPort } from '../../diagnostics';
+import { LIFECYCLE_API_EVENT_CODES } from '../orchestrator';
 import type {
 	RuntimeLogEntry,
 	RuntimeLogListener,
@@ -28,8 +30,45 @@ const TAURI_RUNTIME_COMMANDS = {
 	openConfigPath: 'runtime_open_config_path',
 	openLogsPath: 'runtime_open_logs_path',
 	openUserlandUi: 'runtime_open_userland_ui',
-	getLogsTail: 'runtime_get_logs_tail'
+	getLogsTail: 'runtime_get_logs_tail',
+	logLifecycle: 'runtime_log_lifecycle'
 } as const;
+
+/** Uses the native file logger in every build profile, independently of devtools. */
+export function createTauriDiagnosticsPort(): RuntimeDiagnosticsPort {
+	let comparisonOperation = '';
+	let firstComparisonSent = false;
+	let finalComparisonSent = false;
+	return {
+		async write(diagnostic) {
+			const bridge = await loadTauriApi();
+			if (!bridge) throw new Error('Desktop diagnostic bridge is unavailable.');
+			const operationId = diagnostic.meta.readinessOperationId;
+			let compareBackend = false;
+			if (typeof operationId === 'number') {
+				const operation = `${diagnostic.sessionId}:${operationId}`;
+				if (comparisonOperation !== operation) {
+					comparisonOperation = operation;
+					firstComparisonSent = finalComparisonSent = false;
+				}
+				const isFailure = diagnostic.code === LIFECYCLE_API_EVENT_CODES.failure;
+				const isFirstRetry =
+					diagnostic.code === LIFECYCLE_API_EVENT_CODES.retry && diagnostic.meta.attempt === 1;
+				if (isFirstRetry && !firstComparisonSent) {
+					firstComparisonSent = true;
+					compareBackend = true;
+				}
+				if (isFailure && !finalComparisonSent) {
+					finalComparisonSent = true;
+					compareBackend = true;
+				}
+			}
+			await bridge.invoke(TAURI_RUNTIME_COMMANDS.logLifecycle, {
+				diagnostic: compareBackend ? { ...diagnostic, compareBackend } : diagnostic
+			});
+		}
+	};
+}
 
 // Tauri event names emitted by the desktop runtime supervisor.
 const TAURI_RUNTIME_EVENTS = {

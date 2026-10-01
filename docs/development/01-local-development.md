@@ -265,6 +265,13 @@ Notes:
 
 - The frontend build reads the app version directly from the root workspace
   version. There is no separate app-version deploy env override.
+- Admin shows the first seven characters of the checkout's `HEAD` beside the
+  version, for example `v0.1.2-alpha.3 (abcdef0)`. Vite records the full commit
+  when the frontend build or dev server starts. Admin builds require a Git
+  checkout with a committed `HEAD`; web builds from source archives may omit it.
+  Verify checkout/worktree resolution with
+  `node --test scripts/build/frontend-build-metadata.test.mjs`; the same tests
+  also run through the CI desktop gate `yarn test:desktop:admin-manifest`.
 - Desktop release tags should match the root version with a leading `v`, for
   example root `0.0.1-pre-alpha.3` -> shipped tag
   `v0.0.1-pre-alpha.3`. Dry-run tags append `-test.N`, where `N` is a positive
@@ -739,3 +746,12 @@ Stop, failure/retry, and readiness journeys through the maintained Playwright
 harness. It uses a synthetic bridge, so it does not establish native WebView or
 packaged end-to-end coverage. Cross-platform metadata replacement and packaged
 Stop/retry still need native QA; current local integration evidence is Linux.
+
+The recovery harness also intercepts a real browser readiness fetch to verify
+saved exception/origin/request context through failure, Stop and a successful
+retry. It attaches the collected JSON diagnostics to the Playwright results;
+the file sink and native status/CORS comparison are verified separately by
+Rust tests with disposable loopback HTTP fixtures. Packaged AppImage/WebKit
+reproduction remains an affected-machine check. See
+[Admin readiness diagnostics](../desktop/01-tauri-build-and-runtime.md#admin-readiness-diagnostics)
+for the saved record contract and collection procedure.

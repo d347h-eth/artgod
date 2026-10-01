@@ -14,6 +14,7 @@ import type {
 } from "fastify";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
+import { RUNTIME_API_ROUTES } from "@artgod/shared/http/runtime-routes";
 import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
 import { COLLECTION_API_ROUTE_TEMPLATE } from "@artgod/shared/http/collection-routes";
 import { TRADING_API_ROUTE_TEMPLATE } from "@artgod/shared/http/trading-routes";
@@ -337,14 +338,14 @@ export function registerApiRoutes(
     registerObservedGet<GetRuntimeHealthRoute>(
         app,
         options,
-        "/health/runtime",
+        RUNTIME_API_ROUTES.Health,
         getRuntimeHealthAdapter.handle,
     );
     registerObservedOptions(app, options, "/api/*", commonHandlers.optionsApi);
     registerObservedGet<GetDefaultChainRoute>(
         app,
         options,
-        "/api/chains/default",
+        RUNTIME_API_ROUTES.DefaultChain,
         getDefaultChainAdapter.handle,
     );
     registerObservedGet<GetRuntimeConfigRoute>(

@@ -14,7 +14,7 @@
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import { RUNTIME_BUSY_ACTIONS, getAdminRuntimeStore, provideAdminRuntimeStore } from '$lib/admin/runtime/store';
-	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { APP_ADMIN_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
 	import { RUNTIME_STATUS_STATES } from '$lib/runtime/lifecycle/ports';
 	import {
@@ -309,7 +309,7 @@
 		<header class="admin-shell-header">
 			<div class="admin-shell-title-block">
 				<h1>ArtGod</h1>
-				<p class="admin-shell-eyebrow">{APP_VERSION}</p>
+				<p class="admin-shell-eyebrow">{APP_ADMIN_VERSION}</p>
 			</div>
 			<div class="admin-flow-action-grid" aria-label="Admin launch sequence">
 				<span class="admin-flow-action-shell admin-flow-primary-config">
@@ -490,7 +490,7 @@
 		margin: 0;
 		font-size: 0.72rem;
 		letter-spacing: 0.18em;
-		text-transform: uppercase;
+		text-transform: none;
 		color: var(--c-cyan);
 	}
 

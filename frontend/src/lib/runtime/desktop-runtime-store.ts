@@ -6,7 +6,12 @@ import {
 	IS_DESKTOP_BUILD_TARGET,
 	isDesktopShellExpected
 } from './lifecycle/adapters/desktop-shell';
-import { createTauriRuntimePort } from './lifecycle/adapters/tauri-runtime-port';
+import {
+	createTauriDiagnosticsPort,
+	createTauriRuntimePort
+} from './lifecycle/adapters/tauri-runtime-port';
+import { createLifecycleDiagnostics, type RuntimeDiagnosticsPort } from './diagnostics';
+import { appBuildContext } from './app-build-context';
 import { createLifecycleOrchestrator } from './lifecycle/orchestrator';
 import type {
 	BackendProbePort,
@@ -69,10 +74,20 @@ export function createDesktopRuntimeStore(
 		backendProbePort?: BackendProbePort;
 		desktopShellExpected?: boolean;
 		clock?: ClockPort;
+		diagnosticsPort?: RuntimeDiagnosticsPort;
 	} = {}
 ) {
 	const runtimePort = options.runtimePort ?? createTauriRuntimePort();
-	const backendProbePort = options.backendProbePort ?? createBackendProbePort();
+	const diagnostics = createLifecycleDiagnostics(
+		options.diagnosticsPort ?? createTauriDiagnosticsPort(),
+		appBuildContext()
+	);
+	let observedStatus: RuntimeStatus | null = null;
+	const backendProbePort =
+		options.backendProbePort ??
+		createBackendProbePort(fetch, (event) => {
+			diagnostics.record(event, observedStatus);
+		});
 	const desktopShellExpected = options.desktopShellExpected ?? DESKTOP_SHELL_EXPECTED;
 
 	const initialLifecycle = createInitialLifecycleState(desktopShellExpected, Date.now());
@@ -97,6 +112,7 @@ export function createDesktopRuntimeStore(
 		backendProbePort,
 		desktopShellExpected,
 		clock: options.clock,
+		onDiagnosticEvent: (event, status) => diagnostics.record(event, status),
 		onLifecycleChange: (nextLifecycle) => {
 			state.update((snapshot) => ({
 				...snapshot,
@@ -104,6 +120,7 @@ export function createDesktopRuntimeStore(
 			}));
 		},
 		onRuntimeStatus: (status) => {
+			observedStatus = status;
 			state.update((snapshot) => ({
 				...snapshot,
 				status,
@@ -111,6 +128,7 @@ export function createDesktopRuntimeStore(
 			}));
 		},
 		onBridgeAvailability: (available) => {
+			diagnostics.setAvailable(available);
 			state.update((snapshot) => ({
 				...snapshot,
 				available
@@ -172,6 +190,7 @@ export function createDesktopRuntimeStore(
 	function dispose() {
 		endConsoleSession();
 		lifecycle.dispose();
+		backendProbePort.dispose?.();
 	}
 
 	async function startConsoleSession(process: string = DEFAULT_LOG_PROCESS) {

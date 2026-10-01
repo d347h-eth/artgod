@@ -61,6 +61,11 @@ registerObservedPost(app, options, TEST_ROUTES.Widgets, handler);
 registerObservedGet(app, options, "/*", handler);
 `;
 const fixtureFiles = {
+    "shared/http/runtime-routes.ts":
+        'import routes from "./runtime-routes.json" with { type: "json" };\nexport const RUNTIME_API_ROUTES = routes;\n',
+    "shared/http/runtime-routes.json": JSON.stringify({
+        Health: "/health/runtime",
+    }),
     "README.md": "# Project\n\n[Docs](docs/README.md)\n",
     "AGENTS.md": "# Agent guidance\n",
     "docs/README.md":
@@ -202,6 +207,24 @@ test("detects missing and stale OpenAPI routes and unresolved source constants",
             ),
         }),
         /unresolved route constant UNKNOWN_ROUTE/,
+    );
+});
+
+test("checks JSON-backed route contracts and detects stale JSON values", async (t) => {
+    const source = registrationSource.replace(
+        '"/health/runtime"',
+        "RUNTIME_API_ROUTES.Health",
+    );
+    const result = await verifyFixture(t, { [registrationPath]: source });
+    assert.equal(result.status, 0, result.stderr);
+    assertFailure(
+        await verifyFixture(t, {
+            [registrationPath]: source,
+            "shared/http/runtime-routes.json": JSON.stringify({
+                Health: "/health/changed",
+            }),
+        }),
+        /missing registered route GET \/health\/changed/,
     );
 });
 

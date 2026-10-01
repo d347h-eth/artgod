@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { STARTUP_PHASE_EVENT_CODE } from './core/reducer';
-import { createLifecycleOrchestrator } from './orchestrator';
+import { createLifecycleOrchestrator, LIFECYCLE_API_EVENT_CODES } from './orchestrator';
 import {
+	BACKEND_PROBE_STAGES,
 	STARTUP_PHASES,
 	RECOVERY_TASKS,
 	RECOVERY_FAILURE_REASONS,
@@ -10,7 +11,8 @@ import {
 	type RuntimePort,
 	type RuntimeStatus
 } from './ports';
-import type { LifecycleState } from './core/types';
+import type { LifecycleEvent, LifecycleState } from './core/types';
+import { RUNTIME_API_ROUTES } from '@artgod/shared/http/runtime-routes';
 
 function makeStatus(state: string, overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
 	return {
@@ -145,8 +147,10 @@ function createHarness(options?: {
 	readyPollMs?: number;
 	startupRetryWindowMs?: number;
 	startupRetryDelayMs?: number;
+	onDiagnosticEvent?: (event: LifecycleEvent, status: RuntimeStatus | null) => void;
 }) {
 	const lifecycleStates: LifecycleState[] = [];
+	const diagnosticEvents: LifecycleEvent[] = [];
 	const errors: Array<string | null> = [];
 	const bridgeAvailability: boolean[] = [];
 	const runtimePort = options?.runtimePort ?? new FakeRuntimePort();
@@ -163,6 +167,10 @@ function createHarness(options?: {
 		runtimePort,
 		backendProbePort,
 		desktopShellExpected: true,
+		onDiagnosticEvent: (event, status) => {
+			diagnosticEvents.push(event);
+			options?.onDiagnosticEvent?.(event, status);
+		},
 		onLifecycleChange: (state) => {
 			lifecycleStates.push(state);
 		},
@@ -189,7 +197,8 @@ function createHarness(options?: {
 		clock,
 		lifecycleStates,
 		errors,
-		bridgeAvailability
+		bridgeAvailability,
+		diagnosticEvents
 	};
 }
 
@@ -388,7 +397,7 @@ describe('lifecycle orchestrator', () => {
 		runtimePort.statusValue = makeStatus('running');
 		runtimePort.autoStartStatus = makeStatus('running');
 
-		const { orchestrator } = createHarness({
+		const { orchestrator, diagnosticEvents, lifecycleStates } = createHarness({
 			runtimePort,
 			backendProbePort: {
 				async probeReady() {
@@ -403,6 +412,8 @@ describe('lifecycle orchestrator', () => {
 		orchestrator.dispose();
 		resolveProbe();
 		await expect(waitPromise).rejects.toThrow('Lifecycle readiness wait cancelled');
+		expect(diagnosticEvents.at(-1)?.code).toBe(LIFECYCLE_API_EVENT_CODES.cancelled);
+		expect(eventCodes(lifecycleStates)).not.toContain(LIFECYCLE_API_EVENT_CODES.cancelled);
 	});
 
 	it('blocks new readiness polling while lifecycle is stopping', async () => {
@@ -418,6 +429,66 @@ describe('lifecycle orchestrator', () => {
 			'Lifecycle readiness wait cancelled'
 		);
 		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
+	});
+});
+
+describe('readiness failure diagnostics', () => {
+	it('persists each retry and terminal failure with the original exception, probe stage and budget', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('running', { operationId: 7, revision: 8 });
+		const h = createHarness({
+			runtimePort,
+			startupRetryWindowMs: 500,
+			startupRetryDelayMs: 250,
+			backendProbePort: {
+				async probeReady() {
+					throw new TypeError('Load failed');
+				},
+				diagnostics: () => ({
+					probeStage: BACKEND_PROBE_STAGES.fetch,
+					requestUrl: `http://127.0.0.1:42710${RUNTIME_API_ROUTES.DefaultChain}`
+				})
+			}
+		});
+		await expect(h.orchestrator.waitUntilReady()).rejects.toThrow('Load failed');
+		const retries = h.diagnosticEvents.filter(
+			(event) => event.code === LIFECYCLE_API_EVENT_CODES.retry
+		);
+		expect(retries.map((event) => event.meta?.attempt)).toEqual([1, 2]);
+		for (const event of retries)
+			expect(event.meta).toMatchObject({
+				errorName: 'TypeError',
+				errorMessage: 'Load failed',
+				probeStage: BACKEND_PROBE_STAGES.fetch,
+				runtimeOperationId: 7,
+				retryWindowMs: 500
+			});
+		expect(h.diagnosticEvents.at(-1)?.meta).toMatchObject({
+			attempt: 3,
+			remainingMs: 0,
+			errorMessage: 'Load failed',
+			readinessElapsedMs: 500
+		});
+		expect(h.orchestrator.isReady()).toBe(false);
+	});
+
+	it('publishes reducer transitions once and keeps readiness independent of a throwing log observer', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('running');
+		const h = createHarness({
+			runtimePort,
+			onDiagnosticEvent: () => {
+				throw new Error('logging unavailable');
+			}
+		});
+		await h.orchestrator.waitUntilReady();
+		expect(h.orchestrator.isReady()).toBe(true);
+		expect(
+			h.diagnosticEvents.filter((event) => event.code === 'runtime.state.running')
+		).toHaveLength(1);
+		expect(h.diagnosticEvents.map((event) => event.id)).toEqual(
+			h.lifecycleStates.at(-1)?.events.map((event) => event.id)
+		);
 	});
 });
 

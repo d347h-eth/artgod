@@ -1,3 +1,4 @@
+mod desktop_diagnostics;
 mod desktop_log;
 mod private_file;
 mod runtime;
@@ -116,8 +117,41 @@ async fn runtime_restart(
 }
 
 #[tauri::command]
-fn runtime_get_endpoints(state: State<'_, DesktopState>) -> Result<RuntimeEndpoints, String> {
-    state.runtime.endpoints()
+fn runtime_get_endpoints(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeEndpoints, String> {
+    let result = state.runtime.endpoints();
+    // The first lookup can precede manual Start; preserve it even if the WebView caches rejection.
+    let (level, action, message) = match &result {
+        Ok(_) => (
+            "info",
+            "runtime.endpoints.resolved",
+            "Runtime endpoints resolved",
+        ),
+        Err(error) => ("warn", "runtime.endpoints.failed", error.as_str()),
+    };
+    let _ = desktop_log::append_desktop_lifecycle_log(
+        &app,
+        level,
+        action,
+        message,
+        &serde_json::json!({
+            "nativeRuntime": desktop_diagnostics::runtime_context(state.runtime.status()),
+        }),
+    );
+    result
+}
+
+#[tauri::command]
+async fn runtime_log_lifecycle(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, DesktopState>,
+    diagnostic: desktop_diagnostics::LifecycleDiagnostic,
+) -> Result<(), String> {
+    desktop_diagnostics::record_lifecycle_diagnostic(&app, &window, &state.runtime, &diagnostic)?;
+    desktop_diagnostics::record_backend_comparison(&app, &state.runtime, &diagnostic).await
 }
 
 #[tauri::command]
@@ -461,6 +495,7 @@ pub fn run() {
             runtime_restart,
             runtime_status,
             runtime_get_endpoints,
+            runtime_log_lifecycle,
             runtime_get_config_path,
             runtime_get_logs_path,
             runtime_open_config_path,

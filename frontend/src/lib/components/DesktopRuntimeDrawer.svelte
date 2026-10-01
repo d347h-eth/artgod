@@ -11,7 +11,7 @@
 		resolveStartupSurfacePolicy,
 		type AdminConsoleTab
 	} from '$lib/runtime/lifecycle-ui-policy';
-	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { APP_ADMIN_VERSION } from '$lib/runtime/app-version';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 
 	type FilterOption = string;
@@ -353,7 +353,7 @@
 	<aside class={`runtime-drawer ${embedded ? 'runtime-drawer-embedded' : ''}`} aria-label="Desktop Runtime Operations">
 		{#if showHeader}
 			<header class="runtime-drawer-header">
-				<h2>ArtGod {APP_VERSION} | Admin UI</h2>
+				<h2>ArtGod {APP_ADMIN_VERSION} | Admin UI</h2>
 				{#if !embedded}
 					<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
 				{/if}
