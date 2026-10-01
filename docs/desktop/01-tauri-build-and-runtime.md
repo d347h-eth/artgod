@@ -957,6 +957,68 @@ plus the previous two days. The desktop app runs periodic staging and cleanup
 while it is open and also cleans up immediately after Admin config save/default
 reset, so retention changes apply without requiring app relaunch.
 
+### Admin readiness diagnostics
+
+The Admin lifecycle stream is also persisted in
+`<app-data>/logs/desktop-app-YYYY-MM-DD.log`, including release AppImages without
+WebView developer tools. Records use `component: DesktopLifecycle` and preserve
+the lifecycle code as `action`. `diagnostic.sessionId` identifies one mounted
+Admin session; `eventId` orders its records independently of asynchronous IPC
+completion, and `clientAtIso` retains the WebView timestamp alongside native `t`.
+The record includes both the WebView's observed operation/revision and a native
+runtime snapshot taken when the log command executes.
+
+Each API retry and final failure retains the original exception name, message,
+stack and immediate cause, request/probe stage, frontend and backend origins,
+frontend build target and deployment mode, public collection scope, request target,
+elapsed time and remaining retry budget. Final diagnostics retain
+the preceding attempt's error when the final request times out. Endpoint-resolution
+diagnostics identify pending, cached and rejected resolver state, the first
+resolution time and number of actual lookups. Native endpoint commands also log
+their own success or failure, including lookups before manual Start. This is
+instrumentation: it does not change endpoint caching or readiness retry policy.
+Frontend deployment settings are compiled into bundled assets by Vite, so the
+recorded deployment mode may reflect the build environment even when the machine
+running an AppImage has no project `.env` file.
+HTTP responses include status, response type, redirect state and content type.
+Matching `connect-src` security-policy events are saved as `api.request.csp`,
+including delayed events after a failed fetch. A generic fetch rejection alone
+does not establish a CORS or CSP cause.
+
+The first retry and final failure request a separate native comparison, recorded
+as `api.request.native-check` and linked by session/event ID. It sends two
+concurrent GETs to the supervisor's numeric IPv4 loopback backend: runtime health
+and default chain. Both use the reported frontend Origin, bypass proxies, refuse
+redirects and retries, and have a two-second timeout. Results include status,
+CORS allow-origin/credentials, content type, timing and the health `ok` flag.
+The comparison is skipped if the runtime operation changed or is no longer
+running, and snapshots before/after the comparison expose a concurrent Stop.
+These checks never control readiness or start/recover services. Route data in
+`shared/http/runtime-routes.json` is shared by backend, frontend and Rust.
+
+Diagnostic writes do not gate readiness, Stop or shutdown. Boot records are
+buffered until the bridge loads; pending/in-flight writes are bounded, and the
+next saved record counts dropped diagnostics when capacity or a write fails.
+An IPC or filesystem failure can still prevent persistence; the WebView console
+then reports the first log-write error. Text and records are bounded. URL
+credentials, query values and fragments are stripped; configuration, arbitrary
+headers, cookies, response bodies and database rows are excluded. The native
+comparison retains only selected HTTP headers and the health boolean.
+
+To collect a reproduction:
+
+1. Launch the instrumented revision through `yarn dev:composition` with the
+   same frontend environment as the failing checkout. For a bundled reproduction,
+   build and launch through the documented platform bundle command instead.
+2. Reproduce `start infra` failure and leave the app open for a few seconds so
+   the final comparison can complete. If useful, repeat Stop/Start in the same
+   session, then shut down normally.
+3. Use `logs` to locate the log directory and copy that UTC day's
+   `desktop-app`, `desktop-supervisor` and backend logs; the full day's log set
+   also retains the maintenance context. Include the build revision, launch command,
+   and local time of the failed attempt. Database/NATS stores are not required for this
+   first diagnostic capture.
+
 ## Runtime Operations UI
 
 Desktop UI is split into:
@@ -994,6 +1056,8 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `runtime_status`
 - `runtime_preflight`
 - `runtime_get_endpoints`
+- `runtime_log_lifecycle` (bounded persisted lifecycle diagnostics and optional
+  native readiness comparison)
 - `runtime_get_config_path`
 - `runtime_get_logs_path`
 - `runtime_get_logs_tail`
