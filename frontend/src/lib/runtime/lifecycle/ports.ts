@@ -1,3 +1,5 @@
+import type { LifecycleEventMeta } from './core/types';
+
 // Frontend-owned constants for the runtime status values sent by the Tauri supervisor.
 export const RUNTIME_STATUS_STATES = {
 	starting: 'starting',
@@ -86,8 +88,17 @@ export interface RuntimePort {
 	onRuntimeLog(listener: RuntimeLogListener): Promise<() => void>;
 }
 
+export const BACKEND_PROBE_STAGES = {
+	originResolution: 'origin-resolution',
+	fetch: 'fetch',
+	response: 'response'
+} as const;
+
 export interface BackendProbePort {
 	probeReady(signal?: AbortSignal): Promise<void>;
+	/** Snapshot remains available when an IPC/fetch call never settles. */
+	diagnostics?(): LifecycleEventMeta;
+	dispose?(): void;
 }
 
 export interface ClockPort {

@@ -1,10 +1,13 @@
 import type { AdminConfigPort, AdminConfigState } from '$lib/admin/configuration/ports';
 import { createDesktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
+import type { RuntimeDiagnostic } from '$lib/runtime/diagnostics';
+import { createBackendProbePort } from '$lib/runtime/lifecycle/adapters/backend-probe-port';
 import {
 	RECOVERY_TASKS,
 	STARTUP_PHASES,
 	RUNTIME_STATUS_STATES,
 	type RuntimePort,
+	type BackendProbePort,
 	type RuntimeStatus,
 	type RuntimeStatusListener,
 	type RecoveryFailure
@@ -38,9 +41,11 @@ export function createRuntimeRecoveryFixture(
 	};
 	const listeners = new Set<RuntimeStatusListener>();
 	const calls: string[] = [];
+	const diagnostics: RuntimeDiagnostic[] = [];
 	let finishStop: (() => void) | null = null;
 	let finishProbe: (() => void) | null = null;
 	let holdProbe = false;
+	let browserProbe: BackendProbePort | null = null;
 	const config: AdminConfigState = {
 		configured: true,
 		envFilePath: 'fixture/config.env',
@@ -185,10 +190,18 @@ export function createRuntimeRecoveryFixture(
 	};
 	const store = createDesktopRuntimeStore({
 		runtimePort,
+		diagnosticsPort: {
+			async write(diagnostic) {
+				diagnostics.push(diagnostic);
+			}
+		},
 		desktopShellExpected: true,
 		backendProbePort: {
+			diagnostics: () => browserProbe?.diagnostics?.() ?? {},
+			dispose: () => browserProbe?.dispose?.(),
 			async probeReady(signal) {
 				calls.push('probe');
+				if (browserProbe) return browserProbe.probeReady(signal);
 				if (holdProbe)
 					await new Promise<void>((resolve, reject) => {
 						finishProbe = resolve;
@@ -201,7 +214,11 @@ export function createRuntimeRecoveryFixture(
 		store,
 		configPort,
 		calls,
+		diagnostics,
 		status: () => status,
+		useBrowserProbe() {
+			browserProbe = createBackendProbePort();
+		},
 		sqlite() {
 			publish({
 				startup: {

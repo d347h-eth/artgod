@@ -1,6 +1,12 @@
 import { appendLifecycleEvent, createInitialLifecycleState, reduceLifecycle } from './core/reducer';
-import type { LifecycleEventLevel, LifecycleState } from './core/types';
+import type {
+	LifecycleEvent,
+	LifecycleEventLevel,
+	LifecycleEventMeta,
+	LifecycleState
+} from './core/types';
 import { runtimeFailureMessage } from './core/startup-presentation';
+import { diagnosticError } from '../diagnostics';
 import type { BackendProbePort, ClockPort, RuntimePort, RuntimeStatus } from './ports';
 
 const DEFAULT_BRIDGE_WAIT_MS = 2_000;
@@ -19,6 +25,14 @@ const PHASE_RECONCILIATION_ALLOWANCE_MS = 5_000;
 const READY_WAIT_CANCELLED_ERROR = 'Lifecycle readiness wait cancelled';
 const SYSTEM_EVENT_LIMIT = 200;
 
+export const LIFECYCLE_API_EVENT_CODES = {
+	start: 'api.request.start',
+	success: 'api.request.success',
+	retry: 'api.retry',
+	failure: 'api.request.fail.final',
+	cancelled: 'api.request.cancelled'
+} as const;
+
 type LifecycleOrchestratorOptions = {
 	runtimePort: RuntimePort;
 	backendProbePort: BackendProbePort;
@@ -27,6 +41,8 @@ type LifecycleOrchestratorOptions = {
 	onRuntimeStatus: (status: RuntimeStatus | null, previous: RuntimeStatus | null) => void;
 	onBridgeAvailability: (available: boolean) => void;
 	onError: (error: string | null) => void;
+	/** Receives new events, including reducer transitions, for persisted diagnostics. */
+	onDiagnosticEvent?: (event: LifecycleEvent, status: RuntimeStatus | null) => void;
 	clock?: ClockPort;
 	bridgeWaitMs?: number;
 	bridgePollMs?: number;
@@ -362,15 +378,34 @@ export function createLifecycleOrchestrator(
 		assertReadyOperationActive(operationId);
 		reportEvent('info', 'ready.poll.running', 'Runtime reported running');
 
-		const probeDeadline = clock.now() + startupRetryWindowMs;
+		const probeStartedAtMs = clock.now();
+		const probeDeadline = probeStartedAtMs + startupRetryWindowMs;
 		const runtimeOperationId = statusSnapshot?.operationId;
 		let attempt = 0;
+		let previousFailure: LifecycleEventMeta | null = null;
 		for (;;) {
 			assertReadyOperationActive(operationId);
 
 			attempt += 1;
-			reportEvent('info', 'api.request.start', 'Sending backend request', {
-				attempt
+			const attemptStartedAtMs = clock.now();
+			let readinessStage = 'backend-probe';
+			const requestMeta = () => ({
+				...probeDiagnostics(),
+				attempt,
+				readinessStage,
+				readinessOperationId: operationId,
+				runtimeOperationId: runtimeOperationId ?? -1,
+				requestElapsedMs: Math.max(0, clock.now() - attemptStartedAtMs),
+				readinessElapsedMs: Math.max(0, clock.now() - probeStartedAtMs),
+				retryWindowMs: startupRetryWindowMs,
+				remainingMs: Math.max(0, probeDeadline - clock.now())
+			});
+			reportEvent('info', LIFECYCLE_API_EVENT_CODES.start, 'Sending backend request', {
+				attempt,
+				readinessOperationId: operationId,
+				runtimeOperationId: runtimeOperationId ?? -1,
+				retryWindowMs: startupRetryWindowMs,
+				remainingMs: Math.max(0, probeDeadline - clock.now())
 			});
 			try {
 				await boundedCall(
@@ -380,6 +415,7 @@ export function createLifecycleOrchestrator(
 				);
 				assertReadyOperationActive(operationId);
 				// Reconcile even when the restart event was missed during the API request.
+				readinessStage = 'runtime-reconciliation';
 				const confirmed = await boundedCall(
 					options.runtimePort.status(),
 					STATUS_REQUEST_TIMEOUT_MS,
@@ -397,43 +433,76 @@ export function createLifecycleOrchestrator(
 				}
 				if (clock.now() >= probeDeadline) throw new Error('Backend readiness probe timed out.');
 				markApiReady();
-				reportEvent('info', 'api.request.success', 'Backend request succeeded', {
-					attempt
-				});
+				reportEvent(
+					'info',
+					LIFECYCLE_API_EVENT_CODES.success,
+					'Backend request succeeded',
+					requestMeta()
+				);
 				options.onError(null);
 				return;
 			} catch (error) {
+				const failureMeta: LifecycleEventMeta = { ...requestMeta(), ...diagnosticError(error) };
+				if (previousFailure) {
+					// A final hung request must not hide the concrete error from the preceding attempt.
+					failureMeta.previousErrorName = previousFailure.errorName;
+					failureMeta.previousErrorMessage = previousFailure.errorMessage;
+					failureMeta.previousCauseName = previousFailure.causeName ?? '';
+					failureMeta.previousCauseMessage = previousFailure.causeMessage ?? '';
+					failureMeta.previousFailureAttempt = previousFailure.attempt;
+				}
+				previousFailure = failureMeta;
+				if (disposed || activeReadyOperationId !== operationId) {
+					// Cancellation diagnostics bypass the rendered lifecycle: stale work cannot alter it.
+					notifyDiagnostic({
+						id: 0,
+						atIso: new Date(clock.now()).toISOString(),
+						level: 'info',
+						code: LIFECYCLE_API_EVENT_CODES.cancelled,
+						message: 'Backend readiness request cancelled after lifecycle changed',
+						meta: failureMeta
+					});
+				}
 				assertReadyOperationActive(operationId);
 
 				if (clock.now() >= probeDeadline) {
 					const message = toErrorMessage(error);
 					reportEvent(
 						'error',
-						'api.request.fail.final',
+						LIFECYCLE_API_EVENT_CODES.failure,
 						'Backend request failed and will not be retried',
 						{
-							attempt,
+							...failureMeta,
 							message
 						}
 					);
 					enterFatal(
 						'Local services are not responding. Open logs or stop infra, then retry start.',
-						'api.request.fail.final'
+						LIFECYCLE_API_EVENT_CODES.failure,
+						failureMeta
 					);
 					readyAbort?.abort();
 					throw error;
 				}
 				reportEvent(
 					'warn',
-					'api.retry',
+					LIFECYCLE_API_EVENT_CODES.retry,
 					'Retrying backend request after transient startup failure',
 					{
-						attempt,
+						...failureMeta,
 						retryDelayMs: startupRetryDelayMs
 					}
 				);
 				await clock.sleep(startupRetryDelayMs);
 			}
+		}
+	}
+
+	function probeDiagnostics(): LifecycleEventMeta {
+		try {
+			return options.backendProbePort.diagnostics?.() ?? {};
+		} catch {
+			return {};
 		}
 	}
 
@@ -504,6 +573,7 @@ export function createLifecycleOrchestrator(
 		message: string,
 		meta?: Record<string, string | number | boolean>
 	): void {
+		const previousEventId = lifecycle.nextEventId;
 		lifecycle = appendLifecycleEvent(
 			lifecycle,
 			{
@@ -516,14 +586,30 @@ export function createLifecycleOrchestrator(
 			},
 			SYSTEM_EVENT_LIMIT
 		);
-		options.onLifecycleChange(lifecycle);
+		publishLifecycle(previousEventId);
 	}
 
 	function dispatch(action: Parameters<typeof reduceLifecycle>[1]): void {
+		const previousEventId = lifecycle.nextEventId;
 		lifecycle = reduceLifecycle(lifecycle, action, {
 			eventLimit: SYSTEM_EVENT_LIMIT
 		});
+		publishLifecycle(previousEventId);
+	}
+
+	function notifyDiagnostic(event: LifecycleEvent) {
+		try {
+			options.onDiagnosticEvent?.(event, statusSnapshot);
+		} catch {
+			// Logging is observational; a failed sink must never change runtime behavior.
+		}
+	}
+
+	function publishLifecycle(previousEventId: number) {
 		options.onLifecycleChange(lifecycle);
+		for (const event of lifecycle.events) {
+			if (event.id >= previousEventId) notifyDiagnostic(event);
+		}
 	}
 
 	function dispose(): void {

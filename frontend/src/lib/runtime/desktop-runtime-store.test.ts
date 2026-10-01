@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 import { createRuntimeRecoveryFixture } from '$lib/e2e/runtime-recovery-fixture';
 import { RECOVERY_HARNESS_SCENARIOS } from '$lib/e2e/runtime-recovery-contract';
 import { RECOVERY_FAILURE_REASONS } from './lifecycle/ports';
+import { LIFECYCLE_API_EVENT_CODES } from './lifecycle/orchestrator';
 
 describe('desktop runtime store recovery commands', () => {
 	it('does not renew recovery through repeated auto-start handshakes', async () => {
@@ -33,6 +34,15 @@ describe('desktop runtime store recovery commands', () => {
 			f.running();
 			await f.store.waitUntilReady();
 			expect(f.store.isLifecycleReady()).toBe(true);
+			for (let i = 0; i < 15; i++) await Promise.resolve();
+			expect(
+				f.diagnostics.some(
+					(record) =>
+						record.code === LIFECYCLE_API_EVENT_CODES.success &&
+						record.meta.observedOperationId === 2
+				)
+			).toBe(true);
+			expect(new Set(f.diagnostics.map((record) => record.sessionId)).size).toBe(1);
 			await f.store.restart();
 			expect(f.status().operationId).toBe(3);
 			expect(get(f.store.state).lifecycle.phase).toBe('recovering');

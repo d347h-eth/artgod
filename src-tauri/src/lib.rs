@@ -144,13 +144,14 @@ fn runtime_get_endpoints(
 }
 
 #[tauri::command]
-fn runtime_log_lifecycle(
+async fn runtime_log_lifecycle(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, DesktopState>,
     diagnostic: desktop_diagnostics::LifecycleDiagnostic,
 ) -> Result<(), String> {
-    desktop_diagnostics::record_lifecycle_diagnostic(&app, &window, &state.runtime, diagnostic)
+    desktop_diagnostics::record_lifecycle_diagnostic(&app, &window, &state.runtime, &diagnostic)?;
+    desktop_diagnostics::record_backend_comparison(&app, &state.runtime, &diagnostic).await
 }
 
 #[tauri::command]
