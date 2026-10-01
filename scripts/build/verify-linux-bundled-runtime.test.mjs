@@ -60,6 +60,19 @@ test("rejects a packaged runtime mode mutation", async () => {
     });
 });
 
+test("rejects a packaged directory search-permission mutation", async () => {
+    await withRuntimeTrees(async ({ expectedRoot, actualRoot }) => {
+        await writeMatchingRuntimeTrees(expectedRoot, actualRoot);
+        await chmod(path.join(expectedRoot, "node"), 0o755);
+        await chmod(path.join(actualRoot, "node"), 0o700);
+
+        await assert.rejects(
+            compareRuntimeTrees(expectedRoot, actualRoot),
+            /Bundled runtime executable mode differs for node:/,
+        );
+    });
+});
+
 test("rejects missing and unexpected runtime entries", async () => {
     await withRuntimeTrees(async ({ expectedRoot, actualRoot }) => {
         await writeMatchingRuntimeTrees(expectedRoot, actualRoot);
@@ -92,36 +105,32 @@ test("rejects symbolic links in either runtime tree", async () => {
 });
 
 test("extracts both Linux formats and verifies their format-specific runtime paths", async () => {
-    await withRuntimeTrees(async ({ temporaryRoot, expectedRoot }) => {
-        await writeMatchingRuntimeTree(expectedRoot);
-        const integritySnapshotPath = path.join(
-            temporaryRoot,
-            WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
-        );
-        await writeIntegritySnapshot(expectedRoot, integritySnapshotPath);
-        const bundleRoot = path.join(temporaryRoot, "bundle");
-        const appImagePath = path.join(
-            bundleRoot,
-            "appimage",
-            "ArtGod.AppImage",
-        );
-        const debPath = path.join(bundleRoot, "deb", "ArtGod.deb");
-        await Promise.all([
-            writeFixtureFile(appImagePath, "appimage"),
-            writeFixtureFile(debPath, "deb"),
-        ]);
+    await withLinuxBundleFixture(async (fixture) => {
+        const { expectedRoot, appImagePath, debPath, ...verificationInputs } =
+            fixture;
         const commands = [];
 
         await verifyLinuxBundledRuntime({
-            bundleRoot,
+            ...verificationInputs,
             stagedRuntimeRoot: expectedRoot,
-            integritySnapshotPath,
             productName,
-            temporaryRoot,
-            async commandRunner(command, args, cwd) {
+            async commandRunner(command, args, cwd, options) {
                 commands.push({ command, args, cwd });
                 if (command === appImagePath) {
-                    assert.deepEqual(args, ["--appimage-extract"]);
+                    assert.deepEqual(args, ["--appimage-offset"]);
+                    assert.equal(options?.captureStdout, true);
+                    return "4096\n";
+                }
+                if (command === "unsquashfs") {
+                    assert.deepEqual(args, [
+                        "-no-progress",
+                        "-no-xattrs",
+                        "-d",
+                        path.join(cwd, "squashfs-root"),
+                        "-o",
+                        "4096",
+                        appImagePath,
+                    ]);
                     await cp(
                         expectedRoot,
                         path.join(
@@ -154,7 +163,41 @@ test("extracts both Linux formats and verifies their format-specific runtime pat
             },
         });
 
-        assert.equal(commands.length, 2);
+        assert.equal(commands.length, 3);
+    });
+});
+
+test("rejects invalid AppImage offsets before invoking archive extractors", async () => {
+    await withLinuxBundleFixture(async (fixture) => {
+        const {
+            expectedRoot,
+            appImagePath,
+            debPath: _debPath,
+            ...verificationInputs
+        } = fixture;
+        for (const offset of [
+            "",
+            "not-an-offset",
+            "-1",
+            "0",
+            "9007199254740992",
+            "4096\n8192",
+        ]) {
+            const commands = [];
+            await assert.rejects(
+                verifyLinuxBundledRuntime({
+                    ...verificationInputs,
+                    stagedRuntimeRoot: expectedRoot,
+                    productName,
+                    async commandRunner(command) {
+                        commands.push(command);
+                        return offset;
+                    },
+                }),
+                /Invalid AppImage filesystem offset/,
+            );
+            assert.deepEqual(commands, [appImagePath]);
+        }
     });
 });
 
@@ -220,6 +263,36 @@ async function withRuntimeTrees(callback) {
     } finally {
         await rm(temporaryRoot, { force: true, recursive: true });
     }
+}
+
+async function withLinuxBundleFixture(callback) {
+    await withRuntimeTrees(async ({ temporaryRoot, expectedRoot }) => {
+        await writeMatchingRuntimeTree(expectedRoot);
+        const integritySnapshotPath = path.join(
+            temporaryRoot,
+            WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+        );
+        await writeIntegritySnapshot(expectedRoot, integritySnapshotPath);
+        const bundleRoot = path.join(temporaryRoot, "bundle");
+        const appImagePath = path.join(
+            bundleRoot,
+            "appimage",
+            "ArtGod.AppImage",
+        );
+        const debPath = path.join(bundleRoot, "deb", "ArtGod.deb");
+        await Promise.all([
+            writeFixtureFile(appImagePath, "appimage"),
+            writeFixtureFile(debPath, "deb"),
+        ]);
+        await callback({
+            temporaryRoot,
+            expectedRoot,
+            integritySnapshotPath,
+            bundleRoot,
+            appImagePath,
+            debPath,
+        });
+    });
 }
 
 async function writeMatchingRuntimeTrees(expectedRoot, actualRoot) {

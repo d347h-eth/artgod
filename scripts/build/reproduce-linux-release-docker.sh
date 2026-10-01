@@ -68,6 +68,7 @@ apt-get install -y --no-install-recommends \
     libssl-dev \
     libxdo-dev \
     patchelf \
+    squashfs-tools \
     file \
     xdg-utils \
     python3 \
