@@ -28,7 +28,7 @@ __metadata:
     "@types/node": "npm:25.9.2"
     better-sqlite3: "npm:12.10.0"
     dotenv: "npm:17.4.2"
-    fastify: "npm:5.12.1"
+    fastify: "npm:5.12.5"
     nats: "npm:2.29.3"
     sharp: "npm:0.35.4"
     tsx: "npm:4.22.4"
@@ -3860,10 +3860,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"devalue@npm:5.9.2":
-  version: 5.9.2
-  resolution: "devalue@npm:5.9.2"
-  checksum: 10/c47d409fb8042d197a94cf0c09286a058d35e0381df545eb329e9971701562c264a633c40cfd43ec218a3153c69c675c0c60eb29891c3efe3fe453fd8a0f945c
+"devalue@npm:5.9.3":
+  version: 5.9.3
+  resolution: "devalue@npm:5.9.3"
+  checksum: 10/ba34c83a03baac32e269c9e36d8709747a3fdb68400b1db30d0b642daa5fd96993e62cf9c0fa0fedc1656ba92d2006e6fb62012cf0de13799aa00ff2ebb9ad68
   languageName: node
   linkType: hard
 
@@ -4473,9 +4473,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fastify@npm:5.12.1":
-  version: 5.12.1
-  resolution: "fastify@npm:5.12.1"
+"fastify@npm:5.12.5":
+  version: 5.12.5
+  resolution: "fastify@npm:5.12.5"
   dependencies:
     "@fastify/ajv-compiler": "npm:^4.0.5"
     "@fastify/error": "npm:^4.0.0"
@@ -4492,7 +4492,7 @@ __metadata:
     secure-json-parse: "npm:^4.0.0"
     semver: "npm:^7.6.0"
     toad-cache: "npm:^3.7.0"
-  checksum: 10/b1e189820cc458e91b75a246d11fa040ceaef0d4545eac29adee966a3affcf36a57751640e2568f78f5dc72eea8f1062723cc9ac91459de3ee0b3e1e00df4c44
+  checksum: 10/282ec56b8bc153b9b0048409ebd060fc20372284589aaac35e5f2b45f0f84a85bd1b5199caed10cbc7cfc7b5cf406d3188c544f3e3f5f59c602eed2c37b645b9
   languageName: node
   linkType: hard
 
