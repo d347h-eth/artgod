@@ -14,6 +14,12 @@ application release,
 [v0.1.1-alpha.3](https://github.com/d347h-eth/artgod/releases/tag/v0.1.1-alpha.3).
 Intermediate version bumps and test builds are included in this comparison.
 
+### Release summary
+
+- Improved collection setup, metadata inspection, and Art Blocks token ranges.
+- More reliable startup, market data, order validation, and bidding updates.
+- Dependency security fixes and verified Linux packaging inputs.
+
 ### Upgrade notes
 
 - The storage upgrade permanently deletes existing per-event listing history
