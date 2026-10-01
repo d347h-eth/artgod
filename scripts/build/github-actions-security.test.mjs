@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME } from "./prepare-tauri-linux-bundler-tools.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -167,6 +168,31 @@ test("pins every external GitHub Action to a full commit SHA", async () => {
             );
         }
     }
+});
+
+test("uses the same gated Linux bundle command locally and in CI", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(workflow, "build");
+    const buildStep = extractWorkflowStep(buildJob, "Build Linux Tauri bundle");
+    const reproductionScript = await readFile(
+        path.join(rootDir, "scripts/build/reproduce-linux-release-docker.sh"),
+        "utf8",
+    );
+    const bundleCommand = `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`;
+    for (const source of [buildStep, reproductionScript]) {
+        assert.ok(source.includes(bundleCommand));
+        assert.ok(!source.includes("yarn tauri build"));
+    }
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    assert.equal(
+        packageManifest.scripts[TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME],
+        "node ./scripts/build/prepare-tauri-linux-bundler-tools.mjs --build",
+    );
 });
 
 test("keeps checkout credentials out of subsequent workflow steps", async () => {
@@ -849,11 +875,15 @@ test("keeps desktop listener proofs in build, release, and reproducibility lanes
     );
     assert.ok(
         reproductionScript.indexOf(desktopListenerBoundaryTestCommand) <
-            reproductionScript.indexOf("yarn tauri build --ci"),
+            reproductionScript.indexOf(
+                `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`,
+            ),
     );
     assert.ok(
         reproductionScript.indexOf(stagedRuntimeVerificationCommand) >
-            reproductionScript.indexOf("yarn tauri build --ci"),
+            reproductionScript.indexOf(
+                `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`,
+            ),
     );
 });
 
