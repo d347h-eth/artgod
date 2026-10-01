@@ -1,4 +1,5 @@
 import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
+import { RUNTIME_API_ROUTES } from '@artgod/shared/http/runtime-routes';
 import {
 	BOOTSTRAP_STREAM_CONTENT_TYPE,
 	BOOTSTRAP_OPERATION as Operation,
@@ -129,7 +130,7 @@ export class BackendApiError extends Error {
 }
 
 export async function getDefaultChain(fetchFn: typeof fetch): Promise<DefaultChainResponse> {
-	return requestJson<DefaultChainResponse>(fetchFn, '/api/chains/default');
+	return requestJson<DefaultChainResponse>(fetchFn, RUNTIME_API_ROUTES.DefaultChain);
 }
 
 export async function getRuntimeConfig(fetchFn: typeof fetch): Promise<RuntimeConfigApiResponse> {

@@ -20,6 +20,7 @@ const HTTP_ROUTE_REGISTRATION_PATH = "backend/src/http-routes.ts";
 const OPENAPI_DOCUMENT_PATH = "docs/backend/openapi.yaml";
 const HTTP_ROUTE_OWNER_PATHS = Object.freeze([
     "shared/http/api-security.ts",
+    "shared/http/runtime-routes.ts",
     "shared/http/bootstrap-routes.ts",
     "shared/http/collection-routes.ts",
     "shared/http/trading-routes.ts",
@@ -460,6 +461,7 @@ async function readRegisteredHttpRoutes(errors) {
             "utf8",
         );
         collectRouteConstants(ownerSource, routeConstants);
+        await collectJsonRouteConstants(ownerSource, ownerPath, routeConstants);
     }
 
     const routeSource = await readFile(
@@ -502,6 +504,32 @@ function collectRouteConstants(source, routeConstants) {
                 `${objectMatch[1]}.${entryMatch[1]}`,
                 entryMatch[2],
             );
+        }
+    }
+}
+
+// JSON-backed route objects can also be consumed by Rust; inspect data without executing TS.
+async function collectJsonRouteConstants(source, ownerPath, routeConstants) {
+    const importPattern =
+        /import ([A-Za-z][A-Za-z0-9_]*) from "([^"\n]+\.json)"/g;
+    for (const imported of source.matchAll(importPattern)) {
+        const exportPattern = new RegExp(
+            `export const ([A-Z][A-Z0-9_]*)\\s*=\\s*${imported[1]}\\s*;`,
+            "g",
+        );
+        const bindings = [...source.matchAll(exportPattern)];
+        if (!bindings.length) continue;
+        const jsonPath = path.resolve(
+            projectRoot,
+            path.dirname(ownerPath),
+            imported[2],
+        );
+        const data = JSON.parse(await readFile(jsonPath, "utf8"));
+        for (const binding of bindings) {
+            for (const [key, value] of Object.entries(data)) {
+                if (typeof value === "string")
+                    routeConstants.set(`${binding[1]}.${key}`, value);
+            }
         }
     }
 }

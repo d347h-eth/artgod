@@ -1,0 +1,4 @@
+{
+    "DefaultChain": "/api/chains/default",
+    "Health": "/health/runtime"
+}

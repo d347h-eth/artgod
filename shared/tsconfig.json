@@ -9,6 +9,7 @@
     },
     "include": [
         "**/*",
+        "http/runtime-routes.json",
         "queue/nats-job-stream-policy.json",
         "market-data/recovery-runtime.json"
     ],

@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 use super::app_config::load_app_config_state;
 use super::bot_lifecycle::{BotLifecycleCoordinator, BotStartReservation, BotWorkerLifecycleLease};
 use super::env_keys::{NATS_STREAM_PREFIX_ENV_KEY, NODE_OPTIONS_ENV_KEY, NODE_PATH_ENV_KEY};
+use super::http_routes::runtime_api_routes;
 use super::nats_store::{
     PREPARE_STORE_ARG, PREPARE_STORE_PROCESS_NAME, acquire_runtime_store_lock,
 };
@@ -3289,7 +3290,8 @@ fn probe_backend_runtime_health(backend_port: u16) -> Result<bool, String> {
         .map_err(|error| format!("set write timeout failed: {error}"))?;
 
     let request = format!(
-        "GET /health/runtime HTTP/1.1\r\nHost: {DESKTOP_IPV4_LOOPBACK_HOST}:{backend_port}\r\nConnection: close\r\n\r\n"
+        "GET {} HTTP/1.1\r\nHost: {DESKTOP_IPV4_LOOPBACK_HOST}:{backend_port}\r\nConnection: close\r\n\r\n",
+        runtime_api_routes().health
     );
     stream
         .write_all(request.as_bytes())
