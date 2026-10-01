@@ -52,6 +52,47 @@ pub fn append_desktop_log(app: &AppHandle, level: &str, message: &str) {
     let _ = append_formatted_process_log(&logs_dir, DESKTOP_APP_PROCESS_NAME, &line);
 }
 
+/// Persists WebView lifecycle diagnostics in release builds using normal rotation/retention.
+pub(crate) fn append_desktop_lifecycle_log(
+    app: &AppHandle,
+    level: &str,
+    action: &str,
+    message: &str,
+    diagnostic: &impl Serialize,
+) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    append_lifecycle_log_in_dir(
+        &app_data_dir.join("logs"),
+        level,
+        action,
+        message,
+        diagnostic,
+    )
+}
+
+fn append_lifecycle_log_in_dir(
+    logs_dir: &Path,
+    level: &str,
+    action: &str,
+    message: &str,
+    diagnostic: &impl Serialize,
+) -> Result<(), String> {
+    let line = serde_json::json!({
+        "t": rfc3339_now(),
+        "level": level,
+        "component": "DesktopLifecycle",
+        "action": action,
+        "process": DESKTOP_APP_PROCESS_NAME,
+        "stream": "webview",
+        "msg": message,
+        "diagnostic": diagnostic,
+    });
+    append_formatted_process_log(logs_dir, DESKTOP_APP_PROCESS_NAME, &line.to_string())
+}
+
 /// Appends supervisor-owned lifecycle messages as JSON Lines.
 pub(crate) fn append_desktop_supervisor_log(logs_dir: &Path, level: &str, message: &str) {
     let line = format_desktop_supervisor_log_line(level, message);
@@ -444,6 +485,30 @@ mod tests {
     use super::*;
 
     const TEST_TS: &str = "2026-06-01T12:00:00Z";
+
+    #[test]
+    fn lifecycle_diagnostics_append_json_lines_to_the_existing_desktop_app_log() {
+        let temp = tempfile::tempdir().expect("create fixture logs");
+        let details = serde_json::json!({
+            "sessionId": "fixture-session", "eventId": 7,
+            "meta": { "errorMessage": "Fetch failed\nwith a second line", "attempt": 2 },
+        });
+        for _ in 0..2 {
+            append_lifecycle_log_in_dir(temp.path(), "warn", "api.retry", "Retrying", &details)
+                .expect("persist lifecycle diagnostic");
+        }
+        let text = fs::read_to_string(current_daily_log_file_path(
+            temp.path(),
+            DESKTOP_APP_PROCESS_NAME,
+        ))
+        .expect("read daily desktop log");
+        assert_eq!(text.lines().count(), 2);
+        let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(record["action"], "api.retry");
+        assert_eq!(record["process"], DESKTOP_APP_PROCESS_NAME);
+        assert_eq!(record["diagnostic"], details);
+        assert!(record["t"].as_str().unwrap().ends_with('Z'));
+    }
 
     #[test]
     fn daily_log_file_path_uses_utc_day_suffix() {
