@@ -14,7 +14,10 @@ export const DEFAULT_CARGO_MANIFEST_RELATIVE_PATH = path.join(
     "src-tauri",
     "Cargo.toml",
 );
-export const DEFAULT_MINIMUM_AGE_DAYS = 30;
+export {
+    DEFAULT_MINIMUM_AGE_DAYS,
+    calculateCutoffDate,
+} from "./dependency-age-policy.mjs";
 export const CRATES_IO_REGISTRY_SOURCE =
     "registry+https://github.com/rust-lang/crates.io-index";
 export const CRATES_IO_API_BASE_URL = "https://crates.io/api/v1/crates";
@@ -39,10 +42,6 @@ export class CliUsageError extends Error {}
 
 export function resolveProjectPath(rootDir, value) {
     return path.isAbsolute(value) ? value : path.join(rootDir, value);
-}
-
-export function calculateCutoffDate(now, minimumAgeDays) {
-    return new Date(now.getTime() - minimumAgeDays * MILLISECONDS_PER_DAY);
 }
 
 export function formatDateOnly(date) {

@@ -18,6 +18,7 @@ const debExtension = ".deb";
 const appImageExtractedDirectoryName = "squashfs-root";
 const linuxSharedResourcesDirectoryName = "share";
 const linuxPrivateResourcesDirectoryName = "lib";
+const maximumCapturedCommandOutputBytes = 1024;
 
 // Verifies that Linux packaging preserved every staged runtime byte and file type.
 export async function verifyLinuxBundledRuntime({
@@ -52,9 +53,36 @@ export async function verifyLinuxBundledRuntime({
             mkdir(debExtractionRoot, { recursive: true }),
         ]);
 
-        await commandRunner(
+        const offsetOutput = await commandRunner(
             appImagePath,
-            ["--appimage-extract"],
+            ["--appimage-offset"],
+            appImageExtractionRoot,
+            { captureStdout: true },
+        );
+        const filesystemOffset = offsetOutput?.trim();
+        if (
+            !/^[1-9][0-9]*$/.test(filesystemOffset) ||
+            !Number.isSafeInteger(Number(filesystemOffset))
+        ) {
+            throw new Error("Invalid AppImage filesystem offset.");
+        }
+        // The AppImage runtime creates extracted directories as 0700. Unsquashfs
+        // preserves their stored modes, which this verifier must compare exactly.
+        await commandRunner(
+            "unsquashfs",
+            [
+                "-no-progress",
+                // Integrity checks cover bytes and modes, not host security labels.
+                "-no-xattrs",
+                "-d",
+                path.join(
+                    appImageExtractionRoot,
+                    appImageExtractedDirectoryName,
+                ),
+                "-o",
+                filesystemOffset,
+                appImagePath,
+            ],
             appImageExtractionRoot,
         );
         await commandRunner(
@@ -172,17 +200,30 @@ async function collectBundleFiles(directoryPath, extension, matches) {
     }
 }
 
-async function runCommand(command, args, cwd) {
-    await new Promise((resolve, reject) => {
+async function runCommand(command, args, cwd, { captureStdout = false } = {}) {
+    return await new Promise((resolve, reject) => {
+        const outputChunks = [];
+        let outputBytes = 0;
         const child = spawn(command, args, {
             cwd,
             env: process.env,
-            stdio: "inherit",
+            stdio: captureStdout ? ["ignore", "pipe", "inherit"] : "inherit",
         });
+        if (captureStdout) {
+            child.stdout.on("data", (chunk) => {
+                outputBytes += chunk.length;
+                if (outputBytes > maximumCapturedCommandOutputBytes) {
+                    child.kill();
+                    reject(new Error(`${command} returned too much output.`));
+                    return;
+                }
+                outputChunks.push(chunk);
+            });
+        }
         child.once("error", reject);
-        child.once("exit", (code, signal) => {
+        child.once("close", (code, signal) => {
             if (code === 0) {
-                resolve();
+                resolve(Buffer.concat(outputChunks).toString("utf8"));
                 return;
             }
             reject(

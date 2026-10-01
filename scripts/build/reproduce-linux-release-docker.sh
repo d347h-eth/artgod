@@ -68,6 +68,7 @@ apt-get install -y --no-install-recommends \
     libssl-dev \
     libxdo-dev \
     patchelf \
+    squashfs-tools \
     file \
     xdg-utils \
     python3 \
@@ -95,7 +96,7 @@ yarn test:desktop:listener-boundaries
 target_triple="x86_64-unknown-linux-gnu"
 # Clear stale AppDir contents from previous failed local repro runs.
 rm -rf "src-tauri/target/${target_triple}/release/bundle"
-yarn prepare:tauri-linux-tools
-yarn tauri build --ci --target "$target_triple" --bundles appimage,deb
+yarn build:desktop:linux-bundle
 yarn check:desktop-runtime-resources
+yarn check:linux-bundled-runtime "src-tauri/target/${target_triple}/release/bundle"
 '

@@ -1,26 +1,32 @@
 {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
+    "minimumAgeDays": 30,
     "tauriCliVersion": "2.11.3",
     "tauriBundlerVersion": "2.9.3",
     "target": "x86_64-unknown-linux-gnu",
     "tools": [
         {
             "fileName": "AppRun-x86_64",
-            "sourceRevision": "826d39332614fbeefc9dbdbcb8c7ffa38a20af34",
-            "url": "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64",
+            "releaseTag": "apprun-old",
+            "assetName": "AppRun-x86_64",
+            "publishedAt": "2025-07-20T20:48:54Z",
+            "url": "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/274691722",
             "sizeBytes": 31552,
             "sha256": "f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f"
         },
         {
             "fileName": "linuxdeploy-x86_64.AppImage",
-            "sourceRevision": "826d39332614fbeefc9dbdbcb8c7ffa38a20af34",
-            "url": "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage",
+            "releaseTag": "linuxdeploy",
+            "assetName": "linuxdeploy-x86_64.AppImage",
+            "publishedAt": "2024-07-29T11:09:51Z",
+            "url": "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/182515537",
             "sizeBytes": 13264064,
             "sha256": "e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef"
         },
         {
             "fileName": "linuxdeploy-plugin-gtk.sh",
             "sourceRevision": "b5eb8d05b4c0ed40107fe2158c5d8527f94568ef",
+            "publishedAt": "2024-01-04T15:07:08Z",
             "url": "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/b5eb8d05b4c0ed40107fe2158c5d8527f94568ef/linuxdeploy-plugin-gtk.sh",
             "sizeBytes": 11648,
             "sha256": "cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a"
@@ -28,16 +34,30 @@
         {
             "fileName": "linuxdeploy-plugin-gstreamer.sh",
             "sourceRevision": "2a2e67491c32995a3f279ad0ecbe77abd512b42a",
+            "publishedAt": "2024-03-01T22:12:17Z",
             "url": "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/2a2e67491c32995a3f279ad0ecbe77abd512b42a/linuxdeploy-plugin-gstreamer.sh",
             "sizeBytes": 4857,
             "sha256": "c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94"
         },
         {
             "fileName": "linuxdeploy-plugin-appimage.AppImage",
-            "sourceRevision": "536b068787179ea901964bd7dabc7bf61e4941c3",
-            "url": "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage",
-            "sizeBytes": 16484856,
-            "sha256": "1da16a46fa5e058ae740e7c35ed0d36d86cb869ac9cc8a5fd9a1847d7978d99a"
+            "sourceRevision": "a96502d15ce19ec1df3d46e6cbe87ddf38589a71",
+            "releaseTag": "1-alpha-20250213-1",
+            "assetName": "linuxdeploy-plugin-appimage-x86_64.AppImage",
+            "publishedAt": "2025-02-13T20:18:04Z",
+            "url": "https://api.github.com/repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/228937581",
+            "sizeBytes": 15889136,
+            "sha256": "992d502a248e14ab185448ddf6f6e7d25558cb84d4623c354c3af350c25fccb3"
+        },
+        {
+            "fileName": "runtime-x86_64",
+            "sourceRevision": "dd6cebedcbddde9c82f89b011e8e1d40b6e43868",
+            "releaseTag": "20251108",
+            "assetName": "runtime-x86_64",
+            "publishedAt": "2025-12-08T17:52:05Z",
+            "url": "https://api.github.com/repos/AppImage/type2-runtime/releases/assets/326011592",
+            "sizeBytes": 944632,
+            "sha256": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
         }
     ]
 }
