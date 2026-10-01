@@ -179,6 +179,10 @@ What each command does:
   : Produces a release-mode executable and adjacent resources by default; optional Tauri arguments such as `--debug` and `--target` are forwarded by Yarn.
   : The Rust build reconciles only Tauri's copied runtime destination before the fresh staged resources are installed, so repeated builds do not require the broad `clean:build` command.
 
+- `yarn build:desktop:linux-bundle`
+  : Prepares the manifest-pinned Linux x64 packaging inputs, enforces their 30-day age gate, and builds the AppImage and `.deb` with Cargo's `--locked` flag.
+  : Supplies the verified runtime through `LDAI_RUNTIME_FILE`, so the plugin's embedded `appimagetool` cannot use its default live runtime download. Local builds, CI, and the Docker reproduction helper use this command.
+
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
   : Produces the full local/deploy backend, indexer, and trading runtime artifacts, including optional observability exporters, under workspace-local `dist-desktop` folders.
@@ -220,6 +224,7 @@ What each command does:
 
 - `yarn check:linux-bundled-runtime <bundle-directory>`
   : Extracts exactly one AppImage and `.deb`, rejects links, executable-mode changes, or file-set drift, and compares every packaged runtime file's SHA-256 with `src-tauri/resources/runtime`.
+  : Uses `unsquashfs` and `dpkg-deb` to preserve stored permissions; the AppImage runtime's own extractor rewrites directory modes.
   : Also verifies the staged and packaged wallet-recipient closures against the immutable snapshot emitted when Rust generated the embedded integrity manifest.
 
 - `node scripts/build/macos-code-signing.mjs verify-dmg <dmg-directory> <cargo-target-root>`
@@ -228,7 +233,7 @@ What each command does:
 
 - `yarn prepare:tauri-linux-tools`
   : Runs `scripts/build/prepare-tauri-linux-bundler-tools.mjs`.
-  : Materializes the exact AppImage packaging executables declared by `config/tauri-linux-bundler-tools.json` only after size and SHA-256 verification.
+  : Materializes the six AppImage packaging inputs declared by `config/tauri-linux-bundler-tools.json` only after publication-age, size, and SHA-256 verification. New downloads also require matching GitHub metadata.
 
 - `yarn check:runtime-registry`
   : Runs `scripts/build/check-runtime-registry.mjs`.
@@ -417,9 +422,25 @@ Responsibilities:
 
 - owns the complete Tauri Linux x64 AppImage tool cache contract
 - requires the manifest CLI version to match the project-pinned Tauri CLI
+- downloads binary uploads by their fixed GitHub release asset IDs rather than
+  resolving moving release tags; script URLs select their declared source commits
+- requires retained release provenance and publication timestamps; rejects
+  `continuous` and other moving aliases even when the URL uses an asset ID
+- shares Cargo's age-cutoff implementation and enforces a minimum of 30 days;
+  for binary downloads, checks the latest release-publication or asset-upload
+  timestamp rather than assuming an old release means an old upload
+- selects the plugin release `1-alpha-20250213-1` and runtime release `20251108`;
+  the plugin's bundled `appimagetool` is covered by the plugin artifact's hash
+- provides the verified runtime through `LDAI_RUNTIME_FILE` when invoked with
+  `--build`, and forces Tauri to use the verified shared cache directory before
+  launching its locked Cargo build
 - verifies every downloaded tool's exact size and repository-owned SHA-256 before making it executable
 - atomically replaces stale or Tauri-mutated cache entries before each release bundle
 - prevents missing manifest entries from falling through to Tauri's moving upstream downloads
+
+These controls cover the maintained Linux bundle command. Other build,
+development, and CI inputs still have
+[documented pinning gaps](../development/01-local-development.md#build-input-controls-and-remaining-gaps).
 
 ### `scripts/build/macos-notarization.mjs`
 
