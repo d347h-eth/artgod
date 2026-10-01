@@ -282,6 +282,22 @@ pre-notarization DMG verifier requires the two snapshot contracts to agree and
 the packaged protected closure to match both. A later staging change therefore
 cannot make either package gate approve bytes that the executable would reject.
 
+## Embedded Build Inputs
+
+Rust currently embeds the settings manifest, validation rules, NATS jobs policy,
+readiness routes and default Chainlist payload through `include_str!`. The
+cross-directory includes couple runtime source modules to the repository layout;
+the installed application consumes compiled data and does not read these source
+files from its bundle.
+
+`BKL-068` defers consolidating input resolution and validation in the desktop
+build boundary, with named compiled inputs for runtime consumers. Preserve each
+contract's canonical JSON/TOML owner and reuse the existing generated-build-output
+pattern. Verification must cover clean checkouts, linked worktrees and the
+packaged desktop profile. Embedded input generation must not introduce mutable
+runtime configuration or executable path overrides; bundled executable
+resolution and wallet-recipient integrity remain separate contracts.
+
 ## Build Helper Scripts
 
 ### `scripts/build/build-frontend-target.mjs`
