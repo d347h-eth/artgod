@@ -405,6 +405,11 @@ Responsibilities:
 
 Responsibilities:
 
+- consumes the tracked prompt lockfile with Cargo `--locked`; default age
+  admission covers it and the standalone sensitive-process test lockfile
+- selects the prompt manifest through the independent Cargo-root inventory in
+  `scripts/build/cargo-projects.mjs`
+
 - builds the native secret-prompt sidecar crate for the active target triple
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
 - stages a fat `artgod-secret-prompt-universal-apple-darwin` sidecar when Tauri builds the macOS universal target

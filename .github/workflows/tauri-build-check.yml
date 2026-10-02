@@ -97,10 +97,10 @@ jobs:
               run: yarn test:desktop:sensitive-process
 
             - name: Test Admin WebView shell ACL
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --test webview_capability_security
 
             - name: Test Linux runtime resource layout
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout
+              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --test linux_runtime_resource_layout
 
             - name: Test desktop parent containment
               run: yarn test:desktop:parent-containment
@@ -223,4 +223,4 @@ jobs:
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug
 
             - name: Check Windows sensitive-process hardening
-              run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+              run: cargo check --manifest-path src-tauri/Cargo.toml --locked --lib

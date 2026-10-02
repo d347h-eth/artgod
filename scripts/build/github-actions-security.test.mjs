@@ -11,6 +11,7 @@ import {
 import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 import { projectYarnCommand } from "./project-yarn-command.mjs";
 import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
+import { TAURI_BUILD_SCRIPT_NAMES } from "./build-tauri.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -20,9 +21,9 @@ const packageManifestPath = path.join(rootDir, "package.json");
 const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
 const webviewShellAclTestCommand =
-    "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --test webview_capability_security";
 const linuxRuntimeResourceLayoutTestCommand =
-    "cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout";
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --test linux_runtime_resource_layout";
 const sensitiveProcessTestCommand = "yarn test:desktop:sensitive-process";
 const sensitiveProcessBuildStepName = "Test sensitive process hardening";
 const sensitiveProcessReleaseStepName =
@@ -31,7 +32,7 @@ const sensitiveProcessGateScriptName = "test:desktop:sensitive-process";
 const sensitiveProcessGateCommands = [
     "yarn build:desktop-sidecars --profile release",
     "node ./scripts/build/node-sensitive-process.test.mjs",
-    "cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml",
+    "cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml --locked",
     "cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked",
     "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
     "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
@@ -115,8 +116,8 @@ const windowsContainmentTarget = "x86_64-pc-windows-msvc";
 const windowsSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
 const windowsContainmentCheckCommand =
-    "cargo check --manifest-path src-tauri/Cargo.toml --lib";
-const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
+    "cargo check --manifest-path src-tauri/Cargo.toml --locked --lib";
+const desktopNoBundleBuildScriptName = TAURI_BUILD_SCRIPT_NAMES.NoBundle;
 const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
 const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
 const stagedRuntimeVerificationStepName =
@@ -604,7 +605,7 @@ test("tests reconciliation and final output around one no-bundle build", async (
     );
     assert.equal(
         packageManifest.scripts?.[desktopNoBundleBuildScriptName],
-        "tauri build --no-bundle --ci",
+        "node ./scripts/build/build-tauri.mjs --no-bundle --ci",
     );
 
     const workflow = await readFile(

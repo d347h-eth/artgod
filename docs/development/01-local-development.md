@@ -181,7 +181,7 @@ macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-yarn tauri build --ci --target universal-apple-darwin --bundles dmg
+node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg
 ```
 
 After `yarn install --immutable`, that Tauri command is sufficient. Its
@@ -198,7 +198,7 @@ Windows x64 NSIS installer:
 
 ```powershell
 rustup target add x86_64-pc-windows-msvc
-yarn tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+node ./scripts/build/build-tauri.mjs --ci --target x86_64-pc-windows-msvc --bundles nsis
 ```
 
 `yarn build:sqlite-native` is required after a fresh install for ordinary
@@ -407,12 +407,26 @@ yarn cargo:age-gate
 - `yarn cargo:update-aged` reads `src-tauri/Cargo.lock`, queries crates.io, and
   steers each locked crates.io package toward the newest non-yanked,
   Cargo-caret-compatible version that is at least the configured age.
-- `yarn cargo:age-gate` is read-only and fails when the final lockfile contains
-  package versions newer than the configured age without a policy exception.
+- `yarn cargo:age-gate` is read-only and checks every independent Cargo root in
+  `scripts/build/cargo-projects.mjs`: the desktop, native secret prompt and
+  standalone sensitive-process tests. Their lockfiles are tracked; a missing
+  lockfile fails admission. Shared crate versions are checked once.
 - `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
   exceptions for urgent security or release-readiness cases.
 - Use `--package <name>` or `--package <name@version>` to scope either command
   to one package while investigating an alert.
+- Use `--manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml` to
+  admit or promote that independent root. An explicit manifest or lockfile
+  selection derives its adjacent counterpart; mismatched roots are rejected.
+- The shared registry reader completes requests sequentially with a one-second
+  interval after each response, following the
+  [crates.io API access policy](https://crates.io/data-access#api).
+  A cold complete check takes several minutes; unavailable metadata fails the
+  check rather than weakening admission.
+- Maintained Cargo commands use `--locked`. Tauri entry points share
+  `scripts/build/build-tauri.mjs`, which preserves caller flags such as
+  no-bundle `--debug` before appending Cargo lock enforcement. The Linux bundle
+  wrapper retains its additional pinned packaging-input controls.
 - CI runs `yarn install --immutable --mode=skip-build` before this alias for
   the same fresh-checkout package-script install-state reason.
 
@@ -483,7 +497,6 @@ packaging/runtime pins do not establish complete supply-chain lockdown.
 | CI Node bootstrap                                              | The pinned `actions/setup-node` Action selects an exact Node version but its download/extraction path has no repository-owned binary digest or publication-age check.                                                                                                                | Pin the consumed Node distribution bytes and age, including cache and fallback paths.                                                                                   |
 | Docker development, deployment, and reproduction               | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose, `Dockerfile.deploy`, and `ubuntu:22.04` also lack image digests.                                                                                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
 | Yarn/Corepack bootstrap in `package.json` and CI               | `yarn@4.12.0` pins the version, but `packageManager` has no repository-owned distribution hash. Corepack and other machine tools come from the host/runner environment.                                                                                                              | Pin distribution integrity and the tool-provisioning inputs alongside versions.                                                                                         |
-| Cargo callers                                                  | Several CI `cargo test`/`cargo check` commands, macOS/raw Tauri builds, and `scripts/build/prepare-desktop-sidecars.mjs` omit `--locked`. Cargo can resolve again if a manifest and lockfile disagree.                                                                               | Require unchanged lockfiles for every independent Cargo entry point. The maintained Linux bundle command already passes `--locked`.                                     |
 | Packaging entry points                                         | Raw `yarn tauri build` can bypass the maintained Linux packaging-input gate.                                                                                                                                                                                                         | Use `yarn build:desktop:linux-bundle` for the supported Linux bundle lane; further direct-entry enforcement remains open.                                               |
 | Upgrade timing beyond libraries                                | External Actions use full commit SHAs, but Action upgrades, runner tools, container images, and OS packages have no shared enforced publication-age admission gate.                                                                                                                  | Extend reviewed age-qualified promotion to each input owner. Keep existing exact-version security exceptions explicit.                                                  |
 | Source script age evidence                                     | The packaging gate uses GitHub's committer timestamp for the two source scripts. That timestamp does not independently establish when the revision first became publicly available.                                                                                                  | Require trusted publication or first-observation evidence when promoting a new source revision; a commit timestamp alone is insufficient for complete timing assurance. |

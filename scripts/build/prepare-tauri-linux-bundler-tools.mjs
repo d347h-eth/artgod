@@ -23,6 +23,7 @@ import {
     verifyGithubReleaseInputProvenance,
 } from "./pinned-build-inputs.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
+import { buildLockedTauri, TAURI_BUILD_SCRIPT_NAMES } from "./build-tauri.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -38,7 +39,7 @@ const rootPackageJsonPath = path.join(rootDir, "package.json");
 const PINNED_TOOLS_SCHEMA_VERSION = 2;
 export const TAURI_LINUX_BUNDLER_TARGET = "x86_64-unknown-linux-gnu";
 export const TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME =
-    "build:desktop:linux-bundle";
+    TAURI_BUILD_SCRIPT_NAMES.LinuxBundle;
 const TAURI_CLI_PACKAGE_NAME = "@tauri-apps/cli";
 const GIT_REVISION_PATTERN = /^[a-f0-9]{40}$/;
 const GITHUB_RAW_CONTENT_ORIGIN = "https://raw.githubusercontent.com";
@@ -108,11 +109,8 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
         localToolsDirectory,
     });
     const runBuild = options.runBuild ?? runRedactedCommand;
-    await runBuild(
-        "yarn",
+    await buildLockedTauri(
         [
-            "tauri",
-            "build",
             "--ci",
             "--target",
             TAURI_LINUX_BUNDLER_TARGET,
@@ -120,12 +118,11 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
             "appimage,deb",
             "--config",
             JSON.stringify({ bundle: { useLocalToolsDir: true } }),
-            "--",
-            "--locked",
         ],
         {
             cwd: rootDir,
-            env: {
+            runCommand: runBuild,
+            environment: {
                 ...environment,
                 [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: path.join(
                     localToolsDirectory,

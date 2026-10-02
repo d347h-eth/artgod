@@ -77,7 +77,7 @@ jobs:
               run: |
                   set -euo pipefail
                   yarn clean:build
-                  yarn tauri build --ci --target x86_64-unknown-linux-gnu --no-bundle
+                  node ./scripts/build/build-tauri.mjs --ci --target x86_64-unknown-linux-gnu --no-bundle
 
                   BIN_PATH="src-tauri/target/x86_64-unknown-linux-gnu/release/artgod-desktop"
                   if [ ! -f "$BIN_PATH" ]; then
@@ -97,7 +97,7 @@ jobs:
               run: |
                   set -euo pipefail
                   yarn clean:build
-                  yarn tauri build --ci --target x86_64-unknown-linux-gnu --no-bundle
+                  node ./scripts/build/build-tauri.mjs --ci --target x86_64-unknown-linux-gnu --no-bundle
 
                   BIN_PATH="src-tauri/target/x86_64-unknown-linux-gnu/release/artgod-desktop"
                   if [ ! -f "$BIN_PATH" ]; then
