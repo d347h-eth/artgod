@@ -448,8 +448,13 @@ Responsibilities:
 - selects the plugin release `1-alpha-20250213-1` and runtime release `20251108`;
   the plugin's bundled `appimagetool` is covered by the plugin artifact's hash
 - provides the verified runtime through `LDAI_RUNTIME_FILE` when invoked with
-  `--build`, and forces Tauri to use the verified shared cache directory before
-  launching its locked Cargo build
+  `--build`, and launches Tauri's locked Cargo build with an isolated per-build
+  cache under the worktree's `tmp/` directory
+- copies the verified tools into that cache, preserving the source cache bytes
+  when Tauri changes linuxdeploy's ELF header
+- wraps the pinned AppImage output plugin with the repository-owned host-library
+  policy; the adapter runs after all GTK/media input plugins and then forwards
+  the original arguments and verified runtime to the unchanged pinned plugin
 - verifies every downloaded tool's exact size and repository-owned SHA-256 before making it executable
 - atomically replaces stale or Tauri-mutated cache entries before each release bundle
 - prevents missing manifest entries from falling through to Tauri's moving upstream downloads
@@ -457,6 +462,28 @@ Responsibilities:
 These controls cover the maintained Linux bundle command. Other build,
 development, and CI inputs still have
 [documented pinning gaps](../development/01-local-development.md#build-input-controls-and-remaining-gaps).
+
+### `scripts/build/linux-appimage-host-libraries.mjs`
+
+Responsibilities:
+
+- omits Wayland client, server, cursor, and EGL runtime libraries from the final
+  AppDir, including versioned files and symbolic links
+- leaves WebKitGTK and the application runtime bundled; the target system
+  supplies the Wayland libraries used by its Mesa/EGL graphics stack
+- runs immediately before AppImage creation so dependencies added by nested
+  linuxdeploy calls cannot reintroduce an older Wayland library
+- supplies the same policy to `check:linux-bundled-runtime`, which rejects
+  prohibited libraries in the extracted final AppImage
+- scans actual directories without following symbolic links outside the AppDir
+
+The Ubuntu 22 release runner's Wayland libraries can be older than the target
+system's Mesa requirements. AppRun prepends bundled library directories to
+`LD_LIBRARY_PATH`, so bundling an older client can make Mesa fail with
+`EGL_BAD_PARAMETER`, leaving the Admin window blank even in an X11 session.
+Keeping the target system's graphics libraries together avoids this mismatch.
+Verify the Ubuntu-built artifact on representative target systems during release
+QA; the packaging policy alone does not prove that a native WebView renders.
 
 ### `scripts/build/macos-notarization.mjs`
 
@@ -1173,7 +1200,8 @@ Current state:
   runtime output. Linux release builds additionally extract the finished
   AppImage and `.deb`, compare the complete runtime file set, executable modes, and SHA-256
   bytes, and bind the protected closure back to the build-time copy of Rust's
-  embedded integrity authority.
+  embedded integrity authority. The final AppImage check also rejects bundled
+  Wayland libraries that could override the target system's graphics stack.
 - The macOS application shell, Node, NATS, native secret prompt, and staged
   `better-sqlite3` add-ons are fat `x86_64` + `arm64` binaries. Backend and
   indexer stage both official Darwin Sharp/libvips pairs. Release gates mount
