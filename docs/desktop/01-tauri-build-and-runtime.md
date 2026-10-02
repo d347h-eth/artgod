@@ -1158,6 +1158,10 @@ Build-check trigger policy:
 
 - The build check runs the no-write project version contract before package
   installation, so version drift fails on pull requests and `main`.
+- Its Linux job uses Ubuntu 22.04, matching release packaging. After the debug
+  no-bundle gates, it runs `yarn build:desktop:linux-bundle` through Corepack's
+  Yarn shim and verifies the final AppImage and `.deb` runtime integrity. A
+  no-bundle build alone does not exercise the packaging-tool cache or plugins.
 - Its required macOS job runs the real universal `better-sqlite3` node-gyp and
   `lipo` path, so both slices are proven before a release tag.
 - Do not add `paths-ignore` for version-sync files; they are build-critical
