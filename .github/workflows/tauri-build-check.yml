@@ -166,6 +166,7 @@ jobs:
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:
                   toolchain: 1.93.1
+                  targets: aarch64-apple-darwin,x86_64-apple-darwin
 
             - name: Install workspace dependencies
               run: yarn install --immutable --mode=skip-build
@@ -196,6 +197,15 @@ jobs:
 
             - name: Test secret prompt parent containment
               run: yarn test:desktop:secret-prompt-parent-containment
+
+            - name: Build unsigned universal macOS DMG
+              env:
+                  DESKTOP_NODE_DIST_TARGET: darwin-universal
+                  DESKTOP_NATS_DIST_TARGET: darwin-universal
+              run: yarn node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg --no-sign
+
+            - name: Verify unsigned universal macOS DMG contents
+              run: node ./scripts/build/macos-code-signing.mjs verify-unsigned-dmg "src-tauri/target/universal-apple-darwin/release/bundle/dmg" "src-tauri/target"
 
     windows-containment-check:
         runs-on: windows-latest

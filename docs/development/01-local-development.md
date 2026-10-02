@@ -184,6 +184,21 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg
 ```
 
+The ordinary macOS build-check job preserves its host listener and secret-prompt
+containment checks, then runs the same universal packaging command with
+`--no-sign`. It verifies the mounted DMG with the existing verifier:
+
+```sh
+node ./scripts/build/macos-code-signing.mjs verify-unsigned-dmg src-tauri/target/universal-apple-darwin/release/bundle/dmg src-tauri/target
+```
+
+Unsigned verification requires both concrete Rust integrity snapshots. It checks
+universal architectures, both Sharp package pairs, deployment targets, packaged
+runtime bytes and host runtime operations. This lane adds both Rust release
+compilations and DMG packaging to PR checks; it uses no signing secrets. Signed
+release verification and execution on both native architectures remain release
+gates.
+
 After `yarn install --immutable`, that Tauri command is sufficient. Its
 target-aware `beforeBuildCommand` runs `yarn build:sqlite-native --if-needed`,
 and runtime resource preparation consumes the same Tauri/Cargo target context.

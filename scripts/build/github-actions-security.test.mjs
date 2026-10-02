@@ -12,6 +12,12 @@ import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 import { projectYarnCommand } from "./project-yarn-command.mjs";
 import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
 import { TAURI_BUILD_SCRIPT_NAMES } from "./build-tauri.mjs";
+import { MACOS_CODE_SIGNING_MODE } from "./macos-code-signing.mjs";
+import {
+    DESKTOP_NODE_DIST_TARGET,
+    DESKTOP_RUST_TARGET,
+    MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+} from "./native-runtime-dependencies.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -558,6 +564,54 @@ test("the macOS workflow launcher loads the real locked SQLite installation", as
     });
     assert.notEqual(withoutLoader.status, 0);
     assert.match(withoutLoader.stderr, /requires the locked Yarn PnP install/);
+});
+
+test("builds and verifies a secret-free universal DMG after macOS containment", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const macosJob = extractWorkflowJob(
+        workflow,
+        macosPromptContainmentJobName,
+    );
+    const buildStepName = "Build unsigned universal macOS DMG";
+    const verificationStepName = "Verify unsigned universal macOS DMG contents";
+    const buildStep = extractWorkflowStep(macosJob, buildStepName);
+    const verificationStep = extractWorkflowStep(
+        macosJob,
+        verificationStepName,
+    );
+    const rustStep = extractWorkflowStep(macosJob, "Setup Rust");
+    for (const { rustTarget } of MACOS_UNIVERSAL_NATIVE_ARCHITECTURES) {
+        assert.ok(rustStep.includes(rustTarget));
+    }
+    assertStepRunsCommand(
+        buildStep,
+        `yarn node ./scripts/build/build-tauri.mjs --ci --target ${DESKTOP_RUST_TARGET.DarwinUniversal} --bundles dmg --no-sign`,
+    );
+    assert.ok(
+        buildStep.includes(
+            `DESKTOP_NODE_DIST_TARGET: ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
+        ),
+    );
+    assert.ok(
+        buildStep.includes(
+            `DESKTOP_NATS_DIST_TARGET: ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
+        ),
+    );
+    assertStepRunsCommand(
+        verificationStep,
+        `node ./scripts/build/macos-code-signing.mjs ${MACOS_CODE_SIGNING_MODE.VerifyUnsignedDmg} "src-tauri/target/${DESKTOP_RUST_TARGET.DarwinUniversal}/release/bundle/dmg" "src-tauri/target"`,
+    );
+    assertStepIsRequired(buildStep);
+    assertStepIsRequired(verificationStep);
+    assertStepPrecedes(macosJob, macosPromptContainmentStepName, buildStepName);
+    assertStepPrecedes(macosJob, buildStepName, verificationStepName);
+    assert.doesNotMatch(
+        macosJob,
+        /secrets\.|environment: desktop-release-signing/,
+    );
 });
 
 test("binds and starts the final macOS runtime before notarization", async () => {

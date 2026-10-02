@@ -445,6 +445,11 @@ Responsibilities:
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, and verifies the contained `.app` signatures
+- exposes `verify-unsigned-dmg` for the secret-free PR build; the same mounted-app
+  owner verifies required process entry points, universal/native-package
+  architecture coverage, deployment targets and runtime operations, while
+  requiring both concrete Rust integrity snapshots; signature verification
+  remains the default for `verify-app` and `verify-dmg`
 - before notarization, requires the mounted `runtime/node` and `runtime/trading` closure to match the build-time snapshots beside both concrete Rust executables that Tauri merged into the universal app
 - starts Node far enough to initialize V8, reuses the numeric-IPv4-loopback NATS readiness probe against the mounted binary, and starts the native prompt through its silent stdin-owner-loss path before any prompt UI can open
 - executes the mounted SQLite and Sharp smoke operations; finalized-DMG jobs repeat every startup/operation proof on arm64 and x64 runners
