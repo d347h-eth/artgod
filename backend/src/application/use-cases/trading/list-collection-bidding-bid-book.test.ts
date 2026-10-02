@@ -5,6 +5,11 @@ import {
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_LIFECYCLE_STATUS,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
 import {
@@ -337,6 +342,171 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
     });
 });
 
+describe("own-state counts and filtering", () => {
+    const position = TRADING_BIDDING_JOB_RUNTIME_BID_POSITION;
+    const constraint = TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT;
+
+    function ownMarket(
+        orderId: string,
+        tokenId: string,
+        state: (typeof position)[keyof typeof position],
+        constraints: Array<(typeof constraint)[keyof typeof constraint]> = [],
+    ): PersistedBiddingBidBookRow {
+        return {
+            ...bidRow(orderId, "100", tokenId),
+            isOwn: true,
+            ownStatus: { position: state, constraints, job: null },
+        };
+    }
+
+    it("counts across pages and filters before token hydration and pagination", () => {
+        const rows = [
+            ownMarket("winning", "1", position.Winning, [constraint.Floor]),
+            ownMarket("losing", "2", position.Losing, [constraint.Ceiling]),
+            ownMarket("draw", "3", position.Draw),
+            bidRow("opponent", "200", "4"),
+        ];
+        const hydratedIds: string[][] = [];
+        const useCase = buildUseCase(
+            {
+                listCollectionBidBook: ({ scopeFilter }) =>
+                    bidBook(
+                        scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                            ? rows
+                            : [],
+                    ),
+                listTokenBidBook: () => bidBook([]),
+            },
+            ({ tokenIds }) => {
+                hydratedIds.push(tokenIds);
+                return tokenIds.map(tokenCard);
+            },
+        );
+        const first = useCase.listCollectionBiddingBidBook(
+            biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                limit: 1,
+            }),
+        );
+        expect(first.ownBidStateCounts?.total).toBe(3);
+        expect(first.ownBidStateCounts?.states[position.Losing]).toBe(1);
+        expect(hydratedIds).toEqual([["4"]]);
+        const filtered = useCase.listCollectionBiddingBidBook(
+            biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                ownStateFilter: position.Losing,
+                limit: 1,
+            }),
+        );
+        expect(
+            filtered.tokenOfferCards.items.map((card) => card.tokenId),
+        ).toEqual(["2"]);
+        expect(filtered.tokenOfferCards.totalItems).toBe(1);
+        expect(filtered.tokenOfferCards.totalOffers).toBe(1);
+        expect(filtered.ownBidStateCounts).toEqual(first.ownBidStateCounts);
+        expect(hydratedIds).toEqual([["4"], ["2"]]);
+        const next = useCase.listCollectionBiddingBidBook(
+            biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                cursor: first.tokenOfferCards.nextCursor,
+                limit: 1,
+            }),
+        );
+        expect(next.ownBidStateCounts).toEqual(first.ownBidStateCounts);
+    });
+
+    it("applies token metadata filters before counting, and excludes nonmatching offers within each card", () => {
+        const rows = [
+            ownMarket("winning", "1", position.Winning),
+            ownMarket("losing", "1", position.Losing, [constraint.Ceiling]),
+            ownMarket("excluded", "2", position.Losing),
+        ];
+        const useCase = buildUseCase(
+            {
+                listCollectionBidBook: ({ scopeFilter }) =>
+                    bidBook(
+                        scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                            ? rows
+                            : [],
+                    ),
+                listTokenBidBook: () => bidBook([]),
+            },
+            ({ tokenIds }) =>
+                tokenIds.map((id) => ({
+                    ...tokenCard(id),
+                    attributes: [
+                        {
+                            key: "Mode",
+                            value: id === "1" ? "Terrain" : "Origin",
+                        },
+                    ],
+                })),
+        );
+        const result = useCase.listCollectionBiddingBidBook(
+            biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                traits: [{ key: "Mode", value: "Terrain" }],
+                ownStateFilter: constraint.Ceiling,
+                limit: 1,
+            }),
+        );
+        expect(result.ownBidStateCounts?.total).toBe(2);
+        expect(result.ownBidStateCounts?.states[position.Losing]).toBe(1);
+        expect(result.tokenOfferCards.totalOffers).toBe(1);
+        expect(
+            result.tokenOfferCards.items[0]?.offers.map((bid) => bid.orderId),
+        ).toEqual(["losing"]);
+    });
+
+    it("includes addressless intent, preserves counts for empty matches, and keeps public summaries absent", () => {
+        const intent: PersistedBiddingBidBookRow = {
+            ...bidRow("queued", "100", null),
+            maker: null,
+            isOwn: true,
+            materialization: {
+                kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                jobId: "job",
+                status: TRADING_JOB_STATUS.Enabled,
+                phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+            },
+        };
+        const useCase = buildUseCase({
+            listCollectionBidBook: () =>
+                bidBook([intent, bidRow("opponent", "200")]),
+            listTokenBidBook: () => bidBook([]),
+        });
+        const queued = useCase.listCollectionBiddingBidBook(
+            biddingInput({
+                ownStateFilter: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+            }),
+        );
+        expect(queued.bidBook.bids[0]?.maker.address).toBeNull();
+        expect(queued.bidBook.state.rowCount).toBe(1);
+        expect(queued.ownBidStateCounts?.total).toBe(1);
+        const empty = useCase.listCollectionBiddingBidBook(
+            biddingInput({ ownStateFilter: position.Losing }),
+        );
+        expect(empty.bidBook.bids).toEqual([]);
+        expect(empty.bidBook.state.rowCount).toBe(0);
+        expect(empty.ownBidStateCounts).toEqual(queued.ownBidStateCounts);
+        expect(
+            useCase.listCollectionBiddingBidBook(
+                biddingInput({ includeOwnJobContext: false }),
+            ).ownBidStateCounts,
+        ).toBeNull();
+        expect(() =>
+            useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    includeOwnJobContext: false,
+                    ownStateFilter: position.Losing,
+                }),
+            ),
+        ).toThrow("Own bids are unavailable in public bid-book reads");
+    });
+});
+
 function chain(): ChainRecord {
     return {
         id: 1,
@@ -349,6 +519,7 @@ function chain(): ChainRecord {
 
 function buildUseCase(
     repository: BiddingBidBookRepositoryPort,
+    tokenReader: ListCollectionBiddingBidBookUseCase["collectionReadPort"]["listCollectionTokenCardsByIds"] = () => [],
 ): ListCollectionBiddingBidBookUseCase {
     return new ListCollectionBiddingBidBookUseCase(
         1,
@@ -357,8 +528,9 @@ function buildUseCase(
             resolveCollectionRef: () => collection(),
             getCollectionMediaState: () => media(),
             listCollectionTraitFacets: () => [],
-            listCollectionTokenCardsByIds: () => [],
-            countMarketplaceBiddingSupportedTokensByIds: () => 0,
+            listCollectionTokenCardsByIds: tokenReader,
+            countMarketplaceBiddingSupportedTokensByIds: ({ tokenIds }) =>
+                tokenIds.length,
         },
         {
             getTraitFilterPresentationState: () => ({

@@ -2,6 +2,7 @@ import type { FastifyRequest } from "fastify";
 import {
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 } from "@artgod/shared/types";
@@ -62,6 +63,35 @@ describe("get collection bidding bid-book span attributes", () => {
 });
 
 describe("ListCollectionBiddingBidBookHttpAdapter", () => {
+    it("maps state filters and rejects unknown states at the HTTP boundary", async () => {
+        let captured: unknown;
+        const adapter = new ListCollectionBiddingBidBookHttpAdapter(
+            {
+                listCollectionBiddingBidBook: (input) => {
+                    captured = input;
+                    return input as never;
+                },
+            },
+            true,
+        );
+        await adapter.handle(
+            routeRequest(
+                `/api/ethereum/terraforms/bidding/bids?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}`,
+            ),
+        );
+        expect(captured).toEqual(
+            expect.objectContaining({
+                ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            }),
+        );
+        await expect(
+            adapter.handle(
+                routeRequest(
+                    `/api/ethereum/terraforms/bidding/bids?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=unknown`,
+                ),
+            ),
+        ).rejects.toThrow("Invalid own bid state filter");
+    });
     it("maps the private own-bid filter into the use-case input", async () => {
         let captured: unknown;
         const adapter = new ListCollectionBiddingBidBookHttpAdapter(

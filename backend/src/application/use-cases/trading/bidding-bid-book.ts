@@ -11,6 +11,7 @@ import type {
 import type {
     TradingBiddingBidBookSource,
     TradingBiddingBidBookOwnJobPhase,
+    TradingBiddingBidBookOwnStateCounts,
     TradingBiddingAuthorization,
     TradingBiddingBidScopeKind,
     TradingBiddingJobRuntimeBidPosition,
@@ -264,6 +265,7 @@ export type ListCollectionBiddingBidBookOutput = {
     };
     bidBook: BiddingBidBookView;
     tokenOfferCards: BiddingTokenOfferCardsPage;
+    ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
 };
 
 export type GetTokenBiddingBidBookOutput = {

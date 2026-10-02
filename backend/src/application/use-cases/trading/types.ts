@@ -4,6 +4,7 @@ import type {
     CollectionListItem,
     CollectionBiddingTraitFilterJoinMode,
     CollectionBiddingBidBookOwnershipFilter,
+    CollectionBiddingBidBookOwnStateFilter,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
     TokenBrowserStatus,
@@ -115,6 +116,7 @@ export type BatchTokenBiddingJobSelection =
           traitJoinMode: CollectionBiddingTraitFilterJoinMode;
           makerAddress?: string | null;
           ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+          ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
       };
 
 export type UpsertBatchTokenBiddingJobsInput = {
