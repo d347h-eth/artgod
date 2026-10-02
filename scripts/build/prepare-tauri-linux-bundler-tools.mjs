@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
     chmod,
+    copyFile,
     mkdir,
     mkdtemp,
     readFile,
@@ -54,6 +55,8 @@ const TAURI_TOOLS_CACHE_DIRECTORY_NAME = "tauri";
 // The output plugin forwards this path to appimagetool's --runtime-file option.
 export const TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY = "LDAI_RUNTIME_FILE";
 export const TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME = "runtime-x86_64";
+export const TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME =
+    "linuxdeploy-plugin-appimage.AppImage";
 
 // Exact tools and embedded runtime consumed by the Tauri 2.11.3 Linux bundler.
 export const TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES = Object.freeze([
@@ -61,7 +64,7 @@ export const TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES = Object.freeze([
     "linuxdeploy-x86_64.AppImage",
     "linuxdeploy-plugin-gtk.sh",
     "linuxdeploy-plugin-gstreamer.sh",
-    "linuxdeploy-plugin-appimage.AppImage",
+    TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
     TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
 ]);
 
@@ -98,6 +101,10 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
         throw new Error("Linux bundle cache directory must be named tauri.");
     }
     await preparePinnedTauriLinuxBundlerTools({ ...options, cacheDirectory });
+    const buildCacheDirectory = await stageTauriLinuxBundleTools({
+        cacheDirectory,
+        temporaryRoot: options.temporaryRoot,
+    });
     const runBuild = options.runBuild ?? runRedactedCommand;
     await runBuild(
         "yarn",
@@ -118,15 +125,65 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
             cwd: rootDir,
             env: {
                 ...environment,
-                XDG_CACHE_HOME: path.dirname(cacheDirectory),
+                XDG_CACHE_HOME: path.dirname(buildCacheDirectory),
                 [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: path.join(
-                    cacheDirectory,
+                    buildCacheDirectory,
                     TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
                 ),
             },
             stream: true,
         },
     );
+}
+
+// Preserve the verified cache bytes. Tauri mutates linuxdeploy's ELF header,
+// and our output adapter must live beside it to win plugin discovery. Keep the
+// isolated build directory under tmp for inspection after a failed bundle.
+export async function stageTauriLinuxBundleTools({
+    cacheDirectory,
+    temporaryRoot = path.join(rootDir, "tmp"),
+}) {
+    await mkdir(temporaryRoot, { recursive: true });
+    const buildRoot = await mkdtemp(
+        path.join(temporaryRoot, "tauri-linux-bundle-"),
+    );
+    const buildCacheDirectory = path.join(
+        buildRoot,
+        TAURI_TOOLS_CACHE_DIRECTORY_NAME,
+    );
+    await mkdir(buildCacheDirectory, { mode: TOOLS_DIRECTORY_MODE });
+    for (const fileName of TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES) {
+        await copyFile(
+            path.join(cacheDirectory, fileName),
+            path.join(buildCacheDirectory, fileName),
+        );
+    }
+    const outputPluginPath = path.join(
+        buildCacheDirectory,
+        TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
+    );
+    const pinnedOutputPluginPath = path.join(
+        buildCacheDirectory,
+        ".pinned-appimage-plugin",
+    );
+    await rename(outputPluginPath, pinnedOutputPluginPath);
+    const policyScriptPath = fileURLToPath(
+        new URL("./linux-appimage-host-libraries.mjs", import.meta.url),
+    );
+    // Shell arguments may contain spaces, quotes, or shell metacharacters.
+    const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    await writeFile(
+        outputPluginPath,
+        [
+            "#!/bin/sh",
+            "set -eu",
+            `${shellQuote(process.execPath)} ${shellQuote(policyScriptPath)} "$@"`,
+            `exec ${shellQuote(pinnedOutputPluginPath)} "$@"`,
+            "",
+        ].join("\n"),
+        { mode: EXECUTABLE_FILE_MODE },
+    );
+    return buildCacheDirectory;
 }
 
 // Materializes only manifest-pinned executable bytes in Tauri's Linux cache.

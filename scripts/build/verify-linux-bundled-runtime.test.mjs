@@ -167,6 +167,42 @@ test("extracts both Linux formats and verifies their format-specific runtime pat
     });
 });
 
+test("rejects a final AppImage that includes host Wayland libraries", async () => {
+    await withLinuxBundleFixture(
+        async ({
+            expectedRoot,
+            appImagePath,
+            debPath: _debPath,
+            ...verificationInputs
+        }) => {
+            await assert.rejects(
+                verifyLinuxBundledRuntime({
+                    ...verificationInputs,
+                    stagedRuntimeRoot: expectedRoot,
+                    productName,
+                    async commandRunner(command, args) {
+                        if (command === appImagePath) {
+                            return "4096\n";
+                        }
+                        if (command === "unsquashfs") {
+                            await writeFixtureFile(
+                                path.join(
+                                    args[args.indexOf("-d") + 1],
+                                    "usr/lib/libwayland-client.so.0",
+                                ),
+                                "old-wayland",
+                            );
+                            return;
+                        }
+                        assert.equal(command, "dpkg-deb");
+                    },
+                }),
+                /AppImage must use host Wayland libraries; bundled copies found: usr\/lib\/libwayland-client\.so\.0/,
+            );
+        },
+    );
+});
+
 test("rejects invalid AppImage offsets before invoking archive extractors", async () => {
     await withLinuxBundleFixture(async (fixture) => {
         const {
