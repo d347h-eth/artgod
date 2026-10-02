@@ -3,7 +3,10 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME } from "./prepare-tauri-linux-bundler-tools.mjs";
+import {
+    TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME,
+    TAURI_LINUX_BUNDLER_TARGET,
+} from "./prepare-tauri-linux-bundler-tools.mjs";
 import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
 
 const rootDir = path.resolve(
@@ -183,7 +186,39 @@ test("uses the same gated Linux bundle command locally and in CI", async () => {
         "utf8",
     );
     const bundleCommand = `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`;
-    for (const source of [buildStep, reproductionScript]) {
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
+    const buildCheckStep = extractWorkflowStep(
+        buildCheckJob,
+        "Build Linux Tauri bundle",
+    );
+    const artifactVerificationStep = extractWorkflowStep(
+        buildCheckJob,
+        linuxBundledRuntimeVerificationStepName,
+    );
+    assert.match(buildCheckJob, /runs-on: ubuntu-22\.04/);
+    assert.equal(countOccurrences(buildCheckJob, bundleCommand), 1);
+    assertStepRunsCommand(buildCheckStep, bundleCommand);
+    assertStepIsRequired(buildCheckStep);
+    assertStepRunsCommand(
+        artifactVerificationStep,
+        `yarn check:linux-bundled-runtime "src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle"`,
+    );
+    assertStepIsRequired(artifactVerificationStep);
+    assertStepPrecedes(
+        buildCheckJob,
+        noBundleRuntimeVerificationStepName,
+        "Build Linux Tauri bundle",
+    );
+    assertStepPrecedes(
+        buildCheckJob,
+        "Build Linux Tauri bundle",
+        linuxBundledRuntimeVerificationStepName,
+    );
+    for (const source of [buildStep, buildCheckStep, reproductionScript]) {
         assert.ok(source.includes(bundleCommand));
         assert.ok(!source.includes("yarn tauri build"));
     }

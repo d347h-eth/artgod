@@ -7,21 +7,29 @@ import {
     rm,
     stat,
     writeFile,
+    symlink,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
     TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY,
     TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
+    TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
+    TAURI_LINUX_APPIMAGE_PINNED_PLUGIN_FILE_NAME,
     TAURI_LINUX_BUNDLER_TARGET,
     TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES,
+    TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
     buildPinnedTauriLinuxBundle,
     preparePinnedTauriLinuxBundlerTools,
     resolveTauriToolsCacheDirectory,
+    resolveTauriLocalToolsDirectory,
+    stageTauriLinuxBundleTools,
     validatePinnedToolsManifest,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
+import { runRedactedCommand } from "./secret-output-redaction.mjs";
 
 const testCliVersion = "2.11.3-test";
 const testPublishedAt = "2025-01-01T00:00:00Z";
@@ -427,39 +435,82 @@ test("rejects a changed release revision or upstream digest before downloading",
     }
 });
 
-test("builds with the verified cached runtime and a locked Cargo graph", async () => {
-    const temporaryRoot = await mkdtemp(
-        path.join(os.tmpdir(), "artgod-tauri-tools-build-test-"),
-    );
-    const manifestPath = path.join(temporaryRoot, "manifest.json");
-    const manifest = createTestManifest();
-    const cacheDirectory = path.join(temporaryRoot, "tauri");
-    let buildCount = 0;
-    try {
-        await writeFile(
-            manifestPath,
-            JSON.stringify(serializableManifest(manifest)),
-        );
-        await mkdir(cacheDirectory);
-        for (const tool of manifest.tools) {
-            await writeFile(
-                path.join(cacheDirectory, tool.fileName),
-                tool.content,
+test("resolves Tauri's local tools from Cargo metadata with the caller's environment", async () => {
+    const environment = { CARGO_TARGET_DIR: "custom-target" };
+    const targetDirectory = path.resolve("custom Cargo target");
+    const localToolsDirectory = await resolveTauriLocalToolsDirectory({
+        environment,
+        async runCommand(command, args, options) {
+            assert.equal(command, "cargo");
+            assert.deepEqual(args, [
+                "metadata",
+                "--no-deps",
+                "--format-version",
+                "1",
+                "--locked",
+            ]);
+            assert.equal(
+                options.cwd,
+                fileURLToPath(new URL("../../src-tauri", import.meta.url)),
             );
-        }
+            assert.equal(options.env, environment);
+            return {
+                stdout: JSON.stringify({ target_directory: targetDirectory }),
+            };
+        },
+    });
+    assert.equal(
+        localToolsDirectory,
+        path.join(targetDirectory, TAURI_LOCAL_TOOLS_DIRECTORY_NAME),
+    );
+});
+
+test("rejects missing or relative Cargo target directories without guessing a fallback", async () => {
+    for (const targetDirectory of [undefined, null, 1, "", "relative-target"]) {
+        await assert.rejects(
+            resolveTauriLocalToolsDirectory({
+                runCommand: async () => ({
+                    stdout: JSON.stringify({
+                        target_directory: targetDirectory,
+                    }),
+                }),
+            }),
+            /absolute target_directory/,
+        );
+    }
+});
+
+test("refreshes local execution tools for repeated locked builds without redirecting other caches", async () => {
+    const fixture = await createBundleTestFixture();
+    const { manifest, cacheDirectory, targetDirectory } = fixture;
+    const localToolsDirectory = path.join(
+        targetDirectory,
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+    const environment = {
+        XDG_CACHE_HOME: path.join(fixture.temporaryRoot, "original-xdg-cache"),
+        COREPACK_HOME: path.join(
+            fixture.temporaryRoot,
+            "original-corepack-cache",
+        ),
+        CARGO_TARGET_DIR: targetDirectory,
+        [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: "/unverified/runtime",
+    };
+    await mkdir(localToolsDirectory, { recursive: true });
+    const unrelatedTool = path.join(localToolsDirectory, "other-platform-tool");
+    await writeFile(unrelatedTool, "preserve unrelated tools");
+    // An old execution entry must not redirect a refresh into verified originals.
+    const linkedTool = TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES[1];
+    await symlink(
+        path.join(cacheDirectory, linkedTool),
+        path.join(localToolsDirectory, linkedTool),
+    );
+    let buildCount = 0;
+    for (let iteration = 0; iteration < 2; iteration += 1) {
         await buildPinnedTauriLinuxBundle({
-            manifestPath,
-            cacheDirectory,
-            temporaryRoot,
-            expectedTauriCliVersion: testCliVersion,
-            logger: () => {},
-            environment: {
-                XDG_CACHE_HOME: "/unverified/cache",
-                [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: "/unverified/runtime",
-            },
-            fetchImplementation: async () => {
-                throw new Error("Verified cache must work offline.");
-            },
+            ...fixture.buildOptions,
+            environment,
+            runCommand: fixture.runCargoMetadata,
             runBuild: async (command, args, options) => {
                 buildCount += 1;
                 assert.equal(command, "yarn");
@@ -468,47 +519,264 @@ test("builds with the verified cached runtime and a locked Cargo graph", async (
                     TAURI_LINUX_BUNDLER_TARGET,
                 );
                 assert.deepEqual(args.slice(-2), ["--", "--locked"]);
-                assert.equal(
-                    path.dirname(options.env.XDG_CACHE_HOME),
-                    temporaryRoot,
-                );
                 assert.deepEqual(
                     JSON.parse(args[args.indexOf("--config") + 1]),
                     {
-                        bundle: { useLocalToolsDir: false },
+                        bundle: { useLocalToolsDir: true },
                     },
                 );
-                const runtimePath =
-                    options.env[TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY];
-                assert.equal(
-                    runtimePath,
-                    path.join(
-                        options.env.XDG_CACHE_HOME,
-                        "tauri",
-                        TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
-                    ),
+                const runtimePath = path.join(
+                    localToolsDirectory,
+                    TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
                 );
-                assert.deepEqual(
-                    await readFile(runtimePath),
-                    manifest.tools.find(
-                        (tool) =>
-                            tool.fileName ===
-                            TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
-                    ).content,
+                assert.deepEqual(options.env, {
+                    ...environment,
+                    [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: runtimePath,
+                });
+                for (const tool of manifest.tools) {
+                    const executionPath = path.join(
+                        localToolsDirectory,
+                        tool.fileName ===
+                            TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME
+                            ? TAURI_LINUX_APPIMAGE_PINNED_PLUGIN_FILE_NAME
+                            : tool.fileName,
+                    );
+                    assert.deepEqual(
+                        await readFile(executionPath),
+                        tool.content,
+                    );
+                    assert.equal(
+                        (await stat(executionPath)).mode & 0o777,
+                        0o755,
+                    );
+                }
+                const adapterPath = path.join(
+                    localToolsDirectory,
+                    TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
+                );
+                assert.match(
+                    await readFile(adapterPath, "utf8"),
+                    /linux-appimage-host-libraries\.mjs/,
+                );
+                assert.equal((await stat(adapterPath)).mode & 0o777, 0o755);
+                await assert.rejects(
+                    readFile(path.join(localToolsDirectory, "package.json")),
+                    { code: "ENOENT" },
+                );
+                // Model Tauri's mutation and an interrupted prior build.
+                await writeFile(
+                    path.join(localToolsDirectory, linkedTool),
+                    "mutated linuxdeploy",
+                );
+                await rm(runtimePath);
+                await writeFile(adapterPath, "stale adapter");
+                await writeFile(
+                    path.join(
+                        localToolsDirectory,
+                        TAURI_LINUX_APPIMAGE_PINNED_PLUGIN_FILE_NAME,
+                    ),
+                    "stale plugin",
                 );
             },
         });
-        assert.equal(buildCount, 1);
-        for (const tool of manifest.tools) {
-            assert.deepEqual(
-                await readFile(path.join(cacheDirectory, tool.fileName)),
-                tool.content,
-            );
-        }
-    } finally {
-        await rm(temporaryRoot, { recursive: true, force: true });
+    }
+    assert.equal(buildCount, 2);
+    assert.equal(
+        await readFile(unrelatedTool, "utf8"),
+        "preserve unrelated tools",
+    );
+    for (const tool of manifest.tools) {
+        assert.deepEqual(
+            await readFile(path.join(cacheDirectory, tool.fileName)),
+            tool.content,
+        );
     }
 });
+
+test("Corepack keeps using its original cache while local tools are inside an ESM project", async () => {
+    const fixture = await createBundleTestFixture();
+    const rootPackage = JSON.parse(
+        await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    );
+    const yarnVersion = rootPackage.packageManager.match(
+        /^yarn@(\d+\.\d+\.\d+)/,
+    )?.[1];
+    assert.ok(yarnVersion, "The project must pin a Yarn version.");
+    // Model the normal external cache scope and a nested ESM project entirely
+    // inside this worktree's retained fixture directory.
+    await writeFile(
+        path.join(fixture.temporaryRoot, "package.json"),
+        JSON.stringify({ type: "commonjs" }),
+    );
+    const projectDirectory = path.join(fixture.temporaryRoot, "esm-project");
+    await mkdir(projectDirectory);
+    await writeFile(
+        path.join(projectDirectory, "package.json"),
+        JSON.stringify({
+            type: "module",
+            packageManager: rootPackage.packageManager,
+        }),
+    );
+    const environment = {
+        ...process.env,
+        XDG_CACHE_HOME: path.join(fixture.temporaryRoot, "original-cache"),
+        CARGO_TARGET_DIR: path.join(projectDirectory, "target"),
+        COREPACK_ENABLE_NETWORK: "0",
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+        COREPACK_DEFAULT_TO_LATEST: "0",
+    };
+    delete environment.COREPACK_HOME;
+    const installFolder = path.join(
+        environment.XDG_CACHE_HOME,
+        "node/corepack/v1/yarn",
+        yarnVersion,
+    );
+    await mkdir(installFolder, { recursive: true });
+    // Run the CommonJS require boundary through the real Corepack launcher.
+    const cliSource = [
+        'const load = typeof require === "function" ? require : (name) => {',
+        '    throw new Error(`Dynamic require of "${name}" is not supported`);',
+        "};",
+        'load("util");',
+        `console.log(${JSON.stringify(yarnVersion)});`,
+    ].join("\n");
+    await writeFile(path.join(installFolder, "yarn.js"), cliSource);
+    await writeFile(
+        path.join(installFolder, ".corepack"),
+        JSON.stringify({
+            locator: { name: "yarn", reference: yarnVersion },
+            bin: ["yarn", "yarnpkg"],
+            hash: `sha512.${createHash("sha512").update(cliSource).digest("hex")}`,
+        }),
+    );
+    await buildPinnedTauriLinuxBundle({
+        ...fixture.buildOptions,
+        environment,
+        runCommand: async () => ({
+            stdout: JSON.stringify({
+                target_directory: environment.CARGO_TARGET_DIR,
+            }),
+        }),
+        async runBuild(_command, _args, options) {
+            assert.equal(
+                options.env.XDG_CACHE_HOME,
+                environment.XDG_CACHE_HOME,
+            );
+            const result = await runRedactedCommand(
+                "corepack",
+                ["yarn", "--version"],
+                {
+                    cwd: projectDirectory,
+                    env: options.env,
+                },
+            );
+            assert.equal(result.stdout.trim(), yarnVersion);
+        },
+    });
+});
+
+test("never launches Tauri when target resolution or execution-tool refresh fails", async () => {
+    const fixture = await createBundleTestFixture();
+    let launched = false;
+    const buildOptions = {
+        ...fixture.buildOptions,
+        runBuild: async () => {
+            launched = true;
+        },
+    };
+    await assert.rejects(
+        buildPinnedTauriLinuxBundle({
+            ...buildOptions,
+            runCommand: async () => {
+                throw new Error("Cargo metadata failed");
+            },
+        }),
+        /Cargo metadata failed/,
+    );
+    const localToolsDirectory = path.join(
+        fixture.targetDirectory,
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+    await mkdir(
+        path.join(localToolsDirectory, TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES[0]),
+        { recursive: true },
+    );
+    await assert.rejects(
+        buildPinnedTauriLinuxBundle({
+            ...buildOptions,
+            runCommand: fixture.runCargoMetadata,
+        }),
+        { code: "ERR_FS_EISDIR" },
+    );
+    assert.equal(launched, false);
+});
+
+test("rejects execution-directory aliases of the verified input cache", async () => {
+    const fixture = await createBundleTestFixture();
+    await assert.rejects(
+        stageTauriLinuxBundleTools({
+            cacheDirectory: fixture.cacheDirectory,
+            localToolsDirectory: fixture.cacheDirectory,
+        }),
+        /separate from the verified cache/,
+    );
+    const localToolsDirectory = path.join(
+        fixture.temporaryRoot,
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+    await symlink(fixture.cacheDirectory, localToolsDirectory);
+    await assert.rejects(
+        stageTauriLinuxBundleTools({
+            cacheDirectory: fixture.cacheDirectory,
+            localToolsDirectory,
+        }),
+        /not a link/,
+    );
+    for (const tool of fixture.manifest.tools) {
+        assert.deepEqual(
+            await readFile(path.join(fixture.cacheDirectory, tool.fileName)),
+            tool.content,
+        );
+    }
+});
+
+async function createBundleTestFixture() {
+    const fixtureRoot = fileURLToPath(new URL("../../tmp", import.meta.url));
+    await mkdir(fixtureRoot, { recursive: true });
+    const temporaryRoot = await mkdtemp(
+        path.join(fixtureRoot, "tauri-local-tools-test-"),
+    );
+    const manifestPath = path.join(temporaryRoot, "manifest.json");
+    const manifest = createTestManifest();
+    const cacheDirectory = path.join(temporaryRoot, "verified/tauri");
+    const targetDirectory = path.join(temporaryRoot, "Cargo target");
+    await writeFile(
+        manifestPath,
+        JSON.stringify(serializableManifest(manifest)),
+    );
+    await mkdir(cacheDirectory, { recursive: true });
+    for (const tool of manifest.tools) {
+        await writeFile(path.join(cacheDirectory, tool.fileName), tool.content);
+    }
+    return {
+        temporaryRoot,
+        manifest,
+        cacheDirectory,
+        targetDirectory,
+        runCargoMetadata: async () => ({
+            stdout: JSON.stringify({ target_directory: targetDirectory }),
+        }),
+        buildOptions: {
+            manifestPath,
+            cacheDirectory,
+            expectedTauriCliVersion: testCliVersion,
+            logger: () => {},
+            fetchImplementation: async () => {
+                throw new Error("Verified cache must work offline.");
+            },
+        },
+    };
+}
 
 test("never launches Tauri when input verification fails", async () => {
     const temporaryRoot = await mkdtemp(

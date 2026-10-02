@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import {
     chmod,
     copyFile,
+    lstat,
     mkdir,
     mkdtemp,
     readFile,
+    realpath,
     rename,
     rm,
     stat,
@@ -51,12 +53,15 @@ const TOOLS_DIRECTORY_MODE = 0o700;
 const DOWNLOAD_FILE_MODE = 0o600;
 const DOWNLOAD_UMASK = 0o077;
 const TAURI_TOOLS_CACHE_DIRECTORY_NAME = "tauri";
+export const TAURI_LOCAL_TOOLS_DIRECTORY_NAME = ".tauri";
 
 // The output plugin forwards this path to appimagetool's --runtime-file option.
 export const TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY = "LDAI_RUNTIME_FILE";
 export const TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME = "runtime-x86_64";
 export const TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME =
     "linuxdeploy-plugin-appimage.AppImage";
+export const TAURI_LINUX_APPIMAGE_PINNED_PLUGIN_FILE_NAME =
+    ".pinned-appimage-plugin";
 
 // Exact tools and embedded runtime consumed by the Tauri 2.11.3 Linux bundler.
 export const TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES = Object.freeze([
@@ -97,13 +102,14 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
     const cacheDirectory = path.resolve(
         options.cacheDirectory ?? resolveTauriToolsCacheDirectory(environment),
     );
-    if (path.basename(cacheDirectory) !== TAURI_TOOLS_CACHE_DIRECTORY_NAME) {
-        throw new Error("Linux bundle cache directory must be named tauri.");
-    }
     await preparePinnedTauriLinuxBundlerTools({ ...options, cacheDirectory });
-    const buildCacheDirectory = await stageTauriLinuxBundleTools({
+    const localToolsDirectory = await resolveTauriLocalToolsDirectory({
+        environment,
+        runCommand: options.runCommand,
+    });
+    await stageTauriLinuxBundleTools({
         cacheDirectory,
-        temporaryRoot: options.temporaryRoot,
+        localToolsDirectory,
     });
     const runBuild = options.runBuild ?? runRedactedCommand;
     await runBuild(
@@ -117,7 +123,7 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
             "--bundles",
             "appimage,deb",
             "--config",
-            JSON.stringify({ bundle: { useLocalToolsDir: false } }),
+            JSON.stringify({ bundle: { useLocalToolsDir: true } }),
             "--",
             "--locked",
         ],
@@ -125,9 +131,8 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
             cwd: rootDir,
             env: {
                 ...environment,
-                XDG_CACHE_HOME: path.dirname(buildCacheDirectory),
                 [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: path.join(
-                    buildCacheDirectory,
+                    localToolsDirectory,
                     TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
                 ),
             },
@@ -136,35 +141,72 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
     );
 }
 
-// Preserve the verified cache bytes. Tauri mutates linuxdeploy's ELF header,
-// and our output adapter must live beside it to win plugin discovery. Keep the
-// isolated build directory under tmp for inspection after a failed bundle.
-export async function stageTauriLinuxBundleTools({
-    cacheDirectory,
-    temporaryRoot = path.join(rootDir, "tmp"),
-}) {
-    await mkdir(temporaryRoot, { recursive: true });
-    const buildRoot = await mkdtemp(
-        path.join(temporaryRoot, "tauri-linux-bundle-"),
+// Match the pinned Tauri CLI's local-tools resolution through Cargo metadata,
+// including CARGO_TARGET_DIR and Cargo configuration. Do not guess src-tauri/target
+// or redirect unrelated caches to select the packaging tools.
+export async function resolveTauriLocalToolsDirectory({
+    environment = process.env,
+    runCommand = runRedactedCommand,
+} = {}) {
+    const result = await runCommand(
+        "cargo",
+        ["metadata", "--no-deps", "--format-version", "1", "--locked"],
+        { cwd: path.join(rootDir, "src-tauri"), env: environment },
     );
-    const buildCacheDirectory = path.join(
-        buildRoot,
-        TAURI_TOOLS_CACHE_DIRECTORY_NAME,
-    );
-    await mkdir(buildCacheDirectory, { mode: TOOLS_DIRECTORY_MODE });
-    for (const fileName of TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES) {
-        await copyFile(
-            path.join(cacheDirectory, fileName),
-            path.join(buildCacheDirectory, fileName),
+    const metadata = JSON.parse(result.stdout);
+    if (
+        typeof metadata?.target_directory !== "string" ||
+        !path.isAbsolute(metadata.target_directory)
+    ) {
+        throw new Error(
+            "Cargo metadata must provide an absolute target_directory for Tauri's local tools.",
         );
     }
+    return path.join(
+        metadata.target_directory,
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+}
+
+// Tauri mutates linuxdeploy's ELF header. Refresh only our execution copies and
+// adapter before each sequential build, preserving verified originals and other
+// Tauri tools that may share target/.tauri (for example, Windows packagers).
+export async function stageTauriLinuxBundleTools({
+    cacheDirectory,
+    localToolsDirectory,
+}) {
+    await mkdir(localToolsDirectory, {
+        recursive: true,
+        mode: TOOLS_DIRECTORY_MODE,
+    });
+    if (!(await lstat(localToolsDirectory)).isDirectory()) {
+        throw new Error(
+            "Tauri's local tools path must be a directory, not a link.",
+        );
+    }
+    if (
+        (await realpath(localToolsDirectory)) ===
+        (await realpath(cacheDirectory))
+    ) {
+        throw new Error(
+            "Tauri's execution tools must be separate from the verified cache.",
+        );
+    }
+    await chmod(localToolsDirectory, TOOLS_DIRECTORY_MODE);
+    for (const fileName of TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES) {
+        // Unlink stale entries first so a symlink cannot redirect a copy into
+        // the immutable input cache. A failed refresh never launches Tauri.
+        const destinationPath = path.join(localToolsDirectory, fileName);
+        await rm(destinationPath, { force: true });
+        await copyFile(path.join(cacheDirectory, fileName), destinationPath);
+    }
     const outputPluginPath = path.join(
-        buildCacheDirectory,
+        localToolsDirectory,
         TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
     );
     const pinnedOutputPluginPath = path.join(
-        buildCacheDirectory,
-        ".pinned-appimage-plugin",
+        localToolsDirectory,
+        TAURI_LINUX_APPIMAGE_PINNED_PLUGIN_FILE_NAME,
     );
     await rename(outputPluginPath, pinnedOutputPluginPath);
     const policyScriptPath = fileURLToPath(
@@ -183,7 +225,7 @@ export async function stageTauriLinuxBundleTools({
         ].join("\n"),
         { mode: EXECUTABLE_FILE_MODE },
     );
-    return buildCacheDirectory;
+    return localToolsDirectory;
 }
 
 // Materializes only manifest-pinned executable bytes in Tauri's Linux cache.

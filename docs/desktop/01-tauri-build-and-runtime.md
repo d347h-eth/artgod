@@ -448,10 +448,15 @@ Responsibilities:
 - selects the plugin release `1-alpha-20250213-1` and runtime release `20251108`;
   the plugin's bundled `appimagetool` is covered by the plugin artifact's hash
 - provides the verified runtime through `LDAI_RUNTIME_FILE` when invoked with
-  `--build`, and launches Tauri's locked Cargo build with an isolated per-build
-  cache under the worktree's `tmp/` directory
-- copies the verified tools into that cache, preserving the source cache bytes
-  when Tauri changes linuxdeploy's ELF header
+  `--build`, and launches Tauri's locked Cargo build with
+  `bundle.useLocalToolsDir=true`
+- resolves `target/.tauri` from locked Cargo metadata, matching the pinned Tauri
+  CLI and respecting `CARGO_TARGET_DIR` and Cargo configuration
+- refreshes the six execution tools and output adapter before each sequential
+  build, preserving the verified source cache when Tauri changes linuxdeploy's
+  ELF header and leaving other tools in `.tauri` intact
+- leaves `XDG_CACHE_HOME` and Corepack's cache unchanged; packaging tools do not
+  need a generated Node package scope
 - wraps the pinned AppImage output plugin with the repository-owned host-library
   policy; the adapter runs after all GTK/media input plugins and then forwards
   the original arguments and verified runtime to the unchanged pinned plugin
@@ -1153,6 +1158,10 @@ Build-check trigger policy:
 
 - The build check runs the no-write project version contract before package
   installation, so version drift fails on pull requests and `main`.
+- Its Linux job uses Ubuntu 22.04, matching release packaging. After the debug
+  no-bundle gates, it runs `yarn build:desktop:linux-bundle` through Corepack's
+  Yarn shim and verifies the final AppImage and `.deb` runtime integrity. A
+  no-bundle build alone does not exercise the packaging-tool cache or plugins.
 - Its required macOS job runs the real universal `better-sqlite3` node-gyp and
   `lipo` path, so both slices are proven before a release tag.
 - Do not add `paths-ignore` for version-sync files; they are build-critical
