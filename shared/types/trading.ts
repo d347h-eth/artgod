@@ -373,6 +373,7 @@ export const COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS = {
     TraitJoin: "trait_join",
     Maker: "maker",
     Ownership: "ownership",
+    OwnState: "own_state",
     ShowMuted: "show_muted",
 } as const;
 
@@ -467,6 +468,40 @@ export const TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT = {
 
 export type TradingBiddingJobRuntimeConstraint =
     (typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT];
+
+// Own-state tabs match existing lifecycle, position, and constraint signals; constraints can overlap positions.
+export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor,
+] as const;
+
+export type CollectionBiddingBidBookOwnStateFilter =
+    (typeof COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)[number];
+
+export type TradingBiddingBidBookOwnState =
+    | TradingBiddingBidBookOwnJobPhase
+    | TradingBiddingJobRuntimeBidPosition
+    | TradingBiddingJobRuntimeConstraint;
+
+// Counts own rows in the current scope and trait filters before the state filter or pagination.
+export type TradingBiddingBidBookOwnStateCounts = {
+    total: number;
+    states: Record<CollectionBiddingBidBookOwnStateFilter, number>;
+};
+
+export function isCollectionBiddingBidBookOwnStateFilter(
+    value: unknown,
+): value is CollectionBiddingBidBookOwnStateFilter {
+    return COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.some(
+        (state) => state === value,
+    );
+}
 
 // Validates serialized bot-owned bid constraint values at adapter boundaries.
 export function isTradingBiddingJobRuntimeConstraint(
