@@ -169,6 +169,14 @@ artifacts after the container exits. It requires the normal project Node setup
 on the host: the shared runtime input owner verifies the pinned Linux Node
 archive before mounting it read-only for container bootstrap.
 
+The container provisions tools as root, then compiles as a container-local user
+matching the host checkout owner. Git metadata is mounted read-only at its
+resolved path so linked worktrees retain their committed revision. The helper
+keeps Git ownership checks active and does not change host Git configuration.
+Its generated-artifact ownership set includes frontend and desktop-runtime
+outputs, and is applied before compilation and on exit so older root-based
+reproduction runs do not leave unwritable build inputs.
+
 macOS Universal 2 app in a DMG:
 
 ```sh
