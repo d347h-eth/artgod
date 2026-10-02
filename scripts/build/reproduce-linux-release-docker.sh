@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../.." && pwd)"
-node_version="$(sed -n 's/.*"node": "\([^"]*\)".*/\1/p' "$repo_root/package.json" | head -n 1)"
+node_version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).engines.node' "$repo_root/package.json")"
 rust_toolchain="$(sed -n 's/[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/rust-toolchain.toml" | head -n 1)"
 
 if [ -z "$node_version" ]; then
@@ -15,6 +15,9 @@ if [ -z "$rust_toolchain" ]; then
     echo "Unable to read channel from rust-toolchain.toml" >&2
     exit 1
 fi
+
+# Use the same reviewed archive owner as desktop staging before container bootstrap.
+node_archive_path="$(node "$script_dir/desktop-runtime-inputs.mjs" --node-archive linux-x64)"
 
 docker run --rm \
     --env ARTGOD_HOST_UID="$(id -u)" \
@@ -28,6 +31,7 @@ docker run --rm \
     --env DESKTOP_NATS_DIST_TARGET=linux-x64 \
     --env APPIMAGE_EXTRACT_AND_RUN=1 \
     --volume "$repo_root":/home/runner/work/artgod/artgod \
+    --volume "$node_archive_path":/artgod-build-inputs/node.tar.xz:ro \
     --workdir /home/runner/work/artgod/artgod \
     ubuntu:22.04 \
     bash -lc '
@@ -76,9 +80,7 @@ apt-get install -y --no-install-recommends \
     g++ \
     xz-utils
 
-node_archive="node-v${ARTGOD_NODE_VERSION}-linux-x64.tar.xz"
-curl -fsSLo "/tmp/${node_archive}" "https://nodejs.org/dist/v${ARTGOD_NODE_VERSION}/${node_archive}"
-tar -xJf "/tmp/${node_archive}" -C /opt
+tar -xJf /artgod-build-inputs/node.tar.xz -C /opt
 export PATH="/opt/node-v${ARTGOD_NODE_VERSION}-linux-x64/bin:${PATH}"
 
 mkdir -p "$CARGO_HOME"

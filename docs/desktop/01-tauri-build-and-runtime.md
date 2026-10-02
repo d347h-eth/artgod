@@ -359,16 +359,26 @@ Responsibilities:
 - stages runtime resources for Tauri bundling under `src-tauri/resources/runtime`
 - downloads/verifies the Node distribution for the target platform and stages bundled Node under `src-tauri/resources/runtime/node`
   : source of truth for Node version is `package.json` `engines.node`
+  : `config/desktop-runtime-inputs.json` pins archive hashes, sizes and
+  publication evidence for all six concrete targets; admission requires 30 days
   : an explicit distribution target must agree with any active Tauri/Cargo
   target context; absent either, resolution uses the other and then falls back
   to the build host
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
-  : downloaded archives are cached in `.cache/desktop-node-runtime`
+  : downloaded archives are cached in `.cache/desktop-node-runtime` and
+  rehashed on every use; each build extracts a fresh declared executable
 - downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
-  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.18`)
+  : source of truth for NATS version is `config/desktop-runtime-inputs.json`;
+  `DESKTOP_NATS_VERSION` may only confirm that reviewed version
   : download target uses the same target resolution as Node
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
-  : downloaded archives are cached in `.cache/desktop-nats-runtime`
+  : downloaded archives are cached in `.cache/desktop-nats-runtime` and
+  rehashed on every use; universal assemblies are rebuilt from fresh slices
+- delegates archive admission/acquisition and executable materialization to
+  `scripts/build/desktop-runtime-inputs.mjs`, which shares byte/cache and
+  GitHub asset verification with the Tauri packaging input owner
+- never reads the legacy extracted/assembled executable caches; staging,
+  smoke checks, macOS signing and Rust integrity snapshots retain their order
 - copies:
     - `backend/dist-desktop/*`
     - `backend/node_modules/*`
