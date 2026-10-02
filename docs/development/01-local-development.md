@@ -133,14 +133,20 @@ and changed bytes fail preparation without selecting replacements.
 
 The same command supplies `LDAI_RUNTIME_FILE` to make the plugin's bundled
 `appimagetool` embed the verified runtime instead of fetching its `continuous`
-default. It copies the verified inputs to an isolated per-build cache under
-`tmp/`, disables Tauri's alternate local tool directory, and passes `--locked`
-to Cargo. Before the pinned output plugin creates the AppImage, the maintained
+default. It refreshes execution copies in Cargo's `target/.tauri` directory and
+selects Tauri's supported `bundle.useLocalToolsDir=true` option. Cargo metadata
+resolves that directory, including `CARGO_TARGET_DIR` or Cargo configuration;
+the caller's `XDG_CACHE_HOME` and Corepack cache remain unchanged. The command
+passes `--locked` to Cargo. Before the pinned output plugin creates the AppImage, the maintained
 adapter omits Wayland runtime libraries so they resolve from the target system
 alongside its Mesa/EGL drivers. The final bundle verifier rejects any bundled
 Wayland copies. The Ubuntu 22 release job and the Docker reproduction helper
 use this command too. Raw `yarn tauri build` bypasses these packaging controls.
 See [build input controls and remaining gaps](#build-input-controls-and-remaining-gaps).
+
+`yarn prepare:tauri-linux-tools` only verifies and prefetches the pinned inputs.
+Use `yarn build:desktop:linux-bundle` for packaging; it also refreshes execution
+copies, selects the embedded runtime and applies the final Wayland policy.
 
 If `linuxdeploy` fails while stripping `.relr.dyn` sections on a newer Linux
 distribution, skip its symbol-stripping step for that local build:

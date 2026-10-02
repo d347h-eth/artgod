@@ -449,6 +449,8 @@ Responsibilities:
 Responsibilities:
 
 - owns the complete Tauri Linux x64 AppImage tool cache contract
+- without `--build`, only verifies/prefetches inputs and directs developers to
+  `yarn build:desktop:linux-bundle` for the complete packaging contract
 - requires the manifest CLI version to match the project-pinned Tauri CLI
 - downloads binary uploads by their fixed GitHub release asset IDs rather than
   resolving moving release tags; script URLs select their declared source commits

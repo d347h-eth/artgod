@@ -87,7 +87,7 @@ async function main() {
     }
     await preparePinnedTauriLinuxBundlerTools();
     console.log(
-        `For Tauri builds, set ${TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY}=${path.join(resolveTauriToolsCacheDirectory(), TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME)}.`,
+        `Verified Linux bundler inputs are cached. Build with yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}.`,
     );
 }
 
