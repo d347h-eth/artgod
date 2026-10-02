@@ -982,8 +982,28 @@ User-facing authorization review:
   Config is shown separately as next-start settings
 - offer expiration remains an Admin-only operational setting and is not part of
   native authorization
-- bidding policy and collection review pages use the Admin launch-sized prompt
-  window; the helper fails closed instead of drawing a page over its action controls
+- bidding authorization opens a resizable 768 × 666 physical-pixel window with
+  a 640 × 460 minimum, independent of the Admin launch dimensions and desktop
+  scaling; those dimensions also apply to its subsequent passphrase entry
+- review content is paginated above the always-visible Next and Cancel controls;
+  Next shows the remaining content before advancing to another policy or
+  collection page, and passphrase entry follows completion of every review
+- rows that fit in one view keep their labels and values together; continuation
+  views repeat the canonical network or collection identity when it fits
+- resizing restarts the current review from its first line to avoid skipping
+  values after rewrapping; confirmation waits for content rendered at the current
+  dimensions and is blocked if no review line fits
+
+The helper's Rust tests exercise the production bitmap renderer and retain
+policy, collection-scope, and passphrase previews at the default and minimum
+sizes under `tmp/secret-prompt-rendering/`:
+
+```sh
+cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml
+```
+
+These headless previews cover content, control geometry, and input transitions.
+Native window decorations and mouse-driven resizing still require desktop QA.
 
 The word `native` remains appropriate when explaining the trusted prompt boundary
 to developers. It is not a substitute for explaining the user's bidding task in

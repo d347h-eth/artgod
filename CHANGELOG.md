@@ -7,6 +7,11 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 ## Unreleased
 
+### Fixed
+
+- Bidding authorization opens in a shorter, resizable window with visible Next
+  and Cancel buttons. Long reviews continue through Next before wallet unlock.
+
 ## 0.1.3-alpha - 2026-10-01
 
 Changes since the previous published application release,

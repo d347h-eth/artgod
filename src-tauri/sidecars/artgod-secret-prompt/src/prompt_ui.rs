@@ -19,10 +19,6 @@ use crate::generated_font::{
 };
 use crate::owner_liveness::{OwnerLiveness, OwnerLivenessEvent};
 
-mod generated_window_size {
-    include!(concat!(env!("OUT_DIR"), "/generated_window_size.rs"));
-}
-
 const BACKGROUND: u32 = 0x101317;
 const PANEL: u32 = 0x171C22;
 const PANEL_MUTED: u32 = 0x1F2630;
@@ -57,8 +53,9 @@ const CARET_TEXT_GAP_PX: i32 = 4;
 const FIELD_HEIGHT: i32 = CELL_HEIGHT as i32 + (FIELD_INNER_PADDING_Y * 2);
 const TEXT_WINDOW_SIZE: (u32, u32) = (820, 360);
 const UNLOCK_WINDOW_SIZE: (u32, u32) = (920, 460);
-// Uses the canonical Admin launch dimensions for complete bidding authorization pages.
-const BIDDING_REVIEW_WINDOW_SIZE: (u32, u32) = generated_window_size::ADMIN_WINDOW_SIZE;
+// The bitmap renderer uses physical pixels; keep bidding review independent of Admin sizing.
+const BIDDING_REVIEW_WINDOW_SIZE: (u32, u32) = (768, 666);
+const BIDDING_REVIEW_MIN_WINDOW_SIZE: (u32, u32) = (640, 460);
 const REVEAL_WINDOW_SIZE: (u32, u32) = (920, 420);
 const STARTUP_SUBMIT_GUARD: Duration = Duration::from_millis(250);
 const REVIEW_NEXT_LABEL: &str = "Next";
@@ -87,6 +84,7 @@ pub struct UnlockPromptSpec<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BiddingReviewPage {
     pub heading: Option<String>,
+    /// The first row identifies the network or collection and repeats on continuation views.
     pub rows: Vec<BiddingReviewRow>,
 }
 
@@ -621,6 +619,25 @@ struct ExportConfirmFlowState {
 }
 
 impl PromptFlow {
+    fn window_attributes(&self, title: &str, window_size: (u32, u32)) -> WindowAttributes {
+        let attributes = WindowAttributes::default()
+            .with_title(title)
+            .with_resizable(false)
+            .with_inner_size(LogicalSize::new(
+                f64::from(window_size.0),
+                f64::from(window_size.1),
+            ));
+        if matches!(self, Self::Unlock(state) if !state.review_pages.is_empty()) {
+            // Physical dimensions match the fixed bitmap glyphs even on a scaled desktop.
+            attributes
+                .with_resizable(true)
+                .with_inner_size(PhysicalSize::<u32>::from(window_size))
+                .with_min_inner_size(PhysicalSize::<u32>::from(BIDDING_REVIEW_MIN_WINDOW_SIZE))
+        } else {
+            attributes
+        }
+    }
+
     fn on_result(&mut self, result: ScreenResult) -> Result<FlowTransition, PromptUiError> {
         match self {
             Self::Unlock(state) => state.on_result(result),
@@ -963,6 +980,11 @@ impl PromptApp {
             self.force_close_for_owner(event_loop);
             return;
         }
+        if matches!(result, ScreenResult::ReviewContinued) {
+            self.reset_screen_guard();
+            self.request_redraw();
+            return;
+        }
         match self.flow.on_result(result) {
             Ok(FlowTransition::Continue(next_screen)) => {
                 if self.owner_liveness.forced_event().is_some() {
@@ -1052,13 +1074,7 @@ impl ApplicationHandler<OwnerLivenessEvent> for PromptApp {
             self.force_close_for_owner(event_loop);
             return;
         }
-        let attributes = WindowAttributes::default()
-            .with_title(self.title.clone())
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(
-                f64::from(self.window_size.0),
-                f64::from(self.window_size.1),
-            ));
+        let attributes = self.flow.window_attributes(&self.title, self.window_size);
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Rc::new(window),
             Err(error) => {
@@ -1294,6 +1310,7 @@ impl ScreenState {
 enum ScreenResult {
     Submitted(Zeroizing<String>),
     Confirmed,
+    ReviewContinued,
     Acknowledged,
     Cancelled,
 }
@@ -1715,17 +1732,22 @@ impl BiddingReviewProgress {
     fn render_range(
         &mut self,
         size: PhysicalSize<u32>,
-        line_count: usize,
+        review: &WrappedBiddingReview,
         capacity: usize,
-    ) -> std::ops::Range<usize> {
+    ) -> (usize, std::ops::Range<usize>) {
         if self.size != Some(size) {
             // Rewrapping invalidates line offsets. Restart this review rather than skip values.
             self.size = Some(size);
             self.first_line = 0;
         }
-        let end = min(line_count, self.first_line.saturating_add(capacity));
+        let context_lines = if self.first_line > 0 && review.context_end < capacity {
+            review.context_end
+        } else {
+            0
+        };
+        let end = review.page_end(self.first_line, capacity - context_lines);
         self.rendered_end = (capacity > 0).then_some(end);
-        self.first_line..end
+        (context_lines, self.first_line..end)
     }
 
     fn advance(&mut self, size: PhysicalSize<u32>, line_count: usize) -> Option<ScreenResult> {
@@ -1736,7 +1758,7 @@ impl BiddingReviewProgress {
         }
         self.first_line = end;
         self.rendered_end = None;
-        None
+        Some(ScreenResult::ReviewContinued)
     }
 }
 
@@ -1769,6 +1791,30 @@ struct BiddingReviewTextSpan {
 }
 
 type BiddingReviewTextLine = Vec<BiddingReviewTextSpan>;
+
+struct WrappedBiddingReview {
+    lines: Vec<BiddingReviewTextLine>,
+    row_ends: Vec<usize>,
+    context_end: usize,
+}
+
+impl WrappedBiddingReview {
+    fn page_end(&self, first_line: usize, capacity: usize) -> usize {
+        let limit = min(self.lines.len(), first_line.saturating_add(capacity));
+        let mut row_start = 0;
+        for &row_end in &self.row_ends {
+            if row_end > limit {
+                // Keep a label and value together whenever that row fits in one view.
+                if row_start > first_line && row_end - row_start <= capacity {
+                    return row_start;
+                }
+                break;
+            }
+            row_start = row_end;
+        }
+        limit
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConfirmFocus {
@@ -1863,13 +1909,16 @@ impl ConfirmScreenState {
                 }
             }
             ConfirmScreenContent::BiddingReview(page) => {
-                let lines = layout.bidding_review_lines(page);
+                let review = layout_bidding_review_page(page, layout.max_message_cols);
                 let capacity = layout.message_line_capacity();
-                let range = self
-                    .review_progress
-                    .render_range(size, lines.len(), capacity);
+                let (context_lines, range) =
+                    self.review_progress.render_range(size, &review, capacity);
                 can_confirm = capacity > 0;
-                for (index, line) in lines[range].iter().enumerate() {
+                for (index, line) in review.lines[..context_lines]
+                    .iter()
+                    .chain(review.lines[range].iter())
+                    .enumerate()
+                {
                     let mut x = layout.message_x;
                     let y = layout.message_y + ((index as i32) * LINE_HEIGHT);
                     for span in line {
@@ -2201,6 +2250,10 @@ fn wrap_bidding_review_page(
     page: &BiddingReviewPage,
     max_cols: usize,
 ) -> Vec<BiddingReviewTextLine> {
+    layout_bidding_review_page(page, max_cols).lines
+}
+
+fn layout_bidding_review_page(page: &BiddingReviewPage, max_cols: usize) -> WrappedBiddingReview {
     let mut lines = page
         .heading
         .as_deref()
@@ -2208,7 +2261,13 @@ fn wrap_bidding_review_page(
             wrap_bidding_review_spans(vec![(heading, BiddingReviewTextRole::Plain)], max_cols)
         })
         .unwrap_or_default();
-    for row in &page.rows {
+    let mut row_ends = if lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![lines.len()]
+    };
+    let mut context_end = lines.len();
+    for (index, row) in page.rows.iter().enumerate() {
         let indentation = " ".repeat(row.indentation_columns);
         let label = format!("{indentation}{}: ", row.label);
         let mut spans = vec![(label.as_str(), BiddingReviewTextRole::Label)];
@@ -2217,8 +2276,16 @@ fn wrap_bidding_review_page(
             BiddingReviewValue::Amount(value) => (value.as_str(), BiddingReviewTextRole::Amount),
         }));
         lines.extend(wrap_bidding_review_spans(spans, max_cols));
+        row_ends.push(lines.len());
+        if index == 0 {
+            context_end = lines.len();
+        }
     }
-    lines
+    WrappedBiddingReview {
+        lines,
+        row_ends,
+        context_end,
+    }
 }
 
 fn wrap_bidding_review_spans(
@@ -2362,7 +2429,7 @@ mod tests {
     }
 
     #[test]
-    fn bidding_reviews_use_the_tall_unlock_window() {
+    fn bidding_reviews_use_the_compact_unlock_window() {
         let review_pages = vec![BiddingReviewPage {
             heading: Some("Bidding authorization".to_owned()),
             rows: Vec::new(),
@@ -2404,12 +2471,197 @@ mod tests {
         }
     }
 
+    fn unlock_flow(review_pages: Vec<BiddingReviewPage>) -> UnlockFlowState {
+        UnlockFlowState {
+            title: "Unlock Wallet".to_owned(),
+            passphrase_message: format!(
+                "Unlock wallet \"{}\" ({}) to start bidding",
+                "Example wallet".to_owned() + &"x".repeat(50),
+                "0x1111111111111111111111111111111111111111",
+            ),
+            review_pages,
+            page_index: 0,
+            unlock_label: "Unlock".to_owned(),
+            cancel_label: "Cancel".to_owned(),
+        }
+    }
+
+    #[test]
+    fn bidding_window_stays_compact_at_1080p_desktop_scale_factors() {
+        let pages = vec![long_review_page()];
+        let size = resolve_unlock_window_size(&pages);
+        let flow = PromptFlow::Unlock(unlock_flow(pages));
+        let attributes = flow.window_attributes("Unlock Wallet", size);
+        assert!(attributes.resizable);
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            assert_eq!(
+                attributes.inner_size.unwrap().to_physical::<u32>(scale),
+                PhysicalSize::from(BIDDING_REVIEW_WINDOW_SIZE)
+            );
+            assert_eq!(
+                attributes.min_inner_size.unwrap().to_physical::<u32>(scale),
+                PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE)
+            );
+        }
+    }
+
+    #[test]
+    fn other_wallet_flows_keep_their_existing_window_behavior() {
+        let flow = PromptFlow::Unlock(unlock_flow(Vec::new()));
+        let attributes = flow.window_attributes("Unlock Wallet", resolve_unlock_window_size(&[]));
+        assert!(!attributes.resizable);
+        assert!(attributes.min_inner_size.is_none());
+        assert_eq!(
+            attributes.inner_size.unwrap().to_logical::<u32>(1.0),
+            LogicalSize::from(UNLOCK_WINDOW_SIZE)
+        );
+        let attributes =
+            PromptFlow::SingleReveal.window_attributes("Export Wallet", REVEAL_WINDOW_SIZE);
+        assert!(!attributes.resizable);
+        assert!(attributes.min_inner_size.is_none());
+    }
+
+    fn canonical_review_pages() -> Vec<BiddingReviewPage> {
+        use artgod_secret_prompt_protocol::{
+            UnlockBiddingCollectionSummary, UnlockBiddingMandateSummary,
+            UnlockBiddingTokenScopeItem,
+        };
+        let scopes = [
+            ("all contract tokens", Vec::new()),
+            (
+                "token range",
+                vec![("start token", "0"), ("total supply", "9911")],
+            ),
+            ("explicit token ids", vec![("token count", "42")]),
+        ];
+        crate::build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: 1,
+            chain_name: "Ethereum".to_owned(),
+            weth_allowance_cap_eth: "0.5".to_owned(),
+            min_priority_fee_per_gas_gwei: "0.1".to_owned(),
+            max_fee_per_gas_gwei: "10".to_owned(),
+            max_total_gas_fee_eth: "0.01".to_owned(),
+            pending_nonce_policy: "fail if the wallet already has pending transactions".to_owned(),
+            trait_offers_enabled: true,
+            collections: scopes
+                .into_iter()
+                .enumerate()
+                .map(|(index, (scope, items))| UnlockBiddingCollectionSummary {
+                    collection_id: index as u64 + 1,
+                    artgod_slug: "example-tokens".to_owned(),
+                    contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                    opensea_slug: "example-tokens".to_owned(),
+                    token_scope_label: scope.to_owned(),
+                    token_scope_items: items
+                        .into_iter()
+                        .map(|(label, value)| UnlockBiddingTokenScopeItem {
+                            label: label.to_owned(),
+                            value: value.to_owned(),
+                        })
+                        .collect(),
+                    max_unit_bid_eth: "1.25".to_owned(),
+                    max_quantity: 1,
+                })
+                .collect(),
+        })
+    }
+
+    fn write_render_fixture(name: &str, size: PhysicalSize<u32>, pixels: &[u32]) {
+        use std::io::Write;
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tmp/secret-prompt-rendering");
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = std::fs::File::create(directory.join(format!("{name}.ppm"))).unwrap();
+        let mut output = std::io::BufWriter::new(file);
+        writeln!(output, "P6\n{} {}\n255", size.width, size.height).unwrap();
+        for pixel in pixels {
+            output
+                .write_all(&[(pixel >> 16) as u8, (pixel >> 8) as u8, *pixel as u8])
+                .unwrap();
+        }
+        output.flush().unwrap();
+    }
+
+    #[test]
+    fn canonical_bidding_reviews_and_unlock_render_at_compact_and_minimum_sizes() {
+        let pages = canonical_review_pages();
+        for (viewport, size) in [
+            ("default", PhysicalSize::from(BIDDING_REVIEW_WINDOW_SIZE)),
+            (
+                "minimum",
+                PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE),
+            ),
+        ] {
+            let layout = ConfirmScreenLayout::for_size(size);
+            for rect in [layout.confirm_rect, layout.cancel_rect] {
+                assert!(rect.x >= 0 && rect.y >= 0);
+                assert!(rect.x + rect.w <= size.width as i32);
+                assert!(rect.y + rect.h <= size.height as i32);
+            }
+            for (page_index, page) in pages.iter().enumerate() {
+                let mut screen = review_screen(page);
+                let line_count = layout.bidding_review_lines(page).len();
+                for part in 0..line_count.max(1) {
+                    let pixels = render_review(&mut screen, size);
+                    write_render_fixture(
+                        &format!("{viewport}-review-{page_index}-{part}"),
+                        size,
+                        &pixels,
+                    );
+                    screen.focus = ConfirmFocus::Confirm;
+                    if let Some(ScreenResult::Confirmed) = screen.activate_focused(size) {
+                        break;
+                    }
+                    assert!(part + 1 < line_count, "canonical review did not finish");
+                }
+            }
+
+            let mut flow = unlock_flow(vec![pages[0].clone()]);
+            let FlowTransition::Continue(mut screen) =
+                flow.on_result(ScreenResult::Confirmed).unwrap()
+            else {
+                panic!("completed review must open passphrase entry");
+            };
+            let ScreenState::Text(passphrase) = &mut screen else {
+                panic!("expected passphrase input");
+            };
+            let fixture_passphrase = "fixture-passphrase";
+            passphrase.insert_text(fixture_passphrase);
+            let mut pixels = vec![BACKGROUND; size.width as usize * size.height as usize];
+            screen.render(
+                &mut Canvas::new(&mut pixels, size.width as usize, size.height as usize),
+                size,
+            );
+            write_render_fixture(&format!("{viewport}-unlock"), size, &pixels);
+            let Some(ScreenResult::Submitted(value)) = screen.handle_click(
+                PhysicalPosition::new(
+                    f64::from(layout.confirm_rect.x + layout.confirm_rect.w / 2),
+                    f64::from(layout.confirm_rect.y + layout.confirm_rect.h / 2),
+                ),
+                size,
+            ) else {
+                panic!("visible unlock button must submit the passphrase");
+            };
+            assert_eq!(value.as_str(), fixture_passphrase);
+            assert!(matches!(
+                screen.handle_click(
+                    PhysicalPosition::new(
+                        f64::from(layout.cancel_rect.x + layout.cancel_rect.w / 2),
+                        f64::from(layout.cancel_rect.y + layout.cancel_rect.h / 2)
+                    ),
+                    size
+                ),
+                Some(ScreenResult::Cancelled)
+            ));
+        }
+    }
+
     #[test]
     fn oversized_reviews_show_every_styled_line_before_confirming() {
         let page = long_review_page();
         for size in [
-            PhysicalSize::new(768, 666),
-            PhysicalSize::new(640, 460),
+            PhysicalSize::from(BIDDING_REVIEW_WINDOW_SIZE),
+            PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE),
             PhysicalSize::new(1000, 768),
         ] {
             let layout = ConfirmScreenLayout::for_size(size);
@@ -2437,7 +2689,8 @@ mod tests {
                 assert!(
                     layout.message_y + (end - first) as i32 * LINE_HEIGHT <= layout.confirm_rect.y
                 );
-                let body_bottom = layout.message_y + (end - first) as i32 * LINE_HEIGHT;
+                let body_bottom =
+                    layout.message_y + layout.message_line_capacity() as i32 * LINE_HEIGHT;
                 let gap = &pixels[body_bottom as usize * size.width as usize
                     ..layout.confirm_rect.y as usize * size.width as usize];
                 assert!(!gap.contains(&BIDDING_REVIEW_LABEL));
@@ -2450,7 +2703,10 @@ mod tests {
                     ));
                     break;
                 }
-                assert!(screen.activate_focused(size).is_none());
+                assert!(matches!(
+                    screen.activate_focused(size),
+                    Some(ScreenResult::ReviewContinued)
+                ));
                 assert_eq!(screen.review_progress.first_line, end);
                 // A second Enter/Next before the next render cannot skip its content.
                 assert!(screen.activate_focused(size).is_none());
@@ -2461,20 +2717,60 @@ mod tests {
     }
 
     #[test]
+    fn continuation_views_keep_complete_rows_and_the_canonical_identity() {
+        let page = canonical_review_pages().remove(0);
+        let size = PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE);
+        let layout = ConfirmScreenLayout::for_size(size);
+        let wrapped = layout_bidding_review_page(&page, layout.max_message_cols);
+        let mut screen = review_screen(&page);
+        let first_pixels = render_review(&mut screen, size);
+        assert!(
+            wrapped
+                .row_ends
+                .contains(&screen.review_progress.rendered_end.unwrap())
+        );
+        screen.focus = ConfirmFocus::Confirm;
+        assert!(matches!(
+            screen.activate_focused(size),
+            Some(ScreenResult::ReviewContinued)
+        ));
+        let next_pixels = render_review(&mut screen, size);
+        assert!(
+            wrapped
+                .row_ends
+                .contains(&screen.review_progress.rendered_end.unwrap())
+        );
+        let context_top = layout.message_y as usize * size.width as usize;
+        let context_bottom = (layout.message_y as usize
+            + wrapped.context_end * LINE_HEIGHT as usize)
+            * size.width as usize;
+        assert_eq!(
+            &first_pixels[context_top..context_bottom],
+            &next_pixels[context_top..context_bottom]
+        );
+    }
+
+    #[test]
     fn resizing_a_partially_reviewed_page_requires_its_reflowed_content_again() {
         let mut screen = review_screen(&long_review_page());
-        let original = PhysicalSize::new(768, 666);
-        let resized = PhysicalSize::new(640, 460);
+        let original = PhysicalSize::from(BIDDING_REVIEW_WINDOW_SIZE);
+        let resized = PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE);
         screen.handle_navigation_key(&Key::Named(NamedKey::Tab));
         render_review(&mut screen, original);
-        assert!(screen.activate_focused(original).is_none());
+        assert!(matches!(
+            screen.activate_focused(original),
+            Some(ScreenResult::ReviewContinued)
+        ));
         render_review(&mut screen, original);
         assert!(screen.review_progress.first_line > 0);
 
         assert!(screen.activate_focused(resized).is_none());
         render_review(&mut screen, resized);
         assert_eq!(screen.review_progress.first_line, 0);
-        assert!(screen.activate_focused(resized).is_none());
+        assert!(matches!(
+            screen.activate_focused(resized),
+            Some(ScreenResult::ReviewContinued)
+        ));
         assert_eq!(
             screen.review_progress.first_line,
             ConfirmScreenLayout::for_size(resized).message_line_capacity()
@@ -2484,9 +2780,9 @@ mod tests {
     #[test]
     fn next_and_cancel_clicks_follow_the_review_layout_after_resizing() {
         let mut screen = review_screen(&long_review_page());
-        let original = PhysicalSize::new(768, 666);
+        let original = PhysicalSize::from(BIDDING_REVIEW_WINDOW_SIZE);
         render_review(&mut screen, original);
-        let resized = PhysicalSize::new(640, 460);
+        let resized = PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE);
         render_review(&mut screen, resized);
         let layout = ConfirmScreenLayout::for_size(resized);
         let center = |rect: Rect| {
@@ -2496,11 +2792,10 @@ mod tests {
             )
         };
 
-        assert!(
-            screen
-                .handle_click(center(layout.confirm_rect), resized)
-                .is_none()
-        );
+        assert!(matches!(
+            screen.handle_click(center(layout.confirm_rect), resized),
+            Some(ScreenResult::ReviewContinued)
+        ));
         assert_eq!(
             screen.review_progress.first_line,
             layout.message_line_capacity()
@@ -2538,7 +2833,7 @@ mod tests {
             unlock_label: "Unlock".to_owned(),
             cancel_label: "Cancel".to_owned(),
         };
-        let size = PhysicalSize::new(640, 460);
+        let size = PhysicalSize::from(BIDDING_REVIEW_MIN_WINDOW_SIZE);
         for page_index in 0..flow.review_pages.len() {
             let maximum_views = ConfirmScreenLayout::for_size(size)
                 .bidding_review_lines(&flow.review_pages[page_index])
@@ -2553,10 +2848,13 @@ mod tests {
                 views += 1;
                 assert!(views <= maximum_views, "review did not advance");
                 render_review(review, size);
-                let Some(result) = review.activate_focused(size) else {
+                let result = review
+                    .activate_focused(size)
+                    .expect("rendered review must advance");
+                if matches!(result, ScreenResult::ReviewContinued) {
                     assert_eq!(flow.page_index, page_index);
                     continue;
-                };
+                }
                 let FlowTransition::Continue(next_screen) = flow.on_result(result).unwrap() else {
                     panic!("review must lead to another review or passphrase entry");
                 };
