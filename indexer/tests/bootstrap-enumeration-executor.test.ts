@@ -64,10 +64,9 @@ describe("bootstrap enumeration executor", () => {
         expect(harness.runningSteps).toEqual([
             { runId: 41, stepKey: BOOTSTRAP_STEP_KEY.Enumeration },
         ]);
-        expect(harness.insertedMetadataBatches.map((batch) => batch.length)).toEqual([
-            2,
-            1,
-        ]);
+        expect(
+            harness.insertedMetadataBatches.map((batch) => batch.length),
+        ).toEqual([2, 1]);
         expect(harness.insertedMetadataBatches[0]?.[0]).toEqual(
             expect.objectContaining({
                 runId: 41,
@@ -108,6 +107,29 @@ describe("bootstrap enumeration executor", () => {
         });
 
         expect(harness.events.map((event) => event.eventCode)).toContain(
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
+        );
+    });
+
+    it("persists fine progress without adding intermediate run events", async () => {
+        const harness = createHarness({
+            tokenIds: ["1"],
+            progress: [{ resolved: 100, total: 10_000 }],
+        });
+
+        await harness.executor.execute({
+            run: harness.run,
+            anchor: TEST_ANCHOR,
+            metadataBatchSize: 1,
+            traceId: "trace-progress",
+        });
+
+        expect(harness.progressUpdates).toContainEqual({
+            runId: harness.run.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+            progress: { completed: 100, total: 10_000 },
+        });
+        expect(harness.events.map((event) => event.eventCode)).not.toContain(
             BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
         );
     });
@@ -211,7 +233,9 @@ type Harness = {
     run: BootstrapRunDefinition;
     resets: string[];
     insertedMetadataBatches: BootstrapMetadataTaskSeed[][];
-    events: Array<Parameters<BootstrapEnumerationRunsPort["appendRunEvent"]>[0]>;
+    events: Array<
+        Parameters<BootstrapEnumerationRunsPort["appendRunEvent"]>[0]
+    >;
     runStatusUpdates: Array<{
         runId: number;
         status: BootstrapRunStatus;
