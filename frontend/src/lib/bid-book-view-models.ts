@@ -49,12 +49,20 @@ export type BidBookRowsTableScope =
 	  };
 
 // Describes one trait-demand tab rendered above grouped trait bids.
-export type BidBookDemandTableTab = {
-	key: string | null;
+export const BID_BOOK_FILTER_ALL_LABEL = 'All';
+export const BID_BOOK_FILTER_LABEL = {
+	Traits: 'Bid trait buckets',
+	OwnState: 'Own bid state filter'
+} as const;
+
+export type BidBookFilterTab<Key extends string = string> = {
+	key: Key | null;
 	label: string;
 	count: number;
 	active: boolean;
 };
+
+export type BidBookDemandTableTab = BidBookFilterTab;
 
 // Describes one trait-demand group after bid-book grouping and muting decisions are resolved.
 export type BidBookDemandTableGroup = {

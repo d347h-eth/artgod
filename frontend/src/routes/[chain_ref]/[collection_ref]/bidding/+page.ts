@@ -15,6 +15,7 @@ import {
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseBidBookMakerFilter,
 	parseBidBookOwnershipFilter,
+	parseBidBookOwnStateFilter,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
 import { MEDIA_MODE_QUERY_PARAM, normalizeMediaMode } from '$lib/media-mode';
@@ -47,6 +48,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			priceTiers: [],
 			bidBook: emptyBiddingBidBook(),
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
+			ownBidStateCounts: null,
 			facets: [],
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
@@ -62,6 +64,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			ownershipFilter: parseBidBookOwnershipFilter(url.searchParams),
+			ownStateFilter: parseBidBookOwnStateFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
 			requestCursor: url.searchParams.get('cursor')
 		};
@@ -90,6 +93,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			blockExplorer: runtimeConfigResponse.blockExplorer,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
+			ownBidStateCounts: bidBookResponse.ownBidStateCounts,
 			facets: bidBookResponse.traits.facets,
 			media: bidBookResponse.media,
 			basePath: `/${bidBookResponse.chain.slug}/${bidBookResponse.collection.slug}`,
@@ -100,6 +104,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			ownershipFilter: parseBidBookOwnershipFilter(url.searchParams),
+			ownStateFilter: parseBidBookOwnStateFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
 			requestCursor: url.searchParams.get('cursor')
 		};

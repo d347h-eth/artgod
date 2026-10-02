@@ -935,7 +935,9 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body).toContain('<span class="secondary-tab-active">Mode [1]</span>');
+		expect(body).toContain(
+			'<span class="secondary-tab-active" aria-current="true">Mode [1]</span>'
+		);
 		expect(body.indexOf('bid-book-demand-trait-key">Mode')).toBeLessThan(
 			body.indexOf('bid-book-demand-trait-key">Biome')
 		);

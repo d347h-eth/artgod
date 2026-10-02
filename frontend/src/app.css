@@ -2682,6 +2682,7 @@ a.bid-book-own-status:focus-visible {
 }
 
 .secondary-tabs.bid-book-demand-tabs button,
+.secondary-tabs.bid-book-demand-tabs a,
 .secondary-tabs.bid-book-demand-tabs span {
 	text-transform: none;
 	min-width: auto;

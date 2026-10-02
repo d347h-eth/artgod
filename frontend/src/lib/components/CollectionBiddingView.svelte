@@ -2,6 +2,12 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
+	import type {
+		CollectionBiddingBidBookOwnStateFilter,
+		TradingBiddingBidBookOwnStateCounts
+	} from '@artgod/shared/types';
+	import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
+	import BidBookFilterTabs from '$lib/components/BidBookFilterTabs.svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import {
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
@@ -59,11 +65,12 @@
 	} from '$lib/bidding-live-refresh';
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
-	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import {
-		BID_BOOK_UPDATE_FLASH_MODE,
-		bidBookUpdateFlash
-	} from '$lib/bid-book-update-flash';
+		ownBidStatusBadges,
+		ownBidStateFilterTabs,
+		type BidBookOwnStatusBadge
+	} from '$lib/bidding-bid-book-own-status';
+	import { BID_BOOK_UPDATE_FLASH_MODE, bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import { getCollectionBiddingBidBook } from '$lib/backend-api';
@@ -161,6 +168,8 @@
 		showMuted = false,
 		makerFilter = null,
 		ownershipFilter = null,
+		ownStateFilter = null,
+		ownBidStateCounts = null,
 		mediaMode,
 		requestCursor = null,
 		blockExplorer = getDefaultBlockExplorerConfig()
@@ -183,6 +192,8 @@
 		showMuted?: boolean;
 		makerFilter?: string | null;
 		ownershipFilter?: ApiCollectionBiddingBidBookOwnershipFilter | null;
+		ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+		ownBidStateCounts?: TradingBiddingBidBookOwnStateCounts | null;
 		mediaMode: string | null;
 		requestCursor?: string | null;
 		blockExplorer?: BlockExplorerConfig;
@@ -209,8 +220,8 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeBidBook = $state<ApiBiddingBidBook>(bidBook);
-	let activeTokenOfferCardsPage =
-		$state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
+	let activeOwnBidStateCounts = $state<TradingBiddingBidBookOwnStateCounts | null>(ownBidStateCounts);
+	let activeTokenOfferCardsPage = $state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 	let visibleTokenOfferCards = $state<ApiBiddingTokenOfferCard[]>(tokenOfferCards.items);
@@ -327,6 +338,7 @@
 
 	$effect(() => {
 		activeBidBook = bidBook;
+		activeOwnBidStateCounts = ownBidStateCounts;
 	});
 
 	$effect(() => {
@@ -429,6 +441,7 @@
 				traitJoinMode,
 				maker: makerFilter,
 				ownershipFilter,
+				ownStateFilter,
 				showMuted
 			}
 		});
@@ -449,6 +462,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			showMuted
 		});
 	}
@@ -463,6 +477,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			showMuted
 		});
 		// Keep clicked scopes explicit so stored preferences cannot override a scope change.
@@ -484,6 +499,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			showMuted
 		});
 		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -512,6 +528,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
 		});
@@ -530,6 +547,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			showMuted,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
@@ -561,6 +579,7 @@
 				return;
 			}
 			activeBidBook = response.bidBook;
+			activeOwnBidStateCounts = response.ownBidStateCounts;
 			activeTokenOfferCardsPage = response.tokenOfferCards;
 			await tick();
 			if (liveRefreshRequestId === requestId) {
@@ -629,6 +648,7 @@
 			media.preference?.enabled ?? null,
 			makerFilter ?? 'all-makers',
 			ownershipFilter,
+			ownStateFilter,
 			showMuted ? 'show-muted' : 'hide-muted',
 			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
 		]);
@@ -661,6 +681,7 @@
 			mediaPreference: media.preference,
 			maker: makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			showMuted
 		});
 	}
@@ -695,6 +716,7 @@
 			mediaPreference: media.preference,
 			maker: null,
 			ownershipFilter: nextOwnershipFilter,
+			ownStateFilter: nextOwnershipFilter ? ownStateFilter : null,
 			showMuted
 		});
 		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -703,8 +725,25 @@
 		return withQuery(biddingPath(), query);
 	}
 
+	function ownStateFilterHref(nextState: CollectionBiddingBidBookOwnStateFilter | null): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope,
+			traitJoinMode,
+			mediaMode,
+			mediaPreference: media.preference,
+			maker: nextState ? null : makerFilter,
+			ownershipFilter: nextState ? COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own : ownershipFilter,
+			ownStateFilter: nextState,
+			showMuted
+		});
+		query.set(BID_SCOPE_QUERY_PARAM, bidScope);
+		return withQuery(biddingPath(), query);
+	}
+
 	function isShowingOwnBids(): boolean {
-		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own;
+		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own || ownStateFilter !== null;
 	}
 
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
@@ -904,10 +943,15 @@
 			selectedTraits: params.traits ?? activeTraits,
 			facets,
 			selectedTraitRanges: params.ranges ?? activeTraitRanges,
-			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
+			// Token offers use token-browser matching; the OR/AND control belongs to trait bid discovery.
+			traitJoinMode:
+				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+					? COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+					: (params.nextTraitJoinMode ?? traitJoinMode),
 			tokenStatus: null,
 			makerAddress: makerFilter,
-			ownershipFilter
+			ownershipFilter,
+			ownStateFilter
 		});
 	}
 
@@ -917,6 +961,7 @@
 			traitJoinMode,
 			makerFilter,
 			ownershipFilter,
+			ownStateFilter,
 			activeTraits,
 			activeTraitRanges
 		});
@@ -1042,12 +1087,23 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
+{#snippet ownStateFilterRow()}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && showBidBookFilters && activeOwnBidStateCounts}
+		<BidBookFilterTabs
+			tabs={ownBidStateFilterTabs(activeOwnBidStateCounts, ownStateFilter)}
+			label={BID_BOOK_FILTER_LABEL.OwnState}
+			hrefForKey={ownStateFilterHref}
+		/>
+	{/if}
+{/snippet}
+
 {#snippet bidBookPanel()}
 	<BidBookPanel
 		bidBook={activeBidBook}
 		nextUpdateAtMs={bidBookNextUpdateAtMs}
 		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
+		ownStateFilterControls={ownStateFilterRow}
 		{showMuted}
 			{basePath}
 			{mediaMode}
@@ -1266,6 +1322,7 @@
 					</section>
 
 					<section class="token-offers-panel">
+						{@render ownStateFilterRow()}
 							<CursorPaginationControls
 								resultsSummary={tokenOffersResultsSummary()}
 								totalItems={activeTokenOfferCardsPage.totalItems}

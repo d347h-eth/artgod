@@ -665,6 +665,15 @@ Scope rules:
 - trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
 - clickable trait values in bucket titles should apply the same trait filter controls as the facet panel
 
+Own-state filters:
+
+- private collection bidding in token and trait scope shows a centered secondary row for `All`, `waiting for bot`, `verifying`, `queued`, `winning`, `losing`, `draw`, `at ceiling`, and `at floor`
+- each count is an own bid row within the current scope and trait/bidder filters, across all pages and before the own-state filter; overlapping position and constraint badges count in each matching tab
+- `All` counts every own row, including phases outside these eight tabs, and clears only the state filter
+- selecting a state selects own bids, clears maker-address filtering, and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
+- counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
+- token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
+
 Muted and collapsed rows:
 
 - muted bids remain useful for debugging but should be hidden by default

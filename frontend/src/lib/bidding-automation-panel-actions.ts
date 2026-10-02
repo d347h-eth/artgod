@@ -397,7 +397,8 @@ function batchTokenSelectionRequestFromFilteredDraft(
 			traitRanges: draft.source.filter.selectedTraitRanges,
 			traitJoinMode: draft.source.filter.traitJoinMode,
 			makerAddress: draft.source.filter.makerAddress,
-			ownershipFilter: draft.source.filter.ownershipFilter
+			ownershipFilter: draft.source.filter.ownershipFilter,
+			ownStateFilter: draft.source.filter.ownStateFilter
 		};
 	}
 	const tokenStatus = draft.source.filter.tokenStatus;
@@ -486,12 +487,17 @@ async function saveExistingBiddingJobStatus(input: {
 		input.job.target.type === TRADING_JOB_TARGET_KIND.Collection &&
 		input.job.target.targetTraits.length > 0
 	) {
-		const response = await upsertTraitBiddingJob(input.fetchFn, input.chainRef, input.collectionRef, {
-			status: input.nextStatus,
-			...pricing,
-			quantity: input.job.target.quantity,
-			targetTraits: input.job.target.targetTraits
-		});
+		const response = await upsertTraitBiddingJob(
+			input.fetchFn,
+			input.chainRef,
+			input.collectionRef,
+			{
+				status: input.nextStatus,
+				...pricing,
+				quantity: input.job.target.quantity,
+				targetTraits: input.job.target.targetTraits
+			}
+		);
 		return response.job;
 	}
 	if (input.job.target.type === TRADING_JOB_TARGET_KIND.Collection) {
@@ -510,7 +516,9 @@ async function saveExistingBiddingJobStatus(input: {
 	throw new Error('selected job target cannot be updated from this view');
 }
 
-function existingJobPricingRequest(config: ApiBiddingJob['config']): BiddingAutomationPricingRequest {
+function existingJobPricingRequest(
+	config: ApiBiddingJob['config']
+): BiddingAutomationPricingRequest {
 	const source: ApiBiddingJobPricingSource | null = config.pricingSource;
 	if (source?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
 		return {

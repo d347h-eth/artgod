@@ -1,5 +1,7 @@
 <script lang="ts">
-	import type { Component } from 'svelte';
+	import type { Component, Snippet } from 'svelte';
+	import BidBookFilterTabs from '$lib/components/BidBookFilterTabs.svelte';
+	import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
 	import type { BidBookTraitDemandGroupPreviewProps } from '$lib/bid-book-trait-previews';
 	import type {
 		BidBookDemandTableGroup,
@@ -26,6 +28,7 @@
 		tabs,
 		groups,
 		showBidLimits,
+		ownStateFilterControls,
 		onSetActiveTraitKey,
 		onTogglePlacedAtMode,
 		onToggleValidUntilMode,
@@ -38,6 +41,7 @@
 		tabs: BidBookDemandTableTab[];
 		groups: BidBookDemandTableGroup[];
 		showBidLimits: boolean;
+		ownStateFilterControls?: Snippet;
 		onSetActiveTraitKey: (key: string | null) => void;
 		onTogglePlacedAtMode: () => void;
 		onToggleValidUntilMode: () => void;
@@ -72,18 +76,9 @@
 
 <section class="bid-book-table-panel">
 	{#if tabs.length > 1}
-		<div class="secondary-tabs bid-book-demand-tabs" aria-label="Bid trait buckets">
-			{#each tabs as tab (tab.key ?? 'all')}
-				{#if tab.active}
-					<span class="secondary-tab-active">{tab.label} [{tab.count}]</span>
-				{:else}
-					<button type="button" onclick={() => onSetActiveTraitKey(tab.key)}>
-						{tab.label} [{tab.count}]
-					</button>
-				{/if}
-			{/each}
-		</div>
+		<BidBookFilterTabs {tabs} label={BID_BOOK_FILTER_LABEL.Traits} onSelect={onSetActiveTraitKey} />
 	{/if}
+	{@render ownStateFilterControls?.()}
 	<div class="table-wrap bid-book-table-wrap">
 		<table class="bid-book-table bid-book-demand-table">
 			<thead>

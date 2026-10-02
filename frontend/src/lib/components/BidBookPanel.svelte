@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { Component } from 'svelte';
+	import type { Component, Snippet } from 'svelte';
+	import { BID_BOOK_FILTER_ALL_LABEL } from '$lib/bid-book-view-models';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookBidLimits,
@@ -79,6 +80,7 @@
 		showOwnStateBadges = true,
 		showMuted = false,
 		view = 'rows',
+		ownStateFilterControls,
 		basePath = '/',
 		mediaMode = null,
 		mediaPreference = null,
@@ -100,6 +102,7 @@
 		showOwnStateBadges?: boolean;
 		showMuted?: boolean;
 		view?: BidBookPanelView;
+		ownStateFilterControls?: Snippet;
 		basePath?: string;
 		mediaMode?: string | null;
 		mediaPreference?: CollectionMediaPreferenceInput;
@@ -308,7 +311,9 @@
 	}
 
 	function traitScopeLabel(bid: ApiBiddingBidBookRow): string {
-		return bid.scope.label || bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ');
+		return (
+			bid.scope.label || bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ')
+		);
 	}
 
 	function scopeActionLabel(bid: ApiBiddingBidBookRow): string {
@@ -591,7 +596,7 @@
 				}
 				return left.label.localeCompare(right.label);
 			});
-		return [{ key: null, label: 'All', count: groups.length }, ...traitTabs];
+		return [{ key: null, label: BID_BOOK_FILTER_ALL_LABEL, count: groups.length }, ...traitTabs];
 	}
 
 	function resolveDemandTableTabs(tabs: BidBookDemandTraitTab[]): BidBookDemandTableTab[] {
@@ -701,9 +706,7 @@
 		if (index === 0 || !stepWei) {
 			return false;
 		}
-		return (
-			bidBucketIndex(rows[index], stepWei) !== bidBucketIndex(rows[index - 1], stepWei)
-		);
+		return bidBucketIndex(rows[index], stepWei) !== bidBucketIndex(rows[index - 1], stepWei);
 	}
 
 	function isMutedDemandBid(group: BidBookDemandGroup, bid: ApiBiddingBidBookRow): boolean {
@@ -1001,7 +1004,6 @@
 	function toggleBidBookExpanded(): void {
 		bidBookExpanded = !bidBookExpanded;
 	}
-
 </script>
 
 <BidBookMetaBar
@@ -1014,11 +1016,13 @@
 
 {#if visibleBids.length === 0}
 	<section class="bid-book-table-panel">
+		{@render ownStateFilterControls?.()}
 		<p class="muted bid-book-empty">no bids</p>
 	</section>
 {:else if showTraitDemandView}
 	<BidBookTraitDemandTable
 		tabs={demandTableTabs}
+		{ownStateFilterControls}
 		groups={demandTableGroups}
 		{showBidLimits}
 		onSetActiveTraitKey={setActiveDemandTraitKey}

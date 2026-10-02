@@ -6,6 +6,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
@@ -315,16 +316,15 @@ describe('bidding automation panel actions', () => {
 		});
 		const jobs = [enabledJob, pausedJob, archivedJob];
 
-		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Activate)).toEqual([
-			pausedJob
-		]);
+		expect(
+			filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Activate)
+		).toEqual([pausedJob]);
 		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Pause)).toEqual([
 			enabledJob
 		]);
-		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Archive)).toEqual([
-			enabledJob,
-			pausedJob
-		]);
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Archive)).toEqual(
+			[enabledJob, pausedJob]
+		);
 	});
 
 	it('applies selected-job status actions only to jobs eligible for that transition', async () => {
@@ -479,6 +479,7 @@ describe('bidding automation panel actions', () => {
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 					makerAddress: null,
 					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+					ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
 					tokenStatus: null
 				},
 				tokenCount: 2,
@@ -505,7 +506,8 @@ describe('bidding automation panel actions', () => {
 					traitRanges: [],
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 					makerAddress: null,
-					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+					ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
 				}
 			}
 		);

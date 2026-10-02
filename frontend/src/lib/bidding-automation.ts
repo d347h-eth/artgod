@@ -13,6 +13,7 @@ import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
 	type TokenBrowserStatus
 } from '@artgod/shared/types';
 export {
@@ -79,6 +80,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 };
 
 // Builds the canonical filter snapshot consumed by bidding selection and draft flows.
@@ -91,6 +93,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return {
 		source: params.source,
@@ -100,7 +103,8 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		tokenStatus: params.tokenStatus ?? null,
 		ownerAddress: params.ownerAddress ?? null,
 		makerAddress: params.makerAddress ?? null,
-		ownershipFilter: params.ownershipFilter ?? null
+		ownershipFilter: params.ownershipFilter ?? null,
+		ownStateFilter: params.ownStateFilter ?? null
 	};
 }
 
@@ -115,6 +119,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return buildBiddingAutomationTokenFilterSnapshot({
 		source: params.source,
@@ -127,7 +132,8 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		tokenStatus: params.tokenStatus,
 		ownerAddress: params.ownerAddress,
 		makerAddress: params.makerAddress,
-		ownershipFilter: params.ownershipFilter
+		ownershipFilter: params.ownershipFilter,
+		ownStateFilter: params.ownStateFilter
 	});
 }
 
@@ -433,9 +439,7 @@ export function biddingAutomationDraftTokenId(draft: BiddingAutomationDraft | nu
 }
 
 // Identifies token target sets whose save path applies one pricing spec across many token jobs.
-export function isBiddingAutomationBatchTokenDraft(
-	draft: BiddingAutomationDraft | null
-): boolean {
+export function isBiddingAutomationBatchTokenDraft(draft: BiddingAutomationDraft | null): boolean {
 	if (!draft) {
 		return false;
 	}
@@ -464,10 +468,7 @@ export function resolveBiddingAutomationTraitAttributes(params: {
 	const supportByTrait = new Map<string, boolean>();
 	for (const facet of params.facets) {
 		for (const value of facet.values) {
-			supportByTrait.set(
-				traitSignature(facet.key, value.value),
-				value.marketplaceBiddingSupported
-			);
+			supportByTrait.set(traitSignature(facet.key, value.value), value.marketplaceBiddingSupported);
 		}
 	}
 	return params.selectedTraits.map((trait) => ({

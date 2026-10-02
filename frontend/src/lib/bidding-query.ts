@@ -2,11 +2,13 @@ import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+	isCollectionBiddingBidBookOwnStateFilter,
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
@@ -22,6 +24,7 @@ export {
 };
 export type {
 	CollectionBiddingBidBookOwnershipFilter,
+	CollectionBiddingBidBookOwnStateFilter,
 	CollectionBiddingBidScopeFilter,
 	CollectionBiddingTraitFilterJoinMode
 };
@@ -42,6 +45,7 @@ export function buildCollectionBiddingQuery(params: {
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -76,6 +80,9 @@ export function buildCollectionBiddingQuery(params: {
 		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
+	if (params.ownStateFilter && params.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection) {
+		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState, params.ownStateFilter);
+	}
 	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return query;
 }
@@ -90,6 +97,7 @@ export function buildCollectionBiddingHref(params: {
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -123,6 +131,13 @@ export function parseCollectionBiddingBidScopeFilter(
 		COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 		searchParams.get(BID_SCOPE_QUERY_PARAM)
 	);
+}
+
+export function parseBidBookOwnStateFilter(
+	searchParams: URLSearchParams
+): CollectionBiddingBidBookOwnStateFilter | null {
+	const value = searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)?.trim();
+	return isCollectionBiddingBidBookOwnStateFilter(value) ? value : null;
 }
 
 export function parseCollectionBiddingTraitFilterJoinMode(
