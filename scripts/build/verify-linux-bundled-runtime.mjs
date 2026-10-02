@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { verifyAppImageHostLibraries } from "./linux-appimage-host-libraries.mjs";
 import {
     WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
     collectRuntimeEntries,
@@ -91,9 +92,13 @@ export async function verifyLinuxBundledRuntime({
             extractionRoot,
         );
 
-        const appImageRuntimeRoot = path.join(
+        const appDir = path.join(
             appImageExtractionRoot,
             appImageExtractedDirectoryName,
+        );
+        await verifyAppImageHostLibraries(appDir);
+        const appImageRuntimeRoot = path.join(
+            appDir,
             "usr",
             linuxSharedResourcesDirectoryName,
             productName,

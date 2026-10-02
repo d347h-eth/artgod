@@ -450,6 +450,7 @@ test("builds with the verified cached runtime and a locked Cargo graph", async (
         await buildPinnedTauriLinuxBundle({
             manifestPath,
             cacheDirectory,
+            temporaryRoot,
             expectedTauriCliVersion: testCliVersion,
             logger: () => {},
             environment: {
@@ -467,7 +468,10 @@ test("builds with the verified cached runtime and a locked Cargo graph", async (
                     TAURI_LINUX_BUNDLER_TARGET,
                 );
                 assert.deepEqual(args.slice(-2), ["--", "--locked"]);
-                assert.equal(options.env.XDG_CACHE_HOME, temporaryRoot);
+                assert.equal(
+                    path.dirname(options.env.XDG_CACHE_HOME),
+                    temporaryRoot,
+                );
                 assert.deepEqual(
                     JSON.parse(args[args.indexOf("--config") + 1]),
                     {
@@ -479,7 +483,8 @@ test("builds with the verified cached runtime and a locked Cargo graph", async (
                 assert.equal(
                     runtimePath,
                     path.join(
-                        cacheDirectory,
+                        options.env.XDG_CACHE_HOME,
+                        "tauri",
                         TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME,
                     ),
                 );
@@ -494,6 +499,12 @@ test("builds with the verified cached runtime and a locked Cargo graph", async (
             },
         });
         assert.equal(buildCount, 1);
+        for (const tool of manifest.tools) {
+            assert.deepEqual(
+                await readFile(path.join(cacheDirectory, tool.fileName)),
+                tool.content,
+            );
+        }
     } finally {
         await rm(temporaryRoot, { recursive: true, force: true });
     }
