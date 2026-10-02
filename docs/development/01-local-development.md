@@ -433,6 +433,10 @@ yarn cargo:age-gate
 - Use `--manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml` to
   admit or promote that independent root. An explicit manifest or lockfile
   selection derives its adjacent counterpart; mismatched roots are rejected.
+- Exact version requirements can prevent individual updates of coupled crates.
+  Use Cargo's supported multi-package update to unlock that group together and
+  pin its root to a reviewed eligible version. Run the age gate afterward:
+  Cargo can also reselect transitive versions that need an aged update.
 - The shared registry reader completes requests sequentially with a one-second
   interval after each response, following the
   [crates.io API access policy](https://crates.io/data-access#api).
