@@ -74,6 +74,7 @@ import {
 } from "../application/bootstrap-anchor-executor.js";
 import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
 import {
+    resolveEnumerableBootstrapTokenIds,
     resolveManualBootstrapTokenIds,
     resolvePresentBootstrapTokenIds,
 } from "../application/bootstrap-token-enumeration.js";
@@ -161,7 +162,6 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;
-const TOKEN_ENUMERATION_PROGRESS_STEP = 1_000;
 const BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE = 500;
 const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
@@ -2930,45 +2930,6 @@ async function scheduleOpenSeaBootstrap(
     await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, job);
 }
 
-async function enumerateTokenIds(
-    rpc: RpcProviderPort,
-    contract: Hex,
-    anchorBlock: number,
-    onProgress?: (progress: { resolved: number; total: number }) => void,
-): Promise<string[]> {
-    // ERC721Enumerable is required for snapshot enumeration.
-    const totalSupply = await rpc.readContract<bigint>({
-        address: contract,
-        abi: ERC721_ENUMERABLE_ABI,
-        functionName: "totalSupply",
-        blockNumber: anchorBlock,
-    });
-    const supply = Number(totalSupply);
-    if (!Number.isSafeInteger(supply) || supply < 0) {
-        throw new Error(`Invalid totalSupply: ${String(totalSupply)}`);
-    }
-    const tokenIds: string[] = [];
-    onProgress?.({ resolved: 0, total: supply });
-    for (let index = 0; index < supply; index += 1) {
-        const tokenId = await rpc.readContract<bigint>({
-            address: contract,
-            abi: ERC721_ENUMERABLE_ABI,
-            functionName: "tokenByIndex",
-            args: [BigInt(index)],
-            blockNumber: anchorBlock,
-        });
-        tokenIds.push(tokenId.toString());
-        const resolved = index + 1;
-        if (
-            resolved === supply ||
-            resolved % TOKEN_ENUMERATION_PROGRESS_STEP === 0
-        ) {
-            onProgress?.({ resolved, total: supply });
-        }
-    }
-    return tokenIds;
-}
-
 async function resolveTokenIdsForRun(
     rpc: RpcProviderPort,
     tokenOwnership: Erc721TokenOwnership,
@@ -2983,7 +2944,7 @@ async function resolveTokenIdsForRun(
     onProgress?: (progress: { resolved: number; total: number | null }) => void,
 ): Promise<string[]> {
     if (run.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
-        return enumerateTokenIds(
+        return resolveEnumerableBootstrapTokenIds(
             rpc,
             run.requestAddress as Hex,
             anchorBlock,

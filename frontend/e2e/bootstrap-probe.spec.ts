@@ -16,9 +16,11 @@ import {
 	bootstrapTestContract,
 	BOOTSTRAP_TEST_PROJECT_SCOPE
 } from '@artgod/shared/testing/bootstrap-probe';
-import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND, COLLECTION_STATUS } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_ENUMERATION_MODE,
+	BOOTSTRAP_FLOW_STEP_STATE,
+	BOOTSTRAP_RUN_STATUS,
 	BOOTSTRAP_STEP_ACTION,
 	BOOTSTRAP_STEP_KEY
 } from '@artgod/shared/bootstrap/pipeline';
@@ -44,6 +46,10 @@ import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
 	installBootstrapRunDetailApiMock
 } from './helpers/bootstrap-run-detail-api';
+import {
+	BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID,
+	buildBootstrapRunDetailE2eDetail
+} from '../src/lib/e2e/bootstrap-run-detail-fixtures';
 import {
 	COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH,
 	installCollectionOpenSeaSyncApiMock
@@ -2380,6 +2386,56 @@ async function expectFormLocked(page: Page) {
 	await expect(contractAddressSafetyAcknowledgement(page)).toBeEnabled();
 }
 test.describe('bootstrap run detail UI', () => {
+	test('refreshes enumeration in one-percent increments', async ({ page }, info) => {
+		let completed = 100;
+		const total = 10_000;
+		await installBootstrapRunDetailApiMock(page);
+		await page.route(
+			`**/api/**/bootstrap-runs/${BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID}`,
+			async (route) => {
+				const detail = buildBootstrapRunDetailE2eDetail({ imageCachePaused: false });
+				const finished = completed === total;
+				detail.run.status = BOOTSTRAP_RUN_STATUS.Metadata;
+				detail.run.finishedAt = null;
+				detail.collection.status = COLLECTION_STATUS.Bootstrapping;
+				detail.metadataTasks = {
+					pending: finished ? total : 0,
+					retry: 0,
+					succeeded: 0,
+					failedTerminal: 0,
+					total: finished ? total : 0
+				};
+				detail.flow.steps = detail.flow.steps.map((step) => ({
+					...step,
+					state:
+						finished && step.key === BOOTSTRAP_STEP_KEY.Metadata
+							? BOOTSTRAP_FLOW_STEP_STATE.Active
+							: BOOTSTRAP_FLOW_STEP_STATE.Pending,
+					progress: null,
+					availableActions: []
+				}));
+				detail.flow.steps.unshift({
+					...detail.flow.steps[0],
+					key: BOOTSTRAP_STEP_KEY.Enumeration,
+					label: 'enumeration',
+					state: finished ? BOOTSTRAP_FLOW_STEP_STATE.Completed : BOOTSTRAP_FLOW_STEP_STATE.Active,
+					progress: { completed, total }
+				});
+				await route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail) });
+			}
+		);
+		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
+		const enumeration = page.getByRole('listitem').filter({
+			has: page.getByText('enumeration', { exact: true })
+		});
+		for (const value of [100, 200, total]) {
+			completed = value;
+			await expect(enumeration.getByText(`${value} / ${total}`, { exact: true })).toBeVisible();
+			await expect(enumeration.getByText(`${value / 100}%`, { exact: true })).toBeVisible();
+			await page.screenshot({ path: info.outputPath(`enumeration-${value}.png`), fullPage: true });
+		}
+	});
+
 	test('renders progress and toggles image-cache pause resume actions', async ({ page }) => {
 		const api = await installBootstrapRunDetailApiMock(page);
 		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
