@@ -260,7 +260,7 @@ pub fn prompt_unlock(
     owner_liveness: &OwnerLiveness,
 ) -> Result<Option<Zeroizing<String>>, PromptUiError> {
     let title = spec.title.to_owned();
-    let window_size = resolve_unlock_window_size(&spec.review_pages)?;
+    let window_size = resolve_unlock_window_size(&spec.review_pages);
     let initial_screen = if let Some(page) = spec.review_pages.first() {
         build_bidding_review_screen(spec.title, page, REVIEW_NEXT_LABEL, spec.cancel_label)
     } else {
@@ -293,31 +293,12 @@ pub fn prompt_unlock(
     }
 }
 
-fn resolve_unlock_window_size(
-    review_pages: &[BiddingReviewPage],
-) -> Result<(u32, u32), PromptUiError> {
+fn resolve_unlock_window_size(review_pages: &[BiddingReviewPage]) -> (u32, u32) {
     if review_pages.is_empty() {
-        return Ok(UNLOCK_WINDOW_SIZE);
+        UNLOCK_WINDOW_SIZE
+    } else {
+        BIDDING_REVIEW_WINDOW_SIZE
     }
-    validate_bidding_review_pages(review_pages)?;
-    Ok(BIDDING_REVIEW_WINDOW_SIZE)
-}
-
-/// Rejects bidding review pages that would collide with the prompt controls.
-pub(crate) fn validate_bidding_review_pages(
-    review_pages: &[BiddingReviewPage],
-) -> Result<(), PromptUiError> {
-    let size = PhysicalSize::new(BIDDING_REVIEW_WINDOW_SIZE.0, BIDDING_REVIEW_WINDOW_SIZE.1);
-    let layout = ConfirmScreenLayout::for_size(size);
-    for (index, page) in review_pages.iter().enumerate() {
-        if !layout.bidding_review_fits(page) {
-            return Err(PromptUiError::Render(format!(
-                "Bidding authorization page {} is too large to display safely",
-                index + 1
-            )));
-        }
-    }
-    Ok(())
 }
 
 pub fn prompt_import(
@@ -530,6 +511,7 @@ fn build_confirm_screen(spec: ConfirmPromptSpec<'_>) -> ScreenState {
         confirm_label: spec.confirm_label.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
         focus: ConfirmFocus::Cancel,
+        review_progress: BiddingReviewProgress::default(),
     })
 }
 
@@ -545,6 +527,7 @@ fn build_bidding_review_screen(
         confirm_label: confirm_label.to_owned(),
         cancel_label: cancel_label.to_owned(),
         focus: ConfirmFocus::Cancel,
+        review_progress: BiddingReviewProgress::default(),
     })
 }
 
@@ -936,6 +919,13 @@ impl PromptApp {
         }
     }
 
+    fn current_window_size(&self) -> PhysicalSize<u32> {
+        self.window
+            .as_ref()
+            .map(|window| window.inner_size())
+            .unwrap_or(PhysicalSize::new(self.window_size.0, self.window_size.1))
+    }
+
     fn finish(&mut self, event_loop: &ActiveEventLoop, result: FlowResult) {
         if !self.owner_liveness.claim_ui_completion() {
             self.force_close_for_owner(event_loop);
@@ -1117,11 +1107,7 @@ impl ApplicationHandler<OwnerLivenessEvent> for PromptApp {
                 ..
             } => {
                 self.mark_interaction();
-                let window_size = self
-                    .window
-                    .as_ref()
-                    .map(|window| window.inner_size())
-                    .unwrap_or(PhysicalSize::new(self.window_size.0, self.window_size.1));
+                let window_size = self.current_window_size();
                 if let Some(result) = self.screen.handle_click(self.cursor_position, window_size) {
                     self.advance(event_loop, result);
                     return;
@@ -1150,7 +1136,8 @@ impl ApplicationHandler<OwnerLivenessEvent> for PromptApp {
                         _ => self.cancel(event_loop),
                     },
                     Key::Named(NamedKey::Enter) => {
-                        if let Some(result) = self.screen.activate_focused() {
+                        let size = self.current_window_size();
+                        if let Some(result) = self.screen.activate_focused(size) {
                             self.advance(event_loop, result);
                             return;
                         }
@@ -1271,10 +1258,10 @@ impl ScreenState {
         }
     }
 
-    fn activate_focused(&mut self) -> Option<ScreenResult> {
+    fn activate_focused(&mut self, size: PhysicalSize<u32>) -> Option<ScreenResult> {
         match self {
             Self::Text(screen) => screen.activate_focused(),
-            Self::Confirm(screen) => screen.activate_focused(),
+            Self::Confirm(screen) => screen.activate_focused(size),
             Self::Reveal(_) => Some(ScreenResult::Acknowledged),
         }
     }
@@ -1713,6 +1700,44 @@ struct ConfirmScreenState {
     confirm_label: String,
     cancel_label: String,
     focus: ConfirmFocus,
+    review_progress: BiddingReviewProgress,
+}
+
+/// Tracks only review lines actually rendered at the current window dimensions.
+#[derive(Default)]
+struct BiddingReviewProgress {
+    size: Option<PhysicalSize<u32>>,
+    first_line: usize,
+    rendered_end: Option<usize>,
+}
+
+impl BiddingReviewProgress {
+    fn render_range(
+        &mut self,
+        size: PhysicalSize<u32>,
+        line_count: usize,
+        capacity: usize,
+    ) -> std::ops::Range<usize> {
+        if self.size != Some(size) {
+            // Rewrapping invalidates line offsets. Restart this review rather than skip values.
+            self.size = Some(size);
+            self.first_line = 0;
+        }
+        let end = min(line_count, self.first_line.saturating_add(capacity));
+        self.rendered_end = (capacity > 0).then_some(end);
+        self.first_line..end
+    }
+
+    fn advance(&mut self, size: PhysicalSize<u32>, line_count: usize) -> Option<ScreenResult> {
+        // Ignore input before a redraw, including input racing a resize or repeated Next clicks.
+        let end = self.rendered_end.filter(|_| self.size == Some(size))?;
+        if end == line_count {
+            return Some(ScreenResult::Confirmed);
+        }
+        self.first_line = end;
+        self.rendered_end = None;
+        None
+    }
 }
 
 enum ConfirmScreenContent {
@@ -1804,16 +1829,11 @@ impl ConfirmScreenLayout {
         wrap_bidding_review_page(page, self.max_message_cols)
     }
 
-    fn bidding_review_fits(&self, page: &BiddingReviewPage) -> bool {
-        let line_count = i32::try_from(self.bidding_review_lines(page).len()).unwrap_or(i32::MAX);
-        self.line_count_fits(line_count)
-    }
-
-    fn line_count_fits(&self, line_count: i32) -> bool {
-        let message_bottom = self
-            .message_y
-            .saturating_add(line_count.saturating_mul(LINE_HEIGHT));
-        message_bottom <= self.confirm_rect.y
+    fn message_line_capacity(&self) -> usize {
+        if self.confirm_rect.x < self.message_x {
+            return 0;
+        }
+        max(0, (self.confirm_rect.y - self.message_y) / LINE_HEIGHT) as usize
     }
 }
 
@@ -1829,6 +1849,7 @@ impl ConfirmScreenState {
             WARNING,
         );
 
+        let mut can_confirm = true;
         match &self.content {
             ConfirmScreenContent::Plain(message) => {
                 let lines = layout.message_lines(message);
@@ -1843,7 +1864,12 @@ impl ConfirmScreenState {
             }
             ConfirmScreenContent::BiddingReview(page) => {
                 let lines = layout.bidding_review_lines(page);
-                for (index, line) in lines.iter().enumerate() {
+                let capacity = layout.message_line_capacity();
+                let range = self
+                    .review_progress
+                    .render_range(size, lines.len(), capacity);
+                can_confirm = capacity > 0;
+                for (index, line) in lines[range].iter().enumerate() {
                     let mut x = layout.message_x;
                     let y = layout.message_y + ((index as i32) * LINE_HEIGHT);
                     for span in line {
@@ -1860,7 +1886,7 @@ impl ConfirmScreenState {
             &self.confirm_label,
             self.focus == ConfirmFocus::Confirm,
             true,
-            true,
+            can_confirm,
         );
         draw_button(
             canvas,
@@ -1887,11 +1913,19 @@ impl ConfirmScreenState {
         }
     }
 
-    fn activate_focused(&self) -> Option<ScreenResult> {
-        Some(match self.focus {
-            ConfirmFocus::Confirm => ScreenResult::Confirmed,
-            ConfirmFocus::Cancel => ScreenResult::Cancelled,
-        })
+    fn activate_focused(&mut self, size: PhysicalSize<u32>) -> Option<ScreenResult> {
+        match self.focus {
+            ConfirmFocus::Confirm => match &self.content {
+                ConfirmScreenContent::Plain(_) => Some(ScreenResult::Confirmed),
+                ConfirmScreenContent::BiddingReview(page) => self.review_progress.advance(
+                    size,
+                    ConfirmScreenLayout::for_size(size)
+                        .bidding_review_lines(page)
+                        .len(),
+                ),
+            },
+            ConfirmFocus::Cancel => Some(ScreenResult::Cancelled),
+        }
     }
 
     fn handle_click(
@@ -1904,11 +1938,11 @@ impl ConfirmScreenState {
         let layout = ConfirmScreenLayout::for_size(size);
         if layout.confirm_rect.contains(x, y) {
             self.focus = ConfirmFocus::Confirm;
-            return self.activate_focused();
+            return self.activate_focused(size);
         }
         if layout.cancel_rect.contains(x, y) {
             self.focus = ConfirmFocus::Cancel;
-            return self.activate_focused();
+            return self.activate_focused(size);
         }
         None
     }
@@ -2335,32 +2369,207 @@ mod tests {
         }];
 
         assert_eq!(
-            resolve_unlock_window_size(&review_pages).unwrap(),
+            resolve_unlock_window_size(&review_pages),
             BIDDING_REVIEW_WINDOW_SIZE
         );
-        assert_eq!(resolve_unlock_window_size(&[]).unwrap(), UNLOCK_WINDOW_SIZE);
+        assert_eq!(resolve_unlock_window_size(&[]), UNLOCK_WINDOW_SIZE);
+    }
+
+    fn review_screen(page: &BiddingReviewPage) -> ConfirmScreenState {
+        let ScreenState::Confirm(screen) =
+            build_bidding_review_screen("Unlock Wallet", page, REVIEW_NEXT_LABEL, "Cancel")
+        else {
+            panic!("bidding review must use the confirmation screen");
+        };
+        screen
+    }
+
+    fn render_review(screen: &mut ConfirmScreenState, size: PhysicalSize<u32>) -> Vec<u32> {
+        let mut pixels = vec![BACKGROUND; size.width as usize * size.height as usize];
+        let mut canvas = Canvas::new(&mut pixels, size.width as usize, size.height as usize);
+        screen.render(&mut canvas, size);
+        pixels
+    }
+
+    fn long_review_page() -> BiddingReviewPage {
+        BiddingReviewPage {
+            heading: Some("Bidding authorization".to_owned()),
+            rows: vec![
+                BiddingReviewRow::plain("OpenSea slug", "complete-value-".repeat(200)),
+                BiddingReviewRow::with_values(
+                    "Maximum WETH for any one NFT",
+                    vec![BiddingReviewValue::amount("1.25 WETH")],
+                ),
+            ],
+        }
     }
 
     #[test]
-    fn bidding_review_fit_guard_rejects_the_first_oversized_row() {
-        let layout = ConfirmScreenLayout::for_size(PhysicalSize::new(
-            BIDDING_REVIEW_WINDOW_SIZE.0,
-            BIDDING_REVIEW_WINDOW_SIZE.1,
-        ));
-        let maximum_rows = ((layout.confirm_rect.y - layout.message_y) / LINE_HEIGHT) as usize;
-        let build_page = |row_count| BiddingReviewPage {
-            heading: None,
-            rows: (0..row_count)
-                .map(|_| BiddingReviewRow::plain("x", "y"))
-                .collect(),
-        };
-        let fitting_page = build_page(maximum_rows);
-        let oversized_page = build_page(maximum_rows + 1);
+    fn oversized_reviews_show_every_styled_line_before_confirming() {
+        let page = long_review_page();
+        for size in [
+            PhysicalSize::new(768, 666),
+            PhysicalSize::new(640, 460),
+            PhysicalSize::new(1000, 768),
+        ] {
+            let layout = ConfirmScreenLayout::for_size(size);
+            let lines = layout.bidding_review_lines(&page);
+            let line_roles = |line: &BiddingReviewTextLine| {
+                line.iter()
+                    .map(|span| (span.text.clone(), span.role))
+                    .collect::<Vec<_>>()
+            };
+            let expected = lines.iter().map(line_roles).collect::<Vec<_>>();
+            let mut observed = Vec::new();
+            let mut views = 0;
+            let mut screen = review_screen(&page);
+            screen.handle_navigation_key(&Key::Named(NamedKey::Tab));
+            assert!(screen.activate_focused(size).is_none());
 
-        assert!(layout.bidding_review_fits(&fitting_page));
-        assert!(!layout.bidding_review_fits(&oversized_page));
-        assert!(validate_bidding_review_pages(&[fitting_page]).is_ok());
-        assert!(validate_bidding_review_pages(&[oversized_page]).is_err());
+            loop {
+                views += 1;
+                assert!(views <= lines.len(), "review did not advance");
+                let pixels = render_review(&mut screen, size);
+                let first = screen.review_progress.first_line;
+                let end = screen.review_progress.rendered_end.unwrap();
+                observed.extend(lines[first..end].iter().map(line_roles));
+                assert!(end > first);
+                assert!(
+                    layout.message_y + (end - first) as i32 * LINE_HEIGHT <= layout.confirm_rect.y
+                );
+                let body_bottom = layout.message_y + (end - first) as i32 * LINE_HEIGHT;
+                let gap = &pixels[body_bottom as usize * size.width as usize
+                    ..layout.confirm_rect.y as usize * size.width as usize];
+                assert!(!gap.contains(&BIDDING_REVIEW_LABEL));
+                assert!(!gap.contains(&BIDDING_REVIEW_AMOUNT));
+
+                if end == lines.len() {
+                    assert!(matches!(
+                        screen.activate_focused(size),
+                        Some(ScreenResult::Confirmed)
+                    ));
+                    break;
+                }
+                assert!(screen.activate_focused(size).is_none());
+                assert_eq!(screen.review_progress.first_line, end);
+                // A second Enter/Next before the next render cannot skip its content.
+                assert!(screen.activate_focused(size).is_none());
+                assert_eq!(screen.review_progress.first_line, end);
+            }
+            assert_eq!(observed, expected);
+        }
+    }
+
+    #[test]
+    fn resizing_a_partially_reviewed_page_requires_its_reflowed_content_again() {
+        let mut screen = review_screen(&long_review_page());
+        let original = PhysicalSize::new(768, 666);
+        let resized = PhysicalSize::new(640, 460);
+        screen.handle_navigation_key(&Key::Named(NamedKey::Tab));
+        render_review(&mut screen, original);
+        assert!(screen.activate_focused(original).is_none());
+        render_review(&mut screen, original);
+        assert!(screen.review_progress.first_line > 0);
+
+        assert!(screen.activate_focused(resized).is_none());
+        render_review(&mut screen, resized);
+        assert_eq!(screen.review_progress.first_line, 0);
+        assert!(screen.activate_focused(resized).is_none());
+        assert_eq!(
+            screen.review_progress.first_line,
+            ConfirmScreenLayout::for_size(resized).message_line_capacity()
+        );
+    }
+
+    #[test]
+    fn next_and_cancel_clicks_follow_the_review_layout_after_resizing() {
+        let mut screen = review_screen(&long_review_page());
+        let original = PhysicalSize::new(768, 666);
+        render_review(&mut screen, original);
+        let resized = PhysicalSize::new(640, 460);
+        render_review(&mut screen, resized);
+        let layout = ConfirmScreenLayout::for_size(resized);
+        let center = |rect: Rect| {
+            PhysicalPosition::new(
+                f64::from(rect.x + rect.w / 2),
+                f64::from(rect.y + rect.h / 2),
+            )
+        };
+
+        assert!(
+            screen
+                .handle_click(center(layout.confirm_rect), resized)
+                .is_none()
+        );
+        assert_eq!(
+            screen.review_progress.first_line,
+            layout.message_line_capacity()
+        );
+        assert!(matches!(
+            screen.handle_click(center(layout.cancel_rect), resized),
+            Some(ScreenResult::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn reviews_cannot_confirm_without_room_to_render_content() {
+        let size = PhysicalSize::new(768, 160);
+        let mut screen = review_screen(&long_review_page());
+        render_review(&mut screen, size);
+        screen.handle_navigation_key(&Key::Named(NamedKey::Tab));
+        assert!(screen.activate_focused(size).is_none());
+        screen.handle_navigation_key(&Key::Named(NamedKey::Tab));
+        assert!(matches!(
+            screen.activate_focused(size),
+            Some(ScreenResult::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn passphrase_entry_follows_completion_of_every_review_page() {
+        let pages = vec![long_review_page(), long_review_page()];
+        let mut screen =
+            build_bidding_review_screen("Unlock Wallet", &pages[0], REVIEW_NEXT_LABEL, "Cancel");
+        let mut flow = UnlockFlowState {
+            title: "Unlock Wallet".to_owned(),
+            passphrase_message: "Unlock wallet to start bidding".to_owned(),
+            review_pages: pages,
+            page_index: 0,
+            unlock_label: "Unlock".to_owned(),
+            cancel_label: "Cancel".to_owned(),
+        };
+        let size = PhysicalSize::new(640, 460);
+        for page_index in 0..flow.review_pages.len() {
+            let maximum_views = ConfirmScreenLayout::for_size(size)
+                .bidding_review_lines(&flow.review_pages[page_index])
+                .len()
+                .max(1);
+            let ScreenState::Confirm(review) = &mut screen else {
+                panic!("passphrase entry opened before all reviews completed");
+            };
+            review.handle_navigation_key(&Key::Named(NamedKey::Tab));
+            let mut views = 0;
+            loop {
+                views += 1;
+                assert!(views <= maximum_views, "review did not advance");
+                render_review(review, size);
+                let Some(result) = review.activate_focused(size) else {
+                    assert_eq!(flow.page_index, page_index);
+                    continue;
+                };
+                let FlowTransition::Continue(next_screen) = flow.on_result(result).unwrap() else {
+                    panic!("review must lead to another review or passphrase entry");
+                };
+                screen = next_screen;
+                break;
+            }
+        }
+        let ScreenState::Text(passphrase) = screen else {
+            panic!("completed reviews must lead to passphrase entry");
+        };
+        assert_eq!(passphrase.mode, TextPromptMode::Secret);
+        assert_eq!(passphrase.input_kind, TextInputKind::Passphrase);
+        assert!(passphrase.value.is_empty());
     }
 
     #[test]
@@ -2432,6 +2641,7 @@ mod tests {
             confirm_label: REVIEW_NEXT_LABEL.to_owned(),
             cancel_label: "Cancel".to_owned(),
             focus: ConfirmFocus::Cancel,
+            review_progress: BiddingReviewProgress::default(),
         };
 
         screen.render(&mut canvas, size);
