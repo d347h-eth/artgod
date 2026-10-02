@@ -16,6 +16,7 @@ import {
     assertDesktopRuntimeBuildProfileMarkers,
     assertNoForbiddenDesktopRuntimePaths,
     copyReviewedPackageFiles,
+    resolveDesktopRuntimePackageSource,
     stageDesktopRuntimeDependencies,
     validateExactRegularFileTree,
 } from "./desktop-runtime-dependency-staging.mjs";
@@ -41,6 +42,82 @@ const REVIEWED_DIRECTORY_PATHS = new Set([
     "internal",
     "ranges",
 ]);
+
+test("locked package resolution rejects missing and invalid installation paths", async (t) => {
+    const temporaryRoot = await createTemporaryRoot(t);
+    const packageName = NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3;
+    const issuerPath = path.join(temporaryRoot, "package.json");
+    const resolve = (sourceRoot) =>
+        resolveDesktopRuntimePackageSource({
+            packageName,
+            issuerPath,
+            pnpApi: { resolveToUnqualified: () => sourceRoot },
+        });
+    for (const sourceRoot of [null, "relative-package-path"]) {
+        await assert.rejects(resolve(sourceRoot), /Yarn PnP did not resolve/);
+    }
+    await assert.rejects(
+        resolve(path.join(temporaryRoot, "missing")),
+        /is unavailable/,
+    );
+    const filePath = path.join(temporaryRoot, "file");
+    await writeFile(filePath, "not a directory");
+    await assert.rejects(resolve(filePath), /not a directory/);
+    await assert.rejects(
+        resolveDesktopRuntimePackageSource({
+            packageName,
+            issuerPath,
+            pnpApi: {
+                resolveToUnqualified() {
+                    throw new Error("Missing PnP dependency");
+                },
+            },
+        }),
+        /Missing PnP dependency/,
+    );
+});
+
+test("locked package resolution validates package identity and rejects links", async (t) => {
+    const temporaryRoot = await createTemporaryRoot(t);
+    const packageName = NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3;
+    const sourceRoot = path.join(temporaryRoot, "installed");
+    await writeFixtureFile(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify({ name: "another-package" }),
+    );
+    const resolve = (root) =>
+        resolveDesktopRuntimePackageSource({
+            packageName,
+            issuerPath: path.join(temporaryRoot, "package.json"),
+            pnpApi: { resolveToUnqualified: () => root },
+        });
+    await assert.rejects(
+        resolve(sourceRoot),
+        /Locked package identity mismatch/,
+    );
+    await writeFile(
+        path.join(sourceRoot, "package.json"),
+        JSON.stringify({ name: packageName }),
+    );
+    assert.equal(await resolve(sourceRoot), sourceRoot);
+    const linkPath = path.join(temporaryRoot, "linked-package");
+    await symlink(
+        sourceRoot,
+        linkPath,
+        process.platform === "win32" ? "junction" : "dir",
+    );
+    await assert.rejects(resolve(linkPath), /must not be a symlink/);
+    await rm(path.join(sourceRoot, "package.json"));
+    await writeFile(
+        path.join(temporaryRoot, "manifest.json"),
+        JSON.stringify({ name: packageName }),
+    );
+    await symlink(
+        path.join(temporaryRoot, "manifest.json"),
+        path.join(sourceRoot, "package.json"),
+    );
+    await assert.rejects(resolve(sourceRoot), /must not be a symlink/);
+});
 
 test("staging materializes isolated reviewed dependency trees", async (t) => {
     const temporaryRoot = await createTemporaryRoot(t);
@@ -385,7 +462,12 @@ async function createReviewedPackageFixture(sourceRoot, packageName) {
             );
             continue;
         }
-        await writeFixtureFile(path.join(sourceRoot, relativePath));
+        await writeFixtureFile(
+            path.join(sourceRoot, relativePath),
+            relativePath === "package.json"
+                ? JSON.stringify({ name: packageName })
+                : undefined,
+        );
     }
 }
 

@@ -109,7 +109,10 @@ yarn test:desktop:listener-boundaries
 ```
 
 Each Tauri build below independently runs the target-aware native SQLite
-preparation through `beforeBuildCommand`.
+preparation through `beforeBuildCommand`. Native compilation and runtime staging
+resolve package sources through the locked Yarn PnP installation and validate
+their package identity; they do not scan `.yarn/unplugged`. Run preparation
+through Yarn so its PnP API is available, including with a custom unplugged path.
 
 Linux x64 bundle:
 

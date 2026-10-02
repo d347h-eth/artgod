@@ -389,7 +389,9 @@ Responsibilities:
     - `trading/node_modules/*`
     - `node/node` or `node/node.exe`
     - `nats/nats-server` or `nats/nats-server.exe`
-- resolves locked package sources through build-time PnP, then copies only the explicit runtime file allowlist into package-local `node_modules`
+- resolves locked package sources through build-time PnP using the same validated
+  package-resolution boundary as native SQLite compilation, then copies only
+  the explicit runtime file allowlist into package-local `node_modules`
 - gives backend/indexer the SQLite and Sharp closures while keeping Sharp/libvips unresolvable from the key-bearing trading runtime
 - stages the fat universal SQLite binding and both official macOS Sharp/libvips package pairs when the resolved target is `universal-apple-darwin`
 - rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files

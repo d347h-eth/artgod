@@ -6,7 +6,6 @@ import {
     copyFile,
     mkdtemp,
     readFile,
-    readdir,
     rm,
     writeFile,
 } from "node:fs/promises";
@@ -14,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { resolveDesktopRuntimePackageSource } from "./desktop-runtime-dependency-staging.mjs";
 import {
     BETTER_SQLITE3_NATIVE_BINDING_RELATIVE_PATH,
     DESKTOP_BUILD_TARGET_ENV_KEYS,
@@ -56,20 +56,13 @@ export async function buildSqliteNativeBinding({
     nodeVersion = process.version,
     nodeModulesAbi = process.versions.modules,
     logger = console.log,
+    pnpApi,
 } = {}) {
-    const unpluggedDir = path.join(rootDir, ".yarn", "unplugged");
-    const sqlitePackageDir = await findUnpluggedPackageDir(
-        unpluggedDir,
-        sqlitePackageName,
-    );
-    if (!sqlitePackageDir) {
-        throw new Error(
-            `Missing unplugged ${sqlitePackageName} package under ${path.relative(
-                rootDir,
-                unpluggedDir,
-            )}. Run yarn install first.`,
-        );
-    }
+    const sqlitePackageDir = await resolveDesktopRuntimePackageSource({
+        packageName: sqlitePackageName,
+        issuerPath: path.join(rootDir, "package.json"),
+        pnpApi,
+    });
 
     const nodeTarget = resolveDesktopDistributionTargetFromEnvironment({
         environment,
@@ -229,34 +222,6 @@ async function buildUniversalMacOSBinding({
     }
 }
 
-async function findUnpluggedPackageDir(baseDir, packageName) {
-    await assertDirectoryExists(baseDir);
-
-    const pendingDirs = [baseDir];
-    while (pendingDirs.length > 0) {
-        const currentDir = pendingDirs.pop();
-        const entries = await readdir(currentDir, { withFileTypes: true });
-
-        for (const entry of entries) {
-            if (!entry.isDirectory()) {
-                continue;
-            }
-
-            const entryPath = path.join(currentDir, entry.name);
-            if (
-                entry.name === packageName &&
-                path.basename(path.dirname(entryPath)) === "node_modules"
-            ) {
-                return entryPath;
-            }
-
-            pendingDirs.push(entryPath);
-        }
-    }
-
-    return undefined;
-}
-
 function runPackageInstall({ packageDir, nodeArchitecture, environment }) {
     const yarnBinary = process.platform === "win32" ? "yarn.cmd" : "yarn";
     const result = spawnSync(yarnBinary, ["run", "install"], {
@@ -364,14 +329,6 @@ function assertCommandSucceeded(result, description) {
     }
     if (result.status !== 0) {
         throw new Error(`${description} failed with status ${result.status}`);
-    }
-}
-
-async function assertDirectoryExists(dirPath) {
-    try {
-        await access(dirPath, fsConstants.R_OK);
-    } catch {
-        throw new Error(`Missing required directory: ${dirPath}`);
     }
 }
 
