@@ -56,3 +56,38 @@ test("caller Cargo flags are retained and an explicit lock flag is not duplicate
         });
     }
 });
+
+test("Windows uses the pinned Tauri JavaScript entry point without a command shell", async () => {
+    const cliScriptPath = "C:\\Program Files\\ArtGod\\tauri.js";
+    await buildLockedTauri(["--no-bundle", "--debug"], {
+        platform: "win32",
+        resolveCliEntrypoint: () => cliScriptPath,
+        async runCommand(command, args, options) {
+            assert.equal(command, process.execPath);
+            assert.deepEqual(args, [
+                cliScriptPath,
+                "build",
+                "--no-bundle",
+                "--debug",
+                "--",
+                "--locked",
+            ]);
+            assert.equal(options.shell, undefined);
+        },
+    });
+});
+
+test("Windows stops before launch when its installed CLI cannot resolve", async () => {
+    await assert.rejects(
+        buildLockedTauri(["--no-bundle"], {
+            platform: "win32",
+            resolveCliEntrypoint() {
+                throw new Error("Missing project CLI install");
+            },
+            runCommand() {
+                assert.fail("A missing CLI context must fail before launch.");
+            },
+        }),
+        /Missing project CLI install/,
+    );
+});
