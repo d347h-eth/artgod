@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
     CliUsageError,
     calculateCutoffDate,
     collectCratesIoPackages,
     DEFAULT_CARGO_AGE_GATE_CONFIG_RELATIVE_PATH,
-    DEFAULT_CARGO_LOCK_RELATIVE_PATH,
-    DEFAULT_CARGO_MANIFEST_RELATIVE_PATH,
     DEFAULT_CRATES_IO_METADATA_CONCURRENCY,
     describeVersionAge,
     fetchCrateVersions,
@@ -23,27 +21,39 @@ import {
     resolveProjectPath,
 } from "./cargo-age-gate-utils.mjs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "../..");
+import { DESKTOP_CARGO_PROJECTS } from "../build/cargo-projects.mjs";
 
-try {
-    const args = parseCommonArgs(process.argv.slice(2));
-    if (args.help) {
-        printUsage();
-        process.exit(0);
-    }
+const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 
+// Default admission checks all independent compiled/tested roots with one metadata cache.
+export async function checkCargoDependencyAge({
+    projectRoot = rootDir,
+    args = parseCommonArgs([], { defaultProject: null }),
+    now = new Date(),
+    fetchVersions = fetchCrateVersions,
+} = {}) {
+    const rootDir = projectRoot;
     const policy = await loadCargoAgeGatePolicy({
         rootDir,
         configPath: args.configPath,
         minimumAgeDaysOverride: args.minimumAgeDays,
     });
-    const now = new Date();
     const cutoffDate = calculateCutoffDate(now, policy.minimumAgeDays);
-    const lockfilePath = resolveProjectPath(rootDir, args.lockfilePath);
+    const projects = args.lockfilePath
+        ? [args]
+        : Object.values(DESKTOP_CARGO_PROJECTS);
+    const packagesByKey = new Map();
+    // Read every required root before network access; missing lockfiles fail admission.
+    for (const project of projects) {
+        const lockfilePath = resolveProjectPath(rootDir, project.lockfilePath);
+        for (const entry of collectCratesIoPackages(
+            await readCargoLockPackages(lockfilePath),
+        )) {
+            packagesByKey.set(packageKey(entry), entry);
+        }
+    }
     const packages = filterPackagesBySelectors(
-        collectCratesIoPackages(await readCargoLockPackages(lockfilePath)),
+        [...packagesByKey.values()],
         args.packageSelectors,
     );
     const versionCache = new Map();
@@ -54,6 +64,7 @@ try {
             const versions = await getCachedVersions(
                 versionCache,
                 packageEntry.name,
+                fetchVersions,
             );
             const versionMetadata = findVersionMetadata(versions, packageEntry);
             if (!versionMetadata) {
@@ -102,39 +113,58 @@ try {
         .filter((result) => result.type === "allowlisted")
         .map((result) => result.message);
 
-    if (violations.length > 0) {
-        console.error(
-            `Cargo age gate failed: ${violations.length} package version(s) are newer than ${policy.minimumAgeDays} days and are not allowlisted.`,
-        );
-        for (const violation of violations) {
-            console.error(`- ${violation}`);
-        }
-        process.exit(1);
-    }
-
-    console.log(
-        `Cargo age gate passed: ${packages.length} crates.io package version(s) checked with a ${policy.minimumAgeDays}d minimum age.`,
-    );
-    if (allowlisted.length > 0) {
-        console.log(`Allowlisted fresh versions: ${allowlisted.length}`);
-        for (const value of allowlisted) {
-            console.log(`- ${value}`);
-        }
-    }
-} catch (error) {
-    if (error instanceof CliUsageError) {
-        console.error(error.message);
-        printUsage();
-        process.exit(2);
-    }
-
-    throw error;
+    return {
+        packageCount: packages.length,
+        projectCount: projects.length,
+        minimumAgeDays: policy.minimumAgeDays,
+        violations,
+        allowlisted,
+    };
 }
 
-async function getCachedVersions(versionCache, crateName) {
+async function main() {
+    try {
+        const args = parseCommonArgs(process.argv.slice(2), {
+            defaultProject: null,
+        });
+        if (args.help) {
+            printUsage();
+            return;
+        }
+        const result = await checkCargoDependencyAge({ args });
+        if (result.violations.length > 0) {
+            console.error(
+                `Cargo age gate failed: ${result.violations.length} package version(s) are newer than ${result.minimumAgeDays} days and are not allowlisted.`,
+            );
+            for (const violation of result.violations)
+                console.error(`- ${violation}`);
+            process.exitCode = 1;
+            return;
+        }
+        console.log(
+            `Cargo age gate passed: ${result.packageCount} crates.io package version(s) across ${result.projectCount} lockfile(s) checked with a ${result.minimumAgeDays}d minimum age.`,
+        );
+        if (result.allowlisted.length > 0) {
+            console.log(
+                `Allowlisted fresh versions: ${result.allowlisted.length}`,
+            );
+            for (const value of result.allowlisted) console.log(`- ${value}`);
+        }
+    } catch (error) {
+        if (error instanceof CliUsageError) {
+            console.error(error.message);
+            printUsage();
+            process.exitCode = 2;
+            return;
+        }
+        throw error;
+    }
+}
+
+async function getCachedVersions(versionCache, crateName, fetchVersions) {
     let versionsPromise = versionCache.get(crateName);
     if (!versionsPromise) {
-        versionsPromise = fetchCrateVersions(crateName);
+        versionsPromise = fetchVersions(crateName);
         versionCache.set(crateName, versionsPromise);
     }
     return versionsPromise;
@@ -143,15 +173,21 @@ async function getCachedVersions(versionCache, crateName) {
 function printUsage() {
     console.log(`Usage: yarn cargo:age-gate [options]
 
-Checks Cargo.lock crates.io packages and fails if any locked version is newer
-than the configured minimum age without a policy exception.
+Checks all maintained desktop Cargo lockfiles by default and fails if a locked
+crates.io version is newer than the configured age without a policy exception.
 
 Options:
   --config <path>          Policy file. Default: ${DEFAULT_CARGO_AGE_GATE_CONFIG_RELATIVE_PATH}
-  --lockfile <path>        Cargo.lock path. Default: ${DEFAULT_CARGO_LOCK_RELATIVE_PATH}
-  --manifest-path <path>   Accepted for command symmetry. Default: ${DEFAULT_CARGO_MANIFEST_RELATIVE_PATH}
+  --lockfile <path>        Limit admission to one independent Cargo root.
+  --manifest-path <path>   Select one root; its adjacent lockfile is required.
   --min-age-days <days>    Override configured minimum age.
   --package <name[@ver]>   Limit to one package; repeatable.
   -h, --help               Show this help.
 `);
 }
+
+if (
+    process.argv[1] &&
+    import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+)
+    await main();

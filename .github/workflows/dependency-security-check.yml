@@ -8,8 +8,11 @@ on:
             - "config/cargo-age-gate.json"
             - "package.json"
             - "scripts/security/cargo-*.mjs"
+            - "scripts/build/cargo-projects.mjs"
             - "src-tauri/Cargo.lock"
             - "src-tauri/Cargo.toml"
+            - "src-tauri/**/Cargo.lock"
+            - "src-tauri/**/Cargo.toml"
             - "yarn.lock"
             - "*/package.json"
     push:
@@ -21,8 +24,11 @@ on:
             - "config/cargo-age-gate.json"
             - "package.json"
             - "scripts/security/cargo-*.mjs"
+            - "scripts/build/cargo-projects.mjs"
             - "src-tauri/Cargo.lock"
             - "src-tauri/Cargo.toml"
+            - "src-tauri/**/Cargo.lock"
+            - "src-tauri/**/Cargo.toml"
             - "yarn.lock"
             - "*/package.json"
     workflow_dispatch:

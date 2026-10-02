@@ -1,19 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { DESKTOP_CARGO_PROJECTS } from "../build/cargo-projects.mjs";
 
 export const DEFAULT_CARGO_AGE_GATE_CONFIG_RELATIVE_PATH = path.join(
     "config",
     "cargo-age-gate.json",
 );
-export const DEFAULT_CARGO_LOCK_RELATIVE_PATH = path.join(
-    "src-tauri",
-    "Cargo.lock",
-);
-export const DEFAULT_CARGO_MANIFEST_RELATIVE_PATH = path.join(
-    "src-tauri",
-    "Cargo.toml",
-);
+export const DEFAULT_CARGO_LOCK_RELATIVE_PATH =
+    DESKTOP_CARGO_PROJECTS.Desktop.lockfilePath;
+export const DEFAULT_CARGO_MANIFEST_RELATIVE_PATH =
+    DESKTOP_CARGO_PROJECTS.Desktop.manifestPath;
 export {
     DEFAULT_MINIMUM_AGE_DAYS,
     calculateCutoffDate,
@@ -24,7 +21,9 @@ export const CRATES_IO_API_BASE_URL = "https://crates.io/api/v1/crates";
 export const CARGO_UPDATE_COMMAND = "cargo";
 export const CARGO_AGE_GATE_USER_AGENT =
     "artgod-cargo-age-gate/1.0 (https://github.com/d347h-eth/artgod)";
-export const DEFAULT_CRATES_IO_METADATA_CONCURRENCY = 6;
+// The registry usage policy permits at most one API request per second.
+export const DEFAULT_CRATES_IO_METADATA_CONCURRENCY = 1;
+const CRATES_IO_MINIMUM_REQUEST_INTERVAL_MS = 1000;
 
 const PACKAGE_HEADER = "[[package]]";
 const PACKAGE_NAME_FIELD = "name";
@@ -191,35 +190,48 @@ export function collectCratesIoPackages(packages) {
     return [...uniquePackages.values()].sort(comparePackageEntries);
 }
 
-export async function fetchCrateVersions(crateName) {
-    const response = await fetch(
-        `${CRATES_IO_API_BASE_URL}/${encodeURIComponent(crateName)}/versions`,
-        {
-            headers: {
-                accept: "application/json",
-                "user-agent": CARGO_AGE_GATE_USER_AGENT,
+export async function fetchCrateVersions(
+    crateName,
+    {
+        fetchImplementation = fetch,
+        delay = (milliseconds) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    } = {},
+) {
+    try {
+        const response = await fetchImplementation(
+            `${CRATES_IO_API_BASE_URL}/${encodeURIComponent(crateName)}/versions`,
+            {
+                headers: {
+                    accept: "application/json",
+                    "user-agent": CARGO_AGE_GATE_USER_AGENT,
+                },
             },
-        },
-    );
-
-    if (!response.ok) {
-        throw new Error(
-            `crates.io metadata request failed for ${crateName}: ${response.status} ${response.statusText}`,
         );
-    }
 
-    const payload = await response.json();
-    if (!Array.isArray(payload.versions)) {
-        throw new Error(
-            `crates.io metadata for ${crateName} is missing versions`,
-        );
-    }
+        if (!response.ok) {
+            throw new Error(
+                `crates.io metadata request failed for ${crateName}: ${response.status} ${response.statusText}`,
+            );
+        }
 
-    return payload.versions.map((version) => ({
-        number: version.num,
-        createdAt: new Date(version.created_at),
-        yanked: Boolean(version.yanked),
-    }));
+        const payload = await response.json();
+        if (!Array.isArray(payload.versions)) {
+            throw new Error(
+                `crates.io metadata for ${crateName} is missing versions`,
+            );
+        }
+
+        return payload.versions.map((version) => ({
+            number: version.num,
+            createdAt: new Date(version.created_at),
+            yanked: Boolean(version.yanked),
+        }));
+    } finally {
+        // Both consumers issue requests sequentially. Complete this interval
+        // even on failure rather than enabling bursts or weakening admission.
+        await delay(CRATES_IO_MINIMUM_REQUEST_INTERVAL_MS);
+    }
 }
 
 export function findVersionMetadata(versions, packageEntry) {
@@ -304,11 +316,17 @@ export function runCargoUpdate({ manifestPath, packageEntry, targetVersion }) {
     return result.status ?? 1;
 }
 
-export function parseCommonArgs(argv, { allowDryRun = false } = {}) {
+export function parseCommonArgs(
+    argv,
+    {
+        allowDryRun = false,
+        defaultProject = DESKTOP_CARGO_PROJECTS.Desktop,
+    } = {},
+) {
     const args = {
         configPath: DEFAULT_CARGO_AGE_GATE_CONFIG_RELATIVE_PATH,
-        lockfilePath: DEFAULT_CARGO_LOCK_RELATIVE_PATH,
-        manifestPath: DEFAULT_CARGO_MANIFEST_RELATIVE_PATH,
+        lockfilePath: undefined,
+        manifestPath: undefined,
         minimumAgeDays: undefined,
         packageSelectors: [],
         dryRun: false,
@@ -367,6 +385,31 @@ export function parseCommonArgs(argv, { allowDryRun = false } = {}) {
         }
     }
 
+    // An explicit project selection must inspect the same lockfile that Cargo uses.
+    if (args.manifestPath && !args.lockfilePath) {
+        args.lockfilePath = path.join(
+            path.dirname(args.manifestPath),
+            "Cargo.lock",
+        );
+    } else if (args.lockfilePath && !args.manifestPath) {
+        args.manifestPath = path.join(
+            path.dirname(args.lockfilePath),
+            "Cargo.toml",
+        );
+    } else if (!args.manifestPath && defaultProject) {
+        args.manifestPath = defaultProject.manifestPath;
+        args.lockfilePath = defaultProject.lockfilePath;
+    }
+    if (
+        args.manifestPath &&
+        args.lockfilePath &&
+        path.resolve(path.dirname(args.manifestPath)) !==
+            path.resolve(path.dirname(args.lockfilePath))
+    ) {
+        throw new CliUsageError(
+            "Manifest and lockfile must select the same independent Cargo root.",
+        );
+    }
     return args;
 }
 
