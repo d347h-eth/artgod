@@ -11,6 +11,8 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 - Bidding authorization opens in a shorter, resizable window with visible Next
   and Cancel buttons. Long reviews continue through Next before wallet unlock.
+- Bootstrap enumeration reports progress at roughly 1% intervals, keeping the
+  step counter moving more often on slow RPC endpoints and small collections.
 
 ## 0.1.3-alpha - 2026-10-01
 

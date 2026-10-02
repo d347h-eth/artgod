@@ -141,7 +141,12 @@ Current model:
   read ownerOf at the anchor through Ethereum JSON-RPC. Only confirmed present
   tokens enter the snapshot; recognized absence reverts are skipped, while
   uncertain reads fail. No historical events or marketplace inventory are read.
-- Enumeration stores progress on the durable step and logs heartbeat progress.
+- Enumerable runs store progress on the durable step at intervals of 1% of
+  supply rounded down to whole tokens, with a minimum of one token and a
+  maximum of 1,000 tokens. The initial and final counts are
+  reported too. Run events retain their 1,000-token checkpoints, and heartbeat
+  logging is unchanged. Run-detail chips display whole percentages and poll
+  every five seconds, so fast checkpoints can be combined in one visible update.
 - Manual ranges generate candidates lazily. The confirmed-present token list
   remains in memory for the existing metadata seeding boundary. Anchored owners
   are currently read again by ownership tasks; durable enumeration pages/owner
