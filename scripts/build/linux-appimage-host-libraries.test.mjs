@@ -21,6 +21,7 @@ import {
     TAURI_LINUX_APPIMAGE_OUTPUT_PLUGIN_FILE_NAME,
     TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY,
     TAURI_LINUX_BUNDLER_TOOL_FILE_NAMES,
+    TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
 
@@ -132,7 +133,11 @@ test("output adapter forwards probes, applies policy before packing, and preserv
         // Exercise shell quoting in generated paths without executing their text.
         const buildCacheDirectory = await stageTauriLinuxBundleTools({
             cacheDirectory,
-            temporaryRoot: path.join(temporaryRoot, "build ' $(literal)"),
+            localToolsDirectory: path.join(
+                temporaryRoot,
+                "build ' $(literal)",
+                TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+            ),
         });
         const adapter = path.join(
             buildCacheDirectory,
