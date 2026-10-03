@@ -3647,6 +3647,7 @@ components:
             type: string
             enum:
                 [
+                    active,
                     waiting_for_bot,
                     verifying,
                     queued,
@@ -3678,6 +3679,7 @@ components:
                     type: object
                     required:
                         [
+                            active,
                             waiting_for_bot,
                             verifying,
                             queued,
@@ -3696,8 +3698,11 @@ components:
                             unknown,
                         ]
                     additionalProperties: false
-                    description: Counts can overlap; position, constraints, and declared pause are independent. A paused job still counts as paused during cancellation. All is the union of state matches, rather than their sum.
+                    description: Active and paused partition the total own rows. Other counts can overlap; position, constraints, and declared pause are independent. A paused job still counts as paused during cancellation.
                     properties:
+                        active:
+                            type: integer
+                            minimum: 0
                         waiting_for_bot:
                             type: integer
                             minimum: 0
