@@ -1,5 +1,10 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { parseEther } from "viem";
+import {
+    roundOpenSeaOfferPriceDown,
+    roundOpenSeaOfferPriceUp,
+} from "@artgod/shared/trading/open-sea-offer-price";
 import {
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
@@ -42,6 +47,15 @@ import {
 } from "./bidding-service.js";
 
 class FakeBiddingService {
+    // This strategy test double accepts every integer unit price.
+    roundOfferPriceDown(amount: bigint): bigint {
+        return amount;
+    }
+
+    roundOfferPriceUp(amount: bigint): bigint {
+        return amount;
+    }
+
     public activeTokenOfferByMaker: unknown = null;
     public activeTokenOfferByMakerImpl?: (job: BidderJob) => Promise<unknown>;
     public tokenOfferLookupJobIds: string[] = [];
@@ -1659,6 +1673,110 @@ describe("Bidder stream refresh", () => {
         assert.equal(makerWethBalanceService.calls, 1);
         assert.deepEqual(biddingService.placedAmounts, [5n]);
     });
+
+    it("ignores a hot event at the normalized balance ceiling and tracks that constraint", async () => {
+        const service = new FakeBiddingService();
+        service.roundOfferPriceDown = roundOpenSeaOfferPriceDown;
+        service.roundOfferPriceUp = roundOpenSeaOfferPriceUp;
+        let offerReads = 0;
+        service.activeOffersImpl = async () => {
+            offerReads++;
+            return [{ id: "other", price: parseEther("1.31"), maker: "other" }];
+        };
+        const bidder = new Bidder(
+            service as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            new FakeMakerWethBalanceService(parseEther("1.3016563")),
+        );
+        const job = makeJob(
+            "price-ceiling",
+            "terraforms",
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+            undefined,
+            {
+                floor: parseEther("1.3"),
+                ceiling: parseEther("1.4"),
+                delta: parseEther("0.01"),
+            },
+        );
+        bidder.addJob(job);
+        await bidder.scanOnce();
+
+        assert.deepEqual(service.placedAmounts, [parseEther("1.3")]);
+        assert.deepEqual(job.state.bidConstraints, [
+            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+        ]);
+        assert.equal(offerReads, 1);
+
+        await bidder.refreshMatchingJobs(
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "terraforms",
+                "123",
+                parseEther("1.3"),
+            ),
+        );
+
+        assert.equal(offerReads, 1);
+        assert.deepEqual(service.placedAmounts, [parseEther("1.3")]);
+    });
+
+    it.each([false, true])(
+        "normalizes command pricing with a runtime override=%s",
+        async (withOverride) => {
+            const service = new FakeBiddingService();
+            service.roundOfferPriceDown = roundOpenSeaOfferPriceDown;
+            service.roundOfferPriceUp = roundOpenSeaOfferPriceUp;
+            service.activeOffers = [
+                { id: "other", price: parseEther("1.31"), maker: "other" },
+            ];
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun: false },
+                undefined,
+                new FakeMakerWethBalanceService(parseEther("1.3016563")),
+            );
+            const job = makeJob(
+                "command-price",
+                "terraforms",
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                undefined,
+                {
+                    floor: parseEther("1.3"),
+                    ceiling: parseEther("1.4"),
+                    delta: parseEther("0.01"),
+                },
+            );
+            bidder.addJob(job);
+
+            try {
+                await bidder.refreshJobForCommand(job.id);
+                if (withOverride) {
+                    await bidder.activateJob(job.id, {
+                        floor: parseEther("1.305"),
+                        ceiling: parseEther("1.3999"),
+                        ttlMs: 100000,
+                    });
+                }
+
+                assert.deepEqual(
+                    service.placedAmounts,
+                    withOverride
+                        ? [parseEther("1.3"), parseEther("1.3")]
+                        : [parseEther("1.3")],
+                );
+                assert.equal(job.state.currentPrice, parseEther("1.3"));
+            } finally {
+                await bidder.stop();
+            }
+        },
+    );
 
     it("activates a runtime floor/ceiling override and refreshes immediately", async () => {
         const biddingService = new FakeBiddingService();

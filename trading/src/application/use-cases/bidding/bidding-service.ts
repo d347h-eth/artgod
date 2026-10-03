@@ -72,6 +72,11 @@ export type BiddingOrderRecoveryResult =
       };
 
 export interface BiddingService {
+    // Marketplace price rules apply before strategy comparisons and order tracking.
+    // Rounding down returns zero when no positive offer fits the amount.
+    roundOfferPriceDown(amount: bigint): bigint;
+    // Preserve zero; positive amounts round to the next accepted unit price.
+    roundOfferPriceUp(amount: bigint): bigint;
     getActiveOffers(
         job: BidderJob,
         context?: BiddingServiceRequestContext,

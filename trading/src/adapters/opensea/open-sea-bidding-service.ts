@@ -8,6 +8,10 @@ import {
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
+    roundOpenSeaOfferPriceDown,
+    roundOpenSeaOfferPriceUp,
+} from "@artgod/shared/trading/open-sea-offer-price";
+import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
     BIDDING_SERVICE_REQUEST_PRIORITY,
@@ -206,6 +210,14 @@ export class OpenSeaBiddingService implements BiddingService {
         this.trustOpenSeaSignedZoneTraitOffers =
             options.trustOpenSeaSignedZoneTraitOffers;
         this.observability = options.observability;
+    }
+
+    public roundOfferPriceDown(amount: bigint): bigint {
+        return roundOpenSeaOfferPriceDown(amount);
+    }
+
+    public roundOfferPriceUp(amount: bigint): bigint {
+        return roundOpenSeaOfferPriceUp(amount);
     }
 
     public async getActiveOffers(

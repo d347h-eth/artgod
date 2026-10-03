@@ -229,6 +229,32 @@ Offer discovery:
   bid-book projection, which is the next scaling boundary for heavily spammed
   collections
 
+## Bid Price Selection
+
+The bot calculates WETH unit offer prices in bigint wei. The marketplace adapter
+supplies rounding through the bidding port; OpenSea's reusable rule lives in
+`shared/trading/open-sea-offer-price.ts` and follows its
+[published offer precision limits](https://docs.opensea.io/changelog/api-changes).
+
+| Unit offer price             | Allowed price step |
+| ---------------------------- | ------------------ |
+| `0.0001` to below `0.1` WETH | `0.0001` WETH      |
+| `0.1` to below `1` WETH      | `0.001` WETH       |
+| `1` WETH and above           | `0.01` WETH        |
+
+Configured ceilings and cached WETH balance limits round down. Configured floors
+and competitor-plus-delta targets round up, then stay capped by the effective
+ceiling. This preserves the existing behavior of lowering the effective floor
+when the balance is below the configured floor. When that floor is affordable,
+a range containing no valid price resolves to a zero effective ceiling. Limits
+below the minimum positive offer also use this existing skip/cancel path.
+
+For a `1.3`–`1.4` WETH job with a `0.01` WETH delta and a cached balance of
+`1.3016563` WETH, the effective ceiling is `1.3` WETH. Placement, active-order
+comparison, runtime price/constraint tracking, and hot-refresh ceiling checks
+use that normalized price, preventing rejected balance tails and repeated
+replacement attempts. Persisted job settings retain their declared values.
+
 ## Runtime Logging
 
 The bidding bot emits JSON Lines through the shared ArtGod logger. Every

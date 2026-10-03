@@ -66,6 +66,14 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
 }
 
 class FakeBiddingService implements BiddingService {
+    roundOfferPriceDown(): bigint {
+        throw new Error("unused");
+    }
+
+    roundOfferPriceUp(): bigint {
+        throw new Error("unused");
+    }
+
     lookups: RecoverableOfferCancellationRecord[] = [];
     result: BiddingOrderRecoveryResult = {
         status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
