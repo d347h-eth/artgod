@@ -132,6 +132,10 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
             ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
             tokenIds: ["8"],
         },
+        {
+            ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            tokenIds: ["7", "8"],
+        },
     ])(
         "resolves private token-offer lookups with own state $ownStateFilter",
         ({ ownStateFilter, tokenIds }) => {
@@ -184,13 +188,35 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
                                 isOwn: true,
                                 ownStatus: {
                                     position:
-                                        TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                                        ownStateFilter ===
+                                        TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                                            ? TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                                            : TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
                                     constraints: [
                                         TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor,
                                     ],
                                     job: null,
                                 },
                             }),
+                            ...(ownStateFilter ===
+                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                                ? [
+                                      bidBookRow({
+                                          orderId: "opponent-token-7",
+                                          scopeKind:
+                                              TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                          tokenId: "7",
+                                          wei: "600000000000000000",
+                                      }),
+                                      bidBookRow({
+                                          orderId: "opponent-only-token-9",
+                                          scopeKind:
+                                              TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                          tokenId: "9",
+                                          wei: "800000000000000000",
+                                      }),
+                                  ]
+                                : []),
                         ]);
                     },
                 },
@@ -211,7 +237,11 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
                     traits: [],
                     traitRanges: [],
                     traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-                    makerAddress: "0x1111111111111111111111111111111111111111",
+                    makerAddress:
+                        ownStateFilter ===
+                        TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                            ? null
+                            : "0x1111111111111111111111111111111111111111",
                     ownStateFilter,
                 },
             });

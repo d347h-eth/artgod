@@ -8,6 +8,7 @@
         "test": "vitest run"
     },
     "exports": {
+        "./trading/bid-book-groups": "./trading/bid-book-groups.ts",
         "./trading/bid-book-own-state": "./trading/bid-book-own-state.ts",
         "./bootstrap/operation-output": "./bootstrap/operation-output.ts",
         "./bootstrap/operation-stream": "./bootstrap/operation-stream.ts",

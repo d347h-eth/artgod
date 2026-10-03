@@ -64,6 +64,32 @@ export function bidMatchesOwnStateFilter(
     return state === null || biddingBidBookOwnStates(bid).includes(state);
 }
 
+// Ownership is applied by the caller before state selection. Matching own rows
+// anchor groups whose opponent rows remain available as market context. Other
+// own states and groups without a match are excluded, preserving empty results.
+export function filterBiddingBidBookRowsByOwnState<
+    Row extends BiddingBidBookOwnStateSignals,
+>(
+    rows: Row[],
+    state: CollectionBiddingBidBookOwnStateFilter | null,
+    groupKey: (row: Row) => string,
+): Row[] {
+    if (state === null) return rows;
+    const matchingOwnRows = new Set<Row>();
+    const matchingGroups = new Set<string>();
+    for (const row of rows) {
+        if (bidMatchesOwnStateFilter(row, state)) {
+            matchingOwnRows.add(row);
+            matchingGroups.add(groupKey(row));
+        }
+    }
+    return rows.filter(
+        (row) =>
+            matchingOwnRows.has(row) ||
+            (!row.isOwn && matchingGroups.has(groupKey(row))),
+    );
+}
+
 // One count per own bid row and matching badge. All is the union of state matches,
 // rather than their sum: positions, constraints and declared pause can overlap.
 export function countBiddingBidBookOwnStates(

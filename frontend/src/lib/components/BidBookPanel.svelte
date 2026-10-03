@@ -32,6 +32,10 @@
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
+	import {
+		biddingBidBookGroupKey,
+		canonicalBiddingBidBookTraits
+	} from '@artgod/shared/trading/bid-book-groups';
 	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
 	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
@@ -472,7 +476,7 @@
 	function resolveDemandGroups(rows: ApiBiddingBidBookRow[]): BidBookDemandGroup[] {
 		const groups = new Map<string, ApiBiddingBidBookRow[]>();
 		for (const bid of rows) {
-			const key = demandGroupKey(bid);
+			const key = biddingBidBookGroupKey(bid.scope);
 			const group = groups.get(key);
 			if (group) {
 				group.push(bid);
@@ -485,7 +489,7 @@
 			.map(([key, bids]) => {
 				const sortedBids = [...bids].sort(compareBidRows);
 				const bestBid = sortedBids[0];
-				const traits = canonicalBidTraits(bestBid);
+				const traits = canonicalBiddingBidBookTraits(bestBid.scope.traits);
 				const activeBids = sortedBids.filter((bid) => !isMutedBidForBest(bestBid, bid));
 				return {
 					key,
@@ -523,21 +527,6 @@
 			return 0;
 		}
 		return left < right ? -1 : 1;
-	}
-
-	function demandGroupKey(bid: ApiBiddingBidBookRow): string {
-		const traits = canonicalBidTraits(bid);
-		if (traits.length === 0) {
-			return `${bid.scope.kind}\u0000${bid.scope.label}\u0000${bid.scope.tokenId ?? ''}`;
-		}
-		return traits.map((trait) => `${trait.type}\u0000${trait.value}`).join('\u0001');
-	}
-
-	function canonicalBidTraits(bid: ApiBiddingBidBookRow): ApiBiddingBidBookRow['scope']['traits'] {
-		return [...bid.scope.traits].sort((left, right) => {
-			const typeCompare = left.type.localeCompare(right.type);
-			return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
-		});
 	}
 
 	function demandGroupTraitKeys(traits: ApiBiddingBidBookRow['scope']['traits']): string[] {

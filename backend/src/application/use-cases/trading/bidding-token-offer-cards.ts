@@ -14,7 +14,7 @@ import type {
 } from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
 import {
-    bidMatchesOwnStateFilter,
+    filterBiddingBidBookRowsByOwnState,
     countBiddingBidBookOwnStates,
 } from "@artgod/shared/trading/bid-book-own-state";
 import { persistedBidBookRowEffectiveWei } from "./bidding-bid-book.js";
@@ -65,8 +65,10 @@ export function filterTokenOfferGroupsByOwnState(
     if (state === null) return groups;
     const matched = new Map<string, PersistedBiddingBidBookRow[]>();
     for (const [tokenId, offers] of groups) {
-        const matches = offers.filter((bid) =>
-            bidMatchesOwnStateFilter(bid, state),
+        const matches = filterBiddingBidBookRowsByOwnState(
+            offers,
+            state,
+            () => tokenId,
         );
         if (matches.length > 0) matched.set(tokenId, matches);
     }

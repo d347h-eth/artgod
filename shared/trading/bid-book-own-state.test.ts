@@ -12,6 +12,7 @@ import {
     biddingBidBookOwnStates,
     bidMatchesOwnStateFilter,
     countBiddingBidBookOwnStates,
+    filterBiddingBidBookRowsByOwnState,
     type BiddingBidBookOwnStateSignals,
 } from "./bid-book-own-state.js";
 
@@ -145,5 +146,71 @@ describe("own bid-book states", () => {
         expect(
             Object.values(counts.states).reduce((sum, count) => sum + count, 0),
         ).toBeGreaterThan(counts.total);
+    });
+});
+
+describe("own-state selection with opponent context", () => {
+    const own = (
+        group: string,
+        position: typeof POSITION.Losing | typeof POSITION.Winning,
+    ) => ({
+        ...market,
+        group,
+        ownStatus: { position, constraints: [], job: null },
+    });
+    const opponent = (group: string) => ({ ...market, group, isOwn: false });
+    const losing = own("matched", POSITION.Losing);
+    const relatedOpponent = opponent("matched");
+    const otherOwn = own("matched", POSITION.Winning);
+    const winning = own("other", POSITION.Winning);
+    const unrelatedOpponent = opponent("other");
+    const opponentOnly = opponent("opponent-only");
+    const rows = [
+        relatedOpponent,
+        losing,
+        otherOwn,
+        winning,
+        unrelatedOpponent,
+        opponentOnly,
+    ];
+    const key = (row: (typeof rows)[number]) => row.group;
+
+    it("keeps matching own rows and only opponents in their groups, in original order", () => {
+        expect(
+            filterBiddingBidBookRowsByOwnState(rows, POSITION.Losing, key),
+        ).toEqual([relatedOpponent, losing]);
+        expect(biddingBidBookOwnStates(relatedOpponent)).toEqual([]);
+        expect(countBiddingBidBookOwnStates(rows).states[POSITION.Losing]).toBe(
+            1,
+        );
+    });
+
+    it("respects an independently applied ownership filter", () => {
+        expect(
+            filterBiddingBidBookRowsByOwnState(
+                rows.filter((row) => row.isOwn),
+                POSITION.Losing,
+                key,
+            ),
+        ).toEqual([losing]);
+    });
+
+    it("keeps results empty without matching own rows even when opponents remain", () => {
+        expect(
+            filterBiddingBidBookRowsByOwnState(rows, POSITION.Draw, key),
+        ).toEqual([]);
+        expect(
+            filterBiddingBidBookRowsByOwnState(
+                [relatedOpponent, opponentOnly],
+                POSITION.Losing,
+                key,
+            ),
+        ).toEqual([]);
+    });
+
+    it("clears only state selection when All is selected", () => {
+        expect(filterBiddingBidBookRowsByOwnState(rows, null, key)).toEqual(
+            rows,
+        );
     });
 });

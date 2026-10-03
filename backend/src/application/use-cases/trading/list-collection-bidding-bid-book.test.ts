@@ -440,6 +440,160 @@ describe("own-state counts and filtering", () => {
         },
     );
 
+    it.each([
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+    ])(
+        "selects own states independently of ownership in %s groups",
+        (scopeFilter) => {
+            const rows = [
+                ownMarket("losing", "1", position.Losing),
+                ownMarket("winning-same-group", "1", position.Winning),
+                bidRow("opponent-matched", "200", "1"),
+                ownMarket("winning-other-group", "2", position.Winning),
+                bidRow("opponent-other-group", "300", "2"),
+                bidRow("opponent-only-group", "400", "3"),
+            ].map((row) => {
+                if (scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
+                    return row;
+                const traits =
+                    row.tokenId === "1"
+                        ? [
+                              { type: "Mode", value: "Terrain" },
+                              { type: "Biome", value: "42" },
+                          ]
+                        : [
+                              {
+                                  type: "Biome",
+                                  value: row.tokenId === "2" ? "42" : "7",
+                              },
+                          ];
+                return {
+                    ...row,
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                    tokenId: null,
+                    scopeTraits: row.isOwn ? traits : [...traits].reverse(),
+                };
+            });
+            const useCase = buildUseCase(
+                {
+                    listCollectionBidBook: (input) =>
+                        bidBook(
+                            input.scopeFilter === scopeFilter
+                                ? rows.filter(
+                                      (row) =>
+                                          !input.ownershipFilter || row.isOwn,
+                                  )
+                                : [],
+                        ),
+                    listTokenBidBook: () => bidBook([]),
+                },
+                ({ tokenIds }) => tokenIds.map(tokenCard),
+            );
+            for (const ownershipFilter of [
+                null,
+                COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            ]) {
+                const result = useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        ownershipFilter,
+                        ownStateFilter: position.Losing,
+                        limit: 1,
+                    }),
+                );
+                expect(result.bidBook.bids.map((row) => row.orderId)).toEqual(
+                    ownershipFilter
+                        ? ["losing"]
+                        : scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                          ? ["opponent-matched", "losing"]
+                          : ["losing", "opponent-matched"],
+                );
+                expect(result.ownBidStateCounts?.total).toBe(3);
+                expect(result.ownBidStateCounts?.states[position.Losing]).toBe(
+                    1,
+                );
+                if (scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+                    expect(result.tokenOfferCards.totalItems).toBe(1);
+                    expect(result.tokenOfferCards.totalOffers).toBe(
+                        ownershipFilter ? 1 : 2,
+                    );
+                } else {
+                    expect(result.bidBook.state.rowCount).toBe(
+                        ownershipFilter ? 1 : 2,
+                    );
+                }
+                const empty = useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        ownershipFilter,
+                        ownStateFilter: position.Draw,
+                    }),
+                );
+                expect(empty.bidBook.bids).toEqual([]);
+                expect(empty.ownBidStateCounts).toEqual(
+                    result.ownBidStateCounts,
+                );
+            }
+        },
+    );
+
+    it("ranks and paginates matched tokens with their retained opponent offers", () => {
+        const rows = [
+            ownMarket("losing-1", "1", position.Losing),
+            {
+                ...ownMarket("losing-2", "2", position.Losing),
+                price: exactBidBookRowPrice("200"),
+            },
+            bidRow("opponent-matched", "300", "1"),
+            bidRow("opponent-unrelated", "400", "3"),
+        ];
+        const useCase = buildUseCase(
+            {
+                listCollectionBidBook: (input) =>
+                    bidBook(
+                        input.scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                            ? rows.filter(
+                                  (row) => !input.ownershipFilter || row.isOwn,
+                              )
+                            : [],
+                    ),
+                listTokenBidBook: () => bidBook([]),
+            },
+            ({ tokenIds }) => tokenIds.map(tokenCard),
+        );
+        const input = biddingInput({
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            ownStateFilter: position.Losing,
+            limit: 1,
+        });
+        const first = useCase.listCollectionBiddingBidBook(input);
+        expect(first.tokenOfferCards.items.map((card) => card.tokenId)).toEqual(
+            ["1"],
+        );
+        expect(first.tokenOfferCards.totalItems).toBe(2);
+        expect(first.tokenOfferCards.totalOffers).toBe(3);
+        const second = useCase.listCollectionBiddingBidBook({
+            ...input,
+            cursor: first.tokenOfferCards.nextCursor,
+        });
+        expect(
+            second.tokenOfferCards.items.map((card) => card.tokenId),
+        ).toEqual(["2"]);
+        expect(second.ownBidStateCounts).toEqual(first.ownBidStateCounts);
+        const ownOnly = useCase.listCollectionBiddingBidBook({
+            ...input,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+        });
+        expect(
+            ownOnly.tokenOfferCards.items.map((card) => card.tokenId),
+        ).toEqual(["2"]);
+        expect(ownOnly.tokenOfferCards.totalOffers).toBe(2);
+        expect(ownOnly.ownBidStateCounts).toEqual(first.ownBidStateCounts);
+    });
+
     it("counts across pages and filters before token hydration and pagination", () => {
         const rows = [
             ownMarket("winning", "1", position.Winning, [constraint.Floor]),
@@ -501,6 +655,7 @@ describe("own-state counts and filtering", () => {
         const rows = [
             ownMarket("winning", "1", position.Winning),
             ownMarket("losing", "1", position.Losing, [constraint.Ceiling]),
+            bidRow("opponent-matched", "200", "1"),
             ownMarket("excluded", "2", position.Losing),
         ];
         const useCase = buildUseCase(
@@ -535,10 +690,10 @@ describe("own-state counts and filtering", () => {
         );
         expect(result.ownBidStateCounts?.total).toBe(2);
         expect(result.ownBidStateCounts?.states[position.Losing]).toBe(1);
-        expect(result.tokenOfferCards.totalOffers).toBe(1);
+        expect(result.tokenOfferCards.totalOffers).toBe(2);
         expect(
             result.tokenOfferCards.items[0]?.offers.map((bid) => bid.orderId),
-        ).toEqual(["losing"]);
+        ).toEqual(["opponent-matched", "losing"]);
     });
 
     it("includes addressless intent, preserves counts for empty matches, and keeps public summaries absent", () => {
