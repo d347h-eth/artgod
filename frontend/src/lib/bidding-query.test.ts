@@ -21,6 +21,17 @@ import {
 } from '$lib/bidding-query';
 
 describe('buildCollectionBiddingQuery', () => {
+	it('preserves own state for the implicit default token scope', () => {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+		});
+		expect(parseBidBookOwnStateFilter(query)).toBe(
+			COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+		);
+	});
+
 	it.each([
 		COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
 		TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
@@ -60,6 +62,28 @@ class CapturingApm implements ApmPort {
 }
 
 describe("ListCollectionBiddingBidBookUseCase observability", () => {
+    it.each(COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)(
+        "rejects collection-scoped state filter %s before reading",
+        (ownStateFilter) => {
+            const useCase = buildUseCase({
+                listCollectionBidBook: () => {
+                    throw new Error("repository must not be called");
+                },
+                listTokenBidBook: () => bidBook([]),
+            });
+
+            expect(() =>
+                useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter:
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                        ownStateFilter,
+                    }),
+                ),
+            ).toThrow(ReadModelBadRequestError);
+        },
+    );
+
     it("rejects conflicting maker and ownership filters before reading", () => {
         const useCase = buildUseCase({
             listCollectionBidBook: () => {
@@ -722,7 +746,7 @@ describe("own-state counts and filtering", () => {
 
     it("includes addressless intent, preserves counts for empty matches, and keeps public summaries absent", () => {
         const intent: PersistedBiddingBidBookRow = {
-            ...bidRow("queued", "100", null),
+            ...bidRow("queued", "100", "1"),
             maker: null,
             isOwn: true,
             materialization: {
@@ -732,33 +756,49 @@ describe("own-state counts and filtering", () => {
                 phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
             },
         };
-        const useCase = buildUseCase({
-            listCollectionBidBook: () =>
-                bidBook([intent, bidRow("opponent", "200")]),
-            listTokenBidBook: () => bidBook([]),
-        });
+        const useCase = buildUseCase(
+            {
+                listCollectionBidBook: ({ scopeFilter }) =>
+                    bidBook(
+                        scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                            ? [intent, bidRow("opponent", "200", "2")]
+                            : [],
+                    ),
+                listTokenBidBook: () => bidBook([]),
+            },
+            ({ tokenIds }) => tokenIds.map(tokenCard),
+        );
         const queued = useCase.listCollectionBiddingBidBook(
             biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
                 ownStateFilter: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
             }),
         );
         expect(queued.bidBook.bids[0]?.maker.address).toBeNull();
-        expect(queued.bidBook.state.rowCount).toBe(1);
+        expect(queued.tokenOfferCards.totalOffers).toBe(1);
         expect(queued.ownBidStateCounts?.total).toBe(1);
         const empty = useCase.listCollectionBiddingBidBook(
-            biddingInput({ ownStateFilter: position.Losing }),
+            biddingInput({
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                ownStateFilter: position.Losing,
+            }),
         );
         expect(empty.bidBook.bids).toEqual([]);
-        expect(empty.bidBook.state.rowCount).toBe(0);
+        expect(empty.tokenOfferCards.totalOffers).toBe(0);
         expect(empty.ownBidStateCounts).toEqual(queued.ownBidStateCounts);
         expect(
             useCase.listCollectionBiddingBidBook(
-                biddingInput({ includeOwnJobContext: false }),
+                biddingInput({
+                    scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                    includeOwnJobContext: false,
+                }),
             ).ownBidStateCounts,
         ).toBeNull();
         expect(() =>
             useCase.listCollectionBiddingBidBook(
                 biddingInput({
+                    scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
                     includeOwnJobContext: false,
                     ownStateFilter: position.Losing,
                 }),

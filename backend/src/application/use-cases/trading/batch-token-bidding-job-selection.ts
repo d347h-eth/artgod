@@ -169,6 +169,7 @@ function resolveTokenOfferFilterTokenIds(params: {
 }): string[] {
     assertBiddingBidBookFiltersAllowed({
         includeOwnJobContext: params.includeOwnJobContext,
+        scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
         makerAddress: params.selection.makerAddress,
         ownershipFilter: params.selection.ownershipFilter,
         ownStateFilter: params.selection.ownStateFilter,

@@ -66,6 +66,83 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation fixture harness', () => {
+	test('rejects collection-scoped own-state URLs and recovers through browser back', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+		);
+		const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+		await expect(tabs.locator('[aria-current="true"]')).toContainText('active [');
+		const validUrl = page.url();
+		const invalidQuery = new URLSearchParams({
+			[BID_SCOPE_QUERY_PARAM]: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+			[COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState]:
+				TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
+		});
+		await page.goto(`${BIDDING_PATH}?${invalidQuery}`);
+		await expect(page.getByRole('heading', { name: '400', exact: true })).toBeVisible();
+		await expect(
+			page.getByText('Use token or trait bids to filter by own bid state')
+		).toBeVisible();
+		expect(new URL(page.url()).searchParams.toString()).toBe(invalidQuery.toString());
+		await page.screenshot({
+			path: testInfo.outputPath('collection-own-state-invalid-url.png'),
+			fullPage: true
+		});
+		await page.goBack();
+		await expect(page).toHaveURL(validUrl);
+		await expect(tabs.locator('[aria-current="true"]')).toContainText('active [');
+		await page.screenshot({
+			path: testInfo.outputPath('collection-own-state-recovered.png'),
+			fullPage: true
+		});
+	});
+
+	test('clears own state on a collection scope switch and keeps refresh consistent', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await page.clock.install();
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active}`
+		);
+		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toBeVisible();
+		await page.getByRole('link', { name: 'collection', exact: true }).click();
+		await expect(page).toHaveURL(
+			new RegExp(`${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}`)
+		);
+		expect(
+			new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+		).toBe(false);
+		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
+		const rows = metaValue(page.locator('.bid-book-meta'), 'rows');
+		const beforeRefresh = await rows.innerText();
+		const refreshResponse = page.waitForResponse((response) => {
+			const url = new URL(response.url());
+			return (
+				response.request().method() === 'GET' &&
+				url.pathname.endsWith('/bidding/bids') &&
+				url.searchParams.get(BID_SCOPE_QUERY_PARAM) ===
+					COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
+			);
+		});
+		await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+		const response = await refreshResponse;
+		expect(response.status()).toBe(200);
+		expect(
+			new URL(response.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+		).toBe(false);
+		await expect(rows).toHaveText(beforeRefresh);
+		await page.screenshot({
+			path: testInfo.outputPath('collection-own-state-switch-refreshed.png'),
+			fullPage: true
+		});
+	});
+
 	test('defaults fresh Offers navigation to My bids and active and remembers reset and All bids', async ({
 		page
 	}, testInfo) => {

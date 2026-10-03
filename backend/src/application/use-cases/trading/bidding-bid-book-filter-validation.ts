@@ -1,12 +1,15 @@
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
+import { assertBidScopeSupportsOwnStateFilter } from "@artgod/shared/trading/bid-book-own-state";
 import type {
     CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingBidBookOwnStateFilter,
+    CollectionBiddingBidScopeFilter,
 } from "@artgod/shared/types";
 
-// Rejects ownership queries that cannot be answered without conflating local intent and marketplace identity.
+// Rejects private identity/state selections that their read context or scope cannot answer.
 export function assertBiddingBidBookFiltersAllowed(params: {
     includeOwnJobContext: boolean;
+    scopeFilter: CollectionBiddingBidScopeFilter;
     makerAddress?: string | null;
     ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
@@ -23,5 +26,8 @@ export function assertBiddingBidBookFiltersAllowed(params: {
         throw new ReadModelBadRequestError(
             "Own bids are unavailable in public bid-book reads",
         );
+    }
+    if (params.ownStateFilter) {
+        assertBidScopeSupportsOwnStateFilter(params.scopeFilter);
     }
 }

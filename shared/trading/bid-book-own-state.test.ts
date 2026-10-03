@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER as FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
+    COLLECTION_BIDDING_BID_SCOPE_FILTER as SCOPE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND as MATERIALIZATION,
     TRADING_BIDDING_BID_BOOK_OWN_STATE as STATE,
@@ -9,7 +10,10 @@ import {
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT as CONSTRAINT,
     TRADING_JOB_STATUS as STATUS,
 } from "../types/trading.js";
+import { ReadModelBadRequestError } from "../read-models/errors.js";
 import {
+    assertBidScopeSupportsOwnStateFilter,
+    bidScopeSupportsOwnStateFilter,
     biddingBidBookOwnStates,
     bidMatchesOwnStateFilter,
     countBiddingBidBookOwnStates,
@@ -28,6 +32,23 @@ const market: BiddingBidBookOwnStateSignals = {
 };
 
 describe("own bid-book states", () => {
+    it.each([SCOPE.Token, SCOPE.Traits])(
+        "allows own-state selection in %s scope",
+        (scope) => {
+            expect(bidScopeSupportsOwnStateFilter(scope)).toBe(true);
+            expect(() =>
+                assertBidScopeSupportsOwnStateFilter(scope),
+            ).not.toThrow();
+        },
+    );
+
+    it("rejects own-state selection in collection scope", () => {
+        expect(bidScopeSupportsOwnStateFilter(SCOPE.Collection)).toBe(false);
+        expect(() =>
+            assertBidScopeSupportsOwnStateFilter(SCOPE.Collection),
+        ).toThrow(ReadModelBadRequestError);
+    });
+
     it("uses authoritative decisions, deduplicates constraints and supersedes intent phases", () => {
         const bid: BiddingBidBookOwnStateSignals = {
             ...market,

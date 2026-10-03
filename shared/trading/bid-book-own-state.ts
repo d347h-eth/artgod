@@ -1,11 +1,13 @@
 import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_BOOK_OWN_STATE,
     TRADING_JOB_STATUS,
     type CollectionBiddingBidBookOwnStateFilter,
+    type CollectionBiddingBidScopeFilter,
     type TradingBiddingBidBookOwnJobPhase,
     type TradingBiddingBidBookOwnState,
     type TradingBiddingBidBookOwnStateCounts,
@@ -14,6 +16,30 @@ import {
     type TradingBiddingJobRuntimeConstraint,
     type TradingJobStatus,
 } from "../types/trading.js";
+import { ReadModelBadRequestError } from "../read-models/errors.js";
+
+// Own-state selection belongs to the token and trait bid-book views, which expose
+// the selected filter and its reset control. Keep URL building and API validation aligned.
+export function bidScopeSupportsOwnStateFilter(
+    scope: CollectionBiddingBidScopeFilter,
+): boolean {
+    return (
+        scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
+        scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+    );
+}
+
+// Invalid scoped reads fail before loading a bid book, rather than applying a
+// filter that its view cannot display and its next refresh would discard.
+export function assertBidScopeSupportsOwnStateFilter(
+    scope: CollectionBiddingBidScopeFilter,
+): void {
+    if (!bidScopeSupportsOwnStateFilter(scope)) {
+        throw new ReadModelBadRequestError(
+            "Use token or trait bids to filter by own bid state",
+        );
+    }
+}
 
 // Transport-neutral bid-book signals. Callers map ownership at their adapter boundary.
 export type BiddingBidBookOwnStateSignals = {

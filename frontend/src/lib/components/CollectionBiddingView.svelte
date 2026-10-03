@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 	import type { Pathname } from '$app/types';
 	import { onMount, tick } from 'svelte';
 	import type {
@@ -1108,7 +1109,7 @@
 {/snippet}
 
 {#snippet ownStateFilterRow()}
-	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && showBidBookFilters && activeOwnBidStateCounts}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && bidScopeSupportsOwnStateFilter(bidScope) && activeOwnBidStateCounts}
 		<BidBookFilterTabs
 			tabs={ownBidStateFilterTabs(activeOwnBidStateCounts, ownStateFilter)}
 			maxInlineSize="67rem"

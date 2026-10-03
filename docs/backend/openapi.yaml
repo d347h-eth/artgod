@@ -828,7 +828,7 @@ paths:
                 - name: own_state
                   in: query
                   required: false
-                  description: Private own-bid state filter, independent of ownership and applied before token pagination. Matching own rows retain opponents in the same trait bucket or token group unless ownership excludes them. Counts retain all own states within the other filters. Public reads reject this filter.
+                  description: Private own-bid state filter for token and trait scopes, independent of ownership and applied before token pagination. Matching own rows retain opponents in the same trait bucket or token group unless ownership excludes them. Counts retain all own states within the other filters. Collection scope and public reads reject this filter with HTTP 400.
                   schema:
                       $ref: "#/components/schemas/BiddingBidBookOwnStateFilter"
                 - name: traits

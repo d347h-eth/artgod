@@ -1,4 +1,5 @@
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
@@ -80,7 +81,10 @@ export function buildCollectionBiddingQuery(params: {
 		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
-	if (params.ownStateFilter && params.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection) {
+	if (
+		params.ownStateFilter &&
+		bidScopeSupportsOwnStateFilter(params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
+	) {
 		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState, params.ownStateFilter);
 	}
 	appendTraitRangeParams(query, params.selectedTraitRanges);

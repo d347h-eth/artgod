@@ -11,7 +11,6 @@ import type {
 } from "@artgod/shared/types";
 import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "@artgod/shared/types";
 import {
-    bidMatchesOwnStateFilter,
     countBiddingBidBookOwnStates,
     filterBiddingBidBookRowsByOwnState,
 } from "@artgod/shared/trading/bid-book-own-state";
@@ -307,25 +306,17 @@ export class ListCollectionBiddingBidBookUseCase {
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
             visibleBidRows = pageCards.flatMap((card) => card.persistedOffers);
         } else if (input.ownStateFilter) {
-            visibleBidRows =
-                input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
-                    ? filterBiddingBidBookRowsByOwnState(
-                          scopedRows,
-                          input.ownStateFilter,
-                          (bid) =>
-                              biddingBidBookGroupKey({
-                                  kind: bid.scopeKind,
-                                  label: bid.scopeLabel,
-                                  tokenId: bid.tokenId,
-                                  traits: bid.scopeTraits,
-                              }),
-                      )
-                    : scopedRows.filter((bid) =>
-                          bidMatchesOwnStateFilter(
-                              bid,
-                              input.ownStateFilter ?? null,
-                          ),
-                      );
+            visibleBidRows = filterBiddingBidBookRowsByOwnState(
+                scopedRows,
+                input.ownStateFilter,
+                (bid) =>
+                    biddingBidBookGroupKey({
+                        kind: bid.scopeKind,
+                        label: bid.scopeLabel,
+                        tokenId: bid.tokenId,
+                        traits: bid.scopeTraits,
+                    }),
+            );
         }
         const visibleBidBook = {
             ...persistedBidBook,
