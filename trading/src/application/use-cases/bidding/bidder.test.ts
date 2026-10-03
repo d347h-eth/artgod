@@ -73,6 +73,7 @@ class FakeBiddingService {
         collectionSlug?: string;
     }> = [];
     public placedAmounts: bigint[] = [];
+    public placedOrderHash = "0xhash";
     public placedExpirationTime?: number;
     public placeError: Error | null = null;
     public canceledOrderIds: string[] = [];
@@ -124,7 +125,7 @@ class FakeBiddingService {
         }
         this.placedAmounts.push(amount);
         return {
-            orderHash: "0xhash",
+            orderHash: this.placedOrderHash,
             protocolAddress: "0xprotocol",
             placedAt: "2026-05-17T00:00:00Z",
             expirationTime: this.placedExpirationTime,
@@ -146,11 +147,15 @@ class FakeOpenSeaBiddingService extends FakeBiddingService {
 
 class FakeMakerWethBalanceService {
     public calls = 0;
+    public error: Error | null = null;
 
-    constructor(private readonly balance: bigint) {}
+    constructor(public balance: bigint) {}
 
     async getWethBalance(_address: string): Promise<bigint> {
         this.calls++;
+        if (this.error) {
+            throw this.error;
+        }
         return this.balance;
     }
 }
@@ -1680,6 +1685,246 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.placedAmounts, [5n]);
     });
 
+    describe.each([
+        BIDDER_REFRESH_TRIGGER.FullScan,
+        BIDDER_REFRESH_TRIGGER.UserCommand,
+    ])("WETH balance failures during %s", (trigger) => {
+        it("uses the configured ceiling when the first balance read fails", async () => {
+            const service = new FakeOpenSeaBiddingService();
+            service.activeOffers = [
+                { id: "other", price: parseEther("1.4"), maker: "0xother" },
+            ];
+            const balances = new FakeMakerWethBalanceService(0n);
+            balances.error = new Error("WETH balance read failed");
+            const balanceReads: boolean[] = [];
+            const decisions: string[] = [];
+            const scanResults: BidderScanResult[] = [];
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun: false },
+                undefined,
+                balances,
+                undefined,
+                makeScanObservability(scanResults, {
+                    onDecision: ({ decision }) => decisions.push(decision),
+                    onWorkStarted: (stage) => (succeeded) => {
+                        if (stage === BIDDING_WORK_STAGE.BalanceRead) {
+                            balanceReads.push(succeeded);
+                        }
+                    },
+                }),
+            );
+            const job = makeJob(
+                "balance-failure",
+                "terraforms",
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                undefined,
+                {
+                    floor: parseEther("1.3"),
+                    ceiling: parseEther("1.4"),
+                    delta: parseEther("0.01"),
+                },
+            );
+            bidder.addJob(job);
+
+            if (trigger === BIDDER_REFRESH_TRIGGER.FullScan) {
+                await bidder.scanOnce();
+            } else {
+                await bidder.refreshJobForCommand(job.id);
+            }
+
+            assert.equal(balances.calls, 1);
+            assert.deepEqual(balanceReads, [false]);
+            assert.deepEqual(decisions, [BIDDER_DECISION.Place]);
+            assert.deepEqual(service.placedAmounts, [parseEther("1.4")]);
+            assert.deepEqual(service.canceledOrderIds, []);
+            assert.equal(job.state.currentPrice, parseEther("1.4"));
+            assert.equal(
+                job.state.bidPosition,
+                TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw,
+            );
+            assert.deepEqual(job.state.bidConstraints, [
+                TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+            ]);
+            assert.deepEqual(
+                scanResults,
+                trigger === BIDDER_REFRESH_TRIGGER.FullScan
+                    ? [BIDDER_SCAN_RESULT.Success]
+                    : [],
+            );
+        });
+
+        it.each([
+            {
+                name: "keeps the cached ceiling then raises it on recovery",
+                cachedBalance: "1.3516563",
+                initialPrice: "1.35",
+                recoveredBalance: "1.3916563",
+                recoveredPrice: "1.39",
+                failedDecision: BIDDER_DECISION.MaintainCapped,
+                recoveredDecision: BIDDER_DECISION.AdjustUp,
+                recoveredPosition:
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                recoveredConstraints: [
+                    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+                ],
+            },
+            {
+                name: "keeps the cached ceiling then lowers it on recovery",
+                cachedBalance: "1.3516563",
+                initialPrice: "1.35",
+                recoveredBalance: "1.3116563",
+                recoveredPrice: "1.31",
+                failedDecision: BIDDER_DECISION.MaintainCapped,
+                recoveredDecision: BIDDER_DECISION.AdjustDown,
+                recoveredPosition:
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                recoveredConstraints: [
+                    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+                ],
+            },
+            {
+                name: "preserves a cached zero balance until recovery",
+                cachedBalance: "0",
+                initialPrice: undefined,
+                recoveredBalance: "2",
+                recoveredPrice: "1.39",
+                failedDecision: BIDDER_DECISION.ZeroCeiling,
+                recoveredDecision: BIDDER_DECISION.Place,
+                recoveredPosition:
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                recoveredConstraints: [],
+            },
+        ])("$name", async (scenario) => {
+            const service = new FakeOpenSeaBiddingService();
+            const competitor = {
+                id: "other",
+                price: parseEther("1.38"),
+                maker: "0xother",
+            };
+            service.activeOffers = [competitor];
+            service.placedExpirationTime = Math.floor(Date.now() / 1000) + 3600;
+            const balances = new FakeMakerWethBalanceService(
+                parseEther(scenario.cachedBalance),
+            );
+            const balanceReads: boolean[] = [];
+            const decisions: string[] = [];
+            const snapshots: BiddingJobRuntimeStateSnapshot[] = [];
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun: false },
+                undefined,
+                balances,
+                {
+                    persistJobRuntimeState: (snapshot) => {
+                        snapshots.push(snapshot);
+                    },
+                    recordJobOfferCancellation: () => undefined,
+                },
+                makeScanObservability([], {
+                    onDecision: ({ decision }) => decisions.push(decision),
+                    onWorkStarted: (stage) => (succeeded) => {
+                        if (stage === BIDDING_WORK_STAGE.BalanceRead) {
+                            balanceReads.push(succeeded);
+                        }
+                    },
+                }),
+            );
+            const job = makeJob(
+                "balance-recovery",
+                "terraforms",
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                undefined,
+                {
+                    floor: parseEther("1.3"),
+                    ceiling: parseEther("1.4"),
+                    delta: parseEther("0.01"),
+                },
+            );
+            bidder.addJob(job);
+            const refresh = () =>
+                trigger === BIDDER_REFRESH_TRIGGER.FullScan
+                    ? bidder.scanOnce()
+                    : bidder.refreshJobForCommand(job.id);
+
+            await refresh();
+
+            const initialPrice =
+                scenario.initialPrice === undefined
+                    ? undefined
+                    : parseEther(scenario.initialPrice);
+            const initialAmounts =
+                initialPrice === undefined ? [] : [initialPrice];
+            assert.deepEqual(service.placedAmounts, initialAmounts);
+            if (initialPrice !== undefined) {
+                service.activeOffers = [
+                    competitor,
+                    {
+                        id: "0xhash",
+                        price: initialPrice,
+                        maker: "0xmaker",
+                        protocolAddress: "0xprotocol",
+                        offerScope: "item",
+                        expirationTime: service.placedExpirationTime,
+                    },
+                ];
+            }
+
+            balances.balance = parseEther("2");
+            balances.error = new Error("WETH balance read failed");
+            await refresh();
+
+            assert.deepEqual(balanceReads, [true, false]);
+            assert.deepEqual(service.placedAmounts, initialAmounts);
+            assert.deepEqual(service.canceledOrderIds, []);
+            assert.equal(job.state.currentPrice, initialPrice);
+            assert.equal(decisions.at(-1), scenario.failedDecision);
+
+            balances.balance = parseEther(scenario.recoveredBalance);
+            balances.error = null;
+            service.placedOrderHash = "0xrecovered";
+            await refresh();
+
+            assert.equal(balances.calls, 3);
+            assert.deepEqual(balanceReads, [true, false, true]);
+            assert.equal(decisions.at(-1), scenario.recoveredDecision);
+            assert.deepEqual(service.placedAmounts, [
+                ...initialAmounts,
+                parseEther(scenario.recoveredPrice),
+            ]);
+            assert.deepEqual(
+                service.canceledOrderIds,
+                initialPrice === undefined ? [] : ["0xhash"],
+            );
+            assert.equal(job.state.activeOrderId, "0xrecovered");
+            assert.equal(
+                job.state.currentPrice,
+                parseEther(scenario.recoveredPrice),
+            );
+            assert.equal(job.state.bidPosition, scenario.recoveredPosition);
+            assert.deepEqual(
+                job.state.bidConstraints,
+                scenario.recoveredConstraints,
+            );
+            const persisted = snapshots.at(-1);
+            assert.equal(persisted?.activeOrderId, "0xrecovered");
+            assert.equal(
+                persisted?.currentPriceWei,
+                parseEther(scenario.recoveredPrice).toString(),
+            );
+            assert.equal(persisted?.bidPosition, scenario.recoveredPosition);
+            assert.deepEqual(
+                persisted?.bidConstraints,
+                scenario.recoveredConstraints,
+            );
+            assert.equal(persisted?.lastError, null);
+        });
+    });
+
     it("ignores a hot event at the normalized balance ceiling and tracks that constraint", async () => {
         const service = new FakeOpenSeaBiddingService();
         let offerReads = 0;
@@ -2402,6 +2647,7 @@ describe("Bidder stream refresh", () => {
     it.each([
         {
             name: "lowers a winning bid to the minimum winning price",
+            ceiling: "1.4",
             ownPrice: "1.38",
             competitorPrice: "1.32",
             balance: "2",
@@ -2412,6 +2658,7 @@ describe("Bidder stream refresh", () => {
         },
         {
             name: "lowers a winning bid to the configured floor",
+            ceiling: "1.4",
             ownPrice: "1.38",
             competitorPrice: "1.1",
             balance: "2",
@@ -2422,6 +2669,7 @@ describe("Bidder stream refresh", () => {
         },
         {
             name: "lowers a winning bid to the affordable ceiling even when it loses",
+            ceiling: "1.4",
             ownPrice: "1.4",
             competitorPrice: "1.38",
             balance: "1.355555",
@@ -2431,7 +2679,19 @@ describe("Bidder stream refresh", () => {
             constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
         },
         {
+            name: "lowers a winning bid to a reduced configured ceiling even when it loses",
+            ceiling: "1.355555",
+            ownPrice: "1.4",
+            competitorPrice: "1.38",
+            balance: "2",
+            expectedPrice: "1.35",
+            decision: BIDDER_DECISION.AdjustDown,
+            position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+        },
+        {
             name: "raises a losing bid to the affordable ceiling",
+            ceiling: "1.4",
             ownPrice: "1.31",
             competitorPrice: "1.38",
             balance: "1.3516563",
@@ -2442,6 +2702,7 @@ describe("Bidder stream refresh", () => {
         },
         {
             name: "raises a losing bid to beat the competitor by the delta",
+            ceiling: "1.4",
             ownPrice: "1.31",
             competitorPrice: "1.32",
             balance: "2",
@@ -2501,7 +2762,7 @@ describe("Bidder stream refresh", () => {
             parseEther(scenario.ownPrice),
             {
                 floor: parseEther("1.3"),
-                ceiling: parseEther("1.4"),
+                ceiling: parseEther(scenario.ceiling),
                 delta: parseEther("0.01"),
             },
         );
