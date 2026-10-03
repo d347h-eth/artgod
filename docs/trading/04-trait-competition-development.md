@@ -9,27 +9,29 @@ the [unified backlog](../planning/01-unified-backlog.md#trait-bidding-competitio
 
 - A trait job considers collection-wide offers and every nonempty subset of its
   target traits, including each individual trait and the full target.
-- Each trait job can persist extra competition selectors: an exact key/value or
-  an entire key, covering every value observed in the authoritative snapshot.
+- Collection presets pair an exact trait target with extra selectors. Jobs
+  reference immutable preset versions; edits never change existing jobs implicitly.
 - Extra selectors affect competitor assessment only. Offer submission, target
   identity, quantity, price limits, own-order recovery, and cancellation retain
   the exact declared target.
 - Extra selectors are additive; an empty set retains the inclusive default.
   Changes update the existing job and durable command outbox, without changing
-  its identity. Omitted fields from older clients preserve saved extras.
+  its identity. Omitted reference fields preserve the selected version; null clears it.
 - The new behavior extends ordinary trait jobs, without repurposing legacy
   competitive-trait jobs or adding per-selector marketplace polling.
-- Existing installations upgrade through an append-only migration. Existing
-  jobs receive no extras; their default competition becomes inclusive.
-- The shared bidding panel provides compact add/remove controls for per-job
-  selectors, and preserves edits, reset, existing-job lookup, price-tier reapply,
-  and read-only/public restrictions.
+- Installations based on main upgrade through a new migration. Existing jobs
+  receive no extras; their default competition becomes inclusive. The unpublished
+  per-job migration is replaced; its one local installation requires the manual
+  rollback documented below.
+- A collection section beside tiers provides structured preset creation/editing.
+  The shared bidding panel selects a matching preset with compact buttons and
+  defaults to none. Reset, lookup, price-tier reapply and restrictions are retained.
 
 Extra selectors match single-trait offers only, as confirmed by the user.
 Selecting a key/value does not include multi-trait offers containing that pair;
 selecting a whole key includes standalone trait offers for all its values.
 
-## Iterations and Acceptance Evidence
+## Initial Iterations and Acceptance Evidence (Historical)
 
 1. [x] Read project guidance and trace the ordinary trait-job path; create a
        feature worktree from local `main` and record this plan.
@@ -59,7 +61,7 @@ fixture harness; marketplace responses and orders are synthetic. This work does
 not authorize live bids, live data mutation, runtime restarts, deployment, or
 release. Local checks are not remote CI or live OpenSea evidence.
 
-## Progress and Results
+## Initial Progress and Results (Historical)
 
 - Baseline: local `main` at `b7a7f7fd`; new branch
   `feature/trait-bidding-competition`.
@@ -95,7 +97,7 @@ release. Local checks are not remote CI or live OpenSea evidence.
   formatting and checked by the compiler. Work is committed in unsigned logical
   chunks; no native package, live session or remote CI verification is claimed.
 
-## Final Requirement Audit
+## Initial Requirement Audit (Historical)
 
 | Requirement                               | Implementation and verification                                                                                                                                                                                                                                                                    |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -107,7 +109,7 @@ release. Local checks are not remote CI or live OpenSea evidence.
 | Keep legacy jobs separate                 | The new field belongs to ordinary collection targets with traits. Existing legacy competitive-trait tests pass without changing that target kind or its placement behavior.                                                                                                                        |
 | Avoid extra marketplace fanout            | Snapshot and all-offers fallback use the same policy. Tests reject incomplete fallback pagination and assert no trait enumeration or per-selector requests.                                                                                                                                        |
 
-Final verification commands (test scratch files were directed to the worktree's
+Initial verification commands (test scratch files were directed to the worktree's
 `tmp/` directory with `TMPDIR`):
 
 - `yarn workspace @artgod/backend test` — 383 tests pass.
@@ -122,3 +124,83 @@ Final verification commands (test scratch files were directed to the worktree's
 - `yarn workspace @artgod/frontend check`, `yarn build:userland`, and
   `yarn build:desktop-runtime` — pass with the warning boundary above.
 - `yarn check:docs` — 75 Markdown files pass validation.
+
+## Preset Revision (2026-10-04)
+
+The original per-job text editor is superseded by a collection inventory. Its
+historical verification above describes the initial implementation. Current
+jobs reference one immutable version, while inventory definitions own target
+criteria and extras. A preset edit increments its revision without changing job
+revisions, references or outbox commands. Explicit job selection changes retain
+the existing transactional declaration/outbox flow. Archived versions remain
+readable to referenced jobs; new selection rejects archived, stale, foreign
+collection or mismatched target definitions. Updates use expected revisions to
+reject stale editors. Bulk reapply remains future work; individual jobs can
+explicitly select the current version today.
+
+Target normalization and marketplace eligibility are shared by job creation and
+preset creation. Extra choices use the unfiltered collection trait catalog.
+Backend reads and the bot share a joined SQLite projection of the selected
+version, without an additional query per loaded job. Competition matching and
+OpenSea submission/own-order policy remain unchanged.
+
+The shared preset section is available from collection tokens, offers, and
+holder tokens beside tiers. Exact main targets and exact/any extra choices use
+dropdowns. The trait-job panel lists only matching presets, defaults to none,
+and retains a saved older version as an explicit choice. Labels wrap within the
+small panel. Loading, failed writes, reset, retry and trait-trust restrictions
+retain their established behavior. Scope changes ignore late responses from
+the previous collection.
+
+### Preset Verification
+
+- Backend suite: 581 tests pass, including protected HTTP routes, versioned
+  persistence, wrong scope/target and stale-version rejection, price-only
+  preservation, outbox rollback, and the manual migration replacement.
+- Shared suite: 376 tests pass. Frontend unit suite: 566 tests pass.
+- `yarn test:bidding:strategy --maxWorkers=3`: 404 tests pass and all per-file
+  coverage thresholds pass. Runtime source loading retains the selected version
+  when newer definitions exist; strategy and exact placement policy stay covered.
+- Maintained bidding browser suite: 92 tests pass across desktop and Pixel 7.
+  Public-mode suite: 8 tests pass. The eight preset checks pass again after the
+  final editor spacing adjustment. Coverage includes create, lookup, matching
+  options, none/reset/clearing, explicit version upgrades, archive retention,
+  pending writes, failed load/save with retry, and trait-trust restrictions.
+- Shared declaration build, backend/trading TypeScript checks, Userland and
+  desktop runtime builds pass. Svelte checking reports zero errors and 87
+  warnings in 19 files. No native package or live-runtime check is claimed.
+- Documentation validation passes for 77 Markdown files and checks OpenAPI
+  route parity, references, nullable schemas and mutation security. Changed
+  TypeScript, JSON, Markdown, YAML and CSS formatting and `git diff --check` pass.
+  The installed formatter has no Svelte parser; component scripts/styles are
+  formatted with its TypeScript/CSS parsers and markup is reviewed manually.
+- Rendered inventory and bidding-panel states were inspected in reading order
+  at desktop and narrow viewports, including older/archived references, loading
+  failure, pending saves, write recovery and read-only restrictions. Viewport
+  captures are 1920 x 1080 and 1082 x 2202 pixels; full-page editor captures also
+  include the footer below the fold. Artifacts are retained under worktree
+  `tmp/competition-presets-browser-handoff/` and the complete suite directory.
+- UI copy review retains compact labels, choices, versions and actionable
+  errors. The superseded plaintext editor and its single-trait heading are gone.
+  The separate performance handoff remains uncommitted and now describes the
+  versioned storage costs and additional measurement scenarios.
+
+### Local Migration Replacement
+
+The user confirmed the superseded migration exists only in their local database.
+Stop the application and bot before running the following manually. This removes
+saved per-job extras; job targets, pricing, revisions and orders are retained.
+The agent runs this SQL only on disposable verification databases.
+
+```sql
+BEGIN IMMEDIATE;
+ALTER TABLE trading_bidding_job_specs
+  DROP COLUMN extra_competition_traits_json;
+DELETE FROM migrations
+  WHERE name = '056_trait_bidding_competition.sql';
+COMMIT;
+```
+
+After switching to this implementation, normal migration replay applies
+`062_trait_competition_presets.sql`. The old migration file is removed, so its
+JSON column is not recreated. Existing jobs start with no preset selected.

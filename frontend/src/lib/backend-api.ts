@@ -1,3 +1,9 @@
+import { buildCompetitionPresetsPath } from '@artgod/shared/http/trading-routes';
+import type {
+	TradingCompetitionPreset,
+	TradingTraitCriterion,
+	TradingTraitCompetitionSelector
+} from '@artgod/shared/types';
 import type { BootstrapScope } from '@artgod/shared/bootstrap/scope';
 import { RUNTIME_API_ROUTES } from '@artgod/shared/http/runtime-routes';
 import {
@@ -19,7 +25,6 @@ import type {
 	BootstrapSampleInspectionResponse
 } from '@artgod/shared/bootstrap/probe';
 import { buildInspectBootstrapSamplePath } from '@artgod/shared/http/bootstrap-routes';
-import type { TradingTraitCompetitionSelector } from '@artgod/shared/types';
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
@@ -536,7 +541,7 @@ export async function upsertTraitBiddingJob(
 		priceTierId?: string | null;
 		quantity?: number;
 		targetTraits: { type: string; value: string }[];
-		extraCompetitionTraits?: TradingTraitCompetitionSelector[];
+		competitionPresetVersionId?: string | null;
 	}
 ): Promise<TraitBiddingJobMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -1349,4 +1354,50 @@ function parseOptionalInteger(value: string | undefined): number | null {
 	if (!value) return null;
 	const parsed = Number.parseInt(value, 10);
 	return Number.isFinite(parsed) ? parsed : null;
+}
+
+export type CompetitionPresetsApiResponse = { presets: TradingCompetitionPreset[] };
+export async function getCompetitionPresets(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<CompetitionPresetsApiResponse> {
+	return requestJson<CompetitionPresetsApiResponse>(
+		fetchFn,
+		buildCompetitionPresetsPath(chainRef, collectionRef)
+	);
+}
+export async function upsertCompetitionPreset(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		presetId?: string;
+		expectedRevision?: number;
+		targetTraits: TradingTraitCriterion[];
+		extraCompetitionTraits: TradingTraitCompetitionSelector[];
+	}
+): Promise<CompetitionPresetsApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CompetitionPresetsApiResponse>(
+		fetchFn,
+		buildCompetitionPresetsPath(chainRef, collectionRef),
+		'PUT',
+		body
+	);
+}
+export async function archiveCompetitionPreset(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	presetId: string,
+	expectedRevision: number
+): Promise<CompetitionPresetsApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CompetitionPresetsApiResponse>(
+		fetchFn,
+		buildCompetitionPresetsPath(chainRef, collectionRef, presetId),
+		'DELETE',
+		{ expectedRevision }
+	);
 }

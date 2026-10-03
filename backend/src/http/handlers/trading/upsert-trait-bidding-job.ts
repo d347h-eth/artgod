@@ -1,9 +1,5 @@
 import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
-import {
-    normalizeExtraCompetitionTraits,
-    TraitCompetitionValidationError,
-} from "@artgod/shared/trading/trait-competition";
 import type {
     UpsertTraitBiddingJobInput,
     UpsertTraitBiddingJobOutput,
@@ -28,7 +24,7 @@ export type UpsertTraitBiddingJobRoute = {
         priceTierId?: unknown;
         quantity?: unknown;
         targetTraits?: unknown;
-        extraCompetitionTraits?: unknown;
+        competitionPresetVersionId?: unknown;
     };
 };
 
@@ -71,22 +67,14 @@ export class UpsertTraitBiddingJobHttpAdapter {
             ),
             quantity: parseOptionalQuantity(request.body?.quantity),
             targetTraits: parseTargetTraits(request.body?.targetTraits),
-            extraCompetitionTraits: parseExtraCompetitionTraits(
-                request.body?.extraCompetitionTraits,
-            ),
+            competitionPresetVersionId:
+                request.body?.competitionPresetVersionId === null
+                    ? null
+                    : parseOptionalString(
+                          request.body?.competitionPresetVersionId,
+                          "competitionPresetVersionId",
+                      ),
         };
-    }
-}
-
-function parseExtraCompetitionTraits(value: unknown) {
-    if (value === undefined) return undefined;
-    try {
-        return normalizeExtraCompetitionTraits(value);
-    } catch (error) {
-        if (error instanceof TraitCompetitionValidationError) {
-            throw new ReadModelBadRequestError(error.message);
-        }
-        throw error;
     }
 }
 

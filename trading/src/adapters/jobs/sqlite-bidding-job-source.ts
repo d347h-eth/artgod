@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
-import { normalizeExtraCompetitionTraits } from "@artgod/shared/trading/trait-competition";
+import {
+    BIDDING_COMPETITION_PRESET_SQL,
+    mapBiddingCompetitionPresetRow,
+    type BiddingCompetitionPresetRow,
+} from "@artgod/shared/database/bidding-competition-presets";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import {
     TRADING_BOT_KIND,
@@ -18,7 +22,7 @@ import {
     type TraitTarget,
 } from "../../domain/market/strategy/job.js";
 
-type BiddingJobRow = {
+type BiddingJobRow = BiddingCompetitionPresetRow & {
     job_id: string;
     collection_id: number;
     collection_slug: string;
@@ -36,7 +40,6 @@ type BiddingJobRow = {
     quantity: number | null;
     target_traits_json: string | null;
     competitor_traits_json: string | null;
-    extra_competition_traits_json: string;
     current_price_wei: string | null;
     runtime_job_revision: number | null;
     active_order_id: string | null;
@@ -62,10 +65,12 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
     constructor(private readonly chainId: number) {
         const selectFields =
             "SELECT j.job_id, j.status, j.revision, c.collection_id, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
-            "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, s.extra_competition_traits_json, " +
+            "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, " +
+            BIDDING_COMPETITION_PRESET_SQL.fields +
             "r.current_price_wei, r.job_revision AS runtime_job_revision, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
             "FROM trading_jobs j " +
             "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
+            BIDDING_COMPETITION_PRESET_SQL.joins +
             "JOIN collections c ON c.collection_id = j.collection_id " +
             "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id ";
 
@@ -191,9 +196,20 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
                 ...(row.target_kind === TRADING_JOB_TARGET_KIND.Collection
                     ? {
                           extraCompetitionTraits:
-                              normalizeExtraCompetitionTraits(
-                                  JSON.parse(row.extra_competition_traits_json),
-                              ),
+                              mapBiddingCompetitionPresetRow(
+                                  row,
+                                  {
+                                      chainId: this.chainId,
+                                      collectionId: row.collection_id,
+                                  },
+                                  this.parseTraitTargets(
+                                      row.target_traits_json,
+                                      `target_traits_json for jobId=${row.job_id}`,
+                                  ).map((trait) => ({
+                                      type: trait.type,
+                                      value: trait.value,
+                                  })),
+                              )?.extraCompetitionTraits ?? [],
                       }
                     : {}),
             },

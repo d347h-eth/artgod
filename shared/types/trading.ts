@@ -137,6 +137,19 @@ export type TradingTraitCompetitionSelector = {
     value?: string;
 };
 
+// A job references a specific immutable inventory version, never a mutable preset.
+export type TradingCompetitionPresetVersion = {
+    versionId: string;
+    presetId: string;
+    revision: number;
+    targetTraits: TradingTraitCriterion[];
+    extraCompetitionTraits: TradingTraitCompetitionSelector[];
+};
+
+export type TradingCompetitionPreset = TradingCompetitionPresetVersion & {
+    archivedAt: string | null;
+};
+
 export type TradingBiddingJobTargetDescriptor =
     | {
           targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
@@ -660,7 +673,7 @@ export type PersistedCollectionBiddingJobRecord = PersistedBiddingJobBase & {
     tokenId: null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
-    extraCompetitionTraits: TradingTraitCompetitionSelector[];
+    competitionPreset: TradingCompetitionPresetVersion | null;
     competitorTraits: [];
 };
 

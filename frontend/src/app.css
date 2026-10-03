@@ -3508,6 +3508,23 @@ a.bid-book-own-status:focus-visible {
 	white-space: nowrap;
 }
 
+.token-bidding-form .token-bidding-competition-row {
+	grid-template-columns: minmax(0, 1fr);
+	row-gap: 0.35rem;
+}
+
+.token-bidding-competition-options {
+	min-width: 0;
+}
+
+.secondary-tabs.token-bidding-competition-options button {
+	min-width: min(4.5rem, 100%);
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	line-height: 1.25;
+}
+
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
 	display: grid;

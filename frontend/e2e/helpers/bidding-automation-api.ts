@@ -11,6 +11,10 @@ import {
 } from '@artgod/shared/types';
 import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from '@artgod/shared/types';
 import {
+	BIDDING_E2E_COMPETITION_PRESETS,
+	BIDDING_E2E_COMPETITION_PRESET_ID,
+	biddingCompetitionPresetFixture,
+	BIDDING_E2E_FACETS,
 	BIDDING_E2E_CHAIN,
 	BIDDING_E2E_COLLECTION,
 	BIDDING_E2E_PRICE_TIERS,
@@ -43,6 +47,8 @@ export async function installBiddingAutomationApiMock(
 	page: Page
 ): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
+	let competitionPresets = [...BIDDING_E2E_COMPETITION_PRESETS];
+	const competitionVersions = new Map(competitionPresets.map((p) => [p.versionId, p]));
 	let pendingResolve: ((mutation: CapturedBiddingMutation) => void) | null = null;
 	let activeScenario: string | null = null;
 	let bidBookScenarioOverride: BiddingE2eScenario | null = null;
@@ -66,11 +72,24 @@ export async function installBiddingAutomationApiMock(
 		});
 	});
 
+	await page.route('**/traits/catalog**', async (route) => {
+		await route.fulfill({
+			json: {
+				chain: BIDDING_E2E_CHAIN,
+				collection: BIDDING_E2E_COLLECTION,
+				traitCatalog: { scope: [], facets: BIDDING_E2E_FACETS }
+			}
+		});
+	});
 	await page.route('**/api/**/bidding/**', async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
 		const body = requestBody(request);
 
+		if (request.method() === 'GET' && url.pathname.endsWith('/bidding/competition-presets')) {
+			await route.fulfill({ json: { presets: competitionPresets } });
+			return;
+		}
 		if (url.pathname.endsWith('/bidding/jobs/target-lookup')) {
 			await route.fulfill({
 				status: 200,
@@ -144,12 +163,47 @@ export async function installBiddingAutomationApiMock(
 			mutations.push(mutation);
 		}
 
+		if (url.pathname.includes('/bidding/competition-presets')) {
+			if (request.method() === 'DELETE') {
+				competitionPresets = competitionPresets.filter(
+					(p) => p.presetId !== decodeURIComponent(url.pathname.split('/').at(-1)!)
+				);
+			} else {
+				const definition = body as {
+					presetId?: string;
+					targetTraits: { type: string; value: string }[];
+					extraCompetitionTraits: { type: string; value?: string }[];
+				};
+				const presetId = definition.presetId ?? BIDDING_E2E_COMPETITION_PRESET_ID.Created;
+				const previous = competitionPresets.find((p) => p.presetId === presetId);
+				const saved = biddingCompetitionPresetFixture(
+					presetId,
+					definition.targetTraits,
+					normalizeExtraCompetitionTraits(definition.extraCompetitionTraits),
+					(previous?.revision ?? 0) + 1
+				);
+				competitionVersions.set(saved.versionId, saved);
+				competitionPresets = [...competitionPresets.filter((p) => p.presetId !== presetId), saved];
+			}
+			await route.fulfill({ json: { presets: competitionPresets } });
+			return;
+		}
+		const response = mutationResponse(
+			url.pathname,
+			body,
+			bidBookScenarioOverride ?? activeScenario
+		) as { job?: { config: Record<string, unknown> } };
+		if (response.job && url.pathname.endsWith('/bidding/jobs/traits')) {
+			const versionId = (body as { competitionPresetVersionId?: string | null })
+				.competitionPresetVersionId;
+			response.job.config.competitionPreset = versionId
+				? (competitionVersions.get(versionId) ?? null)
+				: null;
+		}
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
-			body: JSON.stringify(
-				mutationResponse(url.pathname, body, bidBookScenarioOverride ?? activeScenario)
-			)
+			body: JSON.stringify(response)
 		});
 	});
 
@@ -315,7 +369,7 @@ function jobResponse(input: {
 			floorEth: body?.floorEth ?? '0.100',
 			ceilingEth: body?.ceilingEth ?? '0.200',
 			deltaEth: body?.deltaEth ?? '0.004',
-			extraCompetitionTraits: normalizeExtraCompetitionTraits(body?.extraCompetitionTraits ?? []),
+			competitionPreset: null,
 			pricingSource: null
 		},
 		runtime: null
@@ -505,7 +559,7 @@ function isJobMutationBody(value: unknown): value is {
 	floorEth?: string;
 	ceilingEth?: string;
 	deltaEth?: string;
-	extraCompetitionTraits?: unknown;
+	competitionPresetVersionId?: string | null;
 } {
 	return !!value && typeof value === 'object';
 }

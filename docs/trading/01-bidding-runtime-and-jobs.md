@@ -295,7 +295,8 @@ The temporary JSON job file source has been removed.
 Primary tables:
 
 - `trading_jobs`: common declared job envelope for bidding and future sniping
-- `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, target trait criteria, and `extra_competition_traits_json`)
+- `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, target trait criteria, and `competition_preset_version_id`)
+- `trading_bidding_competition_presets` and `trading_bidding_competition_preset_versions`: collection inventory and immutable target/extras definitions selected by jobs
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
 - `trading_bidding_runtime_authorized_collections`: non-secret, session-bound read projection of the collection identity and per-offer limits enforced by the current bidding process
 - `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
@@ -362,6 +363,7 @@ Projection tables:
 
 - `trading_bidding_bid_book_rows`: materialized active bids by collection, source, scope, maker, unit price, quantity, validity, placement time, and display metadata
 - `trading_bidding_collection_bid_book_state`: projection freshness, row count, duration, and last error per collection/source
+- `trading_bidding_competition_presets` and `trading_bidding_competition_preset_versions`: collection inventory and immutable target/extras definitions selected by jobs
 - `trading_bidding_job_runtime_state`: bot-owned active-offer feedback and market decision state that lets backend bid-book reads connect declared jobs to live orders
 
 Bot snapshot projection:
