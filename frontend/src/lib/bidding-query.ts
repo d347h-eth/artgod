@@ -1,12 +1,15 @@
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+	isCollectionBiddingBidBookOwnStateFilter,
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
@@ -22,6 +25,7 @@ export {
 };
 export type {
 	CollectionBiddingBidBookOwnershipFilter,
+	CollectionBiddingBidBookOwnStateFilter,
 	CollectionBiddingBidScopeFilter,
 	CollectionBiddingTraitFilterJoinMode
 };
@@ -33,7 +37,7 @@ const SHOW_MUTED_BID_BOOK_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS
 
 type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
 
-export function buildCollectionBiddingQuery(params: {
+export type CollectionBiddingQueryParams = {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
@@ -42,10 +46,19 @@ export function buildCollectionBiddingQuery(params: {
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
-}): URLSearchParams {
+};
+
+// All consumers serialize the same filter model. Overrides change only the
+// requested controls; null and empty lists intentionally clear a selection.
+export function buildCollectionBiddingQuery(
+	current: CollectionBiddingQueryParams,
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): URLSearchParams {
+	const params = { ...current, ...overrides };
 	const query = new URLSearchParams();
 	appendCollectionMediaParams(query, {
 		mediaMode: params.mediaMode ?? null,
@@ -76,25 +89,36 @@ export function buildCollectionBiddingQuery(params: {
 		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
+	if (
+		params.ownStateFilter &&
+		bidScopeSupportsOwnStateFilter(params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
+	) {
+		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState, params.ownStateFilter);
+	}
 	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return query;
 }
 
-export function buildCollectionBiddingHref(params: {
-	basePath: string;
-	selectedTraits: ApiTokenAttribute[];
-	selectedTraitRanges: ApiTraitRangeFilter[];
-	bidScope?: CollectionBiddingBidScopeFilter;
-	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
-	mediaMode?: string | null;
-	mediaPreference?: CollectionMediaPreferenceInput;
-	maker?: string | null;
-	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
-	showMuted?: boolean;
-	limit?: number | null;
-	cursor?: string | null;
-}): string {
-	return withQuery(joinPath(params.basePath, 'bidding'), buildCollectionBiddingQuery(params));
+// View links name their scope explicitly so a stored preference cannot replace
+// the clicked view. API queries may still omit their default token scope.
+export function buildCollectionBiddingViewQuery(
+	current: CollectionBiddingQueryParams,
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): URLSearchParams {
+	const params = { ...current, ...overrides };
+	const query = buildCollectionBiddingQuery(params);
+	query.set(BID_SCOPE_QUERY_PARAM, params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
+	return query;
+}
+
+export function buildCollectionBiddingHref(
+	params: CollectionBiddingQueryParams & { basePath: string },
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): string {
+	return withQuery(
+		joinPath(params.basePath, 'bidding'),
+		buildCollectionBiddingViewQuery(params, overrides)
+	);
 }
 
 export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {
@@ -123,6 +147,13 @@ export function parseCollectionBiddingBidScopeFilter(
 		COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 		searchParams.get(BID_SCOPE_QUERY_PARAM)
 	);
+}
+
+export function parseBidBookOwnStateFilter(
+	searchParams: URLSearchParams
+): CollectionBiddingBidBookOwnStateFilter | null {
+	const value = searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)?.trim();
+	return isCollectionBiddingBidBookOwnStateFilter(value) ? value : null;
 }
 
 export function parseCollectionBiddingTraitFilterJoinMode(

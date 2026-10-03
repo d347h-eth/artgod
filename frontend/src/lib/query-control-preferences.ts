@@ -1,16 +1,19 @@
 import { browser } from '$app/environment';
 
-export type QueryControlPreferenceDefinition<T extends string = string> = {
+export type QueryControlPreferenceDefinition<T extends string | null = string> = {
 	param: string;
 	values: readonly [T, ...T[]];
 	defaultValue?: T;
 };
 
 export type QueryControlPreferenceDefinitions<TPreference extends object> = {
-	[K in keyof TPreference]: QueryControlPreferenceDefinition<Extract<TPreference[K], string>>;
+	[K in keyof TPreference]: QueryControlPreferenceDefinition<
+		Extract<TPreference[K], string | null>
+	>;
 };
 
-type StoredPreferences = Record<string, Record<string, string>>;
+type StoredPreference = Record<string, string | null>;
+type StoredPreferences = Record<string, StoredPreference>;
 type QueryControlPreferenceReadStorage = Pick<Storage, 'getItem'>;
 type QueryControlPreferenceWriteStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -40,7 +43,7 @@ export function writeQueryControlPreference<TPreference extends object>(params: 
 	const storage = params.storage ?? browserLocalStorage();
 	if (!storage) return;
 	const normalizedPreference = normalizeQueryControlPreference(
-		params.preference as Record<string, string>,
+		params.preference as StoredPreference,
 		params.definitions
 	);
 	if (!normalizedPreference) return;
@@ -83,13 +86,13 @@ export function writeScopedQueryControlPreference<TPreference extends object>(pa
 	const normalizedScope = normalizeQueryControlScopePath(params.scopePath);
 	if (!normalizedScope) return;
 	const normalizedPreference = normalizeQueryControlPreference(
-		params.preference as Record<string, string>,
+		params.preference as StoredPreference,
 		params.definitions
 	);
 	if (!normalizedPreference) return;
 	try {
 		const stored = readStoredPreferences(storage, params.storageKey);
-		stored[normalizedScope] = normalizedPreference as Record<string, string>;
+		stored[normalizedScope] = normalizedPreference as StoredPreference;
 		storage.setItem(params.storageKey, JSON.stringify(stored));
 	} catch {
 		// Ignore storage failures and keep navigation state URL-driven.
@@ -103,22 +106,25 @@ export function applyQueryControlPreferenceToQuery<TPreference extends object>(p
 }): URLSearchParams {
 	const query = new URLSearchParams(params.query);
 	const normalizedPreference = normalizeQueryControlPreference(
-		params.preference as Record<string, string> | null,
+		params.preference as StoredPreference | null,
 		params.definitions
 	);
 	if (!normalizedPreference) return query;
 
-	const definitions = params.definitions as Record<string, QueryControlPreferenceDefinition<string>>;
-	const normalizedValues = normalizedPreference as Record<string, string>;
+	const definitions = params.definitions as Record<
+		string,
+		QueryControlPreferenceDefinition<string | null>
+	>;
+	const normalizedValues = normalizedPreference as StoredPreference;
 	for (const [key, definition] of Object.entries(definitions)) {
 		if (query.has(definition.param)) continue;
 		const value = normalizedValues[key];
-		if (!value) continue;
+		if (value === undefined) continue;
 		setDefaultOmittingParam(
 			query,
 			definition.param,
 			value,
-			definition.defaultValue ?? definition.values[0]
+			definition.defaultValue === undefined ? definition.values[0] : definition.defaultValue
 		);
 	}
 
@@ -128,17 +134,20 @@ export function applyQueryControlPreferenceToQuery<TPreference extends object>(p
 function setDefaultOmittingParam(
 	params: URLSearchParams,
 	key: string,
-	value: string,
-	defaultValue: string
+	value: string | null,
+	defaultValue: string | null
 ): void {
-	if (value === defaultValue) {
+	if (value === null || value === defaultValue) {
 		params.delete(key);
 		return;
 	}
 	params.set(key, value);
 }
 
-function readStoredPreference(storage: QueryControlPreferenceReadStorage, storageKey: string): unknown {
+function readStoredPreference(
+	storage: QueryControlPreferenceReadStorage,
+	storageKey: string
+): unknown {
 	const raw = storage.getItem(storageKey);
 	if (!raw) return null;
 	return JSON.parse(raw) as unknown;
@@ -160,11 +169,16 @@ function normalizeQueryControlPreference<TPreference extends object>(
 	definitions: QueryControlPreferenceDefinitions<TPreference>
 ): Partial<TPreference> | null {
 	if (!preference || typeof preference !== 'object') return null;
-	const typedDefinitions = definitions as Record<string, QueryControlPreferenceDefinition<string>>;
-	const normalized: Record<string, string> = {};
+	const typedDefinitions = definitions as Record<
+		string,
+		QueryControlPreferenceDefinition<string | null>
+	>;
+	const normalized: StoredPreference = {};
 	for (const [key, definition] of Object.entries(typedDefinitions)) {
 		const value = (preference as Record<string, unknown>)[key];
-		if (typeof value === 'string' && definition.values.includes(value)) {
+		// A declared null value remembers an intentionally cleared filter rather
+		// than treating it as a missing preference that should receive a default.
+		if ((typeof value === 'string' || value === null) && definition.values.includes(value)) {
 			normalized[key] = value;
 		}
 	}

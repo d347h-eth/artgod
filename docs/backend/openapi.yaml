@@ -825,6 +825,12 @@ paths:
                   schema:
                       type: string
                       enum: [own]
+                - name: own_state
+                  in: query
+                  required: false
+                  description: Private own-bid state filter for token and trait scopes, independent of ownership and applied before token pagination. Matching own rows retain opponents in the same trait bucket or token group unless ownership excludes them. Counts retain all own states within the other filters. Collection scope and public reads reject this filter with HTTP 400.
+                  schema:
+                      $ref: "#/components/schemas/BiddingBidBookOwnStateFilter"
                 - name: traits
                   in: query
                   required: false
@@ -3490,6 +3496,10 @@ components:
                           type: string
                           enum: [own, null]
                           nullable: true
+                      ownStateFilter:
+                          anyOf:
+                              - $ref: "#/components/schemas/BiddingBidBookOwnStateFilter"
+                              - $ref: "#/components/schemas/NullValue"
 
         LookupBatchTokenBiddingJobsRequest:
             type: object
@@ -3632,6 +3642,115 @@ components:
         BiddingBidScopeKind:
             type: string
             enum: [collection, trait, token, token_set, unknown]
+
+        BiddingBidBookOwnStateFilter:
+            type: string
+            enum:
+                [
+                    active,
+                    waiting_for_bot,
+                    verifying,
+                    queued,
+                    paused,
+                    authorization_required,
+                    authorization_unavailable,
+                    replacing,
+                    canceling,
+                    cancel_failed,
+                    cancelled,
+                    winning,
+                    draw,
+                    losing,
+                    ceiling,
+                    floor,
+                    unknown,
+                ]
+
+        BiddingBidBookOwnStateCounts:
+            type: object
+            required: [total, states]
+            additionalProperties: false
+            properties:
+                total:
+                    type: integer
+                    minimum: 0
+                    description: Unique own bid rows within the current scope and other filters before state filtering and pagination. Every row matches at least one state; unknown covers missing current state evidence.
+                states:
+                    type: object
+                    required:
+                        [
+                            active,
+                            waiting_for_bot,
+                            verifying,
+                            queued,
+                            paused,
+                            authorization_required,
+                            authorization_unavailable,
+                            replacing,
+                            canceling,
+                            cancel_failed,
+                            cancelled,
+                            winning,
+                            draw,
+                            losing,
+                            ceiling,
+                            floor,
+                            unknown,
+                        ]
+                    additionalProperties: false
+                    description: Active and paused partition the total own rows. Other counts can overlap; position, constraints, and declared pause are independent. A paused job still counts as paused during cancellation.
+                    properties:
+                        active:
+                            type: integer
+                            minimum: 0
+                        waiting_for_bot:
+                            type: integer
+                            minimum: 0
+                        verifying:
+                            type: integer
+                            minimum: 0
+                        queued:
+                            type: integer
+                            minimum: 0
+                        paused:
+                            type: integer
+                            minimum: 0
+                        authorization_required:
+                            type: integer
+                            minimum: 0
+                        authorization_unavailable:
+                            type: integer
+                            minimum: 0
+                        replacing:
+                            type: integer
+                            minimum: 0
+                        canceling:
+                            type: integer
+                            minimum: 0
+                        cancel_failed:
+                            type: integer
+                            minimum: 0
+                        cancelled:
+                            type: integer
+                            minimum: 0
+                        winning:
+                            type: integer
+                            minimum: 0
+                        losing:
+                            type: integer
+                            minimum: 0
+                        draw:
+                            type: integer
+                            minimum: 0
+                        ceiling:
+                            type: integer
+                            minimum: 0
+                        floor:
+                            type: integer
+                            minimum: 0
+                        unknown:
+                            type: integer
+                            minimum: 0
 
         BiddingBidBookOwnPosition:
             type: string
@@ -4451,6 +4570,7 @@ components:
                     traits,
                     bidBook,
                     tokenOfferCards,
+                    ownBidStateCounts,
                 ]
             additionalProperties: false
             properties:
@@ -4484,6 +4604,11 @@ components:
                     $ref: "#/components/schemas/BiddingBidBook"
                 tokenOfferCards:
                     $ref: "#/components/schemas/BiddingTokenOfferCardsPage"
+                ownBidStateCounts:
+                    description: Null in public reads. Private counts cover the full matching result set before own-state filtering or pagination.
+                    anyOf:
+                        - $ref: "#/components/schemas/BiddingBidBookOwnStateCounts"
+                        - $ref: "#/components/schemas/NullValue"
 
         TokenBiddingJobResponse:
             type: object

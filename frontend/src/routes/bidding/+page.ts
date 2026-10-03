@@ -58,6 +58,8 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			ownershipFilter: parseBidBookOwnershipFilter(url.searchParams),
+			ownStateFilter: null,
+			ownBidStateCounts: bidBookResponse.ownBidStateCounts,
 			mediaMode,
 			requestCursor: url.searchParams.get('cursor')
 		};

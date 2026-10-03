@@ -65,6 +65,42 @@ describe('global query-control preference storage', () => {
 			scope: 'traits'
 		});
 	});
+
+	it('round-trips an intentional reset while keeping a missing preference absent', () => {
+		const definitions = {
+			filter: { param: 'filter', values: [null, 'active'] }
+		} as const satisfies QueryControlPreferenceDefinitions<{ filter: 'active' | null }>;
+		const storage = createMemoryStorage();
+		const read = () =>
+			readQueryControlPreference({ storageKey: 'example.preference', definitions, storage });
+		expect(read()).toBeNull();
+		writeQueryControlPreference<{ filter: 'active' | null }>({
+			storageKey: 'example.preference',
+			definitions,
+			preference: { filter: null },
+			storage
+		});
+		expect(read()).toEqual({ filter: null });
+		writeQueryControlPreference<{ filter: 'active' | null }>({
+			storageKey: 'example.preference',
+			definitions,
+			preference: { filter: 'active' },
+			storage
+		});
+		expect(read()).toEqual({ filter: 'active' });
+	});
+
+	it('rejects null for a preference that does not declare a cleared selection', () => {
+		expect(
+			readQueryControlPreference({
+				storageKey: 'example.preference',
+				definitions: DEFINITIONS,
+				storage: createMemoryStorage({
+					'example.preference': JSON.stringify({ view: null, scope: 'traits' })
+				})
+			})
+		).toEqual({ scope: 'traits' });
+	});
 });
 
 describe('applyQueryControlPreferenceToQuery', () => {
@@ -105,5 +141,32 @@ describe('applyQueryControlPreferenceToQuery', () => {
 		});
 
 		expect(query.toString()).toBe('');
+	});
+
+	it('omits a declared reset and preserves explicit URL values for nullable filters', () => {
+		const definitions = {
+			filter: { param: 'filter', values: ['active', null], defaultValue: null }
+		} as const satisfies QueryControlPreferenceDefinitions<{ filter: 'active' | null }>;
+		expect(
+			applyQueryControlPreferenceToQuery({
+				query: new URLSearchParams(),
+				definitions,
+				preference: { filter: 'active' }
+			}).toString()
+		).toBe('filter=active');
+		expect(
+			applyQueryControlPreferenceToQuery({
+				query: new URLSearchParams(),
+				definitions,
+				preference: { filter: null }
+			}).toString()
+		).toBe('');
+		expect(
+			applyQueryControlPreferenceToQuery({
+				query: new URLSearchParams('filter=active'),
+				definitions,
+				preference: { filter: null }
+			}).toString()
+		).toBe('filter=active');
 	});
 });

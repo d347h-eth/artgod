@@ -71,6 +71,7 @@ import { browser } from '$app/environment';
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
 	type CollectionBiddingTraitFilterJoinMode,
 	type OpenSeaStreamIngestionStatus,
 	type TokenBrowserStatus,
@@ -564,6 +565,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 			traitJoinMode: CollectionBiddingTraitFilterJoinMode;
 			makerAddress?: string | null;
 			ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+			ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 	  };
 
 export async function lookupBatchTokenBiddingJobs(

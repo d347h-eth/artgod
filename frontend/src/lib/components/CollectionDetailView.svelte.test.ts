@@ -97,7 +97,9 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/customization?media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;ownership=own&amp;traits=Hat%3ABeanie&amp;own_state=active'
+		);
 		expect(body).toContain('explore');
 		expect(body).toContain('asset events');
 		expect(body).toContain('<span class="runtime-tab-active">asks</span>');

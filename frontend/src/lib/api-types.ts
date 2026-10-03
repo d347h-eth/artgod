@@ -5,6 +5,8 @@ import {
 	type CollectionStandard,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
+	type TradingBiddingBidBookOwnStateCounts,
 	type CollectionBiddingTraitFilterJoinMode,
 	type CollectionMediaSource,
 	type CollectionStatus,
@@ -579,6 +581,7 @@ export type ApiBiddingBidBookSource = TradingBiddingBidBookSource;
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
 export type ApiCollectionBiddingBidBookOwnershipFilter = CollectionBiddingBidBookOwnershipFilter;
+export type ApiCollectionBiddingBidBookOwnStateFilter = CollectionBiddingBidBookOwnStateFilter;
 export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
 export type ApiBiddingBidBookPrice =
 	| {
@@ -616,8 +619,8 @@ export type ApiBiddingOwnJobIntentMaterialization = {
 export type ApiBiddingBidBookRowMaterialization =
 	| ApiBiddingMarketBidMaterialization
 	| ApiBiddingOwnJobIntentMaterialization;
-export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
-export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor';
+export type ApiBiddingBidBookOwnPosition = TradingBiddingJobRuntimeBidPosition;
+export type ApiBiddingBidBookOwnConstraint = TradingBiddingJobRuntimeConstraint;
 export type ApiBiddingBidBookOwnStatus = {
 	position: ApiBiddingBidBookOwnPosition;
 	constraints: ApiBiddingBidBookOwnConstraint[];
@@ -773,6 +776,7 @@ export type CollectionBiddingBidBookApiResponse = {
 	};
 	bidBook: ApiBiddingBidBook;
 	tokenOfferCards: ApiBiddingTokenOfferCardsPage;
+	ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
 };
 
 export type TokenBiddingJobApiResponse = {

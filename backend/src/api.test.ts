@@ -90,6 +90,9 @@ import {
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
     COLLECTION_STANDARD,
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -1475,6 +1478,45 @@ describe("backend api routes", () => {
         );
         expect(nonPublicBiddingBids.statusCode).toBe(404);
     });
+
+    it.each([
+        COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+        TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
+    ])(
+        "rejects collection-scoped own-state %s and accepts supported scopes",
+        async (state) => {
+            const query = new URLSearchParams({
+                [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope]:
+                    COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState]: state,
+            });
+            const invalid = await resolve(
+                "GET",
+                `/api/ethereum/milady/bidding/bids?${query}`,
+            );
+            expect(invalid.statusCode).toBe(400);
+            expect(invalid.payload).toMatchObject({
+                error: "bad_request",
+                message: "Use token or trait bids to filter by own bid state",
+            });
+            for (const scope of [
+                COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            ]) {
+                query.set(
+                    COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope,
+                    scope,
+                );
+                const valid = await resolve(
+                    "GET",
+                    `/api/ethereum/milady/bidding/bids?${query}`,
+                );
+                expect(valid.statusCode).toBe(200);
+                expect(valid.payload.scopeFilter).toBe(scope);
+                expect(valid.payload.ownBidStateCounts).not.toBeNull();
+            }
+        },
+    );
 
     it("returns null for tokens without a job", async () => {
         clearTradingJobFixtures();

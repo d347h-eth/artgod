@@ -373,6 +373,7 @@ export const COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS = {
     TraitJoin: "trait_join",
     Maker: "maker",
     Ownership: "ownership",
+    OwnState: "own_state",
     ShowMuted: "show_muted",
 } as const;
 
@@ -404,12 +405,12 @@ export type TradingBiddingBidBookRowMaterializationKind =
 
 // Names user-facing own-intent states before a real market bid row is visible.
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
-    Queued: "queued",
     WaitingForBot: "waiting_for_bot",
+    Verifying: "verifying",
+    Queued: "queued",
+    Paused: "paused",
     AuthorizationRequired: "authorization_required",
     AuthorizationUnavailable: "authorization_unavailable",
-    Paused: "paused",
-    Verifying: "verifying",
     Replacing: "replacing",
     Canceling: "canceling",
     CancelFailed: "cancel_failed",
@@ -467,6 +468,49 @@ export const TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT = {
 
 export type TradingBiddingJobRuntimeConstraint =
     (typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT];
+
+// Own market rows can lack current lifecycle or bot-decision evidence.
+export const TRADING_BIDDING_BID_BOOK_OWN_STATE = {
+    Unknown: "unknown",
+} as const;
+
+// Derive badge states so new lifecycle phases remain reachable through filters.
+export const TRADING_BIDDING_BID_BOOK_OWN_STATES = [
+    ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE),
+    ...Object.values(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION),
+    ...Object.values(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT),
+    ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_STATE),
+] as const;
+
+export type TradingBiddingBidBookOwnState =
+    (typeof TRADING_BIDDING_BID_BOOK_OWN_STATES)[number];
+
+// Aggregate selection belongs to filtering, without adding another row badge.
+export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER = {
+    Active: "active",
+} as const;
+
+export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+    ...TRADING_BIDDING_BID_BOOK_OWN_STATES,
+] as const;
+
+export type CollectionBiddingBidBookOwnStateFilter =
+    (typeof COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)[number];
+
+// Counts own rows in the current scope and trait filters before the state filter or pagination.
+export type TradingBiddingBidBookOwnStateCounts = {
+    total: number;
+    states: Record<CollectionBiddingBidBookOwnStateFilter, number>;
+};
+
+export function isCollectionBiddingBidBookOwnStateFilter(
+    value: unknown,
+): value is CollectionBiddingBidBookOwnStateFilter {
+    return COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.some(
+        (state) => state === value,
+    );
+}
 
 // Validates serialized bot-owned bid constraint values at adapter boundaries.
 export function isTradingBiddingJobRuntimeConstraint(

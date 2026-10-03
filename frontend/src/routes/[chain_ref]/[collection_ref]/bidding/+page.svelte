@@ -1,9 +1,13 @@
 	<script lang="ts">
-		import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
-		import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-		import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
-		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
-		import type {
+	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
+	import type {
+		CollectionBiddingBidBookOwnStateFilter,
+		TradingBiddingBidBookOwnStateCounts
+	} from '@artgod/shared/types';
+	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
+	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+	import type {
 		ApiBiddingBidBook,
 		ApiBiddingCollectionSettings,
 		ApiBiddingPriceTier,
@@ -45,6 +49,8 @@
 		showMuted: boolean;
 		makerFilter: string | null;
 		ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
+		ownStateFilter: CollectionBiddingBidBookOwnStateFilter | null;
+		ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
 		mediaMode: string | null;
 		requestCursor: string | null;
 	};
@@ -83,6 +89,8 @@
 	showMuted={data?.showMuted ?? false}
 	makerFilter={data?.makerFilter ?? null}
 	ownershipFilter={data?.ownershipFilter ?? null}
+	ownStateFilter={data?.ownStateFilter ?? null}
+	ownBidStateCounts={data?.ownBidStateCounts ?? null}
 	mediaMode={data?.mediaMode ?? null}
 	requestCursor={data?.requestCursor ?? null}
 />

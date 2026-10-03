@@ -16,11 +16,12 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import {
-	buildCollectionBiddingQuery,
 	type CollectionBiddingBidBookOwnershipFilter,
+	type CollectionBiddingBidBookOwnStateFilter,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '$lib/bidding-query';
+import { buildCollectionBiddingNavigationQuery } from '$lib/bidding-navigation-preferences';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
 import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
@@ -57,6 +58,7 @@ export type CollectionNavigationState = {
 		traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 		maker?: string | null;
 		ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
+		ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
 		showMuted?: boolean;
 	};
 	blockspace?: {
@@ -132,7 +134,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		mediaMode,
 		mediaPreference
 	});
-	const biddingQuery = buildCollectionBiddingQuery({
+	const biddingQuery = buildCollectionBiddingNavigationQuery({
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
 		bidScope: state.bidding?.bidScope,
@@ -141,6 +143,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		mediaPreference,
 		maker: state.bidding?.maker,
 		ownershipFilter: state.bidding?.ownershipFilter,
+		ownStateFilter: state.bidding?.ownStateFilter,
 		showMuted: state.bidding?.showMuted
 	});
 

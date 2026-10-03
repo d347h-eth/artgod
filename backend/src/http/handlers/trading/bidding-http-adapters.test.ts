@@ -11,6 +11,7 @@ import {
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 } from "@artgod/shared/types";
 import { ArchiveCollectionBiddingPriceTierHttpAdapter } from "./archive-collection-bidding-price-tier.js";
 import { ApplyBiddingPriceTierReapplyHttpAdapter } from "./apply-bidding-price-tier-reapply.js";
@@ -223,6 +224,7 @@ describe("trading HTTP adapters", () => {
             traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             makerAddress: "0x1111111111111111111111111111111111111111",
             ownershipFilter: null,
+            ownStateFilter: null,
         });
 
         await adapter.handle(
@@ -239,6 +241,8 @@ describe("trading HTTP adapters", () => {
                             COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
                         ownershipFilter:
                             COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+                        ownStateFilter:
+                            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
                     },
                 },
             }),
@@ -250,6 +254,7 @@ describe("trading HTTP adapters", () => {
             traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
             makerAddress: null,
             ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
         });
         await assert.rejects(
             () =>
@@ -323,6 +328,29 @@ describe("trading HTTP adapters", () => {
                 upsertBatchTokenBiddingJobs: (input) => input as never,
             },
             true,
+        );
+
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                                ownStateFilter: "unsupported",
+                                traitJoinMode:
+                                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                            },
+                        },
+                    }),
+                ),
+            /selection\.ownStateFilter is invalid/,
         );
 
         await assert.rejects(

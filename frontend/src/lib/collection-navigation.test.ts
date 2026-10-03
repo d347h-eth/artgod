@@ -44,7 +44,7 @@ describe('buildCollectionNavigation', () => {
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=listed'
 		);
 		expect(navigation.hrefs.offers).toBe(
-			'/ethereum/milady/bidding?media_mode=snapshot&media_preference=disabled&bid_scope=traits&ownership=own&traits=Mode%3ATerrain'
+			'/ethereum/milady/bidding?media_mode=snapshot&media_preference=disabled&bid_scope=traits&ownership=own&traits=Mode%3ATerrain&own_state=active'
 		);
 		expect(navigation.hrefs.tokens).toBe(
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=all'
@@ -109,7 +109,7 @@ describe('resolveCollectionSectionShortcutHref', () => {
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&token_status=listed'
 		);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBe(
-			'/ethereum/milady/bidding?media_mode=snapshot&bid_scope=traits'
+			'/ethereum/milady/bidding?media_mode=snapshot&bid_scope=traits&ownership=own&own_state=active'
 		);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('3'), navigation)).toBe(
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&token_status=all'

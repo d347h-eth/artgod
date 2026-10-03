@@ -49,6 +49,8 @@ Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and 
 Collection cross-page navigation URLs are built by `frontend/src/lib/collection-navigation.ts`.
 Collection views should pass an explicit typed navigation state into `buildCollectionNavigation(...)` and then pass the resulting `CollectionNavigation` to `CollectionPageLayout.svelte`; do not rebuild tokens / activities / bidding / holders / customization hrefs ad hoc in each view.
 
+Within Offers, `CollectionBiddingView.svelte` defines one current query model. Filters, scope buttons, pagination, token-detail return links, and live refresh use `bidding-query.ts` with explicit overrides instead of repeating the current fields. Filter changes reset pagination; paged reads explicitly supply their limit and cursor.
+
 The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
 Top-action rows are page chrome and should stay compact.
@@ -652,7 +654,7 @@ General rules:
 - prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
-- own-bid badges are limited to `queued`, `paused`, `verifying`, `replacing`, `canceling`, `cancel failed`, `cancelled`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
+- own-bid badges cover waiting for bot, authorization availability, queued, paused, verifying, replacing, canceling, cancel failed, cancelled, winning, draw, losing, hit ceiling, at floor, and unknown; unknown means no current lifecycle or bot-decision evidence is available
 - `winning`, `draw`, and `losing` must come from fresh bot runtime decision feedback, never from frontend/backend price inference
 - stale active orders must remain visible with lifecycle badges until backend cancellation evidence confirms they can disappear
 
@@ -664,6 +666,21 @@ Scope rules:
 - trait scope views group individual bids under canonical trait-combination buckets; do not replace the individual bid list with aggregate-only rows
 - trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
 - clickable trait values in bucket titles should apply the same trait filter controls as the facet panel
+
+Own-state filters:
+
+- private collection bidding in token and trait scope shows a centered secondary row with `active` and every own-bid state that has matching rows; the selected tab remains visible at zero, while other zero-count tabs are hidden
+- each count is an own bid row within the current scope and trait/bidder filters, across all pages and before the own-state filter; overlapping position and constraint badges count in each matching tab
+- `active` includes every own row outside the `paused` filter; their counts partition all own rows, while individual badge filters can overlap; the aggregate adds no row badge
+- lifecycle phases have their own matching tabs; `paused` also matches declared paused status during other phases, and `unknown` covers own rows without current state evidence
+- an empty selected state stays in the URL and the results remain empty; its selected tab shows a zero count without automatic navigation, and the user can choose another state or reset manually
+- `paused` follows all other status tabs, before the pink `reset` button; the centered status row caps at 67rem and wraps within the available width
+- the pink `reset` button follows the status tabs when a state is selected and clears only `own_state`, preserving other filters and resetting pagination
+- ownership controls show `my bids` before `all bids`; fresh private Offers navigation defaults to `my bids` and `active`, while explicit and remembered ownership/status choices take precedence, including an intentional reset; public Offers navigation does not apply private filters
+- selecting a state preserves ownership and maker filters and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
+- collection scope temporarily omits `own_state` from URLs and reads; the existing navigation preference retains the last selection, and scope buttons restore it when returning to token or trait scope, including a selected zero-count state; an explicit reset remains cleared; direct collection URLs with `own_state` fail validation
+- counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
+- token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
 
 Muted and collapsed rows:
 

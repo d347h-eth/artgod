@@ -1,4 +1,6 @@
 import type { Page, Request } from 'playwright/test';
+import type { BatchTokenBiddingJobSelectionRequest } from '../../src/lib/backend-api';
+import { buildCollectionBiddingQuery } from '../../src/lib/bidding-query';
 import {
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
@@ -6,6 +8,7 @@ import {
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
+import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from '@artgod/shared/types';
 import {
 	BIDDING_E2E_CHAIN,
 	BIDDING_E2E_COLLECTION,
@@ -14,7 +17,8 @@ import {
 	BIDDING_E2E_SETTINGS,
 	buildBiddingE2eCollectionBiddingData,
 	buildBiddingE2eTokenDetailData,
-	findBiddingE2eJobForTarget
+	findBiddingE2eJobForTarget,
+	type BiddingE2eScenario
 } from '../../src/lib/e2e/bidding-automation-fixtures';
 
 export type CapturedBiddingMutation = {
@@ -26,6 +30,7 @@ export type CapturedBiddingMutation = {
 export type BiddingAutomationApiMock = {
 	mutations: CapturedBiddingMutation[];
 	nextMutation(): Promise<CapturedBiddingMutation>;
+	setBidBookScenario(scenario: BiddingE2eScenario): void;
 };
 
 const BIDDING_E2E_API_PATH_SUFFIX = {
@@ -33,10 +38,13 @@ const BIDDING_E2E_API_PATH_SUFFIX = {
 } as const;
 
 // Captures bidding write calls while returning deterministic API responses to the real UI.
-export async function installBiddingAutomationApiMock(page: Page): Promise<BiddingAutomationApiMock> {
+export async function installBiddingAutomationApiMock(
+	page: Page
+): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
 	let pendingResolve: ((mutation: CapturedBiddingMutation) => void) | null = null;
 	let activeScenario: string | null = null;
+	let bidBookScenarioOverride: BiddingE2eScenario | null = null;
 
 	// Retain harness-only scenario state when production navigation rebuilds the query string.
 	page.on('framenavigated', (frame) => {
@@ -79,7 +87,9 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify(batchTokenLookupResponse(body))
+				body: JSON.stringify(
+					batchTokenLookupResponse(body, bidBookScenarioOverride ?? activeScenario)
+				)
 			});
 			return;
 		}
@@ -100,6 +110,8 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 
 		if (request.method() === 'GET' && url.pathname.endsWith('/bidding/bids')) {
 			const searchParams = biddingFixtureSearchParams(url, request, activeScenario);
+			if (bidBookScenarioOverride)
+				searchParams.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, bidBookScenarioOverride);
 			activeScenario = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM) ?? activeScenario;
 			await route.fulfill({
 				status: 200,
@@ -134,12 +146,17 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
-			body: JSON.stringify(mutationResponse(url.pathname, body))
+			body: JSON.stringify(
+				mutationResponse(url.pathname, body, bidBookScenarioOverride ?? activeScenario)
+			)
 		});
 	});
 
 	return {
 		mutations,
+		setBidBookScenario: (scenario) => {
+			bidBookScenarioOverride = scenario;
+		},
 		nextMutation: () =>
 			new Promise((resolve) => {
 				const existing = mutations.shift();
@@ -160,7 +177,7 @@ function requestBody(request: Request): unknown {
 	return JSON.parse(raw) as unknown;
 }
 
-function mutationResponse(path: string, body: unknown): unknown {
+function mutationResponse(path: string, body: unknown, scenario: string | null): unknown {
 	if (path.endsWith('/bidding/settings')) {
 		return {
 			chain: BIDDING_E2E_CHAIN,
@@ -192,7 +209,7 @@ function mutationResponse(path: string, body: unknown): unknown {
 	}
 
 	if (path.endsWith('/bidding/jobs/tokens/batch')) {
-		const tokenIds = batchMutationTokenIds(body);
+		const tokenIds = batchMutationTokenIds(body, scenario);
 		return {
 			chain: BIDDING_E2E_CHAIN,
 			collection: BIDDING_E2E_COLLECTION,
@@ -327,6 +344,7 @@ function bidBookResponse(url: URL, searchParams: URLSearchParams): unknown {
 			facets: data.facets
 		},
 		bidBook: data.bidBook,
+		ownBidStateCounts: data.ownBidStateCounts,
 		tokenOfferCards: data.tokenOfferCards
 	};
 }
@@ -382,8 +400,7 @@ function priceTierFromMutation(body: unknown): unknown {
 function reapplyPreviewResponse(path: string) {
 	const tierId = path.split('/price-tiers/')[1]?.split('/')[0] ?? 'tier-base';
 	const tier =
-		BIDDING_E2E_PRICE_TIERS.find((item) => item.tierId === tierId) ??
-		BIDDING_E2E_PRICE_TIERS[0];
+		BIDDING_E2E_PRICE_TIERS.find((item) => item.tierId === tierId) ?? BIDDING_E2E_PRICE_TIERS[0];
 	const changedJob = jobResponse({
 		jobId: 'job-token-101',
 		target: {
@@ -423,18 +440,40 @@ function reapplyPreviewResponse(path: string) {
 	};
 }
 
-function batchMutationTokenIds(body: unknown): string[] {
+function batchMutationTokenIds(body: unknown, scenario: string | null): string[] {
 	if (!isBatchMutationBody(body)) {
 		return ['999'];
 	}
 	if (body.selection.type === TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds) {
 		return body.selection.tokenIds;
 	}
+	if (body.selection.type === TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter) {
+		const selection = body.selection;
+		const query = buildCollectionBiddingQuery({
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+			selectedTraits: selection.traits,
+			selectedTraitRanges: selection.traitRanges,
+			traitJoinMode: selection.traitJoinMode,
+			maker: selection.makerAddress,
+			ownershipFilter: selection.ownershipFilter,
+			ownStateFilter: selection.ownStateFilter
+		});
+		if (scenario) query.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scenario);
+		const tokenIds: string[] = [];
+		let cursor: string | null = null;
+		do {
+			if (cursor) query.set('cursor', cursor);
+			const page = buildBiddingE2eCollectionBiddingData(query).tokenOfferCards;
+			tokenIds.push(...page.items.map((card) => card.tokenId));
+			cursor = page.nextCursor;
+		} while (cursor);
+		return tokenIds;
+	}
 	return ['101', '102'];
 }
 
-function batchTokenLookupResponse(body: unknown): unknown {
-	const tokenIds = batchMutationTokenIds(body);
+function batchTokenLookupResponse(body: unknown, scenario: string | null): unknown {
+	const tokenIds = batchMutationTokenIds(body, scenario);
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
@@ -450,13 +489,13 @@ function mutationTargetTraits(body: unknown): { type: string; value: string }[] 
 function tokenIdFromTokenJobPath(path: string): string | null {
 	const parts = path.split('/').filter(Boolean);
 	const biddingIndex = parts.indexOf('bidding');
-	return biddingIndex > 0 ? parts[biddingIndex - 1] ?? null : null;
+	return biddingIndex > 0 ? (parts[biddingIndex - 1] ?? null) : null;
 }
 
 function tokenIdFromTokenScopedBiddingPath(path: string): string | null {
 	const parts = path.split('/').filter(Boolean);
 	const biddingIndex = parts.indexOf('bidding');
-	return biddingIndex > 3 ? parts[biddingIndex - 1] ?? null : null;
+	return biddingIndex > 3 ? (parts[biddingIndex - 1] ?? null) : null;
 }
 
 function isJobMutationBody(value: unknown): value is {
@@ -469,16 +508,13 @@ function isJobMutationBody(value: unknown): value is {
 }
 
 function isBatchMutationBody(value: unknown): value is {
-	selection:
-		| { type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds; tokenIds: string[] }
-		| { type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter }
-		| { type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter };
+	selection: BatchTokenBiddingJobSelectionRequest;
 } {
 	return (
 		!!value &&
 		typeof value === 'object' &&
 		!!(value as { selection?: unknown }).selection &&
-		typeof ((value as { selection: { type?: unknown } }).selection.type) === 'string'
+		typeof (value as { selection: { type?: unknown } }).selection.type === 'string'
 	);
 }
 

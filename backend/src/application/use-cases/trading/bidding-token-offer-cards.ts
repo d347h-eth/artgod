@@ -3,6 +3,8 @@ import {
     renderTraitSummaryTemplate,
     TRADING_BIDDING_BID_SCOPE_KIND,
     type CollectionBiddingTraitFilterJoinMode,
+    type CollectionBiddingBidBookOwnStateFilter,
+    type TradingBiddingBidBookOwnStateCounts,
     type TokenAttribute,
     type TokenCard,
 } from "@artgod/shared/types";
@@ -11,6 +13,10 @@ import type {
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
+import {
+    filterBiddingBidBookRowsByOwnState,
+    countBiddingBidBookOwnStates,
+} from "@artgod/shared/trading/bid-book-own-state";
 import { persistedBidBookRowEffectiveWei } from "./bidding-bid-book.js";
 import {
     bidBookRowPassesCollectionBidFloor,
@@ -49,6 +55,35 @@ export function sortTokenIdsByTopOffer(
             return leftTop > rightTop ? -1 : 1;
         })
         .map(([tokenId]) => tokenId);
+}
+
+// Filter offers before token ranking and pagination, also used by all-results bidding selection.
+export function filterTokenOfferGroupsByOwnState(
+    groups: Map<string, PersistedBiddingBidBookRow[]>,
+    state: CollectionBiddingBidBookOwnStateFilter | null,
+): Map<string, PersistedBiddingBidBookRow[]> {
+    if (state === null) return groups;
+    const matched = new Map<string, PersistedBiddingBidBookRow[]>();
+    for (const [tokenId, offers] of groups) {
+        const matches = filterBiddingBidBookRowsByOwnState(
+            offers,
+            state,
+            () => tokenId,
+        );
+        if (matches.length > 0) matched.set(tokenId, matches);
+    }
+    return matched;
+}
+
+// Stream all matching tokens' rows so counts are independent of the loaded page and selected state.
+export function countTokenOfferOwnStates(
+    groups: Map<string, PersistedBiddingBidBookRow[]>,
+    tokenIds: Iterable<string> = groups.keys(),
+): TradingBiddingBidBookOwnStateCounts {
+    function* rows(): Generator<PersistedBiddingBidBookRow> {
+        for (const tokenId of tokenIds) yield* groups.get(tokenId) ?? [];
+    }
+    return countBiddingBidBookOwnStates(rows());
 }
 
 // Builds reusable token-offer cards from hydrated tokens and grouped bid rows.

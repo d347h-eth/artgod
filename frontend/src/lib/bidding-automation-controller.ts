@@ -114,12 +114,13 @@ export function createBiddingAutomationController(): BiddingAutomationController
 
 	function selectExplicitTokens(tokenIds: string[]): void {
 		state.set({
-			selection: tokenIds.length > 0
-				? {
-						type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
-						tokenIds
-					}
-				: null
+			selection:
+				tokenIds.length > 0
+					? {
+							type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+							tokenIds
+						}
+					: null
 		});
 	}
 
@@ -216,6 +217,7 @@ export function biddingAutomationSelectionStateKey(
 			selection.filter.ownerAddress ?? 'any-owner',
 			selection.filter.makerAddress ?? 'any-maker',
 			selection.filter.ownershipFilter ?? '',
+			selection.filter.ownStateFilter ?? '',
 			selection.filter.traitJoinMode,
 			...selection.filter.selectedTraits.map((trait) => `${trait.key}=${trait.value}`),
 			...selection.filter.selectedTraitRanges.map(
@@ -379,9 +381,7 @@ export function resolveTokenCardSelectionGesture(
 }
 
 // Identifies card gestures that replace the active bidding token selection.
-export function isExclusiveTokenCardSelectionGesture(
-	gesture: TokenCardSelectionGesture
-): boolean {
+export function isExclusiveTokenCardSelectionGesture(gesture: TokenCardSelectionGesture): boolean {
 	return gesture === 'ctrl_alt_left_click' || gesture === 'alt_middle_click';
 }
 

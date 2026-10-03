@@ -3,9 +3,12 @@ import { describe, it } from "vitest";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BOT_KIND,
@@ -23,6 +26,7 @@ import {
 import {
     exactBidBookRowPrice,
     marketBidMaterialization,
+    type PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import { UpsertBatchTokenBiddingJobsUseCase } from "./upsert-batch-token-bidding-jobs.js";
 
@@ -602,105 +606,202 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         );
     });
 
-    it("resolves token-offer targets with the same own context as private bid-book views", () => {
-        const persistedInputs: { tokenId: string }[] = [];
-        const bidBookFilters: Array<{
-            includeOwnJobContext: boolean;
-            ownershipFilter: string | null;
-        }> = [];
-        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
-            1,
-            {
-                resolveChainRef: () => CHAIN,
-            },
-            {
-                resolveCollectionRef: () => COLLECTION,
-                listCollectionTokens: () => tokenPage([], null),
-                listCollectionTokenCardsByIds: ({ tokenIds }) =>
-                    tokenIds.map((tokenId) => tokenCard(tokenId)),
-            },
-            {
-                listCollectionBidBook: ({
-                    scopeFilter,
-                    includeOwnJobContext,
-                    ownershipFilter,
-                }) => {
-                    bidBookFilters.push({
+    it.each([
+        {
+            ownStateFilter: null,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenIds: ["12", "10", "9"],
+        },
+        {
+            ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenIds: ["10", "9"],
+        },
+        {
+            ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+            ownershipFilter: null,
+            tokenIds: ["9", "10"],
+        },
+        {
+            ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenIds: ["9"],
+        },
+        {
+            ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenIds: ["12", "10"],
+        },
+        {
+            ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            ownershipFilter: null,
+            tokenIds: ["9", "10"],
+        },
+    ])(
+        "resolves private token-offer targets with own state $ownStateFilter",
+        ({ ownStateFilter, ownershipFilter, tokenIds }) => {
+            const persistedInputs: { tokenId: string }[] = [];
+            const bidBookFilters: Array<{
+                includeOwnJobContext: boolean;
+                ownershipFilter: string | null;
+            }> = [];
+            const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+                1,
+                {
+                    resolveChainRef: () => CHAIN,
+                },
+                {
+                    resolveCollectionRef: () => COLLECTION,
+                    listCollectionTokens: () => tokenPage([], null),
+                    listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                        tokenIds.map((tokenId) => tokenCard(tokenId)),
+                },
+                {
+                    listCollectionBidBook: ({
+                        scopeFilter,
                         includeOwnJobContext,
-                        ownershipFilter: ownershipFilter ?? null,
-                    });
-                    if (
-                        !includeOwnJobContext ||
-                        scopeFilter !==
-                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
-                    ) {
-                        return bidBook([]);
-                    }
-                    return bidBook([
-                        bidBookRow({
-                            orderId: "own-token-9",
-                            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
-                            tokenId: "9",
-                            wei: "300000000000000000",
-                            isOwn: true,
-                        }),
-                    ]);
+                        ownershipFilter,
+                    }) => {
+                        bidBookFilters.push({
+                            includeOwnJobContext,
+                            ownershipFilter: ownershipFilter ?? null,
+                        });
+                        if (
+                            !includeOwnJobContext ||
+                            scopeFilter !==
+                                COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                        ) {
+                            return bidBook([]);
+                        }
+                        return bidBook(
+                            [
+                                bidBookRow({
+                                    orderId: "own-token-9",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "9",
+                                    wei: "300000000000000000",
+                                    isOwn: true,
+                                    ownStatus: {
+                                        position:
+                                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                                        constraints: [
+                                            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+                                        ],
+                                        job: null,
+                                    },
+                                }),
+                                bidBookRow({
+                                    orderId: "own-token-10",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "10",
+                                    wei: "400000000000000000",
+                                    isOwn: true,
+                                    ownStatus: {
+                                        position:
+                                            ownStateFilter ===
+                                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                                                ? TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+                                                : TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                                        constraints: [
+                                            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor,
+                                        ],
+                                        job: null,
+                                    },
+                                }),
+                                bidBookRow({
+                                    orderId: "opponent-token-9",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "9",
+                                    wei: "600000000000000000",
+                                }),
+                                bidBookRow({
+                                    orderId: "paused-token-12",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "12",
+                                    wei: "500000000000000000",
+                                    isOwn: true,
+                                    ownStatus: {
+                                        position:
+                                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                                        constraints: [],
+                                        job: {
+                                            jobId: "paused-token-job",
+                                            revision: 1,
+                                            status: TRADING_JOB_STATUS.Paused,
+                                        },
+                                    },
+                                }),
+                                bidBookRow({
+                                    orderId: "opponent-only-token-11",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "11",
+                                    wei: "800000000000000000",
+                                }),
+                            ].filter((row) => !ownershipFilter || row.isOwn),
+                        );
+                    },
                 },
-            },
-            {
-                upsertTokenJobs: (inputs) => {
-                    persistedInputs.push(...inputs);
-                    return {
-                        jobs: inputs.map((input) =>
-                            buildPersistedTokenJob({ tokenId: input.tokenId }),
-                        ),
-                        commands: [],
-                    };
+                {
+                    upsertTokenJobs: (inputs) => {
+                        persistedInputs.push(...inputs);
+                        return {
+                            jobs: inputs.map((input) =>
+                                buildPersistedTokenJob({
+                                    tokenId: input.tokenId,
+                                }),
+                            ),
+                            commands: [],
+                        };
+                    },
                 },
-            },
-            {
-                listCollectionPriceTiers: () => [],
-            },
-            {
-                publishBiddingJobCommandsChanged: () => undefined,
-            },
-        );
+                {
+                    listCollectionPriceTiers: () => [],
+                },
+                {
+                    publishBiddingJobCommandsChanged: () => undefined,
+                },
+            );
 
-        const result = useCase.upsertBatchTokenBiddingJobs({
-            chainRef: "ethereum",
-            collectionRef: "terraforms",
-            includeOwnJobContext: true,
-            status: TRADING_JOB_STATUS.Enabled,
-            floorEth: "0.1",
-            ceilingEth: "0.2",
-            deltaEth: "0.001",
-            selection: {
-                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-                traits: [],
-                traitRanges: [],
-                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-                ownershipFilter:
-                    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
-            },
-        });
+            const result = useCase.upsertBatchTokenBiddingJobs({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                includeOwnJobContext: true,
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.001",
+                selection: {
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                    traits: [],
+                    traitRanges: [],
+                    traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+                    ownStateFilter,
+                    ownershipFilter,
+                },
+            });
 
-        assert.deepEqual(bidBookFilters, [
-            {
-                includeOwnJobContext: true,
-                ownershipFilter:
-                    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
-            },
-            {
-                includeOwnJobContext: true,
-                ownershipFilter: null,
-            },
-        ]);
-        assert.deepEqual(result.tokenIds, ["9"]);
-        assert.deepEqual(
-            persistedInputs.map((input) => input.tokenId),
-            ["9"],
-        );
-    });
+            assert.deepEqual(bidBookFilters, [
+                {
+                    includeOwnJobContext: true,
+                    ownershipFilter,
+                },
+                {
+                    includeOwnJobContext: true,
+                    ownershipFilter: null,
+                },
+            ]);
+            assert.deepEqual(result.tokenIds, tokenIds);
+            assert.deepEqual(
+                persistedInputs.map((input) => input.tokenId),
+                tokenIds,
+            );
+        },
+    );
 });
 
 function tokenPage(
@@ -779,6 +880,7 @@ function bidBookRow(input: {
     wei: string;
     maker?: string;
     isOwn?: boolean;
+    ownStatus?: PersistedBiddingBidBookRow["ownStatus"];
 }) {
     return {
         orderId: input.orderId,
@@ -801,7 +903,7 @@ function bidBookRow(input: {
         placedAt: null,
         snapshotRefreshedAtMs: null,
         seenAt: null,
-        ownStatus: null,
+        ownStatus: input.ownStatus ?? null,
     };
 }
 
