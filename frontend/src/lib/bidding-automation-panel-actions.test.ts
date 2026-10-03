@@ -58,7 +58,7 @@ describe('bidding automation panel actions', () => {
 		vi.clearAllMocks();
 	});
 
-	it('routes selected trait bids through the trait job mutation with selected quantity', async () => {
+	it('saves a single-NFT trait job when the selected opponent bid requests multiple NFTs', async () => {
 		const job = testTraitJob();
 		backendApiMocks.upsertTraitBiddingJob.mockResolvedValueOnce({ job });
 		const draft = buildBiddingAutomationDraftFromBid(testTraitBid('2'));
@@ -89,7 +89,7 @@ describe('bidding automation panel actions', () => {
 				ceilingEth: '0.5',
 				deltaEth: '0.001',
 				priceTierId: null,
-				quantity: 2,
+				quantity: 1,
 				targetTraits: [
 					{ type: 'Biome', value: '42' },
 					{ type: 'Mode', value: 'Terrain' }
@@ -101,8 +101,54 @@ describe('bidding automation panel actions', () => {
 		expect(backendApiMocks.upsertCollectionBiddingJob).not.toHaveBeenCalled();
 	});
 
+	it('saves a single-NFT collection job when the selected opponent bid requests multiple NFTs', async () => {
+		const job: ApiBiddingJob = {
+			...testTraitJob(),
+			target: {
+				type: TRADING_JOB_TARGET_KIND.Collection,
+				quantity: 1,
+				targetTraits: []
+			}
+		};
+		backendApiMocks.upsertCollectionBiddingJob.mockResolvedValueOnce({ job });
+		const draft = buildBiddingAutomationDraftFromBid({
+			...testTraitBid('3'),
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+				label: 'collection',
+				tokenId: null,
+				traits: []
+			}
+		});
+		const pricing = {
+			floorEth: '0.351',
+			ceilingEth: '0.5',
+			deltaEth: '0.001',
+			priceTierId: null
+		};
+
+		const changedJobs = await saveBiddingAutomationDraftJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft,
+			targetTokenId: null,
+			nextStatus: TRADING_JOB_STATUS.Enabled,
+			pricing
+		});
+
+		expect(changedJobs).toEqual([job]);
+		expect(backendApiMocks.upsertCollectionBiddingJob).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{ status: TRADING_JOB_STATUS.Enabled, ...pricing, quantity: 1 }
+		);
+		expect(draft?.source).toMatchObject({ bid: { quantity: '3' } });
+	});
+
 	it('dedupes and performs declared job lookup for selected bid drafts', async () => {
-		const draft = buildBiddingAutomationDraftFromBid(testTraitBid('1'));
+		const draft = buildBiddingAutomationDraftFromBid(testTraitBid('2'));
 		const job = testTraitJob();
 		backendApiMocks.lookupBiddingJobTarget.mockResolvedValueOnce({ job });
 

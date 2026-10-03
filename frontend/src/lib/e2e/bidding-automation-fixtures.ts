@@ -262,6 +262,7 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 	bidRow({
 		orderId: '0xcollection-top',
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+		quantity: '3',
 		priceEth: '0.300',
 		maker: MARKET_ADDRESS_A,
 		validUntil: 1_900_000_000
@@ -858,6 +859,7 @@ export function findBiddingE2eJobForTarget(body: unknown): ApiBiddingJob | null 
 			JOBS.find(
 				(job) =>
 					job.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+					job.target.quantity === (target.quantity ?? 1) &&
 					traitsSignature(job.target.targetTraits) === traitsSignature(target.targetTraits)
 			) ?? null
 		);
@@ -867,6 +869,7 @@ export function findBiddingE2eJobForTarget(body: unknown): ApiBiddingJob | null 
 			JOBS.find(
 				(job) =>
 					job.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+					job.target.quantity === (target.quantity ?? 1) &&
 					job.target.targetTraits.length === 0
 			) ?? null
 		);
@@ -1326,6 +1329,7 @@ function biddingE2eFacetValue(
 type BidRowCommonParams = {
 	orderId: string;
 	scopeKind: ApiBiddingBidBookRow['scope']['kind'];
+	quantity?: string;
 	priceEth: string;
 	ceilingEth?: string;
 	tokenId?: string;
@@ -1384,7 +1388,7 @@ function bidRow(params: MarketBidRowParams | OwnJobIntentRowParams): ApiBiddingB
 					ceilingEth: params.ceilingEth ?? params.priceEth
 				}
 			: null,
-		quantity: '1',
+		quantity: params.quantity ?? '1',
 		currencyAddress: WETH_ADDRESS,
 		currencySymbol: 'WETH',
 		protocolAddress: null,

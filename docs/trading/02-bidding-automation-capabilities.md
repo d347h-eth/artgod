@@ -139,6 +139,9 @@ exposing raw loopback request details.
 
 ## Targeting Capabilities
 
+Userland drafts offers for one NFT each (`quantity=1`), including when the
+selected opponent bid requests multiple NFTs.
+
 Token targets:
 
 - `bid on all tokens` creates or updates token jobs for every token matching the current filter across the full result set.

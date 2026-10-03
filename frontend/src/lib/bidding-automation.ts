@@ -22,6 +22,9 @@ export {
 	type BiddingAutomationPricingMode
 } from './bidding-automation-contracts';
 
+// Userland drafts one NFT per offer; a selected market bid only supplies scope and unit pricing.
+export const BIDDING_AUTOMATION_JOB_QUANTITY = 1;
+
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
 	ExplicitTokens: 'explicit_tokens',
@@ -379,7 +382,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 		return {
 			target: {
 				type: 'trait',
-				quantity: selectedBidQuantity(draft),
+				quantity: BIDDING_AUTOMATION_JOB_QUANTITY,
 				targetTraits: draft.target.traits.map((trait) => ({
 					type: trait.key,
 					value: trait.value
@@ -394,7 +397,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 		return {
 			target: {
 				type: 'collection',
-				quantity: selectedBidQuantity(draft)
+				quantity: BIDDING_AUTOMATION_JOB_QUANTITY
 			}
 		};
 	}
@@ -595,14 +598,6 @@ export function canDraftTraitJobFromFilters(params: {
 	return (
 		new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length
 	);
-}
-
-function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined {
-	if (draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
-		return undefined;
-	}
-	const parsed = Number(draft.source.bid.quantity);
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function traitSignature(key: string, value: string): string {

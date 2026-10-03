@@ -24,6 +24,7 @@ import {
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_JOB_QUANTITY,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	buildBiddingJobTargetLookupRequestBody,
@@ -153,7 +154,7 @@ export async function saveBiddingAutomationDraftJobs(
 		const response = await upsertTraitBiddingJob(fetchFn, chainRef, collectionRef, {
 			status: nextStatus,
 			...pricing,
-			quantity: selectedBidQuantity(draft),
+			quantity: BIDDING_AUTOMATION_JOB_QUANTITY,
 			targetTraits: draft.target.traits.map((trait) => ({
 				type: trait.key,
 				value: trait.value
@@ -165,7 +166,7 @@ export async function saveBiddingAutomationDraftJobs(
 	const response = await upsertCollectionBiddingJob(fetchFn, chainRef, collectionRef, {
 		status: nextStatus,
 		...pricing,
-		quantity: selectedBidQuantity(draft)
+		quantity: BIDDING_AUTOMATION_JOB_QUANTITY
 	});
 	return [response.job];
 }
@@ -369,14 +370,6 @@ export function resolveBiddingSaveMessage(
 		return wasExistingJob ? 'modified' : 'created';
 	}
 	return `${count} jobs saved`;
-}
-
-function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined {
-	if (draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
-		return undefined;
-	}
-	const parsed = Number(draft.source.bid.quantity);
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function batchTokenSelectionRequestFromFilteredDraft(

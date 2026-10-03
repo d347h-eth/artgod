@@ -10,7 +10,8 @@ import {
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
-	TRADING_JOB_STATUS
+	TRADING_JOB_STATUS,
+	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
 import type { TradingBiddingBidBookOwnState } from '@artgod/shared/types';
 import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/config/bidding';
@@ -783,19 +784,35 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeEnabled();
 	});
 
-	test('keeps collection bidding explicit and row actions hidden', async ({ page }) => {
+	test('keeps collection bidding at one NFT when the top opponent requests multiple NFTs', async ({
+		page
+	}, testInfo) => {
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=collection`);
 
 		await expect(page.locator(`[data-testid="${TEST_IDS.BidBookRowBid}"]`)).toHaveCount(0);
+		await page.getByRole('button', { name: 'expand 1', exact: true }).click();
+		await expect(page.getByText('3x', { exact: true })).toBeVisible();
+		const lookupRequest = page.waitForRequest(
+			(request) =>
+				request.method() === 'POST' &&
+				request.postDataJSON()?.target?.type === TRADING_JOB_TARGET_KIND.Collection
+		);
 		await page
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.PlaceCollectionBid })
 			.click();
+		expect((await lookupRequest).postDataJSON()).toEqual({
+			target: { type: TRADING_JOB_TARGET_KIND.Collection, quantity: 1 }
+		});
 		const panel = page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`);
 		await expect(panel).toBeVisible();
 		await expect(panel).toContainText('job-collection');
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelActivate}"]`)).toBeEnabled();
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('collection-quantity-one.png'),
+			fullPage: true
+		});
 
 		const activate = page.locator(`[data-testid="${TEST_IDS.BiddingPanelActivate}"]`);
 		await activate.click();
@@ -807,7 +824,7 @@ test.describe('bidding automation fixture harness', () => {
 		await activate.click();
 		const mutation = await api.nextMutation();
 		expect(mutation.path).toContain('/bidding/jobs/collection');
-		expect(mutation.body).toMatchObject({ status: TRADING_JOB_STATUS.Enabled });
+		expect(mutation.body).toMatchObject({ status: TRADING_JOB_STATUS.Enabled, quantity: 1 });
 	});
 
 	test('supports token detail token and trait bid actions while hiding collection row actions', async ({

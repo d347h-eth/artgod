@@ -422,7 +422,7 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 });
 
 describe('buildBiddingJobTargetLookupRequestBody', () => {
-	it('maps single token, trait, and collection drafts to backend lookup targets', () => {
+	it('maps token, trait, and collection drafts to single-NFT lookup targets', () => {
 		const tokenDraft = buildBiddingAutomationDraftFromBid({
 			...BASE_BID,
 			scope: {
@@ -452,7 +452,7 @@ describe('buildBiddingJobTargetLookupRequestBody', () => {
 		expect(buildBiddingJobTargetLookupRequestBody(traitDraft)).toEqual({
 			target: {
 				type: 'trait',
-				quantity: 2,
+				quantity: 1,
 				targetTraits: [{ type: 'Biome', value: '42' }]
 			}
 		});
@@ -464,9 +464,11 @@ describe('buildBiddingJobTargetLookupRequestBody', () => {
 		expect(buildBiddingJobTargetLookupRequestBody(collectionDraft)).toEqual({
 			target: {
 				type: 'collection',
-				quantity: 3
+				quantity: 1
 			}
 		});
+		expect(traitDraft?.source).toMatchObject({ bid: { quantity: '2' } });
+		expect(collectionDraft?.source).toMatchObject({ bid: { quantity: '3' } });
 	});
 
 	it('does not build one lookup for multi-token or broad filtered batch drafts', () => {
