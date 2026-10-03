@@ -43,7 +43,8 @@
     "dependencies": {
         "@artgod/shared": "workspace:*",
         "@elchininet/isometric": "4.0.0",
-        "@tauri-apps/api": "2.11.1"
+        "@tauri-apps/api": "2.11.1",
+        "viem": "2.54.6"
     },
     "devDependencies": {
         "@eslint/compat": "2.1.0",

@@ -153,12 +153,17 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
 
-	it('uses price-magnitude steps for default bid deltas', () => {
+	it('uses OpenSea price steps for inferred ranges and bid deltas', () => {
 		const cases = [
 			{ wei: '4000000000000000000', eth: '4', deltaEth: '0.01', nextEth: '4.01' },
-			{ wei: '20000000000000000000', eth: '20', deltaEth: '0.1', nextEth: '20.1' },
+			{ wei: '20000000000000000000', eth: '20', deltaEth: '0.01', nextEth: '20.01' },
 			{ wei: '230000000000000000', eth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
-			{ wei: '50000000000000000', eth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
+			{ wei: '50000000000000000', eth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' },
+			{ wei: '1000000000000000', eth: '0.001', deltaEth: '0.0001', nextEth: '0.0011' },
+			{ wei: '99900000000000000', eth: '0.0999', deltaEth: '0.001', nextEth: '0.1' },
+			{ wei: '999000000000000000', eth: '0.999', deltaEth: '0.01', nextEth: '1' },
+			{ wei: '1301656300000000000', eth: '1.3016563', deltaEth: '0.01', nextEth: '1.31' },
+			{ wei: '0', eth: '0', deltaEth: '0.0001', nextEth: '0.0001' }
 		];
 
 		for (const item of cases) {

@@ -8,6 +8,11 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+import { formatEther } from 'viem';
+import {
+	getOpenSeaOfferPriceStepWei,
+	roundOpenSeaOfferPriceUp
+} from '@artgod/shared/trading/open-sea-offer-price';
 import { BIDDING_AUTOMATION_PRICING_MODE } from './bidding-automation-contracts';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -604,41 +609,16 @@ function traitSignature(key: string, value: string): string {
 	return `${key}\u0000${value}`;
 }
 
-const WEI_PER_ETH = 1_000_000_000_000_000_000n;
-
 function nextWinningBidEth(bid: ApiBiddingBidBookRow): string {
-	return formatWeiAsEth(bidBookRowEffectivePriceWei(bid) + minimalBidDeltaWei(bid));
+	return formatEther(nextWinningBidWei(bid));
 }
 
 function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
-	return formatWeiAsEth(minimalBidDeltaWei(bid));
+	return formatEther(getOpenSeaOfferPriceStepWei(nextWinningBidWei(bid)));
 }
 
-function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
+// Moving one wei past the competitor then rounding up also handles precision boundaries.
+function nextWinningBidWei(bid: ApiBiddingBidBookRow): bigint {
 	const effectiveWei = bidBookRowEffectivePriceWei(bid);
-	if (effectiveWei <= 0n) {
-		return 1n;
-	}
-	const priceMagnitude = ethOrderOfMagnitude(effectiveWei);
-	const deltaWeiPower = 16 + priceMagnitude;
-	return deltaWeiPower >= 0 ? 10n ** BigInt(deltaWeiPower) : 1n;
-}
-
-function ethOrderOfMagnitude(effectiveWei: bigint): number {
-	if (effectiveWei >= WEI_PER_ETH) {
-		return (effectiveWei / WEI_PER_ETH).toString().length - 1;
-	}
-	const fractionText = effectiveWei.toString().padStart(18, '0');
-	const firstSignificantIndex = fractionText.search(/[1-9]/);
-	return firstSignificantIndex === -1 ? -18 : -(firstSignificantIndex + 1);
-}
-
-function formatWeiAsEth(value: bigint): string {
-	const whole = value / WEI_PER_ETH;
-	const fraction = value % WEI_PER_ETH;
-	if (fraction === 0n) {
-		return whole.toString();
-	}
-	const fractionText = fraction.toString().padStart(18, '0').replace(/0+$/, '');
-	return `${whole}.${fractionText}`;
+	return roundOpenSeaOfferPriceUp((effectiveWei > 0n ? effectiveWei : 0n) + 1n);
 }
