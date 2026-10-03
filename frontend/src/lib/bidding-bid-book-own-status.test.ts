@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER as FILTER,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND as MATERIALIZATION,
 	TRADING_BIDDING_BID_BOOK_OWN_STATE as STATE,
@@ -29,7 +30,7 @@ describe('own bid state tabs', () => {
 		]);
 		const tabs = ownBidStateFilterTabs(counts, PHASE.Paused);
 		expect(tabs.map(({ key, count }) => ({ key, count }))).toEqual([
-			{ key: null, count: 2 },
+			{ key: FILTER.Active, count: 1 },
 			{ key: PHASE.Paused, count: 1 },
 			{ key: PHASE.CancelFailed, count: 1 },
 			{ key: STATE.Unknown, count: 1 }
@@ -41,7 +42,24 @@ describe('own bid state tabs', () => {
 		expect(emptySelection.some((tab) => tab.active)).toBe(false);
 	});
 
-	it('hides every tab including All when there are no own rows', () => {
+	it('hides Active when every own row is paused and preserves an empty Active selection', () => {
+		const counts = countBiddingBidBookOwnStates([
+			{
+				isOwn: true,
+				ownStatus: null,
+				materialization: {
+					kind: MATERIALIZATION.OwnJobIntent,
+					phase: PHASE.Canceling,
+					status: STATUS.Paused
+				}
+			}
+		]);
+		const tabs = ownBidStateFilterTabs(counts, FILTER.Active);
+		expect(tabs.map(({ key }) => key)).toEqual([PHASE.Paused, PHASE.Canceling]);
+		expect(tabs.some((tab) => tab.active)).toBe(false);
+	});
+
+	it('hides every tab including Active when there are no own rows', () => {
 		expect(ownBidStateFilterTabs(countBiddingBidBookOwnStates([]), PHASE.Paused)).toEqual([]);
 	});
 });

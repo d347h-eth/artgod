@@ -1,4 +1,5 @@
 import {
+	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -15,7 +16,7 @@ import {
 	biddingBidBookOwnStates,
 	type BiddingBidBookOwnStateSignals
 } from '@artgod/shared/trading/bid-book-own-state';
-import { BID_BOOK_FILTER_ALL_LABEL, type BidBookFilterTab } from '$lib/bid-book-view-models';
+import type { BidBookFilterTab } from '$lib/bid-book-view-models';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 
 export type BidBookOwnStatusBadge = {
@@ -55,6 +56,13 @@ const OWN_BID_STATE_LABELS = {
 	[TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw]: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw
 } as const satisfies Record<TradingBiddingBidBookOwnState, string>;
 
+const OWN_BID_STATE_FILTER_LABELS = {
+	...OWN_BID_STATE_LABELS,
+	[COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active]: 'Active',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot]: 'waiting for bot',
+	[TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]: 'at ceiling'
+} as const satisfies Record<CollectionBiddingBidBookOwnStateFilter, string>;
+
 function ownJobIntentPhaseBadge(
 	phase: NonNullable<ApiBiddingBidBookRow['materialization']['phase']>
 ): BidBookOwnStatusBadge {
@@ -81,33 +89,20 @@ function ownBidStateLabel(kind: TradingBiddingBidBookOwnState): string {
 	return OWN_BID_STATE_LABELS[kind];
 }
 
-// Compact filter labels refer to the same states as the existing row badges.
+// Compact filters include individual badge states and the non-paused aggregate.
 export function ownBidStateFilterTabs(
 	counts: TradingBiddingBidBookOwnStateCounts,
 	activeState: CollectionBiddingBidBookOwnStateFilter | null
 ): BidBookFilterTab<CollectionBiddingBidBookOwnStateFilter>[] {
 	if (counts.total === 0) return [];
-	return [
-		{
-			key: null,
-			label: BID_BOOK_FILTER_ALL_LABEL,
-			count: counts.total,
-			active: activeState === null
-		},
-		...COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.filter((key) => counts.states[key] > 0).map(
-			(key) => ({
-				key,
-				label:
-					key === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot
-						? 'waiting for bot'
-						: key === TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
-							? 'at ceiling'
-							: ownBidStateLabel(key),
-				count: counts.states[key],
-				active: key === activeState
-			})
-		)
-	];
+	return COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.filter((key) => counts.states[key] > 0).map(
+		(key) => ({
+			key,
+			label: OWN_BID_STATE_FILTER_LABELS[key],
+			count: counts.states[key],
+			active: key === activeState
+		})
+	);
 }
 
 // Resolves the user-facing state badges for the bidding panel from backend-owned bid-book signals.

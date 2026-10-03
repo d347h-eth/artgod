@@ -115,6 +115,7 @@ export const BIDDING_E2E_SCENARIO = {
 	FirstRunIntent: 'first_run_intent',
 	OwnBidStates: 'own_bid_states',
 	OwnBidStatesUpdated: 'own_bid_states_updated',
+	OwnBidStatesPaused: 'own_bid_states_paused',
 	OwnBidStatesWithoutOwn: 'own_bid_states_without_own'
 } as const;
 
@@ -913,6 +914,30 @@ function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScena
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesPaused) {
+		// Current jobs are paused after archived and unmatched market orders disappear.
+		return ownStateBidRows(false)
+			.filter(
+				(bid): bid is ApiBiddingOwnJobIntentRow =>
+					bid.materialization.kind ===
+						TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent &&
+					bid.materialization.status !== TRADING_JOB_STATUS.Archived
+			)
+			.map((bid) => {
+				return {
+					...bid,
+					materialization: { ...bid.materialization, status: TRADING_JOB_STATUS.Paused },
+					ownStatus: bid.ownStatus
+						? {
+								...bid.ownStatus,
+								job: bid.ownStatus.job
+									? { ...bid.ownStatus.job, status: TRADING_JOB_STATUS.Paused }
+									: null
+							}
+						: null
+				};
+			});
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesWithoutOwn) {
 		return ownStateBidRows(false).filter((bid) => !bid.maker.isOwn);
 	}

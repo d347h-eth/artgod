@@ -54,8 +54,7 @@ export const BID_BOOK_FILTER_LABEL = {
 	Traits: 'Bid trait buckets',
 	OwnState: 'Own bid state filter',
 	AllBids: 'all bids',
-	OwnBids: 'my bids',
-	ClearOwnState: 'clear state filter'
+	OwnBids: 'my bids'
 } as const;
 
 export type BidBookFilterTab<Key extends string = string> = {

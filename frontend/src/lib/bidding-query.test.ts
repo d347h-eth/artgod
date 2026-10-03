@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT
 } from '@artgod/shared/types';
@@ -20,23 +21,24 @@ import {
 } from '$lib/bidding-query';
 
 describe('buildCollectionBiddingQuery', () => {
-	it('preserves own state across trait and token scopes and clears it for collection scope', () => {
+	it.each([
+		COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+		TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
+	])('preserves %s across trait and token scopes and clears it for collection scope', (state) => {
 		expect(
 			parseBidBookOwnStateFilter(
-				new URLSearchParams({ [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState]: ' ceiling ' })
+				new URLSearchParams({ [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState]: ` ${state} ` })
 			)
-		).toBe(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling);
+		).toBe(state);
 		for (const bidScope of Object.values(COLLECTION_BIDDING_BID_SCOPE_FILTER)) {
 			const query = buildCollectionBiddingQuery({
 				selectedTraits: [],
 				selectedTraitRanges: [],
 				bidScope,
-				ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
+				ownStateFilter: state
 			});
 			expect(parseBidBookOwnStateFilter(query)).toBe(
-				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
-					? null
-					: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
+				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection ? null : state
 			);
 		}
 		expect(

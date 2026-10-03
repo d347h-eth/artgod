@@ -3,6 +3,7 @@ import { describe, it } from "vitest";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
@@ -609,7 +610,17 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         {
             ownStateFilter: null,
             ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            tokenIds: ["12", "10", "9"],
+        },
+        {
+            ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
             tokenIds: ["10", "9"],
+        },
+        {
+            ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+            ownershipFilter: null,
+            tokenIds: ["9", "10"],
         },
         {
             ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
@@ -619,7 +630,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         {
             ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
             ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
-            tokenIds: ["10"],
+            tokenIds: ["12", "10"],
         },
         {
             ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
@@ -705,6 +716,24 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                                         TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                     tokenId: "9",
                                     wei: "600000000000000000",
+                                }),
+                                bidBookRow({
+                                    orderId: "paused-token-12",
+                                    scopeKind:
+                                        TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                    tokenId: "12",
+                                    wei: "500000000000000000",
+                                    isOwn: true,
+                                    ownStatus: {
+                                        position:
+                                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                                        constraints: [],
+                                        job: {
+                                            jobId: "paused-token-job",
+                                            revision: 1,
+                                            status: TRADING_JOB_STATUS.Paused,
+                                        },
+                                    },
                                 }),
                                 bidBookRow({
                                     orderId: "opponent-only-token-11",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
@@ -436,6 +437,29 @@ describe("own-state counts and filtering", () => {
                 expect(result.ownBidStateCounts?.states[ownStateFilter]).toBe(
                     1,
                 );
+            }
+            const active = useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    scopeFilter,
+                    ownStateFilter:
+                        COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+                    limit: 1,
+                }),
+            );
+            expect(
+                active.ownBidStateCounts?.states[
+                    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+                ],
+            ).toBe(2);
+            expect(active.ownBidStateCounts?.states[phase.Paused]).toBe(1);
+            expect(active.bidBook.bids.map((row) => row.orderId)).toEqual(
+                scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                    ? ["archived-cancellation"]
+                    : ["archived-cancellation", "unreported-own-order"],
+            );
+            if (scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+                expect(active.tokenOfferCards.totalItems).toBe(2);
+                expect(active.tokenOfferCards.totalOffers).toBe(2);
             }
         },
     );

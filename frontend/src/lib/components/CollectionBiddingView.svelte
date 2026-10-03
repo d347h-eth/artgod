@@ -1176,9 +1176,6 @@
 								>{BID_BOOK_FILTER_LABEL.OwnBids}</a
 							>
 						{/if}
-						{#if ownStateFilter && activeOwnBidStateCounts?.total === 0}
-							<a href={ownStateFilterHref(null)} data-sveltekit-noscroll>{BID_BOOK_FILTER_LABEL.ClearOwnState}</a>
-						{/if}
 					</div>
 				{/if}
 			</div>

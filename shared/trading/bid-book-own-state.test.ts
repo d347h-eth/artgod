@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER as FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND as MATERIALIZATION,
@@ -65,6 +66,7 @@ describe("own bid-book states", () => {
         };
         expect(biddingBidBookOwnStates(bid)).toEqual([PHASE.Paused, phase]);
         expect(bidMatchesOwnStateFilter(bid, PHASE.Paused)).toBe(true);
+        expect(bidMatchesOwnStateFilter(bid, FILTER.Active)).toBe(false);
         expect(bidMatchesOwnStateFilter(bid, phase)).toBe(true);
         expect(
             bidMatchesOwnStateFilter(
@@ -94,15 +96,17 @@ describe("own bid-book states", () => {
             POSITION.Losing,
             CONSTRAINT.Ceiling,
         ]);
+        expect(bidMatchesOwnStateFilter(bid, FILTER.Active)).toBe(false);
     });
 
     it("classifies missing market evidence as unknown without guessing competitiveness", () => {
         expect(biddingBidBookOwnStates(market)).toEqual([STATE.Unknown]);
         expect(bidMatchesOwnStateFilter(market, STATE.Unknown)).toBe(true);
+        expect(bidMatchesOwnStateFilter(market, FILTER.Active)).toBe(true);
         expect(bidMatchesOwnStateFilter(market, POSITION.Winning)).toBe(false);
     });
 
-    it("makes All exactly the union of state filters for every lifecycle and job status", () => {
+    it("covers every own row and partitions active from paused for every lifecycle and job status", () => {
         const ownRows: BiddingBidBookOwnStateSignals[] = [
             ...Object.values(PHASE).flatMap((phase) =>
                 Object.values(STATUS).map((status) => ({
@@ -143,6 +147,19 @@ describe("own bid-book states", () => {
             matches.forEach((row) => matchedRows.add(row));
         }
         expect(matchedRows).toEqual(new Set(ownRows));
+        const activeRows = rows.filter((row) =>
+            bidMatchesOwnStateFilter(row, FILTER.Active),
+        );
+        const pausedRows = rows.filter((row) =>
+            bidMatchesOwnStateFilter(row, PHASE.Paused),
+        );
+        expect(activeRows.every((row) => !pausedRows.includes(row))).toBe(true);
+        expect(new Set([...activeRows, ...pausedRows])).toEqual(
+            new Set(ownRows),
+        );
+        expect(counts.states[FILTER.Active] + counts.states[PHASE.Paused]).toBe(
+            counts.total,
+        );
         expect(
             Object.values(counts.states).reduce((sum, count) => sum + count, 0),
         ).toBeGreaterThan(counts.total);
@@ -208,7 +225,36 @@ describe("own-state selection with opponent context", () => {
         ).toEqual([]);
     });
 
-    it("clears only state selection when All is selected", () => {
+    it("keeps opponent context only in groups with active own rows", () => {
+        const paused = {
+            ...losing,
+            ownStatus: {
+                ...losing.ownStatus,
+                job: { status: STATUS.Paused },
+            },
+        };
+        const pausedOnly = { ...paused, group: "paused-only" };
+        const pausedOpponent = opponent("paused-only");
+        const mixedRows = [...rows, paused, pausedOnly, pausedOpponent];
+        expect(
+            filterBiddingBidBookRowsByOwnState(mixedRows, FILTER.Active, key),
+        ).toEqual([
+            relatedOpponent,
+            losing,
+            otherOwn,
+            winning,
+            unrelatedOpponent,
+        ]);
+        expect(
+            filterBiddingBidBookRowsByOwnState(
+                [pausedOnly, pausedOpponent, opponentOnly],
+                FILTER.Active,
+                key,
+            ),
+        ).toEqual([]);
+    });
+
+    it("clears only state selection when the filter is cleared", () => {
         expect(filterBiddingBidBookRowsByOwnState(rows, null, key)).toEqual(
             rows,
         );

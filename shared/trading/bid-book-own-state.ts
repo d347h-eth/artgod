@@ -1,4 +1,5 @@
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -61,7 +62,20 @@ export function bidMatchesOwnStateFilter(
     bid: BiddingBidBookOwnStateSignals,
     state: CollectionBiddingBidBookOwnStateFilter | null,
 ): boolean {
-    return state === null || biddingBidBookOwnStates(bid).includes(state);
+    return state === null || ownBidStateFilters(bid).includes(state);
+}
+
+// Active includes every own row outside the paused category. Reuse that category
+// so declared pause during cancellation and pause reported by intent stay aligned.
+// Keep this aggregate out of badge classification.
+function ownBidStateFilters(
+    bid: BiddingBidBookOwnStateSignals,
+): CollectionBiddingBidBookOwnStateFilter[] {
+    const states = biddingBidBookOwnStates(bid);
+    return states.length > 0 &&
+        !states.includes(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)
+        ? [COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active, ...states]
+        : states;
 }
 
 // Ownership is applied by the caller before state selection. Matching own rows
@@ -90,8 +104,8 @@ export function filterBiddingBidBookRowsByOwnState<
     );
 }
 
-// One count per own bid row and matching badge. All is the union of state matches,
-// rather than their sum: positions, constraints and declared pause can overlap.
+// One count per own row and matching filter before selection or pagination.
+// Active and paused partition total; other state matches can overlap.
 export function countBiddingBidBookOwnStates(
     bids: Iterable<BiddingBidBookOwnStateSignals>,
 ): TradingBiddingBidBookOwnStateCounts {
@@ -107,7 +121,7 @@ export function countBiddingBidBookOwnStates(
     for (const bid of bids) {
         if (!bid.isOwn) continue;
         counts.total += 1;
-        for (const state of biddingBidBookOwnStates(bid)) {
+        for (const state of ownBidStateFilters(bid)) {
             counts.states[state] += 1;
         }
     }

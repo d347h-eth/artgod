@@ -474,20 +474,29 @@ export const TRADING_BIDDING_BID_BOOK_OWN_STATE = {
     Unknown: "unknown",
 } as const;
 
-// Every classified own state has a filter. Derive the vocabulary so adding a
-// lifecycle phase cannot leave rows reachable only through All.
-export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
+// Derive badge states so new lifecycle phases remain reachable through filters.
+export const TRADING_BIDDING_BID_BOOK_OWN_STATES = [
     ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE),
     ...Object.values(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION),
     ...Object.values(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT),
     ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_STATE),
 ] as const;
 
+export type TradingBiddingBidBookOwnState =
+    (typeof TRADING_BIDDING_BID_BOOK_OWN_STATES)[number];
+
+// Aggregate selection belongs to filtering, without adding another row badge.
+export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER = {
+    Active: "active",
+} as const;
+
+export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
+    COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+    ...TRADING_BIDDING_BID_BOOK_OWN_STATES,
+] as const;
+
 export type CollectionBiddingBidBookOwnStateFilter =
     (typeof COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)[number];
-
-export type TradingBiddingBidBookOwnState =
-    CollectionBiddingBidBookOwnStateFilter;
 
 // Counts own rows in the current scope and trait filters before the state filter or pagination.
 export type TradingBiddingBidBookOwnStateCounts = {

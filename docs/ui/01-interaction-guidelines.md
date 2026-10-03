@@ -667,12 +667,12 @@ Scope rules:
 
 Own-state filters:
 
-- private collection bidding in token and trait scope shows a centered secondary row with `All` and every own-bid state that has matching rows; zero-count tabs, including an empty `All`, are hidden
+- private collection bidding in token and trait scope shows a centered secondary row with `Active` and every own-bid state that has matching rows; zero-count tabs, including an empty `Active`, are hidden
 - each count is an own bid row within the current scope and trait/bidder filters, across all pages and before the own-state filter; overlapping position and constraint badges count in each matching tab
-- `All` counts every own row and is exactly the union of the other state filters, rather than their sum; it clears only the state filter
+- `Active` includes every own row outside the `paused` filter; their counts partition all own rows, while individual badge filters can overlap; the aggregate adds no row badge
 - lifecycle phases have their own matching tabs; `paused` also matches declared paused status during other phases, and `unknown` covers own rows without current state evidence
-- an empty selected state stays in the URL and the results remain empty; its tab disappears and the user can navigate manually through `All` or other controls
-- selecting a state selects own bids, clears maker-address filtering, and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
+- an empty selected state stays in the URL and the results remain empty; its tab disappears without automatic navigation, and the user can choose another available state manually
+- selecting a state preserves ownership and maker filters and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
 - counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
 - token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
 
