@@ -43,11 +43,13 @@ export function resolveCollectionBiddingSelectionControlPolicy(params: {
 	}
 
 	const showTokenAction = params.bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
+	const showTierAction = !params.publicSingleCollection;
 	return {
-		renderRow: showTokenAction || params.canBidOnTraits || params.hasSelectionSummary,
+		renderRow:
+			showTierAction || showTokenAction || params.canBidOnTraits || params.hasSelectionSummary,
 		showTraitAction: params.canBidOnTraits,
 		showTokenAction,
 		showCollectionAction: false,
-		showTierAction: !params.publicSingleCollection
+		showTierAction
 	};
 }

@@ -962,32 +962,59 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
 	});
 
-	test('supports price tier settings and staged reapply controls', async ({ page }) => {
-		const api = await installBiddingAutomationApiMock(page);
-		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token`);
+	for (const scope of [
+		COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+		COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+	]) {
+		test(`supports price tier settings and staged reapply controls in ${scope} scope`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page);
+			await openHarnessPage(page, `${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}`);
+			const tiersButton = page.getByRole('button', {
+				name: BIDDING_SELECTION_ACTION_LABEL.Tiers,
+				exact: true
+			});
+			await expect(tiersButton).toBeVisible();
+			await expect(tiersButton).toHaveAttribute('aria-pressed', 'false');
+			await page.screenshot({
+				path: testInfo.outputPath(`tiers-${scope}-closed.png`),
+				fullPage: true
+			});
+			await tiersButton.click();
+			await expect(page.getByRole('heading', { name: 'price tiers' })).toBeVisible();
+			await expect(tiersButton).toHaveAttribute('aria-pressed', 'true');
+			await page.screenshot({
+				path: testInfo.outputPath(`tiers-${scope}-open.png`),
+				fullPage: true
+			});
+			await tiersButton.click();
+			await expect(page.getByRole('heading', { name: 'price tiers' })).toHaveCount(0);
+			await expect(tiersButton).toHaveAttribute('aria-pressed', 'false');
 
-		await page.keyboard.press('t');
-		await expect(page.getByRole('heading', { name: 'price tiers' })).toBeVisible();
-		await expect(page.locator('#bidding-price-tier-delta')).toHaveValue('0.004');
+			await page.keyboard.press('t');
+			await expect(page.getByRole('heading', { name: 'price tiers' })).toBeVisible();
+			await expect(page.locator('#bidding-price-tier-delta')).toHaveValue('0.004');
 
-		await page.locator('#bidding-price-tier-selector-mode').check();
-		await page.locator('#bidding-price-tier-default-delta').fill('0.007');
-		await page.getByRole('button', { name: 'save settings' }).click();
-		const settingsMutation = await api.nextMutation();
-		expect(settingsMutation.path).toContain('/bidding/settings');
-		expect(settingsMutation.body).toMatchObject({
-			tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
-			defaultDeltaEth: '0.007'
+			await page.locator('#bidding-price-tier-selector-mode').check();
+			await page.locator('#bidding-price-tier-default-delta').fill('0.007');
+			await page.getByRole('button', { name: 'save settings' }).click();
+			const settingsMutation = await api.nextMutation();
+			expect(settingsMutation.path).toContain('/bidding/settings');
+			expect(settingsMutation.body).toMatchObject({
+				tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
+				defaultDeltaEth: '0.007'
+			});
+
+			await page.getByRole('button', { name: 'reapply' }).first().click();
+			await expect(page.getByRole('region', { name: 'tier reapply preview' })).toBeVisible();
+			await expect(page.getByText('0.700 -> 0.300')).toBeVisible();
+			await confirmPriceTierAction(page, 'reapply:form');
+			const reapplyMutation = await api.nextMutation();
+			expect(reapplyMutation.path).toContain('/reapply');
+			expect(reapplyMutation.body).toMatchObject({ jobIds: ['job-token-101'] });
 		});
-
-		await page.getByRole('button', { name: 'reapply' }).first().click();
-		await expect(page.getByRole('region', { name: 'tier reapply preview' })).toBeVisible();
-		await expect(page.getByText('0.700 -> 0.300')).toBeVisible();
-		await confirmPriceTierAction(page, 'reapply:form');
-		const reapplyMutation = await api.nextMutation();
-		expect(reapplyMutation.path).toContain('/reapply');
-		expect(reapplyMutation.body).toMatchObject({ jobIds: ['job-token-101'] });
-	});
+	}
 });
 
 async function openHarnessPage(page: Page, path: string): Promise<void> {

@@ -42,6 +42,9 @@ test.describe('bidding automation public read-only guardrails', () => {
 
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
 		await expect(page.locator('.bid-book-meta')).toContainText('targets');
+		await expect(
+			page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.Tiers })
+		).toHaveCount(0);
 		await expect(page.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"]`)).toHaveCount(0);
 		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
 	});
