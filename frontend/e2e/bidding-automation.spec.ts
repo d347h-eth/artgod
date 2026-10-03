@@ -16,6 +16,9 @@ import {
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
+	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
+	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
+	TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
@@ -2083,7 +2086,7 @@ test.describe('bidding automation fixture harness', () => {
 		await clickCenterVerifiedAction(bidAction);
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toBeVisible();
 		await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.421');
-		await expect(page.locator('#bidding-automation-delta')).toHaveValue('0.001');
+		await expect(page.locator('#bidding-automation-delta')).toHaveValue('0.004');
 	});
 
 	test('supports top trait bidding with OR filters and existing trait job lookup', async ({
@@ -2359,6 +2362,242 @@ test.describe('bidding automation fixture harness', () => {
 				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
 				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed))
 		).toContainText('cancel failed');
+	});
+
+	test('keeps invalid job delta text focused and blocks saving until corrected', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${COLLECTION_PATH}/101`);
+		await page.getByRole('button', { name: 'bid on token' }).click();
+		await page.locator('#bidding-automation-delta').fill('0.004');
+		await page.locator('#bidding-automation-floor').fill('1.3');
+		await page.locator('#bidding-automation-ceiling').fill('1.4');
+		const delta = page.locator('#bidding-automation-delta');
+		const warning = page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning);
+		const modify = page.getByTestId(TEST_IDS.BiddingPanelModify);
+		await expect(delta).toHaveValue('0.01');
+		await expect(modify).toBeEnabled();
+		await page.screenshot({ path: testInfo.outputPath('delta-job-valid.png'), fullPage: true });
+
+		await delta.fill('0.015');
+		await expect(delta).toBeFocused();
+		await expect(delta).toHaveValue('0.015');
+		await expect(delta).toHaveAttribute('aria-invalid', 'true');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.02 ETH.');
+		await expect(modify).toBeDisabled();
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelPause)).toBeDisabled();
+		expect(api.mutations).toHaveLength(0);
+		await page.screenshot({
+			path: testInfo.outputPath('delta-job-invalid-focused.png'),
+			fullPage: true
+		});
+
+		await delta.fill('0.010000000000000001');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.01 ETH.');
+		await expect(delta).toBeFocused();
+		await delta.fill('0.0150000000000000001');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.02 ETH.');
+		await expect(delta).toBeFocused();
+		await delta.fill('0');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.01 ETH.');
+		await delta.fill('invalid');
+		await expect(warning).toHaveText('Enter a positive delta in steps of 0.01 ETH.');
+		await expect(modify).toBeDisabled();
+
+		await delta.fill('+0.02');
+		await expect(delta).toHaveValue('+0.02');
+		await expect(warning).toHaveCount(0);
+		await expect(delta).toHaveAttribute('aria-invalid', 'false');
+		await expect(modify).toBeEnabled();
+		await page.screenshot({ path: testInfo.outputPath('delta-job-corrected.png'), fullPage: true });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({
+			floorEth: '1.3',
+			ceilingEth: '1.4',
+			deltaEth: '0.02'
+		});
+	});
+
+	test('reconciles job deltas across precision boundaries and ignores incompatible defaults', async ({
+		page
+	}) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}`
+		);
+		await clickCenterVerifiedAction(
+			page
+				.locator(
+					`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Mode=Terrain|Zone=Shahra"]`
+				)
+				.first()
+		);
+		const floor = page.locator('#bidding-automation-floor');
+		const ceiling = page.locator('#bidding-automation-ceiling');
+		const delta = page.locator('#bidding-automation-delta');
+		await expect(delta).toHaveValue('0.004');
+		await floor.fill('1.3');
+		await ceiling.fill('1.4');
+		await expect(delta).toHaveValue('0.01');
+		await floor.fill('0.3');
+		await ceiling.fill('0.4');
+		await expect(delta).toHaveValue('0.004');
+
+		await floor.fill('0.05');
+		await ceiling.fill('0.0999');
+		await delta.fill('0.0001');
+		await ceiling.fill('0.1');
+		await expect(delta).toHaveValue('0.001');
+		await ceiling.fill('1');
+		await expect(delta).toHaveValue('0.01');
+		await delta.fill('0.02');
+		await ceiling.fill('0.999');
+		await expect(delta).toHaveValue('0.02');
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning)).toHaveCount(0);
+	});
+
+	test('validates default and tier deltas immediately and follows resolved tier prices', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}`
+		);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.Tiers, exact: true })
+			.click();
+		const defaultDelta = page.locator('#bidding-price-tier-default-delta');
+		await defaultDelta.fill('0.00015');
+		await expect(defaultDelta).toBeFocused();
+		await expect(defaultDelta).toHaveValue('0.00015');
+		await expect(page.getByTestId(TEST_IDS.BiddingDefaultDeltaWarning)).toHaveText(
+			'Invalid delta. Closest valid value: 0.0002 ETH.'
+		);
+		await expect(page.getByRole('button', { name: 'save settings' })).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('delta-default-invalid-focused.png'),
+			fullPage: true
+		});
+		await defaultDelta.fill('0.007');
+		await page.getByRole('button', { name: 'save settings' }).click();
+		expect((await api.nextMutation()).body).toMatchObject({ defaultDeltaEth: '0.007' });
+
+		const form = page.locator('.bidding-price-tier-form');
+		const floor = form
+			.locator('.bootstrap-form-row')
+			.filter({ has: page.locator('label[for="bidding-price-tier-floor-kind"]') })
+			.getByPlaceholder('ETH');
+		const ceiling = form
+			.locator('.bootstrap-form-row')
+			.filter({ has: page.locator('label[for="bidding-price-tier-ceiling-kind"]') })
+			.getByPlaceholder('ETH');
+		const delta = page.locator('#bidding-price-tier-delta');
+		const warning = page.getByTestId(TEST_IDS.BiddingPriceTierDeltaWarning);
+		await page.locator('#bidding-price-tier-name').fill('Whole ETH');
+		await floor.fill('1.3');
+		await ceiling.fill('1.4');
+		await expect(delta).toHaveValue('0.01');
+		await floor.fill('0.3');
+		await ceiling.fill('0.4');
+		await expect(delta).toHaveValue('0.007');
+		await delta.fill('0.0045');
+		await expect(delta).toBeFocused();
+		await expect(delta).toHaveValue('0.0045');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.005 ETH.');
+		await expect(form.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('delta-tier-invalid-focused.png'),
+			fullPage: true
+		});
+		await delta.fill('0.005');
+		await expect(warning).toHaveCount(0);
+		await expect(form.getByRole('button', { name: 'create', exact: true })).toBeEnabled();
+
+		await page.locator('#bidding-price-tier-parent').selectOption('tier-base');
+		await page
+			.locator('#bidding-price-tier-floor-kind')
+			.selectOption(TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta);
+		const floorRow = form
+			.locator('.bootstrap-form-row')
+			.filter({ has: page.locator('label[for="bidding-price-tier-floor-kind"]') });
+		await floorRow
+			.locator('.bidding-price-tier-delta-kind')
+			.selectOption(TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Percent);
+		await floorRow.locator('input').fill('300');
+		await page
+			.locator('#bidding-price-tier-ceiling-kind')
+			.selectOption(TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.FloorDelta);
+		const ceilingRow = form
+			.locator('.bootstrap-form-row')
+			.filter({ has: page.locator('label[for="bidding-price-tier-ceiling-kind"]') });
+		await ceilingRow.locator('input').fill('0.1');
+		await expect(delta).toHaveValue('0.01');
+		await delta.fill('0.015');
+		await expect(warning).toHaveText('Invalid delta. Closest valid value: 0.02 ETH.');
+		await expect(form.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await delta.fill('0.02');
+		await confirmPriceTierAction(page, 'create:form');
+		expect((await api.nextMutation()).body).toMatchObject({
+			deltaEth: '0.02',
+			floorConfig: {
+				kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta,
+				deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Percent,
+				percent: '300'
+			}
+		});
+	});
+
+	test('blocks an incompatible saved tier delta and offers manual recovery', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.IncompatibleTierDelta}`
+		);
+		const tiersButton = page.getByRole('button', {
+			name: BIDDING_SELECTION_ACTION_LABEL.Tiers,
+			exact: true
+		});
+		await tiersButton.click();
+		await page.getByRole('button', { name: 'edit', exact: true }).first().click();
+		await expect(page.locator('#bidding-price-tier-delta')).toHaveValue('0.001');
+		await expect(page.getByTestId(TEST_IDS.BiddingPriceTierDeltaWarning)).toHaveText(
+			'Invalid delta. Closest valid value: 0.01 ETH.'
+		);
+		await expect(
+			page.locator('.bidding-price-tier-form').getByRole('button', { name: 'modify', exact: true })
+		).toBeDisabled();
+		await tiersButton.click();
+
+		await clickCenterVerifiedAction(
+			page
+				.locator(
+					`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Mode=Terrain|Zone=Shahra"]`
+				)
+				.first()
+		);
+		await page.getByRole('button', { name: 'Base', exact: true }).click({ force: true });
+		await expect(page.locator('#bidding-automation-delta')).toHaveValue('0.001');
+		await expect(page.locator('#bidding-automation-delta')).toBeDisabled();
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning)).toContainText(
+			'Closest valid value: 0.01 ETH.'
+		);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning)).toContainText(
+			"Edit the price tier's delta or select manual pricing."
+		);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelCreate)).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('delta-saved-tier-invalid.png'),
+			fullPage: true
+		});
+		await page.getByRole('button', { name: 'manual', exact: true }).click({ force: true });
+		await expect(page.locator('#bidding-automation-delta')).toHaveValue('0.01');
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning)).toHaveCount(0);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelCreate)).toBeEnabled();
 	});
 
 	test('supports panel tier pricing and floating panel keybindings', async ({ page }) => {

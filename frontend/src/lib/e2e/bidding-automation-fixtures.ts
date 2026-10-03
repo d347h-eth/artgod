@@ -109,8 +109,9 @@ export const BIDDING_E2E_HOLDER_ADDRESS = MARKET_ADDRESS_A;
 // Opt-in harness query key for deterministic bidding lifecycle scenarios.
 export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 
-// Test-owned lifecycle scenarios that keep the default harness fixture stable.
+// Test-owned scenarios that keep the default harness fixture stable.
 export const BIDDING_E2E_SCENARIO = {
+	IncompatibleTierDelta: 'incompatible_tier_delta',
 	CancellationPhases: 'cancellation_phases',
 	AuthorizationRequired: 'authorization_required',
 	FirstRunIntent: 'first_run_intent',
@@ -845,7 +846,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		collection: BIDDING_E2E_COLLECTION,
 		biddingSettings: BIDDING_E2E_SETTINGS,
 		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
-		priceTiers: BIDDING_E2E_PRICE_TIERS,
+		priceTiers: biddingE2ePriceTiersForScenario(scenario),
 		bidBook,
 		tokenOfferCards,
 		facets: BIDDING_E2E_FACETS,
@@ -876,7 +877,7 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
 		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
-		priceTiers: BIDDING_E2E_PRICE_TIERS,
+		priceTiers: biddingE2ePriceTiersForScenario(scenario),
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:
 			JOBS.find(
@@ -888,6 +889,29 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		backPath: COLLECTION_BASE_PATH,
 		backQuery: null
 	};
+}
+
+// Includes legacy tier data that must be corrected before creating another tier-backed job.
+export function biddingE2ePriceTiersForScenario(scenario: string | null): ApiBiddingPriceTier[] {
+	if (scenario !== BIDDING_E2E_SCENARIO.IncompatibleTierDelta) return BIDDING_E2E_PRICE_TIERS;
+	return BIDDING_E2E_PRICE_TIERS.map((tier) =>
+		tier.parentTierId === null
+			? {
+					...tier,
+					floorConfig: {
+						kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed,
+						valueEth: '1.3'
+					},
+					ceilingConfig: {
+						kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed,
+						valueEth: '1.4'
+					},
+					resolvedFloorEth: '1.3',
+					resolvedCeilingEth: '1.4',
+					deltaEth: '0.001'
+				}
+			: tier
+	);
 }
 
 // Resolves collection media controls from the same URL contract used by production pages.

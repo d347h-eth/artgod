@@ -4,12 +4,15 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
-	TRADING_BOT_LIFECYCLE_STATUS
+	TRADING_BOT_LIFECYCLE_STATUS,
+	TRADING_JOB_STATUS,
+	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
-import type { ApiBiddingBidBook, ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	resolveBiddingAutomationPanelDraftIdentityKey,
 	resolveBiddingAutomationPanelTargetLookupRequestKey,
+	resolveInitialBiddingAutomationDeltaEth,
 	shouldPreserveBiddingAutomationPanelDraftOnLoadChange
 } from '$lib/bidding-automation-panel-state';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
@@ -97,11 +100,56 @@ describe('bidding automation panel state', () => {
 
 	it('distinguishes selected bid draft identities so target changes can reload the form', () => {
 		const firstDraft = buildBiddingAutomationDraftFromBid(testTraitBid('0xtrait-a', 'Biome', '42'));
-		const secondDraft = buildBiddingAutomationDraftFromBid(testTraitBid('0xtrait-b', 'Mode', 'Terrain'));
+		const secondDraft = buildBiddingAutomationDraftFromBid(
+			testTraitBid('0xtrait-b', 'Mode', 'Terrain')
+		);
 
 		expect(resolveBiddingAutomationPanelDraftIdentityKey(firstDraft)).not.toBe(
 			resolveBiddingAutomationPanelDraftIdentityKey(secondDraft)
 		);
+	});
+
+	it('uses a compatible collection default for a newly selected bid', () => {
+		const draft = buildBiddingAutomationDraftFromBid(testTraitBid('0xtrait-a', 'Biome', '42'));
+		expect(
+			resolveInitialBiddingAutomationDeltaEth({ job: null, draft, defaultDeltaEth: '0.004' })
+		).toBe('0.004');
+		expect(
+			resolveInitialBiddingAutomationDeltaEth({ job: null, draft, defaultDeltaEth: '0.0004' })
+		).toBe('0.001');
+	});
+
+	it('ignores incompatible defaults when a selected bid reaches whole ETH prices', () => {
+		const bid = testTraitBid('0xwhole-eth', 'Biome', '42');
+		bid.price = {
+			kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+			wei: '1300000000000000000',
+			eth: '1.3'
+		};
+		const draft = buildBiddingAutomationDraftFromBid(bid);
+		expect(
+			resolveInitialBiddingAutomationDeltaEth({ job: null, draft, defaultDeltaEth: '0.004' })
+		).toBe('0.01');
+		expect(
+			resolveInitialBiddingAutomationDeltaEth({ job: null, draft, defaultDeltaEth: '0.02' })
+		).toBe('0.02');
+	});
+
+	it('preserves an existing job delta for validation rather than overwriting it with a default', () => {
+		const job: ApiBiddingJob = {
+			jobId: 'job-existing',
+			status: TRADING_JOB_STATUS.Enabled,
+			revision: 1,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z',
+			archivedAt: null,
+			target: { type: TRADING_JOB_TARGET_KIND.Token, tokenId: '42' },
+			config: { floorEth: '1.3', ceilingEth: '1.4', deltaEth: '0.004', pricingSource: null },
+			runtime: null
+		};
+		expect(
+			resolveInitialBiddingAutomationDeltaEth({ job, draft: null, defaultDeltaEth: '0.02' })
+		).toBe('0.004');
 	});
 });
 

@@ -38,6 +38,7 @@ import {
 	buildBiddingE2eCompetitionReapplyFixture,
 	BIDDING_E2E_REAPPLY_JOB_ID,
 	buildBiddingE2eTokenDetailData,
+	biddingE2ePriceTiersForScenario,
 	findBiddingE2eJobForTarget,
 	type BiddingE2eScenario
 } from '../../src/lib/e2e/bidding-automation-fixtures';
@@ -198,7 +199,7 @@ export async function installBiddingAutomationApiMock(
 					chain: BIDDING_E2E_CHAIN,
 					collection: BIDDING_E2E_COLLECTION,
 					settings: BIDDING_E2E_SETTINGS,
-					tiers: BIDDING_E2E_PRICE_TIERS
+					tiers: biddingE2ePriceTiersForScenario(activeScenario)
 				})
 			});
 			return;

@@ -4342,6 +4342,12 @@ a.bid-book-own-status:focus-visible {
 	font-size: 0.78rem;
 }
 
+.bidding-delta-feedback {
+	grid-column: 2;
+	margin: 0;
+	text-align: left;
+}
+
 .runtime-warn {
 	color: var(--c-orange);
 	font-size: 0.78rem;

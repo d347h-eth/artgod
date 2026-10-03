@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { isConfirmationActionTarget } from '$lib/action-confirmation';
 	import type { TradingCompetitionPresetVersion } from '@artgod/shared/types';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
@@ -51,12 +52,18 @@
 		shouldPreserveBiddingAutomationPanelDraftOnLoadChange
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+	import {
+		reconcileBiddingDeltaEth,
+		resolveDefaultBiddingDeltaEth,
+		validateBiddingDeltaInput
+	} from '$lib/bidding-delta-input';
 	import { biddingAuthorizationRecoveryMessage } from '$lib/bidding-authorization';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import {
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_PRICING_MODE_LABEL,
+		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		biddingAutomationDraftTokenId,
 		isBiddingAutomationBatchTokenDraft,
 		isBiddingAutomationDraftSubmittable,
@@ -153,6 +160,7 @@
 			defaultDeltaEth: biddingSettings.defaultDeltaEth
 		})
 	);
+	let deltaInputTouched = $state(untrack(() => hasConfiguredDelta(initialPanelJob, draft)));
 	let saving = $state(false);
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
@@ -202,6 +210,13 @@
 		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
 			? (selectedPriceTier?.deltaEth ?? currentJob?.config.deltaEth ?? '')
 			: deltaEth
+	);
+	const deltaValidation = $derived(
+		validateBiddingDeltaInput({
+			floorEth: displayedFloorEth,
+			ceilingEth: displayedCeilingEth,
+			deltaEth: displayedDeltaEth
+		})
 	);
 	const pricingAvailable = $derived(
 		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual ||
@@ -260,7 +275,8 @@
 			!traitOfferTrustRequired &&
 			hasSubmittableBiddingTarget({ draft, targetTokenId }) &&
 			pricingAvailable &&
-			priceInputsComplete
+			priceInputsComplete &&
+			deltaValidation.isValid
 	);
 	const isEnabledJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Enabled);
 	const isPausedJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Paused);
@@ -569,6 +585,38 @@
 			draft: currentDraft,
 			defaultDeltaEth: biddingSettings.defaultDeltaEth
 		});
+		deltaInputTouched = hasConfiguredDelta(value, currentDraft);
+	}
+
+	function hasConfiguredDelta(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): boolean {
+		return (
+			!!value ||
+			(!!currentDraft &&
+				currentDraft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid &&
+				!!currentDraft.pricing.deltaEth)
+		);
+	}
+
+	function onPriceRangeInput(event: Event, endpoint: 'floor' | 'ceiling'): void {
+		if (!(event.currentTarget instanceof HTMLInputElement)) {
+			return;
+		}
+		markDraftInputTouched();
+		if (endpoint === 'floor') {
+			floorEth = event.currentTarget.value;
+		} else {
+			ceilingEth = event.currentTarget.value;
+		}
+		deltaEth = deltaInputTouched
+			? reconcileBiddingDeltaEth({ floorEth, ceilingEth, deltaEth })
+			: resolveDefaultBiddingDeltaEth({
+					floorEth,
+					ceilingEth,
+					defaultDeltaEth: biddingSettings.defaultDeltaEth
+				});
 	}
 
 	function resolveSelectedPriceTier(): ApiBiddingPriceTier | null {
@@ -606,7 +654,12 @@
 		if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			floorEth = displayedFloorEth;
 			ceilingEth = displayedCeilingEth;
-			deltaEth = displayedDeltaEth;
+			deltaEth = reconcileBiddingDeltaEth({
+				floorEth,
+				ceilingEth,
+				deltaEth: displayedDeltaEth
+			});
+			deltaInputTouched = true;
 		}
 		pricingMode = BIDDING_AUTOMATION_PRICING_MODE.Manual;
 		selectedPriceTierId = '';
@@ -749,11 +802,14 @@
 
 	function pricingRequestBody(): BiddingAutomationPricingRequest {
 		return pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
-			? { priceTierId: selectedPriceTierId, deltaEth: displayedDeltaEth.trim() }
+			? {
+					priceTierId: selectedPriceTierId,
+					deltaEth: deltaValidation.normalizedDeltaEth ?? displayedDeltaEth.trim()
+				}
 			: {
 					floorEth: floorEth.trim(),
 					ceilingEth: ceilingEth.trim(),
-					deltaEth: deltaEth.trim(),
+					deltaEth: deltaValidation.normalizedDeltaEth ?? deltaEth.trim(),
 					priceTierId: null
 				};
 	}
@@ -1026,8 +1082,8 @@
 						class="bootstrap-control bidding-token-input"
 						type="text"
 						inputmode="decimal"
-						bind:value={floorEth}
-						oninput={markDraftInputTouched}
+						value={floorEth}
+						oninput={(event) => onPriceRangeInput(event, 'floor')}
 						disabled={pricingInputsDisabled}
 					/>
 				{/if}
@@ -1048,8 +1104,8 @@
 						class="bootstrap-control bidding-token-input"
 						type="text"
 						inputmode="decimal"
-						bind:value={ceilingEth}
-						oninput={markDraftInputTouched}
+						value={ceilingEth}
+						oninput={(event) => onPriceRangeInput(event, 'ceiling')}
 						disabled={pricingInputsDisabled}
 					/>
 				{/if}
@@ -1062,18 +1118,36 @@
 					type="text"
 					inputmode="decimal"
 					value={displayedDeltaEth}
+					aria-invalid={!deltaValidation.isValid}
+					aria-describedby={deltaValidation.warning
+						? TEST_IDS.BiddingPanelDeltaWarning
+						: undefined}
 					oninput={(event) => {
 						if (
 							pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual &&
 							event.currentTarget instanceof HTMLInputElement
 						) {
 							markDraftInputTouched();
+							deltaInputTouched = true;
 							deltaEth = event.currentTarget.value;
 						}
 					}}
 					disabled={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier ||
 						pricingInputsDisabled}
 				/>
+				{#if deltaValidation.warning}
+					<span
+						id={TEST_IDS.BiddingPanelDeltaWarning}
+						data-testid={TEST_IDS.BiddingPanelDeltaWarning}
+						class="runtime-warn bidding-delta-feedback"
+						role="status"
+					>
+						{deltaValidation.warning}
+						{#if pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier}
+							Edit the price tier's delta or select manual pricing.
+						{/if}
+					</span>
+				{/if}
 			</div>
 			{#if isOrdinaryTraitJob}
 				<div class="bootstrap-form-row token-bidding-competition-row">
