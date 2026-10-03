@@ -267,7 +267,24 @@ Bidding owns typed setting keys and mapping logic, but persistence remains colle
 Current settings:
 
 - tier selector presentation: fixed-width buttons or dropdown
-- default new-tier delta in Ether units
+- default delta for new jobs and tiers in Ether units, applied only when compatible
+  with their resolved floor and ceiling
+
+Job and tier delta inputs use the shared OpenSea WETH price-step rules: 0.0001 ETH
+below 0.1 ETH, 0.001 ETH from 0.1 ETH to below 1 ETH, and 0.01 ETH at 1 ETH or
+above. A range crossing these boundaries uses its coarser endpoint step. Deltas
+must be positive multiples of that step; they may exceed the range width,
+including for jobs with equal floor and ceiling.
+
+Changing a manual floor or ceiling, or a tier's resolved prices, reconciles an
+incompatible delta to the nearest valid value. An incompatible default is ignored
+in favor of the range's minimum step. Typing an invalid delta keeps the entered
+text, immediately shows the nearest valid value (rounding ties upward), and blocks
+saving until corrected. Incomplete or nonnumeric input shows the required step.
+Accepted delta text is serialized as canonical Ether decimals when saved.
+Existing incompatible tier deltas remain visible with a warning; job forms can
+recover by selecting manual pricing, or the operator can correct the tier itself.
+Tier previews and persistence share the same absolute/percent price calculations.
 
 ## Bid Book Capabilities
 
