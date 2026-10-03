@@ -7,7 +7,6 @@ import type {
     TradingJobCommandRecord,
     TradingJobStatus,
     TradingTraitCriterion,
-    TradingTraitCompetitionSelector,
 } from "@artgod/shared/types";
 
 export type UpsertTokenBiddingJobInput = {
@@ -33,8 +32,9 @@ export type UpsertCollectionBiddingJobInput = {
     pricingSource?: TradingBiddingJobPricingSource | null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
-    // Omission preserves an existing declaration; an empty array explicitly clears it.
-    extraCompetitionTraits?: TradingTraitCompetitionSelector[];
+    // Omission preserves the selected version; null clears it. Validate scope,
+    // target and availability atomically with the declaration and outbox.
+    competitionPresetVersionId?: string | null;
 };
 
 export type UpdateBiddingJobPricingByIdInput = {

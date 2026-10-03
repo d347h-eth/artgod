@@ -574,7 +574,7 @@ export type ApiBiddingJob = {
 		ceilingEth: string;
 		deltaEth: string;
 		pricingSource: ApiBiddingJobPricingSource | null;
-		extraCompetitionTraits?: TradingTraitCompetitionSelector[];
+		competitionPreset?: import('@artgod/shared/types').TradingCompetitionPresetVersion | null;
 	};
 	runtime: ApiBiddingJobRuntimeState | null;
 };

@@ -4,7 +4,7 @@ import {
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND,
 	type TraitFilter,
-	type TradingTraitCompetitionSelector
+	type TradingCompetitionPresetVersion
 } from '@artgod/shared/types';
 import type {
 	ApiBiddingJob,
@@ -62,7 +62,7 @@ export type SaveBiddingAutomationDraftJobsInput = {
 	targetTokenId: string | null;
 	nextStatus: EditableBiddingJobStatus;
 	pricing: BiddingAutomationPricingRequest;
-	extraCompetitionTraits?: TradingTraitCompetitionSelector[];
+	competitionPresetVersionId?: string | null;
 };
 
 export type ApplyBiddingSelectionJobActionInput = {
@@ -157,9 +157,9 @@ export async function saveBiddingAutomationDraftJobs(
 			status: nextStatus,
 			...pricing,
 			quantity: BIDDING_AUTOMATION_JOB_QUANTITY,
-			...(input.extraCompetitionTraits === undefined
+			...(input.competitionPresetVersionId === undefined
 				? {}
-				: { extraCompetitionTraits: input.extraCompetitionTraits }),
+				: { competitionPresetVersionId: input.competitionPresetVersionId }),
 			targetTraits: draft.target.traits.map((trait) => ({
 				type: trait.key,
 				value: trait.value

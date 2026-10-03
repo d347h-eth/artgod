@@ -20,6 +20,7 @@ import {
     type TradingBiddingJobRuntimeBidPosition,
     type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
+import { SqliteBiddingCompetitionPresetsRepository } from "./sqlite-bidding-competition-presets-repository.js";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
 
 const ACTIVE_ORDER_ID = "0xactive-order";
@@ -136,8 +137,9 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
-    it("persists competition edits on the same target, preserves omission and pricing reapply, and clears explicitly", () => {
+    it("pins immutable preset versions and preserves the reference through pricing edits", () => {
         const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
         const input = {
             chainId: 1,
             collectionId,
@@ -146,35 +148,38 @@ describe("SqliteBiddingJobsRepository", () => {
             ceilingWei: "10",
             deltaWei: "1",
             quantity: 1,
-            targetTraits: [
-                { type: "Zone", value: "Kairo" },
-                { type: "Biome", value: "91" },
-            ],
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
         };
-        const created = repository.upsertCollectionJob(input);
-        assert.deepEqual(created.job.extraCompetitionTraits, []);
-        const selectors = [{ type: "Mode" }, { type: "Chroma", value: "Flow" }];
-        const updated = repository.upsertCollectionJob({
+        const v1 = presets.savePreset({
             ...input,
-            extraCompetitionTraits: selectors,
+            extraCompetitionTraits: [{ type: "Mode" }],
         });
-        const expected = [{ type: "Chroma", value: "Flow" }, { type: "Mode" }];
-        assert.equal(updated.job.jobId, created.job.jobId);
-        assert.equal(updated.job.revision, created.job.revision + 1);
-        assert.deepEqual(updated.job.extraCompetitionTraits, expected);
-        assert.equal(
-            updated.commands[0].commandKind,
-            TRADING_JOB_COMMAND_KIND.JobUpdated,
-        );
-        assert.equal(
-            updated.commands[0].requestedRevision,
-            updated.job.revision,
-        );
-        const oldClientEdit = repository.upsertCollectionJob({
+        const created = repository.upsertCollectionJob({
+            ...input,
+            competitionPresetVersionId: v1.versionId,
+        });
+        assert.deepEqual(created.job.competitionPreset, {
+            versionId: v1.versionId,
+            presetId: v1.presetId,
+            revision: 1,
+            targetTraits: v1.targetTraits,
+            extraCompetitionTraits: v1.extraCompetitionTraits,
+        });
+        const v2 = presets.savePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            extraCompetitionTraits: [{ type: "Mode", value: "Terrain" }],
+        });
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+        const edited = repository.upsertCollectionJob({
             ...input,
             ceilingWei: "12",
         });
-        assert.deepEqual(oldClientEdit.job.extraCompetitionTraits, expected);
+        assert.deepEqual(
+            edited.job.competitionPreset,
+            created.job.competitionPreset,
+        );
         repository.updateJobsPricingById([
             {
                 ...input,
@@ -185,23 +190,112 @@ describe("SqliteBiddingJobsRepository", () => {
                 },
             },
         ]);
-        const reread = repository.getJobById(created.job.jobId);
-        assert.equal(reread?.targetKind, TRADING_JOB_TARGET_KIND.Collection);
-        assert.deepEqual(reread.extraCompetitionTraits, expected);
+        assert.equal(
+            (
+                repository.getJobById(
+                    created.job.jobId,
+                ) as import("@artgod/shared/types").PersistedCollectionBiddingJobRecord
+            ).competitionPreset?.versionId,
+            v1.versionId,
+        );
+        const upgraded = repository.upsertCollectionJob({
+            ...input,
+            competitionPresetVersionId: v2.versionId,
+        });
+        assert.equal(upgraded.job.jobId, created.job.jobId);
+        assert.equal(
+            upgraded.commands[0].commandKind,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+        assert.equal(
+            upgraded.commands[0].requestedRevision,
+            upgraded.job.revision,
+        );
+        assert.equal(upgraded.job.competitionPreset?.versionId, v2.versionId);
+        presets.archivePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 2,
+        });
+        assert.equal(presets.listPresets(input).length, 0);
         assert.deepEqual(
             repository.upsertCollectionJob({
                 ...input,
-                extraCompetitionTraits: [],
-            }).job.extraCompetitionTraits,
-            [],
+                competitionPresetVersionId: v2.versionId,
+            }).job.competitionPreset,
+            upgraded.job.competitionPreset,
         );
         assert.equal(
-            repository.listCollectionJobs({ chainId: 1, collectionId }).length,
-            1,
+            repository.upsertCollectionJob({
+                ...input,
+                competitionPresetVersionId: null,
+            }).job.competitionPreset,
+            null,
+        );
+        assert.throws(
+            () =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    competitionPresetVersionId: v2.versionId,
+                }),
+            /preset changed/,
         );
     });
 
-    it("rolls back competition and revision changes when command insertion fails", () => {
+    it("rejects foreign collections, targets and stale preset versions without mutating intent or outbox", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        };
+        const v1 = presets.savePreset({
+            ...input,
+            extraCompetitionTraits: [{ type: "Mode" }],
+        });
+        presets.savePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        for (const invalid of [
+            { ...input, competitionPresetVersionId: "missing" },
+            { ...input, competitionPresetVersionId: v1.versionId },
+            {
+                ...input,
+                competitionPresetVersionId: v1.versionId,
+                targetTraits: [],
+            },
+            { ...input, competitionPresetVersionId: v1.versionId, chainId: 2 },
+            {
+                ...input,
+                competitionPresetVersionId: v1.versionId,
+                collectionId: collectionId + 1,
+            },
+        ])
+            assert.throws(() => repository.upsertCollectionJob(invalid));
+        assert.equal(repository.listCollectionJobs(input).length, 0);
+        assert.equal(repository.listPendingCommands({ limit: 10 }).length, 0);
+        assert.throws(
+            () =>
+                presets.savePreset({
+                    ...input,
+                    presetId: v1.presetId,
+                    expectedRevision: 1,
+                    extraCompetitionTraits: [{ type: "Biome" }],
+                }),
+            /changed/,
+        );
+    });
+
+    it("rolls back reference and revision changes when command insertion fails", () => {
         const repository = new SqliteBiddingJobsRepository();
         const input = {
             chainId: 1,
@@ -213,6 +307,11 @@ describe("SqliteBiddingJobsRepository", () => {
             quantity: 1,
             targetTraits: [{ type: "Zone", value: "Kairo" }],
         };
+        const preset =
+            new SqliteBiddingCompetitionPresetsRepository().savePreset({
+                ...input,
+                extraCompetitionTraits: [{ type: "Mode" }],
+            });
         const created = repository.upsertCollectionJob(input);
         db.exec(
             "CREATE TRIGGER reject_command BEFORE INSERT ON trading_job_commands BEGIN SELECT RAISE(ABORT, 'fixture command failure'); END",
@@ -221,14 +320,14 @@ describe("SqliteBiddingJobsRepository", () => {
             () =>
                 repository.upsertCollectionJob({
                     ...input,
-                    extraCompetitionTraits: [{ type: "Mode" }],
+                    competitionPresetVersionId: preset.versionId,
                 }),
             /fixture command failure/,
         );
         assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
     });
 
-    it("upgrades pre-feature declarations without changing their targets or revisions", async () => {
+    it("upgrades pre-feature declarations and validates the manual rollback of the superseded migration", async () => {
         const repository = new SqliteBiddingJobsRepository();
         const created = repository.upsertCollectionJob({
             chainId: 1,
@@ -241,10 +340,19 @@ describe("SqliteBiddingJobsRepository", () => {
             targetTraits: [{ type: "Zone", value: "Kairo" }],
         });
         db.exec(
-            "ALTER TABLE trading_bidding_job_specs DROP COLUMN extra_competition_traits_json",
+            "DROP INDEX trading_bidding_job_specs_competition_version_idx; ALTER TABLE trading_bidding_job_specs DROP COLUMN competition_preset_version_id; DROP TABLE trading_bidding_competition_preset_versions; DROP TABLE trading_bidding_competition_presets;",
         );
         db.prepare("DELETE FROM migrations WHERE name = ?").run(
+            "062_trait_competition_presets.sql",
+        );
+        db.exec(
+            "ALTER TABLE trading_bidding_job_specs ADD COLUMN extra_competition_traits_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(extra_competition_traits_json) AND json_type(extra_competition_traits_json) = 'array')",
+        );
+        db.prepare("INSERT INTO migrations (name) VALUES (?)").run(
             "056_trait_bidding_competition.sql",
+        );
+        db.exec(
+            "BEGIN IMMEDIATE; ALTER TABLE trading_bidding_job_specs DROP COLUMN extra_competition_traits_json; DELETE FROM migrations WHERE name = '056_trait_bidding_competition.sql'; COMMIT;",
         );
         await createMigrationRunner().runMigrations();
         await createMigrationRunner().runMigrations();

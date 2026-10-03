@@ -164,24 +164,32 @@ Trait-job competition:
   criteria are a subset of its target. A `Mode=Terrain` + `Zone=Kairo` job
   therefore considers each single trait as well as that exact pair. A narrower
   or conflicting combination is excluded by default.
-- `extra single-trait competitors` in the bidding panel adds exact key/value
-  selectors or whole keys using `all values`. These count standalone single-trait
-  bids only. Adding `Mode=Terrain` does not include `Mode=Terrain` + another
-  trait; adding `Mode` includes standalone bids for every Mode value.
-- The editor uses the existing create/modify confirmation, reset, save feedback
-  and trait-trust restrictions. Selectors use case-sensitive marketplace trait
-  names and values; whole keys do not require local enumeration of their values.
-- Extra selectors affect assessment only. They never change the offer target,
-  target lookup identity, quantity, pricing caps, or which own offers the job
-  manages. They do not enter the OpenSea placement request.
-- A job stores up to 64 selectors in `extraCompetitionTraits`. Duplicate entries
-  are canonicalized; a whole-key entry subsumes exact values for that key. New
-  jobs default to an empty list. API clients omitting this field preserve saved
-  extras; `[]` explicitly clears them. Price-tier reapply preserves them too.
-- Existing trait jobs gain inclusive default competition after upgrade without
-  being resaved. Migration `056_trait_bidding_competition.sql` adds empty extras
-  without changing job targets, revisions or tracked orders. Subsequent strategy
-  decisions remain bounded by each job's pricing and active authorization.
+- Collection-scoped `competitive extras` presets define an exact AND target
+  and up to 64 exact key/value or whole-key extra selectors. The expandable
+  section beside `tiers` uses collection trait dropdowns, with `any` for a whole
+  key. The bidding panel offers `none` by default and compact preset buttons for
+  the exact selected target, such as `Mode=Terrain` or `Biome=any`.
+- Extra selectors still count standalone single-trait bids only. Adding
+  `Mode=Terrain` does not include `Mode=Terrain` + another trait. Adding `Mode`
+  includes standalone bids for every Mode value in the authoritative snapshot.
+- Jobs store `competitionPresetVersionId` references. Preset edits create
+  immutable versions; existing jobs retain their selected version until the
+  operator explicitly selects a newer version and confirms modify. Archiving
+  removes a preset from new selections and retains referenced versions.
+- The API omits the reference to preserve an existing selection and sends `null`
+  to clear it. New selections must reference a current available preset in the
+  same collection with exactly the job's target. Pricing edits and price-tier
+  reapply preserve the selected version. Stale preset edits are rejected using
+  `expectedRevision`.
+- Extras affect assessment only. They never change the offer target, lookup
+  identity, quantity, pricing caps, authorization, or which own offers the job
+  manages. They do not enter the OpenSea placement request. The bot resolves the
+  selected version in its job query, without per-selector marketplace requests.
+- Migration `062_trait_competition_presets.sql` creates the versioned inventory
+  and a nullable job reference. Existing declarations keep their targets,
+  revisions and orders, with no extras selected. It replaces the unreleased
+  `056_trait_bidding_competition.sql`; its sole local installation must be
+  manually rolled back as documented in the [development plan](04-trait-competition-development.md#local-migration-replacement).
 
 The legacy competitive-trait job kind retains its existing behavior. The new
 settings belong to ordinary trait-scoped collection jobs.

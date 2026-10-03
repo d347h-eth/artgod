@@ -63,7 +63,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             ceilingWei: string;
             deltaWei: string;
             targetTraits: { type: string; value: string }[];
-            extraCompetitionTraits?: { type: string; value?: string }[];
+            competitionPresetVersionId?: string | null;
         }[] = [];
         let publishedCommands: TradingJobCommandRecord[] = [];
         const useCase = new UpsertTraitBiddingJobUseCase(
@@ -84,8 +84,8 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                             ceilingWei: input.ceilingWei,
                             deltaWei: input.deltaWei,
                             targetTraits: input.targetTraits,
-                            extraCompetitionTraits:
-                                input.extraCompetitionTraits,
+                            competitionPresetVersionId:
+                                input.competitionPresetVersionId,
                         }),
                         commands,
                     };
@@ -112,10 +112,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                 { type: "Mode", value: "Terrain" },
                 { type: "Biome", value: "42" },
             ],
-            extraCompetitionTraits: [
-                { type: " Zone ", value: " Kairo " },
-                { type: "Mode" },
-            ],
+            competitionPresetVersionId: "preset-version-1",
         });
 
         const persistedInput = persistedInputs[0];
@@ -133,13 +130,9 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             persistedInput.targetTraits,
         );
         assert.deepEqual(publishedCommands, commands);
-        assert.deepEqual(persistedInput.extraCompetitionTraits, [
-            { type: "Mode" },
-            { type: "Zone", value: "Kairo" },
-        ]);
-        assert.deepEqual(
-            result.job.config.extraCompetitionTraits,
-            persistedInput.extraCompetitionTraits,
+        assert.equal(
+            persistedInput.competitionPresetVersionId,
+            "preset-version-1",
         );
     });
 
@@ -211,15 +204,6 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                         { type: "Mode", value: "Terrain" },
                         { type: "Mode", value: "Terrain" },
                     ],
-                }),
-            TradingValidationError,
-        );
-        assert.equal(persistenceCalls, 0);
-        assert.throws(
-            () =>
-                useCase.upsertTraitBiddingJob({
-                    ...validInput,
-                    extraCompetitionTraits: [{ type: "Mode", value: "" }],
                 }),
             TradingValidationError,
         );
@@ -301,7 +285,7 @@ function buildPersistedTraitJob(input: {
     ceilingWei: string;
     deltaWei: string;
     targetTraits: { type: string; value: string }[];
-    extraCompetitionTraits?: { type: string; value?: string }[];
+    competitionPresetVersionId?: string | null;
 }): PersistedCollectionBiddingJobRecord {
     return {
         jobId: "job-trait",
@@ -326,7 +310,7 @@ function buildPersistedTraitJob(input: {
         tokenId: null,
         quantity: 1,
         targetTraits: input.targetTraits,
-        extraCompetitionTraits: input.extraCompetitionTraits ?? [],
+        competitionPreset: null,
         competitorTraits: [],
     };
 }

@@ -497,6 +497,33 @@ export const BIDDING_E2E_PRICE_TIERS: ApiBiddingPriceTier[] = [
 	})
 ];
 
+export const BIDDING_E2E_COMPETITION_PRESET_ID = {
+	Biome: 'competition-biome',
+	Created: 'competition-created'
+} as const;
+export function biddingCompetitionPresetFixture(
+	presetId: string,
+	targetTraits: import('@artgod/shared/types').TradingTraitCriterion[],
+	extraCompetitionTraits: import('@artgod/shared/types').TradingTraitCompetitionSelector[],
+	revision = 1
+): import('@artgod/shared/types').TradingCompetitionPreset {
+	return {
+		presetId,
+		versionId: `${presetId}:v${revision}`,
+		revision,
+		targetTraits,
+		extraCompetitionTraits,
+		archivedAt: null
+	};
+}
+export const BIDDING_E2E_COMPETITION_PRESETS = [
+	biddingCompetitionPresetFixture(
+		BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+		[{ type: 'Biome', value: '42' }],
+		[{ type: 'Mode', value: 'Terrain' }]
+	)
+];
+
 const JOBS: ApiBiddingJob[] = [
 	biddingJob({
 		jobId: 'job-token-101',
@@ -551,7 +578,7 @@ const JOBS: ApiBiddingJob[] = [
 	biddingJob({
 		jobId: 'job-trait-biome-42',
 		status: TRADING_JOB_STATUS.Enabled,
-		extraCompetitionTraits: [{ type: 'Mode', value: 'Terrain' }],
+		competitionPreset: BIDDING_E2E_COMPETITION_PRESETS[0],
 		target: {
 			type: TRADING_JOB_TARGET_KIND.Collection,
 			quantity: 1,
@@ -1511,7 +1538,7 @@ function biddingJob(params: {
 	deltaEth: string;
 	revision: number;
 	archivedAt?: string | null;
-	extraCompetitionTraits?: ApiBiddingJob['config']['extraCompetitionTraits'];
+	competitionPreset?: ApiBiddingJob['config']['competitionPreset'];
 }): ApiBiddingJob {
 	return {
 		jobId: params.jobId,
@@ -1526,9 +1553,7 @@ function biddingJob(params: {
 			ceilingEth: params.ceilingEth,
 			deltaEth: params.deltaEth,
 			pricingSource: null,
-			...(params.extraCompetitionTraits
-				? { extraCompetitionTraits: params.extraCompetitionTraits }
-				: {})
+			...(params.competitionPreset ? { competitionPreset: params.competitionPreset } : {})
 		},
 		runtime: null
 	};

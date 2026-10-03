@@ -1,3 +1,4 @@
+import { buildCompetitionPresetsPath } from "@artgod/shared/http/trading-routes";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1028,6 +1029,19 @@ beforeAll(async () => {
         },
     };
 
+    const competitionPresetsModule =
+        await import("./application/use-cases/trading/bidding-competition-presets.js");
+    const competitionRepositoryModule =
+        await import("./infra/trading/sqlite-bidding-competition-presets-repository.js");
+    const competitionPresetsUseCase =
+        new competitionPresetsModule.BiddingCompetitionPresetsUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            baseCollectionsReadModel,
+            collectionsReadModel,
+            new competitionRepositoryModule.SqliteBiddingCompetitionPresetsRepository(),
+        );
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
         startPreparedCollectionBootstrapUseCase,
@@ -1086,6 +1100,9 @@ beforeAll(async () => {
             mode: APP_DEPLOYMENT_MODE.Standard,
             publicCollectionScope: null,
         },
+        undefined,
+        null,
+        competitionPresetsUseCase,
     );
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -1148,6 +1165,9 @@ beforeAll(async () => {
                 collectionRef: "terraforms",
             },
         },
+        undefined,
+        null,
+        competitionPresetsUseCase,
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
@@ -2440,6 +2460,104 @@ describe("backend api routes", () => {
             ceilingEth: "0.17",
             deltaEth: "0.02",
         });
+    });
+
+    it("manages competition presets through protected routes and pins selected job versions", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+        const path = buildCompetitionPresetsPath("ethereum", "milady");
+        const definition = {
+            targetTraits: [{ type: "Hat", value: "Beanie" }],
+            extraCompetitionTraits: [{ type: "Mood", value: "Calm" }],
+        };
+        expect((await resolve("PUT", path, definition)).statusCode).toBe(403);
+        const saved = await resolve("PUT", path, definition, csrf);
+        expect(saved.statusCode).toBe(200);
+        const v1 = saved.payload.presets[0];
+        expect(v1).toMatchObject({
+            revision: 1,
+            targetTraits: definition.targetTraits,
+            extraCompetitionTraits: definition.extraCompetitionTraits,
+        });
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/traits",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                targetTraits: definition.targetTraits,
+                competitionPresetVersionId: v1.versionId,
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+        expect(created.payload.job.config.competitionPreset.versionId).toBe(
+            v1.versionId,
+        );
+        expect(created.payload.job.config).not.toHaveProperty(
+            "extraCompetitionTraits",
+        );
+        const edited = await resolve(
+            "PUT",
+            path,
+            {
+                ...definition,
+                presetId: v1.presetId,
+                expectedRevision: 1,
+                extraCompetitionTraits: [{ type: "Mood" }],
+            },
+            csrf,
+        );
+        expect(edited.statusCode).toBe(200);
+        expect(edited.payload.presets[0].revision).toBe(2);
+        expect(edited.payload.presets[0].versionId).not.toBe(v1.versionId);
+        const lookup = await resolve(
+            "POST",
+            "/api/ethereum/milady/bidding/jobs/target-lookup",
+            {
+                target: {
+                    type: "trait",
+                    quantity: 1,
+                    targetTraits: definition.targetTraits,
+                },
+            },
+            csrf,
+        );
+        expect(lookup.statusCode).toBe(200);
+        expect(lookup.payload.job.config.competitionPreset.versionId).toBe(
+            v1.versionId,
+        );
+        expect(lookup.payload.job.revision).toBe(created.payload.job.revision);
+        expect(
+            (
+                await resolve(
+                    "PUT",
+                    path,
+                    {
+                        ...definition,
+                        presetId: v1.presetId,
+                        expectedRevision: 1,
+                    },
+                    csrf,
+                )
+            ).statusCode,
+        ).toBe(422);
+        const archived = await resolve(
+            "DELETE",
+            buildCompetitionPresetsPath("ethereum", "milady", v1.presetId),
+            { expectedRevision: 2 },
+            csrf,
+        );
+        expect(archived.statusCode).toBe(200);
+        expect(archived.payload.presets).toEqual([]);
+        if (!publicApp) throw new Error("Public API test app is unavailable");
+        const publicRead = await publicApp.inject({
+            method: "GET",
+            url: buildCompetitionPresetsPath("ethereum", "terraforms"),
+        });
+        expect(publicRead.statusCode).toBe(404);
     });
 
     it("creates clean trait bidding jobs via admin routes", async () => {

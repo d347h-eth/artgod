@@ -262,6 +262,12 @@ type ObservedRouteSettings<Route extends RouteGenericInterface> = {
 
 type ObservedRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS";
 
+import {
+    BiddingCompetitionPresetsHttpAdapter,
+    type CompetitionPresetsRoute,
+    type ArchiveCompetitionPresetRoute,
+} from "./http/handlers/trading/bidding-competition-presets.js";
+
 export function registerApiRoutes(
     app: FastifyInstance,
     commonHandlers: CommonHttpHandlers,
@@ -324,6 +330,7 @@ export function registerApiRoutes(
     archiveCollectionBiddingPriceTierAdapter: ArchiveCollectionBiddingPriceTierHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
     options: ApiRouteRegistrationOptions,
+    competitionPresetsAdapter: BiddingCompetitionPresetsHttpAdapter | null = null,
 ): void {
     const publicCollectionScopeGuard = createPublicCollectionScopeGuard(
         options.publicCollectionScope,
@@ -558,6 +565,26 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/customization",
         getCollectionCustomizationAdapter.handle,
     );
+    if (competitionPresetsAdapter) {
+        registerObservedGet<CompetitionPresetsRoute>(
+            app,
+            options,
+            TRADING_API_ROUTE_TEMPLATE.CompetitionPresets,
+            competitionPresetsAdapter.list,
+        );
+        registerObservedPut<CompetitionPresetsRoute>(
+            app,
+            options,
+            TRADING_API_ROUTE_TEMPLATE.CompetitionPresets,
+            competitionPresetsAdapter.upsert,
+        );
+        registerObservedDelete<ArchiveCompetitionPresetRoute>(
+            app,
+            options,
+            TRADING_API_ROUTE_TEMPLATE.CompetitionPreset,
+            competitionPresetsAdapter.archive,
+        );
+    }
     registerObservedGet<ListCollectionBiddingPriceTiersRoute>(
         app,
         options,

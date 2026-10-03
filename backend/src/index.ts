@@ -83,6 +83,8 @@ import { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/a
 import { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/archive-collection-bidding-price-tier.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
+import { BiddingCompetitionPresetsUseCase } from "./application/use-cases/trading/bidding-competition-presets.js";
+import { SqliteBiddingCompetitionPresetsRepository } from "./infra/trading/sqlite-bidding-competition-presets-repository.js";
 import { createApiApp } from "./http-app.js";
 import {
     createNoopBackendHttpObservability,
@@ -680,6 +682,14 @@ export function createBackendApp(
         new NatsRuntimeHealthAdapter(config.natsUrl),
         `${config.natsStreamPrefix}-jobs`,
     );
+    const competitionPresetsUseCase = new BiddingCompetitionPresetsUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        collectionsReadModel,
+        collectionsReadModel,
+        new SqliteBiddingCompetitionPresetsRepository(),
+    );
     const app = createApiApp(
         createBootstrapRunUseCase,
         startPreparedCollectionBootstrapUseCase,
@@ -737,6 +747,7 @@ export function createBackendApp(
         config.deployment,
         backendObservability,
         publicGetSyncBackfillStateUseCase,
+        competitionPresetsUseCase,
     );
     collectionDetail.lifecycle?.start();
     app.addHook("onReady", () => {

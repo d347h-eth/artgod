@@ -540,7 +540,7 @@ describe("trading HTTP adapters", () => {
         );
     });
 
-    it("maps, clears and rejects invalid extra competition selectors at the HTTP boundary", async () => {
+    it("maps a preset reference, explicit clearing, and omission at the HTTP boundary", async () => {
         const adapter = new UpsertTraitBiddingJobHttpAdapter({
             upsertTraitBiddingJob: (input) => input as never,
         });
@@ -554,42 +554,27 @@ describe("trading HTTP adapters", () => {
                 targetTraits: [{ type: "Zone", value: "Kairo" }],
             },
         };
-        for (const selectors of [
-            [],
-            [{ type: "Mode" }],
-            [{ type: "Mode", value: "Terrain" }],
-        ]) {
-            const mapped = await adapter.handle(
+        for (const versionId of [undefined, null, "preset-version-1"]) {
+            const mapped = (await adapter.handle(
                 request({
                     ...base,
-                    body: { ...base.body, extraCompetitionTraits: selectors },
+                    body: {
+                        ...base.body,
+                        competitionPresetVersionId: versionId,
+                    },
                 }),
-            );
-            assert.deepEqual(
-                (mapped as unknown as { extraCompetitionTraits: unknown })
-                    .extraCompetitionTraits,
-                selectors,
-            );
+            )) as unknown as { competitionPresetVersionId: unknown };
+            assert.equal(mapped.competitionPresetVersionId, versionId);
         }
-        for (const selectors of [
-            null,
-            {},
-            [{ type: "Mode", value: null }],
-            [{ type: "Mode", value: "" }],
-        ]) {
-            await assert.rejects(
-                adapter.handle(
-                    request({
-                        ...base,
-                        body: {
-                            ...base.body,
-                            extraCompetitionTraits: selectors,
-                        },
-                    }),
-                ),
-                ReadModelBadRequestError,
-            );
-        }
+        await assert.rejects(
+            adapter.handle(
+                request({
+                    ...base,
+                    body: { ...base.body, competitionPresetVersionId: [] },
+                }),
+            ),
+            ReadModelBadRequestError,
+        );
     });
 
     it("maps trait job DTOs and rejects malformed trait targets", async () => {
@@ -625,7 +610,7 @@ describe("trading HTTP adapters", () => {
             priceTierId: undefined,
             quantity: 2,
             targetTraits: [{ type: "Mode", value: "Terrain" }],
-            extraCompetitionTraits: undefined,
+            competitionPresetVersionId: undefined,
         });
         await assert.rejects(
             () =>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { TradingCompetitionPreset } from '@artgod/shared/types';
+	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -124,6 +126,8 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
+	let competitionPresetsOpen = $state(false);
+	let competitionPresets = $state<TradingCompetitionPreset[]>([]);
 	let visibleBiddableBrowserTokenIds = $state<string[]>(visibleBiddableTokenIds(tokens));
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
@@ -463,6 +467,10 @@
 						tokenActionLabel={tokenActionLabel}
 						tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
 						onToggleTiers={togglePriceTierPanel}
+						competitionPresetsActive={competitionPresetsOpen}
+						onToggleCompetitionPresets={() => {
+							competitionPresetsOpen = !competitionPresetsOpen;
+						}}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
 						onClear={clearBiddingSelection}
@@ -484,6 +492,16 @@
 				<span class="muted">{bootstrapError}</span>
 			{/if}
 		</section>
+	{/if}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingCompetitionPresetPanel
+			{chain}
+			{collection}
+			{facets}
+			open={competitionPresetsOpen}
+			onClose={() => { competitionPresetsOpen = false; }}
+			onPresetsChange={(value) => { competitionPresets = value; }}
+		/>
 	{/if}
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && priceTierPanelOpen && collection}
 		<BiddingPriceTierPanel
@@ -536,6 +554,7 @@
 			bidBook={$tokenPanelBidBookState.bidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{competitionPresets}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { TradingCompetitionPreset } from '@artgod/shared/types';
+	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -243,6 +245,8 @@
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	let priceTierPanelOpen = $state(false);
+	let competitionPresetsOpen = $state(false);
+	let competitionPresets = $state<TradingCompetitionPreset[]>([]);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
 	let bidBookMetadataNowMs = $state(Date.now());
@@ -1178,6 +1182,10 @@
 							activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems === 0
 						}
 						onToggleTiers={togglePriceTierPanel}
+						competitionPresetsActive={competitionPresetsOpen}
+						onToggleCompetitionPresets={() => {
+							competitionPresetsOpen = !competitionPresetsOpen;
+						}}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onClear={clearBiddingSelection}
@@ -1194,6 +1202,10 @@
 						tierActionActive={priceTierPanelOpen}
 						collectionActionDisabled={activeBidBook.bids.length === 0}
 						onToggleTiers={togglePriceTierPanel}
+						competitionPresetsActive={competitionPresetsOpen}
+						onToggleCompetitionPresets={() => {
+							competitionPresetsOpen = !competitionPresetsOpen;
+						}}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}
 						onClear={clearBiddingSelection}
@@ -1203,6 +1215,16 @@
 		{/if}
 	{/snippet}
 
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingCompetitionPresetPanel
+			{chain}
+			{collection}
+			{facets}
+			open={competitionPresetsOpen}
+			onClose={() => { competitionPresetsOpen = false; }}
+			onPresetsChange={(value) => { competitionPresets = value; }}
+		/>
+	{/if}
 	{#if priceTierPanelOpen && collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 		<BiddingPriceTierPanel
 			{chain}
@@ -1350,6 +1372,7 @@
 			bidBook={activeBidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{competitionPresets}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

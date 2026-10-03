@@ -1,3 +1,4 @@
+import { BIDDING_E2E_COMPETITION_PRESET_ID } from '../src/lib/e2e/bidding-automation-fixtures';
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -705,64 +706,98 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	}
 
-	test('creates, edits, resets and clears extra trait competitors', async ({ page }, testInfo) => {
+	test('creates structured competitive extras presets and selects, resets and clears a reference', async ({
+		page
+	}, testInfo) => {
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
 			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Zone:Shahra`
 		);
-		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
-		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
-		const editor = page.getByRole('region', { name: 'extra single-trait competitors' });
-		await expect(editor).toBeVisible();
-		await page.screenshot({ path: testInfo.outputPath('competition-empty.png') });
-		await editor.getByRole('button', { name: 'add', exact: true }).click();
-		await expect(page.getByTestId(TEST_IDS.BiddingPanelCreate)).toBeDisabled();
-		await expect(page.getByRole('alert')).toContainText('Choose a trait key');
-		await page.screenshot({ path: testInfo.outputPath('competition-invalid.png') });
-		await editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true }).fill('Mode');
-		await editor
-			.getByRole('combobox', { name: 'competitor trait values 1', exact: true })
-			.selectOption({ label: 'exact value' });
-		await editor
-			.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
-			.fill('Terrain');
-		await editor.getByRole('button', { name: 'add', exact: true }).click();
-		await editor
-			.getByRole('textbox', { name: 'competitor trait key 2', exact: true })
-			.fill('Biome');
-		await page.screenshot({ path: testInfo.outputPath('competition-editable.png') });
-		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
+		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-empty.png') });
+		const targets = inventory.getByRole('group', { name: 'target trait', exact: true });
+		await targets.getByRole('button', { name: 'add', exact: true }).click();
+		await targets
+			.getByRole('combobox', { name: 'target trait key 1', exact: true })
+			.selectOption('Zone');
+		await targets
+			.getByRole('combobox', { name: 'target trait value 1', exact: true })
+			.selectOption({ label: 'Shahra' });
+		const extras = inventory.getByRole('group', { name: 'competitive extra', exact: true });
+		await extras.getByRole('button', { name: 'add', exact: true }).click();
+		await extras
+			.getByRole('combobox', { name: 'competitive extra key 1', exact: true })
+			.selectOption('Mode');
+		await extras
+			.getByRole('combobox', { name: 'competitive extra value 1', exact: true })
+			.selectOption({ label: 'Terrain' });
+		await extras.getByRole('button', { name: 'add', exact: true }).click();
+		await extras
+			.getByRole('combobox', { name: 'competitive extra key 2', exact: true })
+			.selectOption('Biome');
+		await expect(
+			extras.getByRole('combobox', { name: 'competitive extra value 2', exact: true })
+		).toHaveValue('*');
+		await expect(inventory.getByRole('textbox')).toHaveCount(0);
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-editable.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'create', exact: true }).click();
+		await inventory.getByRole('button', { name: 'confirm create', exact: true }).click();
 		expect((await api.nextMutation()).body).toMatchObject({
 			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
 			extraCompetitionTraits: [{ type: 'Biome' }, { type: 'Mode', value: 'Terrain' }]
 		});
+		await expect(inventory).toContainText('Zone=Shahra → Biome=any + Mode=Terrain');
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-saved.png') });
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+		const options = panel.getByLabel('Competitive extras', { exact: true });
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await expect(options.getByRole('button', { name: 'Mode=Terrain', exact: true })).toHaveCount(0);
 		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
-		).toHaveValue('Biome');
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+		).toBeVisible();
+		expect(
+			await options
+				.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+				.evaluate((button) => button.scrollWidth <= button.clientWidth + 1)
+		).toBe(true);
+		await options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true }).click();
+		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		const created = (await api.nextMutation()).body;
+		expect(created).toMatchObject({
+			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Created}:v1`
+		});
+		expect(created).not.toHaveProperty('extraCompetitionTraits');
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
-		await page.screenshot({ path: testInfo.outputPath('competition-saved.png') });
-		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
-		await page
-			.getByTestId(TEST_IDS.BiddingPanel)
-			.getByRole('button', { name: 'reset', exact: true })
-			.click();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-saved.png') });
+		await options.getByRole('button', { name: 'none', exact: true }).click();
+		await panel.getByRole('button', { name: 'reset', exact: true }).click();
 		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
-		).toHaveValue('Biome');
-		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
-		await editor
-			.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
-			.fill('Water');
-
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await options.getByRole('button', { name: 'none', exact: true }).click();
 		let releaseFailure!: () => void;
-		const heldResponse = new Promise<void>((resolve) => {
+		const held = new Promise<void>((resolve) => {
 			releaseFailure = resolve;
 		});
 		await page.route(
 			'**/bidding/jobs/traits',
 			async (route) => {
-				await heldResponse;
+				await held;
 				await route.fulfill({
 					status: 400,
 					json: { message: 'Could not save. Try modify again.' }
@@ -772,26 +807,155 @@ test.describe('bidding automation fixture harness', () => {
 		);
 		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
 		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
 		).toBeDisabled();
-		await page.screenshot({ path: testInfo.outputPath('competition-saving.png') });
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-saving.png') });
 		releaseFailure();
-		await expect(page.getByRole('alert')).toContainText('Try modify again');
-		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
-		).toHaveValue('Water');
-		await page.screenshot({ path: testInfo.outputPath('competition-save-failed.png') });
+		await expect(panel.getByRole('alert')).toContainText('Try modify again');
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-save-failed.png') });
 		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
-		expect((await api.nextMutation()).body).toMatchObject({
-			extraCompetitionTraits: [{ type: 'Mode', value: 'Water' }]
-		});
+		expect((await api.nextMutation()).body).toMatchObject({ competitionPresetVersionId: null });
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
-		await editor.getByRole('button', { name: 'remove competitor trait 1', exact: true }).click();
-		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
-		expect((await api.nextMutation()).body).toMatchObject({ extraCompetitionTraits: [] });
 	});
 
-	test('loads saved extra trait competitors and keeps them read-only without trait trust', async ({
+	test('keeps saved competitive extras versions until an explicit newer selection', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
+		);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		await inventory
+			.getByRole('combobox', { name: 'competitive extra value 1', exact: true })
+			.selectOption({ label: 'Daydream' });
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+			expectedRevision: 1
+		});
+		await expect(inventory).toContainText('Biome=42 → Mode=Daydream');
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Competitive extras', { exact: true });
+		await expect(
+			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		expect(
+			await options
+				.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+				.evaluate((button) => button.scrollWidth <= button.clientWidth + 1)
+		).toBe(true);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-older.png') });
+		await options.getByRole('button', { name: 'Mode=Daydream', exact: true }).click();
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Biome}:v2`
+		});
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-updated.png') });
+	});
+
+	test('recovers competitive extras inventory errors and archives without changing saved jobs', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		let inventoryUnavailable = true;
+		await page.route('**/bidding/competition-presets', (route) =>
+			inventoryUnavailable
+				? route.fulfill({ status: 500, json: { message: 'Preset inventory unavailable.' } })
+				: route.fallback()
+		);
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
+		);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
+		await expect(inventory.getByRole('alert')).toContainText('Refresh presets', {
+			timeout: 20_000
+		});
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-load-failed.png') });
+		inventoryUnavailable = false;
+		await inventory.getByRole('button', { name: 'refresh', exact: true }).click();
+		await expect(inventory).toContainText('Biome=42 → Mode=Terrain');
+		await expect(inventory.getByRole('alert')).toHaveCount(0);
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		const value = inventory.getByRole('combobox', {
+			name: 'competitive extra value 1',
+			exact: true
+		});
+		await value.selectOption({ label: 'Daydream' });
+		let releaseFailure!: () => void;
+		const held = new Promise<void>((resolve) => {
+			releaseFailure = resolve;
+		});
+		await page.route(
+			'**/bidding/competition-presets',
+			async (route) => {
+				await held;
+				await route.fulfill({
+					status: 500,
+					json: { message: 'Could not save preset. Try modify again.' }
+				});
+			},
+			{ times: 1 }
+		);
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		await expect(value).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-saving.png'),
+			fullPage: true
+		});
+		releaseFailure();
+		await expect(inventory.getByRole('alert')).toContainText('Try modify again');
+		await expect(value).toHaveValue('value:Daydream');
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-save-failed.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+			expectedRevision: 1
+		});
+		await expect(inventory).toContainText('Biome=42 → Mode=Daydream');
+		await inventory.getByRole('button', { name: 'archive', exact: true }).click();
+		await inventory.getByRole('button', { name: 'confirm archive', exact: true }).click();
+		expect(await api.nextMutation()).toMatchObject({
+			method: 'DELETE',
+			body: { expectedRevision: 2 }
+		});
+		await expect(inventory.getByRole('button', { name: 'edit', exact: true })).toHaveCount(0);
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-archived.png') });
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Competitive extras', { exact: true });
+		await expect(
+			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await expect(options.getByRole('button', { name: 'Mode=Daydream', exact: true })).toHaveCount(
+			0
+		);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-archived.png') });
+	});
+
+	test('loads saved competitive extras and keeps selection read-only without trait trust', async ({
 		page
 	}, testInfo) => {
 		await installBiddingAutomationApiMock(page);
@@ -800,20 +964,16 @@ test.describe('bidding automation fixture harness', () => {
 			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly}`
 		);
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
-		const editor = page.getByRole('region', { name: 'extra single-trait competitors' });
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Competitive extras', { exact: true });
 		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
-		).toHaveValue('Mode');
-		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait value 1', exact: true })
-		).toHaveValue('Terrain');
-		await expect(
-			editor.getByRole('textbox', { name: 'competitor trait key 1', exact: true })
-		).toBeDisabled();
-		await expect(editor.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+			options.getByRole('button', { name: 'Mode=Terrain', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toBeDisabled();
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toHaveCount(0);
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelPause)).toBeEnabled();
-		await page.screenshot({ path: testInfo.outputPath('competition-readonly.png') });
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-readonly.png') });
 	});
 
 	test('renders token-scope offers from fixtures and captures a TokenOfferFilter mutation', async ({

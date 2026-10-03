@@ -102,7 +102,7 @@ function baseJob(): PersistedBiddingJobRecord {
         tokenId: null,
         quantity: 1,
         targetTraits: [],
-        extraCompetitionTraits: [],
+        competitionPreset: null,
         competitorTraits: [],
         floorWei: "100000000000000000",
         ceilingWei: "200000000000000000",
