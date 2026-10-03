@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import { onMount, tick } from 'svelte';
 	import type {
 		CollectionBiddingBidBookOwnStateFilter,
@@ -396,7 +398,7 @@
 	});
 
 	$effect(() => {
-		writeCollectionBiddingNavigationPreference({ bidScope });
+		writeCollectionBiddingNavigationPreference({ bidScope, ownershipFilter, ownStateFilter });
 	});
 
 	$effect(() => {
@@ -746,6 +748,14 @@
 		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own;
 	}
 
+	async function onResetOwnState(): Promise<void> {
+		await goto(resolve(ownStateFilterHref(null) as Pathname), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
 		await goto(makerFilterHref(makerAddress), {
 			invalidateAll: true,
@@ -1087,12 +1097,24 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
+{#snippet ownStateReset()}
+	<button
+		type="button"
+		class="facet-panel-action-button facet-reset-button"
+		onclick={() => void onResetOwnState()}
+	>
+		{BID_BOOK_FILTER_LABEL.ResetOwnState}
+	</button>
+{/snippet}
+
 {#snippet ownStateFilterRow()}
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && showBidBookFilters && activeOwnBidStateCounts}
 		<BidBookFilterTabs
 			tabs={ownBidStateFilterTabs(activeOwnBidStateCounts, ownStateFilter)}
+			maxInlineSize="67rem"
 			label={BID_BOOK_FILTER_LABEL.OwnState}
 			hrefForKey={ownStateFilterHref}
+			trailingActions={ownStateFilter ? ownStateReset : undefined}
 		/>
 	{/if}
 {/snippet}
@@ -1163,18 +1185,17 @@
 				{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="secondary-tabs" aria-label="Own bid filter">
 						{#if isShowingOwnBids()}
-							<a href={ownershipFilterHref(null)}>{BID_BOOK_FILTER_LABEL.AllBids}</a>
 							<button type="button" class="secondary-tab-active" disabled>{BID_BOOK_FILTER_LABEL.OwnBids}</button>
 						{:else}
-							{#if !makerFilter}
-								<button type="button" class="secondary-tab-active" disabled>{BID_BOOK_FILTER_LABEL.AllBids}</button>
-							{:else}
-								<a href={ownershipFilterHref(null)}>{BID_BOOK_FILTER_LABEL.AllBids}</a>
-							{/if}
 							<a
 								href={ownershipFilterHref(COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own)}
 								>{BID_BOOK_FILTER_LABEL.OwnBids}</a
 							>
+						{/if}
+						{#if !isShowingOwnBids() && !makerFilter}
+							<button type="button" class="secondary-tab-active" disabled>{BID_BOOK_FILTER_LABEL.AllBids}</button>
+						{:else}
+							<a href={ownershipFilterHref(null)}>{BID_BOOK_FILTER_LABEL.AllBids}</a>
 						{/if}
 					</div>
 				{/if}

@@ -1,6 +1,6 @@
 // Central registry for frontend localStorage keys; keep key literals searchable here only.
 export const LOCAL_STORAGE_KEYS = {
-	// Remembers the last selected bidding bid-book scope globally.
+	// Remembers the last selected bidding scope, ownership and own-state filters globally.
 	collectionBiddingNavigationPreferences: 'artgod.collectionBidding.navigationPreferences.v1',
 	// Remembers whether the reusable trait facet panel is collapsed.
 	traitFacetPanelCollapsed: 'artgod.traitFacetPanel.collapsed',

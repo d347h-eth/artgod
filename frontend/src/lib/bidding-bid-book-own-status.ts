@@ -58,10 +58,17 @@ const OWN_BID_STATE_LABELS = {
 
 const OWN_BID_STATE_FILTER_LABELS = {
 	...OWN_BID_STATE_LABELS,
-	[COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active]: 'Active',
+	[COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active]: 'active',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot]: 'waiting for bot',
 	[TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]: 'at ceiling'
 } as const satisfies Record<CollectionBiddingBidBookOwnStateFilter, string>;
+
+const OWN_BID_STATE_FILTER_TAB_ORDER = [
+	...COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.filter(
+		(key) => key !== TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
+	),
+	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
+];
 
 function ownJobIntentPhaseBadge(
 	phase: NonNullable<ApiBiddingBidBookRow['materialization']['phase']>
@@ -94,15 +101,14 @@ export function ownBidStateFilterTabs(
 	counts: TradingBiddingBidBookOwnStateCounts,
 	activeState: CollectionBiddingBidBookOwnStateFilter | null
 ): BidBookFilterTab<CollectionBiddingBidBookOwnStateFilter>[] {
-	if (counts.total === 0) return [];
-	return COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.filter((key) => counts.states[key] > 0).map(
-		(key) => ({
-			key,
-			label: OWN_BID_STATE_FILTER_LABELS[key],
-			count: counts.states[key],
-			active: key === activeState
-		})
-	);
+	return OWN_BID_STATE_FILTER_TAB_ORDER.filter(
+		(key) => counts.states[key] > 0 || key === activeState
+	).map((key) => ({
+		key,
+		label: OWN_BID_STATE_FILTER_LABELS[key],
+		count: counts.states[key],
+		active: key === activeState
+	}));
 }
 
 // Resolves the user-facing state badges for the bidding panel from backend-owned bid-book signals.

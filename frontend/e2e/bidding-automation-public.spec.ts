@@ -3,6 +3,13 @@ import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-act
 import { TEST_IDS } from '../src/lib/test-ids';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
 import {
+	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+	COLLECTION_BIDDING_BID_SCOPE_FILTER
+} from '@artgod/shared/types';
+import { LOCAL_STORAGE_KEYS } from '../src/lib/local-storage-keys';
+import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
 	type PageDiagnosticsRegistry
@@ -23,6 +30,46 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation public read-only guardrails', () => {
+	test('opens fresh Offers navigation without private filters', async ({ page }, testInfo) => {
+		await openHarnessPage(page, COLLECTION_PATH);
+		await page.getByRole('link', { name: 'offers', exact: true }).click();
+		await expect(page.locator('.bid-book-meta')).toBeVisible();
+		const query = new URL(page.url()).searchParams;
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership)).toBe(false);
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
+		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.OwnBids })).toHaveCount(0);
+		await page.screenshot({
+			path: testInfo.outputPath('public-offers-default.png'),
+			fullPage: true
+		});
+	});
+
+	test('preserves remembered trait scope without restoring private filters', async ({ page }) => {
+		await page.addInitScript(
+			({ storageKey, preference }) => localStorage.setItem(storageKey, JSON.stringify(preference)),
+			{
+				storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
+				preference: {
+					bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+					ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+				}
+			}
+		);
+		await openHarnessPage(page, COLLECTION_PATH);
+		await page.getByRole('link', { name: 'offers', exact: true }).click();
+		await expect(page.locator('.bid-book-meta')).toContainText('targets');
+		const query = new URL(page.url()).searchParams;
+		expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope)).toBe(
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+		);
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership)).toBe(false);
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
+		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
+	});
+
 	test('renders offers bid books without local bidding write controls', async ({ page }) => {
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token`);
 

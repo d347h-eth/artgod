@@ -31,18 +31,21 @@ describe('own bid state tabs', () => {
 		const tabs = ownBidStateFilterTabs(counts, PHASE.Paused);
 		expect(tabs.map(({ key, count }) => ({ key, count }))).toEqual([
 			{ key: FILTER.Active, count: 1 },
-			{ key: PHASE.Paused, count: 1 },
 			{ key: PHASE.CancelFailed, count: 1 },
-			{ key: STATE.Unknown, count: 1 }
+			{ key: STATE.Unknown, count: 1 },
+			{ key: PHASE.Paused, count: 1 }
 		]);
 		expect(tabs.find((tab) => tab.active)?.key).toBe(PHASE.Paused);
-		// A selected empty category disappears without selecting a different tab.
+		// Keep the selected category visible even when it has no matching rows.
 		const emptySelection = ownBidStateFilterTabs(counts, POSITION.Winning);
-		expect(emptySelection.every((tab) => tab.count > 0)).toBe(true);
-		expect(emptySelection.some((tab) => tab.active)).toBe(false);
+		expect(emptySelection.find((tab) => tab.active)).toMatchObject({
+			key: POSITION.Winning,
+			count: 0
+		});
+		expect(emptySelection.filter((tab) => !tab.active).every((tab) => tab.count > 0)).toBe(true);
 	});
 
-	it('hides Active when every own row is paused and preserves an empty Active selection', () => {
+	it('keeps empty active selected when every own row is paused, hiding it otherwise', () => {
 		const counts = countBiddingBidBookOwnStates([
 			{
 				isOwn: true,
@@ -55,11 +58,19 @@ describe('own bid state tabs', () => {
 			}
 		]);
 		const tabs = ownBidStateFilterTabs(counts, FILTER.Active);
-		expect(tabs.map(({ key }) => key)).toEqual([PHASE.Paused, PHASE.Canceling]);
-		expect(tabs.some((tab) => tab.active)).toBe(false);
+		expect(tabs.map(({ key }) => key)).toEqual([FILTER.Active, PHASE.Canceling, PHASE.Paused]);
+		expect(tabs.find((tab) => tab.active)).toMatchObject({ key: FILTER.Active, count: 0 });
+		expect(ownBidStateFilterTabs(counts, null).map(({ key }) => key)).toEqual([
+			PHASE.Canceling,
+			PHASE.Paused
+		]);
 	});
 
-	it('hides every tab including Active when there are no own rows', () => {
-		expect(ownBidStateFilterTabs(countBiddingBidBookOwnStates([]), PHASE.Paused)).toEqual([]);
+	it('keeps only the selected tab when there are no own rows', () => {
+		const counts = countBiddingBidBookOwnStates([]);
+		expect(ownBidStateFilterTabs(counts, PHASE.Paused)).toMatchObject([
+			{ key: PHASE.Paused, count: 0, active: true }
+		]);
+		expect(ownBidStateFilterTabs(counts, null)).toEqual([]);
 	});
 });

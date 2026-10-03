@@ -116,6 +116,7 @@ export const BIDDING_E2E_SCENARIO = {
 	OwnBidStates: 'own_bid_states',
 	OwnBidStatesUpdated: 'own_bid_states_updated',
 	OwnBidStatesPaused: 'own_bid_states_paused',
+	OwnBidStatesOnlyPaused: 'own_bid_states_only_paused',
 	OwnBidStatesWithoutOwn: 'own_bid_states_without_own'
 } as const;
 
@@ -914,6 +915,26 @@ function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScena
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesOnlyPaused) {
+		return [TRADING_BIDDING_BID_SCOPE_KIND.Token, TRADING_BIDDING_BID_SCOPE_KIND.Trait].flatMap(
+			(scopeKind) =>
+				TOKEN_CARDS.slice(0, 3).map((token, index) =>
+					bidRow({
+						orderId: `paused-state-${scopeKind}-${index}`,
+						jobId: `job-paused-state-${scopeKind}-${index}`,
+						scopeKind,
+						tokenId: scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token ? token.tokenId : undefined,
+						traits:
+							scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
+								? [{ type: TERRAFORMS_BIOME_ATTRIBUTE_KEY, value: String(41 + index) }]
+								: [],
+						status: TRADING_JOB_STATUS.Paused,
+						phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
+						priceEth: '0.300'
+					})
+				)
+		);
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesPaused) {
 		// Current jobs are paused after archived and unmatched market orders disappear.
 		return ownStateBidRows(false)
