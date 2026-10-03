@@ -405,12 +405,12 @@ export type TradingBiddingBidBookRowMaterializationKind =
 
 // Names user-facing own-intent states before a real market bid row is visible.
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
-    Queued: "queued",
     WaitingForBot: "waiting_for_bot",
+    Verifying: "verifying",
+    Queued: "queued",
+    Paused: "paused",
     AuthorizationRequired: "authorization_required",
     AuthorizationUnavailable: "authorization_unavailable",
-    Paused: "paused",
-    Verifying: "verifying",
     Replacing: "replacing",
     Canceling: "canceling",
     CancelFailed: "cancel_failed",
@@ -469,25 +469,25 @@ export const TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT = {
 export type TradingBiddingJobRuntimeConstraint =
     (typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT];
 
-// Own-state tabs match existing lifecycle, position, and constraint signals; constraints can overlap positions.
+// Own market rows can lack current lifecycle or bot-decision evidence.
+export const TRADING_BIDDING_BID_BOOK_OWN_STATE = {
+    Unknown: "unknown",
+} as const;
+
+// Every classified own state has a filter. Derive the vocabulary so adding a
+// lifecycle phase cannot leave rows reachable only through All.
 export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
-    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
-    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
-    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
-    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
-    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
-    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw,
-    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
-    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor,
+    ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE),
+    ...Object.values(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION),
+    ...Object.values(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT),
+    ...Object.values(TRADING_BIDDING_BID_BOOK_OWN_STATE),
 ] as const;
 
 export type CollectionBiddingBidBookOwnStateFilter =
     (typeof COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)[number];
 
 export type TradingBiddingBidBookOwnState =
-    | TradingBiddingBidBookOwnJobPhase
-    | TradingBiddingJobRuntimeBidPosition
-    | TradingBiddingJobRuntimeConstraint;
+    CollectionBiddingBidBookOwnStateFilter;
 
 // Counts own rows in the current scope and trait filters before the state filter or pagination.
 export type TradingBiddingBidBookOwnStateCounts = {

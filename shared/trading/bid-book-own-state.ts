@@ -2,7 +2,8 @@ import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
-    isCollectionBiddingBidBookOwnStateFilter,
+    TRADING_BIDDING_BID_BOOK_OWN_STATE,
+    TRADING_JOB_STATUS,
     type CollectionBiddingBidBookOwnStateFilter,
     type TradingBiddingBidBookOwnJobPhase,
     type TradingBiddingBidBookOwnState,
@@ -10,6 +11,7 @@ import {
     type TradingBiddingBidBookRowMaterializationKind,
     type TradingBiddingJobRuntimeBidPosition,
     type TradingBiddingJobRuntimeConstraint,
+    type TradingJobStatus,
 } from "../types/trading.js";
 
 // Transport-neutral bid-book signals. Callers map ownership at their adapter boundary.
@@ -18,31 +20,41 @@ export type BiddingBidBookOwnStateSignals = {
     ownStatus: {
         position: TradingBiddingJobRuntimeBidPosition;
         constraints: readonly TradingBiddingJobRuntimeConstraint[];
+        job: { status: TradingJobStatus } | null;
     } | null;
     materialization: {
         kind: TradingBiddingBidBookRowMaterializationKind;
         phase: TradingBiddingBidBookOwnJobPhase | null;
+        status: TradingJobStatus | null;
     };
 };
 
-// Preserve badge precedence: a bot-owned decision supersedes the pending intent phase.
+// One classifier owns badges, filters and counts. Declared pause is independent
+// of the offer lifecycle; current bot decisions supersede pending intent phases.
+// Every own row has at least one state, without guessing market competitiveness.
 export function biddingBidBookOwnStates(
     bid: BiddingBidBookOwnStateSignals,
 ): TradingBiddingBidBookOwnState[] {
     if (!bid.isOwn) return [];
-    if (bid.ownStatus) {
-        return [bid.ownStatus.position, ...new Set(bid.ownStatus.constraints)];
+    const states: TradingBiddingBidBookOwnState[] = [];
+    const jobStatus = bid.materialization.status ?? bid.ownStatus?.job?.status;
+    if (jobStatus === TRADING_JOB_STATUS.Paused) {
+        states.push(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused);
     }
-    if (
+    if (bid.ownStatus) {
+        states.push(bid.ownStatus.position, ...bid.ownStatus.constraints);
+    } else if (
         bid.materialization.kind ===
         TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
     ) {
-        return [
+        states.push(
             bid.materialization.phase ??
                 TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
-        ];
+        );
     }
-    return [];
+    return states.length > 0
+        ? [...new Set(states)]
+        : [TRADING_BIDDING_BID_BOOK_OWN_STATE.Unknown];
 }
 
 export function bidMatchesOwnStateFilter(
@@ -52,7 +64,8 @@ export function bidMatchesOwnStateFilter(
     return state === null || biddingBidBookOwnStates(bid).includes(state);
 }
 
-// One count per own bid row and matching badge. Total includes own rows with other or unavailable states.
+// One count per own bid row and matching badge. All is the union of state matches,
+// rather than their sum: positions, constraints and declared pause can overlap.
 export function countBiddingBidBookOwnStates(
     bids: Iterable<BiddingBidBookOwnStateSignals>,
 ): TradingBiddingBidBookOwnStateCounts {
@@ -69,9 +82,7 @@ export function countBiddingBidBookOwnStates(
         if (!bid.isOwn) continue;
         counts.total += 1;
         for (const state of biddingBidBookOwnStates(bid)) {
-            if (isCollectionBiddingBidBookOwnStateFilter(state)) {
-                counts.states[state] += 1;
-            }
+            counts.states[state] += 1;
         }
     }
     return counts;

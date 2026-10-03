@@ -2,6 +2,7 @@ import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_BOOK_OWN_STATE,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	resolveTradingBiddingAuthorizationJobPhase,
@@ -46,6 +47,7 @@ const OWN_BID_CONSTRAINT_LABELS = {
 const OWN_BID_STATE_LABELS = {
 	...OWN_JOB_INTENT_PHASE_LABELS,
 	...OWN_BID_CONSTRAINT_LABELS,
+	[TRADING_BIDDING_BID_BOOK_OWN_STATE.Unknown]: 'unknown',
 	[TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning]:
 		TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
 	[TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing]:
@@ -84,6 +86,7 @@ export function ownBidStateFilterTabs(
 	counts: TradingBiddingBidBookOwnStateCounts,
 	activeState: CollectionBiddingBidBookOwnStateFilter | null
 ): BidBookFilterTab<CollectionBiddingBidBookOwnStateFilter>[] {
+	if (counts.total === 0) return [];
 	return [
 		{
 			key: null,
@@ -91,17 +94,19 @@ export function ownBidStateFilterTabs(
 			count: counts.total,
 			active: activeState === null
 		},
-		...COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.map((key) => ({
-			key,
-			label:
-				key === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot
-					? 'waiting for bot'
-					: key === TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
-						? 'at ceiling'
-						: ownBidStateLabel(key),
-			count: counts.states[key],
-			active: key === activeState
-		}))
+		...COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS.filter((key) => counts.states[key] > 0).map(
+			(key) => ({
+				key,
+				label:
+					key === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot
+						? 'waiting for bot'
+						: key === TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
+							? 'at ceiling'
+							: ownBidStateLabel(key),
+				count: counts.states[key],
+				active: key === activeState
+			})
+		)
 	];
 }
 

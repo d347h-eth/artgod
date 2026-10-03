@@ -252,8 +252,10 @@ Bid-book filters:
 - `bid_scope=collection` shows collection-wide bids.
 - `maker` filters addressed market rows to one observed maker address; identityless local job intents are excluded from maker-address-filtered results.
 - Trait filters support OR and AND join modes where trait bid discovery needs them.
-- Private token and trait views have a centered own-state filter row with counts for waiting for bot, verifying, queued, winning, losing, draw, at ceiling, and at floor. `own_state` matches the existing bot-owned badges, including addressless intent, before pagination.
-- `ownBidStateCounts` counts own bid rows within the current scope, maker/ownership and trait filters before the selected state filter or pagination. Position and limit counts can overlap. `All` clears only the state filter and retains own rows with other or unavailable states. Public reads expose no own-state summary and reject state filtering.
+- Private token and trait views have a centered own-state filter row covering every lifecycle phase, winning, losing, draw, at ceiling, at floor, and unknown. Only positive-count tabs appear. `own_state` matches the shared own-bid classifier, including addressless intent, before pagination.
+- `ownBidStateCounts` counts own bid rows within the current scope, maker/ownership and trait filters before the selected state filter or pagination. Every own row matches at least one state. Position, limits, and declared pause can overlap, so `All` counts their union rather than their sum and clears only the state filter. Public reads expose no own-state summary and reject state filtering.
+- `paused` matches declared paused status independently of the displayed offer phase, including cancellation in progress or failure. `unknown` identifies own rows with no current lifecycle or bot-decision evidence; it never infers competitiveness from price. Badges, counts, and filtering share the same classification.
+- A selected state whose count drops to zero remains selected in the URL and keeps empty results; its tab is hidden without automatic navigation. The user can clear it manually through `All` or another filter control.
 - All-results token bidding carries the same state filter as token-offer display; pagination and result totals use the matching offers. The compact tab labels `waiting for bot` and `at ceiling` correspond to the row badges `waiting for bidding bot` and `hit ceiling`.
 - Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden unless they are own rows.
 

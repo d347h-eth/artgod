@@ -907,58 +907,71 @@ function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidB
 	return BASE_BID_ROWS;
 }
 
-// Exercise each filter, overlapping constraints, and an own phase that is only covered by All.
+// Cover every lifecycle phase, declared pause during cancellation, overlapping
+// strategy limits, and own market rows without a current decision.
 function ownStateBidRows(updated: boolean): ApiBiddingBidBookRow[] {
 	return [TRADING_BIDDING_BID_SCOPE_KIND.Token, TRADING_BIDDING_BID_SCOPE_KIND.Trait].flatMap(
 		(scopeKind) => {
-			const phases = [
-				updated
-					? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying
-					: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
-				TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
-				TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
-				TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
-			];
-			const positions = [
-				updated
-					? TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
-					: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
-				TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
-				TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw
-			];
-			return [...phases, ...positions].map((state, index) => {
-				const tokenIndex = index % TOKEN_CARDS.length;
-				const jobId = `job-own-state-${scopeKind}-${index}`;
-				return bidRow({
-					orderId: `own-state-${scopeKind}-${index}`,
-					scopeKind,
-					tokenId:
-						scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token
-							? TOKEN_CARDS[tokenIndex].tokenId
-							: undefined,
-					traits:
-						scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
-							? [{ type: 'Mode', value: 'Terrain' }]
-							: [],
-					priceEth: '0.300',
-					jobId,
-					phase:
-						index < phases.length ? phases[index] : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
-					ownStatus:
-						index < phases.length
-							? null
-							: {
-									position: positions[index - phases.length],
-									constraints:
-										index === phases.length
-											? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor]
-											: index === phases.length + 1
-												? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]
-												: [],
-									job: { jobId, revision: 1, status: TRADING_JOB_STATUS.Enabled }
-								}
-				});
+			const phases = Object.values(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE);
+			const positions = Object.values(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION);
+			const common = (index: number): BidRowCommonParams => ({
+				orderId: `own-state-${scopeKind}-${index}`,
+				scopeKind,
+				tokenId:
+					scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token
+						? TOKEN_CARDS[index % TOKEN_CARDS.length].tokenId
+						: undefined,
+				traits:
+					scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
+						? [{ type: 'Mode', value: 'Terrain' }]
+						: [],
+				priceEth: '0.300'
 			});
+			return [
+				...phases.map((phase, index) =>
+					bidRow({
+						...common(index),
+						jobId: `job-own-state-${scopeKind}-${phase}`,
+						status:
+							phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused ||
+							phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling ||
+							phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
+								? TRADING_JOB_STATUS.Paused
+								: phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
+									? TRADING_JOB_STATUS.Archived
+									: TRADING_JOB_STATUS.Enabled,
+						phase:
+							updated && phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot
+								? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying
+								: phase
+					})
+				),
+				...positions.map((position, index) => {
+					const jobId = `job-own-state-${scopeKind}-${position}`;
+					return bidRow({
+						...common(phases.length + index),
+						jobId,
+						ownStatus: {
+							position:
+								updated && position === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+									? TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+									: position,
+							constraints:
+								position === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+									? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor]
+									: position === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+										? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]
+										: [],
+							job: { jobId, revision: 1, status: TRADING_JOB_STATUS.Enabled }
+						}
+					});
+				}),
+				bidRow({
+					...common(phases.length + positions.length),
+					maker: OWN_ADDRESS,
+					isOwn: true
+				})
+			];
 		}
 	);
 }

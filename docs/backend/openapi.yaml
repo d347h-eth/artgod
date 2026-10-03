@@ -3650,11 +3650,19 @@ components:
                     waiting_for_bot,
                     verifying,
                     queued,
+                    paused,
+                    authorization_required,
+                    authorization_unavailable,
+                    replacing,
+                    canceling,
+                    cancel_failed,
+                    cancelled,
                     winning,
-                    losing,
                     draw,
+                    losing,
                     ceiling,
                     floor,
+                    unknown,
                 ]
 
         BiddingBidBookOwnStateCounts:
@@ -3665,7 +3673,7 @@ components:
                 total:
                     type: integer
                     minimum: 0
-                    description: Own bid rows including pending intent and other or unavailable states, within the current scope and other filters before state filtering and pagination.
+                    description: Unique own bid rows within the current scope and other filters before state filtering and pagination. Every row matches at least one state; unknown covers missing current state evidence.
                 states:
                     type: object
                     required:
@@ -3673,14 +3681,22 @@ components:
                             waiting_for_bot,
                             verifying,
                             queued,
+                            paused,
+                            authorization_required,
+                            authorization_unavailable,
+                            replacing,
+                            canceling,
+                            cancel_failed,
+                            cancelled,
                             winning,
-                            losing,
                             draw,
+                            losing,
                             ceiling,
                             floor,
+                            unknown,
                         ]
                     additionalProperties: false
-                    description: Counts can overlap; a losing bid at ceiling contributes to both losing and ceiling.
+                    description: Counts can overlap; position, constraints, and declared pause are independent. A paused job still counts as paused during cancellation. All is the union of state matches, rather than their sum.
                     properties:
                         waiting_for_bot:
                             type: integer
@@ -3689,6 +3705,27 @@ components:
                             type: integer
                             minimum: 0
                         queued:
+                            type: integer
+                            minimum: 0
+                        paused:
+                            type: integer
+                            minimum: 0
+                        authorization_required:
+                            type: integer
+                            minimum: 0
+                        authorization_unavailable:
+                            type: integer
+                            minimum: 0
+                        replacing:
+                            type: integer
+                            minimum: 0
+                        canceling:
+                            type: integer
+                            minimum: 0
+                        cancel_failed:
+                            type: integer
+                            minimum: 0
+                        cancelled:
                             type: integer
                             minimum: 0
                         winning:
@@ -3704,6 +3741,9 @@ components:
                             type: integer
                             minimum: 0
                         floor:
+                            type: integer
+                            minimum: 0
+                        unknown:
                             type: integer
                             minimum: 0
 

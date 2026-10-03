@@ -7,6 +7,7 @@ import {
     TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+    TRADING_BIDDING_BID_BOOK_OWN_STATE,
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_JOB_STATUS,
@@ -358,6 +359,86 @@ describe("own-state counts and filtering", () => {
             ownStatus: { position: state, constraints, job: null },
         };
     }
+
+    it.each([
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+    ])(
+        "keeps paused cancellation and unknown rows reachable in %s scope",
+        (scopeFilter) => {
+            const phase = TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE;
+            const rows: PersistedBiddingBidBookRow[] = [
+                {
+                    ...bidRow("paused-cancellation", "100", "1"),
+                    maker: null,
+                    isOwn: true,
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "paused-job",
+                        status: TRADING_JOB_STATUS.Paused,
+                        phase: phase.CancelFailed,
+                    },
+                },
+                {
+                    ...bidRow("archived-cancellation", "100", "2"),
+                    maker: null,
+                    isOwn: true,
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "archived-job",
+                        status: TRADING_JOB_STATUS.Archived,
+                        phase: phase.Canceling,
+                    },
+                },
+                { ...bidRow("unreported-own-order", "100", "3"), isOwn: true },
+            ];
+            const scopedRows = rows.map((row) => ({
+                ...row,
+                scopeKind:
+                    scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                        ? TRADING_BIDDING_BID_SCOPE_KIND.Token
+                        : TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                tokenId:
+                    scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                        ? row.tokenId
+                        : null,
+                scopeTraits:
+                    scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+                        ? [{ type: "Mode", value: "Terrain" }]
+                        : [],
+            }));
+            const useCase = buildUseCase(
+                {
+                    listCollectionBidBook: (input) =>
+                        bidBook(
+                            input.scopeFilter === scopeFilter ? scopedRows : [],
+                        ),
+                    listTokenBidBook: () => bidBook([]),
+                },
+                ({ tokenIds }) => tokenIds.map(tokenCard),
+            );
+            for (const [ownStateFilter, orderId] of [
+                [phase.Paused, "paused-cancellation"],
+                [phase.CancelFailed, "paused-cancellation"],
+                [phase.Canceling, "archived-cancellation"],
+                [
+                    TRADING_BIDDING_BID_BOOK_OWN_STATE.Unknown,
+                    "unreported-own-order",
+                ],
+            ] as const) {
+                const result = useCase.listCollectionBiddingBidBook(
+                    biddingInput({ scopeFilter, ownStateFilter, limit: 1 }),
+                );
+                expect(result.bidBook.bids.map((row) => row.orderId)).toEqual([
+                    orderId,
+                ]);
+                expect(result.ownBidStateCounts?.total).toBe(3);
+                expect(result.ownBidStateCounts?.states[ownStateFilter]).toBe(
+                    1,
+                );
+            }
+        },
+    );
 
     it("counts across pages and filters before token hydration and pagination", () => {
         const rows = [

@@ -652,7 +652,7 @@ General rules:
 - prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
-- own-bid badges are limited to `queued`, `paused`, `verifying`, `replacing`, `canceling`, `cancel failed`, `cancelled`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
+- own-bid badges cover waiting for bot, authorization availability, queued, paused, verifying, replacing, canceling, cancel failed, cancelled, winning, draw, losing, hit ceiling, at floor, and unknown; unknown means no current lifecycle or bot-decision evidence is available
 - `winning`, `draw`, and `losing` must come from fresh bot runtime decision feedback, never from frontend/backend price inference
 - stale active orders must remain visible with lifecycle badges until backend cancellation evidence confirms they can disappear
 
@@ -667,9 +667,11 @@ Scope rules:
 
 Own-state filters:
 
-- private collection bidding in token and trait scope shows a centered secondary row for `All`, `waiting for bot`, `verifying`, `queued`, `winning`, `losing`, `draw`, `at ceiling`, and `at floor`
+- private collection bidding in token and trait scope shows a centered secondary row with `All` and every own-bid state that has matching rows; zero-count tabs, including an empty `All`, are hidden
 - each count is an own bid row within the current scope and trait/bidder filters, across all pages and before the own-state filter; overlapping position and constraint badges count in each matching tab
-- `All` counts every own row, including phases outside these eight tabs, and clears only the state filter
+- `All` counts every own row and is exactly the union of the other state filters, rather than their sum; it clears only the state filter
+- lifecycle phases have their own matching tabs; `paused` also matches declared paused status during other phases, and `unknown` covers own rows without current state evidence
+- an empty selected state stays in the URL and the results remain empty; its tab disappears and the user can navigate manually through `All` or other controls
 - selecting a state selects own bids, clears maker-address filtering, and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
 - counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
 - token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
