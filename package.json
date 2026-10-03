@@ -84,6 +84,7 @@
         "format": "prettier . --write",
         "format:check": "prettier . --check",
         "test": "yarn workspace @artgod/backend test && yarn workspace @artgod/frontend test && yarn workspace @artgod/indexer test && yarn workspace @artgod/trading test",
+        "test:bidding:strategy": "vitest run --config ./vitest.bidding-strategy.config.ts --coverage",
         "test:desktop:signing": "node ./scripts/build/secret-output-redaction.test.mjs && node ./scripts/build/macos-universal-runtime.test.mjs && node ./scripts/build/macos-code-signing.test.mjs && node ./scripts/build/macos-notarization.test.mjs && node ./scripts/build/linux-gpg-signing.test.mjs",
         "test:desktop:runtime-packaging": "node ./scripts/build/runtime-build-profile.test.mjs && node ./scripts/build/native-runtime-dependencies.test.mjs && node ./scripts/build/build-sqlite-native-binding.test.mjs && node ./scripts/build/desktop-runtime-dependency-staging.test.mjs && node ./scripts/build/verify-staged-desktop-runtime-dependencies.test.mjs && node ./scripts/build/linux-appimage-host-libraries.test.mjs && node ./scripts/build/verify-linux-bundled-runtime.test.mjs",
         "test:desktop:runtime-environment": "cargo test --manifest-path src-tauri/Cargo.toml --locked runtime::supervisor::tests::runtime_environment --lib -- --include-ignored",
