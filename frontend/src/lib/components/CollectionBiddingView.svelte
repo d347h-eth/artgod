@@ -41,12 +41,13 @@
 		CollectionBiddingBidBookApiResponse
 	} from '$lib/api-types';
 	import {
-		BID_SCOPE_QUERY_PARAM,
 		COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 		COLLECTION_BIDDING_BID_SCOPE_FILTER,
 		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery,
+		buildCollectionBiddingViewQuery,
+		type CollectionBiddingQueryParams,
 		nextCollectionBiddingBidScopeFilter
 	} from '$lib/bidding-query';
 	import {
@@ -139,7 +140,7 @@
 		type TraitFacetFilterModeOption
 	} from '$lib/components/trait-facet-panel-control-action';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { joinPath, withQuery } from '$lib/route-paths';
+	import { joinPath } from '$lib/route-paths';
 	import { buildTokenDetailHref } from '$lib/token-browser-query';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
@@ -243,6 +244,20 @@
 	let bidBookMetadataNowMs = $state(Date.now());
 	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
+	// Navigation starts on the first page. Paged reads supply their cursor and
+	// limit explicitly while retaining every current filter.
+	const biddingQueryParams = $derived({
+		selectedTraits: activeTraits,
+		selectedTraitRanges: activeTraitRanges,
+		bidScope,
+		traitJoinMode,
+		mediaMode,
+		mediaPreference: media.preference,
+		maker: makerFilter,
+		ownershipFilter,
+		ownStateFilter,
+		showMuted
+	} satisfies CollectionBiddingQueryParams);
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
 		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
@@ -422,12 +437,14 @@
 	}
 
 	function collectionNavigation() {
+		const { selectedTraits, selectedTraitRanges, mediaMode, mediaPreference, ...bidding } =
+			biddingQueryParams;
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode,
-			mediaPreference: media.preference,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
+			mediaPreference,
+			selectedTraits,
+			selectedTraitRanges,
 			token: {
 				limit: DEFAULT_PAGE_LIMIT,
 				displayMode: 'grid'
@@ -440,14 +457,13 @@
 			collectionExtensions: collection?.extensions ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment(),
-				bidScope,
-				traitJoinMode,
-				maker: makerFilter,
-				ownershipFilter,
-				ownStateFilter,
-				showMuted
+				...bidding
 			}
 		});
+	}
+
+	function currentBiddingHref(overrides: Partial<CollectionBiddingQueryParams> = {}): string {
+		return buildCollectionBiddingHref({ ...biddingQueryParams, basePath }, overrides);
 	}
 
 	function filtersHref(
@@ -455,37 +471,15 @@
 		ranges: ApiTraitRangeFilter[],
 		nextTraitJoinMode: ApiCollectionBiddingTraitFilterJoinMode = traitJoinMode
 	): string {
-		return buildCollectionBiddingHref({
-			basePath,
+		return currentBiddingHref({
 			selectedTraits: traits,
 			selectedTraitRanges: ranges,
-			bidScope,
-			traitJoinMode: nextTraitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
-			showMuted
+			traitJoinMode: nextTraitJoinMode
 		});
 	}
 
 	function bidScopeHref(nextBidScope: ApiCollectionBiddingBidScopeFilter): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope: nextBidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
-			showMuted
-		});
-		// Keep clicked scopes explicit so stored preferences cannot override a scope change.
-		query.set(BID_SCOPE_QUERY_PARAM, nextBidScope);
-		return withQuery(biddingPath(), query);
+		return currentBiddingHref({ bidScope: nextBidScope });
 	}
 
 	function biddingPath(): string {
@@ -493,22 +487,7 @@
 	}
 
 	function biddingReturnQuery(): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
-			showMuted
-		});
-		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
-			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
-		}
-		return query.toString();
+		return buildCollectionBiddingViewQuery(biddingQueryParams).toString();
 	}
 
 	function tokenOfferCardHref(tokenId: string): string {
@@ -523,35 +502,15 @@
 	}
 
 	function tokenOfferCardsHref(cursor: string | null): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
+		return currentBiddingHref({
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
 		});
-		// Keep token scope explicit on pagination so stored preferences cannot redirect away.
-		query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
-		return withQuery(biddingPath(), query);
 	}
 
 	function currentBidBookQuery(cursor: string | null = requestCursor): URLSearchParams {
-		return buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
-			showMuted,
+		return buildCollectionBiddingQuery(biddingQueryParams, {
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
 		});
@@ -674,75 +633,27 @@
 	}
 
 	function traitJoinModeHref(nextMode: ApiCollectionBiddingTraitFilterJoinMode): string {
-		return buildCollectionBiddingHref({
-			basePath,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode: nextMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter,
-			showMuted
-		});
+		return currentBiddingHref({ traitJoinMode: nextMode });
 	}
 
 	function makerFilterHref(makerAddress: string | null): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
+		return currentBiddingHref({
 			maker: makerAddress,
-			ownershipFilter: null,
-			showMuted
+			ownershipFilter: null
 		});
-		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
-			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
-		}
-		return withQuery(biddingPath(), query);
 	}
 
 	function ownershipFilterHref(
 		nextOwnershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null
 	): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
+		return currentBiddingHref({
 			maker: null,
-			ownershipFilter: nextOwnershipFilter,
-			ownStateFilter,
-			showMuted
+			ownershipFilter: nextOwnershipFilter
 		});
-		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
-			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
-		}
-		return withQuery(biddingPath(), query);
 	}
 
 	function ownStateFilterHref(nextState: CollectionBiddingBidBookOwnStateFilter | null): string {
-		const query = buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			bidScope,
-			traitJoinMode,
-			mediaMode,
-			mediaPreference: media.preference,
-			maker: makerFilter,
-			ownershipFilter,
-			ownStateFilter: nextState,
-			showMuted
-		});
-		query.set(BID_SCOPE_QUERY_PARAM, bidScope);
-		return withQuery(biddingPath(), query);
+		return currentBiddingHref({ ownStateFilter: nextState });
 	}
 
 	function isShowingOwnBids(): boolean {

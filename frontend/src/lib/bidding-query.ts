@@ -37,7 +37,7 @@ const SHOW_MUTED_BID_BOOK_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS
 
 type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
 
-export function buildCollectionBiddingQuery(params: {
+export type CollectionBiddingQueryParams = {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
@@ -50,7 +50,15 @@ export function buildCollectionBiddingQuery(params: {
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
-}): URLSearchParams {
+};
+
+// All consumers serialize the same filter model. Overrides change only the
+// requested controls; null and empty lists intentionally clear a selection.
+export function buildCollectionBiddingQuery(
+	current: CollectionBiddingQueryParams,
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): URLSearchParams {
+	const params = { ...current, ...overrides };
 	const query = new URLSearchParams();
 	appendCollectionMediaParams(query, {
 		mediaMode: params.mediaMode ?? null,
@@ -91,22 +99,26 @@ export function buildCollectionBiddingQuery(params: {
 	return query;
 }
 
-export function buildCollectionBiddingHref(params: {
-	basePath: string;
-	selectedTraits: ApiTokenAttribute[];
-	selectedTraitRanges: ApiTraitRangeFilter[];
-	bidScope?: CollectionBiddingBidScopeFilter;
-	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
-	mediaMode?: string | null;
-	mediaPreference?: CollectionMediaPreferenceInput;
-	maker?: string | null;
-	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
-	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
-	showMuted?: boolean;
-	limit?: number | null;
-	cursor?: string | null;
-}): string {
-	return withQuery(joinPath(params.basePath, 'bidding'), buildCollectionBiddingQuery(params));
+// View links name their scope explicitly so a stored preference cannot replace
+// the clicked view. API queries may still omit their default token scope.
+export function buildCollectionBiddingViewQuery(
+	current: CollectionBiddingQueryParams,
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): URLSearchParams {
+	const params = { ...current, ...overrides };
+	const query = buildCollectionBiddingQuery(params);
+	query.set(BID_SCOPE_QUERY_PARAM, params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
+	return query;
+}
+
+export function buildCollectionBiddingHref(
+	params: CollectionBiddingQueryParams & { basePath: string },
+	overrides: Partial<CollectionBiddingQueryParams> = {}
+): string {
+	return withQuery(
+		joinPath(params.basePath, 'bidding'),
+		buildCollectionBiddingViewQuery(params, overrides)
+	);
 }
 
 export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {
