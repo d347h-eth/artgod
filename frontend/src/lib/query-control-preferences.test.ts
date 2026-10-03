@@ -50,20 +50,38 @@ describe('global query-control preference storage', () => {
 			})
 		).toEqual({ view: 'jobs' });
 
-		writeQueryControlPreference({
-			storageKey: 'example.preference',
-			definitions: DEFINITIONS,
-			preference: {
-				view: 'book',
-				scope: 'traits'
-			},
-			storage
-		});
+		expect(
+			writeQueryControlPreference({
+				storageKey: 'example.preference',
+				definitions: DEFINITIONS,
+				preference: {
+					view: 'book',
+					scope: 'traits'
+				},
+				storage
+			})
+		).toBe(true);
 
 		expect(JSON.parse(storage.values.get('example.preference') ?? '{}')).toEqual({
 			view: 'book',
 			scope: 'traits'
 		});
+	});
+
+	it('reports failed persistence without throwing away the current navigation', () => {
+		expect(
+			writeQueryControlPreference({
+				storageKey: 'example.preference',
+				definitions: DEFINITIONS,
+				preference: { view: 'jobs', scope: 'traits' },
+				storage: {
+					getItem: () => null,
+					setItem: () => {
+						throw new Error('Storage unavailable');
+					}
+				}
+			})
+		).toBe(false);
 	});
 
 	it('round-trips an intentional reset while keeping a missing preference absent', () => {

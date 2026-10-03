@@ -30,6 +30,19 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation public read-only guardrails', () => {
+	test('opens an unfiltered direct Offers URL without private defaults', async ({ page }) => {
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}`
+		);
+		await expect(page.locator('.bid-book-meta')).toBeVisible();
+		const query = new URL(page.url()).searchParams;
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership)).toBe(false);
+		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
+		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids })).toHaveCount(0);
+	});
+
 	test('opens fresh Offers navigation without private filters', async ({ page }, testInfo) => {
 		await openHarnessPage(page, COLLECTION_PATH);
 		await page.getByRole('link', { name: 'offers', exact: true }).click();

@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { ReadModelBadRequestError } from '@artgod/shared/read-models/errors';
 import { assertBidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
@@ -7,6 +7,7 @@ import {
 	parseCollectionBiddingBidScopeFilter
 } from '$lib/bidding-query';
 import type { PageLoad } from './$types';
+import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	readQueryControlPreference,
 	writeQueryControlPreference,
@@ -38,6 +39,11 @@ let activeScenario: BiddingE2eScenario | null = null;
 export const load: PageLoad = ({ url }) => {
 	if (!dev) {
 		throw error(404, 'Not found');
+	}
+	// Exercise the production route-entry policy before composing fixture data.
+	const preferredHref = resolvePreferredCollectionBiddingNavigationHref(url);
+	if (preferredHref) {
+		throw redirect(307, preferredHref);
 	}
 	// Reuse production scope validation before rendering synthetic bid-book data.
 	// The harness maps domain failure to the same HTTP error as the backend read.
