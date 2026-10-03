@@ -17,6 +17,7 @@ import {
 import type { TradingBiddingBidBookOwnState } from '@artgod/shared/types';
 import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/config/bidding';
 import { BID_BOOK_FILTER_LABEL } from '../src/lib/bid-book-view-models';
+import { LOCAL_STORAGE_KEYS } from '../src/lib/local-storage-keys';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
 import {
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
@@ -101,7 +102,7 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	});
 
-	test('clears own state on a collection scope switch and keeps refresh consistent', async ({
+	test('suspends own state in collection scope and keeps refresh consistent', async ({
 		page
 	}, testInfo) => {
 		await installBiddingAutomationApiMock(page);
@@ -245,6 +246,95 @@ test.describe('bidding automation fixture harness', () => {
 		COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
 		COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
 	]) {
+		test(`preserves ${scope} state and reset through collection scope buttons`, async ({
+			page
+		}, testInfo) => {
+			await installBiddingAutomationApiMock(page);
+			await openHarnessPage(
+				page,
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+			);
+			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+			const otherScope =
+				scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+					? COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+					: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
+			for (const nextScope of [scope, otherScope]) {
+				await page.getByRole('link', { name: 'collection', exact: true }).click();
+				await expect(tabs).toHaveCount(0);
+				expect(
+					new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+				).toBe(false);
+				// The suspended selection also survives a reload of the collection view.
+				await page.reload();
+				await expect(page.locator('.bid-book-meta')).toBeVisible();
+				await page.getByRole('link', { name: nextScope, exact: true }).click();
+				await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+				const query = new URL(page.url()).searchParams;
+				expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(nextScope);
+				expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
+					COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+				);
+				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+					TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+				);
+				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+			}
+			await page.screenshot({
+				path: testInfo.outputPath(`scope-${scope}-state-resumed.png`),
+				fullPage: true
+			});
+			await tabs
+				.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+				.click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+			await page.getByRole('link', { name: 'collection', exact: true }).click();
+			await expect(tabs).toHaveCount(0);
+			await page.getByRole('link', { name: scope, exact: true }).click();
+			await expect(tabs).toBeVisible();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+			await expect(
+				tabs.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+			).toHaveCount(0);
+			expect(
+				new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+			).toBe(false);
+			await page.screenshot({
+				path: testInfo.outputPath(`scope-${scope}-reset-retained.png`),
+				fullPage: true
+			});
+		});
+
+		test(`preserves ${scope} status when applying and clearing a maker filter`, async ({
+			page
+		}) => {
+			await installBiddingAutomationApiMock(page);
+			await openHarnessPage(
+				page,
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+			);
+			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+			const makerInput = page.getByRole('textbox', {
+				name: 'Filter bids by maker address or ENS name'
+			});
+			await makerInput.fill(MARKET_MAKER_A);
+			await makerInput.press('Enter');
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [0]');
+			const query = new URL(page.url()).searchParams;
+			expect(query.get(BID_BOOK_MAKER_QUERY_PARAM)).toBe(MARKET_MAKER_A);
+			expect(query.has(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(false);
+			expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+				TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+			);
+			expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+			await expect(page.locator('.bid-book-empty')).toBeVisible();
+			await page.getByRole('button', { name: 'clear maker filter', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+			expect(new URL(page.url()).searchParams.has(BID_BOOK_MAKER_QUERY_PARAM)).toBe(false);
+		});
+
 		test(`filters every own bid state in ${scope} scope with stable overlapping counts`, async ({
 			page
 		}, testInfo) => {
@@ -252,7 +342,7 @@ test.describe('bidding automation fixture harness', () => {
 			await page.clock.install();
 			await openHarnessPage(
 				page,
-				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
 			);
 			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
 			await expect(tabs.locator('a, .secondary-tab-active')).toHaveText([
@@ -285,6 +375,9 @@ test.describe('bidding automation fixture harness', () => {
 				await page.getByRole('link', { name: 'load next', exact: true }).click();
 				await expect(tokenCard(page, '104')).toBeVisible();
 				await expect(tabs).toContainText('active [11]');
+				expect(
+					new URL(page.url()).searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)
+				).toBe('true');
 			}
 			for (const state of COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS) {
 				const link = tabs.locator(
@@ -542,6 +635,47 @@ test.describe('bidding automation fixture harness', () => {
 			).toBe(false);
 		});
 	}
+
+	test('restores a selected zero-count state through scope buttons', async ({ page }, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStatesOnlyPaused}`
+		);
+		const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [0]');
+		await page.getByRole('link', { name: 'collection', exact: true }).click();
+		await expect(tabs).toHaveCount(0);
+		await page.getByRole('link', { name: 'traits', exact: true }).click();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [0]');
+		await expect(tabs.getByRole('link', { name: 'paused [3]', exact: true })).toBeVisible();
+		await expect(page.locator('.bid-book-empty')).toBeVisible();
+		await page.screenshot({
+			path: testInfo.outputPath('scope-active-zero-resumed.png'),
+			fullPage: true
+		});
+	});
+
+	test('preserves scope-button state when preference storage cannot write', async ({ page }) => {
+		await page.addInitScript((storageKey) => {
+			const setItem = Storage.prototype.setItem;
+			Storage.prototype.setItem = function (key, value) {
+				if (key === storageKey) throw new Error('Preference storage unavailable');
+				setItem.call(this, key, value);
+			};
+		}, LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences);
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+		);
+		const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+		await page.getByRole('link', { name: 'collection', exact: true }).click();
+		await expect(tabs).toHaveCount(0);
+		await page.getByRole('link', { name: 'traits', exact: true }).click();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+	});
 
 	for (const state of [
 		COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,

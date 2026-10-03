@@ -68,6 +68,23 @@ test.describe('bidding automation public read-only guardrails', () => {
 		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership)).toBe(false);
 		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
 		await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(0);
+		for (const scope of [
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+		]) {
+			await page.getByRole('link', { name: scope, exact: true }).click();
+			await expect(page).toHaveURL(
+				new RegExp(`${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope}=${scope}`)
+			);
+			await expect(page.locator('.bid-book-meta')).toBeVisible();
+			const scopeQuery = new URL(page.url()).searchParams;
+			expect(scopeQuery.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership)).toBe(false);
+			expect(scopeQuery.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
+			await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(
+				0
+			);
+		}
 	});
 
 	test('renders offers bid books without local bidding write controls', async ({ page }) => {

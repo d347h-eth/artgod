@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 	import type { Pathname } from '$app/types';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import type {
 		CollectionBiddingBidBookOwnStateFilter,
 		TradingBiddingBidBookOwnStateCounts
@@ -75,7 +75,11 @@
 		type BidBookOwnStatusBadge
 	} from '$lib/bidding-bid-book-own-status';
 	import { BID_BOOK_UPDATE_FLASH_MODE, bidBookUpdateFlash } from '$lib/bid-book-update-flash';
-	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
+	import {
+		buildCollectionBiddingScopeHref,
+		readCollectionBiddingNavigationPreference,
+		writeCollectionBiddingNavigationPreference
+	} from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import { getCollectionBiddingBidBook } from '$lib/backend-api';
 	import {
@@ -244,6 +248,7 @@
 	let bidBookMetadataNowMs = $state(Date.now());
 	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
+	let biddingNavigationPreference = $state(readCollectionBiddingNavigationPreference());
 	// Navigation starts on the first page. Paged reads supply their cursor and
 	// limit explicitly while retaining every current filter.
 	const biddingQueryParams = $derived({
@@ -414,7 +419,15 @@
 	});
 
 	$effect(() => {
-		writeCollectionBiddingNavigationPreference({ bidScope, ownershipFilter, ownStateFilter });
+		const current = { bidScope, ownershipFilter, ownStateFilter };
+		// Only URL-owned controls trigger this effect. Its previous remembered
+		// model is input to the transition, not another reason to run it.
+		untrack(() => {
+			biddingNavigationPreference = writeCollectionBiddingNavigationPreference(
+				current,
+				biddingNavigationPreference
+			);
+		});
 	});
 
 	$effect(() => {
@@ -479,7 +492,11 @@
 	}
 
 	function bidScopeHref(nextBidScope: ApiCollectionBiddingBidScopeFilter): string {
-		return currentBiddingHref({ bidScope: nextBidScope });
+		return buildCollectionBiddingScopeHref(
+			{ ...biddingQueryParams, basePath },
+			nextBidScope,
+			biddingNavigationPreference
+		);
 	}
 
 	function biddingPath(): string {

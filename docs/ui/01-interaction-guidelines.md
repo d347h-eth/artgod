@@ -49,6 +49,8 @@ Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and 
 Collection cross-page navigation URLs are built by `frontend/src/lib/collection-navigation.ts`.
 Collection views should pass an explicit typed navigation state into `buildCollectionNavigation(...)` and then pass the resulting `CollectionNavigation` to `CollectionPageLayout.svelte`; do not rebuild tokens / activities / bidding / holders / customization hrefs ad hoc in each view.
 
+Within Offers, `CollectionBiddingView.svelte` defines one current query model. Filters, scope buttons, pagination, token-detail return links, and live refresh use `bidding-query.ts` with explicit overrides instead of repeating the current fields. Filter changes reset pagination; paged reads explicitly supply their limit and cursor.
+
 The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
 Top-action rows are page chrome and should stay compact.
@@ -675,7 +677,8 @@ Own-state filters:
 - `paused` follows all other status tabs, before the pink `reset` button; the centered status row caps at 67rem and wraps within the available width
 - the pink `reset` button follows the status tabs when a state is selected and clears only `own_state`, preserving other filters and resetting pagination
 - ownership controls show `my bids` before `all bids`; fresh private Offers navigation defaults to `my bids` and `active`, while explicit and remembered ownership/status choices take precedence, including an intentional reset; public Offers navigation does not apply private filters
-- selecting a state preserves ownership and maker filters and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh; switching to collection scope removes it, and direct collection URLs with `own_state` fail validation
+- selecting a state preserves ownership and maker filters and resets pagination; the state is URL-owned and preserved in filtered batch selection and live refresh
+- collection scope temporarily omits `own_state` from URLs and reads; the existing navigation preference retains the last selection, and scope buttons restore it when returning to token or trait scope, including a selected zero-count state; an explicit reset remains cleared; direct collection URLs with `own_state` fail validation
 - counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
 - token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
 

@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
@@ -10,6 +11,8 @@ import {
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	buildCollectionBiddingQuery,
+	buildCollectionBiddingHref,
+	type CollectionBiddingQueryParams,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingBidBookOwnStateFilter
@@ -51,22 +54,60 @@ export function readCollectionBiddingNavigationPreference(): Partial<CollectionB
 	});
 }
 
+// An unavailable control leaves its last selection intact. An applicable
+// control's null value is an explicit reset and replaces the remembered value.
+function ownStateNavigationPreference(
+	current: Pick<CollectionBiddingNavigationPreference, 'bidScope' | 'ownStateFilter'>,
+	previous: Partial<CollectionBiddingNavigationPreference> | null
+): CollectionBiddingBidBookOwnStateFilter | null | undefined {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return undefined;
+	return bidScopeSupportsOwnStateFilter(current.bidScope)
+		? current.ownStateFilter
+		: previous?.ownStateFilter;
+}
+
+// Return the remembered model as well as persisting it, so an open view retains
+// its navigation context even when browser storage is unavailable.
 export function writeCollectionBiddingNavigationPreference(
-	preference: CollectionBiddingNavigationPreference
-): void {
+	current: CollectionBiddingNavigationPreference,
+	previous: Partial<CollectionBiddingNavigationPreference> | null = readCollectionBiddingNavigationPreference()
+): CollectionBiddingNavigationPreference {
+	const preference = IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		? { bidScope: current.bidScope }
+		: {
+				bidScope: current.bidScope,
+				ownershipFilter: current.ownershipFilter,
+				ownStateFilter: ownStateNavigationPreference(current, previous)
+			};
 	writeQueryControlPreference({
 		storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
-		preference: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-			? { bidScope: preference.bidScope }
-			: preference
+		preference
+	});
+	return preference;
+}
+
+// Scope buttons resume the state selection when entering a supported view.
+// The canonical query builder omits it from collection-scoped URLs and reads.
+export function buildCollectionBiddingScopeHref(
+	current: CollectionBiddingQueryParams & {
+		basePath: string;
+		bidScope: CollectionBiddingBidScopeFilter;
+	},
+	nextScope: CollectionBiddingBidScopeFilter,
+	preference: Partial<CollectionBiddingNavigationPreference> | null = readCollectionBiddingNavigationPreference()
+): string {
+	return buildCollectionBiddingHref(current, {
+		bidScope: nextScope,
+		ownershipFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : current.ownershipFilter,
+		ownStateFilter: ownStateNavigationPreference(current, preference)
 	});
 }
 
 // Primary Offers navigation uses private defaults only when no explicit or
 // remembered choice exists. Null is an intentional All-bids or reset selection.
 export function buildCollectionBiddingNavigationQuery(
-	params: Parameters<typeof buildCollectionBiddingQuery>[0],
+	params: CollectionBiddingQueryParams,
 	preference: Partial<CollectionBiddingNavigationPreference> | null = readCollectionBiddingNavigationPreference()
 ): URLSearchParams {
 	return buildCollectionBiddingQuery({

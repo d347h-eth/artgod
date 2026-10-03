@@ -4,11 +4,14 @@ import {
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER as OWNERSHIP,
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS as PARAM,
 	COLLECTION_BIDDING_BID_SCOPE_FILTER as SCOPE,
-	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE
+	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE,
+	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION as POSITION
 } from '@artgod/shared/types';
 import {
 	applyCollectionBiddingNavigationPreferenceToQuery,
-	buildCollectionBiddingNavigationQuery
+	buildCollectionBiddingNavigationQuery,
+	buildCollectionBiddingScopeHref,
+	writeCollectionBiddingNavigationPreference
 } from '$lib/bidding-navigation-preferences';
 
 const deployment = vi.hoisted(() => ({ isPublic: false }));
@@ -22,6 +25,105 @@ afterEach(() => {
 });
 
 const FILTERS = { selectedTraits: [], selectedTraitRanges: [] };
+
+describe('bidding scope navigation', () => {
+	it.each([STATE.Active, POSITION.Losing, PHASE.Paused, null])(
+		'retains state %s across collection scope and resumes it without applying defaults',
+		(ownStateFilter) => {
+			const previous = writeCollectionBiddingNavigationPreference(
+				{ bidScope: SCOPE.Traits, ownershipFilter: OWNERSHIP.Own, ownStateFilter },
+				null
+			);
+			const collection = {
+				bidScope: SCOPE.Collection,
+				ownershipFilter: OWNERSHIP.Own,
+				ownStateFilter: null
+			};
+			const remembered = writeCollectionBiddingNavigationPreference(collection, previous);
+			expect(remembered.ownStateFilter).toBe(ownStateFilter);
+			for (const bidScope of [SCOPE.Token, SCOPE.Traits]) {
+				const href = buildCollectionBiddingScopeHref(
+					{ ...FILTERS, ...collection, basePath: '/collection' },
+					bidScope,
+					remembered
+				);
+				const query = new URL(href, 'https://example.test').searchParams;
+				expect(query.get(PARAM.BidScope)).toBe(bidScope);
+				expect(query.get(PARAM.OwnState)).toBe(ownStateFilter);
+				expect(query.get(PARAM.Ownership)).toBe(OWNERSHIP.Own);
+			}
+		}
+	);
+
+	it('lets an explicit reset replace an older selection before the round trip', () => {
+		const current = { bidScope: SCOPE.Token, ownStateFilter: null };
+		const remembered = writeCollectionBiddingNavigationPreference(current, {
+			bidScope: SCOPE.Traits,
+			ownStateFilter: STATE.Active
+		});
+		expect(remembered.ownStateFilter).toBeNull();
+		const href = buildCollectionBiddingScopeHref(
+			{ ...FILTERS, ...current, basePath: '/collection' },
+			SCOPE.Traits,
+			{ ownStateFilter: STATE.Active }
+		);
+		expect(new URL(href, 'https://example.test').searchParams.has(PARAM.OwnState)).toBe(false);
+	});
+
+	it('leaves a fresh collection view without a remembered state unfiltered on scope changes', () => {
+		const current = { bidScope: SCOPE.Collection, ownStateFilter: null };
+		const remembered = writeCollectionBiddingNavigationPreference(current, null);
+		expect(remembered.ownStateFilter).toBeUndefined();
+		const href = buildCollectionBiddingScopeHref(
+			{ ...FILTERS, ...current, basePath: '/collection' },
+			SCOPE.Token,
+			remembered
+		);
+		const query = new URL(href, 'https://example.test').searchParams;
+		expect(query.has(PARAM.Ownership)).toBe(false);
+		expect(query.has(PARAM.OwnState)).toBe(false);
+	});
+
+	it('omits unsupported state from collection URLs while retaining other current controls', () => {
+		const href = buildCollectionBiddingScopeHref(
+			{
+				...FILTERS,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
+				basePath: '/collection',
+				bidScope: SCOPE.Traits,
+				ownStateFilter: STATE.Active,
+				showMuted: true
+			},
+			SCOPE.Collection,
+			null
+		);
+		const query = new URL(href, 'https://example.test').searchParams;
+		expect(query.has(PARAM.OwnState)).toBe(false);
+		expect(query.getAll('traits')).toEqual(['Mode:Terrain']);
+		expect(query.get(PARAM.ShowMuted)).toBe('true');
+	});
+
+	it('keeps public scope navigation free of private controls even with remembered selections', () => {
+		deployment.isPublic = true;
+		const current = {
+			bidScope: SCOPE.Collection,
+			ownershipFilter: OWNERSHIP.Own,
+			ownStateFilter: null
+		};
+		const previous = { ownStateFilter: STATE.Active };
+		expect(writeCollectionBiddingNavigationPreference(current, previous)).toEqual({
+			bidScope: SCOPE.Collection
+		});
+		const href = buildCollectionBiddingScopeHref(
+			{ ...FILTERS, ...current, basePath: '/collection' },
+			SCOPE.Traits,
+			previous
+		);
+		const query = new URL(href, 'https://example.test').searchParams;
+		expect(query.has(PARAM.Ownership)).toBe(false);
+		expect(query.has(PARAM.OwnState)).toBe(false);
+	});
+});
 
 describe('buildCollectionBiddingNavigationQuery', () => {
 	it('defaults fresh private Offers navigation to My bids and Active', () => {
