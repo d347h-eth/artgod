@@ -1,10 +1,15 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { parseEther } from "viem";
 import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
-import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    type BidderJob,
+} from "../../domain/market/strategy/job.js";
+import { Bidder } from "../../application/use-cases/bidding/bidder.js";
 import {
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
@@ -213,6 +218,217 @@ describe("OpenSeaBiddingService", () => {
     const collectionAddress = "0xcollection";
     const protocolAddress = "0xprotocol";
     const orderHash = "0xhash";
+
+    it.each([
+        [
+            "balance tail above 1 WETH",
+            "1.3",
+            "1.4",
+            "0.01",
+            "1.3016563",
+            "1.31",
+            "1.3",
+        ],
+        [
+            "balance tail below 1 WETH",
+            "0.2",
+            "0.3",
+            "0.001",
+            "0.2356789",
+            "0.236",
+            "0.235",
+        ],
+        [
+            "balance tail below 0.1 WETH",
+            "0.04",
+            "0.06",
+            "0.0001",
+            "0.050056789",
+            "0.051",
+            "0.05",
+        ],
+        [
+            "balance below the configured floor",
+            "1.3",
+            "1.4",
+            "0.01",
+            "1.295643",
+            "0",
+            "1.29",
+        ],
+        [
+            "unaligned job ceiling",
+            "1.3",
+            "1.355555",
+            "0.01",
+            "2",
+            "1.4",
+            "1.35",
+        ],
+        ["unaligned job floor", "1.301", "1.4", "0.01", "2", "0", "1.31"],
+        [
+            "range without a valid price",
+            "1.305",
+            "1.309",
+            "0.01",
+            "2",
+            "0",
+            "0",
+        ],
+        [
+            "affordable floor above the rounded balance",
+            "1.305",
+            "1.4",
+            "0.01",
+            "1.306",
+            "0",
+            "0",
+        ],
+        [
+            "empty range at the 0.1 WETH boundary",
+            "0.09995",
+            "0.1",
+            "0.0001",
+            "0.09999",
+            "0",
+            "0",
+        ],
+        [
+            "delta finer than marketplace precision",
+            "1.3",
+            "1.4",
+            "0.001",
+            "2",
+            "1.3",
+            "1.31",
+        ],
+        [
+            "competitor unit price with extra decimals",
+            "1.3",
+            "1.4",
+            "0.01",
+            "2",
+            "1.3005",
+            "1.32",
+        ],
+        ["bid crosses 0.1 WETH", "0.08", "0.2", "0.0001", "1", "0.0999", "0.1"],
+        ["bid crosses 1 WETH", "0.9", "1.2", "0.001", "2", "0.999", "1"],
+        [
+            "balance just below 0.1 WETH",
+            "0.05",
+            "0.2",
+            "0.001",
+            "0.099999999999999999",
+            "0.1",
+            "0.0999",
+        ],
+        [
+            "balance just below 1 WETH",
+            "0.9",
+            "1.2",
+            "0.01",
+            "0.999999999999999999",
+            "1",
+            "0.999",
+        ],
+        [
+            "balance below the minimum offer",
+            "0.0001",
+            "0.0002",
+            "0.0001",
+            "0.000099999999999999",
+            "0",
+            "0",
+        ],
+    ])(
+        "rounds bids before OpenSea submission: %s",
+        async (_case, floor, ceiling, delta, balance, competitor, expected) => {
+            const sdk = new MockOpenSeaSdk();
+            const offers: unknown[] =
+                competitor === "0"
+                    ? []
+                    : [
+                          makeOffer(
+                              "0xcompetitor",
+                              "0xother",
+                              parseEther(competitor).toString(),
+                              collectionAddress,
+                          ),
+                      ];
+            sdk.api.getOffersByNFT = async () => ({ offers });
+            const submittedAmounts: bigint[] = [];
+            const cancelledOrders: string[] = [];
+            sdk.createOffer = async (input) => {
+                const amount = parseEther(input.amount);
+                submittedAmounts.push(amount);
+                offers.push({
+                    ...makeOffer(
+                        orderHash,
+                        makerAddress,
+                        amount.toString(),
+                        collectionAddress,
+                        undefined,
+                        2,
+                    ),
+                    expiration_time: input.expirationTime,
+                });
+                return {
+                    orderHash,
+                    protocolAddress,
+                    expirationTime: input.expirationTime,
+                };
+            };
+            sdk.offchainCancelOrder = async (_protocol, hash) => {
+                cancelledOrders.push(hash);
+            };
+            const service = new OpenSeaBiddingService(sdk, makerAddress, {
+                retryPolicy: TEST_RETRY_POLICY,
+            });
+            const bidder = new Bidder(
+                service,
+                makerAddress,
+                1000,
+                { dryRun: false },
+                undefined,
+                { getWethBalance: async () => parseEther(balance) },
+            );
+            const job: BidderJob = {
+                id: "job-balance-precision",
+                revision: 1,
+                network: "eth",
+                collectionId: 1,
+                collectionSlug,
+                collectionAddress,
+                target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                config: {
+                    floor: parseEther(floor),
+                    ceiling: parseEther(ceiling),
+                    delta: parseEther(delta),
+                },
+                state: {},
+            };
+            bidder.addJob(job);
+
+            await bidder.scanOnce();
+
+            const expectedAmount = parseEther(expected);
+            const expectedSubmissions =
+                expectedAmount === 0n ? [] : [expectedAmount];
+            assert.deepEqual(submittedAmounts, expectedSubmissions);
+            assert.equal(
+                job.state.currentPrice,
+                expectedAmount === 0n ? undefined : expectedAmount,
+            );
+            assert.ok(expectedAmount <= parseEther(balance));
+            assert.ok(expectedAmount <= job.config.ceiling);
+
+            // Reobserving the normalized order must not cause a cancel/replace loop.
+            await bidder.scanOnce();
+
+            assert.deepEqual(submittedAmounts, expectedSubmissions);
+            assert.deepEqual(cancelledOrders, []);
+        },
+    );
 
     it("classifies permanent OpenSea target errors as non-retryable", () => {
         assert.equal(

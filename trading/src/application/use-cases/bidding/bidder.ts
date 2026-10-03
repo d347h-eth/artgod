@@ -1375,8 +1375,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             const configuredFloor = runtimeOverride?.floor ?? job.config.floor;
             const configuredCeiling =
                 runtimeOverride?.ceiling ?? job.config.ceiling;
-            const floor = this.getEffectiveFloor(configuredFloor);
-            const ceiling = this.getEffectiveCeiling(configuredCeiling);
+            const ceiling = this.getEffectiveCeiling(
+                configuredCeiling,
+                configuredFloor,
+            );
+            const floor = this.getEffectiveFloor(configuredFloor, ceiling);
             const delta = job.config.delta;
 
             const competitorPrice = competitorHighest
@@ -1914,8 +1917,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             };
         }
 
+        const runtimeOverride = this.getRuntimeOverride(job.id);
         const effectiveCeiling = this.getEffectiveCeiling(
-            this.getConfiguredCeiling(job),
+            runtimeOverride?.ceiling ?? job.config.ceiling,
+            runtimeOverride?.floor ?? job.config.floor,
         );
         if (marketEvent.getUnitPrice() >= effectiveCeiling) {
             return {
@@ -1941,10 +1946,6 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             currentPrice: job.state.currentPrice,
             priceDiff: marketEvent.getUnitPrice() - job.state.currentPrice,
         };
-    }
-
-    private getConfiguredCeiling(job: BidderJob): bigint {
-        return this.getRuntimeOverride(job.id)?.ceiling ?? job.config.ceiling;
     }
 
     private async tryWarmCurrentPrice(
@@ -2224,24 +2225,36 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
     }
 
-    private getEffectiveCeiling(configuredCeiling: bigint): bigint {
-        if (this.cachedMakerWethBalance === undefined) {
-            return configuredCeiling;
+    private getEffectiveCeiling(
+        configuredCeiling: bigint,
+        configuredFloor: bigint,
+    ): bigint {
+        const limit =
+            this.cachedMakerWethBalance !== undefined &&
+            this.cachedMakerWethBalance < configuredCeiling
+                ? this.cachedMakerWethBalance
+                : configuredCeiling;
+        const ceiling = this.biddingService.roundOfferPriceDown(limit);
+        const canFundConfiguredFloor =
+            this.cachedMakerWethBalance === undefined ||
+            this.cachedMakerWethBalance >= configuredFloor;
+        // An affordable declared range with no valid price must not lower its floor.
+        if (
+            canFundConfiguredFloor &&
+            ceiling < this.biddingService.roundOfferPriceUp(configuredFloor)
+        ) {
+            return 0n;
         }
-
-        return this.cachedMakerWethBalance < configuredCeiling
-            ? this.cachedMakerWethBalance
-            : configuredCeiling;
+        return ceiling;
     }
 
-    private getEffectiveFloor(configuredFloor: bigint): bigint {
-        if (this.cachedMakerWethBalance === undefined) {
-            return configuredFloor;
-        }
-
-        return this.cachedMakerWethBalance < configuredFloor
-            ? this.cachedMakerWethBalance
-            : configuredFloor;
+    private getEffectiveFloor(
+        configuredFloor: bigint,
+        effectiveCeiling: bigint,
+    ): bigint {
+        const floor = this.biddingService.roundOfferPriceUp(configuredFloor);
+        // Preserve the existing below-floor balance clamp on the valid price grid.
+        return floor < effectiveCeiling ? floor : effectiveCeiling;
     }
 
     private getDesiredBid(
@@ -2254,6 +2267,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         if (desiredPrice < floor) {
             desiredPrice = floor;
         }
+        // Meet the requested delta where possible, without rounding above the cap.
+        desiredPrice = this.biddingService.roundOfferPriceUp(desiredPrice);
         if (desiredPrice > ceiling) {
             desiredPrice = ceiling;
         }

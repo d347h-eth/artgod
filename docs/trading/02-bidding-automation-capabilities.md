@@ -344,11 +344,20 @@ frontend unit and Playwright suites cover the shared bidding UI, deterministic
 private/public bidding flows, authorization, and a separate attached-app smoke
 flow.
 
+The focused strategy gate runs the trading suite and shared OpenSea price and
+offer-parsing tests. It enforces per-file coverage minimums in
+[`vitest.bidding-strategy.config.ts`](../../vitest.bidding-strategy.config.ts),
+including full coverage of price rounding, and runs in the pull-request build
+check. JSON and HTML reports are written to `tmp/bidding-strategy-coverage/`.
+Strategy scenarios cover bid adjustment versus renewal, tied and capped
+positions, constraint precedence, and wallet-balance failures and recovery.
+
 Run the owning suites instead of relying on an old coverage table:
 
 ```sh
 yarn workspace @artgod/backend test
 yarn workspace @artgod/trading test
+yarn test:bidding:strategy
 yarn test:bidding:automation
 yarn test:bidding:automation:public
 yarn test:bidding:authorization

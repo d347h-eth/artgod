@@ -151,6 +151,14 @@ class FakeJobSource implements BiddingJobSource {
 }
 
 class FakeBiddingService implements BiddingService {
+    roundOfferPriceDown(amount: bigint): bigint {
+        return amount;
+    }
+
+    roundOfferPriceUp(amount: bigint): bigint {
+        return amount;
+    }
+
     cancelled: string[] = [];
     placeError: Error | null = null;
     orderLookupResult: BiddingOrderRecoveryResult = {
