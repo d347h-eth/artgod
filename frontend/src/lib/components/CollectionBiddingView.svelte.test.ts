@@ -15,6 +15,7 @@ import type {
 	ApiBiddingOwnJobIntentMaterialization
 } from '$lib/api-types';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
 function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
@@ -158,7 +159,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;ownership=own'
 		);
-		expect(body).toContain('>my bids</a>');
+		expect(body).toContain(`>${BID_BOOK_FILTER_LABEL.OwnBids}</a>`);
 	});
 
 	it('renders token-scoped offers as token cards without trait join controls', () => {
@@ -432,13 +433,13 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection');
 		expect(body).not.toContain('value="0x9999999999999999999999999999999999999999"');
 		expect(body).toContain(
-			'<button type="button" class="secondary-tab-active" disabled="">my bids</button>'
+			`<button type="button" class="secondary-tab-active" disabled="">${BID_BOOK_FILTER_LABEL.OwnBids}</button>`
 		);
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection&amp;ownership=own'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=traits">all bids</a>'
+			`/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=traits">${BID_BOOK_FILTER_LABEL.AllBids}</a>`
 		);
 	});
 });

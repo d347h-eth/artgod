@@ -39,9 +39,10 @@ import {
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
 import {
-	bidMatchesOwnStateFilter,
-	countBiddingBidBookOwnStates
+	countBiddingBidBookOwnStates,
+	filterBiddingBidBookRowsByOwnState
 } from '@artgod/shared/trading/bid-book-own-state';
+import { biddingBidBookGroupKey } from '@artgod/shared/trading/bid-book-groups';
 import { bidBookOwnStateSignals } from '$lib/bidding-bid-book-own-status';
 import type {
 	ApiBiddingBidBook,
@@ -113,10 +114,23 @@ export const BIDDING_E2E_SCENARIO = {
 	AuthorizationRequired: 'authorization_required',
 	FirstRunIntent: 'first_run_intent',
 	OwnBidStates: 'own_bid_states',
-	OwnBidStatesUpdated: 'own_bid_states_updated'
+	OwnBidStatesUpdated: 'own_bid_states_updated',
+	OwnBidStatesWithoutOwn: 'own_bid_states_without_own'
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+// Opponent identities shared by state-selection fixtures and rendered assertions.
+export const BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS = {
+	[COLLECTION_BIDDING_BID_SCOPE_FILTER.Token]: {
+		Matching: 'own-state-token-opponent-matched',
+		Other: 'own-state-token-opponent-other'
+	},
+	[COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits]: {
+		Matching: 'own-state-trait-opponent-matched',
+		Other: 'own-state-trait-opponent-other'
+	}
+} as const;
 
 // Owns the first-run declared-job identity shared by the fixture and Playwright assertions.
 export const BIDDING_E2E_FIRST_RUN_INTENT = {
@@ -684,18 +698,22 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 			: bidBook.bids
 		).map(bidBookOwnStateSignals)
 	);
-	const matchesState = (bid: ApiBiddingBidBookRow) =>
-		bidMatchesOwnStateFilter(bidBookOwnStateSignals(bid), ownStateFilter);
+	const selectState = (bids: ApiBiddingBidBookRow[]) =>
+		filterBiddingBidBookRowsByOwnState(
+			bids.map((bid) => ({ ...bidBookOwnStateSignals(bid), bid })),
+			ownStateFilter,
+			({ bid }) => biddingBidBookGroupKey(bid.scope)
+		).map(({ bid }) => bid);
 	const tokenOfferCards = paginateTokenOfferCards(
 		tokenOfferCardsBeforeState
-			.map((card) => ({ ...card, offers: card.offers.filter(matchesState) }))
+			.map((card) => ({ ...card, offers: selectState(card.offers) }))
 			.filter((card) => card.offers.length > 0),
 		searchParams.get('cursor')
 	);
 	bidBook.bids =
 		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
 			? tokenOfferCards.items.flatMap((card) => card.offers)
-			: bidBook.bids.filter(matchesState);
+			: selectState(bidBook.bids);
 	if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 		bidBook.state.rowCount = bidBook.bids.length;
 	}
@@ -892,6 +910,9 @@ function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScena
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesWithoutOwn) {
+		return ownStateBidRows(false).filter((bid) => !bid.maker.isOwn);
+	}
 	if (
 		scenario === BIDDING_E2E_SCENARIO.OwnBidStates ||
 		scenario === BIDDING_E2E_SCENARIO.OwnBidStatesUpdated
@@ -914,6 +935,12 @@ function ownStateBidRows(updated: boolean): ApiBiddingBidBookRow[] {
 		(scopeKind) => {
 			const phases = Object.values(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE);
 			const positions = Object.values(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION);
+			const opponentIds =
+				BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS[
+					scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token
+						? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+						: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+				];
 			const common = (index: number): BidRowCommonParams => ({
 				orderId: `own-state-${scopeKind}-${index}`,
 				scopeKind,
@@ -928,6 +955,25 @@ function ownStateBidRows(updated: boolean): ApiBiddingBidBookRow[] {
 				priceEth: '0.300'
 			});
 			return [
+				// API token offers arrive in descending price order.
+				bidRow({
+					...common(phases.length),
+					orderId: opponentIds.Other,
+					traits:
+						scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
+							? [{ type: 'Mode', value: 'Origin' }]
+							: [],
+					maker: MARKET_ADDRESS_B,
+					priceEth: '0.400'
+				}),
+				bidRow({
+					...common(
+						phases.length + positions.indexOf(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing)
+					),
+					orderId: opponentIds.Matching,
+					maker: MARKET_ADDRESS_A,
+					priceEth: '0.350'
+				}),
 				...phases.map((phase, index) =>
 					bidRow({
 						...common(index),

@@ -716,7 +716,7 @@
 			mediaPreference: media.preference,
 			maker: null,
 			ownershipFilter: nextOwnershipFilter,
-			ownStateFilter: nextOwnershipFilter ? ownStateFilter : null,
+			ownStateFilter,
 			showMuted
 		});
 		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -733,8 +733,8 @@
 			traitJoinMode,
 			mediaMode,
 			mediaPreference: media.preference,
-			maker: nextState ? null : makerFilter,
-			ownershipFilter: nextState ? COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own : ownershipFilter,
+			maker: makerFilter,
+			ownershipFilter,
 			ownStateFilter: nextState,
 			showMuted
 		});
@@ -743,7 +743,7 @@
 	}
 
 	function isShowingOwnBids(): boolean {
-		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own || ownStateFilter !== null;
+		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own;
 	}
 
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
@@ -1163,13 +1163,21 @@
 				{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="secondary-tabs" aria-label="Own bid filter">
 						{#if isShowingOwnBids()}
-							<a href={ownershipFilterHref(null)}>all bids</a>
-							<button type="button" class="secondary-tab-active" disabled>my bids</button>
+							<a href={ownershipFilterHref(null)}>{BID_BOOK_FILTER_LABEL.AllBids}</a>
+							<button type="button" class="secondary-tab-active" disabled>{BID_BOOK_FILTER_LABEL.OwnBids}</button>
 						{:else}
+							{#if !makerFilter}
+								<button type="button" class="secondary-tab-active" disabled>{BID_BOOK_FILTER_LABEL.AllBids}</button>
+							{:else}
+								<a href={ownershipFilterHref(null)}>{BID_BOOK_FILTER_LABEL.AllBids}</a>
+							{/if}
 							<a
 								href={ownershipFilterHref(COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own)}
-								>my bids</a
+								>{BID_BOOK_FILTER_LABEL.OwnBids}</a
 							>
+						{/if}
+						{#if ownStateFilter && activeOwnBidStateCounts?.total === 0}
+							<a href={ownStateFilterHref(null)} data-sveltekit-noscroll>{BID_BOOK_FILTER_LABEL.ClearOwnState}</a>
 						{/if}
 					</div>
 				{/if}

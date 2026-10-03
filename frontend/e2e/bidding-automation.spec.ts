@@ -42,6 +42,7 @@ import {
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 import {
 	BIDDING_E2E_FIRST_RUN_INTENT,
+	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM
 } from '../src/lib/e2e/bidding-automation-fixtures';
@@ -74,7 +75,7 @@ test.describe('bidding automation fixture harness', () => {
 			await page.clock.install();
 			await openHarnessPage(
 				page,
-				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
 			);
 			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
 			await expect(tabs.locator('a, .secondary-tab-active')).toHaveText([
@@ -189,26 +190,142 @@ test.describe('bidding automation fixture harness', () => {
 			await expect(page.locator('.bid-book-empty')).toHaveCount(0);
 		});
 
-		test(`hides the entire ${scope} state row when All has no matches without navigating`, async ({
+		test(`keeps ownership and own state independent in ${scope} scope with opponent context`, async ({
 			page
-		}) => {
+		}, testInfo) => {
 			await installBiddingAutomationApiMock(page);
 			await page.clock.install();
 			await openHarnessPage(
 				page,
-				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning}&traits=Mode:NoMatchingValue&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
 			);
-			await expect(page.locator('.bid-book-empty')).toBeVisible();
+			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+			const opponentIds = BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS[scope];
+			const matchedOpponent = page.locator(
+				`tr:has([data-open-sea-order-hash="${opponentIds.Matching}"])`
+			);
+			const otherOpponent = page.locator(
+				`tr:has([data-open-sea-order-hash="${opponentIds.Other}"])`
+			);
+			const expectOpponentContext = async (present: boolean) => {
+				if (scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits) {
+					if (present) await expect(matchedOpponent).toBeVisible();
+					else await expect(matchedOpponent).toHaveCount(0);
+					await expect(otherOpponent).toHaveCount(0);
+				} else {
+					const card = tokenCard(page, '101');
+					await expect(card.locator('.token-grid-secondary-meta')).toHaveText(
+						present ? '2 offers' : '1 offer'
+					);
+					await expect(card.locator('.bid-price')).toContainText(
+						present ? '0.35 WETH' : '0.3 WETH'
+					);
+					await expect(tokenCard(page, '103')).toHaveCount(0);
+				}
+			};
+			const assertSelection = (state: string, ownership: string | null) => {
+				const query = new URL(page.url()).searchParams;
+				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(state);
+				expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(ownership);
+			};
+			await tabs.getByRole('link', { name: 'losing [1]', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+			assertSelection(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing, null);
+			await expect(
+				page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.AllBids, exact: true })
+			).toBeDisabled();
+			await expectOpponentContext(true);
+			await expect(
+				page.locator(ownStatusSelector(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning))
+			).toHaveCount(0);
+			await expect(tabs).toContainText('All [14]');
+			await testInfo.attach(`own-state-${scope}-with-opponents.png`, {
+				body: await page.screenshot({
+					path: testInfo.outputPath(`own-state-${scope}-with-opponents.png`),
+					fullPage: true
+				}),
+				contentType: 'image/png'
+			});
+			await page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.OwnBids, exact: true }).click();
+			await expect(
+				page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids, exact: true })
+			).toBeDisabled();
+			assertSelection(
+				TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+				COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+			);
+			await expectOpponentContext(false);
+			await expect(tabs).toContainText('All [14]');
+			await page.screenshot({
+				path: testInfo.outputPath(`own-state-${scope}-own-only.png`),
+				fullPage: true
+			});
+			await tabs.getByRole('link', { name: 'at ceiling [1]', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('at ceiling [1]');
+			assertSelection(
+				TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+				COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+			);
+			await page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.AllBids, exact: true }).click();
+			await expectOpponentContext(true);
+			assertSelection(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling, null);
+			await tabs.getByRole('link', { name: 'All [14]', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('All [14]');
+			expect(
+				new URL(page.url()).searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+			).toBeNull();
+			expect(new URL(page.url()).searchParams.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBeNull();
+		});
+
+		test(`hides the entire ${scope} state row when own rows disappear and allows manual recovery`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page);
+			await page.clock.install();
+			await openHarnessPage(
+				page,
+				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+			);
+			await expect(
+				page.locator(ownStatusSelector(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning))
+			).toBeVisible();
 			const selectedUrl = page.url();
+			api.setBidBookScenario(BIDDING_E2E_SCENARIO.OwnBidStatesWithoutOwn);
 			await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+			await expect(page.locator('.bid-book-empty')).toBeVisible();
 			await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(
 				0
 			);
 			expect(page.url()).toBe(selectedUrl);
-			await page.getByRole('link', { name: 'all bids', exact: true }).click();
+			await page.screenshot({
+				path: testInfo.outputPath(`own-state-${scope}-no-own-rows.png`),
+				fullPage: true
+			});
+			await page
+				.getByRole('link', { name: BID_BOOK_FILTER_LABEL.ClearOwnState, exact: true })
+				.click();
 			await expect(page).not.toHaveURL(
 				new RegExp(`${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=`)
 			);
+			expect(new URL(page.url()).searchParams.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBeNull();
+			await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+			if (scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits) {
+				await expect(
+					page.locator(
+						`tr:has([data-open-sea-order-hash="${BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS[scope].Matching}"])`
+					)
+				).toBeVisible();
+			} else {
+				await expect(tokenCard(page, '101').locator('.token-grid-secondary-meta')).toHaveText(
+					'1 offer'
+				);
+			}
+			await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(
+				0
+			);
+			await expect(
+				page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.ClearOwnState, exact: true })
+			).toHaveCount(0);
 		});
 	}
 
@@ -612,7 +729,7 @@ test.describe('bidding automation fixture harness', () => {
 			)
 		});
 		await expect(opponentGroup).toBeVisible();
-		const myBidsLink = page.getByRole('link', { name: 'my bids' });
+		const myBidsLink = page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.OwnBids });
 		const myBidsHref = await myBidsLink.getAttribute('href');
 		if (!myBidsHref) {
 			throw new Error('my bids link is missing its destination');
@@ -630,8 +747,8 @@ test.describe('bidding automation fixture harness', () => {
 			)
 		);
 		await expect(opponentGroup).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'my bids' })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'all bids' })).toBeVisible();
+		await expect(page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids })).toBeVisible();
+		await expect(page.getByRole('link', { name: BID_BOOK_FILTER_LABEL.AllBids })).toBeVisible();
 		const intentRow = rowForJob(page, BIDDING_E2E_FIRST_RUN_INTENT.JobId);
 		await expect(intentRow).toBeVisible();
 		const makerCell = intentRow.locator('.bid-book-maker-cell');

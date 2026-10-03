@@ -52,7 +52,10 @@ export type BidBookRowsTableScope =
 export const BID_BOOK_FILTER_ALL_LABEL = 'All';
 export const BID_BOOK_FILTER_LABEL = {
 	Traits: 'Bid trait buckets',
-	OwnState: 'Own bid state filter'
+	OwnState: 'Own bid state filter',
+	AllBids: 'all bids',
+	OwnBids: 'my bids',
+	ClearOwnState: 'clear state filter'
 } as const;
 
 export type BidBookFilterTab<Key extends string = string> = {
