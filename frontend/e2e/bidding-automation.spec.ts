@@ -1099,6 +1099,7 @@ test.describe('bidding automation fixture harness', () => {
 			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
 		],
 		['holder browser', `${COLLECTION_PATH}/holders/${BIDDING_E2E_HOLDER_ADDRESS}?traits=Biome:42`],
+		['token detail', `${COLLECTION_PATH}/101`],
 		['offers', `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`]
 	]) {
 		test(`recovers extra targets inventory in the ${entry} bidding picker`, async ({
@@ -1155,9 +1156,16 @@ test.describe('bidding automation fixture harness', () => {
 				expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
 			}
 			await inventoryRequested;
-			await page
-				.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
-				.click();
+			if (entry === 'token detail') {
+				await page
+					.locator(`[data-testid="${TEST_IDS.BidBookRowBid}"][data-traits="Biome=42"]`)
+					.first()
+					.click();
+			} else {
+				await page
+					.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+					.click();
+			}
 			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
 			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
 			await expect(panel).toContainText('job-trait-biome-42');
