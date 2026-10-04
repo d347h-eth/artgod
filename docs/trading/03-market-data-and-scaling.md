@@ -149,11 +149,12 @@ deliberately conservative.
 
 Ordinary trait-scoped collection jobs apply inclusive competition to that shared
 snapshot: collection-wide offers, offers targeting any nonempty subset of the
-job's traits, and standalone trait offers matching its extra competition
-selectors. Whole-key selectors match observed values directly, without trait
+job's traits, and standalone trait offers matching its extra selectors.
+Whole-key selectors match observed values directly, without trait
 enumeration or a request per value. Explicit token offers and additional
 multi-trait combinations remain excluded. Collection-only jobs keep their
-collection-wide scope.
+collection-wide scope. [Trait Bidding Competition](04-trait-competition.md#competition-rules)
+owns the matching rules and examples.
 
 When a trait job has no shared snapshot, its fallback reads every page of the
 all-offers endpoint before applying the same policy. A failed page or repeated
@@ -195,6 +196,32 @@ repeated; they do not bound one traversal.
 its results depend on current OpenSea data and credentials. The repository does
 not contain a checked-in measurement that establishes stable fetch time,
 projection time, scope distribution, or price ordering.
+
+### Trait Competition Processing
+
+Sharing a snapshot avoids repeated network acquisition, but each collection
+job still scans its raw offers and parses matching candidates. Across `J` jobs
+and `N` snapshot offers, this repeats `J * N` offer visits. Extra-selector
+matching adds a linear search over at most 64 selectors; whole-key choices do
+not multiply this work by the key's value cardinality.
+
+Offer accumulation uses first-wins ID deduplication through linear array
+searches, both while collecting candidates and while merging them into the
+result. With `K` distinct matching orders, these searches can perform quadratic
+work in `K`. Broader subset matching and extras can increase `K` without
+increasing the raw snapshot size.
+
+Preset references are resolved in the joined job query, but selector JSON is
+decoded and normalized for each referencing job. Sharing one immutable version
+on disk does not share that decoded object across jobs. Source wildcards reduce
+inventory cardinality without adding per-value lookups.
+
+Warm snapshot CPU, allocation, and command latency need measurement separately
+from network acquisition, retry, and missing-snapshot fallback. Functional
+coverage does not establish negligible processing cost. Replacing linear
+deduplication with a Set or Map that preserves the first observed payload is a
+candidate optimization; normalized snapshot or version caches and indexes also
+require measured benefit and correct invalidation before adoption.
 
 ## Current Limits and Future Direction
 
