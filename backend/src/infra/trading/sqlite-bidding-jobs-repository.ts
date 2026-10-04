@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
     assertCompetitionPresetSelection,
-    normalizeTraitBiddingTarget,
+    normalizeCompetitionPresetTarget,
     TraitCompetitionValidationError,
 } from "@artgod/shared/trading/trait-competition";
 import {
@@ -727,7 +727,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             assertCompetitionPresetSelection(
                 row
                     ? {
-                          targetTraits: normalizeTraitBiddingTarget(
+                          targetTraits: normalizeCompetitionPresetTarget(
                               JSON.parse(row.target_traits_json),
                           ),
                           revision: row.revision,

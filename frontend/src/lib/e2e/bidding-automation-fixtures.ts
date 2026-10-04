@@ -503,7 +503,7 @@ export const BIDDING_E2E_COMPETITION_PRESET_ID = {
 } as const;
 export function biddingCompetitionPresetFixture(
 	presetId: string,
-	targetTraits: import('@artgod/shared/types').TradingTraitCriterion[],
+	targetTraits: import('@artgod/shared/types').TradingTraitCompetitionSelector[],
 	extraCompetitionTraits: import('@artgod/shared/types').TradingTraitCompetitionSelector[],
 	revision = 1
 ): import('@artgod/shared/types').TradingCompetitionPreset {

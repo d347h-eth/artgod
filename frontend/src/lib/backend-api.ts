@@ -1374,7 +1374,7 @@ export async function upsertCompetitionPreset(
 	body: {
 		presetId?: string;
 		expectedRevision?: number;
-		targetTraits: TradingTraitCriterion[];
+		targetTraits: TradingTraitCompetitionSelector[];
 		extraCompetitionTraits: TradingTraitCompetitionSelector[];
 	}
 ): Promise<CompetitionPresetsApiResponse> {

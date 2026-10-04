@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isConfirmationActionTarget } from '$lib/action-confirmation';
 	import {
 		TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 		TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
@@ -540,35 +541,19 @@
 	}
 
 	function onWindowPointerDown(event: PointerEvent): void {
-		if (eventHitsArmedAction(event.target)) {
+		if (isConfirmationActionTarget(event.target, armedActionKey, 'data-price-tier-action')) {
 			return;
 		}
 		armedActionKey = null;
 	}
 
 	function onWindowFocusIn(event: FocusEvent): void {
-		if (eventHitsArmedAction(event.target)) {
+		if (isConfirmationActionTarget(event.target, armedActionKey, 'data-price-tier-action')) {
 			return;
 		}
 		armedActionKey = null;
 	}
 
-	function eventHitsArmedAction(target: EventTarget | null): boolean {
-		if (!armedActionKey || !(target instanceof Element)) {
-			return false;
-		}
-		let element: Element | null = target;
-		while (element) {
-			if (
-				element instanceof HTMLElement &&
-				element.dataset.priceTierAction === armedActionKey
-			) {
-				return true;
-			}
-			element = element.parentElement;
-		}
-		return false;
-	}
 </script>
 
 <svelte:window onpointerdown={onWindowPointerDown} onfocusin={onWindowFocusIn} />

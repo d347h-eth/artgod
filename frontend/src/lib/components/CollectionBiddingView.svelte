@@ -1182,6 +1182,7 @@
 							activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems === 0
 						}
 						onToggleTiers={togglePriceTierPanel}
+						showCompetitionPresetAction={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
 						competitionPresetsActive={competitionPresetsOpen}
 						onToggleCompetitionPresets={() => {
 							competitionPresetsOpen = !competitionPresetsOpen;
@@ -1202,10 +1203,6 @@
 						tierActionActive={priceTierPanelOpen}
 						collectionActionDisabled={activeBidBook.bids.length === 0}
 						onToggleTiers={togglePriceTierPanel}
-						competitionPresetsActive={competitionPresetsOpen}
-						onToggleCompetitionPresets={() => {
-							competitionPresetsOpen = !competitionPresetsOpen;
-						}}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}
 						onClear={clearBiddingSelection}
@@ -1220,9 +1217,13 @@
 			{chain}
 			{collection}
 			{facets}
-			open={competitionPresetsOpen}
-			onClose={() => { competitionPresetsOpen = false; }}
-			onPresetsChange={(value) => { competitionPresets = value; }}
+			open={competitionPresetsOpen && bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
+			onClose={() => {
+				competitionPresetsOpen = false;
+			}}
+			onPresetsChange={(value) => {
+				competitionPresets = value;
+			}}
 		/>
 	{/if}
 	{#if priceTierPanelOpen && collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

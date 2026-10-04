@@ -142,7 +142,9 @@ export type TradingCompetitionPresetVersion = {
     versionId: string;
     presetId: string;
     revision: number;
-    targetTraits: TradingTraitCriterion[];
+    // An omitted source value applies the preset to any exact value of that key.
+    // This pattern never becomes the declared marketplace offer target.
+    targetTraits: TradingTraitCompetitionSelector[];
     extraCompetitionTraits: TradingTraitCompetitionSelector[];
 };
 

@@ -137,6 +137,68 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
+    it("shares wildcard preset references across exact job targets and rejects other key combinations", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+        };
+        const preset = presets.savePreset({
+            ...input,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone" },
+            ],
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        for (const value of ["Kairo", "Elsewhere"]) {
+            const targetTraits = [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value },
+            ];
+            const created = repository.upsertCollectionJob({
+                ...input,
+                targetTraits,
+                competitionPresetVersionId: preset.versionId,
+            });
+            assert.deepEqual(created.job.targetTraits, targetTraits);
+            assert.equal(
+                created.job.competitionPreset?.versionId,
+                preset.versionId,
+            );
+            assert.deepEqual(
+                repository.getJobById(created.job.jobId),
+                created.job,
+            );
+        }
+        for (const targetTraits of [
+            [{ type: "Mode", value: "Terrain" }],
+            [
+                { type: "Mode", value: "Daydream" },
+                { type: "Zone", value: "Kairo" },
+            ],
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        ])
+            assert.throws(() =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    targetTraits,
+                    competitionPresetVersionId: preset.versionId,
+                }),
+            );
+        assert.equal(repository.listCollectionJobs(input).length, 2);
+        assert.equal(repository.listPendingCommands({ limit: 10 }).length, 2);
+    });
+
     it("pins immutable preset versions and preserves the reference through pricing edits", () => {
         const repository = new SqliteBiddingJobsRepository();
         const presets = new SqliteBiddingCompetitionPresetsRepository();

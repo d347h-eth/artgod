@@ -447,6 +447,7 @@ Target controls:
 - `bid on this page`: narrows token jobs to currently loaded token cards
 - `place collection bid`: creates or edits the collection-wide target
 - `tiers`: opens collection price-tier management
+- `extra targets`: opens versioned extra-target presets only in Offers' traits view
 
 Selection behavior:
 

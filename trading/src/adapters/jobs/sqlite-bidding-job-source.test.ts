@@ -180,7 +180,7 @@ describe("SqliteBiddingJobSource", () => {
             "source-v1",
             "source-preset",
             1,
-            JSON.stringify([{ type: "Background", value: "Gold" }]),
+            JSON.stringify([{ type: "Background" }]),
             JSON.stringify([
                 { type: "Mode" },
                 { type: "Zone", value: "Kairo" },

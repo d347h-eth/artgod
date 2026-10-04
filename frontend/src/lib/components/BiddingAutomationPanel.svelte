@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isConfirmationActionTarget } from '$lib/action-confirmation';
 	import type {
 		TradingCompetitionPreset,
 		TradingCompetitionPresetVersion
@@ -392,19 +393,10 @@
 	}
 
 	function clearArmedActionUnlessTarget(target: EventTarget | null): void {
-		if (!armedAction || isArmedActionTarget(target, armedAction)) {
+		if (!armedAction || isConfirmationActionTarget(target, armedAction, 'data-bidding-action')) {
 			return;
 		}
 		armedAction = null;
-	}
-
-	function isArmedActionTarget(
-		target: EventTarget | null,
-		action: ConfirmableBiddingAction
-	): boolean {
-		return target instanceof HTMLElement
-			? target.closest(`[data-bidding-action="${action}"]`) !== null
-			: false;
 	}
 
 	async function confirmBiddingAction(
@@ -1070,8 +1062,13 @@
 			</div>
 			{#if isOrdinaryTraitJob}
 				<div class="bootstrap-form-row token-bidding-competition-row">
-					<span class="runtime-k">competitive extras</span>
-					<div class="secondary-tabs token-bidding-competition-options" aria-label="Competitive extras">
+					<label for="bidding-extra-targets-select"><span>extra targets</span></label>
+					<div
+						id="bidding-extra-targets-select"
+						class="secondary-tabs token-bidding-competition-options"
+						role="group"
+						aria-label="Extra targets"
+					>
 						<button
 							type="button"
 							class:secondary-tab-active={selectedCompetitionVersionId === null}
@@ -1088,6 +1085,7 @@
 						{#each competitionOptions as preset (preset.versionId)}
 							<button
 								type="button"
+								title={competitionTraitsLabel(preset.extraCompetitionTraits)}
 								class:secondary-tab-active={selectedCompetitionVersionId === preset.versionId}
 								aria-pressed={selectedCompetitionVersionId === preset.versionId}
 								disabled={pricingInputsDisabled || selectedCompetitionVersionId === preset.versionId}

@@ -306,6 +306,10 @@ Specific controls:
 Control rules:
 
 - `tiers` toggles collection price-tier management.
+- `extra targets` toggles collection extra-target presets only in the Offers
+  `traits` view. Its editor reuses price-tier headers, tables, field columns and
+  armed action buttons. Sources have at most two unique keys; source and extra
+  dropdowns distinguish `any (all values)` from literal metadata values.
 - `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
 - `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
 - On holder-token pages, `bid on all tokens` is additionally constrained to tokens currently held by that owner.

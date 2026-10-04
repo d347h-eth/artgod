@@ -7,7 +7,7 @@ import type {
 } from "@artgod/shared/types";
 import {
     normalizeExtraCompetitionTraits,
-    normalizeTraitBiddingTarget,
+    normalizeCompetitionPresetTarget,
     TraitCompetitionValidationError,
 } from "@artgod/shared/trading/trait-competition";
 import {
@@ -21,7 +21,7 @@ export type CompetitionPresetDefinition = {
     presetId?: string;
     // Required on edit to prevent stale editors from overwriting a newer version.
     expectedRevision?: number;
-    targetTraits: TradingTraitCriterion[];
+    targetTraits: TradingTraitCompetitionSelector[];
     extraCompetitionTraits: TradingTraitCompetitionSelector[];
 };
 export interface BiddingCompetitionPresetsRepositoryPort {
@@ -87,10 +87,10 @@ export class BiddingCompetitionPresetsUseCase {
         input: UpsertCompetitionPresetInput,
     ): CompetitionPresetsOutput {
         const { chain, collection, scope } = this.resolveScope(input);
-        let targetTraits: TradingTraitCriterion[];
+        let targetTraits: TradingTraitCompetitionSelector[];
         let extraCompetitionTraits: TradingTraitCompetitionSelector[];
         try {
-            targetTraits = normalizeTraitBiddingTarget(input.targetTraits);
+            targetTraits = normalizeCompetitionPresetTarget(input.targetTraits);
             extraCompetitionTraits = normalizeExtraCompetitionTraits(
                 input.extraCompetitionTraits,
             );
@@ -101,21 +101,28 @@ export class BiddingCompetitionPresetsUseCase {
         }
         if (!extraCompetitionTraits.length)
             throw new TradingValidationError(
-                "Choose at least one competitive extra.",
+                "Choose at least one extra target.",
             );
         assertMarketplaceBiddingSupportedTargetTraits({
             ...scope,
-            targetTraits,
+            targetTraits: targetTraits.filter(
+                (trait): trait is TradingTraitCriterion =>
+                    trait.value !== undefined,
+            ),
             traitBiddingTargetSupportReadPort: this.targets,
         });
-        // Validate extras against the unfiltered collection catalog, never the
-        // current target filter: extras can legitimately refer to other tokens.
+        // Whole source keys and extras use the unfiltered catalog. Do not expand
+        // source wildcards: job creation validates the actual concrete target.
+        const catalogSelectors = [
+            ...targetTraits.filter((trait) => trait.value === undefined),
+            ...extraCompetitionTraits,
+        ];
         const facets = this.catalog.listCollectionTraitCatalog({
             ...scope,
-            keys: [...new Set(extraCompetitionTraits.map((t) => t.type))],
+            keys: [...new Set(catalogSelectors.map((t) => t.type))],
         });
         if (
-            extraCompetitionTraits.some(
+            catalogSelectors.some(
                 (t) =>
                     !facets.some(
                         (f) =>
@@ -126,7 +133,7 @@ export class BiddingCompetitionPresetsUseCase {
             )
         ) {
             throw new TradingValidationError(
-                "Choose competitive extras from this collection's traits.",
+                "Choose the target and extra targets from this collection's traits.",
             );
         }
         this.presets.savePreset({

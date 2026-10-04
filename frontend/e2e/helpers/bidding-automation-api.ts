@@ -1,7 +1,10 @@
 import type { Page, Request } from 'playwright/test';
 import type { BatchTokenBiddingJobSelectionRequest } from '../../src/lib/backend-api';
 import { buildCollectionBiddingQuery } from '../../src/lib/bidding-query';
-import { normalizeExtraCompetitionTraits } from '@artgod/shared/trading/trait-competition';
+import {
+	normalizeExtraCompetitionTraits,
+	normalizeCompetitionPresetTarget
+} from '@artgod/shared/trading/trait-competition';
 import {
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
@@ -171,14 +174,14 @@ export async function installBiddingAutomationApiMock(
 			} else {
 				const definition = body as {
 					presetId?: string;
-					targetTraits: { type: string; value: string }[];
+					targetTraits: { type: string; value?: string }[];
 					extraCompetitionTraits: { type: string; value?: string }[];
 				};
 				const presetId = definition.presetId ?? BIDDING_E2E_COMPETITION_PRESET_ID.Created;
 				const previous = competitionPresets.find((p) => p.presetId === presetId);
 				const saved = biddingCompetitionPresetFixture(
 					presetId,
-					definition.targetTraits,
+					normalizeCompetitionPresetTarget(definition.targetTraits),
 					normalizeExtraCompetitionTraits(definition.extraCompetitionTraits),
 					(previous?.revision ?? 0) + 1
 				);
