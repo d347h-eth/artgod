@@ -5,6 +5,7 @@ import {
 	buildCompetitionPresetReapplyPath
 } from '@artgod/shared/http/trading-routes';
 import { expect, test, type Locator, type Page } from 'playwright/test';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
@@ -85,6 +86,98 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation fixture harness', () => {
+	for (const scope of [
+		COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+		COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+	]) {
+		test(`initializes fresh direct ${scope} entry to My bids and active`, async ({
+			page
+		}, testInfo) => {
+			await installBiddingAutomationApiMock(page);
+			await openHarnessPage(page, COLLECTION_PATH);
+			expect(
+				await page.evaluate(
+					(key) => localStorage.getItem(key),
+					LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences
+				)
+			).toBeNull();
+			await openHarnessPage(
+				page,
+				`${BIDDING_PATH}?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${BID_SCOPE_QUERY_PARAM}=${scope}`
+			);
+			await expect(page).toHaveURL(
+				new RegExp(
+					`${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}`
+				)
+			);
+			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+			await expect(tabs.locator('[aria-current="true"]')).toContainText('active [');
+			await expect(
+				page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids, exact: true })
+			).toBeDisabled();
+			const query = new URL(page.url()).searchParams;
+			expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(scope);
+			expect(query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
+				COLLECTION_MEDIA_MODES.Snapshot
+			);
+			expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+				COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+			);
+			await page.screenshot({
+				path: testInfo.outputPath(`direct-${scope}-my-active.png`),
+				fullPage: true
+			});
+			await page.reload();
+			await expect(tabs.locator('[aria-current="true"]')).toContainText('active [');
+			await page.getByRole('link', { name: 'asks', exact: true }).click();
+			await page.getByRole('link', { name: 'offers', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toContainText('active [');
+			await expect(
+				page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids, exact: true })
+			).toBeDisabled();
+		});
+	}
+
+	test('initializes legacy scope-only entry and keeps empty active selected beside paused', async ({
+		page
+	}, testInfo) => {
+		await page.addInitScript(
+			({ key, scope }) => {
+				if (!localStorage.getItem(key))
+					localStorage.setItem(key, JSON.stringify({ bidScope: scope }));
+			},
+			{
+				key: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
+				scope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+			}
+		);
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStatesOnlyPaused}`
+		);
+		const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+		await expect(tabs.locator('a, .secondary-tab-active, button')).toHaveText([
+			'active [0]',
+			'paused [3]',
+			BID_BOOK_FILTER_LABEL.ResetOwnState
+		]);
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [0]');
+		await expect(
+			page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.OwnBids, exact: true })
+		).toBeDisabled();
+		expect(new URL(page.url()).searchParams.get(BID_SCOPE_QUERY_PARAM)).toBe(
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+		);
+		await page.screenshot({
+			path: testInfo.outputPath('direct-legacy-active-zero.png'),
+			fullPage: true
+		});
+		await tabs.getByRole('link', { name: 'paused [3]', exact: true }).click();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveText('paused [3]');
+		await expect(page.locator('.bid-book-empty')).toHaveCount(0);
+	});
+
 	test('rejects collection-scoped own-state URLs and recovers through browser back', async ({
 		page
 	}, testInfo) => {
@@ -219,6 +312,15 @@ test.describe('bidding automation fixture harness', () => {
 		const query = new URL(page.url()).searchParams;
 		expect(query.has(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(false);
 		expect(query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(false);
+		// A direct visit after an intentional All/reset choice stays unfiltered.
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}`
+		);
+		await expect(
+			page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.AllBids, exact: true })
+		).toBeDisabled();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
 	});
 
 	test('restores trait scope on Offers navigation and keeps active zero beside three paused jobs', async ({
@@ -504,6 +606,7 @@ test.describe('bidding automation fixture harness', () => {
 		test(`keeps ownership and own state independent in ${scope} scope with opponent context`, async ({
 			page
 		}, testInfo) => {
+			await rememberUnfilteredBiddingNavigation(page);
 			await installBiddingAutomationApiMock(page);
 			await page.clock.install();
 			await openHarnessPage(
@@ -706,6 +809,19 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(tabs).toHaveCount(0);
 		await page.getByRole('link', { name: 'traits', exact: true }).click();
 		await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+		await tabs
+			.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+			.click();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+		await expect(
+			page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.AllBids, exact: true })
+		).toBeDisabled();
+		await page.getByRole('link', { name: 'asks', exact: true }).click();
+		await page.getByRole('link', { name: 'offers', exact: true }).click();
+		await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+		await expect(
+			page.getByRole('button', { name: BID_BOOK_FILTER_LABEL.AllBids, exact: true })
+		).toBeDisabled();
 	});
 
 	for (const state of [
@@ -1932,6 +2048,7 @@ test.describe('bidding automation fixture harness', () => {
 	});
 
 	test('supports token-offer visible-page refinement and own-status cards', async ({ page }) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token`);
 
@@ -1963,6 +2080,7 @@ test.describe('bidding automation fixture harness', () => {
 	});
 
 	test('renders token-offer cancellation phases from the bid-book read model', async ({ page }) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -1987,6 +2105,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('opens the bidding panel with cancellation phases from trait bid buckets', async ({
 		page
 	}) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -2042,6 +2161,7 @@ test.describe('bidding automation fixture harness', () => {
 	});
 
 	test('supports trait bucket bid and filter actions independently', async ({ page }, testInfo) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
 
@@ -2092,6 +2212,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('supports top trait bidding with OR filters and existing trait job lookup', async ({
 		page
 	}) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -2130,6 +2251,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('keeps the first bidding job visible and editable before bidder identity exists', async ({
 		page
 	}, testInfo) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -2200,6 +2322,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('keeps collection bidding at one NFT when the top opponent requests multiple NFTs', async ({
 		page
 	}, testInfo) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=collection`);
 
@@ -2556,6 +2679,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('reconciles job deltas across precision boundaries and ignores incompatible defaults', async ({
 		page
 	}) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -2687,6 +2811,7 @@ test.describe('bidding automation fixture harness', () => {
 	test('blocks an incompatible saved tier delta and offers manual recovery', async ({
 		page
 	}, testInfo) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(
 			page,
@@ -2735,6 +2860,7 @@ test.describe('bidding automation fixture harness', () => {
 	});
 
 	test('supports panel tier pricing and floating panel keybindings', async ({ page }) => {
+		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
 
@@ -2820,6 +2946,16 @@ test.describe('bidding automation fixture harness', () => {
 async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+}
+
+// These scenarios exercise the complete market book after an intentional
+// All-bids/reset choice, rather than the default view for a first visit.
+async function rememberUnfilteredBiddingNavigation(page: Page): Promise<void> {
+	await page.addInitScript((key) => {
+		if (!localStorage.getItem(key)) {
+			localStorage.setItem(key, JSON.stringify({ ownershipFilter: null, ownStateFilter: null }));
+		}
+	}, LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences);
 }
 
 function metaValue(summary: Locator, label: string): Locator {

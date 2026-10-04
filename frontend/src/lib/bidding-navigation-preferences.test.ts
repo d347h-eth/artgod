@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER as STATE,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER as OWNERSHIP,
@@ -11,10 +12,17 @@ import {
 	applyCollectionBiddingNavigationPreferenceToQuery,
 	buildCollectionBiddingNavigationQuery,
 	buildCollectionBiddingScopeHref,
+	readCollectionBiddingNavigationPreference,
 	writeCollectionBiddingNavigationPreference
 } from '$lib/bidding-navigation-preferences';
 
 const deployment = vi.hoisted(() => ({ isPublic: false }));
+const environment = vi.hoisted(() => ({ browser: false }));
+vi.mock('$app/environment', () => ({
+	get browser() {
+		return environment.browser;
+	}
+}));
 vi.mock('$lib/runtime/public-deployment', () => ({
 	get IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT() {
 		return deployment.isPublic;
@@ -22,6 +30,8 @@ vi.mock('$lib/runtime/public-deployment', () => ({
 }));
 afterEach(() => {
 	deployment.isPublic = false;
+	environment.browser = false;
+	vi.unstubAllGlobals();
 });
 
 const FILTERS = { selectedTraits: [], selectedTraitRanges: [] };
@@ -202,6 +212,63 @@ describe('buildCollectionBiddingNavigationQuery', () => {
 });
 
 describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
+	it.each([SCOPE.Token, SCOPE.Traits])(
+		'initializes fresh direct %s entry to My bids and active without changing other controls',
+		(bidScope) => {
+			const input = new URLSearchParams({
+				[PARAM.BidScope]: bidScope,
+				[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: COLLECTION_MEDIA_MODES.Snapshot,
+				traits: 'Mode:Terrain',
+				[PARAM.ShowMuted]: 'true'
+			});
+			const query = applyCollectionBiddingNavigationPreferenceToQuery(input, null);
+			expect(query.get(PARAM.Ownership)).toBe(OWNERSHIP.Own);
+			expect(query.get(PARAM.OwnState)).toBe(STATE.Active);
+			expect(query.get(PARAM.BidScope)).toBe(bidScope);
+			expect(query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
+				COLLECTION_MEDIA_MODES.Snapshot
+			);
+			expect(query.getAll('traits')).toEqual(['Mode:Terrain']);
+			expect(query.get(PARAM.ShowMuted)).toBe('true');
+			expect(input.has(PARAM.Ownership)).toBe(false);
+			expect(input.has(PARAM.OwnState)).toBe(false);
+		}
+	);
+	it('uses the same fresh defaults on bare route entry and main Offers navigation', () => {
+		expect(
+			applyCollectionBiddingNavigationPreferenceToQuery(new URLSearchParams(), null).toString()
+		).toBe(buildCollectionBiddingNavigationQuery(FILTERS, null).toString());
+	});
+
+	it.each([
+		new URLSearchParams({ [PARAM.OwnState]: POSITION.Losing }),
+		new URLSearchParams({ [PARAM.Ownership]: OWNERSHIP.Own }),
+		new URLSearchParams({ [PARAM.Maker]: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' })
+	])('keeps explicit bidder/state filtering authoritative for %s', (input) => {
+		expect(applyCollectionBiddingNavigationPreferenceToQuery(input, null).toString()).toBe(
+			input.toString()
+		);
+	});
+
+	it('keeps a remembered All-bids and reset choice unfiltered on direct entry', () => {
+		const input = new URLSearchParams({ [PARAM.BidScope]: SCOPE.Traits });
+		expect(
+			applyCollectionBiddingNavigationPreferenceToQuery(input, {
+				bidScope: SCOPE.Token,
+				ownershipFilter: null,
+				ownStateFilter: null
+			}).toString()
+		).toBe(input.toString());
+	});
+
+	it('does not initialize private filters in public direct entry', () => {
+		deployment.isPublic = true;
+		const input = new URLSearchParams({ [PARAM.BidScope]: SCOPE.Traits });
+		expect(applyCollectionBiddingNavigationPreferenceToQuery(input, null).toString()).toBe(
+			input.toString()
+		);
+	});
+
 	it('adds stored bid scope when URL omits it', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
@@ -210,13 +277,13 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 					bidScope: 'traits'
 				}
 			).toString()
-		).toBe('traits=Mode%3ATerrain&bid_scope=traits');
+		).toBe('traits=Mode%3ATerrain&bid_scope=traits&ownership=own&own_state=active');
 
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(new URLSearchParams(), {
 				bidScope: 'traits'
 			}).toString()
-		).toBe('bid_scope=traits');
+		).toBe('bid_scope=traits&ownership=own&own_state=active');
 	});
 
 	it('keeps explicit URL bid scope ahead of stored values', () => {
@@ -227,7 +294,7 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 					bidScope: 'traits'
 				}
 			).toString()
-		).toBe('bid_scope=collection');
+		).toBe('bid_scope=collection&ownership=own');
 	});
 
 	it('omits stored default values from the generated URL', () => {
@@ -235,7 +302,7 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 			applyCollectionBiddingNavigationPreferenceToQuery(new URLSearchParams(), {
 				bidScope: 'token'
 			}).toString()
-		).toBe('');
+		).toBe('ownership=own&own_state=active');
 	});
 
 	it('persists non-default collection scope explicitly', () => {
@@ -243,7 +310,7 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 			applyCollectionBiddingNavigationPreferenceToQuery(new URLSearchParams(), {
 				bidScope: 'collection'
 			}).toString()
-		).toBe('bid_scope=collection');
+		).toBe('bid_scope=collection&ownership=own');
 	});
 	it('restores scope without reapplying ownership or state to a reset URL', () => {
 		const query = applyCollectionBiddingNavigationPreferenceToQuery(new URLSearchParams(), {
@@ -254,5 +321,38 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 		expect(query.get(PARAM.BidScope)).toBe(SCOPE.Traits);
 		expect(query.has(PARAM.Ownership)).toBe(false);
 		expect(query.has(PARAM.OwnState)).toBe(false);
+	});
+
+	it('retains reset and All-bids navigation if storage cannot write, then resumes persistence', () => {
+		environment.browser = true;
+		let stored = JSON.stringify({
+			bidScope: SCOPE.Traits,
+			ownershipFilter: OWNERSHIP.Own,
+			ownStateFilter: STATE.Active
+		});
+		let writesFail = true;
+		vi.stubGlobal('window', {
+			localStorage: {
+				getItem: () => stored,
+				setItem: (_key: string, value: string) => {
+					if (writesFail) throw new Error('Storage unavailable');
+					stored = value;
+				}
+			}
+		});
+		const reset = { bidScope: SCOPE.Traits, ownershipFilter: null, ownStateFilter: null };
+		writeCollectionBiddingNavigationPreference(reset);
+		expect(readCollectionBiddingNavigationPreference()).toEqual(reset);
+		const query = applyCollectionBiddingNavigationPreferenceToQuery(
+			new URLSearchParams(),
+			readCollectionBiddingNavigationPreference()
+		);
+		expect(query.has(PARAM.Ownership)).toBe(false);
+		expect(query.has(PARAM.OwnState)).toBe(false);
+		expect(buildCollectionBiddingNavigationQuery(FILTERS).has(PARAM.OwnState)).toBe(false);
+		writesFail = false;
+		writeCollectionBiddingNavigationPreference(reset);
+		stored = JSON.stringify({ bidScope: SCOPE.Token });
+		expect(readCollectionBiddingNavigationPreference()).toEqual({ bidScope: SCOPE.Token });
 	});
 });

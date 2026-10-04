@@ -34,23 +34,27 @@ export function readQueryControlPreference<TPreference extends object>(params: {
 	}
 }
 
+// Report persistence so a caller can retain its navigation choice in memory
+// when browser storage is unavailable.
 export function writeQueryControlPreference<TPreference extends object>(params: {
 	storageKey: string;
 	definitions: QueryControlPreferenceDefinitions<TPreference>;
 	preference: TPreference;
 	storage?: QueryControlPreferenceWriteStorage;
-}): void {
+}): boolean {
 	const storage = params.storage ?? browserLocalStorage();
-	if (!storage) return;
+	if (!storage) return false;
 	const normalizedPreference = normalizeQueryControlPreference(
 		params.preference as StoredPreference,
 		params.definitions
 	);
-	if (!normalizedPreference) return;
+	if (!normalizedPreference) return false;
 	try {
 		storage.setItem(params.storageKey, JSON.stringify(normalizedPreference));
+		return true;
 	} catch {
 		// Ignore storage failures and keep navigation state URL-driven.
+		return false;
 	}
 }
 
@@ -187,7 +191,11 @@ function normalizeQueryControlPreference<TPreference extends object>(
 
 function browserLocalStorage(): Storage | null {
 	if (!browser) return null;
-	return window.localStorage;
+	try {
+		return window.localStorage;
+	} catch {
+		return null;
+	}
 }
 
 function normalizeQueryControlScopePath(scopePath: string): string | null {

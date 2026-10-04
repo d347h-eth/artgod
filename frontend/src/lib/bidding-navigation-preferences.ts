@@ -7,11 +7,13 @@ import {
 } from '@artgod/shared/types';
 import {
 	BID_SCOPE_QUERY_PARAM,
+	BID_BOOK_MAKER_QUERY_PARAM,
 	BID_BOOK_OWNERSHIP_QUERY_PARAM,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	buildCollectionBiddingQuery,
 	buildCollectionBiddingHref,
+	parseCollectionBiddingBidScopeFilter,
 	type CollectionBiddingQueryParams,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
@@ -47,7 +49,17 @@ const BIDDING_NAVIGATION_DEFINITIONS = {
 	}
 } satisfies QueryControlPreferenceDefinitions<CollectionBiddingNavigationPreference>;
 
+const PRIVATE_BIDDING_NAVIGATION_DEFAULTS = {
+	ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+	ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+} satisfies Pick<CollectionBiddingNavigationPreference, 'ownershipFilter' | 'ownStateFilter'>;
+
+// A failed storage write must not make the next route load mistake an explicit
+// All-bids/reset choice for a first visit. Keep that choice for this document.
+let unpersistedPreference: CollectionBiddingNavigationPreference | null = null;
+
 export function readCollectionBiddingNavigationPreference(): Partial<CollectionBiddingNavigationPreference> | null {
+	if (browser && unpersistedPreference) return unpersistedPreference;
 	return readQueryControlPreference({
 		storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS
@@ -79,11 +91,12 @@ export function writeCollectionBiddingNavigationPreference(
 				ownershipFilter: current.ownershipFilter,
 				ownStateFilter: ownStateNavigationPreference(current, previous)
 			};
-	writeQueryControlPreference({
+	const persisted = writeQueryControlPreference({
 		storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
 		preference
 	});
+	if (browser) unpersistedPreference = persisted ? null : preference;
 	return preference;
 }
 
@@ -119,27 +132,53 @@ export function buildCollectionBiddingNavigationQuery(
 				? params.ownershipFilter
 				: preference?.ownershipFilter !== undefined
 					? preference.ownershipFilter
-					: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+					: PRIVATE_BIDDING_NAVIGATION_DEFAULTS.ownershipFilter,
 		ownStateFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
 			? null
 			: params.ownStateFilter !== undefined
 				? params.ownStateFilter
 				: preference?.ownStateFilter !== undefined
 					? preference.ownStateFilter
-					: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+					: PRIVATE_BIDDING_NAVIGATION_DEFAULTS.ownStateFilter
 	});
 }
 
-// Route loads restore scope only. Missing ownership/status URL parameters can
-// represent an explicit All-bids or reset action and must stay unfiltered.
+// Initialize unfiltered first visits before fetching or recording preferences.
+// Once a bidder/state URL or remembered selection exists, absent parameters mean
+// All bids/reset rather than another opportunity to apply fresh-user defaults.
 export function applyCollectionBiddingNavigationPreferenceToQuery(
 	query: URLSearchParams,
 	preference: Partial<CollectionBiddingNavigationPreference> | null
 ): URLSearchParams {
-	return applyQueryControlPreferenceToQuery({
+	const preferredQuery = applyQueryControlPreferenceToQuery({
 		query,
 		definitions: { bidScope: BIDDING_NAVIGATION_DEFINITIONS.bidScope },
 		preference
+	});
+	if (
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ||
+		query.has(BID_BOOK_MAKER_QUERY_PARAM) ||
+		query.has(BID_BOOK_OWNERSHIP_QUERY_PARAM) ||
+		query.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState) ||
+		preference?.ownershipFilter !== undefined ||
+		preference?.ownStateFilter !== undefined
+	) {
+		return preferredQuery;
+	}
+	return applyQueryControlPreferenceToQuery({
+		query: preferredQuery,
+		definitions: {
+			ownershipFilter: BIDDING_NAVIGATION_DEFINITIONS.ownershipFilter,
+			ownStateFilter: BIDDING_NAVIGATION_DEFINITIONS.ownStateFilter
+		},
+		preference: {
+			...PRIVATE_BIDDING_NAVIGATION_DEFAULTS,
+			ownStateFilter: bidScopeSupportsOwnStateFilter(
+				parseCollectionBiddingBidScopeFilter(preferredQuery)
+			)
+				? PRIVATE_BIDDING_NAVIGATION_DEFAULTS.ownStateFilter
+				: null
+		}
 	});
 }
 
