@@ -169,6 +169,7 @@
 	let selectionLookupBusy = $state(false);
 	let selectionJobActionBusy = $state<BiddingSelectionJobAction | null>(null);
 	let draftInputTouched = $state(false);
+	let competitionInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
@@ -233,6 +234,7 @@
 	});
 	const competitionChanged = $derived(
 		isOrdinaryTraitJob &&
+			competitionInputTouched &&
 			selectedCompetitionVersionId !== (currentJob?.config.competitionPreset?.versionId ?? null)
 	);
 	const hasDraftChanges = $derived(
@@ -331,6 +333,10 @@
 			})
 		) {
 			currentJob = nextJob;
+			// A pricing edit does not prevent the lookup from hydrating untouched extras.
+			if (!competitionInputTouched) {
+				selectedCompetitionVersionId = nextJob?.config.competitionPreset?.versionId ?? null;
+			}
 			return;
 		}
 
@@ -537,6 +543,7 @@
 		currentDraft: BiddingAutomationDraft | null
 	): void {
 		selectedCompetitionVersionId = value?.config.competitionPreset?.versionId ?? null;
+		competitionInputTouched = false;
 		pricingMode = resolveInitialBiddingAutomationPricingMode({
 			job: value,
 			draft: currentDraft
@@ -617,6 +624,13 @@
 
 	function markDraftInputTouched(): void {
 		draftInputTouched = true;
+	}
+
+	function selectCompetitionPreset(versionId: string | null): void {
+		selectedCompetitionVersionId = versionId;
+		competitionInputTouched = true;
+		markDraftInputTouched();
+		armedAction = null;
 	}
 
 	function tierButtonTitle(tier: ApiBiddingPriceTier): string {
@@ -709,11 +723,9 @@
 				draft,
 				targetTokenId,
 				nextStatus,
-				competitionPresetVersionId: isOrdinaryTraitJob
-					? allowedReadOnlyPause
-						? (currentJob?.config.competitionPreset?.versionId ?? null)
-						: selectedCompetitionVersionId
-					: undefined,
+				// Omission preserves the saved version for price and lifecycle-only updates.
+				competitionPresetVersionId:
+					competitionChanged && !allowedReadOnlyPause ? selectedCompetitionVersionId : undefined,
 				pricing: pricingRequestBody()
 			});
 			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
@@ -1074,11 +1086,7 @@
 							class:secondary-tab-active={selectedCompetitionVersionId === null}
 							aria-pressed={selectedCompetitionVersionId === null}
 							disabled={pricingInputsDisabled || selectedCompetitionVersionId === null}
-							onclick={() => {
-								selectedCompetitionVersionId = null;
-								markDraftInputTouched();
-								armedAction = null;
-							}}
+							onclick={() => selectCompetitionPreset(null)}
 						>
 							none
 						</button>
@@ -1089,11 +1097,7 @@
 								class:secondary-tab-active={selectedCompetitionVersionId === preset.versionId}
 								aria-pressed={selectedCompetitionVersionId === preset.versionId}
 								disabled={pricingInputsDisabled || selectedCompetitionVersionId === preset.versionId}
-								onclick={() => {
-									selectedCompetitionVersionId = preset.versionId;
-									markDraftInputTouched();
-									armedAction = null;
-								}}
+								onclick={() => selectCompetitionPreset(preset.versionId)}
 							>
 								{competitionTraitsLabel(preset.extraCompetitionTraits) + (!competitionPresets.some((p) => p.versionId === preset.versionId) ? ` (v${preset.revision})` : '')}
 							</button>

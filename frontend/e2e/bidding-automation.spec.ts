@@ -49,7 +49,8 @@ import {
 	BIDDING_E2E_FACETS,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
-	BIDDING_E2E_SCENARIO_QUERY_PARAM
+	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	findBiddingE2eJobForTarget
 } from '../src/lib/e2e/bidding-automation-fixtures';
 
 const COLLECTION_PATH = '/e2e-harness/collection';
@@ -1023,6 +1024,71 @@ test.describe('bidding automation fixture harness', () => {
 		expect((await api.nextMutation()).body).toMatchObject({ competitionPresetVersionId: null });
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
 	});
+
+	for (const clearPreset of [false, true]) {
+		test(`preserves ${clearPreset ? 'explicitly cleared' : 'saved'} extra targets during price edits before a delayed lookup`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page);
+			let release!: () => void;
+			let requested!: () => void;
+			const held = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const lookupRequested = new Promise<void>((resolve) => {
+				requested = resolve;
+			});
+			await page.route(
+				'**/bidding/jobs/target-lookup',
+				async (route) => {
+					const job = findBiddingE2eJobForTarget(route.request().postDataJSON());
+					expect(job?.config.competitionPreset?.versionId).toBe(
+						`${BIDDING_E2E_COMPETITION_PRESET_ID.Biome}:v1`
+					);
+					requested();
+					await held;
+					await route.fulfill({ json: { job } });
+				},
+				{ times: 1 }
+			);
+			await openHarnessPage(page, `${COLLECTION_PATH}?token_status=all&traits=Biome:42`);
+			await page
+				.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+				.click();
+			await lookupRequested;
+			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
+			if (clearPreset) {
+				await options.getByRole('button', { name: 'Mode=Terrain', exact: true }).click();
+				await options.getByRole('button', { name: 'none', exact: true }).click();
+			}
+			await fillManualPrice(page, { floor: '0.360', ceiling: '0.400', delta: '0.004' });
+			release();
+			await expect(panel).toContainText('job-trait-biome-42');
+			await expect(
+				options.getByRole('button', { name: clearPreset ? 'none' : 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.360');
+			await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+			const mutation = await api.nextMutation();
+			expect(mutation.body).toMatchObject({
+				floorEth: '0.360',
+				ceilingEth: '0.400',
+				deltaEth: '0.004'
+			});
+			if (clearPreset) expect(mutation.body).toHaveProperty('competitionPresetVersionId', null);
+			else expect(mutation.body).not.toHaveProperty('competitionPresetVersionId');
+			await expect(panel.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+			await expect(
+				options.getByRole('button', { name: clearPreset ? 'none' : 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await page.screenshot({
+				path: testInfo.outputPath(
+					`extra-targets-delayed-lookup-${clearPreset ? 'cleared' : 'preserved'}.png`
+				)
+			});
+		});
+	}
 
 	test('keeps saved extra targets versions until an explicit newer selection', async ({
 		page

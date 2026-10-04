@@ -9,8 +9,10 @@ import {
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	normalizeTradingTraitCriteria
 } from '@artgod/shared/types';
 import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from '@artgod/shared/types';
 import {
@@ -52,6 +54,7 @@ export async function installBiddingAutomationApiMock(
 	const mutations: CapturedBiddingMutation[] = [];
 	let competitionPresets = [...BIDDING_E2E_COMPETITION_PRESETS];
 	const competitionVersions = new Map(competitionPresets.map((p) => [p.versionId, p]));
+	const competitionSelections = new Map<string, string | null>();
 	let pendingResolve: ((mutation: CapturedBiddingMutation) => void) | null = null;
 	let activeScenario: string | null = null;
 	let bidBookScenarioOverride: BiddingE2eScenario | null = null;
@@ -197,8 +200,22 @@ export async function installBiddingAutomationApiMock(
 			bidBookScenarioOverride ?? activeScenario
 		) as { job?: { config: Record<string, unknown> } };
 		if (response.job && url.pathname.endsWith('/bidding/jobs/traits')) {
-			const versionId = (body as { competitionPresetVersionId?: string | null })
+			const targetKey = JSON.stringify(normalizeTradingTraitCriteria(mutationTargetTraits(body)));
+			const requestedVersionId = (body as { competitionPresetVersionId?: string | null })
 				.competitionPresetVersionId;
+			// Match the real mutation contract: omission preserves, null explicitly clears.
+			const versionId =
+				requestedVersionId === undefined
+					? competitionSelections.has(targetKey)
+						? competitionSelections.get(targetKey)!
+						: (findBiddingE2eJobForTarget({
+								target: {
+									type: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+									targetTraits: mutationTargetTraits(body)
+								}
+							})?.config.competitionPreset?.versionId ?? null)
+					: requestedVersionId;
+			competitionSelections.set(targetKey, versionId);
 			response.job.config.competitionPreset = versionId
 				? (competitionVersions.get(versionId) ?? null)
 				: null;
