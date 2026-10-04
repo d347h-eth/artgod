@@ -60,10 +60,15 @@ If a fork point is found:
 - Delete persisted transactions for orphaned blocks.
 
 `RollbackChainRange` first prepares the distinct affected ERC721 tokens, including
-tokens known only through a previous ownership checkpoint. The RPC adapter reuses
-bootstrap's token ownership reader and verifies the fork block hash before and
-after the reads. Unknown RPC failures leave local state untouched; a recognized
-nonexistent-token revert establishes absent ownership.
+tokens known only through a previous ownership checkpoint. Ancestor discovery
+passes the verified chain ID, height, hash and header into rollback preparation.
+The consolidated bootstrap/rollback ownership reader uses `readContractAtBlock`,
+whose RPC adapter sends EIP-1898 `eth_call` with that exact `blockHash` and
+`requireCanonical: true`. Every endpoint retry retains the hash; an unsupported,
+unavailable or noncanonical block is a failure, never a height-only fallback or
+token absence. Fresh header checks before and after the reads also verify the
+requested fork. Unknown RPC failures leave local state untouched; only a
+recognized nonexistent-token revert establishes absent ownership.
 
 One SQLite transaction validates that the rollback plan is still current, writes
 the fork ownership checkpoints (including absent tokens), removes orphaned facts

@@ -1,4 +1,7 @@
-import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
+import type {
+    ChainSyncCheckpoint,
+    VerifiedChainBlock,
+} from "../domain/chain-sync.js";
 import type { Erc721TokenReference } from "../domain/ownership.js";
 
 export type ReorgRollbackPlan = {
@@ -34,7 +37,7 @@ export interface ReorgRollbackStore {
 export interface Erc721RollbackSnapshotPort {
     // Unknown RPC failures must reject; null means proven token absence.
     readSnapshot(input: {
-        blockNumber: number;
+        fork: VerifiedChainBlock;
         tokens: readonly Erc721TokenReference[];
     }): Promise<Erc721RollbackSnapshot>;
 }
@@ -45,15 +48,24 @@ export class RollbackChainRange {
         private readonly ownership: Erc721RollbackSnapshotPort,
     ) {}
 
-    async execute(input: {
-        chainId: number;
-        fromBlock: number;
-    }): Promise<void> {
-        const plan = this.storage.prepareRollback(input);
+    // Preparing reads RPC without a writer; the caller chooses the atomic commit
+    // boundary (plain rollback or rollback plus a durable recovery continuation).
+    async prepare(fork: VerifiedChainBlock): Promise<{
+        plan: ReorgRollbackPlan;
+        snapshot: Erc721RollbackSnapshot;
+    }> {
+        const plan = this.storage.prepareRollback({
+            chainId: fork.chainId,
+            fromBlock: fork.number + 1,
+        });
         const snapshot = await this.ownership.readSnapshot({
-            blockNumber: input.fromBlock - 1,
+            fork,
             tokens: plan.tokens,
         });
-        this.storage.rollbackFromBlock({ plan, snapshot });
+        return { plan, snapshot };
+    }
+
+    async execute(fork: VerifiedChainBlock): Promise<void> {
+        this.storage.rollbackFromBlock(await this.prepare(fork));
     }
 }

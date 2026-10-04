@@ -1,4 +1,7 @@
-import { ChainSyncConflict } from "../domain/chain-sync.js";
+import {
+    ChainSyncConflict,
+    type VerifiedChainBlock,
+} from "../domain/chain-sync.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 
@@ -10,7 +13,7 @@ export async function findCommonAncestor(input: {
     chainId: number;
     startBlock: number;
     reorgDepth: number;
-}): Promise<number | null> {
+}): Promise<VerifiedChainBlock | null> {
     const minBlock = Math.max(
         0,
         input.startBlock - Math.max(1, input.reorgDepth),
@@ -24,7 +27,8 @@ export async function findCommonAncestor(input: {
                 "Fork search RPC returned the wrong block",
             );
         }
-        if (block.hash === storedHash) return number;
+        if (block.hash === storedHash)
+            return { ...block, chainId: input.chainId };
     }
     return null;
 }
