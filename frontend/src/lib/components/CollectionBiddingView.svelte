@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { TradingCompetitionPreset } from '@artgod/shared/types';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
@@ -246,7 +246,7 @@
 	let biddingPanelExpandSignal = $state(0);
 	let priceTierPanelOpen = $state(false);
 	let competitionPresetsOpen = $state(false);
-	let competitionPresets = $state<TradingCompetitionPreset[]>([]);
+	let competitionInventory = $state<BiddingCompetitionPresetInventory | null>(null);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
 	let bidBookMetadataNowMs = $state(Date.now());
@@ -1221,8 +1221,8 @@
 			onClose={() => {
 				competitionPresetsOpen = false;
 			}}
-			onPresetsChange={(value) => {
-				competitionPresets = value;
+			onInventoryChange={(value) => {
+				competitionInventory = value;
 			}}
 		/>
 	{/if}
@@ -1373,7 +1373,7 @@
 			bidBook={activeBidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
-			{competitionPresets}
+			{competitionInventory}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

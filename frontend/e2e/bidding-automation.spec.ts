@@ -47,9 +47,12 @@ import { installBiddingAutomationApiMock } from './helpers/bidding-automation-ap
 import {
 	BIDDING_E2E_FIRST_RUN_INTENT,
 	BIDDING_E2E_FACETS,
+	BIDDING_E2E_HOLDER_ADDRESS,
+	BIDDING_E2E_COMPETITION_PRESETS,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	biddingCompetitionPresetFixture,
 	findBiddingE2eJobForTarget
 } from '../src/lib/e2e/bidding-automation-fixtures';
 
@@ -1086,6 +1089,121 @@ test.describe('bidding automation fixture harness', () => {
 				path: testInfo.outputPath(
 					`extra-targets-delayed-lookup-${clearPreset ? 'cleared' : 'preserved'}.png`
 				)
+			});
+		});
+	}
+
+	for (const [entry, path] of [
+		[
+			'token browser',
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
+		],
+		['holder browser', `${COLLECTION_PATH}/holders/${BIDDING_E2E_HOLDER_ADDRESS}?traits=Biome:42`],
+		['offers', `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`]
+	]) {
+		test(`recovers extra targets inventory in the ${entry} bidding picker`, async ({
+			page
+		}, testInfo) => {
+			await installBiddingAutomationApiMock(page);
+			let releaseFailure!: () => void;
+			let releaseRetry!: () => void;
+			let requested!: () => void;
+			const heldFailure = new Promise<void>((resolve) => {
+				releaseFailure = resolve;
+			});
+			const heldRetry = new Promise<void>((resolve) => {
+				releaseRetry = resolve;
+			});
+			const inventoryRequested = new Promise<void>((resolve) => {
+				requested = resolve;
+			});
+			let attempts = 0;
+			let recoverInventory = false;
+			await page.route('**/bidding/competition-presets', async (route) => {
+				attempts++;
+				if (!recoverInventory) {
+					requested();
+					await heldFailure;
+					await route.fulfill({ status: 500, json: { message: 'Inventory unavailable.' } });
+				} else {
+					await heldRetry;
+					await route.fulfill({
+						json: {
+							presets: [
+								...BIDDING_E2E_COMPETITION_PRESETS,
+								biddingCompetitionPresetFixture(
+									BIDDING_E2E_COMPETITION_PRESET_ID.Created,
+									[{ type: 'Biome' }],
+									[
+										{
+											type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+											value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream
+										}
+									]
+								)
+							]
+						}
+					});
+				}
+			});
+			await openHarnessPage(page, path);
+			if (entry === 'holder browser') {
+				const geometry = await page.evaluate(() => ({
+					width: document.documentElement.clientWidth,
+					scrollWidth: document.documentElement.scrollWidth
+				}));
+				expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+			}
+			await inventoryRequested;
+			await page
+				.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+				.click();
+			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
+			await expect(panel).toContainText('job-trait-biome-42');
+			await expect(panel.getByRole('status')).toHaveText('loading...');
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(panel.getByRole('alert')).toHaveCount(0);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-loading.png')
+			});
+			await fillManualPrice(page, { floor: '0.360', ceiling: '0.400', delta: '0.004' });
+			releaseFailure();
+			await expect(panel.getByRole('alert')).toContainText(
+				'Could not load extra targets. Refresh.',
+				{ timeout: 20_000 }
+			);
+			await expect(panel.getByRole('status')).toHaveCount(0);
+			await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+			await expect(
+				page.getByRole('button', {
+					name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+					exact: true
+				})
+			).toHaveCount(entry === 'offers' ? 1 : 0);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-failed.png')
+			});
+			const failedAttempts = attempts;
+			recoverInventory = true;
+			await options.getByRole('button', { name: 'refresh', exact: true }).click();
+			await expect(panel.getByRole('status')).toHaveText('loading...');
+			await expect(panel.getByRole('alert')).toHaveCount(0);
+			await expect(options.getByRole('button', { name: 'refresh', exact: true })).toHaveCount(0);
+			releaseRetry();
+			await expect(
+				options.getByRole('button', { name: 'Mode=Daydream', exact: true })
+			).toBeVisible();
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(panel.getByRole('status')).toHaveCount(0);
+			await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.360');
+			expect(attempts).toBe(failedAttempts + 1);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-recovered.png')
 			});
 		});
 	}
