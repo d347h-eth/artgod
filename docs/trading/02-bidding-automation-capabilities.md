@@ -169,6 +169,8 @@ Trait-job competition:
   reuse price-tier controls and armed create/modify/archive actions.
 - `source target` contains one or two distinct keys with exact or any values;
   it must match the complete key combination of the concrete job target.
+  The source is fixed after creation; editing allows changes only to extras.
+  Use `reset` to create a different preset for another source.
   `extra targets` contains up to 64 independent exact or whole-key selectors,
   each adding standalone single-trait bids. Extras cannot require a trait pair.
 - Both dropdowns distinguish `any (all)` from a quoted literal metadata value

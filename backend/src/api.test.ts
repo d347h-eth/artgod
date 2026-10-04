@@ -2571,6 +2571,28 @@ describe("backend api routes", () => {
         expect(created.payload.job.config).not.toHaveProperty(
             "extraCompetitionTraits",
         );
+        // Raw clients cannot change applicability even if the new source is valid.
+        for (const targetTraits of [
+            [{ type: "Hat", value: "Cap" }],
+            [{ type: "Hat" }],
+        ]) {
+            const rejected = await resolve(
+                "PUT",
+                path,
+                {
+                    ...definition,
+                    presetId: v1.presetId,
+                    expectedRevision: 1,
+                    targetTraits,
+                },
+                csrf,
+            );
+            expect(rejected.statusCode).toBe(422);
+            expect(rejected.payload.message).toBe(
+                "Source target cannot change. Create a new preset.",
+            );
+            expect((await resolve("GET", path)).payload.presets).toEqual([v1]);
+        }
         const edited = await resolve(
             "PUT",
             path,
@@ -2584,6 +2606,7 @@ describe("backend api routes", () => {
         );
         expect(edited.statusCode).toBe(200);
         expect(edited.payload.presets[0].revision).toBe(2);
+        expect(edited.payload.presets[0].targetTraits).toEqual(v1.targetTraits);
         expect(edited.payload.presets[0].versionId).not.toBe(v1.versionId);
         const lookup = await resolve(
             "POST",

@@ -9,9 +9,42 @@ import {
     normalizeCompetitionPresetTarget,
     competitionTraitsLabel,
     MAX_COMPETITION_PRESET_TARGET_TRAITS,
+    assertCompetitionPresetSourceUnchanged,
 } from "./trait-competition.js";
 
 describe("extra competition selectors", () => {
+    it("preserves source identity across selector ordering and whitespace", () => {
+        expect(() =>
+            assertCompetitionPresetSourceUnchanged(
+                [{ type: "Mode", value: "Terrain" }, { type: "Zone" }],
+                [{ type: " Zone " }, { type: " Mode ", value: " Terrain " }],
+            ),
+        ).not.toThrow();
+    });
+    it("rejects changing source keys, values, wildcard choices or key count", () => {
+        const source = [{ type: "Mode", value: "Terrain" }, { type: "Zone" }];
+        for (const changed of [
+            [{ type: "Biome", value: "Terrain" }, { type: "Zone" }],
+            [{ type: "Mode", value: "Daydream" }, { type: "Zone" }],
+            [{ type: "Mode" }, { type: "Zone" }],
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value: "Kairo" },
+            ],
+            [{ type: "Mode", value: "Terrain" }],
+        ])
+            expect(() =>
+                assertCompetitionPresetSourceUnchanged(source, changed),
+            ).toThrow(TraitCompetitionValidationError);
+        // A literal metadata value named any never stands in for a wildcard.
+        for (const [saved, proposed] of [
+            [[{ type: "Zone" }], [{ type: "Zone", value: "any" }]],
+            [[{ type: "Zone", value: "any" }], [{ type: "Zone" }]],
+        ])
+            expect(() =>
+                assertCompetitionPresetSourceUnchanged(saved, proposed),
+            ).toThrow(TraitCompetitionValidationError);
+    });
     it("applies source wildcards only to the same complete target key combination", () => {
         const preset = {
             targetTraits: normalizeCompetitionPresetTarget([

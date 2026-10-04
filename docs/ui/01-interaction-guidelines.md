@@ -314,6 +314,9 @@ Control rules:
   dropdowns distinguish `any (all)` from quoted literal metadata values, with
   flat options. Field labels align with their first input row; form reset uses
   the same button treatment as tiers and the bidding panel.
+  Editing disables source key, value, add and remove controls while leaving
+  source help available and extras editable. Reset returns to creation mode;
+  another source requires a new preset.
 - `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
 - `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
 - On holder-token pages, `bid on all tokens` is additionally constrained to tokens currently held by that owner.
