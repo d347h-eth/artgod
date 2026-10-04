@@ -9,6 +9,7 @@ import type { BiddingCompetitionPresetsUseCase } from "../../../application/use-
 import {
     parseOptionalString,
     parseRequiredString,
+    parsePositiveRevision,
 } from "./trading-job-http.js";
 
 export type CompetitionPresetsRoute = {
@@ -40,7 +41,7 @@ export class BiddingCompetitionPresetsHttpAdapter {
                 expectedRevision:
                     body.expectedRevision === undefined
                         ? undefined
-                        : parseRevision(body.expectedRevision),
+                        : parsePositiveRevision(body.expectedRevision),
                 targetTraits: normalizeCompetitionPresetTarget(
                     body.targetTraits,
                 ),
@@ -60,7 +61,9 @@ export class BiddingCompetitionPresetsHttpAdapter {
         this.presets.archiveCompetitionPreset({
             ...this.scope(request),
             presetId: parseRequiredString(request.params.preset_id, "presetId"),
-            expectedRevision: parseRevision(request.body?.expectedRevision),
+            expectedRevision: parsePositiveRevision(
+                request.body?.expectedRevision,
+            ),
         });
 
     private scope(request: FastifyRequest<CompetitionPresetsRoute>) {
@@ -69,12 +72,4 @@ export class BiddingCompetitionPresetsHttpAdapter {
             collectionRef: request.params.collection_ref,
         };
     }
-}
-
-function parseRevision(value: unknown): number {
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
-        throw new ReadModelBadRequestError(
-            "expectedRevision must be a positive integer",
-        );
-    return value;
 }

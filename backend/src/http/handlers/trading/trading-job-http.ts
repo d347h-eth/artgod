@@ -49,3 +49,10 @@ export function parseOptionalQuantity(
     }
     return value;
 }
+export function parsePositiveRevision(value: unknown): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+        throw new ReadModelBadRequestError(
+            "expectedRevision must be a positive integer",
+        );
+    return value;
+}

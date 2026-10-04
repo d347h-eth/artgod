@@ -1,12 +1,60 @@
 import type {
+    TradingCompetitionPreset,
     TradingCompetitionPresetVersion,
     TradingTraitCriterion,
 } from "../types/trading.js";
+import { db } from "./db.js";
 import {
     competitionPresetMatchesTarget,
     normalizeExtraCompetitionTraits,
     normalizeCompetitionPresetTarget,
 } from "../trading/trait-competition.js";
+
+export type CurrentBiddingCompetitionPresetRow = {
+    preset_id: string;
+    version_id: string;
+    revision: number;
+    target_traits_json: string;
+    extra_traits_json: string;
+    archived_at: string | null;
+};
+
+export const CURRENT_BIDDING_COMPETITION_PRESET_SELECT =
+    "SELECT p.preset_id, v.version_id, v.revision, v.target_traits_json, v.extra_traits_json, p.archived_at " +
+    "FROM trading_bidding_competition_presets p JOIN trading_bidding_competition_preset_versions v " +
+    "ON v.preset_id = p.preset_id AND v.revision = p.revision ";
+
+export function mapCurrentBiddingCompetitionPresetRow(
+    row: CurrentBiddingCompetitionPresetRow,
+): TradingCompetitionPreset {
+    return {
+        presetId: row.preset_id,
+        versionId: row.version_id,
+        revision: row.revision,
+        targetTraits: normalizeCompetitionPresetTarget(
+            JSON.parse(row.target_traits_json),
+        ),
+        extraCompetitionTraits: normalizeExtraCompetitionTraits(
+            JSON.parse(row.extra_traits_json),
+        ),
+        archivedAt: row.archived_at,
+    };
+}
+
+// The inventory and atomic bulk writer read the same current-version projection.
+export function readCurrentBiddingCompetitionPreset(
+    scope: { chainId: number; collectionId: number },
+    presetId: string,
+): TradingCompetitionPreset | null {
+    const row = db
+        .prepare<
+            [string, number, number]
+        >(CURRENT_BIDDING_COMPETITION_PRESET_SELECT + "WHERE p.preset_id = ? AND p.chain_id = ? AND p.collection_id = ?")
+        .get(presetId, scope.chainId, scope.collectionId) as
+        | CurrentBiddingCompetitionPresetRow
+        | undefined;
+    return row ? mapCurrentBiddingCompetitionPresetRow(row) : null;
+}
 
 // Shared projection resolves versions in the job query, avoiding per-job reads.
 export const BIDDING_COMPETITION_PRESET_SQL = {

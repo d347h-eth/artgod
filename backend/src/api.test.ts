@@ -1,8 +1,13 @@
-import { buildCompetitionPresetsPath } from "@artgod/shared/http/trading-routes";
+import {
+    buildCompetitionPresetsPath,
+    buildCompetitionPresetReapplyPreviewPath,
+    buildCompetitionPresetReapplyPath,
+} from "@artgod/shared/http/trading-routes";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import type { BiddingJobView } from "./application/use-cases/trading/types.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
@@ -1033,6 +1038,10 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/bidding-competition-presets.js");
     const competitionRepositoryModule =
         await import("./infra/trading/sqlite-bidding-competition-presets-repository.js");
+    const competitionReapplyModule =
+        await import("./application/use-cases/trading/bidding-competition-preset-reapply.js");
+    const competitionPresetsRepository =
+        new competitionRepositoryModule.SqliteBiddingCompetitionPresetsRepository();
     const competitionPresetsUseCase =
         new competitionPresetsModule.BiddingCompetitionPresetsUseCase(
             1,
@@ -1040,7 +1049,17 @@ beforeAll(async () => {
             collectionsReadModel,
             baseCollectionsReadModel,
             collectionsReadModel,
-            new competitionRepositoryModule.SqliteBiddingCompetitionPresetsRepository(),
+            competitionPresetsRepository,
+        );
+    const competitionPresetReapplyUseCase =
+        new competitionReapplyModule.BiddingCompetitionPresetReapplyUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            competitionPresetsRepository,
+            biddingJobsRepository,
+            baseCollectionsReadModel,
+            tradingJobCommandSignalPort,
         );
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -1103,6 +1122,7 @@ beforeAll(async () => {
         undefined,
         null,
         competitionPresetsUseCase,
+        competitionPresetReapplyUseCase,
     );
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -1168,6 +1188,7 @@ beforeAll(async () => {
         undefined,
         null,
         competitionPresetsUseCase,
+        competitionPresetReapplyUseCase,
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
@@ -2460,6 +2481,268 @@ describe("backend api routes", () => {
             ceilingEth: "0.17",
             deltaEth: "0.02",
         });
+    });
+
+    it("previews and reapplies selected extra-target jobs while preserving declarations and pinned alternatives", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+        const path = buildCompetitionPresetsPath("ethereum", "milady");
+        const definition = {
+            targetTraits: [{ type: "Hat" }],
+            extraCompetitionTraits: [{ type: "Mood", value: "Calm" }],
+        };
+        const v1 = (await resolve("PUT", path, definition, csrf)).payload
+            .presets[0];
+        const jobs: BiddingJobView[] = [];
+        for (const [index, value] of ["Beanie", "Cap"].entries()) {
+            const created = await resolve(
+                "PUT",
+                "/api/ethereum/milady/bidding/jobs/traits",
+                {
+                    status: index
+                        ? TRADING_JOB_STATUS.Paused
+                        : TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.01",
+                    quantity: index + 1,
+                    targetTraits: [{ type: "Hat", value }],
+                    competitionPresetVersionId: v1.versionId,
+                },
+                csrf,
+            );
+            expect(created.statusCode).toBe(200);
+            jobs.push(created.payload.job);
+        }
+        const v2 = (
+            await resolve(
+                "PUT",
+                path,
+                {
+                    ...definition,
+                    presetId: v1.presetId,
+                    expectedRevision: 1,
+                    extraCompetitionTraits: [{ type: "Mood" }],
+                },
+                csrf,
+            )
+        ).payload.presets[0];
+        const current = (
+            await resolve(
+                "PUT",
+                "/api/ethereum/milady/bidding/jobs/traits",
+                {
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.15",
+                    ceilingEth: "0.3",
+                    deltaEth: "0.02",
+                    quantity: 3,
+                    targetTraits: [{ type: "Hat", value: "Beanie" }],
+                    competitionPresetVersionId: v2.versionId,
+                },
+                csrf,
+            )
+        ).payload.job;
+        const previewPath = buildCompetitionPresetReapplyPreviewPath(
+            "ethereum",
+            "milady",
+            v1.presetId,
+        );
+        const applyPath = buildCompetitionPresetReapplyPath(
+            "ethereum",
+            "milady",
+            v1.presetId,
+        );
+        const preview = await resolve("GET", previewPath);
+        expect(preview.statusCode).toBe(200);
+        expect(preview.payload.preset).toEqual(v2);
+        expect(preview.payload.jobs).toHaveLength(3);
+        expect(
+            preview.payload.jobs.filter(
+                (row: { changed: boolean }) => row.changed,
+            ),
+        ).toHaveLength(2);
+        const selected = jobs[1];
+        const body = {
+            expectedRevision: 2,
+            jobs: [
+                {
+                    jobId: selected.jobId,
+                    expectedRevision: selected.revision,
+                    versionId: v1.versionId,
+                },
+            ],
+        };
+        expect((await resolve("POST", applyPath, body)).statusCode).toBe(403);
+        expect((await resolvePublic("GET", previewPath)).statusCode).toBe(404);
+        expect(
+            (await resolvePublic("POST", applyPath, body, csrf)).statusCode,
+        ).toBe(404);
+        const applied = await resolve("POST", applyPath, body, csrf);
+        expect(applied.statusCode).toBe(200);
+        expect(applied.payload.jobs).toHaveLength(1);
+        expect(applied.payload.jobs[0]).toMatchObject({
+            jobId: selected.jobId,
+            target: selected.target,
+            status: TRADING_JOB_STATUS.Paused,
+            revision: selected.revision + 1,
+            config: {
+                ...selected.config,
+                competitionPreset: {
+                    ...selected.config.competitionPreset,
+                    versionId: v2.versionId,
+                    revision: 2,
+                    extraCompetitionTraits: v2.extraCompetitionTraits,
+                },
+            },
+        });
+        const after = (await resolve("GET", previewPath)).payload.jobs;
+        expect(
+            after.find(
+                (row: { job: { jobId: string } }) =>
+                    row.job.jobId === jobs[0].jobId,
+            ).before.versionId,
+        ).toBe(v1.versionId);
+        expect(
+            after.find(
+                (row: { job: { jobId: string } }) =>
+                    row.job.jobId === current.jobId,
+            ).job.revision,
+        ).toBe(current.revision);
+        expect((await resolve("POST", applyPath, body, csrf)).statusCode).toBe(
+            422,
+        );
+    });
+
+    it("rejects stale and malformed extra-target reapply selections without partial updates", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+        const path = buildCompetitionPresetsPath("ethereum", "milady");
+        const definition = {
+            targetTraits: [{ type: "Hat" }],
+            extraCompetitionTraits: [{ type: "Mood" }],
+        };
+        const v1 = (await resolve("PUT", path, definition, csrf)).payload
+            .presets[0];
+        for (const value of ["Beanie", "Cap"]) {
+            await resolve(
+                "PUT",
+                "/api/ethereum/milady/bidding/jobs/traits",
+                {
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.01",
+                    targetTraits: [{ type: "Hat", value }],
+                    competitionPresetVersionId: v1.versionId,
+                },
+                csrf,
+            );
+        }
+        await resolve(
+            "PUT",
+            path,
+            { ...definition, presetId: v1.presetId, expectedRevision: 1 },
+            csrf,
+        );
+        const previewPath = buildCompetitionPresetReapplyPreviewPath(
+            "ethereum",
+            "milady",
+            v1.presetId,
+        );
+        const applyPath = buildCompetitionPresetReapplyPath(
+            "ethereum",
+            "milady",
+            v1.presetId,
+        );
+        const preview = (await resolve("GET", previewPath)).payload;
+        const body = {
+            expectedRevision: 2,
+            jobs: preview.jobs.map(
+                (row: {
+                    job: { jobId: string; revision: number };
+                    before: { versionId: string };
+                }) => ({
+                    jobId: row.job.jobId,
+                    expectedRevision: row.job.revision,
+                    versionId: row.before.versionId,
+                }),
+            ),
+        };
+        const changed = preview.jobs[1].job;
+        await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/traits",
+            {
+                ...changed.config,
+                status: changed.status,
+                quantity: changed.target.quantity,
+                targetTraits: changed.target.targetTraits,
+                ceilingEth: "0.25",
+            },
+            csrf,
+        );
+        const before = (await resolve("GET", previewPath)).payload;
+        const commands = db
+            .prepare("SELECT * FROM trading_job_commands ORDER BY command_id")
+            .all();
+        const rejected = await resolve("POST", applyPath, body, csrf);
+        expect(rejected.statusCode).toBe(422);
+        expect(rejected.payload.message).toContain("Preview reapply again");
+        expect((await resolve("GET", previewPath)).payload).toEqual(before);
+        expect(
+            db
+                .prepare(
+                    "SELECT * FROM trading_job_commands ORDER BY command_id",
+                )
+                .all(),
+        ).toEqual(commands);
+        for (const malformed of [
+            {},
+            { ...body, jobs: {} },
+            { ...body, expectedRevision: 0 },
+            { ...body, jobs: [null] },
+            { ...body, jobs: [{ ...body.jobs[0], versionId: 123 }] },
+        ]) {
+            expect(
+                (await resolve("POST", applyPath, malformed, csrf)).statusCode,
+            ).toBe(400);
+        }
+        for (const invalid of [
+            { ...body, jobs: [] },
+            { ...body, jobs: [body.jobs[0], body.jobs[0]] },
+            { ...body, jobs: [{ ...body.jobs[0], jobId: "unknown-job" }] },
+        ]) {
+            expect(
+                (await resolve("POST", applyPath, invalid, csrf)).statusCode,
+            ).toBe(422);
+        }
+        await resolve(
+            "PUT",
+            path,
+            { ...definition, presetId: v1.presetId, expectedRevision: 2 },
+            csrf,
+        );
+        expect(
+            (await resolve("POST", applyPath, body, csrf)).payload.message,
+        ).toContain("preset changed");
+        await resolve(
+            "DELETE",
+            buildCompetitionPresetsPath("ethereum", "milady", v1.presetId),
+            { expectedRevision: 3 },
+            csrf,
+        );
+        expect((await resolve("GET", previewPath)).statusCode).toBe(422);
+        expect(
+            (
+                await resolve(
+                    "POST",
+                    applyPath,
+                    { ...body, expectedRevision: 3 },
+                    csrf,
+                )
+            ).statusCode,
+        ).toBe(422);
     });
 
     it("accepts wildcard source presets while keeping job targets concrete and enforcing source bounds", async () => {

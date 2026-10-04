@@ -4,6 +4,10 @@ export const TRADING_API_ROUTE_TEMPLATE = {
         "/api/:chain_ref/:collection_ref/bidding/competition-presets",
     CompetitionPreset:
         "/api/:chain_ref/:collection_ref/bidding/competition-presets/:preset_id",
+    CompetitionPresetReapplyPreview:
+        "/api/:chain_ref/:collection_ref/bidding/competition-presets/:preset_id/reapply-preview",
+    CompetitionPresetReapply:
+        "/api/:chain_ref/:collection_ref/bidding/competition-presets/:preset_id/reapply",
     BiddingJobCeilingPrefills: "/api/:chain_ref/bidding/jobs/ceiling-prefills",
     LookupBatchTokenBiddingJobs:
         "/api/:chain_ref/:collection_ref/bidding/jobs/tokens/lookup",
@@ -18,6 +22,22 @@ export function buildCompetitionPresetsPath(
     return presetId === undefined
         ? base
         : `${base}/${encodeURIComponent(presetId)}`;
+}
+
+export function buildCompetitionPresetReapplyPreviewPath(
+    chainRef: string,
+    collectionRef: string,
+    presetId: string,
+): string {
+    return `${buildCompetitionPresetsPath(chainRef, collectionRef, presetId)}/reapply-preview`;
+}
+
+export function buildCompetitionPresetReapplyPath(
+    chainRef: string,
+    collectionRef: string,
+    presetId: string,
+): string {
+    return `${buildCompetitionPresetsPath(chainRef, collectionRef, presetId)}/reapply`;
 }
 
 // Builds the client route for resolving existing jobs inside a batch token target.

@@ -2,10 +2,19 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
-import { beforeEach, describe, it } from "vitest";
+import { once } from "node:events";
+import { Worker } from "node:worker_threads";
+import { zeroAddress } from "viem";
+import { beforeEach, describe, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { SqliteCollectionsReadModel } from "@artgod/shared/read-models/collections";
+import {
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+} from "@artgod/shared/types/token-attributes";
+import type { TraitBiddingTargetSupportReadPort } from "../../application/use-cases/trading/trait-bidding-target.js";
 import {
     COLLECTION_STANDARD,
     COLLECTION_STATUS,
@@ -23,6 +32,7 @@ import {
 import { SqliteBiddingCompetitionPresetsRepository } from "./sqlite-bidding-competition-presets-repository.js";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
 import { TradingValidationError } from "../../application/use-cases/trading/types.js";
+import { BiddingCompetitionPresetReapplyUseCase } from "../../application/use-cases/trading/bidding-competition-preset-reapply.js";
 
 const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
@@ -75,6 +85,529 @@ describe("SqliteBiddingJobsRepository", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    function seedReapply() {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const scope = { chainId: 1, collectionId };
+        const v1 = presets.savePreset({
+            ...scope,
+            targetTraits: [{ type: "Zone" }],
+            extraCompetitionTraits: [{ type: "Mode" }],
+        });
+        const jobs = [
+            TRADING_JOB_STATUS.Enabled,
+            TRADING_JOB_STATUS.Paused,
+        ].map(
+            (status, index) =>
+                repository.upsertCollectionJob({
+                    ...scope,
+                    status,
+                    quantity: index + 1,
+                    targetTraits: [
+                        { type: "Zone", value: index ? "Elsewhere" : "Kairo" },
+                    ],
+                    floorWei: "10",
+                    ceilingWei: "30",
+                    deltaWei: "2",
+                    competitionPresetVersionId: v1.versionId,
+                    ...(index
+                        ? {
+                              priceTierId: "tier-base",
+                              pricingSource: {
+                                  kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                                  tierId: "tier-base",
+                                  tierName: "base",
+                                  resolvedAt: "2026-01-01T00:00:00Z",
+                                  resolvedFloorWei: "10",
+                                  resolvedCeilingWei: "30",
+                                  deltaWei: "2",
+                              },
+                          }
+                        : {}),
+                }).job,
+        );
+        const v2 = presets.savePreset({
+            ...scope,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            targetTraits: v1.targetTraits,
+            extraCompetitionTraits: [{ type: "Mode", value: "Terrain" }],
+        });
+        const input = {
+            ...scope,
+            presetId: v1.presetId,
+            expectedRevision: 2,
+            jobs: jobs.map((job) => ({
+                jobId: job.jobId,
+                expectedRevision: job.revision,
+                versionId: v1.versionId,
+            })),
+            assertTargetSupported: () => {},
+        };
+        return { repository, presets, scope, v1, v2, jobs, input };
+    }
+
+    function reapplyUseCase(
+        fixture: ReturnType<typeof seedReapply>,
+        supported: (value: string) => boolean = () => true,
+        targets?: TraitBiddingTargetSupportReadPort,
+    ) {
+        const signals: import("@artgod/shared/types").TradingJobCommandRecord[][] =
+            [];
+        const useCase = new BiddingCompetitionPresetReapplyUseCase(
+            1,
+            {
+                resolveChainRef: () => ({
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                }),
+            },
+            {
+                resolveCollectionRef: () => ({
+                    chainId: 1,
+                    collectionId,
+                    slug: BIDDING_JOBS_FIXTURE_SLUG,
+                    address: "0x1111111111111111111111111111111111111111",
+                    standard: COLLECTION_STANDARD.Erc721,
+                    status: COLLECTION_STATUS.Live,
+                    deploymentBlock: null,
+                    bootstrapAnchorBlock: null,
+                    createdAt: "",
+                    updatedAt: "",
+                }),
+            },
+            fixture.presets,
+            fixture.repository,
+            targets ?? {
+                listMarketplaceBiddingSupportedTraits: ({ traits }) =>
+                    traits.filter((trait) => supported(trait.value)),
+            },
+            {
+                publishBiddingJobCommandsChanged: (commands) => {
+                    signals.push(commands);
+                },
+            },
+        );
+        const input = {
+            chainRef: "ethereum",
+            collectionRef: BIDDING_JOBS_FIXTURE_SLUG,
+            presetId: fixture.v1.presetId,
+        };
+        return { useCase, input, signals };
+    }
+
+    it("previews unavailable targets as ineligible and upgrades only reviewed eligible jobs", () => {
+        const fixture = seedReapply();
+        const { useCase, input, signals } = reapplyUseCase(
+            fixture,
+            (value) => value !== "Elsewhere",
+        );
+        const preview = useCase.previewCompetitionPresetReapply(input);
+        assert.equal(preview.jobs.length, 2);
+        assert.equal(preview.jobs.filter((row) => row.error).length, 1);
+        assert.match(
+            preview.jobs.find((row) => row.error)!.error!,
+            /Zone=Elsewhere/,
+        );
+        assert.throws(
+            () =>
+                useCase.applyCompetitionPresetReapply({
+                    ...input,
+                    expectedRevision: 2,
+                    jobs: fixture.input.jobs,
+                }),
+            /not available for marketplace bidding/,
+        );
+        assert.equal(signals.length, 0);
+        assert.deepEqual(
+            fixture.repository
+                .listCollectionJobs(fixture.scope)
+                .map((job) => job.revision),
+            [1, 1],
+        );
+        const applied = useCase.applyCompetitionPresetReapply({
+            ...input,
+            expectedRevision: 2,
+            jobs: [fixture.input.jobs[0]],
+        });
+        assert.equal(applied.jobs.length, 1);
+        assert.equal(
+            applied.jobs[0].config.competitionPreset?.versionId,
+            fixture.v2.versionId,
+        );
+        assert.equal(signals.length, 1);
+        assert.equal(
+            signals[0][0].commandKind,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+    });
+
+    it("previews current versions as unchanged and excludes archived and unrelated jobs", () => {
+        const fixture = seedReapply();
+        fixture.repository.reapplyCompetitionPreset({
+            ...fixture.input,
+            jobs: [fixture.input.jobs[0]],
+        });
+        fixture.repository.archiveJobById({
+            ...fixture.scope,
+            jobId: fixture.jobs[1].jobId,
+        });
+        fixture.repository.upsertCollectionJob({
+            ...fixture.scope,
+            status: TRADING_JOB_STATUS.Enabled,
+            quantity: 1,
+            targetTraits: [{ type: "Mode", value: "Terrain" }],
+            floorWei: "1",
+            ceilingWei: "2",
+            deltaWei: "1",
+        });
+        const { useCase, input } = reapplyUseCase(fixture);
+        const preview = useCase.previewCompetitionPresetReapply(input);
+        assert.equal(preview.jobs.length, 1);
+        assert.equal(preview.jobs[0].changed, false);
+        assert.equal(preview.jobs[0].error, null);
+    });
+
+    it("rejects the whole reapply when another writer revokes target support after preflight", async () => {
+        const fixture = seedReapply();
+        const address = "0x1111111111111111111111111111111111111111";
+        db.prepare(
+            "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?)",
+        ).run(1, collectionId, address, "1");
+        const keyId = Number(
+            db
+                .prepare(
+                    "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
+                )
+                .run(1, collectionId, address, "Zone").lastInsertRowid,
+        );
+        for (const value of ["Kairo", "Elsewhere"]) {
+            const attributeId = Number(
+                db
+                    .prepare(
+                        "INSERT INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
+                    )
+                    .run(1, collectionId, address, keyId, value)
+                    .lastInsertRowid,
+            );
+            db.prepare(
+                "INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+                1,
+                collectionId,
+                address,
+                "1",
+                attributeId,
+                TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+            );
+        }
+        seedBiddingJobRuntimeState({
+            jobId: fixture.jobs[1].jobId,
+            currentPriceWei: "20",
+            activeOrderId: ACTIVE_ORDER_ID,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [],
+            competitorPriceWei: "25",
+        });
+        seedBiddingBotRuntimeState();
+        const targets = new SqliteCollectionsReadModel([zeroAddress]);
+        const { useCase, input, signals } = reapplyUseCase(
+            fixture,
+            () => true,
+            targets,
+        );
+        assert.ok(
+            useCase
+                .previewCompetitionPresetReapply(input)
+                .jobs.every((row) => row.error === null),
+        );
+        const before = fixture.repository.listCollectionJobs(fixture.scope);
+        const commands = fixture.repository.listPendingCommands({ limit: 100 });
+        const worker = new Worker(
+            new URL(
+                "./test-fixtures/revoke-target-support.mjs",
+                import.meta.url,
+            ),
+            {
+                workerData: {
+                    dbPath: db.raw.name,
+                    ...fixture.scope,
+                    key: "Zone",
+                    value: "Kairo",
+                },
+            },
+        );
+        const completion = once(worker, "exit").then(
+            (result) => result,
+            (error) => [error],
+        );
+        const originalWrite = fixture.repository.reapplyCompetitionPreset.bind(
+            fixture.repository,
+        );
+        const write = vi
+            .spyOn(fixture.repository, "reapplyCompetitionPreset")
+            .mockImplementation((selection) => {
+                // Preflight has read the committed metadata while the other writer
+                // holds its lock. Let it revoke support before our writer acquires it.
+                worker.postMessage(null);
+                return originalWrite(selection);
+            });
+        try {
+            await once(worker, "message");
+            assert.throws(
+                () =>
+                    useCase.applyCompetitionPresetReapply({
+                        ...input,
+                        expectedRevision: 2,
+                        // Exercise rollback of the paused job's commands/cancellation
+                        // before the later enabled job fails its support check.
+                        jobs: [...fixture.input.jobs].reverse(),
+                    }),
+                /not available for marketplace bidding: Zone=Kairo/,
+            );
+            assert.deepEqual(await completion, [0]);
+            assert.deepEqual(
+                fixture.repository.listCollectionJobs(fixture.scope),
+                before,
+            );
+            assert.deepEqual(
+                fixture.repository.listPendingCommands({ limit: 100 }),
+                commands,
+            );
+            assert.equal(selectCancellationRequest(ACTIVE_ORDER_ID), undefined);
+            assert.equal(signals.length, 0);
+            assert.equal(
+                useCase
+                    .previewCompetitionPresetReapply(input)
+                    .jobs.filter((row) => row.error).length,
+                1,
+            );
+        } finally {
+            write.mockRestore();
+            await worker.terminate();
+        }
+    });
+
+    it("rejects jobs from another preset, scope or pinned version without changing the batch", () => {
+        const fixture = seedReapply();
+        const other = fixture.presets.savePreset({
+            ...fixture.scope,
+            targetTraits: fixture.v1.targetTraits,
+            extraCompetitionTraits: fixture.v1.extraCompetitionTraits,
+        });
+        const otherJob = fixture.repository.upsertCollectionJob({
+            ...fixture.scope,
+            status: TRADING_JOB_STATUS.Enabled,
+            quantity: 5,
+            targetTraits: fixture.jobs[0].targetTraits,
+            floorWei: "1",
+            ceilingWei: "2",
+            deltaWei: "1",
+            competitionPresetVersionId: other.versionId,
+        }).job;
+        const before = fixture.repository.listCollectionJobs(fixture.scope);
+        const commands = fixture.repository.listPendingCommands({ limit: 100 });
+        for (const input of [
+            { ...fixture.input, collectionId: collectionId + 1 },
+            {
+                ...fixture.input,
+                jobs: [
+                    {
+                        ...fixture.input.jobs[0],
+                        versionId: fixture.v2.versionId,
+                    },
+                ],
+            },
+            {
+                ...fixture.input,
+                jobs: [
+                    fixture.input.jobs[0],
+                    {
+                        jobId: otherJob.jobId,
+                        expectedRevision: otherJob.revision,
+                        versionId: other.versionId,
+                    },
+                ],
+            },
+        ])
+            assert.throws(
+                () => fixture.repository.reapplyCompetitionPreset(input),
+                TradingValidationError,
+            );
+        assert.deepEqual(
+            fixture.repository.listCollectionJobs(fixture.scope),
+            before,
+        );
+        assert.deepEqual(
+            fixture.repository.listPendingCommands({ limit: 100 }),
+            commands,
+        );
+    });
+
+    it("reapplies pinned versions with normal commands, preserving pricing, targets and status", () => {
+        const { repository, scope, v1, v2, jobs, input } = seedReapply();
+        const token = repository.upsertTokenJob({
+            ...scope,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "2",
+            deltaWei: "1",
+        }).job;
+        seedBiddingJobRuntimeState({
+            jobId: jobs[1].jobId,
+            currentPriceWei: "20",
+            activeOrderId: ACTIVE_ORDER_ID,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [],
+            competitorPriceWei: "25",
+        });
+        seedBiddingBotRuntimeState();
+        const before = jobs.map((job) => repository.getJobById(job.jobId)!);
+        const result = repository.reapplyCompetitionPreset(input);
+        expectSameDeclarations();
+        function expectSameDeclarations() {
+            result.jobs.forEach((job, index) => {
+                const prior = before[index];
+                assert.equal(job.jobId, prior.jobId);
+                assert.equal(job.revision, prior.revision + 1);
+                assert.equal(job.status, prior.status);
+                assert.equal(job.floorWei, prior.floorWei);
+                assert.equal(job.ceilingWei, prior.ceilingWei);
+                assert.equal(job.deltaWei, prior.deltaWei);
+                assert.equal(job.priceTierId, prior.priceTierId);
+                assert.deepEqual(job.pricingSource, prior.pricingSource);
+                assert.deepEqual(job.targetTraits, jobs[index].targetTraits);
+                assert.equal(job.quantity, jobs[index].quantity);
+                assert.equal(job.competitionPreset?.versionId, v2.versionId);
+            });
+        }
+        assert.deepEqual(
+            result.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobUpdated,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
+            ],
+        );
+        assert.equal(result.commands[1].payload.activeOrderId, ACTIVE_ORDER_ID);
+        assert.equal(
+            result.commands[1].payload.activeOrderJobRevision,
+            jobs[1].revision,
+        );
+        assert.equal(
+            result.commands[1].payload.activeProtocolAddress,
+            ACTIVE_PROTOCOL_ADDRESS,
+        );
+        assert.equal(
+            result.commands[1].requestedRevision,
+            jobs[1].revision + 1,
+        );
+        assert.equal(
+            selectCancellationRequest(ACTIVE_ORDER_ID)?.job_revision,
+            jobs[1].revision,
+        );
+        assert.deepEqual(repository.getJobById(token.jobId), token);
+        assert.equal(
+            repository.listCompetitionPresetJobs({
+                ...scope,
+                presetId: v1.presetId,
+            }).length,
+            2,
+        );
+    });
+
+    it("rolls back the whole batch when a later selected job has changed", () => {
+        const { repository, scope, jobs, input } = seedReapply();
+        repository.upsertCollectionJob({
+            ...scope,
+            status: jobs[1].status as typeof TRADING_JOB_STATUS.Paused,
+            quantity: jobs[1].quantity,
+            targetTraits: jobs[1].targetTraits,
+            floorWei: "12",
+            ceilingWei: "30",
+            deltaWei: "2",
+        });
+        const before = repository.listCollectionJobs(scope);
+        const commands = repository.listPendingCommands({ limit: 100 });
+        assert.throws(
+            () => repository.reapplyCompetitionPreset(input),
+            /Selected jobs changed/,
+        );
+        assert.deepEqual(repository.listCollectionJobs(scope), before);
+        assert.deepEqual(
+            repository.listPendingCommands({ limit: 100 }),
+            commands,
+        );
+    });
+
+    it("rejects a changed or archived preset inside the write transaction", () => {
+        const { repository, presets, scope, v2, input } = seedReapply();
+        const v3 = presets.savePreset({
+            ...scope,
+            presetId: v2.presetId,
+            expectedRevision: 2,
+            targetTraits: v2.targetTraits,
+            extraCompetitionTraits: v2.extraCompetitionTraits,
+        });
+        const before = repository.listCollectionJobs(scope);
+        const commands = repository.listPendingCommands({ limit: 100 });
+        assert.throws(
+            () => repository.reapplyCompetitionPreset(input),
+            /preset changed/,
+        );
+        presets.archivePreset({
+            ...scope,
+            presetId: v3.presetId,
+            expectedRevision: 3,
+        });
+        assert.throws(
+            () =>
+                repository.reapplyCompetitionPreset({
+                    ...input,
+                    expectedRevision: 3,
+                }),
+            /preset is unavailable/,
+        );
+        assert.deepEqual(repository.listCollectionJobs(scope), before);
+        assert.deepEqual(
+            repository.listPendingCommands({ limit: 100 }),
+            commands,
+        );
+    });
+
+    it("rolls back references, revisions, cancellation records and commands if command insertion fails", () => {
+        const { repository, scope, jobs, input } = seedReapply();
+        seedBiddingJobRuntimeState({
+            jobId: jobs[1].jobId,
+            currentPriceWei: "20",
+            activeOrderId: ACTIVE_ORDER_ID,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [],
+            competitorPriceWei: "25",
+        });
+        seedBiddingBotRuntimeState();
+        const before = repository.listCollectionJobs(scope);
+        const commands = repository.listPendingCommands({ limit: 100 });
+        db.exec(
+            "CREATE TRIGGER reject_reapply_command BEFORE INSERT ON trading_job_commands WHEN NEW.command_kind = 'job_paused' BEGIN SELECT RAISE(ABORT, 'command insert failed'); END",
+        );
+        assert.throws(
+            () => repository.reapplyCompetitionPreset(input),
+            /command insert failed/,
+        );
+        assert.deepEqual(repository.listCollectionJobs(scope), before);
+        assert.deepEqual(
+            repository.listPendingCommands({ limit: 100 }),
+            commands,
+        );
+        assert.equal(selectCancellationRequest(ACTIVE_ORDER_ID), undefined);
     });
 
     it("creates a token bidding job and emits a job_created outbox row", () => {
