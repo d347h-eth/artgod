@@ -171,16 +171,19 @@ DLQ payload:
 intent:
 
 ```ts
-type BackfillSyncPayload = {
+type BackfillRange = {
     fromBlock: number;
     toBlock: number;
-    source:
-        | "manual_historical"
-        | "reorg_recovery"
-        | "bootstrap_catchup"
-        | "gap_repair";
     orderMaintenancePolicy: "current_state" | "skip_global_maker_revalidation";
 };
+type BackfillSyncPayload = BackfillRange &
+    (
+        | { source: "manual_historical" | "bootstrap_catchup" | "gap_repair" }
+        | {
+              source: "reorg_recovery";
+              recovery: { recoveryId: string; revision: number };
+          }
+    );
 ```
 
 Manual historical backfills use `skip_global_maker_revalidation`, which
@@ -194,6 +197,21 @@ retries; a new repair gets a new identity even when a later sweep finds the same
 range missing again. Completion follows sync persistence and downstream fanout,
 and stale duplicate deliveries become no-ops. See
 [gap repair scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair).
+
+Managed reorg resync is chain-wide and uses `current_state`. Its logical identity
+is the recovery ID, chain revision and exact range; its `jobId` additionally
+includes a delivery generation. The recovery owner redrives unfinished work with
+a new transport ID after five minutes, including sent/terminal outbox rows,
+ACKed deliveries and DLQ exhaustion. A broker dedupe hit or publication ACK is
+never completion. The sync worker completes only after persistence and required
+fanout, then atomically retains the next bounded range. See
+[resync after rollback](06-reorg-handling.md#resync-after-rollback).
+
+A new mismatch whose initial SQLite retention fails uses `JobDeferred`, keeping
+the original check retryable beyond the ordinary DLQ budget. After retention,
+SQLite owns retry independently of broker delivery. Reorg and backfill workers
+renew long-running leases through the existing `touch` mechanism; duplicate
+delivery remains fenced by recovery/revision/token identity.
 
 - Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
     - `reorg.block-check`

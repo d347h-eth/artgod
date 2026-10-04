@@ -49,6 +49,12 @@ Block-check jobs are scheduled after blocks become old enough to be safe from sh
 
 If scheduling would fall below block 1, the scheduler-worker logs a warning and skips the check.
 
+`lastChecked` tracks scheduled checks, not completed recovery. The reorg worker
+retains a detected mismatch separately and resumes due proof/resync at startup
+and periodically, including at stationary HEAD. Collection gap sweeps can fill
+missing ancestor headers; covered orphan blocks still require that retained
+[reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
+
 ## Head Sources
 
 The scheduler-worker supports two head sources:

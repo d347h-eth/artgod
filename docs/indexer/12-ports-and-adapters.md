@@ -18,7 +18,7 @@ Provides publish/subscribe semantics with explicit ack/nack/touch.
 
 Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTransactionReceipt` with log chunking and retry behavior.
 
-`readContract` is used for bootstrap ownership snapshots and offchain order
+`readContract` is used for ordinary numeric/latest views and offchain order
 validation. Optional `readContracts` provides bounded Seaport status aggregation;
 `getBalance` is used for native-ETH order checks. Validation snapshots pin these
 reads to an explicit block. See [bounded status aggregates](07-domain-orders.md#bounded-status-aggregates).
@@ -127,6 +127,24 @@ coverage/progress, and detector contracts used by automatic gap repair.
 publication retries, and completion fenced by job ID. The scheduler entrypoint
 constructs these adapters; the sync worker uses the same progress port to
 validate and finish repair jobs after downstream publication.
+
+## Reorg Recovery Port
+
+`RecoverChainReorg` in `application/reorg-recovery.ts` owns mismatch retention,
+bounded proof and recovery retry. Its `ReorgRecoveryStore` contract explicitly
+requires atomic rollback/checkpoint/revision/progress/outbox commitment and
+atomic completed-range advancement. `SqliteReorgRecoveries` implements it using
+the existing rollback storage and queue outbox adapters; RPC stays outside the
+writer. Domain transitions and logical range identity live in
+`domain/reorg-recovery.ts`.
+
+`RollbackChainRange.prepare()` passes an explicit verified fork to the ownership
+port and returns a prepared commit candidate. Plain rollback and durable
+recovery choose their named atomic commit operations; callers do not pass SQL
+callbacks or fabricated transfers. Runtime entrypoints construct these owners
+and delegate queue mapping. `executeReorgResync()` validates the durable logical
+range before the shared production sync/fanout operation and records completion
+after it succeeds.
 
 ## Bidder Index Port
 

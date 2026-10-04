@@ -205,6 +205,26 @@ block hash. Reorg rollback owns removal of old headers before canonical resync.
 The verified fork header is retained with the ownership checkpoint even when
 the fork's transfer history was missing.
 
+### `chain_reorg_recoveries`
+
+Defined in `063_chain_reorg_recoveries.sql`, with one row per operational chain.
+The row records recovery ID, conditional-update version, chain revision, checked
+height, stored/observed hashes, phase, retry eligibility and last proof error.
+`awaiting_ancestor` may also carry the earliest unfinished resync block;
+`resync` records one bounded range, captured target head and delivery generation.
+
+`SqliteReorgRecoveries` commits rollback, ownership checkpoints, revision,
+recovery progress and first outbox job together. Completing a matching range
+advances progress and its next outbox job atomically, after required downstream
+publication. Redrive replaces the current outbox row with a fresh transport ID;
+sent or terminal transport state does not remove business recovery.
+
+This chain-wide workflow has no collection foreign key. Purging one collection
+cascades its ownership checkpoints and gap-scan rows, while keeping chain recovery
+for other collections. An empty admitted collection set leaves resync pending;
+full lifecycle cancellation remains deferred. See
+[reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
+
 ### Deferred Balance Completeness and Provenance
 
 ERC1155 projection applies each newly persisted transfer delta once. When a
@@ -773,6 +793,9 @@ Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
 - unique key on `(queue_name, job_id)` makes repeated enqueue attempts idempotent
 - domain-worker drains due rows and marks them sent after broker publish succeeds
 - collection-scoped rows are deleted by collection purge
+- reorg rollback/range advancement enqueue required continuations atomically;
+  the reorg recovery owner replaces sent or terminal unfinished publications on
+  redrive, retaining at most one outbox publication for its current logical range
 
 ### `metadata_refresh_runs`
 

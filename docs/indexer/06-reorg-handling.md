@@ -1,6 +1,8 @@
 # Reorg Handling
 
-The reorg worker verifies recently persisted blocks and rolls back when the local chain diverges from the RPC chain.
+The reorg worker verifies recently persisted blocks and retains known mismatches
+until ancestor proof, atomic rollback and canonical resync resolve them. Queue
+delivery is a wakeup; SQLite owns unfinished recovery after mismatch retention.
 
 Primary file:
 
@@ -11,6 +13,9 @@ Supporting files:
 - `indexer/src/domain/reorg-jobs.ts`
 - `indexer/src/application/reorg-fork.ts`
 - `indexer/src/application/reorg-rollback.ts`
+- `indexer/src/application/reorg-recovery.ts`
+- `indexer/src/domain/reorg-recovery.ts`
+- `indexer/src/infra/storage/sqlite-reorg-recoveries.ts`
 - `indexer/src/infra/ownership/rpc-rollback-snapshot.ts`
 - `indexer/src/infra/storage/sqlite.ts`
 
@@ -32,7 +37,37 @@ When a block-check job is received:
 2. Load the stored block hash from the database.
 3. Fetch the canonical block from RPC, bypassing the block cache.
 4. If hashes match, the block is confirmed.
-5. If hashes differ, find the fork point and roll back.
+5. If hashes differ, persist a recovery identity with the observed hashes,
+   checked height and captured chain revision before relinquishing the delivery.
+6. Attempt due ancestor proof and rollback. An unavailable proof remains pending.
+
+If initial mismatch retention fails, `JobDeferred` keeps the original check
+retryable even beyond the ordinary worker DLQ budget: no durable business owner
+exists yet. Once retained, recovery failures can be acknowledged or dead-lettered
+without forgetting the pending workflow. The reorg consumer renews its broker
+lease every 10 seconds through `runWorker`; identity, revision and token-scope
+fences still protect against duplicate delivery.
+
+## Durable Recovery Lifecycle
+
+`chain_reorg_recoveries` retains at most one unfinished workflow per chain:
+
+- `awaiting_ancestor` holds the lowest known mismatched height and retry
+  eligibility. Later checks coalesce; an earlier mismatch supersedes stale proof.
+- `resync` holds one bounded required range, a captured target head, the committed
+  revision and a delivery generation. Coverage or queue acceptance does not
+  complete this phase.
+
+The reorg runtime resumes due work at startup and polls every 12 seconds,
+independently of scheduler head updates. Failed proof and unfinished resync retry
+after five minutes. Proof errors remain visible in logs and persisted `last_error`;
+no ancestor guess or hot retry loop is used. Missing-header gap repair can make
+later proof succeed even when HEAD stays unchanged.
+
+A newer mismatch during resync carries the earliest unfinished fanout block into
+its replacement workflow. Stale proof cannot commit over a newer recovery or
+chain revision. A changed revision rearms proof while preserving that unfinished
+range rather than retrying a permanently stale checkpoint.
 
 ## Fork Point Search
 
@@ -43,8 +78,8 @@ The fork point search (`findCommonAncestor()`):
 - Skips missing local headers and continues searching; missing history does not
   establish a common ancestor.
 - Returns the most recent matching block.
-- If no stored header matches within the bounded search, returns `null` and leaves
-  local state untouched.
+- If no stored header matches within the bounded search, returns `null`. The
+  recovery remains pending; facts, balances and chain revision stay untouched.
 
 ## Rollback Strategy
 
@@ -70,9 +105,12 @@ token absence. Fresh header checks before and after the reads also verify the
 requested fork. Unknown RPC failures leave local state untouched; only a
 recognized nonexistent-token revert establishes absent ownership.
 
-One SQLite transaction validates that the rollback plan is still current, writes
-the fork ownership checkpoints (including absent tokens), removes orphaned facts
-and coverage, and advances the chain sync revision. A sync worker captures that
+One SQLite transaction validates that the recovery and rollback plan are still
+current, writes the fork ownership checkpoints (including absent tokens), removes
+orphaned facts and coverage, advances the chain sync revision, retains resync
+progress and enqueues its first range in `queue_outbox`. Failure retaining that
+continuation rolls back every part of the transaction. RPC remains outside the
+writer. A sync worker captures the chain
 revision before fetching RPC data; work fetched before a committed rollback is
 rejected when it tries to persist. An affected token added while RPC reads are in
 progress also invalidates the rollback plan and requires a fresh attempt.
@@ -85,18 +123,52 @@ replaces the collection's checkpoints along with its ownership snapshot.
 
 ## Resync After Rollback
 
-After rollback, the worker schedules backfill jobs for the range:
+Rollback captures the current head and starts resync over:
 
 ```
 rollbackFrom -> currentHead
 ```
 
-The backfill jobs use the same `events-sync-backfill` queue as manual backfills and are processed by the sync worker.
+The workflow retains one range capped by `BACKFILL_BATCH_SIZE`. The existing
+domain-worker outbox drainer publishes it to `events-sync-backfill`, and the sync
+worker uses the normal range persistence and downstream fanout pipeline. The
+matching recovery/range advances only after both succeed, atomically retaining
+the next range and its outbox job. It clears after the last required range;
+downstream publication is established, not completion by those domain consumers.
+
+A head behind the verified fork defers rollback. If the head is exactly the fork
+and no interrupted earlier range remains, the atomic rollback completes recovery
+without inventing a resync range.
+
+`reorg_recovery` jobs explicitly carry `{ recoveryId, revision }`, are chain-wide
+and select `current_state`. Stale, legacy unowned, collection-scoped or incorrectly
+configured reorg jobs cannot complete a workflow. Eligible collections are
+reloaded inside the current-state gate. An empty eligible set leaves resync
+pending. Already admitted work retains existing lifecycle behavior; full
+pause/shutdown/purge coordination remains deferred.
+
+If no completion arrives within five minutes, recovery replaces its retained
+outbox publication with a fresh delivery generation for the same logical range.
+This also redrives `failed_terminal`, sent-but-unfinished, ACKed and DLQ deliveries.
+Transport IDs change to avoid broker deduplication swallowing required work;
+recovery ID, revision and range remain its completion identity. An older delivery
+may complete the same current range; a completed or superseded range is a no-op.
+Unfinished broker messages can coexist, while retained business/outbox work stays
+bounded to one range per chain.
+
+Normal composition requires the reorg worker (continuation owner), domain worker
+(outbox publisher) and sync worker (range and fanout completion). Restart after
+rollback resumes resync without repeating the committed rollback. Realtime work
+remains outside the backfill gate; transaction-time revision checks reject its
+pre-rollback RPC result.
 
 ## Safety Rules
 
 - The worker never schedules ranges that start at or below block 0.
-- If no common ancestor is verified, rollback is skipped with a warning.
+- If no common ancestor is verified, keep recovery pending and warn.
+- Rollback crossing a settled collection bootstrap anchor is refused. Automatic
+  recovery of that case is outside the current contract; purge and rebootstrap
+  the affected collection.
 
 ## Current Limits and Future Direction
 

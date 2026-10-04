@@ -149,6 +149,21 @@ test doubles. They do not use a live chain, broker, or application database.
   history and empty resync, persistent absent-token checkpoints, stale sync
   writes, changing rollback token scope, RPC and transactional failure, paged
   ERC1155 reversal and bootstrap checkpoint replacement.
+- `tests/reorg-recovery.test.ts` exercises actual recovery use cases, fork search,
+  worker acknowledgment, exact-block snapshot adapter, SQLite and shared range/
+  fanout processing. It covers missing ancestors repaired by gap processing at
+  stationary HEAD, reopen/startup continuation, failed initial retention and
+  atomic rollback publication, partial fanout, terminal/sent redrive, stale proof,
+  newer mismatch, concurrent token scope and pre-rollback realtime results.
+- `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
+  against independently coherent disagreeing providers. Owners and recognized
+  absence must come from the exact canonical hash; unsupported/unavailable/
+  noncanonical selectors and unknown reverts cannot become absence or mutate
+  facts, checkpoints or revision.
+- `tests/reorg-recovery-migrations.test.ts` runs main-first and feature-first
+  upgrade orders, preserving existing balances and unfinished recovery across
+  reopen. It checks distinct same-prefix migration ledger entries, foreign keys
+  and the actual collection purge adapter.
 - `tests/sync-result-canonical.test.ts` verifies atomic rejection of orphaned
   facts and hints across every sync output group, mismatched receipts, missing
   headers, conflicting stored/duplicate headers and mixed parent chains. It also
@@ -163,6 +178,48 @@ Use the same isolated environment described above, selecting the affected files
 with `yarn workspace @artgod/indexer test`. This establishes local storage and
 scheduling behavior; it does not establish live RPC completeness or actual
 broker delivery under outage conditions.
+
+## Real-Broker Reorg Recovery Gate
+
+`test:reorg:recovery` is an explicit integration runner using a provisioned NATS
+binary and private loopback listeners. Use the isolated test environment above,
+including required token/Seaport fixture values; inspect `.env.test` because it
+overwrites shell values. From the active worktree root:
+
+```sh
+mkdir -p tmp
+recovery_test_dir="$(mktemp -d "$PWD/tmp/reorg-tests.XXXXXX")"
+TMPDIR="$recovery_test_dir" SQLITE_TMPDIR="$recovery_test_dir" \
+  ARTGOD_DB_PATH="$recovery_test_dir/indexer.sqlite" \
+  REORG_RECOVERY_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
+  yarn workspace @artgod/indexer test:reorg:recovery
+```
+
+Set `REORG_RECOVERY_TEST_NATS_BINARY` to an existing staged pinned binary if it is
+provisioned outside this worktree. Missing inputs fail explicitly; the harness
+does not download tools or use configured live services. The shared isolated-NATS
+helper and child-worker bundler retain disposable SQLite/JetStream stores,
+worker/broker logs and reports under `tmp/reorg-recovery-nats/`.
+
+`integration/reorg-recovery.test.ts` exercises production recovery, worker,
+outbox, SQLite and range/fanout implementations across:
+
+- initial retention failure beyond ordinary broker retry limits;
+- worker death before rollback continuation publication and during partial fanout;
+- broker restart over the retained private JetStream store;
+- accepted publication with a lost reply, terminal outbox state and an ACKed
+  original delivery inside NATS's dedupe window;
+- actual backfill DLQ exhaustion followed by durable redrive;
+- lease renewal with ownership slower than the acknowledgment deadline;
+- a 401-token serial rollback snapshot with controlled per-read latency, recording
+  completion time and process RSS while keeping one bounded resync continuation;
+- forced broker redelivery and a lost resync ACK;
+- a competing SQLite writer requiring bounded transaction retries, and stale
+  proof from one process after another commits rollback.
+
+RPC chain responses are deterministic fixtures. These checks establish the local
+broker/database failure contracts; external-RPC smoke, native/package execution
+and remote CI are separate qualification evidence.
 
 ## Offchain / OpenSea Coverage
 

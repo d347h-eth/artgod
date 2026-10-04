@@ -44,8 +44,9 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 
 - Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
     - Consumes block-check jobs.
-    - Detects reorgs and rolls back orphaned blocks.
-    - Schedules backfill jobs to resync the rolled-back range.
+    - Retains known mismatches and retries ancestor proof at startup and periodically.
+    - Atomically rolls back orphaned blocks and retains bounded resync/outbox work.
+    - Redrives unfinished ranges until sync persistence and required fanout complete.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.
