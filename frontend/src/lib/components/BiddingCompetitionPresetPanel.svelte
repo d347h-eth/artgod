@@ -23,6 +23,13 @@
 	import { isConfirmationActionTarget } from '$lib/action-confirmation';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 
+	const presetFieldHelp = {
+		target:
+			'Choose which of your trait bidding jobs can use this preset. Their targets must use exactly these one or two keys and match the selected values. any (all) accepts every value of a key. After saving, select this preset under extra targets when creating or modifying a matching job.',
+		extras:
+			'Add bids for other traits to the competition your bot uses to set its price. The bot already considers collection-wide bids and bids for your job’s target traits, alone or together. Each extra includes bids targeting that trait alone; any (all) includes every value of the key. Your bid target and price limits stay unchanged. Existing jobs keep their selected preset version until you choose an updated version and confirm modify.'
+	};
+
 	let {
 		chain,
 		collection,
@@ -345,6 +352,7 @@
 				uniqueKeys
 				idPrefix="extra-target-source"
 				label="source target"
+				help={presetFieldHelp.target}
 				disabled={busy || loading || catalogLoading}
 				onChange={(value) => {
 					targetTraits = value;
@@ -357,6 +365,7 @@
 				allowAny
 				label="extra target"
 				fieldLabel="extra targets"
+				help={presetFieldHelp.extras}
 				idPrefix="extra-target-extra"
 				disabled={busy || loading || catalogLoading}
 				onChange={(value) => {

@@ -133,6 +133,8 @@ spinners when an established ArtGod control family already exists.
 
 `InfoTooltip` keeps its popup inside the visible viewport on activation,
 scrolling and resizing, while preserving its placement beside the trigger.
+Clicking or tapping keeps help open after pointer focus is released. Selecting
+another control, clicking or tapping elsewhere, or pressing `Escape` dismisses it.
 
 ### Admin setting summaries
 

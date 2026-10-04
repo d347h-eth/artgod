@@ -752,7 +752,7 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
 	});
 
-	test('aligns extra target preset controls with the existing form controls', async ({
+	test('aligns extra target preset controls and keeps field help accessible', async ({
 		page
 	}, testInfo) => {
 		await installBiddingAutomationApiMock(page);
@@ -775,6 +775,45 @@ test.describe('bidding automation fixture harness', () => {
 			await expectFieldCenterAligned(inventory, id);
 		}
 		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
+		for (const [group, name] of [
+			[source, 'source'],
+			[extras, 'extras']
+		] as const) {
+			const help = group.getByRole('button', { name: 'Help', exact: true });
+			const popup = group.getByRole('tooltip');
+			if (testInfo.project.use.hasTouch) {
+				await help.tap();
+				await expect(help).not.toBeFocused();
+			} else await help.hover();
+			await expect(popup).toBeVisible();
+			await expect(popup).toBeInViewport({ ratio: 1 });
+			await page.screenshot({ path: testInfo.outputPath(`extra-targets-${name}-help.png`) });
+			if (testInfo.project.use.hasTouch) await page.keyboard.press('Escape');
+			else await help.press('Escape');
+			await expect(popup).toBeHidden();
+			if (testInfo.project.use.hasTouch) {
+				await help.tap();
+				await expect(help).not.toBeFocused();
+				await expect(popup).toBeVisible();
+				await inventory.getByRole('heading', { name: 'extra targets', exact: true }).tap();
+				await expect(popup).toBeHidden();
+			}
+			await help.press('Enter');
+			await expect(help).toBeFocused();
+			await expect(popup).toBeVisible();
+			await expect(popup).toBeInViewport({ ratio: 1 });
+			await help.press('Escape');
+			await expect(popup).toBeHidden();
+		}
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expectFieldCenterAligned(inventory, 'extra-target-source-key-1');
+		await source.getByRole('button', { name: 'remove source target 2', exact: true }).click();
+		await source.getByRole('button', { name: 'remove source target 1', exact: true }).click();
+		await expect(source.getByRole('button', { name: 'Help', exact: true })).toBeVisible();
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Enter');
+		await expect(source.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Escape');
 		await source.getByRole('button', { name: 'add', exact: true }).click();
 		await expectFieldCenterAligned(inventory, 'extra-target-source-key-1');
 		const row = inventory.getByRole('row').filter({ hasText: 'Biome=42' });
