@@ -2,6 +2,7 @@
 	import type { TradingTraitCompetitionSelector } from '@artgod/shared/types';
 	import { MAX_EXTRA_COMPETITION_TRAITS } from '@artgod/shared/trading/trait-competition';
 	import type { ApiTraitCatalogFacet, ApiTraitFacet } from '$lib/api-types';
+	import InfoTooltip from './InfoTooltip.svelte';
 
 	const ANY_VALUE = '*';
 	const ANY_VALUE_LABEL = 'any (all)';
@@ -16,6 +17,7 @@
 		idPrefix,
 		label,
 		fieldLabel = label,
+		help = '',
 		disabled,
 		onChange
 	}: {
@@ -28,6 +30,7 @@
 		idPrefix: string;
 		label: string;
 		fieldLabel?: string;
+		help?: string;
 		disabled: boolean;
 		onChange: (selectors: TradingTraitCompetitionSelector[]) => void;
 	} = $props();
@@ -42,11 +45,18 @@
 	}
 </script>
 
+{#snippet selectorLabel()}
+	<span class="bootstrap-form-label-cell">
+		<span>{fieldLabel}</span>
+		<InfoTooltip text={help} className="bootstrap-form-label-tooltip" />
+	</span>
+{/snippet}
+
 <div class="bidding-trait-selectors" role="group" aria-label={label}>
 	{#each selectors as selector, index}
 		<div class="bootstrap-form-row">
 			{#if index === 0}
-				<label for={`${idPrefix}-key-1`}><span>{fieldLabel}</span></label>
+				<label for={`${idPrefix}-key-1`}>{@render selectorLabel()}</label>
 			{:else}
 				<span aria-hidden="true"></span>
 			{/if}
@@ -127,7 +137,7 @@
 	{/each}
 	<div class="bootstrap-form-row">
 		{#if selectors.length === 0}
-			<label for={`${idPrefix}-key-1`}><span>{fieldLabel}</span></label>
+			<label for={`${idPrefix}-key-1`}>{@render selectorLabel()}</label>
 		{:else}
 			<span aria-hidden="true"></span>
 		{/if}

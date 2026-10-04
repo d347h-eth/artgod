@@ -18,11 +18,39 @@
 	let dismissed = $state(false);
 	let hovered = $state(false);
 	let focused = $state(false);
+	let activated = $state(false);
+	let triggerElement = $state<HTMLSpanElement | null>(null);
 	let popupElement = $state<HTMLSpanElement | null>(null);
 
 	$effect(() => {
+		const trigger = triggerElement;
+		if (!activated || !trigger) return;
+		// Pointer focus is released globally; keep activated help readable until dismissal.
+		const dismissOutside = (event: Event) => {
+			if (event.target instanceof Node && !trigger.contains(event.target)) {
+				activated = false;
+				dismissed = true;
+			}
+		};
+		const dismissOnEscape = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') return;
+			event.preventDefault();
+			activated = false;
+			dismissed = true;
+		};
+		window.addEventListener('pointerdown', dismissOutside);
+		window.addEventListener('focusin', dismissOutside);
+		window.addEventListener('keydown', dismissOnEscape);
+		return () => {
+			window.removeEventListener('pointerdown', dismissOutside);
+			window.removeEventListener('focusin', dismissOutside);
+			window.removeEventListener('keydown', dismissOnEscape);
+		};
+	});
+
+	$effect(() => {
 		const popup = popupElement;
-		if (!popup || dismissed || (!hovered && !focused)) return;
+		if (!popup || dismissed || (!hovered && !focused && !activated)) return;
 		// Keep the existing anchored placement, shifting only to avoid viewport clipping.
 		const positionPopup = () => {
 			popup.style.translate = '';
@@ -59,6 +87,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 		dismissed = false;
+		activated = true;
 		if (event.currentTarget instanceof HTMLElement) {
 			event.currentTarget.focus();
 		}
@@ -69,6 +98,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			dismissed = true;
+			activated = false;
 			if (event.currentTarget instanceof HTMLElement) {
 				event.currentTarget.blur();
 			}
@@ -83,8 +113,10 @@
 
 {#if normalizedText.length > 0}
 	<span
+		bind:this={triggerElement}
 		class={`info-tooltip info-tooltip-${tone} ${className}`}
 		class:info-tooltip-dismissed={dismissed}
+		class:info-tooltip-activated={activated}
 		role="button"
 		aria-label={tone === 'warning' ? 'Warning details' : 'Help'}
 		aria-describedby={popupId}
@@ -174,12 +206,14 @@
 	}
 
 	.info-tooltip:hover,
-	.info-tooltip:focus-visible {
+	.info-tooltip:focus-visible,
+	.info-tooltip-activated {
 		color: var(--c-yellow);
 	}
 
 	.info-tooltip:not(.info-tooltip-dismissed):hover .info-tooltip-popup,
-	.info-tooltip:not(.info-tooltip-dismissed):focus-visible .info-tooltip-popup {
+	.info-tooltip:not(.info-tooltip-dismissed):focus-visible .info-tooltip-popup,
+	.info-tooltip:not(.info-tooltip-dismissed).info-tooltip-activated .info-tooltip-popup {
 		display: block;
 	}
 </style>
