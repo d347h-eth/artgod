@@ -105,6 +105,24 @@ Coverage establishes successful onchain range ingestion. It does not prove that
 an RPC provider returned every expected log, or that downstream domain workers
 have finished consuming the published jobs.
 
+## Scheduler Ownership and Deferred Coordination
+
+Normal runtime composition creates one scheduler per chain. Its serialized head
+cursor and active gap-scan promise coordinate only that process. The sync
+worker's backfill execution gate is also process-local; realtime work is outside
+it. Transactional chain revisions and affected-token checks reject stale writes
+across rollback, but do not provide exclusive admission between independent
+scheduler instances.
+
+Concurrent scheduler failover is not an established deployment contract. Adding
+a distributed lock is outside the perpetual gap-detection change. If that
+deployment becomes supported, define durable database claims and conditional
+updates for scan/repair admission, with expired-owner fencing, stable logical
+repair identity, and restart/duplicate-delivery tests. Preserve bounded work and
+avoid treating an in-memory mutex as cross-process coordination. This conditional
+future work stays under `BKL-018` in the
+[unified backlog](../planning/01-unified-backlog.md).
+
 ## Manual Backfills
 
 History before the bootstrap anchor and other operator-selected ranges remain manual.

@@ -205,6 +205,31 @@ block hash. Reorg rollback owns removal of old headers before canonical resync.
 The verified fork header is retained with the ownership checkpoint even when
 the fork's transfer history was missing.
 
+### Deferred Balance Completeness and Provenance
+
+ERC1155 projection applies each newly persisted transfer delta once. When a
+later debit arrives before a missing earlier mint or credit, the stored amount
+can temporarily be negative. Exact amounts converge as the missing canonical
+facts arrive, but a row alone does not prove that its required history is
+complete. Clamping the intermediate amount to zero would discard information
+needed for convergence.
+
+ERC1155 `last_block_*`, transaction, and log attribution is also arrival ordered:
+an older repair can replace newer provenance, and rollback reversal can retain
+the removed event's context. These are existing limitations, deferred from the
+perpetual gap-detection change under `BKL-069` in the
+[unified backlog](../planning/01-unified-backlog.md). They are distinct from the
+ERC721 latest-transfer and verified-checkpoint projection rules above.
+
+The future balance contract must distinguish incomplete projection from
+authoritative state using the required collection coverage and baseline. It
+must retain exact signed deltas internally and define how consumers handle
+incomplete balances. Provenance must identify the latest surviving canonical
+fact or applicable baseline, independently of arrival order, and be restored
+after rollback; processing progress is a separate concern. Validate reordered
+mint/transfer/burn ingestion, duplicates, reopen, and rollback with incomplete
+history before changing these semantics. This design is not implemented yet.
+
 ## Collection and Bootstrap Tables
 
 ### `tokens`
