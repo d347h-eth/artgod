@@ -99,3 +99,19 @@ Block-check cadence is scheduler-owned. Checks are not yet persisted beside the
 block write or separated into delayed short-, medium-, and long-horizon tiers.
 Any future change must retain ordered fork discovery, bounded rollback depth,
 and idempotent resync through the existing backfill queue.
+
+### Deferred Ownership Workload Scaling
+
+Rollback prepares all distinct affected ERC721 tokens and reads owners serially
+outside the SQLite writer. Large-token RPC latency and memory cost have not been
+qualified by the local storage rollback measurements. Configurable concurrency
+is deferred under the existing `BKL-037` ownership-scaling item in the
+[unified backlog](../planning/01-unified-backlog.md); see also
+[bootstrap ownership scaling](17-bootstrap-execution-and-concurrency.md#deferred-anchored-ownership-reuse).
+
+Measure affected-token count, RPC latency, rate-limit pressure, and memory before
+choosing bounded read batches or a worker pool. Any future scaling must preserve
+one exact fork identity, absence/error classification, plan/revision fencing,
+and an atomic checkpoint/rollback commit without RPC inside the writer. Broker
+lease renewal and idempotent redelivery are correctness requirements independent
+of throughput; their recovery fixes are not deferred by this performance work.
