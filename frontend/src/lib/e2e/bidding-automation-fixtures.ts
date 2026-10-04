@@ -104,6 +104,7 @@ const BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS = true;
 
 // Stable test-only route root used by deterministic Playwright harness pages.
 export const BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH = COLLECTION_BASE_PATH;
+export const BIDDING_E2E_HOLDER_ADDRESS = MARKET_ADDRESS_A;
 
 // Opt-in harness query key for deterministic bidding lifecycle scenarios.
 export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
@@ -695,6 +696,19 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		biddingSettings: BIDDING_E2E_SETTINGS,
 		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS
+	};
+}
+
+// Reuses the token-browser fixture for the production holder bidding entry point.
+export function buildBiddingE2eHolderTokensData(searchParams: URLSearchParams, owner: string) {
+	const data = buildBiddingE2eCollectionDetailData(searchParams);
+	const holdersBasePath = `${data.basePath}/holders`;
+	return {
+		...data,
+		collectionBasePath: data.basePath,
+		holdersBasePath,
+		browserBasePath: `${holdersBasePath}/${owner}`,
+		owner
 	};
 }
 

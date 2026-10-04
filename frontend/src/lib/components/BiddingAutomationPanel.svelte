@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { isConfirmationActionTarget } from '$lib/action-confirmation';
-	import type {
-		TradingCompetitionPreset,
-		TradingCompetitionPresetVersion
-	} from '@artgod/shared/types';
+	import type { TradingCompetitionPresetVersion } from '@artgod/shared/types';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import {
 		competitionPresetMatchesTarget,
 		competitionTraitsLabel
@@ -100,7 +98,7 @@
 		bidBook = null,
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
-		competitionPresets = [],
+		competitionInventory = null,
 		trustOpenSeaSignedZoneTraitOffers = DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		expandSignal = 0,
 		showCollapsedLauncher = true,
@@ -117,7 +115,7 @@
 		bidBook?: ApiBiddingBidBook | null;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
-		competitionPresets?: TradingCompetitionPreset[];
+		competitionInventory?: BiddingCompetitionPresetInventory | null;
 		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		expandSignal?: number;
 		showCollapsedLauncher?: boolean;
@@ -218,6 +216,7 @@
 				currentJob?.target.type === TRADING_JOB_TARGET_KIND.Collection &&
 				currentJob.target.targetTraits.length > 0)
 	);
+	const competitionPresets = $derived(competitionInventory?.presets ?? []);
 	const competitionOptions = $derived.by(() => {
 		const traits =
 			draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob
@@ -1102,8 +1101,30 @@
 								{competitionTraitsLabel(preset.extraCompetitionTraits) + (!competitionPresets.some((p) => p.versionId === preset.versionId) ? ` (v${preset.revision})` : '')}
 							</button>
 						{/each}
+						{#if competitionInventory?.error && !competitionInventory.loading}
+							<button
+								type="button"
+								class="action-button-neutral"
+								onclick={() => void competitionInventory?.refresh()}
+								disabled={panelMutationBusy}
+							>
+								refresh
+							</button>
+						{/if}
 					</div>
 				</div>
+				{#if competitionInventory?.loading || competitionInventory?.error}
+					<div class="bootstrap-form-row">
+						<span aria-hidden="true"></span>
+						{#if competitionInventory.loading}
+							<p class="muted token-bidding-feedback" role="status">loading...</p>
+						{:else}
+							<p class="runtime-error token-bidding-feedback" role="alert">
+								{competitionInventory.error}
+							</p>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions-left">

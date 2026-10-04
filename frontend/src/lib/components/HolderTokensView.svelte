@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { TradingCompetitionPreset } from '@artgod/shared/types';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -120,7 +120,7 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
-	let competitionPresets = $state<TradingCompetitionPreset[]>([]);
+	let competitionInventory = $state<BiddingCompetitionPresetInventory | null>(null);
 	let visibleBiddableBrowserTokenIds = $state<string[]>(visibleBiddableTokenIds(tokens));
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
@@ -443,8 +443,8 @@
 			{collection}
 			{facets}
 			open={false}
-			onPresetsChange={(value) => {
-				competitionPresets = value;
+			onInventoryChange={(value) => {
+				competitionInventory = value;
 			}}
 		/>
 	{/if}
@@ -499,7 +499,7 @@
 			bidBook={$tokenPanelBidBookState.bidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
-			{competitionPresets}
+			{competitionInventory}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

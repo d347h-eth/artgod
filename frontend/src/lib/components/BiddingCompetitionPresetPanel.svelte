@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import {
 		TRAIT_CATALOG_QUERY_PARAMS,
 		type TradingCompetitionPreset,
@@ -20,6 +21,7 @@
 	} from '$lib/backend-api';
 	import BiddingTraitSelectors from './BiddingTraitSelectors.svelte';
 	import { isConfirmationActionTarget } from '$lib/action-confirmation';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 
 	let {
 		chain,
@@ -27,14 +29,14 @@
 		facets,
 		open,
 		onClose = null,
-		onPresetsChange
+		onInventoryChange
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		facets: ApiTraitFacet[];
 		open: boolean;
 		onClose?: (() => void) | null;
-		onPresetsChange: (presets: TradingCompetitionPreset[]) => void;
+		onInventoryChange: (inventory: BiddingCompetitionPresetInventory) => void;
 	} = $props();
 	let presets = $state<TradingCompetitionPreset[]>([]);
 	let catalog = $state<ApiTraitCatalogFacet[]>([]);
@@ -45,6 +47,7 @@
 	let catalogLoading = $state(false);
 	let busy = $state(false);
 	let error = $state<string | null>(null);
+	let inventoryError = $state<string | null>(null);
 	let feedback = $state<string | null>(null);
 	let armedAction = $state<string | null>(null);
 	let requestGeneration = 0;
@@ -72,25 +75,23 @@
 		catalog = [];
 		reset();
 		loading = false;
+		inventoryError = null;
 		catalogLoading = false;
 		busy = false;
-		onPresetsChange([]);
 		if (!chainRef || !collectionRef) return;
-		loading = true;
-		void getCompetitionPresets(fetch, chainRef, collectionRef)
-			.then((response) => {
-				if (generation !== requestGeneration) return;
-				replacePresets(response.presets);
-			})
-			.catch(() => {
-				if (generation === requestGeneration) error = 'Could not load extra targets. Refresh.';
-			})
-			.finally(() => {
-				if (generation === requestGeneration) loading = false;
-			});
+		void loadInventory(chainRef, collectionRef, generation);
 		return () => {
 			requestGeneration++;
 		};
+	});
+	$effect(() => {
+		const inventory: BiddingCompetitionPresetInventory = {
+			presets,
+			loading,
+			error: inventoryError,
+			refresh: refreshInventory
+		};
+		untrack(() => onInventoryChange(inventory));
 	});
 	$effect(() => {
 		const chainRef = chain?.slug,
@@ -125,7 +126,6 @@
 	function replacePresets(values: TradingCompetitionPreset[]): void {
 		if (!Array.isArray(values)) throw new Error('Invalid preset response');
 		presets = values;
-		onPresetsChange(presets);
 	}
 	function edit(preset: TradingCompetitionPreset): void {
 		reset();
@@ -133,18 +133,39 @@
 		targetTraits = preset.targetTraits.map((t) => ({ ...t }));
 		extras = preset.extraCompetitionTraits.map((t) => ({ ...t }));
 	}
+	async function loadInventory(
+		chainRef: string,
+		collectionRef: string,
+		generation: number
+	): Promise<boolean> {
+		loading = true;
+		inventoryError = null;
+		try {
+			const response = await getCompetitionPresets(fetch, chainRef, collectionRef);
+			if (generation !== requestGeneration) return false;
+			replacePresets(response.presets);
+			return true;
+		} catch {
+			if (generation === requestGeneration) inventoryError = 'Could not load extra targets. Refresh.';
+			return false;
+		} finally {
+			if (generation === requestGeneration) loading = false;
+		}
+	}
+	async function refreshInventory(): Promise<void> {
+		if (!chain || !collection || busy || loading) return;
+		await loadInventory(chain.slug, collection.slug, requestGeneration);
+	}
 	async function refresh(): Promise<void> {
-		if (!chain || !collection || busy) return;
+		if (!chain || !collection || busy || loading || catalogLoading) return;
 		const generation = requestGeneration;
 		const chainRef = chain.slug,
 			collectionRef = collection.slug;
 		const keys = facets.map((f) => f.key);
-		loading = true;
 		error = null;
+		if (!(await loadInventory(chainRef, collectionRef, generation))) return;
+		catalogLoading = true;
 		try {
-			const response = await getCompetitionPresets(fetch, chainRef, collectionRef);
-			if (generation !== requestGeneration) return;
-			replacePresets(response.presets);
 			if (keys.length) {
 				const response = await getCollectionTraitCatalog(
 					fetch,
@@ -157,9 +178,9 @@
 			}
 			reset();
 		} catch {
-			if (generation === requestGeneration) error = 'Could not load extra targets. Refresh.';
+			if (generation === requestGeneration) error = 'Could not load trait choices. Refresh.';
 		} finally {
-			if (generation === requestGeneration) loading = false;
+			if (generation === requestGeneration) catalogLoading = false;
 		}
 	}
 	async function save(): Promise<void> {
@@ -254,7 +275,7 @@
 					type="button"
 					class="button-link action-button-neutral"
 					onclick={refresh}
-					disabled={busy || loading}
+					disabled={busy || loading || catalogLoading}
 				>
 					refresh
 				</button>
@@ -360,8 +381,8 @@
 				{#if loading || catalogLoading}
 					<p class="muted token-bidding-feedback" role="status">loading...</p>
 				{/if}
-				{#if error}
-					<p class="runtime-error token-bidding-feedback" role="alert">{error}</p>
+				{#if error || inventoryError}
+					<p class="runtime-error token-bidding-feedback" role="alert">{error ?? inventoryError}</p>
 				{/if}
 				{#if feedback}
 					<p class="runtime-pass token-bidding-feedback" role="status">{feedback}</p>
