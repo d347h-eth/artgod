@@ -20,6 +20,7 @@ import {
 } from "../domain/onchain.js";
 import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
+import { ChainSyncConflict } from "../domain/chain-sync.js";
 import { decodeBlurFills } from "./fills/blur.js";
 import { decodeSeaportFills } from "./fills/seaport.js";
 import type { DecodedFillEvent } from "./fills/types.js";
@@ -601,7 +602,25 @@ async function buildEnhancedTransactions(
     for (const txHash of order) {
         const tx = await rpc.getTransaction(txHash);
         transactions.set(txHash, toTransactionSummary(tx));
-        const receipt = await rpc.getTransactionReceipt(txHash);
+        const receipt = await rpc.getTransactionReceipt(txHash, {
+            fresh: true,
+        });
+        const base = grouped.get(txHash)![0]!.base;
+        // Fill decoding attributes receipt-derived facts to the transfer block.
+        // Reject a receipt fetched from a different branch before that attribution.
+        if (
+            receipt.transactionHash !== txHash ||
+            receipt.logs.some(
+                (log) =>
+                    log.transactionHash !== txHash ||
+                    log.blockNumber !== base.blockNumber ||
+                    log.blockHash !== base.blockHash,
+            )
+        ) {
+            throw new ChainSyncConflict(
+                "Sync receipt conflicts with transfer logs",
+            );
+        }
         receipts.set(txHash, receipt.logs);
     }
 

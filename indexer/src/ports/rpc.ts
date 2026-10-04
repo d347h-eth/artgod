@@ -68,7 +68,11 @@ export interface RpcProviderPort {
     ): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
-    getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;
+    // Sync must bypass cached receipts when a transaction can move across a reorg.
+    getTransactionReceipt(
+        txHash: string,
+        options?: { fresh: boolean },
+    ): Promise<RpcTransactionReceipt>;
     readContract<T = unknown>(
         params: RpcContractRead & { blockNumber?: number },
     ): Promise<T>;

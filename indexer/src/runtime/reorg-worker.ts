@@ -29,6 +29,8 @@ import type { QueuePort } from "../ports/queue.js";
 import type { StoragePort } from "../ports/storage.js";
 import { RollbackChainRange } from "../application/reorg-rollback.js";
 import { RpcRollbackOwnershipSnapshot } from "../infra/ownership/rpc-rollback-snapshot.js";
+import { findCommonAncestor } from "../application/reorg-fork.js";
+import { ChainSyncConflict } from "../domain/chain-sync.js";
 
 async function main() {
     try {
@@ -159,7 +161,10 @@ async function handleBlockCheck(
         return;
     }
 
-    const rpcBlock = await rpc.getBlock(blockNumber);
+    const rpcBlock = await rpc.getBlock(blockNumber, { fresh: true });
+    if (rpcBlock.number !== blockNumber) {
+        throw new ChainSyncConflict("Block check RPC returned the wrong block");
+    }
     if (rpcBlock.hash === storedHash) {
         logger.debug("Block check ok", {
             component: "IndexerReorgWorker",
@@ -169,15 +174,15 @@ async function handleBlockCheck(
         return;
     }
 
-    const forkPoint = await findForkPoint(
+    const forkPoint = await findCommonAncestor({
         rpc,
         storage,
         chainId,
-        blockNumber,
+        startBlock: blockNumber,
         reorgDepth,
-    );
-    if (forkPoint < 0) {
-        logger.warn("Reorg rollback skipped (invalid fork point)", {
+    });
+    if (forkPoint === null) {
+        logger.warn("Reorg rollback skipped (no verified common ancestor)", {
             component: "IndexerReorgWorker",
             action: "blockCheck",
             blockNumber,
@@ -215,27 +220,6 @@ async function handleBlockCheck(
         rollbackFrom,
         head,
     });
-}
-
-async function findForkPoint(
-    rpc: RpcProviderPort,
-    storage: StoragePort,
-    chainId: number,
-    startBlock: number,
-    reorgDepth: number,
-): Promise<number> {
-    const depth = Math.max(1, reorgDepth);
-    const minBlock = startBlock - depth;
-    if (minBlock < 0) return -1;
-    for (let block = startBlock - 1; block >= minBlock; block -= 1) {
-        const storedHash = storage.getBlockHash(chainId, block);
-        if (!storedHash) return block - 1;
-        const rpcBlock = await rpc.getBlock(block);
-        if (rpcBlock.hash === storedHash) {
-            return block;
-        }
-    }
-    return minBlock - 1;
 }
 
 async function scheduleBackfillRange(

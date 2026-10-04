@@ -201,6 +201,45 @@ describe("ViemRpcProvider RPC resilience", () => {
         expect(getBlock).toHaveBeenCalledTimes(2);
     });
 
+    it("bypasses cached orphaned receipts when sync requests a fresh read", async () => {
+        const txHash = `0x${"ab".repeat(32)}`;
+        let blockHash = `0x${"cd".repeat(32)}`;
+        const getTransactionReceipt = vi.fn(async () => ({
+            transactionHash: txHash,
+            logs: [
+                {
+                    address: "0x1111111111111111111111111111111111111111",
+                    data: "0x",
+                    topics: [],
+                    blockNumber: BigInt(TEST_BLOCK_NUMBER),
+                    blockHash,
+                    transactionHash: txHash,
+                    logIndex: 0,
+                },
+            ],
+        }));
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            cache: new InMemoryCache({ maxEntries: 2, ttlMs: 60_000 }),
+            createClient: () =>
+                ({
+                    getTransactionReceipt,
+                }) as unknown as ReturnType<ViemRpcClientFactory>,
+        });
+        const original = await provider.getTransactionReceipt(txHash);
+        blockHash = `0x${"ef".repeat(32)}`;
+        expect(await provider.getTransactionReceipt(txHash)).toEqual(original);
+        const fresh = await provider.getTransactionReceipt(txHash, {
+            fresh: true,
+        });
+        expect(fresh.logs[0].blockHash).toBe(blockHash);
+        expect(await provider.getTransactionReceipt(txHash)).toEqual(fresh);
+        expect(getTransactionReceipt).toHaveBeenCalledTimes(2);
+    });
+
     it("retries failed reads through the next weighted endpoint", async () => {
         const attemptedUrls: string[] = [];
         const createClient: ViemRpcClientFactory = (url) =>

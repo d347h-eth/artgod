@@ -9,6 +9,9 @@ Primary file:
 Supporting files:
 
 - `indexer/src/domain/reorg-jobs.ts`
+- `indexer/src/application/reorg-fork.ts`
+- `indexer/src/application/reorg-rollback.ts`
+- `indexer/src/infra/ownership/rpc-rollback-snapshot.ts`
 - `indexer/src/infra/storage/sqlite.ts`
 
 ## Block-Check Jobs
@@ -27,18 +30,21 @@ When a block-check job is received:
 
 1. Validate `blockNumber` is positive.
 2. Load the stored block hash from the database.
-3. Fetch the canonical block from RPC.
+3. Fetch the canonical block from RPC, bypassing the block cache.
 4. If hashes match, the block is confirmed.
 5. If hashes differ, find the fork point and roll back.
 
 ## Fork Point Search
 
-The fork point search (`findForkPoint()`):
+The fork point search (`findCommonAncestor()`):
 
 - Walks backwards from the mismatched block up to `reorgDepth` blocks.
-- Compares stored block hashes to RPC block hashes.
+- Compares stored block hashes to fresh RPC block hashes.
+- Skips missing local headers and continues searching; missing history does not
+  establish a common ancestor.
 - Returns the most recent matching block.
-- If none match, returns a value before the minimum range to indicate an invalid fork.
+- If no stored header matches within the bounded search, returns `null` and leaves
+  local state untouched.
 
 ## Rollback Strategy
 
@@ -85,7 +91,7 @@ The backfill jobs use the same `events-sync-backfill` queue as manual backfills 
 ## Safety Rules
 
 - The worker never schedules ranges that start at or below block 0.
-- If a fork point calculation returns a negative value, rollback is skipped with a warning.
+- If no common ancestor is verified, rollback is skipped with a warning.
 
 ## Current Limits and Future Direction
 

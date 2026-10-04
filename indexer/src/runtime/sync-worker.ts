@@ -9,6 +9,7 @@ import {
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "../application/collection-extensions/types.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
+import { fetchCanonicalSyncBlocks } from "../application/sync-blocks.js";
 import { executeSyncGapRepair } from "../application/sync-gap-scheduler.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
@@ -407,8 +408,6 @@ async function processRange(
         range,
         extensionWatchSpecs,
     );
-    const blocks = await fetchBlocks(rpc, range);
-    storage.persistSyncResult({ checkpoint, blocks, data, collections });
     await appendWethMakerInfos(
         rpc,
         range,
@@ -418,19 +417,9 @@ async function processRange(
         collections,
         orderMaintenancePolicy,
     );
+    const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
+    storage.persistSyncResult({ checkpoint, blocks, data, collections });
     return { data, blocks };
-}
-
-async function fetchBlocks(
-    rpc: RpcProviderPort,
-    range: SyncRange,
-): Promise<RpcBlock[]> {
-    if (range.fromBlock > range.toBlock) return [];
-    const blocks: RpcBlock[] = [];
-    for (let block = range.fromBlock; block <= range.toBlock; block += 1) {
-        blocks.push(await rpc.getBlock(block));
-    }
-    return blocks;
 }
 
 async function publishDomainJobs<TPayload>(
