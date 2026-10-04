@@ -735,6 +735,82 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
 	});
 
+	test('aligns extra target preset controls with the existing form controls', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Zone:Shahra`);
+		await page
+			.getByRole('button', {
+				name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+				exact: true
+			})
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		const refresh = await inventory
+			.getByRole('button', { name: 'refresh', exact: true })
+			.boundingBox();
+		const hide = await inventory.getByRole('button', { name: 'hide', exact: true }).boundingBox();
+		expect(refresh).not.toBeNull();
+		expect(hide).not.toBeNull();
+		expect(Math.abs(refresh!.height - hide!.height)).toBeLessThanOrEqual(1);
+		for (const id of ['extra-target-source-key-1', 'extra-target-extra-key-1']) {
+			await expectFieldCenterAligned(inventory, id);
+		}
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expectFieldCenterAligned(inventory, 'extra-target-source-key-1');
+		const row = inventory.getByRole('row').filter({ hasText: 'Biome=42' });
+		const textCenter = await row
+			.getByRole('cell')
+			.first()
+			.evaluate((cell) => {
+				const range = document.createRange();
+				range.selectNodeContents(cell);
+				const bounds = range.getBoundingClientRect();
+				return bounds.y + bounds.height / 2;
+			});
+		const archive = await row.getByRole('button', { name: 'archive', exact: true }).boundingBox();
+		expect(archive).not.toBeNull();
+		expect(Math.abs(textCenter - (archive!.y + archive!.height / 2))).toBeLessThanOrEqual(2);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-centered-controls.png'),
+			fullPage: true
+		});
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.Tiers, exact: true })
+			.click();
+		const tierForm = page
+			.getByRole('heading', { name: 'price tiers', exact: true })
+			.locator('..')
+			.locator('..');
+		const styles = (button: Locator) =>
+			button.evaluate((element) => {
+				const css = getComputedStyle(element);
+				return {
+					fontSize: css.fontSize,
+					lineHeight: css.lineHeight,
+					height: css.height,
+					padding: css.padding,
+					color: css.color,
+					border: css.borderTopColor,
+					background: css.backgroundColor,
+					textTransform: css.textTransform
+				};
+			});
+		expect(await styles(inventory.getByRole('button', { name: 'reset', exact: true }))).toEqual(
+			await styles(tierForm.getByRole('button', { name: 'reset', exact: true }))
+		);
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
+		await source.getByRole('combobox', { name: 'source target key 1' }).selectOption('Zone');
+		await source.getByRole('combobox', { name: 'source target value 1' }).click();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-flat-values.png'),
+			fullPage: true
+		});
+		await page.keyboard.press('Escape');
+	});
+
 	test('applies two-pair wildcard source presets and distinguishes literal any metadata', async ({
 		page
 	}, testInfo) => {
@@ -762,10 +838,10 @@ test.describe('bidding automation fixture harness', () => {
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
 			.click();
 		const inventory = page.getByRole('region', { name: 'extra targets presets' });
-		const source = inventory.getByRole('group', { name: 'target trait', exact: true });
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
 		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
-		await source.getByRole('combobox', { name: 'target trait key 1' }).selectOption('Mode');
-		const sourceValue = source.getByRole('combobox', { name: 'target trait value 1' });
+		await source.getByRole('combobox', { name: 'source target key 1' }).selectOption('Mode');
+		const sourceValue = source.getByRole('combobox', { name: 'source target value 1' });
 		await sourceValue.selectOption({ label: '"any"' });
 		await expect(sourceValue).toHaveValue('value:any');
 		await expect(sourceValue).not.toHaveClass(/trait-group-active/);
@@ -788,12 +864,12 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(source.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
 		await expect(
 			source
-				.getByRole('combobox', { name: 'target trait key 2' })
+				.getByRole('combobox', { name: 'source target key 2' })
 				.getByRole('option', { name: 'Mode', exact: true })
 		).toBeDisabled();
-		await source.getByRole('combobox', { name: 'target trait key 2' }).selectOption('Zone');
+		await source.getByRole('combobox', { name: 'source target key 2' }).selectOption('Zone');
 		await source
-			.getByRole('combobox', { name: 'target trait value 2' })
+			.getByRole('combobox', { name: 'source target value 2' })
 			.selectOption({ label: 'Shahra' });
 		await page.screenshot({
 			path: testInfo.outputPath('extra-targets-wildcard-source.png'),
@@ -846,12 +922,12 @@ test.describe('bidding automation fixture harness', () => {
 		const inventory = page.getByRole('region', { name: 'extra targets presets' });
 		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
 		await page.screenshot({ path: testInfo.outputPath('competition-presets-empty.png') });
-		const targets = inventory.getByRole('group', { name: 'target trait', exact: true });
+		const targets = inventory.getByRole('group', { name: 'source target', exact: true });
 		await targets
-			.getByRole('combobox', { name: 'target trait key 1', exact: true })
+			.getByRole('combobox', { name: 'source target key 1', exact: true })
 			.selectOption('Zone');
 		await targets
-			.getByRole('combobox', { name: 'target trait value 1', exact: true })
+			.getByRole('combobox', { name: 'source target value 1', exact: true })
 			.selectOption({ label: 'Shahra' });
 		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
 		await extras
@@ -1819,6 +1895,16 @@ async function expectSecondaryTabHoverChrome(locator: Locator): Promise<void> {
 	});
 	expect(colors.border).toBe(colors.yellow);
 	expect(colors.color).toBe(colors.yellow);
+}
+
+async function expectFieldCenterAligned(panel: Locator, id: string): Promise<void> {
+	const label = await panel.locator(`label[for="${id}"]`).boundingBox();
+	const field = await panel.locator(`#${id}`).boundingBox();
+	expect(label).not.toBeNull();
+	expect(field).not.toBeNull();
+	expect(
+		Math.abs(label!.y + label!.height / 2 - (field!.y + field!.height / 2))
+	).toBeLessThanOrEqual(1);
 }
 
 async function fillManualPrice(

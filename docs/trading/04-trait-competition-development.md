@@ -190,7 +190,8 @@ the previous collection.
 ### UI Alignment and Source Wildcards (2026-10-04)
 
 The editor now uses the existing price-tier panel, table, label/control grid,
-and action families. Reset is pink; create/modify and archive use the existing
+and action families. Reset uses the standard form button shared by tiers and
+the bidding panel; create/modify and archive use the existing
 armed confirmation styles, with confirmation cleared on outside pointer/focus
 events. The preset selector in the bidding panel uses the same secondary-tab
 family as pricing. User-facing labels use `extra targets`; internal identifiers,
@@ -203,7 +204,7 @@ job's concrete value. For example, `Mode=any + Zone=Shahra` matches both
 match `Mode=Terrain` or a target with an additional third key. A one-key source
 such as `Zone=any` covers all concrete single-key Zone jobs.
 
-Wildcard dropdown options display `any (all)` outside the `values` group and
+Wildcard dropdown options display `any (all)` in a flat list of values and
 use the existing orange active-state style. Actual metadata values named `any`
 remain explicit values, appear quoted, and have distinct option values. Source
 and extra summaries retain `Key=any` for wildcards and `Key="any"` for literal
@@ -245,6 +246,29 @@ Verification for this correction:
 - The separate uncommitted performance handoff records the reduced inventory
   cardinality and unchanged per-job hydration/matching costs, plus the related
   harness scenarios. No performance measurement is claimed by these checks.
+
+### Control Spacing Follow-up (2026-10-04)
+
+Refresh and hide now share the compact header-button dimensions. Editor reset
+uses the same form button as tiers and the bidding panel. Source controls are
+labelled `source target`; both field labels align with their first input row,
+including when a second source pair is present. The shared tier-table family
+centres cell content vertically beside its action buttons. Value options are
+flat, preserving the distinct wildcard and literal metadata choices.
+
+- The focused maintained browser suite passes all 18 cases across desktop and
+  Pixel 7. Checks measure header heights, field-label and table-text alignment,
+  and compare reset styling directly with the tier form. Existing preset
+  lifecycle, wildcard selection and tier workflows pass in the same run.
+- Svelte checking reports zero errors and the existing 87 warnings in 19 files.
+  Documentation validation passes for 77 Markdown files, including OpenAPI
+  checks. Changed-file formatting and `git diff --check` pass.
+- Rendered controls, two-pair sources, literal/wildcard choices, pending writes
+  and recovery states were reviewed at both viewports. Full-page control
+  captures are 1920 x 1098 and 1082 x 3588 pixels, retained under worktree
+  `tmp/extra-targets-spacing-review/browser/`. Native dropdown popups are not
+  included in browser page captures; their grouping was removed from the
+  option markup. No native WebView verification is claimed.
 
 ### Local Migration Replacement
 

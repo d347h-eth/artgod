@@ -252,7 +252,7 @@
 			<div class="runtime-controls">
 				<button
 					type="button"
-					class="action-button-neutral"
+					class="button-link action-button-neutral"
 					onclick={refresh}
 					disabled={busy || loading}
 				>
@@ -315,48 +315,36 @@
 					<span class="runtime-v">{editing ? 'edit' : 'create'}</span>
 				</div>
 			</div>
-			<div class="bootstrap-form-row bootstrap-form-row-textarea">
-				<label for="extra-target-source-key-1"><span>target</span></label>
-				<BiddingTraitSelectors
-					selectors={targetTraits}
-					{catalog}
-					availableTargets={facets}
-					allowAny
-					maxSelectors={MAX_COMPETITION_PRESET_TARGET_TRAITS}
-					uniqueKeys
-					idPrefix="extra-target-source"
-					label="target trait"
-					disabled={busy || loading || catalogLoading}
-					onChange={(value) => {
-						targetTraits = value;
-						armedAction = null;
-					}}
-				/>
-			</div>
-			<div class="bootstrap-form-row bootstrap-form-row-textarea">
-				<label for="extra-target-extra-key-1"><span>extra targets</span></label>
-				<BiddingTraitSelectors
-					selectors={extras}
-					{catalog}
-					allowAny
-					label="extra target"
-					idPrefix="extra-target-extra"
-					disabled={busy || loading || catalogLoading}
-					onChange={(value) => {
-						extras = value;
-						armedAction = null;
-					}}
-				/>
-			</div>
+			<BiddingTraitSelectors
+				selectors={targetTraits}
+				{catalog}
+				availableTargets={facets}
+				allowAny
+				maxSelectors={MAX_COMPETITION_PRESET_TARGET_TRAITS}
+				uniqueKeys
+				idPrefix="extra-target-source"
+				label="source target"
+				disabled={busy || loading || catalogLoading}
+				onChange={(value) => {
+					targetTraits = value;
+					armedAction = null;
+				}}
+			/>
+			<BiddingTraitSelectors
+				selectors={extras}
+				{catalog}
+				allowAny
+				label="extra target"
+				fieldLabel="extra targets"
+				idPrefix="extra-target-extra"
+				disabled={busy || loading || catalogLoading}
+				onChange={(value) => {
+					extras = value;
+					armedAction = null;
+				}}
+			/>
 			<div class="panel-footer bidding-price-tier-form-footer">
-				<button
-					type="button"
-					class="facet-panel-action-button facet-reset-button"
-					onclick={reset}
-					disabled={busy}
-				>
-					reset
-				</button>
+				<button type="button" onclick={reset} disabled={busy}>reset</button>
 				<button
 					type="button"
 					class="token-bidding-action-positive"
