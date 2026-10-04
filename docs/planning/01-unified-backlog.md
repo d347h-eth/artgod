@@ -115,6 +115,12 @@ implemented boundary; this file only prioritizes changes to it.
 | --------- | -------- | ------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BKL-069` | P1       | Done   | Include broader target-trait bids by default and reference reusable versioned presets for extra targets. | Inclusive snapshot/fallback matching, standalone extras, source wildcards, immutable job references, structured preset controls and picker recovery are implemented. [Trait bidding competition](../trading/04-trait-competition.md) owns the current matching, version, upgrade and verification contracts; performance costs remain unmeasured. |
 
+## Bidding Delta Validation
+
+| ID        | Priority | Status | Retained outcome                                                                    | Current evidence and context                                                                                                                                                                                                                               |
+| --------- | -------- | ------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BKL-070` | P2       | Open   | Complete delta settings-refresh, saved-tier recovery, and persistence verification. | BDV-001 was fixed in `dff73580`. Retain the review's test gaps and unresolved settings behavior, with reproduction and acceptance steps in [bidding delta follow-up](../trading/02-bidding-automation-capabilities.md#bidding-delta-validation-follow-up). |
+
 ## Maintenance Rules
 
 1. Do not add design essays here. Add current technical context to the owning
