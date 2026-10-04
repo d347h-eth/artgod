@@ -393,6 +393,7 @@ async function processRange(
     data: Awaited<ReturnType<typeof syncRange>>;
     blocks: RpcBlock[];
 }> {
+    const checkpoint = storage.captureSyncCheckpoint(chainId);
     const extensionWatchSpecs = resolveCollectionExtensionWatchSpecs(
         collectionExtensions,
         chainId,
@@ -407,7 +408,7 @@ async function processRange(
         extensionWatchSpecs,
     );
     const blocks = await fetchBlocks(rpc, range);
-    storage.persistSyncResult(chainId, blocks, data, collections);
+    storage.persistSyncResult({ checkpoint, blocks, data, collections });
     await appendWethMakerInfos(
         rpc,
         range,

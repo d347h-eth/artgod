@@ -49,8 +49,28 @@ If a fork point is found:
 - Delete metadata rows tied to orphaned blocks.
 - Delete on-chain orders created in orphaned blocks.
 - Best-effort reset of orders invalidated by rolled-back transfers.
-- Reverse balance changes using the transfer history.
+- Restore affected ERC721 owners from `ownerOf` reads pinned to the fork block.
+- Reverse ERC1155 balance deltas using the orphaned transfer history.
 - Delete persisted transactions for orphaned blocks.
+
+`RollbackChainRange` first prepares the distinct affected ERC721 tokens, including
+tokens known only through a previous ownership checkpoint. The RPC adapter reuses
+bootstrap's token ownership reader and verifies the fork block hash before and
+after the reads. Unknown RPC failures leave local state untouched; a recognized
+nonexistent-token revert establishes absent ownership.
+
+One SQLite transaction validates that the rollback plan is still current, writes
+the fork ownership checkpoints (including absent tokens), removes orphaned facts
+and coverage, and advances the chain sync revision. A sync worker captures that
+revision before fetching RPC data; work fetched before a committed rollback is
+rejected when it tries to persist. An affected token added while RPC reads are in
+progress also invalidates the rollback plan and requires a fresh attempt.
+
+Fork checkpoints describe ownership at the end of their block. Historical repair
+facts at that block or earlier cannot replace the checkpoint; newer transfers
+can. This keeps ownership correct even when the rollback encountered missing
+history and canonical resync produces no transfer events. Bootstrap finalization
+replaces the collection's checkpoints along with its ownership snapshot.
 
 ## Resync After Rollback
 

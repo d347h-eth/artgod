@@ -9,7 +9,7 @@ import {
     ERC721_OWNER_OF_FUNCTION,
     ERC721_ABSENT_TOKEN_ERROR,
 } from "@artgod/shared/evm/erc721-ownership";
-import { Erc721TokenOwnership } from "../src/infra/bootstrap/erc721-token-ownership.js";
+import { Erc721TokenOwnership } from "../src/infra/ownership/erc721-token-ownership.js";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";

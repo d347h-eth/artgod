@@ -6,14 +6,14 @@ import {
 } from "@artgod/shared/evm/erc721-ownership";
 import type { RpcProviderPort, Hex } from "../../ports/rpc.js";
 
-// Reads one token at the bootstrap anchor; unknown failures propagate to the step's retry path.
+// Reads one token at an explicit block; uncertain failures propagate for retry.
 export class Erc721TokenOwnership {
     constructor(private readonly rpc: Pick<RpcProviderPort, "readContract">) {}
 
     async readOwner(
         address: string,
         tokenId: string,
-        anchorBlock: number,
+        blockNumber: number,
     ): Promise<string | null> {
         try {
             const owner = await this.rpc.readContract<string>({
@@ -21,7 +21,7 @@ export class Erc721TokenOwnership {
                 abi: ERC721_OWNERSHIP_ABI,
                 functionName: ERC721_OWNER_OF_FUNCTION,
                 args: [BigInt(tokenId)],
-                blockNumber: anchorBlock,
+                blockNumber,
             });
             return normalizeErc721Owner(owner);
         } catch (error) {

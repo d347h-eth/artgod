@@ -181,6 +181,23 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 - Mutated only by forward-processing for blocks strictly greater than `collections.bootstrap_anchor_block`
 - Historical backfill at or before the anchor must not rewrite this table
 
+### Chain revisions and ERC721 ownership checkpoints
+
+Migration `062_chain_sync_ownership_checkpoints.sql` adds:
+
+- `chain_sync_revisions`: a durable revision per chain, advanced atomically by
+  rollback to fence sync work already fetching RPC data.
+- `erc721_ownership_checkpoints`: end-of-block ownership verified at a reorg fork,
+  keyed by chain, collection and token. A nullable owner explicitly records token
+  absence. The checkpoint retains the block hash, timestamp and collection anchor.
+
+ERC721 projection chooses the latest transfer after the checkpoint, or the
+checkpoint itself if no newer transfer exists. Snapshot attribution in
+`nft_balances` uses the fork block and a zero transaction hash/log index. Checkpoints
+survive restarts, cascade on collection purge and are cleared when bootstrap
+finalization replaces the ownership snapshot. Only tokens affected by rollback
+are checkpointed; the reorg worker does not scan the whole collection inventory.
+
 ## Collection and Bootstrap Tables
 
 ### `tokens`
