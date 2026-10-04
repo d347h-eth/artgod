@@ -7,6 +7,8 @@ Snapshot authority, adaptive freshness, and scaling limits are detailed in
 [Market Data and Scaling](03-market-data-and-scaling.md).
 The opt-in metrics endpoint, Grafana dashboard, and operator recovery path are
 in [Bidding Runtime Observability](03-bidding-runtime-observability.md).
+Trait competition matching and immutable presets for extra targets are detailed in
+[Trait Bidding Competition](04-trait-competition.md).
 
 ## Status
 
@@ -302,6 +304,12 @@ Primary tables:
 - `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
 - `trading_job_commands`: durable Outbox for bot-side effects
 
+Trait jobs reference one immutable preset version for extra targets. Editing or
+archiving a preset does not change job declarations or emit job commands;
+explicit job selection changes use the declaration/outbox transaction. Backend
+and bot reads resolve pinned versions through a shared joined projection. See
+[Immutable Versions and Job Updates](04-trait-competition.md#immutable-versions-and-job-updates).
+
 The Admin bidding-authorization catalog derives one optional price prefill per
 collection from the maximum `ceiling_wei` across every enabled or paused bidding
 job scope. The backend reads all enabled and paused jobs for the chain through
@@ -363,7 +371,6 @@ Projection tables:
 
 - `trading_bidding_bid_book_rows`: materialized active bids by collection, source, scope, maker, unit price, quantity, validity, placement time, and display metadata
 - `trading_bidding_collection_bid_book_state`: projection freshness, row count, duration, and last error per collection/source
-- `trading_bidding_competition_presets` and `trading_bidding_competition_preset_versions`: collection inventory and immutable target/extras definitions selected by jobs
 - `trading_bidding_job_runtime_state`: bot-owned active-offer feedback and market decision state that lets backend bid-book reads connect declared jobs to live orders
 
 Bot snapshot projection:
@@ -694,8 +701,9 @@ The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion an
 - SQL-backed token-offer pagination for larger offer books
 
 Snapshot depth cutoff is deliberately not enabled. The all-offers adapter walks
-cursor pages until the cursor ends or repeats because response ordering is not
-treated as an API guarantee. A repeated cursor currently stops the traversal
-and returns the rows collected so far. See
-[Market Data and Scaling](03-market-data-and-scaling.md) for that limit and the
-conditions a bounded mode would need to satisfy.
+cursor pages to exhaustion because response ordering is not treated as an API
+guarantee. A repeated cursor marks the traversal incomplete; the snapshot
+service rejects the refresh and retains the previous complete snapshot, if any.
+Trait-job all-offers fallback also rejects incomplete pagination. See
+[Market Data and Scaling](03-market-data-and-scaling.md) for failure handling and
+the conditions a bounded mode would need to satisfy.
