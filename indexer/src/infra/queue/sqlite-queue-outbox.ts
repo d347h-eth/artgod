@@ -137,6 +137,14 @@ export class SqliteQueueOutbox {
         }));
     }
 
+    // The business owner supersedes/completes this publication. Already sent
+    // broker messages remain possible and must be fenced by that owner's identity.
+    discardJob(queueName: QueueName, jobId: string): void {
+        db.prepare(
+            "DELETE FROM queue_outbox WHERE queue_name = ? AND job_id = ?",
+        ).run(queueName, jobId);
+    }
+
     markSent(outboxId: number, publication?: QueuePublication): void {
         this.markSentStmt.run({
             outboxId,

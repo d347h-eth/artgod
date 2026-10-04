@@ -9,12 +9,6 @@ import {
     REORG_JOB_KIND,
     type BlockCheckPayload,
 } from "../domain/reorg-jobs.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    SYNC_JOB_KIND,
-    type BackfillSyncPayload,
-} from "../domain/sync-jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import {
@@ -22,15 +16,17 @@ import {
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
+import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
+import {
+    RecoverChainReorg,
+    startReorgRecoveryLoop,
+} from "../application/reorg-recovery.js";
+import { REORG_RECOVERY_POLICY } from "../domain/reorg-recovery.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
-import type { RpcProviderPort } from "../ports/rpc.js";
-import type { QueuePort } from "../ports/queue.js";
-import type { StoragePort } from "../ports/storage.js";
 import { RollbackChainRange } from "../application/reorg-rollback.js";
 import { RpcRollbackOwnershipSnapshot } from "../infra/ownership/rpc-rollback-snapshot.js";
-import { findCommonAncestor } from "../application/reorg-fork.js";
-import { ChainSyncConflict } from "../domain/chain-sync.js";
 
 async function main() {
     try {
@@ -73,27 +69,32 @@ async function main() {
             new RpcRollbackOwnershipSnapshot(rpc),
         );
 
+        const recovery = new RecoverChainReorg(
+            rpc,
+            storage,
+            new SqliteReorgRecoveries(storage, new SqliteQueueOutbox()),
+            rollback,
+            {
+                chainId: config.chainId,
+                reorgDepth: config.sync.reorgDepth,
+                batchSize: config.sync.backfillBatchSize,
+            },
+        );
+        const stopRecoveryLoop = startReorgRecoveryLoop(recovery);
         const stop = await runWorker(
             queue,
             {
                 queue: QUEUE_NAMES.BlockCheck,
                 consumerName: `reorg-check-${config.chainId}`,
                 maxInFlight: 1,
+                extendLeaseMs: REORG_RECOVERY_POLICY.LeaseExtensionMs,
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<BlockCheckPayload>) => {
                 if (job.kind !== REORG_JOB_KIND.BlockCheck) return;
-                await handleBlockCheck(
-                    queue,
-                    rpc,
-                    storage,
-                    rollback,
-                    config.chainId,
-                    config.sync.reorgDepth,
-                    config.sync.backfillBatchSize,
-                    job.payload.blockNumber,
-                );
+                if (job.chainId !== config.chainId) return;
+                await recovery.checkBlock(job.payload.blockNumber);
             },
             {
                 apm: runtimeApm.apm,
@@ -112,6 +113,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await stopRecoveryLoop();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
@@ -131,122 +133,3 @@ async function main() {
 }
 
 main();
-
-async function handleBlockCheck(
-    queue: QueuePort,
-    rpc: RpcProviderPort,
-    storage: StoragePort,
-    rollback: RollbackChainRange,
-    chainId: number,
-    reorgDepth: number,
-    backfillBatchSize: number,
-    blockNumber: number,
-): Promise<void> {
-    if (blockNumber <= 0) {
-        logger.warn("Block check skipped (non-positive block)", {
-            component: "IndexerReorgWorker",
-            action: "blockCheck",
-            blockNumber,
-        });
-        return;
-    }
-
-    const storedHash = storage.getBlockHash(chainId, blockNumber);
-    if (!storedHash) {
-        logger.debug("Block check skipped (missing DB hash)", {
-            component: "IndexerReorgWorker",
-            action: "blockCheck",
-            blockNumber,
-        });
-        return;
-    }
-
-    const rpcBlock = await rpc.getBlock(blockNumber, { fresh: true });
-    if (rpcBlock.number !== blockNumber) {
-        throw new ChainSyncConflict("Block check RPC returned the wrong block");
-    }
-    if (rpcBlock.hash === storedHash) {
-        logger.debug("Block check ok", {
-            component: "IndexerReorgWorker",
-            action: "blockCheck",
-            blockNumber,
-        });
-        return;
-    }
-
-    const forkPoint = await findCommonAncestor({
-        rpc,
-        storage,
-        chainId,
-        startBlock: blockNumber,
-        reorgDepth,
-    });
-    if (forkPoint === null) {
-        logger.warn("Reorg rollback skipped (no verified common ancestor)", {
-            component: "IndexerReorgWorker",
-            action: "blockCheck",
-            blockNumber,
-            forkPoint,
-        });
-        return;
-    }
-    const rollbackFrom = forkPoint.number + 1;
-    if (rollbackFrom <= 0) {
-        logger.warn("Reorg rollback skipped (non-positive rollback)", {
-            component: "IndexerReorgWorker",
-            action: "blockCheck",
-            blockNumber,
-            forkPoint,
-            rollbackFrom,
-        });
-        return;
-    }
-    await rollback.execute(forkPoint);
-
-    const head = await rpc.getBlockNumber();
-    await scheduleBackfillRange(
-        queue,
-        chainId,
-        rollbackFrom,
-        head,
-        backfillBatchSize,
-    );
-
-    logger.warn("Reorg rollback scheduled", {
-        component: "IndexerReorgWorker",
-        action: "blockCheck",
-        blockNumber,
-        forkPoint,
-        rollbackFrom,
-        head,
-    });
-}
-
-async function scheduleBackfillRange(
-    queue: QueuePort,
-    chainId: number,
-    fromBlock: number,
-    toBlock: number,
-    batchSize: number,
-): Promise<void> {
-    const size = Math.max(1, batchSize);
-    for (let start = fromBlock; start <= toBlock; start += size) {
-        const end = Math.min(toBlock, start + size - 1);
-        const job: JobEnvelope<BackfillSyncPayload> = {
-            jobId: `sync:reorg:${chainId}:${start}-${end}:${Date.now()}`,
-            kind: SYNC_JOB_KIND.BackfillRange,
-            queue: QUEUE_NAMES.BackfillSync,
-            payload: {
-                fromBlock: start,
-                toBlock: end,
-                source: BACKFILL_SOURCE.ReorgRecovery,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-        };
-        await queue.publish(QUEUE_NAMES.BackfillSync, job);
-    }
-}

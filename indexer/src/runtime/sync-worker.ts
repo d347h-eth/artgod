@@ -6,33 +6,20 @@ import {
     BackfillExecutionGate,
     resolveBackfillExecutionMode,
 } from "../application/backfill-execution.js";
-import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
-import type { CollectionExtensionSyncWatchSpec } from "../application/collection-extensions/types.js";
-import { syncRange, type SyncRange } from "../application/sync.js";
-import { fetchCanonicalSyncBlocks } from "../application/sync-blocks.js";
+import type { SyncRange } from "../application/sync.js";
+import {
+    processRange,
+    publishDomainJobs,
+    resolveBackfillCollections,
+} from "../application/sync-range-processing.js";
 import { executeSyncGapRepair } from "../application/sync-gap-scheduler.js";
+import { executeReorgResync } from "../application/reorg-recovery.js";
+import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
+import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
-import {
-    decodeWethMakerInfos,
-    WETH_EVENT_FILTERS,
-} from "../application/ft/weth.js";
-import { shouldFetchWethMakerLogs } from "../application/backfill-order-maintenance.js";
-import {
-    canAnyCollectionProjectCurrentStateAt,
-    publishOrderUpdateJobs,
-} from "../application/order-update-fanout.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import {
-    DOMAIN_JOB_KIND,
-    DOMAIN_SYNC_PROJECTION,
-    type DomainSyncMode,
-    type DomainSyncPayload,
-    type MetadataRefreshPayload,
-    type MetadataRefreshRangePayload,
-} from "../domain/domain-jobs.js";
-import type { OnChainData } from "../domain/onchain.js";
 import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
@@ -43,8 +30,6 @@ import type {
     BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
-import type { RpcBlock, RpcProviderPort } from "../ports/rpc.js";
-import type { QueuePort } from "../ports/queue.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -57,11 +42,8 @@ import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
-import type { Hex } from "../ports/rpc.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import type { CollectionRecord } from "../domain/collections.js";
-import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
-import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
@@ -122,6 +104,10 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const syncGapStore = new SqliteSyncGapStore();
+        const reorgRecoveries = new SqliteReorgRecoveries(
+            storage,
+            new SqliteQueueOutbox(),
+        );
         const collectionRegistry = new SqliteCollectionRegistry();
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
@@ -189,18 +175,19 @@ async function main() {
                     fromBlock: job.payload.blockNumber,
                     toBlock: job.payload.blockNumber,
                 };
-                const { data, blocks } = await processRange(
-                    primaryRpc,
+                const { data, blocks } = await processRange({
+                    rpc: primaryRpc,
                     storage,
-                    collectionRegistry,
+                    collectionScopeResolver: collectionRegistry,
                     collectionExtensions,
-                    config.chainId,
+                    chainId: config.chainId,
                     collections,
                     range,
                     bidderIndex,
-                    config.tokens.wethAddress,
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-                );
+                    wethAddress: config.tokens.wethAddress,
+                    orderMaintenancePolicy:
+                        BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                });
                 await publishDomainJobs(
                     queue,
                     config.chainId,
@@ -246,6 +233,9 @@ async function main() {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
                 const isGapRepair =
                     job.payload.source === BACKFILL_SOURCE.GapRepair;
+                const isReorgRecovery =
+                    job.payload.source === BACKFILL_SOURCE.ReorgRecovery;
+                if (isReorgRecovery && job.chainId !== config.chainId) return;
                 // Legacy predecessor hints were unscoped. The scheduler now
                 // rediscovers their missing coverage through durable scoped work.
                 if (
@@ -283,18 +273,18 @@ async function main() {
                     const syncAndPublish = async (
                         collections: CollectionRecord[],
                     ) => {
-                        const { data, blocks } = await processRange(
-                            backfillRpc,
+                        const { data, blocks } = await processRange({
+                            rpc: backfillRpc,
                             storage,
-                            collectionRegistry,
+                            collectionScopeResolver: collectionRegistry,
                             collectionExtensions,
-                            config.chainId,
+                            chainId: config.chainId,
                             collections,
                             range,
                             bidderIndex,
-                            config.tokens.wethAddress,
-                            orderMaintenancePolicy,
-                        );
+                            wethAddress: config.tokens.wethAddress,
+                            orderMaintenancePolicy: orderMaintenancePolicy,
+                        });
                         await publishDomainJobs(
                             queue,
                             config.chainId,
@@ -333,6 +323,21 @@ async function main() {
                             collectionRegistry,
                             syncGapStore,
                             (collection) => syncAndPublish([collection]),
+                        );
+                    } else if (isReorgRecovery) {
+                        // Reload after gate admission. An empty eligible set does
+                        // not complete recovery; its durable range remains pending.
+                        const currentCollections = resolveBackfillCollections(
+                            collectionRegistry,
+                            config.chainId,
+                            job.collectionId ?? null,
+                        );
+                        if (!currentCollections.length) return;
+                        await executeReorgResync(
+                            job,
+                            reorgRecoveries,
+                            { batchSize: config.sync.backfillBatchSize },
+                            () => syncAndPublish(currentCollections),
                         );
                     } else {
                         await syncAndPublish(collections);
@@ -378,394 +383,3 @@ async function main() {
 }
 
 main();
-
-async function processRange(
-    rpc: RpcProviderPort,
-    storage: SqliteStorage,
-    collectionScopeResolver: CollectionScopeResolverPort,
-    collectionExtensions: CollectionExtensionInstallPort,
-    chainId: number,
-    collections: CollectionRecord[],
-    range: SyncRange,
-    bidderIndex: BidderIndex,
-    wethAddress: string,
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<{
-    data: Awaited<ReturnType<typeof syncRange>>;
-    blocks: RpcBlock[];
-}> {
-    const checkpoint = storage.captureSyncCheckpoint(chainId);
-    const extensionWatchSpecs = resolveCollectionExtensionWatchSpecs(
-        collectionExtensions,
-        chainId,
-        collections,
-    );
-    const data = await syncRange(
-        rpc,
-        chainId,
-        collections,
-        collectionScopeResolver,
-        range,
-        extensionWatchSpecs,
-    );
-    await appendWethMakerInfos(
-        rpc,
-        range,
-        wethAddress,
-        bidderIndex,
-        data,
-        collections,
-        orderMaintenancePolicy,
-    );
-    const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
-    storage.persistSyncResult({ checkpoint, blocks, data, collections });
-    return { data, blocks };
-}
-
-async function publishDomainJobs<TPayload>(
-    queue: QueuePort,
-    chainId: number,
-    collections: CollectionRecord[],
-    range: SyncRange,
-    job: JobEnvelope<TPayload>,
-    mode: DomainSyncMode,
-    data: OnChainData,
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
-    // Build the current-state sync payload for this range.
-    const currentStatePayload: DomainSyncPayload = {
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        mode,
-        projection: DOMAIN_SYNC_PROJECTION.CurrentState,
-        sourceJobId: job.jobId,
-        sourceKind: job.kind,
-    };
-    // Build the facts-only sync payload for this range.
-    const factsOnlyPayload: DomainSyncPayload = {
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        mode,
-        projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
-        sourceJobId: job.jobId,
-        sourceKind: job.kind,
-    };
-
-    const activityJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:activity:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.ActivitySync,
-        queue: QUEUE_NAMES.ActivityDomain,
-        payload: factsOnlyPayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
-
-    await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
-
-    // Skip current-state fanout for fully pre-anchor ranges.
-    if (!hasAnyCurrentStateProjection(collections, range)) {
-        return;
-    }
-
-    const ordersJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:orders:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.OrdersSync,
-        queue: QUEUE_NAMES.OrdersDomain,
-        payload: currentStatePayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
-    const metadataJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:metadata:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.MetadataSync,
-        queue: QUEUE_NAMES.MetadataDomain,
-        payload: currentStatePayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
-    const currentStateData = filterCurrentStateOnChainData(collections, data);
-
-    await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
-    await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
-
-    // Only post-anchor events may drive current-state side effects.
-    await publishOrderUpdateJobs(
-        queue,
-        chainId,
-        collections,
-        currentStateData,
-        orderMaintenancePolicy,
-    );
-    await publishMetadataRefreshJobs(
-        queue,
-        chainId,
-        collections,
-        currentStateData,
-    );
-}
-
-function resolveBackfillCollections(
-    collectionRegistry: SqliteCollectionRegistry,
-    chainId: number,
-    collectionId: number | null,
-): CollectionRecord[] {
-    // Collection-scoped jobs stay pinned to one collection.
-    if (!collectionId) {
-        return collectionRegistry.listCollectionsForSync(chainId, "backfill");
-    }
-
-    const collection = collectionRegistry.getCollection(chainId, collectionId);
-    if (!collection) return [];
-    if (collection.status !== "live" && collection.status !== "bootstrapping") {
-        return [];
-    }
-
-    return [collection];
-}
-
-function resolveCollectionExtensionWatchSpecs(
-    collectionExtensions: CollectionExtensionInstallPort,
-    chainId: number,
-    collections: CollectionRecord[],
-): CollectionExtensionSyncWatchSpec[] {
-    // De-duplicate extension watches by install and source.
-    const specs: CollectionExtensionSyncWatchSpec[] = [];
-    const seen = new Set<string>();
-
-    for (const collection of collections) {
-        const install = collectionExtensions.getInstall(chainId, collection.id);
-        if (!install?.enabled) {
-            continue;
-        }
-
-        const extension = resolveIndexerCollectionExtension(install);
-        if (!extension) {
-            continue;
-        }
-
-        for (const spec of extension.buildSyncWatchSpecs(install)) {
-            const dedupeKey = `${install.collectionId}:${install.extensionKey}:${spec.sourceId}`;
-            if (seen.has(dedupeKey)) {
-                continue;
-            }
-            seen.add(dedupeKey);
-            specs.push(spec);
-        }
-    }
-
-    return specs;
-}
-
-// Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).
-async function publishMetadataRefreshJobs(
-    queue: QueuePort,
-    chainId: number,
-    collections: CollectionRecord[],
-    data: OnChainData,
-): Promise<void> {
-    const seen = new Set<string>();
-    for (const refresh of data.collectionScoped.metadataRefreshEvents) {
-        const collection = collections.find(
-            (candidate) => candidate.id === refresh.collectionId,
-        );
-        if (!collection?.canProjectCurrentStateAt(refresh.blockNumber)) {
-            continue;
-        }
-        const tokenId = refresh.tokenId;
-        const collectionId = refresh.collectionId;
-        const key = `${collectionId}:${tokenId}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        const job: JobEnvelope<MetadataRefreshPayload> = {
-            jobId: `metadata:refresh:${chainId}:${collectionId}:${tokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
-            kind: DOMAIN_JOB_KIND.MetadataRefresh,
-            queue: QUEUE_NAMES.MetadataRefresh,
-            payload: {
-                chainId,
-                collectionId,
-                tokenId,
-                metadataUrl: null,
-                reason: refresh.trigger,
-                source: "onchain",
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId,
-        };
-        await queue.publish(QUEUE_NAMES.MetadataRefresh, job);
-    }
-
-    const seenRanges = new Set<string>();
-    for (const refresh of data.collectionScoped.metadataRefreshRangeEvents) {
-        const collection = collections.find(
-            (candidate) => candidate.id === refresh.collectionId,
-        );
-        if (!collection?.canProjectCurrentStateAt(refresh.blockNumber)) {
-            continue;
-        }
-        const key = `${refresh.collectionId}:${refresh.fromTokenId}:${refresh.toTokenId}`;
-        if (seenRanges.has(key)) {
-            continue;
-        }
-        seenRanges.add(key);
-
-        const rangeJob: JobEnvelope<MetadataRefreshRangePayload> = {
-            jobId: `metadata:refresh-range:${chainId}:${refresh.collectionId}:${refresh.fromTokenId}:${refresh.toTokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
-            kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
-            queue: QUEUE_NAMES.MetadataRefresh,
-            payload: {
-                chainId,
-                collectionId: refresh.collectionId,
-                fromTokenId: refresh.fromTokenId,
-                toTokenId: refresh.toTokenId,
-                cursorTokenId: refresh.fromTokenId,
-                reason: refresh.trigger,
-                source: "onchain",
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: refresh.collectionId,
-        };
-        await queue.publish(QUEUE_NAMES.MetadataRefresh, rangeJob);
-    }
-}
-
-async function appendWethMakerInfos(
-    rpc: RpcProviderPort,
-    range: SyncRange,
-    wethAddress: string,
-    bidderIndex: BidderIndex,
-    data: OnChainData,
-    collections: CollectionRecord[],
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
-    // WETH triggers only matter for current-state maker revalidation.
-    if (
-        !shouldFetchWethMakerLogs({
-            orderMaintenancePolicy,
-            range,
-            bidderIndexActive: bidderIndex.isActive(),
-            hasCurrentStateProjection: hasAnyCurrentStateProjection(
-                collections,
-                range,
-            ),
-        })
-    ) {
-        return;
-    }
-
-    const logs = await rpc.getLogs({
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        address: wethAddress as Hex,
-        events: WETH_EVENT_FILTERS,
-    });
-    const makers = decodeWethMakerInfos(logs, bidderIndex);
-    data.global.makerTriggers.push(...makers);
-}
-
-function hasAnyCurrentStateProjection(
-    collections: CollectionRecord[],
-    range: SyncRange,
-): boolean {
-    // Coarse gate for current-state fanout.
-    return collections.some(
-        (collection) =>
-            collection.intersectCurrentStateWindow(
-                range.fromBlock,
-                range.toBlock,
-            ) !== null,
-    );
-}
-
-function filterCurrentStateOnChainData(
-    collections: CollectionRecord[],
-    data: OnChainData,
-): OnChainData {
-    // Drop pre-anchor collection-scoped events.
-    const collectionsById = new Map(
-        collections.map((collection) => [collection.id, collection]),
-    );
-
-    return {
-        transactions: data.transactions,
-        collectionScoped: {
-            nftTransferEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.nftTransferEvents,
-            ),
-            nftApprovalEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.nftApprovalEvents,
-            ),
-            nftBalanceDeltas: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.nftBalanceDeltas,
-            ),
-            fillEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.fillEvents,
-            ),
-            orderInfos: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.orderInfos,
-            ),
-            makerTriggers: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.makerTriggers,
-            ),
-            metadataRefreshEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.metadataRefreshEvents,
-            ),
-            metadataRefreshRangeEvents:
-                filterCurrentStateCollectionScopedEvents(
-                    collectionsById,
-                    data.collectionScoped.metadataRefreshRangeEvents,
-                ),
-            collectionExtensionEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.collectionExtensionEvents,
-            ),
-            collectionExtensionEventMedia:
-                filterCurrentStateCollectionScopedEvents(
-                    collectionsById,
-                    data.collectionScoped.collectionExtensionEventMedia,
-                ),
-        },
-        global: {
-            cancelEvents: data.global.cancelEvents.filter((event) =>
-                canAnyCollectionProjectCurrentStateAt(
-                    collections,
-                    event.blockNumber,
-                ),
-            ),
-            makerTriggers: data.global.makerTriggers.filter((event) =>
-                canAnyCollectionProjectCurrentStateAt(
-                    collections,
-                    event.blockNumber,
-                ),
-            ),
-        },
-    };
-}
-
-function filterCurrentStateCollectionScopedEvents<
-    TEvent extends { collectionId: number; blockNumber: number },
->(collectionsById: Map<number, CollectionRecord>, events: TEvent[]): TEvent[] {
-    // Keep only post-anchor collection-scoped events.
-    return events.filter((event) =>
-        collectionsById
-            .get(event.collectionId)
-            ?.canProjectCurrentStateAt(event.blockNumber),
-    );
-}

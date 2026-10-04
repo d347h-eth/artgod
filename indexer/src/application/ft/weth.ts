@@ -42,7 +42,7 @@ export const WETH_EVENT_FILTERS = ERC20_EVENT_ABI as unknown as RpcEvent[];
 // Decode WETH transfer/approval logs into maker triggers (ephemeral).
 export function decodeWethMakerInfos(
     logs: RpcLog[],
-    bidderIndex: BidderIndex,
+    bidderIndex: Pick<BidderIndex, "shouldEmit">,
 ): GlobalMakerTrigger[] {
     const infos = new Map<string, GlobalMakerTrigger>();
     for (const log of logs) {
@@ -104,7 +104,7 @@ function safeDecode(log: RpcLog, eventName: "Transfer" | "Approval") {
 
 function pushMakerInfo(
     infos: Map<string, GlobalMakerTrigger>,
-    bidderIndex: BidderIndex,
+    bidderIndex: Pick<BidderIndex, "shouldEmit">,
     maker: string,
     reason: GlobalMakerTrigger["reason"],
     log: RpcLog,

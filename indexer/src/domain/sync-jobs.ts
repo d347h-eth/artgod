@@ -6,6 +6,8 @@ import type {
     BackfillOrderMaintenancePolicy,
     BackfillSource,
 } from "@artgod/shared/types/sync-backfill";
+import type { ReorgResyncIdentity } from "./reorg-recovery.js";
+import { BACKFILL_SOURCE } from "@artgod/shared/types/sync-backfill";
 export type {
     BackfillOrderMaintenancePolicy,
     BackfillSource,
@@ -20,9 +22,19 @@ export type RealtimeSyncPayload = {
     blockNumber: number;
 };
 
-export type BackfillSyncPayload = {
+type BackfillRangePayload = {
     fromBlock: number;
     toBlock: number;
-    source: BackfillSource;
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 };
+
+export type ReorgResyncPayload = BackfillRangePayload & {
+    source: typeof BACKFILL_SOURCE.ReorgRecovery;
+    recovery: ReorgResyncIdentity;
+};
+
+export type BackfillSyncPayload =
+    | ReorgResyncPayload
+    | (BackfillRangePayload & {
+          source: Exclude<BackfillSource, typeof BACKFILL_SOURCE.ReorgRecovery>;
+      });
