@@ -80,7 +80,10 @@ describe("verified common ancestor", () => {
 
     it("continues across missing local history to a proven matching header", async () => {
         const h = harness({ 103: block(203).hash, 101: block(101).hash });
-        expect(await findCommonAncestor(h)).toBe(101);
+        expect(await findCommonAncestor(h)).toEqual({
+            ...block(101),
+            chainId: 1,
+        });
         expect(h.rpc.getBlock.mock.calls).toEqual([
             [103, { fresh: true }],
             [101, { fresh: true }],
@@ -108,13 +111,19 @@ describe("verified common ancestor", () => {
 
     it("selects the nearest actual match", async () => {
         const h = harness({ 104: block(104).hash, 103: block(103).hash });
-        expect(await findCommonAncestor(h)).toBe(104);
+        expect(await findCommonAncestor(h)).toEqual({
+            ...block(104),
+            chainId: 1,
+        });
         expect(h.rpc.getBlock).toHaveBeenCalledTimes(1);
     });
 
     it("can prove genesis without reading negative block numbers", async () => {
         const h = harness({ 0: block(0).hash });
-        expect(await findCommonAncestor({ ...h, startBlock: 2 })).toBe(0);
+        expect(await findCommonAncestor({ ...h, startBlock: 2 })).toEqual({
+            ...block(0),
+            chainId: 1,
+        });
         expect(
             h.storage.getBlockHash.mock.calls.map((call) => call[1]),
         ).toEqual([1, 0]);

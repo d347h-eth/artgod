@@ -79,6 +79,10 @@ import {
     resolvePresentBootstrapTokenIds,
 } from "../application/bootstrap-token-enumeration.js";
 import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
+import {
+    ChainSyncConflict,
+    type ChainBlockReference,
+} from "../domain/chain-sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import {
     buildBootstrapFinalStatsFollowupRun,
@@ -2439,6 +2443,11 @@ async function processBootstrapOwnershipStep(input: {
         payload.runId,
         Math.max(1, ownershipBatchSize),
         ownershipRetryPolicy,
+        {
+            chainId: payload.chainId,
+            blockNumber: payload.anchorBlock,
+            blockHash: payload.anchorHash,
+        },
     );
 
     const counts = bootstrapStorage.getOwnershipTaskCounts(payload.runId);
@@ -2541,6 +2550,7 @@ async function processDueOwnershipTasks(
     runId: number,
     ownershipBatchSize: number,
     retryPolicy: RetryPolicy,
+    block: ChainBlockReference,
 ): Promise<number> {
     const dueTasks = bootstrapStorage.listOwnershipTasksDueNow(
         runId,
@@ -2553,30 +2563,34 @@ async function processDueOwnershipTasks(
 
     for (const task of dueTasks) {
         await processSingleOwnershipTask(
-            rpc,
+            new Erc721TokenOwnership(rpc),
             bootstrapStorage,
             task,
             retryPolicy,
+            block,
         );
     }
     return dueTasks.length;
 }
 
 async function processSingleOwnershipTask(
-    rpc: RpcProviderPort,
+    ownership: Erc721TokenOwnership,
     bootstrapStorage: BootstrapSnapshotPort,
     task: BootstrapOwnershipTask,
     retryPolicy: RetryPolicy,
+    block: ChainBlockReference,
 ): Promise<void> {
     const attempts = task.attempts + 1;
     try {
-        const owner = await rpc.readContract<string>({
-            address: task.contract as Hex,
-            abi: ERC721_ENUMERABLE_ABI,
-            functionName: "ownerOf",
-            args: [BigInt(task.tokenId)],
-            blockNumber: task.anchorBlock,
+        const owner = await ownership.readOwner({
+            contract: task.contract,
+            tokenId: task.tokenId,
+            block,
         });
+        if (owner === null)
+            throw new ChainSyncConflict(
+                "Enumerated token is absent at the bootstrap anchor",
+            );
         bootstrapStorage.markOwnershipTaskSucceeded({
             runId: task.runId,
             tokenId: task.tokenId,
@@ -2934,6 +2948,8 @@ async function resolveTokenIdsForRun(
     rpc: RpcProviderPort,
     tokenOwnership: Erc721TokenOwnership,
     run: {
+        chainId: number;
+        anchorBlockHash: string | null;
         requestAddress: string;
         enumerationMode: BootstrapEnumerationMode;
         manualTokenIdsJson: string | null;
@@ -2954,15 +2970,22 @@ async function resolveTokenIdsForRun(
 
     const tokenIds = resolveManualBootstrapTokenIds(run);
     if (tokenIds) {
+        if (!run.anchorBlockHash)
+            throw new ChainSyncConflict("Missing bootstrap anchor hash");
+        const block = {
+            chainId: run.chainId,
+            blockNumber: anchorBlock,
+            blockHash: run.anchorBlockHash,
+        };
         // Check only the user-approved interval at the anchor, skipping proven nonexistent IDs.
         return resolvePresentBootstrapTokenIds(
             tokenIds,
             (tokenId) =>
-                tokenOwnership.readOwner(
-                    run.requestAddress,
+                tokenOwnership.readOwner({
+                    contract: run.requestAddress,
                     tokenId,
-                    anchorBlock,
-                ),
+                    block,
+                }),
             onProgress,
             run.manualRangeTotalSupply,
         );

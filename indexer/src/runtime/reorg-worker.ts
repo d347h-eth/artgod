@@ -190,7 +190,7 @@ async function handleBlockCheck(
         });
         return;
     }
-    const rollbackFrom = forkPoint + 1;
+    const rollbackFrom = forkPoint.number + 1;
     if (rollbackFrom <= 0) {
         logger.warn("Reorg rollback skipped (non-positive rollback)", {
             component: "IndexerReorgWorker",
@@ -201,7 +201,7 @@ async function handleBlockCheck(
         });
         return;
     }
-    await rollback.execute({ chainId, fromBlock: rollbackFrom });
+    await rollback.execute(forkPoint);
 
     const head = await rpc.getBlockNumber();
     await scheduleBackfillRange(

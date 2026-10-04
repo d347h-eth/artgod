@@ -40,7 +40,7 @@ describe("verified reorg ownership rollback", () => {
         const f = transferFixture();
         const rpc = {
             getBlock: vi.fn(async (number) => block(number)),
-            readContract: vi.fn(async () => owner),
+            readContractAtBlock: vi.fn(async () => owner),
         };
         const rollback = new RollbackChainRange(
             f.storage,
@@ -52,7 +52,7 @@ describe("verified reorg ownership rollback", () => {
     it("restores the fork owner despite missing history and an empty canonical resync", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]); // A -> B at 102 is missing.
-        await f.rollback.execute({ chainId: 1, fromBlock: 101 });
+        await f.rollback.execute({ ...block(100), chainId: 1 });
         f.storage.persistSyncResult({
             checkpoint: f.storage.captureSyncCheckpoint(1),
             blocks: [101, 102, 103].map(block),
@@ -71,15 +71,22 @@ describe("verified reorg ownership rollback", () => {
             ),
         ).toBe(3);
         expect(selectTransferCount(1, f.collectionId, "1")).toBe(0);
-        expect(f.rpc.readContract).toHaveBeenCalledWith(
-            expect.objectContaining({ args: [1n], blockNumber: 100 }),
+        expect(f.rpc.readContractAtBlock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                args: [1n],
+                block: {
+                    chainId: 1,
+                    blockNumber: 100,
+                    blockHash: block(100).hash,
+                },
+            }),
         );
     });
 
     it("retains a fork checkpoint through old repairs and allows newer transfers", async () => {
         const f = rollbackHarness(C);
         f.persist([f.transfer(105, 1, C, D)]);
-        await f.rollback.execute({ chainId: 1, fromBlock: 105 });
+        await f.rollback.execute({ ...block(104), chainId: 1 });
         f.persist([f.transfer(102, 1, A, B)]);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: C, amount: "1" },
@@ -128,7 +135,7 @@ describe("verified reorg ownership rollback", () => {
         const checkpoint = f.storage.captureSyncCheckpoint(1);
         const orphan = f.transfer(103, 1, B, C);
         f.persist([orphan]);
-        await f.rollback.execute({ chainId: 1, fromBlock: 101 });
+        await f.rollback.execute({ ...block(100), chainId: 1 });
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents = [orphan];
         expect(() =>
@@ -156,12 +163,12 @@ describe("verified reorg ownership rollback", () => {
     it("rejects a rollback plan when another affected token appears during RPC reads", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]);
-        f.rpc.readContract.mockImplementationOnce(async () => {
+        f.rpc.readContractAtBlock.mockImplementationOnce(async () => {
             f.persist([{ ...f.transfer(104, 1, A, D), tokenId: "2" }]);
             return A;
         });
         await expect(
-            f.rollback.execute({ chainId: 1, fromBlock: 101 }),
+            f.rollback.execute({ ...block(100), chainId: 1 }),
         ).rejects.toThrow(ChainSyncConflict);
         expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -176,7 +183,9 @@ describe("verified reorg ownership rollback", () => {
             const f = rollbackHarness(A);
             f.persist([f.transfer(103, 1, B, C)]);
             if (failure === "RPC failure")
-                f.rpc.readContract.mockRejectedValueOnce(new Error(failure));
+                f.rpc.readContractAtBlock.mockRejectedValueOnce(
+                    new Error(failure),
+                );
             else
                 f.rpc.getBlock
                     .mockResolvedValueOnce(block(100))
@@ -185,7 +194,7 @@ describe("verified reorg ownership rollback", () => {
                         hash: block(101).hash,
                     });
             await expect(
-                f.rollback.execute({ chainId: 1, fromBlock: 101 }),
+                f.rollback.execute({ ...block(100), chainId: 1 }),
             ).rejects.toThrow();
             expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -206,7 +215,7 @@ describe("verified reorg ownership rollback", () => {
         );
         try {
             await expect(
-                f.rollback.execute({ chainId: 1, fromBlock: 101 }),
+                f.rollback.execute({ ...block(100), chainId: 1 }),
             ).rejects.toThrow("fixture checkpoint failure");
             expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -259,7 +268,7 @@ describe("verified reorg ownership rollback", () => {
     it("clears fork checkpoints when a new bootstrap snapshot replaces ownership", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]);
-        await f.rollback.execute({ chainId: 1, fromBlock: 101 });
+        await f.rollback.execute({ ...block(100), chainId: 1 });
         const bootstrap = new SqliteBootstrapStorage();
         const contract = f.storage.prepareRollback({
             chainId: 1,

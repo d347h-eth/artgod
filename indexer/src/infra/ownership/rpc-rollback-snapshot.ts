@@ -2,7 +2,10 @@ import type {
     Erc721RollbackSnapshot,
     Erc721RollbackSnapshotPort,
 } from "../../application/reorg-rollback.js";
-import { ChainSyncConflict } from "../../domain/chain-sync.js";
+import {
+    ChainSyncConflict,
+    type VerifiedChainBlock,
+} from "../../domain/chain-sync.js";
 import type { Erc721TokenReference } from "../../domain/ownership.js";
 import type { RpcProviderPort } from "../../ports/rpc.js";
 import { Erc721TokenOwnership } from "./erc721-token-ownership.js";
@@ -13,20 +16,21 @@ export class RpcRollbackOwnershipSnapshot implements Erc721RollbackSnapshotPort 
     constructor(
         private readonly rpc: Pick<
             RpcProviderPort,
-            "getBlock" | "readContract"
+            "getBlock" | "readContractAtBlock"
         >,
     ) {
         this.ownership = new Erc721TokenOwnership(rpc);
     }
 
     async readSnapshot(input: {
-        blockNumber: number;
+        fork: VerifiedChainBlock;
         tokens: readonly Erc721TokenReference[];
     }): Promise<Erc721RollbackSnapshot> {
-        const before = await this.rpc.getBlock(input.blockNumber, {
+        const { fork } = input;
+        const before = await this.rpc.getBlock(fork.number, {
             fresh: true,
         });
-        if (before.number !== input.blockNumber)
+        if (before.number !== fork.number || before.hash !== fork.hash)
             throw new ChainSyncConflict(
                 "Rollback ownership RPC returned the wrong block",
             );
@@ -36,17 +40,21 @@ export class RpcRollbackOwnershipSnapshot implements Erc721RollbackSnapshotPort 
         for (const token of input.tokens) {
             owners.push({
                 ...token,
-                owner: await this.ownership.readOwner(
-                    token.contract,
-                    token.tokenId,
-                    input.blockNumber,
-                ),
+                owner: await this.ownership.readOwner({
+                    contract: token.contract,
+                    tokenId: token.tokenId,
+                    block: {
+                        chainId: fork.chainId,
+                        blockNumber: fork.number,
+                        blockHash: fork.hash,
+                    },
+                }),
             });
         }
-        const after = await this.rpc.getBlock(input.blockNumber, {
+        const after = await this.rpc.getBlock(fork.number, {
             fresh: true,
         });
-        if (after.number !== input.blockNumber || before.hash !== after.hash)
+        if (after.number !== fork.number || after.hash !== fork.hash)
             throw new ChainSyncConflict(
                 "Rollback ownership block changed during RPC reads",
             );

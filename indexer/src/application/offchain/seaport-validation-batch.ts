@@ -124,6 +124,19 @@ function createValidationSnapshotFactory(
             getLogs: (filter) => rpc.getLogs(filter),
             getTransaction: (hash) => rpc.getTransaction(hash),
             getTransactionReceipt: (hash) => rpc.getTransactionReceipt(hash),
+            readContractAtBlock: async (params) => {
+                checkLifetime();
+                if (
+                    params.block.chainId !== chainId ||
+                    params.block.blockNumber !== number ||
+                    params.block.blockHash !== block.hash
+                )
+                    throw new OrderValidationSnapshotUnavailable(
+                        "Contract read does not match validation snapshot",
+                    );
+                counts.other++;
+                return rpc.readContractAtBlock(params);
+            },
             getBalance: async (address) => {
                 try {
                     checkLifetime();

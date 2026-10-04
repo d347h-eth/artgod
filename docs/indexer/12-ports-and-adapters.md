@@ -110,6 +110,14 @@ These fixed limits are code-owned policies, not Admin settings or adaptive
 queue-depth controls. See [processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
 for the distinction between pending work and retained completion state.
 
+## Canonical Contract State Reads
+
+`RpcProviderPort.readContractAtBlock` accepts an explicit chain, block number and
+hash for canonical state reads. `ViemRpcProvider` owns EIP-1898 encoding, decoded
+contract errors and endpoint retries without changing that hash. The consolidated
+ERC721 ownership reader uses it for bootstrap ownership and rollback checkpoints;
+ordinary numeric/latest contract reads retain their separate contract.
+
 ## Collection Gap Scheduling Ports
 
 `indexer/src/application/sync-gap-scheduler.ts` owns the narrow collection-list,
