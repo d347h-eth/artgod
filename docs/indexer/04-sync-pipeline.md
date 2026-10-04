@@ -162,10 +162,16 @@ The storage layer is idempotent:
 - Collection block coverage is upserted by `(chain_id, collection_id, block_number)`.
 - Balances are updated only for transfers that were newly inserted.
 - For ERC721 tokens touched by new post-anchor transfers, ownership is projected
-  from the latest persisted transfer by block number and log index. Older repair
+  from the latest persisted transfer by block number and log index, or the verified
+  fork ownership checkpoint when it is at or after that transfer's block. Older repair
   ranges cannot restore a previous owner, leave multiple owners, or resurrect a
   token whose latest transfer burns it. ERC1155 deltas remain additive and are
   applied once per inserted transfer.
+
+The sync worker captures the chain sync revision before fetching RPC data.
+Persistence checks that revision in the same write transaction as facts, coverage
+and balances. A rollback advances it, so an earlier in-flight sync cannot restore
+orphaned facts after rollback.
 
 This is the key ownership invariant for historical backfill:
 

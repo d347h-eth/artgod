@@ -1,3 +1,4 @@
+import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -120,7 +121,12 @@ describe("perpetual collection gap repair", () => {
             toBlock: 101,
         });
         h.finish(h.jobs[0]);
-        new SqliteStorage().rollbackFromBlock(1, 108);
+        commitRollbackFixture({
+            storage: new SqliteStorage(),
+            chainId: 1,
+            fromBlock: 108,
+            owners: [],
+        });
         await h.scheduler.scan(110);
         await h.scheduler.scan(110);
         expect(h.jobs[1].payload).toMatchObject({

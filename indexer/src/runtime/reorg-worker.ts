@@ -27,6 +27,8 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { StoragePort } from "../ports/storage.js";
+import { RollbackChainRange } from "../application/reorg-rollback.js";
+import { RpcRollbackOwnershipSnapshot } from "../infra/ownership/rpc-rollback-snapshot.js";
 
 async function main() {
     try {
@@ -64,6 +66,10 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const storage = new SqliteStorage();
+        const rollback = new RollbackChainRange(
+            storage,
+            new RpcRollbackOwnershipSnapshot(rpc),
+        );
 
         const stop = await runWorker(
             queue,
@@ -80,6 +86,7 @@ async function main() {
                     queue,
                     rpc,
                     storage,
+                    rollback,
                     config.chainId,
                     config.sync.reorgDepth,
                     config.sync.backfillBatchSize,
@@ -127,6 +134,7 @@ async function handleBlockCheck(
     queue: QueuePort,
     rpc: RpcProviderPort,
     storage: StoragePort,
+    rollback: RollbackChainRange,
     chainId: number,
     reorgDepth: number,
     backfillBatchSize: number,
@@ -188,7 +196,7 @@ async function handleBlockCheck(
         });
         return;
     }
-    storage.rollbackFromBlock(chainId, rollbackFrom);
+    await rollback.execute({ chainId, fromBlock: rollbackFrom });
 
     const head = await rpc.getBlockNumber();
     await scheduleBackfillRange(

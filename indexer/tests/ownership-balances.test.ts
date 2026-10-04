@@ -1,13 +1,20 @@
+import {
+    insertCollection,
+    loadCollection,
+    selectBalanceOwners,
+    selectTransferCount,
+    transferFixture,
+    emptyOnChainData,
+} from "./helpers/ownership-fixture.js";
+import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
-import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
-import type { NftTransferEvent, OnChainData } from "../src/domain/onchain.js";
 
 describe("ownership balance persistence", () => {
     loadTestEnv();
@@ -84,9 +91,9 @@ describe("ownership balance persistence", () => {
 
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
-        storage.persistSyncResult(
-            chainId,
-            [
+        storage.persistSyncResult({
+            checkpoint: storage.captureSyncCheckpoint(chainId),
+            blocks: [
                 {
                     number: 101,
                     hash: `0x${"22".repeat(32)}`,
@@ -94,7 +101,7 @@ describe("ownership balance persistence", () => {
                     timestamp: 1_726_000_100,
                 },
             ],
-            {
+            data: {
                 transactions: [],
                 collectionScoped: {
                     nftTransferEvents: [
@@ -127,8 +134,8 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                 },
             },
-            [collection],
-        );
+            collections: [collection],
+        });
 
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
@@ -182,7 +189,19 @@ describe("ownership balance persistence", () => {
                 last_block_number: firstBlock,
                 last_log_index: firstLog,
             });
-            storage.rollbackFromBlock(1, firstBlock);
+            commitRollbackFixture({
+                storage: storage,
+                chainId: 1,
+                fromBlock: firstBlock,
+                owners: [
+                    {
+                        collectionId,
+                        tokenId: "1",
+                        owner:
+                            lateBlock < firstBlock ? middleOwner : firstOwner,
+                    },
+                ],
+            });
             expect(
                 storage.countCollectionSyncedBlocksInRange(
                     1,
@@ -235,15 +254,30 @@ describe("ownership balance persistence", () => {
             { from_address: buyer, to_address: zero },
         ]);
 
-        storage.rollbackFromBlock(1, 103);
+        commitRollbackFixture({
+            storage: storage,
+            chainId: 1,
+            fromBlock: 103,
+            owners: [{ collectionId, tokenId: "1", owner: buyer }],
+        });
         expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
             { owner: buyer, amount: "1" },
         ]);
-        storage.rollbackFromBlock(1, 102);
+        commitRollbackFixture({
+            storage: storage,
+            chainId: 1,
+            fromBlock: 102,
+            owners: [{ collectionId, tokenId: "1", owner: seller }],
+        });
         expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
             { owner: seller, amount: "1" },
         ]);
-        storage.rollbackFromBlock(1, 101);
+        commitRollbackFixture({
+            storage: storage,
+            chainId: 1,
+            fromBlock: 101,
+            owners: [{ collectionId, tokenId: "1", owner: null }],
+        });
         expect(selectBalanceOwners(1, collectionId, "1")).toEqual([]);
     });
 
@@ -321,12 +355,18 @@ describe("ownership balance persistence", () => {
             },
         ];
 
-        storage.persistSyncResult(chainId, blocks, emptyOnChainData(), [
-            collection,
-        ]);
-        storage.persistSyncResult(chainId, blocks, emptyOnChainData(), [
-            collection,
-        ]);
+        storage.persistSyncResult({
+            checkpoint: storage.captureSyncCheckpoint(chainId),
+            blocks: blocks,
+            data: emptyOnChainData(),
+            collections: [collection],
+        });
+        storage.persistSyncResult({
+            checkpoint: storage.captureSyncCheckpoint(chainId),
+            blocks: blocks,
+            data: emptyOnChainData(),
+            collections: [collection],
+        });
 
         expect(storage.countBlocksInRange(chainId, 101, 102)).toBe(2);
         expect(
@@ -346,7 +386,12 @@ describe("ownership balance persistence", () => {
             ),
         ).toBe(0);
 
-        storage.rollbackFromBlock(chainId, 102);
+        commitRollbackFixture({
+            storage: storage,
+            chainId: chainId,
+            fromBlock: 102,
+            owners: [],
+        });
 
         expect(storage.countBlocksInRange(chainId, 101, 102)).toBe(1);
         expect(
@@ -395,9 +440,9 @@ describe("ownership balance persistence", () => {
 
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
-        storage.persistSyncResult(
-            chainId,
-            [
+        storage.persistSyncResult({
+            checkpoint: storage.captureSyncCheckpoint(chainId),
+            blocks: [
                 {
                     number: 99,
                     hash: `0x${"44".repeat(32)}`,
@@ -405,7 +450,7 @@ describe("ownership balance persistence", () => {
                     timestamp: 1_726_000_099,
                 },
             ],
-            {
+            data: {
                 transactions: [],
                 collectionScoped: {
                     nftTransferEvents: [
@@ -438,8 +483,8 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                 },
             },
-            [collection],
-        );
+            collections: [collection],
+        });
 
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: seller, amount: "1" },
@@ -484,9 +529,9 @@ describe("ownership balance persistence", () => {
 
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
-        storage.persistSyncResult(
-            chainId,
-            [
+        storage.persistSyncResult({
+            checkpoint: storage.captureSyncCheckpoint(chainId),
+            blocks: [
                 {
                     number: 99,
                     hash: `0x${"44".repeat(32)}`,
@@ -500,7 +545,7 @@ describe("ownership balance persistence", () => {
                     timestamp: 1_726_000_101,
                 },
             ],
-            {
+            data: {
                 transactions: [],
                 collectionScoped: {
                     nftTransferEvents: [
@@ -546,8 +591,8 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                 },
             },
-            [collection],
-        );
+            collections: [collection],
+        });
 
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
@@ -555,130 +600,3 @@ describe("ownership balance persistence", () => {
         expect(selectTransferCount(chainId, collectionId, "5081")).toBe(2);
     });
 });
-
-function insertCollection(input: {
-    chainId: number;
-    slug: string;
-    address: string;
-    anchorBlock: number;
-}): number {
-    const result = db
-        .prepare<
-            [number, string, string, number]
-        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " + "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', ?)")
-        .run(
-            input.chainId,
-            input.slug,
-            input.address.toLowerCase(),
-            input.anchorBlock,
-        );
-
-    return Number(result.lastInsertRowid);
-}
-
-function loadCollection(chainId: number, collectionId: number) {
-    const registry = new SqliteCollectionRegistry();
-    const collection = registry.getCollection(chainId, collectionId);
-    if (!collection) {
-        throw new Error(`Missing collection ${collectionId}`);
-    }
-    return collection;
-}
-
-function selectBalanceOwners(
-    chainId: number,
-    collectionId: number,
-    tokenId: string,
-): Array<{ owner: string; amount: string }> {
-    return db
-        .prepare<
-            [number, number, string],
-            { owner: string; amount: string }
-        >("SELECT owner, amount FROM nft_balances " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " + "ORDER BY owner ASC")
-        .all(chainId, collectionId, tokenId) as Array<{
-        owner: string;
-        amount: string;
-    }>;
-}
-
-function selectTransferCount(
-    chainId: number,
-    collectionId: number,
-    tokenId: string,
-): number {
-    return (
-        db
-            .prepare<
-                [number, number, string],
-                { count: number }
-            >("SELECT COUNT(*) AS count FROM nft_transfer_events " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ?")
-            .get(chainId, collectionId, tokenId)?.count ?? 0
-    );
-}
-
-function transferFixture() {
-    const contract = "0xabc0000000000000000000000000000000000000";
-    const collectionId = insertCollection({
-        chainId: 1,
-        slug: "gap-repair",
-        address: contract,
-        anchorBlock: 100,
-    });
-    const storage = new SqliteStorage();
-    const transfer = (
-        blockNumber: number,
-        logIndex: number,
-        from: string,
-        to: string,
-    ): NftTransferEvent => ({
-        collectionId,
-        contract,
-        tokenId: "1",
-        from,
-        to,
-        amount: "1",
-        blockNumber,
-        logIndex,
-        blockHash: `0x${String(blockNumber).padStart(64, "0")}`,
-        txHash: `0x${String(blockNumber * 100 + logIndex).padStart(64, "0")}`,
-        kind: COLLECTION_STANDARD.Erc721,
-    });
-    const persist = (events: NftTransferEvent[]) => {
-        const data = emptyOnChainData();
-        data.collectionScoped.nftTransferEvents = events;
-        storage.persistSyncResult(
-            1,
-            events.map((event) => ({
-                number: event.blockNumber,
-                hash: event.blockHash,
-                parentHash: `0x${"00".repeat(32)}`,
-                timestamp: event.blockNumber,
-            })),
-            data,
-            [loadCollection(1, collectionId)],
-        );
-    };
-    return { collectionId, storage, transfer, persist };
-}
-
-function emptyOnChainData(): OnChainData {
-    return {
-        transactions: [],
-        collectionScoped: {
-            nftTransferEvents: [],
-            nftApprovalEvents: [],
-            nftBalanceDeltas: [],
-            fillEvents: [],
-            orderInfos: [],
-            makerTriggers: [],
-            metadataRefreshEvents: [],
-            metadataRefreshRangeEvents: [],
-            collectionExtensionEvents: [],
-            collectionExtensionEventMedia: [],
-        },
-        global: {
-            cancelEvents: [],
-            makerTriggers: [],
-        },
-    };
-}

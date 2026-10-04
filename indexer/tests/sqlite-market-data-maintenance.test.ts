@@ -1,3 +1,4 @@
+import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { statSync } from "node:fs";
@@ -281,7 +282,12 @@ describe("in-place SQLite market-data recovery", () => {
         db.prepare(
             "UPDATE orders SET source_status=? WHERE id='source-still-retained'",
         ).run(ORDER_SOURCE_STATUS.Cancelled);
-        new SqliteStorage().rollbackFromBlock(1, 999999);
+        commitRollbackFixture({
+            storage: new SqliteStorage(),
+            chainId: 1,
+            fromBlock: 999999,
+            owners: [],
+        });
         expect(db.prepare("SELECT id FROM orders").all()).toEqual([
             { id: "source-still-retained" },
         ]);
@@ -419,7 +425,12 @@ describe("in-place SQLite market-data recovery", () => {
                     now += 1;
                     if (!sourceFirst) await cancelAtSource();
 
-                    new SqliteStorage().rollbackFromBlock(1, fromBlock);
+                    commitRollbackFixture({
+                        storage: new SqliteStorage(),
+                        chainId: 1,
+                        fromBlock: fromBlock,
+                        owners: [],
+                    });
                     expect(
                         await domain.handleOrderUpsert(payload),
                     ).toMatchObject({
@@ -459,7 +470,12 @@ describe("in-place SQLite market-data recovery", () => {
                         sourceStatus: ORDER_SOURCE_STATUS.Filled,
                         observedAt: now + 1,
                     });
-                    new SqliteStorage().rollbackFromBlock(1, 100);
+                    commitRollbackFixture({
+                        storage: new SqliteStorage(),
+                        chainId: 1,
+                        fromBlock: 100,
+                        owners: [],
+                    });
                     expect(
                         db
                             .prepare(
@@ -503,7 +519,12 @@ describe("in-place SQLite market-data recovery", () => {
             NOW,
             ORDER_RETIREMENT_REASON.Terminal,
         );
-        new SqliteStorage().rollbackFromBlock(1, 100);
+        commitRollbackFixture({
+            storage: new SqliteStorage(),
+            chainId: 1,
+            fromBlock: 100,
+            owners: [],
+        });
         expect(db.prepare("SELECT id FROM orders ORDER BY id").all()).toEqual([
             { id: "live" },
             { id: "other" },

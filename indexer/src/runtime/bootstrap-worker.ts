@@ -78,7 +78,7 @@ import {
     resolveManualBootstrapTokenIds,
     resolvePresentBootstrapTokenIds,
 } from "../application/bootstrap-token-enumeration.js";
-import { Erc721TokenOwnership } from "../infra/bootstrap/erc721-token-ownership.js";
+import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
 import { runWorker } from "../application/worker-runner.js";
 import {
     buildBootstrapFinalStatsFollowupRun,

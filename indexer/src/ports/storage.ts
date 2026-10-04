@@ -1,14 +1,16 @@
 import type { OnChainData } from "../domain/onchain.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { RpcBlock } from "./rpc.js";
+import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
 
 export interface StoragePort {
-    persistSyncResult(
-        chainId: number,
-        blocks: RpcBlock[],
-        data: OnChainData,
-        collections: CollectionRecord[],
-    ): void;
+    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
+    persistSyncResult(input: {
+        checkpoint: ChainSyncCheckpoint;
+        blocks: RpcBlock[];
+        data: OnChainData;
+        collections: CollectionRecord[];
+    }): void;
     getBlockHash(chainId: number, blockNumber: number): string | null;
     countBlocksInRange(
         chainId: number,
@@ -21,5 +23,4 @@ export interface StoragePort {
         fromBlock: number,
         toBlock: number,
     ): number;
-    rollbackFromBlock(chainId: number, fromBlock: number): void;
 }
