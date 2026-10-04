@@ -152,6 +152,13 @@ export type TradingCompetitionPreset = TradingCompetitionPresetVersion & {
     archivedAt: string | null;
 };
 
+// A reviewed job selection is pinned to both its declaration and preset version.
+export type TradingCompetitionPresetReapplySelection = {
+    jobId: string;
+    expectedRevision: number;
+    versionId: string;
+};
+
 export type TradingBiddingJobTargetDescriptor =
     | {
           targetKind: typeof TRADING_JOB_TARGET_KIND.Token;

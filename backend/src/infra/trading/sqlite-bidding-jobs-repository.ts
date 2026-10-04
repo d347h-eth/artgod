@@ -7,6 +7,7 @@ import {
 import {
     BIDDING_COMPETITION_PRESET_SQL,
     mapBiddingCompetitionPresetRow,
+    readCurrentBiddingCompetitionPreset,
     type BiddingCompetitionPresetRow,
 } from "@artgod/shared/database/bidding-competition-presets";
 import { TradingValidationError } from "../../application/use-cases/trading/types.js";
@@ -42,6 +43,12 @@ import type {
     UpsertCollectionBiddingJobInput,
     UpsertTokenBiddingJobInput,
 } from "../../application/use-cases/trading/ports.js";
+import {
+    requireReapplyCompetitionPreset,
+    requireReapplyCompetitionPresetJob,
+    type CompetitionPresetReapplyJobsPort,
+    type ReapplyCompetitionPresetWriteInput,
+} from "../../application/use-cases/trading/bidding-competition-preset-reapply.js";
 
 type BiddingJobRow = BiddingCompetitionPresetRow & {
     job_id: string;
@@ -125,7 +132,9 @@ const BIDDING_JOB_SELECT =
     "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
     "WHERE j.bot_kind = @botKind ";
 
-export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
+export class SqliteBiddingJobsRepository
+    implements BiddingJobsRepositoryPort, CompetitionPresetReapplyJobsPort
+{
     private readonly selectCollectionJobs: BetterSqlite3NamedStatement<{
         botKind: typeof TRADING_BOT_KIND.Bidding;
         chainId: number;
@@ -494,6 +503,76 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         return rows.map((row) => this.mapBiddingJobRow(row));
     }
 
+    listCompetitionPresetJobs(input: {
+        chainId: number;
+        collectionId: number;
+        presetId: string;
+    }): PersistedCollectionBiddingJobRecord[] {
+        const rows = db
+            .prepare<{
+                botKind: string;
+                chainId: number;
+                collectionId: number;
+                presetId: string;
+                targetKind: string;
+                archived: string;
+            }>(
+                BIDDING_JOB_SELECT +
+                    "AND j.chain_id = @chainId AND j.collection_id = @collectionId AND j.target_kind = @targetKind AND j.status <> @archived " +
+                    "AND s.competition_preset_version_id IN (SELECT version_id FROM trading_bidding_competition_preset_versions WHERE preset_id = @presetId) " +
+                    "ORDER BY j.updated_at DESC, j.job_id ASC",
+            )
+            .all({
+                ...input,
+                botKind: TRADING_BOT_KIND.Bidding,
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                archived: TRADING_JOB_STATUS.Archived,
+            }) as BiddingJobRow[];
+        return rows.map((row) => {
+            const job = this.mapBiddingJobRow(row);
+            if (job.targetKind !== TRADING_JOB_TARGET_KIND.Collection)
+                throw new Error(
+                    "Expected a collection job linked to the preset",
+                );
+            return job;
+        });
+    }
+
+    reapplyCompetitionPreset(input: ReapplyCompetitionPresetWriteInput): {
+        jobs: PersistedCollectionBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    } {
+        return db.writeTransaction(() => {
+            const preset = requireReapplyCompetitionPreset(
+                readCurrentBiddingCompetitionPreset(input, input.presetId),
+                input.expectedRevision,
+            );
+            const jobs: PersistedCollectionBiddingJobRecord[] = [];
+            const commands: TradingJobCommandRecord[] = [];
+            for (const selection of input.jobs) {
+                const existing = requireReapplyCompetitionPresetJob(
+                    this.getJobById(selection.jobId),
+                    input,
+                    preset,
+                    selection,
+                );
+                input.assertTargetSupported(existing);
+                this.updateTradingJobById.run({
+                    jobId: existing.jobId,
+                    status: existing.status,
+                });
+                this.writeCompetitionPresetReference(
+                    existing.jobId,
+                    preset.versionId,
+                );
+                const job = this.requireCollectionJobById(existing.jobId);
+                jobs.push(job);
+                commands.push(...this.updatedJobCommands(existing, job));
+            }
+            return { jobs, commands };
+        })();
+    }
+
     getTokenJob(params: {
         chainId: number;
         collectionId: number;
@@ -603,8 +682,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     existing?.competitionPreset?.versionId ?? null,
                 );
                 if (existing) {
-                    const cancellationPayload =
-                        this.biddingJobCancellationCommandPayload(existing);
                     this.updateTradingJobById.run({
                         jobId: existing.jobId,
                         status: transactionInput.status,
@@ -624,31 +701,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         transactionInput.competitionPresetVersionId,
                     );
                     const job = this.requireCollectionJobById(existing.jobId);
-                    const commandKind =
-                        job.status === TRADING_JOB_STATUS.Paused
-                            ? TRADING_JOB_COMMAND_KIND.JobPaused
-                            : TRADING_JOB_COMMAND_KIND.JobUpdated;
-                    const commands: TradingJobCommandRecord[] = [];
-                    if (job.status === TRADING_JOB_STATUS.Paused) {
-                        this.recordCancellationRequest(existing);
-                        commands.push(
-                            this.insertCommandRecord(
-                                job.jobId,
-                                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-                                job.revision,
-                                cancellationPayload,
-                            ),
-                        );
-                    }
-                    commands.push(
-                        this.insertCommandRecord(
-                            job.jobId,
-                            commandKind,
-                            job.revision,
-                            this.collectionJobCommandPayload(job),
-                        ),
-                    );
-                    return { job, commands };
+                    return {
+                        job,
+                        commands: this.updatedJobCommands(existing, job),
+                    };
                 }
 
                 const jobId = randomUUID();
@@ -894,8 +950,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             return null;
         }
 
-        const cancellationPayload =
-            this.biddingJobCancellationCommandPayload(existing);
         this.updateTradingJobById.run({
             jobId: existing.jobId,
             status: existing.status,
@@ -911,7 +965,15 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         });
 
         const job = this.requireBiddingJobById(existing.jobId);
-        const payload = this.biddingJobCommandPayload(job);
+        return { job, commands: this.updatedJobCommands(existing, job) };
+    }
+
+    // Every declaration update uses the same reconciliation and exact-order
+    // cancellation behavior, including both bulk reapply operations.
+    private updatedJobCommands(
+        existing: PersistedBiddingJobRecord,
+        job: PersistedBiddingJobRecord,
+    ): TradingJobCommandRecord[] {
         const commandKind =
             job.status === TRADING_JOB_STATUS.Paused
                 ? TRADING_JOB_COMMAND_KIND.JobPaused
@@ -924,7 +986,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     job.jobId,
                     TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                     job.revision,
-                    cancellationPayload,
+                    this.biddingJobCancellationCommandPayload(existing),
                 ),
             );
         }
@@ -933,10 +995,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 job.jobId,
                 commandKind,
                 job.revision,
-                payload,
+                this.biddingJobCommandPayload(job),
             ),
         );
-        return { job, commands };
+        return commands;
     }
 
     private requireBiddingJobById(jobId: string): PersistedBiddingJobRecord {
@@ -963,8 +1025,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         });
 
         if (existing) {
-            const cancellationPayload =
-                this.biddingJobCancellationCommandPayload(existing);
             this.updateTradingJobById.run({
                 jobId: existing.jobId,
                 status: transactionInput.status,
@@ -981,31 +1041,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             });
 
             const job = this.requireTokenJobById(existing.jobId);
-            const commandKind =
-                job.status === TRADING_JOB_STATUS.Paused
-                    ? TRADING_JOB_COMMAND_KIND.JobPaused
-                    : TRADING_JOB_COMMAND_KIND.JobUpdated;
-            const commands: TradingJobCommandRecord[] = [];
-            if (job.status === TRADING_JOB_STATUS.Paused) {
-                this.recordCancellationRequest(existing);
-                commands.push(
-                    this.insertCommandRecord(
-                        job.jobId,
-                        TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-                        job.revision,
-                        cancellationPayload,
-                    ),
-                );
-            }
-            commands.push(
-                this.insertCommandRecord(
-                    job.jobId,
-                    commandKind,
-                    job.revision,
-                    this.tokenJobCommandPayload(job),
-                ),
-            );
-            return { job, commands };
+            return { job, commands: this.updatedJobCommands(existing, job) };
         }
 
         const jobId = randomUUID();

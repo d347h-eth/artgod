@@ -20,7 +20,9 @@ import {
 	type TradingBotLifecycleStatus,
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode,
-	type TradingTraitCompetitionSelector
+	type TradingTraitCompetitionSelector,
+	type TradingCompetitionPreset,
+	type TradingCompetitionPresetVersion
 } from '@artgod/shared/types';
 import type { EvmProxyConfidence, EvmProxyKind } from '@artgod/shared/evm/proxy-detection';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
@@ -764,6 +766,26 @@ export type BiddingPriceTierReapplyApplyApiResponse = {
 	tier: ApiBiddingPriceTier;
 	jobs: ApiBiddingJob[];
 	preview: ApiBiddingPriceTierReapplyJobPreview[];
+};
+
+export type ApiCompetitionPresetReapplyJobPreview = {
+	job: ApiBiddingJob;
+	before: TradingCompetitionPresetVersion;
+	after: TradingCompetitionPresetVersion;
+	changed: boolean;
+	error: string | null;
+};
+export type CompetitionPresetReapplyPreviewApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	preset: TradingCompetitionPreset;
+	jobs: ApiCompetitionPresetReapplyJobPreview[];
+};
+export type CompetitionPresetReapplyApplyApiResponse = Omit<
+	CompetitionPresetReapplyPreviewApiResponse,
+	'jobs'
+> & {
+	jobs: ApiBiddingJob[];
 };
 
 export type CollectionBiddingBidBookApiResponse = {

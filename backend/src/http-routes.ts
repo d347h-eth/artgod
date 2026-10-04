@@ -267,6 +267,10 @@ import {
     type CompetitionPresetsRoute,
     type ArchiveCompetitionPresetRoute,
 } from "./http/handlers/trading/bidding-competition-presets.js";
+import {
+    BiddingCompetitionPresetReapplyHttpAdapter,
+    type CompetitionPresetReapplyRoute,
+} from "./http/handlers/trading/bidding-competition-preset-reapply.js";
 
 export function registerApiRoutes(
     app: FastifyInstance,
@@ -331,6 +335,7 @@ export function registerApiRoutes(
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
     options: ApiRouteRegistrationOptions,
     competitionPresetsAdapter: BiddingCompetitionPresetsHttpAdapter | null = null,
+    competitionPresetReapplyAdapter: BiddingCompetitionPresetReapplyHttpAdapter | null = null,
 ): void {
     const publicCollectionScopeGuard = createPublicCollectionScopeGuard(
         options.publicCollectionScope,
@@ -583,6 +588,20 @@ export function registerApiRoutes(
             options,
             TRADING_API_ROUTE_TEMPLATE.CompetitionPreset,
             competitionPresetsAdapter.archive,
+        );
+    }
+    if (competitionPresetReapplyAdapter) {
+        registerObservedGet<CompetitionPresetReapplyRoute>(
+            app,
+            options,
+            TRADING_API_ROUTE_TEMPLATE.CompetitionPresetReapplyPreview,
+            competitionPresetReapplyAdapter.preview,
+        );
+        registerObservedPost<CompetitionPresetReapplyRoute>(
+            app,
+            options,
+            TRADING_API_ROUTE_TEMPLATE.CompetitionPresetReapply,
+            competitionPresetReapplyAdapter.apply,
         );
     }
     registerObservedGet<ListCollectionBiddingPriceTiersRoute>(

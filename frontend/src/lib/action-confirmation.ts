@@ -11,3 +11,4 @@ export function isConfirmationActionTarget(
 	}
 	return false;
 }
+export const BIDDING_JOB_REAPPLY_ACTION_KEY = 'reapply:form';

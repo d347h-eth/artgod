@@ -17,6 +17,21 @@ import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 const TARGET_LOOKUP_KEY = 'ethereum:milady:trait:Biome=42';
 
 describe('bidding automation panel state', () => {
+	it('refreshes declaration lookups while inactive market state stays fixed', () => {
+		const bidBook = testBidBook('2026-01-01T00:00:00Z', 2);
+		const before = resolveBiddingAutomationPanelTargetLookupRequestKey({
+			targetLookupKey: TARGET_LOOKUP_KEY,
+			bidBook,
+			jobsChangeSignal: 0
+		});
+		const after = resolveBiddingAutomationPanelTargetLookupRequestKey({
+			targetLookupKey: TARGET_LOOKUP_KEY,
+			bidBook,
+			jobsChangeSignal: 1
+		});
+		expect(after).not.toBe(before);
+	});
+
 	it('invalidates target lookup requests when the bid-book refresh signal changes', () => {
 		const firstBidBook = testBidBook('2026-01-01T00:00:00Z', 1);
 		const secondBidBook = testBidBook('2026-01-01T00:00:10Z', 2);

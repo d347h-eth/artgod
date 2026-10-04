@@ -986,6 +986,77 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bidding/competition-presets/{preset_id}/reapply-preview:
+        get:
+            tags: [Trading]
+            summary: Preview extra targets preset reapply
+            description: Lists enabled and paused jobs linked to the preset, including unchanged and ineligible rows. Archived jobs are excluded.
+            operationId: previewCompetitionPresetReapply
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: preset_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: Reviewed preset revision and job snapshots
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CompetitionPresetReapplyPreviewResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/competition-presets/{preset_id}/reapply:
+        post:
+            tags: [Trading]
+            summary: Reapply extra targets to selected reviewed jobs
+            description: Atomically upgrades references to the reviewed current preset revision, increments job revisions and enqueues normal commands. Preserves prices, pricing provenance, targets, quantities and enabled/paused status. Rejects the entire batch when the preset or any selected job snapshot is stale, archived, foreign or ineligible.
+            operationId: applyCompetitionPresetReapply
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: preset_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/ApplyCompetitionPresetReapplyRequest"
+            responses:
+                "200":
+                    description: Current preset and updated selected jobs
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CompetitionPresetReapplyApplyResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bidding/price-tiers:
         get:
             tags: [Trading]
@@ -3262,6 +3333,91 @@ components:
                     type: array
                     items:
                         $ref: "#/components/schemas/CompetitionPresetVersion"
+
+        CompetitionPresetReapplyJobSelection:
+            type: object
+            required: [jobId, expectedRevision, versionId]
+            additionalProperties: false
+            properties:
+                jobId:
+                    type: string
+                    minLength: 1
+                expectedRevision:
+                    type: integer
+                    minimum: 1
+                    description: Job declaration revision from the reviewed preview.
+                versionId:
+                    type: string
+                    minLength: 1
+                    description: Previously pinned version ID from the reviewed preview.
+
+        ApplyCompetitionPresetReapplyRequest:
+            type: object
+            required: [expectedRevision, jobs]
+            additionalProperties: false
+            properties:
+                expectedRevision:
+                    type: integer
+                    minimum: 1
+                    description: Current preset revision from the reviewed preview.
+                jobs:
+                    type: array
+                    minItems: 1
+                    uniqueItems: true
+                    description: Distinct eligible jobs using older versions of this preset.
+                    items:
+                        $ref: "#/components/schemas/CompetitionPresetReapplyJobSelection"
+
+        CompetitionPresetReapplyJobPreview:
+            type: object
+            required: [job, before, after, changed, error]
+            additionalProperties: false
+            properties:
+                job:
+                    $ref: "#/components/schemas/BiddingJob"
+                before:
+                    $ref: "#/components/schemas/CompetitionPresetVersion"
+                after:
+                    $ref: "#/components/schemas/CompetitionPresetVersion"
+                changed:
+                    type: boolean
+                    description: True when the pinned and current version IDs differ, even if extras are identical.
+                error:
+                    type: string
+                    nullable: true
+                    description: Ineligibility reason; null for an eligible row.
+
+        CompetitionPresetReapplyPreviewResponse:
+            type: object
+            required: [chain, collection, preset, jobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                preset:
+                    $ref: "#/components/schemas/CompetitionPresetVersion"
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CompetitionPresetReapplyJobPreview"
+
+        CompetitionPresetReapplyApplyResponse:
+            type: object
+            required: [chain, collection, preset, jobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                preset:
+                    $ref: "#/components/schemas/CompetitionPresetVersion"
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJob"
 
         UpsertCompetitionPresetRequest:
             type: object

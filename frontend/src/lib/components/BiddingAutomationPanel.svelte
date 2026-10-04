@@ -96,6 +96,7 @@
 		job,
 		draft = null,
 		bidBook = null,
+		jobsChangeSignal = 0,
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
 		competitionInventory = null,
@@ -113,6 +114,7 @@
 		job: ApiBiddingJob | null;
 		draft?: BiddingAutomationDraft | null;
 		bidBook?: ApiBiddingBidBook | null;
+		jobsChangeSignal?: number;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		competitionInventory?: BiddingCompetitionPresetInventory | null;
@@ -450,7 +452,8 @@
 		});
 		const nextLookupRequestKey = resolveBiddingAutomationPanelTargetLookupRequestKey({
 			targetLookupKey: nextLookupKey,
-			bidBook
+			bidBook,
+			jobsChangeSignal
 		});
 		if (nextLookupRequestKey === targetLookupRequestKey) {
 			return;
@@ -490,7 +493,8 @@
 		});
 		const nextLookupRequestKey = resolveBiddingAutomationPanelTargetLookupRequestKey({
 			targetLookupKey: nextLookupKey,
-			bidBook
+			bidBook,
+			jobsChangeSignal
 		});
 		if (nextLookupRequestKey === selectionLookupRequestKey) {
 			return;

@@ -128,6 +128,10 @@ import {
     BiddingCompetitionPresetsHttpAdapter,
     type BiddingCompetitionPresetsPort,
 } from "./http/handlers/trading/bidding-competition-presets.js";
+import {
+    BiddingCompetitionPresetReapplyHttpAdapter,
+    type BiddingCompetitionPresetReapplyPort,
+} from "./http/handlers/trading/bidding-competition-preset-reapply.js";
 import { registerApiRoutes } from "./http-routes.js";
 import type {
     BackendDeploymentConfig,
@@ -211,6 +215,7 @@ export function createApiApp(
     ),
     publicGetSyncBackfillStateUseCase: GetSyncBackfillStatePort | null = null,
     competitionPresetsPort: BiddingCompetitionPresetsPort | null = null,
+    competitionPresetReapplyPort: BiddingCompetitionPresetReapplyPort | null = null,
 ): FastifyInstance {
     const isPublicSingleCollection = isPublicSingleCollectionDeployment(
         deploymentConfig.mode,
@@ -486,6 +491,11 @@ export function createApiApp(
         },
         competitionPresetsPort
             ? new BiddingCompetitionPresetsHttpAdapter(competitionPresetsPort)
+            : null,
+        competitionPresetReapplyPort
+            ? new BiddingCompetitionPresetReapplyHttpAdapter(
+                  competitionPresetReapplyPort,
+              )
             : null,
     );
     registerTokenImageCacheStaticRoutes(app, tokenImageCacheDir);

@@ -50,10 +50,12 @@ export function resolveBiddingAutomationPanelDraftIdentityKey(
 	return resolveDraftKey(draft);
 }
 
-// Invalidates target-job lookups when the bid-book read model advances for the same draft target.
+// Declaration changes invalidate lookups even when an inactive bot's market
+// state stays fixed; market refreshes retain their existing invalidation signal.
 export function resolveBiddingAutomationPanelTargetLookupRequestKey(params: {
 	targetLookupKey: string;
 	bidBook: ApiBiddingBidBook | null;
+	jobsChangeSignal?: number;
 }): string {
 	if (!params.targetLookupKey) {
 		return '';
@@ -62,7 +64,8 @@ export function resolveBiddingAutomationPanelTargetLookupRequestKey(params: {
 		params.targetLookupKey,
 		params.bidBook
 			? bidBookRefreshSignalKey(params.bidBook.state)
-			: BIDDING_PANEL_KEY_PART.NoBidBookSignal
+			: BIDDING_PANEL_KEY_PART.NoBidBookSignal,
+		params.jobsChangeSignal ?? 0
 	].join(':');
 }
 

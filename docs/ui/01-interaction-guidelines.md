@@ -317,6 +317,12 @@ Control rules:
   Editing disables source key, value, add and remove controls while leaving
   source help available and extras editable. Reset returns to creation mode;
   another source requires a new preset.
+  A preset's `reapply` action uses the same preview table, changed-job selection,
+  counts and armed apply control as tiers. Show old/new revisions and extras,
+  job quantity and status, and unavailable-target reasons. Preselect only
+  eligible changed jobs; leave current or ineligible rows visible but disabled.
+  A stale selection requires a fresh preview through `reapply`. Keep the action
+  read-only when trait-offer trust is disabled.
 - `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
 - `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
 - On holder-token pages, `bid on all tokens` is additionally constrained to tokens currently held by that owner.

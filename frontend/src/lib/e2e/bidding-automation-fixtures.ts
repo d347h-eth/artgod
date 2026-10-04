@@ -651,6 +651,82 @@ const JOBS: ApiBiddingJob[] = [
 	})
 ];
 
+export const BIDDING_E2E_REAPPLY_JOB_ID = {
+	Enabled: 'job-trait-biome-42',
+	Paused: 'job-extra-target-paused',
+	Current: 'job-extra-target-current',
+	Ineligible: 'job-extra-target-ineligible',
+	Archived: 'job-extra-target-archived'
+} as const;
+
+// Mixed declarations let both viewport projects exercise selection, unchanged
+// and unavailable rows without altering the normal bidding fixtures.
+export function buildBiddingE2eCompetitionReapplyFixture() {
+	const v1 = biddingCompetitionPresetFixture(
+		BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+		[{ type: 'Biome' }],
+		[{ type: 'Mode', value: 'Terrain' }]
+	);
+	const v2 = biddingCompetitionPresetFixture(
+		v1.presetId,
+		v1.targetTraits,
+		[{ type: 'Mode', value: 'Daydream' }],
+		2
+	);
+	const jobs = [
+		{
+			jobId: BIDDING_E2E_REAPPLY_JOB_ID.Enabled,
+			value: '42',
+			quantity: 1,
+			status: TRADING_JOB_STATUS.Enabled,
+			competitionPreset: v1
+		},
+		{
+			jobId: BIDDING_E2E_REAPPLY_JOB_ID.Paused,
+			value: '7',
+			quantity: 2,
+			status: TRADING_JOB_STATUS.Paused,
+			competitionPreset: v1
+		},
+		{
+			jobId: BIDDING_E2E_REAPPLY_JOB_ID.Current,
+			value: '42',
+			quantity: 3,
+			status: TRADING_JOB_STATUS.Enabled,
+			competitionPreset: v2
+		},
+		{
+			jobId: BIDDING_E2E_REAPPLY_JOB_ID.Ineligible,
+			value: 'removed',
+			quantity: 1,
+			status: TRADING_JOB_STATUS.Enabled,
+			competitionPreset: v1
+		},
+		{
+			jobId: BIDDING_E2E_REAPPLY_JOB_ID.Archived,
+			value: '7',
+			quantity: 4,
+			status: TRADING_JOB_STATUS.Archived,
+			competitionPreset: v1
+		}
+	].map((row) =>
+		biddingJob({
+			...row,
+			target: {
+				type: TRADING_JOB_TARGET_KIND.Collection,
+				quantity: row.quantity,
+				targetTraits: [{ type: 'Biome', value: row.value }]
+			},
+			revision: 3,
+			floorEth: '0.350',
+			ceilingEth: '0.400',
+			deltaEth: '0.004',
+			archivedAt: row.status === TRADING_JOB_STATUS.Archived ? FIXTURE_NOW : null
+		})
+	);
+	return { presets: [v2], versions: [v1, v2], jobs };
+}
+
 // Archived job fixture keeps panel/status tests able to opt into archived-state coverage.
 export const BIDDING_E2E_ARCHIVED_JOB: ApiBiddingJob = biddingJob({
 	jobId: 'job-token-104-archived',

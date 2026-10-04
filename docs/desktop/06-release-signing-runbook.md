@@ -560,7 +560,7 @@ confirm the publication date, remove any publication-pending marker, review
 upgrade notes, and compare with the preceding published application release
 rather than an intervening test tag. The
 [changelog maintenance convention](../development/01-local-development.md#changelog)
-owns the format and preparation steps. The tagged commit must contain its own
+owns the format, user-facing language, and preparation steps. The tagged commit must contain its own
 dated section and `### Release summary` with short bullets. A test build uses
 the same application-version entry without creating another historical release
 section. Signed-tag admission validates this entry before initial or resumed

@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
+import {
+    CURRENT_BIDDING_COMPETITION_PRESET_SELECT,
+    mapCurrentBiddingCompetitionPresetRow,
+    readCurrentBiddingCompetitionPreset,
+    type CurrentBiddingCompetitionPresetRow,
+} from "@artgod/shared/database/bidding-competition-presets";
 import type { TradingCompetitionPreset } from "@artgod/shared/types";
 import {
     normalizeExtraCompetitionTraits,
@@ -14,36 +20,22 @@ import type {
 } from "../../application/use-cases/trading/bidding-competition-presets.js";
 import { TradingValidationError } from "../../application/use-cases/trading/types.js";
 
-type PresetRow = {
-    preset_id: string;
-    version_id: string;
-    revision: number;
-    target_traits_json: string;
-    extra_traits_json: string;
-    archived_at: string | null;
-};
 export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompetitionPresetsRepositoryPort {
+    getPreset(
+        scope: CompetitionPresetScope,
+        presetId: string,
+    ): TradingCompetitionPreset | null {
+        return readCurrentBiddingCompetitionPreset(scope, presetId);
+    }
+
     listPresets(scope: CompetitionPresetScope): TradingCompetitionPreset[] {
         const rows = db
             .prepare<CompetitionPresetScope>(
-                "SELECT p.preset_id, v.version_id, v.revision, v.target_traits_json, v.extra_traits_json, p.archived_at " +
-                    "FROM trading_bidding_competition_presets p JOIN trading_bidding_competition_preset_versions v " +
-                    "ON v.preset_id = p.preset_id AND v.revision = p.revision " +
+                CURRENT_BIDDING_COMPETITION_PRESET_SELECT +
                     "WHERE p.chain_id = @chainId AND p.collection_id = @collectionId AND p.archived_at IS NULL ORDER BY p.created_at, p.preset_id",
             )
-            .all(scope) as PresetRow[];
-        return rows.map((row) => ({
-            presetId: row.preset_id,
-            versionId: row.version_id,
-            revision: row.revision,
-            targetTraits: normalizeCompetitionPresetTarget(
-                JSON.parse(row.target_traits_json),
-            ),
-            extraCompetitionTraits: normalizeExtraCompetitionTraits(
-                JSON.parse(row.extra_traits_json),
-            ),
-            archivedAt: row.archived_at,
-        }));
+            .all(scope) as CurrentBiddingCompetitionPresetRow[];
+        return rows.map(mapCurrentBiddingCompetitionPresetRow);
     }
 
     savePreset(

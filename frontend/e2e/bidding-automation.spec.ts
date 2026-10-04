@@ -1,4 +1,9 @@
 import { BIDDING_E2E_COMPETITION_PRESET_ID } from '../src/lib/e2e/bidding-automation-fixtures';
+import { BIDDING_JOB_REAPPLY_ACTION_KEY } from '../src/lib/action-confirmation';
+import {
+	buildCompetitionPresetReapplyPreviewPath,
+	buildCompetitionPresetReapplyPath
+} from '@artgod/shared/http/trading-routes';
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -49,6 +54,10 @@ import {
 	BIDDING_E2E_FACETS,
 	BIDDING_E2E_HOLDER_ADDRESS,
 	BIDDING_E2E_COMPETITION_PRESETS,
+	BIDDING_E2E_REAPPLY_JOB_ID,
+	BIDDING_E2E_CHAIN,
+	BIDDING_E2E_COLLECTION,
+	buildBiddingE2eCompetitionReapplyFixture,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
@@ -1287,6 +1296,284 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	}
 
+	test('reapplies only selected extra targets jobs with the shared preview controls', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page, { competitionReapply: true });
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await inventory.getByRole('button', { name: 'reapply', exact: true }).click();
+		const preview = inventory.getByRole('region', { name: 'extra targets reapply preview' });
+		await expect(preview).toBeVisible();
+		const checkboxes = preview.getByRole('checkbox');
+		await expect(checkboxes).toHaveCount(4);
+		await expect(checkboxes.nth(0)).toBeChecked();
+		await expect(checkboxes.nth(1)).toBeChecked();
+		await expect(checkboxes.nth(2)).toBeDisabled();
+		await expect(checkboxes.nth(3)).toBeDisabled();
+		await expect(preview).toContainText('Biome=removed');
+		await expect(preview).toContainText('1 -> 2');
+		await expect(preview).toContainText('Mode=Terrain -> Mode=Daydream');
+		await expect(preview.getByRole('row').filter({ hasText: 'Biome=removed' })).toContainText(
+			'not available for marketplace bidding'
+		);
+		await preview.scrollIntoViewIfNeeded();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-preview.png'),
+			fullPage: true
+		});
+		await checkboxes.nth(0).uncheck();
+		const apply = preview.getByRole('button', { name: 'apply', exact: true });
+		await apply.click();
+		await expect(apply).toHaveClass(/token-bidding-action-armed/);
+		expect(api.mutations).toHaveLength(0);
+		await preview.getByRole('columnheader', { name: 'target', exact: true }).click();
+		await expect(apply).not.toHaveClass(/token-bidding-action-armed/);
+		await apply.click();
+		await apply.click();
+		const mutation = await api.nextMutation();
+		expect(mutation.path).toBe(
+			buildCompetitionPresetReapplyPath(
+				BIDDING_E2E_CHAIN.slug,
+				BIDDING_E2E_COLLECTION.slug,
+				BIDDING_E2E_COMPETITION_PRESET_ID.Biome
+			)
+		);
+		expect(mutation.body).toEqual({
+			expectedRevision: 2,
+			jobs: [
+				{
+					jobId: BIDDING_E2E_REAPPLY_JOB_ID.Paused,
+					expectedRevision: 3,
+					versionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Biome}:v1`
+				}
+			]
+		});
+		await expect(inventory.getByRole('status').filter({ hasText: 'reapplied' })).toBeVisible();
+		await expect(preview.getByRole('checkbox').nth(1)).toBeDisabled();
+		await expect(preview.getByRole('checkbox').nth(0)).toBeChecked();
+		await expect(preview.getByRole('row').filter({ hasText: 'Biome=7' })).toContainText('paused');
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-selected-result.png'),
+			fullPage: true
+		});
+	});
+
+	test('rejects stale extra targets previews and recovers by previewing again', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page, { competitionReapply: true });
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await inventory.getByRole('button', { name: 'reapply', exact: true }).click();
+		const preview = inventory.getByRole('region', { name: 'extra targets reapply preview' });
+		await expect(preview.getByRole('checkbox').nth(0)).toBeChecked();
+		api.reviseCompetitionReapplyJob(BIDDING_E2E_REAPPLY_JOB_ID.Paused);
+		const apply = preview.getByRole('button', { name: 'apply', exact: true });
+		await apply.click();
+		await apply.click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			jobs: [
+				{ jobId: BIDDING_E2E_REAPPLY_JOB_ID.Enabled, expectedRevision: 3 },
+				{ jobId: BIDDING_E2E_REAPPLY_JOB_ID.Paused, expectedRevision: 3 }
+			]
+		});
+		await expect(inventory.getByRole('alert')).toHaveText(
+			'Selected jobs changed. Preview reapply again.'
+		);
+		await expect(preview.getByRole('checkbox').nth(0)).toBeChecked();
+		await expect(preview.getByRole('checkbox').nth(1)).toBeChecked();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-stale.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'reapply', exact: true }).click();
+		await expect(inventory.getByRole('alert')).toHaveCount(0);
+		await apply.click();
+		await apply.click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			jobs: [
+				{ jobId: BIDDING_E2E_REAPPLY_JOB_ID.Enabled, expectedRevision: 3 },
+				{ jobId: BIDDING_E2E_REAPPLY_JOB_ID.Paused, expectedRevision: 4 }
+			]
+		});
+		await expect(preview.getByRole('checkbox').nth(0)).toBeDisabled();
+		await expect(preview.getByRole('checkbox').nth(1)).toBeDisabled();
+		await expect(apply).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-recovered.png'),
+			fullPage: true
+		});
+	});
+
+	test('shows extra targets preview errors, pending work and empty results', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page, { competitionReapply: true });
+		const fixture = buildBiddingE2eCompetitionReapplyFixture();
+		const path = buildCompetitionPresetReapplyPreviewPath(
+			BIDDING_E2E_CHAIN.slug,
+			BIDDING_E2E_COLLECTION.slug,
+			fixture.presets[0].presetId
+		);
+		let pending: (() => void) | null = null;
+		let empty = false;
+		await page.route(`**${path}`, async (route) => {
+			if (empty) {
+				await route.fulfill({
+					json: {
+						chain: BIDDING_E2E_CHAIN,
+						collection: BIDDING_E2E_COLLECTION,
+						preset: fixture.presets[0],
+						jobs: []
+					}
+				});
+				return;
+			}
+			if (!pending)
+				await new Promise<void>((resolve) => {
+					pending = resolve;
+				});
+			await route.fulfill({ status: 500, json: { message: 'internal test failure' } });
+		});
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		const reapply = inventory.getByRole('button', { name: 'reapply', exact: true });
+		await reapply.click();
+		await expect(reapply).toBeDisabled();
+		await expect(inventory.getByRole('button', { name: 'edit', exact: true })).toBeDisabled();
+		await expect(inventory.getByRole('status')).toContainText('loading...');
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-loading.png'),
+			fullPage: true
+		});
+		if (!pending) throw new Error('Preview request was not captured');
+		(pending as () => void)();
+		await expect(inventory.getByRole('alert')).toHaveText(
+			'Could not preview extra targets. Try reapply again.',
+			{ timeout: 20_000 }
+		);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-read-error.png'),
+			fullPage: true
+		});
+		empty = true;
+		await reapply.click();
+		const preview = inventory.getByRole('region', { name: 'extra targets reapply preview' });
+		await expect(preview).toContainText('no jobs use this preset');
+		await expect(preview.getByRole('button', { name: 'apply', exact: true })).toBeDisabled();
+		await expect(inventory.getByRole('alert')).toHaveCount(0);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-reapply-empty.png'),
+			fullPage: true
+		});
+	});
+
+	test('keeps extra targets reapply read-only without trait-offer opt-in', async ({ page }) => {
+		await installBiddingAutomationApiMock(page, { competitionReapply: true });
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=traits&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly}`
+		);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await expect(inventory.getByRole('button', { name: 'reapply', exact: true })).toBeDisabled();
+		await expect(inventory.getByRole('button', { name: 'edit', exact: true })).toBeEnabled();
+	});
+
+	for (const explicitClear of [false, true]) {
+		test(`refreshes an open job after extra targets reapply and preserves ${explicitClear ? 'an explicit clear' : 'a price draft'}`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page, { competitionReapply: true });
+			const lookupRevisions: number[] = [];
+			const marketStates: unknown[] = [];
+			page.on('response', async (response) => {
+				const path = new URL(response.url()).pathname;
+				if (!path.startsWith('/api/')) return;
+				if (path.endsWith('/bidding/jobs/target-lookup')) {
+					const body = await response.json();
+					if (body.job?.jobId === BIDDING_E2E_REAPPLY_JOB_ID.Enabled)
+						lookupRevisions.push(body.job.revision);
+				} else if (path.endsWith('/bidding/bids') && response.request().method() === 'GET') {
+					marketStates.push((await response.json()).bidBook.state);
+				}
+			});
+			await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`);
+			await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await fillManualPrice(page, { floor: '0.360', ceiling: '0.400', delta: '0.004' });
+			if (explicitClear) await options.getByRole('button', { name: 'none', exact: true }).click();
+			if (testInfo.project.name === 'pixel-7') {
+				await panel.getByRole('button', { name: 'hide', exact: true }).click();
+			}
+			await page
+				.getByRole('button', {
+					name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+					exact: true
+				})
+				.click();
+			const inventory = page.getByRole('region', { name: 'extra targets presets' });
+			await inventory.getByRole('button', { name: 'reapply', exact: true }).click();
+			const preview = inventory.getByRole('region', { name: 'extra targets reapply preview' });
+			await preview.getByRole('checkbox').nth(1).uncheck();
+			const apply = preview.getByRole('button', { name: 'apply', exact: true });
+			await apply.click();
+			await apply.click();
+			expect((await api.nextMutation()).body).toMatchObject({
+				jobs: [{ jobId: BIDDING_E2E_REAPPLY_JOB_ID.Enabled, expectedRevision: 3 }]
+			});
+			await expect(inventory.getByRole('status')).toHaveText('reapplied');
+			await expect.poll(() => lookupRevisions.at(-1)).toBe(4);
+			if (testInfo.project.name === 'pixel-7') {
+				await page.getByRole('button', { name: 'show bidding panel', exact: true }).click();
+			}
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+			).toHaveCount(0);
+			await expect(
+				options.getByRole('button', { name: explicitClear ? 'none' : 'Mode=Daydream', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.360');
+			await page.screenshot({
+				path: testInfo.outputPath('reapply-open-editor.png'),
+				fullPage: true
+			});
+			await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+			const saved = await api.nextMutation();
+			expect(saved.body).toMatchObject({
+				floorEth: '0.360',
+				ceilingEth: '0.400',
+				deltaEth: '0.004'
+			});
+			if (explicitClear) expect(saved.body).toHaveProperty('competitionPresetVersionId', null);
+			else expect(saved.body).not.toHaveProperty('competitionPresetVersionId');
+			await expect.poll(() => lookupRevisions.at(-1)).toBe(5);
+			await expect.poll(() => marketStates.length).toBeGreaterThanOrEqual(2);
+			expect(
+				marketStates.every((state) => JSON.stringify(state) === JSON.stringify(marketStates[0]))
+			).toBe(true);
+			await expect(
+				options.getByRole('button', { name: explicitClear ? 'none' : 'Mode=Daydream', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+		});
+	}
+
 	test('keeps saved extra targets versions until an explicit newer selection', async ({
 		page
 	}, testInfo) => {
@@ -2149,7 +2436,7 @@ test.describe('bidding automation fixture harness', () => {
 			await page.getByRole('button', { name: 'reapply' }).first().click();
 			await expect(page.getByRole('region', { name: 'tier reapply preview' })).toBeVisible();
 			await expect(page.getByText('0.700 -> 0.300')).toBeVisible();
-			await confirmPriceTierAction(page, 'reapply:form');
+			await confirmPriceTierAction(page, BIDDING_JOB_REAPPLY_ACTION_KEY);
 			const reapplyMutation = await api.nextMutation();
 			expect(reapplyMutation.path).toContain('/reapply');
 			expect(reapplyMutation.body).toMatchObject({ jobIds: ['job-token-101'] });
