@@ -2338,6 +2338,7 @@ th {
 	padding: 0.12rem 0.45rem;
 	white-space: nowrap;
 	text-align: left;
+	vertical-align: middle;
 }
 
 .bidding-price-tier-table th {
@@ -2411,7 +2412,7 @@ th {
 	width: 100%;
 }
 
-.bidding-trait-selectors > button {
+.bidding-trait-selectors > .bootstrap-form-row > button {
 	justify-self: start;
 }
 
