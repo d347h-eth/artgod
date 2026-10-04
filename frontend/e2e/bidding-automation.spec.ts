@@ -256,60 +256,73 @@ test.describe('bidding automation fixture harness', () => {
 			page
 		}, testInfo) => {
 			await installBiddingAutomationApiMock(page);
-			await openHarnessPage(
-				page,
-				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
-			);
-			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
-			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
-			const otherScope =
-				scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
-					? COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
-					: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
-			for (const nextScope of [scope, otherScope]) {
+			// Assert the initial fixture after reload without a polling response repairing it.
+			let releaseRefresh!: () => void;
+			const heldRefresh = new Promise<void>((resolve) => {
+				releaseRefresh = resolve;
+			});
+			await page.route('**/bidding/bids?**', async (route) => {
+				await heldRefresh;
+				await route.fallback();
+			});
+			try {
+				await openHarnessPage(
+					page,
+					`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+				);
+				const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+				await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+				const otherScope =
+					scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+						? COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+						: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
+				for (const nextScope of [scope, otherScope]) {
+					await page.getByRole('link', { name: 'collection', exact: true }).click();
+					await expect(tabs).toHaveCount(0);
+					expect(
+						new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+					).toBe(false);
+					// The suspended selection also survives a reload of the collection view.
+					await page.reload();
+					await expect(page.locator('.bid-book-meta')).toBeVisible();
+					await page.getByRole('link', { name: nextScope, exact: true }).click();
+					await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+					const query = new URL(page.url()).searchParams;
+					expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(nextScope);
+					expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
+						COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+					);
+					expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+						TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+					);
+					expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+				}
+				await page.screenshot({
+					path: testInfo.outputPath(`scope-${scope}-state-resumed.png`),
+					fullPage: true
+				});
+				await tabs
+					.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+					.click();
+				await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
 				await page.getByRole('link', { name: 'collection', exact: true }).click();
 				await expect(tabs).toHaveCount(0);
+				await page.getByRole('link', { name: scope, exact: true }).click();
+				await expect(tabs).toBeVisible();
+				await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+				await expect(
+					tabs.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+				).toHaveCount(0);
 				expect(
 					new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
 				).toBe(false);
-				// The suspended selection also survives a reload of the collection view.
-				await page.reload();
-				await expect(page.locator('.bid-book-meta')).toBeVisible();
-				await page.getByRole('link', { name: nextScope, exact: true }).click();
-				await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
-				const query = new URL(page.url()).searchParams;
-				expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(nextScope);
-				expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
-					COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
-				);
-				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
-					TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
-				);
-				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+				await page.screenshot({
+					path: testInfo.outputPath(`scope-${scope}-reset-retained.png`),
+					fullPage: true
+				});
+			} finally {
+				releaseRefresh();
 			}
-			await page.screenshot({
-				path: testInfo.outputPath(`scope-${scope}-state-resumed.png`),
-				fullPage: true
-			});
-			await tabs
-				.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
-				.click();
-			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
-			await page.getByRole('link', { name: 'collection', exact: true }).click();
-			await expect(tabs).toHaveCount(0);
-			await page.getByRole('link', { name: scope, exact: true }).click();
-			await expect(tabs).toBeVisible();
-			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
-			await expect(
-				tabs.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
-			).toHaveCount(0);
-			expect(
-				new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
-			).toBe(false);
-			await page.screenshot({
-				path: testInfo.outputPath(`scope-${scope}-reset-retained.png`),
-				fullPage: true
-			});
 		});
 
 		test(`preserves ${scope} status when applying and clearing a maker filter`, async ({

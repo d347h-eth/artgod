@@ -959,7 +959,7 @@ function traitTrustForScenario(searchParams: URLSearchParams): boolean {
 	);
 }
 
-function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
+export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
 	const value = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
 	return Object.values(BIDDING_E2E_SCENARIO).find((scenario) => scenario === value) ?? null;
 }

@@ -96,6 +96,17 @@ detail, automation panel states, and price-tier management. The public spec
 proves that offer reads remain visible while jobs, tiers, and mutation controls
 do not.
 
+The holder fixture at `/e2e-harness/collection/holders/[owner_ref]` reuses the
+collection token-browser data and renders `HolderTokensView`. Tests for extra
+targets cover delayed lookup during price edits and inventory
+loading/failure/refresh through token browser, holder, token detail, and Offers
+entry points.
+
+The bidding fixture scenario is retained in browser session storage when
+production links omit its test query parameter. Scope-reload checks hold
+background bid-book reads until completion, so an API refresh cannot hide a
+different initial fixture after reload. These routes remain development-only.
+
 Important boundaries:
 
 - token-card selection gestures must not hijack token-ID or price links;

@@ -270,6 +270,59 @@ flat, preserving the distinct wildcard and literal metadata choices.
   included in browser page captures; their grouping was removed from the
   option markup. No native WebView verification is claimed.
 
+### Independent Review Fixes (2026-10-04)
+
+The two confirmed P2 findings at reviewed commit `26c9cca7` are corrected.
+Changes to the selected preset are tracked separately from other job edits. A delayed target
+lookup hydrates an untouched preset selection without replacing edited prices;
+an explicit selection or clear remains the user's choice. Price-only saves omit
+the reference, preserving the pinned version through the existing backend
+contract. The API fixture now models omission versus explicit null correctly.
+
+The inventory owner shares its presets, loading, read error, and refresh action
+with every picker for trait jobs. Token-browser, holder, and token-detail views
+keep the editor closed while exposing read recovery; Offers' traits view retains
+management. Refresh uses the existing loader, preserves unsaved job fields, and
+does not add polling. Errors from editor writes and loading trait choices remain separate.
+Loading and failure use existing feedback styles and the compact refresh button.
+
+Holder recovery coverage also exposed an existing narrow-view breadcrumb
+overflow: the complete owner path forced a 590-pixel document into a 412-pixel
+viewport, moving the fixed bidding panel outside the visible area. The shared
+breadcrumb now wraps; the holder check verifies document fit and clicks refresh
+without forcing the action. The complete owner address remains visible.
+
+The intermittent scope-switching failure came from the harness fixture losing
+its selected scenario after a hard reload. Its API mock retained that scenario,
+so a later refresh could hide the initial mismatch. Holding background bid-book
+reads reproduced `losing [2]` instead of `[1]` consistently. The development-only
+route now retains the scenario in session storage through the existing query
+preference helper. Scope-reload checks hold reads until completion and pass
+without a polling response repairing the initial fixture.
+
+Verification:
+
+- Frontend unit suite: 566 tests pass. Svelte checking reports zero errors and
+  the existing 87 warnings in 19 files.
+- The complete bidding browser suite passes 108 cases across desktop and Pixel 7. The final token-detail wiring then passes 14 focused cases, including its
+  two new inventory-recovery cases, existing actions/cancellation, and scope
+  reloads. The suite now contains 110 cases; the whole suite was not repeated
+  after this final route-only addition. Public-mode checks pass all eight cases
+  after that addition.
+- Delayed-lookup checks cover unchanged references and explicit clearing before
+  the response, including the completed save response. Inventory checks cover
+  loading, exhausted server-error retries, visible recovery, preserved prices
+  and references, and restored applicable options in all four entry points.
+- Loading, error, and recovered picker renders use 1920 x 1080 and 1082 x 2202
+  pixel viewport captures. Artifacts and the diagnostic reproductions are
+  retained under worktree `tmp/trait-review-fixes-20261004/`.
+- UI copy review retains labels, loading state and actionable recovery. The
+  changes add no backend, migration, marketplace, or strategy behavior; load
+  performance and native WebView behavior remain unmeasured.
+- The Userland production build passes. Documentation validation passes for 77
+  Markdown files; changed-file formatting and `git diff --check` pass. Component
+  markup was reviewed manually with the compiler and rendered inspection.
+
 ### Local Migration Replacement
 
 The user confirmed the superseded migration exists only in their local database.
