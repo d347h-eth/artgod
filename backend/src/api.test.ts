@@ -2462,6 +2462,78 @@ describe("backend api routes", () => {
         });
     });
 
+    it("accepts wildcard source presets while keeping job targets concrete and enforcing source bounds", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+        const path = buildCompetitionPresetsPath("ethereum", "milady");
+        const definition = {
+            targetTraits: [{ type: "Hat" }],
+            extraCompetitionTraits: [{ type: "Mood", value: "Calm" }],
+        };
+        const saved = await resolve("PUT", path, definition, csrf);
+        expect(saved.statusCode).toBe(200);
+        const preset = saved.payload.presets[0];
+        expect(preset.targetTraits).toEqual(definition.targetTraits);
+        expect((await resolve("GET", path)).payload.presets[0]).toEqual(preset);
+        for (const value of ["Beanie", "Cap"]) {
+            const targetTraits = [{ type: "Hat", value }];
+            const created = await resolve(
+                "PUT",
+                "/api/ethereum/milady/bidding/jobs/traits",
+                {
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.01",
+                    targetTraits,
+                    competitionPresetVersionId: preset.versionId,
+                },
+                csrf,
+            );
+            expect(created.statusCode).toBe(200);
+            expect(created.payload.job.target.targetTraits).toEqual(
+                targetTraits,
+            );
+            expect(created.payload.job.config.competitionPreset.versionId).toBe(
+                preset.versionId,
+            );
+        }
+        expect(
+            (
+                await resolve(
+                    "PUT",
+                    path,
+                    {
+                        ...definition,
+                        targetTraits: [
+                            { type: "Hat" },
+                            { type: "Mood" },
+                            { type: "Other" },
+                        ],
+                    },
+                    csrf,
+                )
+            ).statusCode,
+        ).toBe(400);
+        expect(
+            (
+                await resolve(
+                    "PUT",
+                    "/api/ethereum/milady/bidding/jobs/traits",
+                    {
+                        status: TRADING_JOB_STATUS.Enabled,
+                        floorEth: "0.1",
+                        ceilingEth: "0.2",
+                        deltaEth: "0.01",
+                        targetTraits: [{ type: "Mood", value: "Calm" }],
+                        competitionPresetVersionId: preset.versionId,
+                    },
+                    csrf,
+                )
+            ).statusCode,
+        ).toBe(422);
+    });
+
     it("manages competition presets through protected routes and pins selected job versions", async () => {
         clearTradingJobFixtures();
         const csrf = await issueAdminCsrf();
@@ -7659,6 +7731,8 @@ function clearTradingJobFixtures(): void {
             "DELETE FROM trading_bidding_job_runtime_state;",
             "DELETE FROM trading_bidding_job_specs;",
             "DELETE FROM trading_jobs;",
+            "DELETE FROM trading_bidding_competition_preset_versions;",
+            "DELETE FROM trading_bidding_competition_presets;",
             "DELETE FROM trading_bidding_price_tiers;",
         ].join("\n"),
     );

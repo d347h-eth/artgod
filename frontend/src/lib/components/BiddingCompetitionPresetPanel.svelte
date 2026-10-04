@@ -2,42 +2,44 @@
 	import {
 		TRAIT_CATALOG_QUERY_PARAMS,
 		type TradingCompetitionPreset,
-		type TradingTraitCriterion,
 		type TradingTraitCompetitionSelector
 	} from '@artgod/shared/types';
 	import {
 		normalizeExtraCompetitionTraits,
-		normalizeTraitBiddingTarget,
+		normalizeCompetitionPresetTarget,
+		MAX_COMPETITION_PRESET_TARGET_TRAITS,
 		competitionTraitsLabel
 	} from '@artgod/shared/trading/trait-competition';
 	import type { ApiChain, ApiCollection, ApiTraitFacet, ApiTraitCatalogFacet } from '$lib/api-types';
 	import {
+		BackendApiError,
 		getCompetitionPresets,
 		upsertCompetitionPreset,
 		archiveCompetitionPreset,
 		getCollectionTraitCatalog
 	} from '$lib/backend-api';
 	import BiddingTraitSelectors from './BiddingTraitSelectors.svelte';
+	import { isConfirmationActionTarget } from '$lib/action-confirmation';
 
 	let {
 		chain,
 		collection,
 		facets,
 		open,
-		onClose,
+		onClose = null,
 		onPresetsChange
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		facets: ApiTraitFacet[];
 		open: boolean;
-		onClose: () => void;
+		onClose?: (() => void) | null;
 		onPresetsChange: (presets: TradingCompetitionPreset[]) => void;
 	} = $props();
 	let presets = $state<TradingCompetitionPreset[]>([]);
 	let catalog = $state<ApiTraitCatalogFacet[]>([]);
-	let targetTraits = $state<TradingTraitCriterion[]>([]);
-	let extras = $state<TradingTraitCompetitionSelector[]>([]);
+	let targetTraits = $state<TradingTraitCompetitionSelector[]>([{ type: '', value: '' }]);
+	let extras = $state<TradingTraitCompetitionSelector[]>([{ type: '', value: '' }]);
 	let editing = $state<TradingCompetitionPreset | null>(null);
 	let loading = $state(false);
 	let catalogLoading = $state(false);
@@ -48,7 +50,7 @@
 	let requestGeneration = 0;
 	const validation = $derived.by(() => {
 		try {
-			const target = normalizeTraitBiddingTarget(targetTraits);
+			const target = normalizeCompetitionPresetTarget(targetTraits);
 			const selectors = normalizeExtraCompetitionTraits(extras);
 			const available = (trait: TradingTraitCompetitionSelector) =>
 				catalog.some(
@@ -81,8 +83,7 @@
 				replacePresets(response.presets);
 			})
 			.catch(() => {
-				if (generation === requestGeneration)
-					error = 'Could not load competitive extras. Refresh presets.';
+				if (generation === requestGeneration) error = 'Could not load extra targets. Refresh.';
 			})
 			.finally(() => {
 				if (generation === requestGeneration) loading = false;
@@ -104,7 +105,7 @@
 				if (!cancelled) catalog = response.traitCatalog.facets;
 			})
 			.catch(() => {
-				if (!cancelled) error = 'Could not load trait choices. Refresh presets.';
+				if (!cancelled) error = 'Could not load trait choices. Refresh.';
 			})
 			.finally(() => {
 				if (!cancelled) catalogLoading = false;
@@ -115,8 +116,8 @@
 	});
 	function reset(): void {
 		editing = null;
-		targetTraits = [];
-		extras = [];
+		targetTraits = [{ type: '', value: '' }];
+		extras = [{ type: '', value: '' }];
 		armedAction = null;
 		feedback = null;
 		error = null;
@@ -156,8 +157,7 @@
 			}
 			reset();
 		} catch {
-			if (generation === requestGeneration)
-				error = 'Could not refresh competitive extras. Try again.';
+			if (generation === requestGeneration) error = 'Could not load extra targets. Refresh.';
 		} finally {
 			if (generation === requestGeneration) loading = false;
 		}
@@ -183,7 +183,10 @@
 			feedback = 'saved';
 		} catch (cause) {
 			if (generation === requestGeneration)
-				error = cause instanceof Error ? cause.message : 'Could not save preset. Try again.';
+				error = presetError(
+					cause,
+					`Could not save extra targets. Try ${editing ? 'modify' : 'create'} again.`
+				);
 		} finally {
 			if (generation === requestGeneration) {
 				busy = false;
@@ -214,7 +217,7 @@
 			feedback = 'archived';
 		} catch (cause) {
 			if (generation === requestGeneration)
-				error = cause instanceof Error ? cause.message : 'Could not archive preset. Try again.';
+				error = presetError(cause, 'Could not archive extra targets. Try archive again.');
 		} finally {
 			if (generation === requestGeneration) {
 				busy = false;
@@ -222,65 +225,122 @@
 			}
 		}
 	}
+	function presetError(cause: unknown, fallback: string): string {
+		return cause instanceof BackendApiError && [400, 409, 422].includes(cause.status)
+			? cause.message
+			: fallback;
+	}
+	function clearConfirmation(event: PointerEvent | FocusEvent): void {
+		if (
+			!busy &&
+			!isConfirmationActionTarget(event.target, armedAction, 'data-competition-preset-action')
+		) {
+			armedAction = null;
+		}
+	}
+	$effect(() => {
+		if (!open) armedAction = null;
+	});
 </script>
 
+<svelte:window onpointerdown={clearConfirmation} onfocusin={clearConfirmation} />
+
 {#if open}
-	<section class="token-bidding-runtime-panel competition-presets" aria-label="competitive extras presets">
-		<div class="panel-header">
-			<h3>competitive extras</h3>
-			<div class="secondary-tabs">
-				<button type="button" onclick={refresh} disabled={busy || loading}>refresh</button>
-				<button type="button" onclick={onClose}>hide</button>
-			</div>
-		</div>
-		{#if error}
-			<p class="runtime-error" role="alert">{error}</p>
-		{/if}
-		{#if feedback}
-			<p class="runtime-v" role="status">{feedback}</p>
-		{/if}
-		{#if loading || catalogLoading}
-			<p class="runtime-v" role="status">loading</p>
-		{/if}
-		{#each presets as preset (preset.presetId)}
-			<div class="preset-row">
-				<span class="mono">
-					{competitionTraitsLabel(preset.targetTraits)} → {competitionTraitsLabel(preset.extraCompetitionTraits)}
-				</span>
-				<span class="runtime-k">v{preset.revision}</span>
-				<button type="button" onclick={() => edit(preset)} disabled={busy || loading}>edit</button>
+	<section class="runtime-section bidding-price-tier-panel" aria-label="extra targets presets">
+		<header class="panel-header bidding-price-tier-header">
+			<h2 class="panel-title">extra targets</h2>
+			<div class="runtime-controls">
 				<button
 					type="button"
-					class="action-button-negative"
-					onclick={() => archive(preset)}
+					class="action-button-neutral"
+					onclick={refresh}
 					disabled={busy || loading}
 				>
-					{armedAction === preset.presetId ? 'confirm archive' : 'archive'}
+					refresh
 				</button>
+				{#if onClose}
+					<button type="button" class="button-link" onclick={onClose}>hide</button>
+				{/if}
 			</div>
-		{/each}
-		<form class="bootstrap-form" onsubmit={(event) => event.preventDefault()}>
-			<div class="bootstrap-form-row">
-				<span class="runtime-k">target</span>
+		</header>
+		{#if presets.length}
+			<div class="table-wrap bidding-price-tier-table-wrap">
+				<table class="bidding-price-tier-table">
+					<thead>
+						<tr>
+							<th>target</th>
+							<th>extra targets</th>
+							<th>rev</th>
+							<th>actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each presets as preset (preset.presetId)}
+							<tr>
+								<td class="mono">{competitionTraitsLabel(preset.targetTraits)}</td>
+								<td class="mono">{competitionTraitsLabel(preset.extraCompetitionTraits)}</td>
+								<td class="mono tier-cell-center">{preset.revision}</td>
+								<td>
+									<div class="tier-row-actions">
+										<button
+											type="button"
+											class="token-bidding-action-negative"
+											class:token-bidding-action-armed={armedAction === preset.presetId}
+											data-competition-preset-action={preset.presetId}
+											onclick={() => archive(preset)}
+											disabled={busy || loading}
+										>
+											archive
+										</button>
+										<button
+											type="button"
+											class="action-button-neutral"
+											onclick={() => edit(preset)}
+											disabled={busy || loading}
+										>
+											edit
+										</button>
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+		<form class="bootstrap-form bidding-price-tier-form" onsubmit={(event) => event.preventDefault()}>
+			<div class="runtime-kv-grid token-bidding-runtime-grid bidding-price-tier-form-summary">
+				<div>
+					<span class="runtime-k">mode</span>
+					<span class="runtime-v">{editing ? 'edit' : 'create'}</span>
+				</div>
+			</div>
+			<div class="bootstrap-form-row bootstrap-form-row-textarea">
+				<label for="extra-target-source-key-1"><span>target</span></label>
 				<BiddingTraitSelectors
 					selectors={targetTraits}
 					{catalog}
 					availableTargets={facets}
+					allowAny
+					maxSelectors={MAX_COMPETITION_PRESET_TARGET_TRAITS}
+					uniqueKeys
+					idPrefix="extra-target-source"
 					label="target trait"
 					disabled={busy || loading || catalogLoading}
 					onChange={(value) => {
-						targetTraits = value.map((t) => ({ type: t.type, value: t.value ?? '' }));
+						targetTraits = value;
 						armedAction = null;
 					}}
 				/>
 			</div>
-			<div class="bootstrap-form-row">
-				<span class="runtime-k">extras</span>
+			<div class="bootstrap-form-row bootstrap-form-row-textarea">
+				<label for="extra-target-extra-key-1"><span>extra targets</span></label>
 				<BiddingTraitSelectors
 					selectors={extras}
 					{catalog}
 					allowAny
-					label="competitive extra"
+					label="extra target"
+					idPrefix="extra-target-extra"
 					disabled={busy || loading || catalogLoading}
 					onChange={(value) => {
 						extras = value;
@@ -288,44 +348,37 @@
 					}}
 				/>
 			</div>
-			<div class="panel-footer">
-				<button type="button" onclick={reset} disabled={busy}>reset</button>
+			<div class="panel-footer bidding-price-tier-form-footer">
 				<button
 					type="button"
-					class="action-button-positive"
+					class="facet-panel-action-button facet-reset-button"
+					onclick={reset}
+					disabled={busy}
+				>
+					reset
+				</button>
+				<button
+					type="button"
+					class="token-bidding-action-positive"
+					class:token-bidding-action-armed={armedAction === 'save'}
+					data-competition-preset-action="save"
 					disabled={busy || loading || catalogLoading || !validation}
 					onclick={save}
 				>
-					{busy && armedAction === 'save' ? 'saving' : armedAction === 'save' ? (editing ? 'confirm modify' : 'confirm create') : editing ? 'modify' : 'create'}
+					{busy && armedAction === 'save' ? 'saving...' : editing ? 'modify' : 'create'}
 				</button>
+			</div>
+			<div class="bootstrap-form-feedback bidding-price-tier-feedback">
+				{#if loading || catalogLoading}
+					<p class="muted token-bidding-feedback" role="status">loading...</p>
+				{/if}
+				{#if error}
+					<p class="runtime-error token-bidding-feedback" role="alert">{error}</p>
+				{/if}
+				{#if feedback}
+					<p class="runtime-pass token-bidding-feedback" role="status">{feedback}</p>
+				{/if}
 			</div>
 		</form>
 	</section>
 {/if}
-
-<style>
-	.competition-presets {
-		width: fit-content;
-		max-width: 100%;
-		margin: 0 auto 1rem;
-		min-width: min(32rem, 100%);
-	}
-	.panel-header,
-	.preset-row {
-		display: flex;
-		gap: 0.65rem;
-		align-items: center;
-		flex-wrap: wrap;
-	}
-	.preset-row {
-		padding: 0.45rem 0;
-	}
-	.preset-row > span:first-child {
-		overflow-wrap: anywhere;
-	}
-	.bootstrap-form-row {
-		grid-template-columns: 4rem minmax(0, 1fr);
-		column-gap: 0.6rem;
-		align-items: start;
-	}
-</style>

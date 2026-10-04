@@ -6,9 +6,95 @@ import {
     normalizeTraitBiddingTarget,
     competitionPresetMatchesTarget,
     assertCompetitionPresetSelection,
+    normalizeCompetitionPresetTarget,
+    competitionTraitsLabel,
+    MAX_COMPETITION_PRESET_TARGET_TRAITS,
 } from "./trait-competition.js";
 
 describe("extra competition selectors", () => {
+    it("applies source wildcards only to the same complete target key combination", () => {
+        const preset = {
+            targetTraits: normalizeCompetitionPresetTarget([
+                { type: " Zone " },
+                { type: "Mode", value: " Terrain " },
+            ]),
+        };
+        for (const value of ["Kairo", "Elsewhere", "any", "*"]) {
+            expect(
+                competitionPresetMatchesTarget(preset, [
+                    { type: "Zone", value },
+                    { type: "Mode", value: "Terrain" },
+                ]),
+            ).toBe(true);
+        }
+        for (const target of [
+            [{ type: "Zone", value: "Kairo" }],
+            [
+                { type: "Zone", value: "Kairo" },
+                { type: "Mode", value: "Daydream" },
+            ],
+            [
+                { type: "Zone", value: "Kairo" },
+                { type: "Biome", value: "42" },
+            ],
+            [
+                { type: "Zone", value: "Kairo" },
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        ])
+            expect(competitionPresetMatchesTarget(preset, target)).toBe(false);
+        expect(
+            competitionPresetMatchesTarget(
+                { targetTraits: [{ type: "Zone" }, { type: "Mode" }] },
+                [
+                    { type: "Mode", value: "Daydream" },
+                    { type: "Zone", value: "any" },
+                ],
+            ),
+        ).toBe(true);
+    });
+    it("rejects empty, oversized and repeated source keys without silently merging the source", () => {
+        for (const value of [
+            [],
+            null,
+            Array(MAX_COMPETITION_PRESET_TARGET_TRAITS + 1).fill({
+                type: "Mode",
+            }),
+            [{ type: "Zone" }, { type: "Zone", value: "Kairo" }],
+            [
+                { type: "Zone", value: "Kairo" },
+                { type: "Zone", value: "Elsewhere" },
+            ],
+            [{ type: "Zone", value: "" }],
+        ])
+            expect(() => normalizeCompetitionPresetTarget(value)).toThrow(
+                TraitCompetitionValidationError,
+            );
+        // Ordinary marketplace targets continue to require concrete values.
+        expect(() => normalizeTraitBiddingTarget([{ type: "Zone" }])).toThrow(
+            TraitCompetitionValidationError,
+        );
+    });
+    it("keeps literal metadata values named any separate from wildcard selections", () => {
+        const preset = {
+            targetTraits: normalizeCompetitionPresetTarget([
+                { type: "Mode", value: "any" },
+            ]),
+        };
+        expect(
+            competitionPresetMatchesTarget(preset, [
+                { type: "Mode", value: "Terrain" },
+            ]),
+        ).toBe(false);
+        expect(
+            competitionPresetMatchesTarget(preset, [
+                { type: "Mode", value: "any" },
+            ]),
+        ).toBe(true);
+        expect(competitionTraitsLabel([{ type: "Mode" }])).toBe("Mode=any");
+        expect(competitionTraitsLabel(preset.targetTraits)).toBe('Mode="any"');
+    });
     it("compares canonical AND targets and only permits old versions when already selected", () => {
         const traits = normalizeTraitBiddingTarget([
             { type: " Zone ", value: " Kairo " },

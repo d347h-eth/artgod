@@ -164,11 +164,18 @@ Trait-job competition:
   criteria are a subset of its target. A `Mode=Terrain` + `Zone=Kairo` job
   therefore considers each single trait as well as that exact pair. A narrower
   or conflicting combination is excluded by default.
-- Collection-scoped `competitive extras` presets define an exact AND target
-  and up to 64 exact key/value or whole-key extra selectors. The expandable
-  section beside `tiers` uses collection trait dropdowns, with `any` for a whole
-  key. The bidding panel offers `none` by default and compact preset buttons for
-  the exact selected target, such as `Mode=Terrain` or `Biome=any`.
+- Collection-scoped `extra targets` presets define a source of one or two
+  unique trait keys, each with an exact value or any value, and up to 64 exact
+  key/value or whole-key extra selectors. The expandable section beside `tiers`
+  appears only in Offers' `traits` view and reuses the price-tier form and table.
+  Both source and extra dropdowns separate `any (all values)` from metadata
+  values; a literal metadata value named `any` is quoted. The bidding panel
+  offers `none` by default and compact buttons for matching presets, such as
+  `Mode=Terrain` or `Biome=any`.
+- Source patterns match the complete target key combination. `Zone=any` applies
+  to `Zone=Shahra` and `Zone=Tetsu`, but not `Zone=Shahra + Mode=Terrain`.
+  `Zone=any + Mode=Terrain` accepts any Zone value with exactly Mode=Terrain.
+  Wildcards apply only to preset selection; job targets remain concrete.
 - Extra selectors still count standalone single-trait bids only. Adding
   `Mode=Terrain` does not include `Mode=Terrain` + another trait. Adding `Mode`
   includes standalone bids for every Mode value in the authoritative snapshot.
@@ -178,7 +185,7 @@ Trait-job competition:
   removes a preset from new selections and retains referenced versions.
 - The API omits the reference to preserve an existing selection and sends `null`
   to clear it. New selections must reference a current available preset in the
-  same collection with exactly the job's target. Pricing edits and price-tier
+  same collection with a source pattern matching the job's target. Pricing edits and price-tier
   reapply preserve the selected version. Stale preset edits are rejected using
   `expectedRevision`.
 - Extras affect assessment only. They never change the offer target, lookup

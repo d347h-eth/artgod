@@ -20,6 +20,7 @@
 		onToggleTiers = null,
 		onToggleCompetitionPresets = null,
 		competitionPresetsActive = false,
+		showCompetitionPresetAction = false,
 		onClear
 	}: {
 		summary: string | null;
@@ -38,6 +39,7 @@
 		onToggleTiers?: (() => MaybePromise<void>) | null;
 		onToggleCompetitionPresets?: (() => MaybePromise<void>) | null;
 		competitionPresetsActive?: boolean;
+		showCompetitionPresetAction?: boolean;
 		onClear: () => MaybePromise<void>;
 	} = $props();
 
@@ -74,7 +76,7 @@
 			{BIDDING_SELECTION_ACTION_LABEL.Tiers}
 		</button>
 	{/if}
-	{#if showTierAction && onToggleCompetitionPresets}
+	{#if showCompetitionPresetAction && onToggleCompetitionPresets}
 		<button
 			type="button"
 			class="facet-panel-action-button bidding-price-tier-toggle"

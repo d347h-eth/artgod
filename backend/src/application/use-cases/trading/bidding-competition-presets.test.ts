@@ -33,6 +33,7 @@ function fixture() {
     const writes: CompetitionPresetDefinition[] = [];
     const catalogReads: unknown[] = [];
     const archives: unknown[] = [];
+    const targetReads: unknown[] = [];
     const saved: TradingCompetitionPreset = {
         presetId: "preset",
         versionId: "version",
@@ -46,10 +47,12 @@ function fixture() {
         { resolveChainRef: () => CHAIN },
         { resolveCollectionRef: () => COLLECTION },
         {
-            listMarketplaceBiddingSupportedTraits: (input) =>
-                input.traits.filter(
+            listMarketplaceBiddingSupportedTraits: (input) => {
+                targetReads.push(input);
+                return input.traits.filter(
                     (t) => t.key === "Zone" && t.value === "Kairo",
-                ),
+                );
+            },
         },
         {
             listCollectionTraitCatalog: (input) => {
@@ -73,10 +76,38 @@ function fixture() {
             },
         },
     );
-    return { useCase, writes, catalogReads, archives };
+    return { useCase, writes, catalogReads, archives, targetReads };
 }
 
 describe("competitive extras presets", () => {
+    it("validates wildcard source keys without expanding their values into marketplace targets", () => {
+        const f = fixture();
+        f.useCase.upsertCompetitionPreset({
+            ...BASE,
+            targetTraits: [{ type: "Mode" }, { type: "Zone", value: "Kairo" }],
+        });
+        expect(f.writes[0].targetTraits).toEqual([
+            { type: "Mode" },
+            { type: "Zone", value: "Kairo" },
+        ]);
+        expect(f.targetReads).toEqual([
+            {
+                chainId: 1,
+                collectionId: 7,
+                traits: [{ key: "Zone", value: "Kairo" }],
+            },
+        ]);
+        expect(f.catalogReads).toEqual([
+            { chainId: 1, collectionId: 7, keys: ["Mode"] },
+        ]);
+        expect(() =>
+            f.useCase.upsertCompetitionPreset({
+                ...BASE,
+                targetTraits: [{ type: "missing" }],
+            }),
+        ).toThrow(TradingValidationError);
+        expect(f.writes).toHaveLength(1);
+    });
     it("canonicalizes inventory selectors and reads their unfiltered collection catalog", () => {
         const f = fixture();
         f.useCase.upsertCompetitionPreset({
@@ -100,6 +131,21 @@ describe("competitive extras presets", () => {
         const f = fixture();
         for (const input of [
             { ...BASE, targetTraits: [] },
+            {
+                ...BASE,
+                targetTraits: [
+                    { type: "Zone" },
+                    { type: "Mode" },
+                    { type: "Biome" },
+                ],
+            },
+            {
+                ...BASE,
+                targetTraits: [
+                    { type: "Mode" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+            },
             { ...BASE, targetTraits: [{ type: "Mode", value: "Terrain" }] },
             { ...BASE, extraCompetitionTraits: [] },
             {

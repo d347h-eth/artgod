@@ -46,6 +46,7 @@ import {
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 import {
 	BIDDING_E2E_FIRST_RUN_INTENT,
+	BIDDING_E2E_FACETS,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM
@@ -706,42 +707,168 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	}
 
-	test('creates structured competitive extras presets and selects, resets and clears a reference', async ({
+	test('shows extra targets management only in traits view mode', async ({ page }, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		const toggle = page.getByRole('button', {
+			name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+			exact: true
+		});
+		for (const path of [
+			COLLECTION_PATH,
+			`${BIDDING_PATH}?bid_scope=token`,
+			`${BIDDING_PATH}?bid_scope=collection`
+		]) {
+			await openHarnessPage(page, path);
+			await expect(toggle).toHaveCount(0);
+			await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+		}
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByRole('region', { name: 'extra targets presets' })).toBeVisible();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-traits-entry.png'),
+			fullPage: true
+		});
+		await page.getByRole('link', { name: 'token', exact: true }).click();
+		await expect(toggle).toHaveCount(0);
+		await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+	});
+
+	test('applies two-pair wildcard source presets and distinguishes literal any metadata', async ({
 		page
 	}, testInfo) => {
 		const api = await installBiddingAutomationApiMock(page);
+		await page.route('**/traits/catalog**', (route) =>
+			route.fulfill({
+				json: {
+					traitCatalog: {
+						facets: BIDDING_E2E_FACETS.map((facet) => ({
+							...facet,
+							values: [
+								...facet.values,
+								{ value: 'any', tokenCount: 1, marketplaceBiddingSupported: true }
+							]
+						}))
+					}
+				}
+			})
+		);
 		await openHarnessPage(
 			page,
-			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Zone:Shahra`
+			`${BIDDING_PATH}?bid_scope=traits&traits=Mode:Terrain&traits=Zone:Shahra`
 		);
 		await page
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
 			.click();
-		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		const source = inventory.getByRole('group', { name: 'target trait', exact: true });
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
+		await source.getByRole('combobox', { name: 'target trait key 1' }).selectOption('Mode');
+		const sourceValue = source.getByRole('combobox', { name: 'target trait value 1' });
+		await sourceValue.selectOption({ label: '"any"' });
+		await expect(sourceValue).toHaveValue('value:any');
+		await expect(sourceValue).not.toHaveClass(/trait-group-active/);
+		await extras.getByRole('combobox', { name: 'extra target key 1' }).selectOption('Biome');
+		const extraValue = extras.getByRole('combobox', { name: 'extra target value 1' });
+		await extraValue.selectOption({ label: '"any"' });
+		await expect(extraValue).toHaveValue('value:any');
+		await expect(extraValue).not.toHaveClass(/trait-group-active/);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-literal-any.png'),
+			fullPage: true
+		});
+		await sourceValue.selectOption({ label: 'any (all)' });
+		await expect(sourceValue).toHaveValue('*');
+		await expect(sourceValue).toHaveClass(/trait-group-active/);
+		await extraValue.selectOption({ label: 'any (all)' });
+		await expect(extraValue).toHaveValue('*');
+		await expect(extraValue).toHaveClass(/trait-group-active/);
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expect(source.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+		await expect(
+			source
+				.getByRole('combobox', { name: 'target trait key 2' })
+				.getByRole('option', { name: 'Mode', exact: true })
+		).toBeDisabled();
+		await source.getByRole('combobox', { name: 'target trait key 2' }).selectOption('Zone');
+		await source
+			.getByRole('combobox', { name: 'target trait value 2' })
+			.selectOption({ label: 'Shahra' });
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-source.png'),
+			fullPage: true
+		});
+		const create = inventory.getByRole('button', { name: 'create', exact: true });
+		await create.click();
+		await expect(create).toHaveClass(/token-bidding-action-armed/);
+		await sourceValue.focus();
+		await expect(create).not.toHaveClass(/token-bidding-action-armed/);
+		await create.click();
+		expect(api.mutations).toHaveLength(0);
+		await create.click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [{ type: 'Mode' }, { type: 'Zone', value: 'Shahra' }],
+			extraCompetitionTraits: [{ type: 'Biome' }]
+		});
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+			.click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Extra targets', { exact: true });
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toBeDisabled();
+		await options.getByRole('button', { name: 'Biome=any', exact: true }).click();
+		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [
+				{ type: 'Mode', value: 'Terrain' },
+				{ type: 'Zone', value: 'Shahra' }
+			],
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Created}:v1`
+		});
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-job-saved.png'),
+			fullPage: true
+		});
+	});
+
+	test('creates structured extra targets presets and selects, resets and clears a reference', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Zone:Shahra`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
 		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
 		await page.screenshot({ path: testInfo.outputPath('competition-presets-empty.png') });
 		const targets = inventory.getByRole('group', { name: 'target trait', exact: true });
-		await targets.getByRole('button', { name: 'add', exact: true }).click();
 		await targets
 			.getByRole('combobox', { name: 'target trait key 1', exact: true })
 			.selectOption('Zone');
 		await targets
 			.getByRole('combobox', { name: 'target trait value 1', exact: true })
 			.selectOption({ label: 'Shahra' });
-		const extras = inventory.getByRole('group', { name: 'competitive extra', exact: true });
-		await extras.getByRole('button', { name: 'add', exact: true }).click();
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
 		await extras
-			.getByRole('combobox', { name: 'competitive extra key 1', exact: true })
+			.getByRole('combobox', { name: 'extra target key 1', exact: true })
 			.selectOption('Mode');
 		await extras
-			.getByRole('combobox', { name: 'competitive extra value 1', exact: true })
+			.getByRole('combobox', { name: 'extra target value 1', exact: true })
 			.selectOption({ label: 'Terrain' });
 		await extras.getByRole('button', { name: 'add', exact: true }).click();
 		await extras
-			.getByRole('combobox', { name: 'competitive extra key 2', exact: true })
+			.getByRole('combobox', { name: 'extra target key 2', exact: true })
 			.selectOption('Biome');
+		await extras
+			.getByRole('combobox', { name: 'extra target value 2', exact: true })
+			.selectOption({ label: 'any (all)' });
 		await expect(
-			extras.getByRole('combobox', { name: 'competitive extra value 2', exact: true })
+			extras.getByRole('combobox', { name: 'extra target value 2', exact: true })
 		).toHaveValue('*');
 		await expect(inventory.getByRole('textbox')).toHaveCount(0);
 		await page.screenshot({
@@ -749,17 +876,20 @@ test.describe('bidding automation fixture harness', () => {
 			fullPage: true
 		});
 		await inventory.getByRole('button', { name: 'create', exact: true }).click();
-		await inventory.getByRole('button', { name: 'confirm create', exact: true }).click();
+		expect(api.mutations).toHaveLength(0);
+		await inventory.getByRole('button', { name: 'create', exact: true }).click();
 		expect((await api.nextMutation()).body).toMatchObject({
 			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
 			extraCompetitionTraits: [{ type: 'Biome' }, { type: 'Mode', value: 'Terrain' }]
 		});
-		await expect(inventory).toContainText('Zone=Shahra → Biome=any + Mode=Terrain');
+		await expect(inventory.getByRole('row').filter({ hasText: 'Zone=Shahra' })).toContainText(
+			'Biome=any + Mode=Terrain'
+		);
 		await page.screenshot({ path: testInfo.outputPath('competition-presets-saved.png') });
 		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
 		const panel = page.getByTestId(TEST_IDS.BiddingPanel);
-		const options = panel.getByLabel('Competitive extras', { exact: true });
+		const options = panel.getByLabel('Extra targets', { exact: true });
 		await expect(options.getByRole('button', { name: 'none', exact: true })).toHaveAttribute(
 			'aria-pressed',
 			'true'
@@ -818,34 +948,33 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
 	});
 
-	test('keeps saved competitive extras versions until an explicit newer selection', async ({
+	test('keeps saved extra targets versions until an explicit newer selection', async ({
 		page
 	}, testInfo) => {
 		const api = await installBiddingAutomationApiMock(page);
-		await openHarnessPage(
-			page,
-			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
-		);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`);
 		await page
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
 			.click();
-		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
 		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
 		await inventory
-			.getByRole('combobox', { name: 'competitive extra value 1', exact: true })
+			.getByRole('combobox', { name: 'extra target value 1', exact: true })
 			.selectOption({ label: 'Daydream' });
 		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
-		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
 		expect((await api.nextMutation()).body).toMatchObject({
 			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
 			expectedRevision: 1
 		});
-		await expect(inventory).toContainText('Biome=42 → Mode=Daydream');
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Daydream'
+		);
 		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
 		const options = page
 			.getByTestId(TEST_IDS.BiddingPanel)
-			.getByLabel('Competitive extras', { exact: true });
+			.getByLabel('Extra targets', { exact: true });
 		await expect(
 			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
 		).toHaveAttribute('aria-pressed', 'true');
@@ -864,7 +993,7 @@ test.describe('bidding automation fixture harness', () => {
 		await page.screenshot({ path: testInfo.outputPath('competition-reference-updated.png') });
 	});
 
-	test('recovers competitive extras inventory errors and archives without changing saved jobs', async ({
+	test('recovers extra targets inventory errors and archives without changing saved jobs', async ({
 		page
 	}, testInfo) => {
 		const api = await installBiddingAutomationApiMock(page);
@@ -874,25 +1003,24 @@ test.describe('bidding automation fixture harness', () => {
 				? route.fulfill({ status: 500, json: { message: 'Preset inventory unavailable.' } })
 				: route.fallback()
 		);
-		await openHarnessPage(
-			page,
-			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
-		);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`);
 		await page
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
 			.click();
-		const inventory = page.getByRole('region', { name: 'competitive extras presets' });
-		await expect(inventory.getByRole('alert')).toContainText('Refresh presets', {
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await expect(inventory.getByRole('alert')).toContainText('Refresh', {
 			timeout: 20_000
 		});
 		await page.screenshot({ path: testInfo.outputPath('competition-presets-load-failed.png') });
 		inventoryUnavailable = false;
 		await inventory.getByRole('button', { name: 'refresh', exact: true }).click();
-		await expect(inventory).toContainText('Biome=42 → Mode=Terrain');
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Terrain'
+		);
 		await expect(inventory.getByRole('alert')).toHaveCount(0);
 		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
 		const value = inventory.getByRole('combobox', {
-			name: 'competitive extra value 1',
+			name: 'extra target value 1',
 			exact: true
 		});
 		await value.selectOption({ label: 'Daydream' });
@@ -912,7 +1040,7 @@ test.describe('bidding automation fixture harness', () => {
 			{ times: 1 }
 		);
 		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
-		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
 		await expect(value).toBeDisabled();
 		await page.screenshot({
 			path: testInfo.outputPath('competition-presets-saving.png'),
@@ -926,14 +1054,16 @@ test.describe('bidding automation fixture harness', () => {
 			fullPage: true
 		});
 		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
-		await inventory.getByRole('button', { name: 'confirm modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
 		expect((await api.nextMutation()).body).toMatchObject({
 			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
 			expectedRevision: 1
 		});
-		await expect(inventory).toContainText('Biome=42 → Mode=Daydream');
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Daydream'
+		);
 		await inventory.getByRole('button', { name: 'archive', exact: true }).click();
-		await inventory.getByRole('button', { name: 'confirm archive', exact: true }).click();
+		await inventory.getByRole('button', { name: 'archive', exact: true }).click();
 		expect(await api.nextMutation()).toMatchObject({
 			method: 'DELETE',
 			body: { expectedRevision: 2 }
@@ -944,7 +1074,7 @@ test.describe('bidding automation fixture harness', () => {
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
 		const options = page
 			.getByTestId(TEST_IDS.BiddingPanel)
-			.getByLabel('Competitive extras', { exact: true });
+			.getByLabel('Extra targets', { exact: true });
 		await expect(
 			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
 		).toHaveAttribute('aria-pressed', 'true');
@@ -955,7 +1085,7 @@ test.describe('bidding automation fixture harness', () => {
 		await page.screenshot({ path: testInfo.outputPath('competition-reference-archived.png') });
 	});
 
-	test('loads saved competitive extras and keeps selection read-only without trait trust', async ({
+	test('loads saved extra targets and keeps selection read-only without trait trust', async ({
 		page
 	}, testInfo) => {
 		await installBiddingAutomationApiMock(page);
@@ -966,7 +1096,7 @@ test.describe('bidding automation fixture harness', () => {
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
 		const options = page
 			.getByTestId(TEST_IDS.BiddingPanel)
-			.getByLabel('Competitive extras', { exact: true });
+			.getByLabel('Extra targets', { exact: true });
 		await expect(
 			options.getByRole('button', { name: 'Mode=Terrain', exact: true })
 		).toHaveAttribute('aria-pressed', 'true');

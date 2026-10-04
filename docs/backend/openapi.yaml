@@ -888,7 +888,7 @@ paths:
     /api/{chain_ref}/{collection_ref}/bidding/competition-presets:
         get:
             tags: [Trading]
-            summary: List current competitive extras presets
+            summary: List current extra targets presets
             operationId: listCompetitionPresets
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -909,7 +909,7 @@ paths:
 
         put:
             tags: [Trading]
-            summary: Create a competitive extras preset or an immutable new version
+            summary: Create an extra targets preset or an immutable new version
             operationId: upsertCompetitionPreset
             security:
                 - csrfHeader: []
@@ -3236,10 +3236,11 @@ components:
                     type: integer
                     minimum: 1
                 targetTraits:
-                    type: array
+                    allOf:
+                        - $ref: "#/components/schemas/ExtraCompetitionTraits"
                     minItems: 1
-                    items:
-                        $ref: "#/components/schemas/TradingTraitCriterion"
+                    maxItems: 2
+                    description: Source pattern with unique trait keys. An omitted value matches any concrete value of that key; the complete key combination must match the job target.
                 extraCompetitionTraits:
                     $ref: "#/components/schemas/ExtraCompetitionTraits"
                 archivedAt:
@@ -3274,10 +3275,11 @@ components:
                     minimum: 1
                     description: Required when editing an existing preset; stale revisions are rejected.
                 targetTraits:
-                    type: array
+                    allOf:
+                        - $ref: "#/components/schemas/ExtraCompetitionTraits"
                     minItems: 1
-                    items:
-                        $ref: "#/components/schemas/TradingTraitCriterion"
+                    maxItems: 2
+                    description: Source pattern with unique trait keys; an omitted value means any value for that key.
                 extraCompetitionTraits:
                     allOf:
                         - $ref: "#/components/schemas/ExtraCompetitionTraits"

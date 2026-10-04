@@ -4,12 +4,16 @@
 	import type { ApiTraitCatalogFacet, ApiTraitFacet } from '$lib/api-types';
 
 	const ANY_VALUE = '*';
+	const ANY_VALUE_LABEL = 'any (all)';
 	const EXACT_VALUE_PREFIX = 'value:';
 	let {
 		selectors,
 		catalog,
 		availableTargets = [],
 		allowAny = false,
+		maxSelectors = MAX_EXTRA_COMPETITION_TRAITS,
+		uniqueKeys = false,
+		idPrefix,
 		label,
 		disabled,
 		onChange
@@ -18,6 +22,9 @@
 		catalog: ApiTraitCatalogFacet[];
 		availableTargets?: ApiTraitFacet[];
 		allowAny?: boolean;
+		maxSelectors?: number;
+		uniqueKeys?: boolean;
+		idPrefix: string;
 		label: string;
 		disabled: boolean;
 		onChange: (selectors: TradingTraitCompetitionSelector[]) => void;
@@ -27,108 +34,96 @@
 	}
 	function targetUnavailable(key: string, value: string): boolean {
 		return (
-			!allowAny &&
 			availableTargets.find((f) => f.key === key)?.values.find((v) => v.value === value)
 				?.marketplaceBiddingSupported === false
 		);
 	}
 </script>
 
-<div class="trait-selectors" role="group" aria-label={label}>
+<div class="bidding-trait-selectors" role="group" aria-label={label}>
 	{#each selectors as selector, index}
-		<div class="trait-selector-row">
+		<div class="bidding-trait-selector-row">
 			<select
-				class="bootstrap-control"
+				id={`${idPrefix}-key-${index + 1}`}
+				class="bootstrap-control-select"
 				aria-label={`${label} key ${index + 1}`}
+				title={selector.type}
 				value={selector.type}
 				{disabled}
-				onchange={(event) => update(index, {
-					type: event.currentTarget.value,
-					...(allowAny ? {} : { value: '' })
-				})}
+				onchange={(event) =>
+					update(index, { type: event.currentTarget.value, value: '' })}
 			>
 				<option value="" disabled>trait</option>
 				{#if selector.type && !catalog.some((f) => f.key === selector.type)}
 					<option value={selector.type} disabled>{selector.type} (unavailable)</option>
 				{/if}
 				{#each catalog as facet}
-					<option value={facet.key}>{facet.key}</option>
+					<option
+						value={facet.key}
+						disabled={uniqueKeys && selectors.some(
+							(entry, position) => position !== index && entry.type === facet.key
+						)}
+					>
+						{facet.key}
+					</option>
 				{/each}
 			</select>
 			<select
-				class="bootstrap-control"
+				class="bootstrap-control-select"
+				class:trait-group-active={selector.value === undefined}
 				aria-label={`${label} value ${index + 1}`}
+				title={selector.value === undefined ? 'any (all values)' : selector.value}
 				value={selector.value === undefined ? ANY_VALUE : `${EXACT_VALUE_PREFIX}${selector.value}`}
 				disabled={disabled || !selector.type}
-				onchange={(event) => update(index, event.currentTarget.value === ANY_VALUE
-					? { type: selector.type }
-					: { type: selector.type, value: event.currentTarget.value.slice(EXACT_VALUE_PREFIX.length) })}
+				onchange={(event) =>
+					update(
+						index,
+						event.currentTarget.value === ANY_VALUE
+							? { type: selector.type }
+							: {
+									type: selector.type,
+									value: event.currentTarget.value.slice(EXACT_VALUE_PREFIX.length)
+								}
+					)}
 			>
+				<option value={EXACT_VALUE_PREFIX} disabled>value</option>
 				{#if allowAny}
-					<option value={ANY_VALUE}>any</option>
-				{:else}
-					<option value={EXACT_VALUE_PREFIX} disabled>value</option>
+					<option value={ANY_VALUE}>{ANY_VALUE_LABEL}</option>
 				{/if}
 				{#if selector.value && !catalog.find((f) => f.key === selector.type)?.values.some((v) => v.value === selector.value)}
 					<option value={`${EXACT_VALUE_PREFIX}${selector.value}`} disabled>
 						{selector.value} (unavailable)
 					</option>
 				{/if}
-				{#each catalog.find((f) => f.key === selector.type)?.values ?? [] as entry}
-					<option
-						value={`${EXACT_VALUE_PREFIX}${entry.value}`}
-						disabled={targetUnavailable(selector.type, entry.value)}
-					>
-						{entry.value}
-					</option>
-				{/each}
+				<optgroup label="values">
+					{#each catalog.find((f) => f.key === selector.type)?.values ?? [] as entry}
+						<option
+							value={`${EXACT_VALUE_PREFIX}${entry.value}`}
+							disabled={targetUnavailable(selector.type, entry.value)}
+						>
+							{entry.value.toLowerCase() === 'any' ? JSON.stringify(entry.value) : entry.value}
+						</option>
+					{/each}
+				</optgroup>
 			</select>
 			<button
 				type="button"
-				class="action-button-negative"
+				class="facet-panel-action-button facet-reset-button bid-book-maker-filter-clear"
 				aria-label={`remove ${label} ${index + 1}`}
+				title={`remove ${label} ${index + 1}`}
 				{disabled}
 				onclick={() => onChange(selectors.filter((_, i) => i !== index))}
 			>
-				remove
+				x
 			</button>
 		</div>
 	{/each}
 	<button
 		type="button"
-		class="action-button-positive"
-		disabled={disabled || selectors.length >= MAX_EXTRA_COMPETITION_TRAITS || catalog.length === 0}
-		onclick={() => onChange([...selectors, { type: '', ...(allowAny ? {} : { value: '' }) }])}
+		class="facet-panel-action-button action-button-positive"
+		disabled={disabled || selectors.length >= maxSelectors || catalog.length === 0}
+		onclick={() => onChange([...selectors, { type: '', value: '' }])}
 	>
 		add
 	</button>
 </div>
-
-<style>
-	.trait-selectors {
-		display: grid;
-		gap: 0.4rem;
-		min-width: 0;
-	}
-	.trait-selectors > button {
-		justify-self: start;
-	}
-	.trait-selector-row {
-		display: grid;
-		grid-template-columns: minmax(7rem, 1fr) minmax(7rem, 1fr) auto;
-		gap: 0.5rem;
-		align-items: center;
-	}
-	.trait-selector-row select {
-		min-width: 0;
-		width: 100%;
-	}
-	@media (max-width: 480px) {
-		.trait-selector-row {
-			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		}
-		.trait-selector-row button {
-			justify-self: start;
-		}
-	}
-</style>

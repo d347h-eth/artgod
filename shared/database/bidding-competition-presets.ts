@@ -5,7 +5,7 @@ import type {
 import {
     competitionPresetMatchesTarget,
     normalizeExtraCompetitionTraits,
-    normalizeTraitBiddingTarget,
+    normalizeCompetitionPresetTarget,
 } from "../trading/trait-competition.js";
 
 // Shared projection resolves versions in the job query, avoiding per-job reads.
@@ -38,13 +38,13 @@ export function mapBiddingCompetitionPresetRow(
         row.preset_chain_id !== scope.chainId ||
         row.preset_collection_id !== scope.collectionId
     ) {
-        throw new Error("Invalid persisted competitive extras reference");
+        throw new Error("Invalid persisted extra targets reference");
     }
     const preset = {
         versionId: row.competition_preset_version_id,
         presetId: row.competition_preset_id,
         revision: row.competition_preset_revision,
-        targetTraits: normalizeTraitBiddingTarget(
+        targetTraits: normalizeCompetitionPresetTarget(
             JSON.parse(row.preset_target_traits_json),
         ),
         extraCompetitionTraits: normalizeExtraCompetitionTraits(
@@ -53,7 +53,7 @@ export function mapBiddingCompetitionPresetRow(
     };
     if (!competitionPresetMatchesTarget(preset, targetTraits))
         throw new Error(
-            "Persisted competitive extras target does not match the job",
+            "Persisted extra targets source does not match the job",
         );
     return preset;
 }

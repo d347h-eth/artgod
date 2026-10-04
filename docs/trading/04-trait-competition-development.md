@@ -9,8 +9,9 @@ the [unified backlog](../planning/01-unified-backlog.md#trait-bidding-competitio
 
 - A trait job considers collection-wide offers and every nonempty subset of its
   target traits, including each individual trait and the full target.
-- Collection presets pair an exact trait target with extra selectors. Jobs
-  reference immutable preset versions; edits never change existing jobs implicitly.
+- Collection presets pair one or two source trait keys, each with an exact value
+  or any value, with extra selectors. Jobs reference immutable preset versions;
+  edits never change existing jobs implicitly.
 - Extra selectors affect competitor assessment only. Offer submission, target
   identity, quantity, price limits, own-order recovery, and cancellation retain
   the exact declared target.
@@ -138,21 +139,22 @@ collection or mismatched target definitions. Updates use expected revisions to
 reject stale editors. Bulk reapply remains future work; individual jobs can
 explicitly select the current version today.
 
-Target normalization and marketplace eligibility are shared by job creation and
-preset creation. Extra choices use the unfiltered collection trait catalog.
+The shared domain owns source-selector and concrete job-target validation.
+Explicit source values reuse job creation's marketplace eligibility check;
+source wildcards and extra choices use the unfiltered collection trait catalog.
 Backend reads and the bot share a joined SQLite projection of the selected
 version, without an additional query per loaded job. Competition matching and
 OpenSea submission/own-order policy remain unchanged.
 
-The shared preset section is available from collection tokens, offers, and
-holder tokens beside tiers. Exact main targets and exact/any extra choices use
-dropdowns. The trait-job panel lists only matching presets, defaults to none,
+The `extra targets` section is available beside tiers only in Offers' traits
+view. Source and extra choices use exact/any dropdowns. The trait-job panel,
+including jobs opened from other collection views, lists only matching presets, defaults to none,
 and retains a saved older version as an explicit choice. Labels wrap within the
 small panel. Loading, failed writes, reset, retry and trait-trust restrictions
 retain their established behavior. Scope changes ignore late responses from
 the previous collection.
 
-### Preset Verification
+### Initial Preset Verification (Before UI Corrections)
 
 - Backend suite: 581 tests pass, including protected HTTP routes, versioned
   persistence, wrong scope/target and stale-version rejection, price-only
@@ -184,6 +186,65 @@ the previous collection.
   errors. The superseded plaintext editor and its single-trait heading are gone.
   The separate performance handoff remains uncommitted and now describes the
   versioned storage costs and additional measurement scenarios.
+
+### UI Alignment and Source Wildcards (2026-10-04)
+
+The editor now uses the existing price-tier panel, table, label/control grid,
+and action families. Reset is pink; create/modify and archive use the existing
+armed confirmation styles, with confirmation cleared on outside pointer/focus
+events. The preset selector in the bidding panel uses the same secondary-tab
+family as pricing. User-facing labels use `extra targets`; internal identifiers,
+API routes and storage names retain their existing competition vocabulary.
+
+Sources contain at most two distinct keys. A source's keys must equal the whole
+job target's key combination, and each explicit source value must match the
+job's concrete value. For example, `Mode=any + Zone=Shahra` matches both
+`Mode=Terrain + Zone=Shahra` and `Mode=Daydream + Zone=Shahra`. It does not
+match `Mode=Terrain` or a target with an additional third key. A one-key source
+such as `Zone=any` covers all concrete single-key Zone jobs.
+
+Wildcard dropdown options display `any (all)` outside the `values` group and
+use the existing orange active-state style. Actual metadata values named `any`
+remain explicit values, appear quoted, and have distinct option values. Source
+and extra summaries retain `Key=any` for wildcards and `Key="any"` for literal
+metadata. Jobs still submit concrete traits; wildcards describe applicability
+of a preset only. Extra selectors still count standalone single-trait bids.
+
+No additional migration is needed: the immutable preset version already stores
+selector JSON, and an omitted source value encodes the wildcard. Referenced
+versions remain pinned. Wildcards are compared directly without expanding
+source values or adding polling, job enumeration, or per-job database reads.
+
+Verification for this correction:
+
+- Shared trait-selector domain: 6 tests pass. Backend preset use-case and job
+  repository checks: 19 tests pass. Backend HTTP/API file: 98 tests pass.
+  Runtime job-source adapter: 4 tests pass. These cover wildcard round trips,
+  concrete job targets, complete key combinations, two-key/repeated-key
+  validation, literal metadata `any`, and preservation of pinned versions.
+- Frontend unit suite: 566 tests pass. The complete bidding browser suite:
+  96 tests pass across desktop and Pixel 7, including the new source-wildcard
+  and traits-only entry cases and existing tier/bidding workflows. Public-mode
+  suite: 8 tests pass. Strategy suite and coverage gate: 404 tests pass.
+- Shared declarations, backend/trading TypeScript checks, Userland and desktop
+  runtime builds pass. Svelte checking reports zero errors and 87 warnings in
+  19 files. These are local fixture/build checks, with no live orders or native
+  WebView verification.
+- Reviewed the editor and bidding-panel renders in reading order, including
+  blank/populated controls, literal/wildcard choices, source pairs, pending
+  saves, load/write recovery, retained old/archived versions, read-only state,
+  and the existing price-tier form. Viewport images are 1920 x 1080 and
+  1082 x 2202 pixels; source-wildcard and literal-value full-page Pixel images
+  are 1082 x 3095 and 1082 x 2990. Larger full-page captures retain the footer
+  and surrounding collection context. Artifacts are retained in worktree
+  `tmp/extra-targets-ui-review/browser-final/` and `browser-public/`.
+- UI copy review retains compact labels, explicit choices and recovery actions.
+  Documentation validation passes for 77 Markdown files, including OpenAPI
+  checks. Changed-file formatting and `git diff --check` pass; Svelte markup
+  is reviewed manually with scripts formatted using the TypeScript parser.
+- The separate uncommitted performance handoff records the reduced inventory
+  cardinality and unchanged per-job hydration/matching costs, plus the related
+  harness scenarios. No performance measurement is claimed by these checks.
 
 ### Local Migration Replacement
 

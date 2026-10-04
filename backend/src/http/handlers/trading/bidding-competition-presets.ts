@@ -2,7 +2,7 @@ import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
     normalizeExtraCompetitionTraits,
-    normalizeTraitBiddingTarget,
+    normalizeCompetitionPresetTarget,
     TraitCompetitionValidationError,
 } from "@artgod/shared/trading/trait-competition";
 import type { BiddingCompetitionPresetsUseCase } from "../../../application/use-cases/trading/bidding-competition-presets.js";
@@ -41,7 +41,9 @@ export class BiddingCompetitionPresetsHttpAdapter {
                     body.expectedRevision === undefined
                         ? undefined
                         : parseRevision(body.expectedRevision),
-                targetTraits: normalizeTraitBiddingTarget(body.targetTraits),
+                targetTraits: normalizeCompetitionPresetTarget(
+                    body.targetTraits,
+                ),
                 extraCompetitionTraits: normalizeExtraCompetitionTraits(
                     body.extraCompetitionTraits,
                 ),

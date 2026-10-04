@@ -3,7 +3,7 @@ import { db } from "@artgod/shared/database";
 import type { TradingCompetitionPreset } from "@artgod/shared/types";
 import {
     normalizeExtraCompetitionTraits,
-    normalizeTraitBiddingTarget,
+    normalizeCompetitionPresetTarget,
 } from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingCompetitionPresetsRepositoryPort,
@@ -34,7 +34,7 @@ export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompeti
             presetId: row.preset_id,
             versionId: row.version_id,
             revision: row.revision,
-            targetTraits: normalizeTraitBiddingTarget(
+            targetTraits: normalizeCompetitionPresetTarget(
                 JSON.parse(row.target_traits_json),
             ),
             extraCompetitionTraits: normalizeExtraCompetitionTraits(
@@ -114,11 +114,11 @@ export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompeti
             | undefined;
         if (!row)
             throw new TradingValidationError(
-                "Competitive extras preset is unavailable. Refresh the presets.",
+                "Extra targets preset is unavailable. Refresh the presets.",
             );
         if (row.revision !== expectedRevision)
             throw new TradingValidationError(
-                "Competitive extras preset changed. Refresh it before saving.",
+                "Extra targets preset changed. Refresh it before saving.",
             );
         return row;
     }
