@@ -22,6 +22,7 @@ import {
 } from "@artgod/shared/types";
 import { SqliteBiddingCompetitionPresetsRepository } from "./sqlite-bidding-competition-presets-repository.js";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
+import { TradingValidationError } from "../../application/use-cases/trading/types.js";
 
 const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
@@ -197,6 +198,93 @@ describe("SqliteBiddingJobsRepository", () => {
             );
         assert.equal(repository.listCollectionJobs(input).length, 2);
         assert.equal(repository.listPendingCommands({ limit: 10 }).length, 2);
+    });
+
+    it("rejects source changes atomically while allowing extras-only revisions", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const scope = { chainId: 1, collectionId };
+        const v1 = presets.savePreset({
+            ...scope,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone" },
+            ],
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        const created = repository.upsertCollectionJob({
+            ...scope,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value: "Kairo" },
+            ],
+            competitionPresetVersionId: v1.versionId,
+        });
+        const versions = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_competition_preset_versions ORDER BY revision",
+                )
+                .all();
+        const beforeVersions = versions();
+        const beforeCommands = repository.listPendingCommands({ limit: 10 });
+        for (const targetTraits of [
+            [{ type: "Mode", value: "Daydream" }, { type: "Zone" }],
+            [{ type: "Mode" }, { type: "Zone" }],
+            [{ type: "Mode", value: "Terrain" }, { type: "Biome" }],
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value: "any" },
+            ],
+            [{ type: "Zone" }],
+        ]) {
+            assert.throws(
+                () =>
+                    presets.savePreset({
+                        ...scope,
+                        presetId: v1.presetId,
+                        expectedRevision: 1,
+                        targetTraits,
+                        extraCompetitionTraits: [{ type: "Chroma" }],
+                    }),
+                TradingValidationError,
+            );
+            assert.deepEqual(presets.listPresets(scope), [v1]);
+            assert.deepEqual(versions(), beforeVersions);
+            assert.deepEqual(
+                repository.getJobById(created.job.jobId),
+                created.job,
+            );
+            assert.deepEqual(
+                repository.listPendingCommands({ limit: 10 }),
+                beforeCommands,
+            );
+        }
+        const v2 = presets.savePreset({
+            ...scope,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            targetTraits: [
+                { type: " Zone " },
+                { type: "Mode", value: " Terrain " },
+            ],
+            extraCompetitionTraits: [{ type: "Chroma" }],
+        });
+        assert.equal(v2.revision, 2);
+        assert.deepEqual(v2.targetTraits, v1.targetTraits);
+        assert.deepEqual(v2.extraCompetitionTraits, [{ type: "Chroma" }]);
+        assert.equal(versions().length, 2);
+        assert.deepEqual(versions()[0], beforeVersions[0]);
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+        assert.deepEqual(
+            repository.listPendingCommands({ limit: 10 }),
+            beforeCommands,
+        );
     });
 
     it("pins immutable preset versions and preserves the reference through pricing edits", () => {

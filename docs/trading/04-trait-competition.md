@@ -76,6 +76,12 @@ source patterns do not apply to jobs with fewer or additional target keys.
 Wildcards reduce the number of presets needed for a key's values. The job still
 declares concrete values, and OpenSea receives those concrete criteria.
 
+A preset's source is fixed at creation, including its keys, exact values, and
+wildcard choices. Editing locks the source controls and allows changes only to
+extra targets. Use `reset` to return to creation mode and create a different
+preset for another source. Selector order and surrounding whitespace do not
+change source identity.
+
 Source and extra selectors share the `{type, value?}` representation. Omitting
 `value` encodes a wildcard; an explicit string `"any"` is a literal metadata
 value. Dropdowns distinguish `any (all)` from quoted metadata values. Compact
@@ -100,9 +106,13 @@ target when a job is created or updated.
 ## Immutable Versions and Job Updates
 
 Presets belong to a chain and collection inventory. Creation stores revision
-one; editing inserts a new immutable version and advances the inventory's
-current revision. Edit and archive requests require `expectedRevision` so a
-stale editor cannot overwrite or archive a newer definition.
+one; editing extras inserts a new immutable version with the same source and
+advances the inventory's current revision. Edit and archive requests require
+`expectedRevision` so a stale editor cannot overwrite or archive a newer
+definition. The save transaction checks the unchanged source before advancing
+the revision or inserting a version; source changes are rejected even through
+direct API calls. All revisions of a preset therefore match the same job
+targets, simplifying future explicit bulk updates.
 
 Each job references one selected version. Editing a preset leaves existing
 job references, revisions, and commands unchanged. Archiving removes the preset
@@ -194,13 +204,14 @@ creates the inventory and job reference; old per-job extras are not imported.
 Behavior coverage lives in:
 
 - [`shared/trading/trait-competition.test.ts`](../../shared/trading/trait-competition.test.ts)
-  for selectors, wildcard applicability, literal values, and version selection;
+  for selectors, immutable source identity, wildcard applicability, literal
+  values, and version selection;
 - [`trading/src/domain/market/strategy/trait-competition.test.ts`](../../trading/src/domain/market/strategy/trait-competition.test.ts)
   and OpenSea bidding-service tests for inclusive subsets, standalone extras,
   snapshot/fallback parity, and exact placement and own-order boundaries;
 - backend preset use-case, HTTP adapter, and SQLite job-repository tests for
-  scope, immutable references, stale edits, preservation, transactional commands,
-  migration replay, and rollback;
+  scope, immutable sources and references, stale edits, preservation,
+  transactional commands, migration replay, and rollback;
 - [`frontend/e2e/bidding-automation.spec.ts`](../../frontend/e2e/bidding-automation.spec.ts)
   and public-mode tests for management, selection, pinned/archived versions,
   delayed lookup, recovery, restrictions, and desktop/narrow controls.

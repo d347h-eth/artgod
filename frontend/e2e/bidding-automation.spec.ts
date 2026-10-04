@@ -943,6 +943,25 @@ test.describe('bidding automation fixture harness', () => {
 			targetTraits: [{ type: 'Mode' }, { type: 'Zone', value: 'Shahra' }],
 			extraCompetitionTraits: [{ type: 'Biome' }]
 		});
+		const savedRow = inventory.getByRole('row').filter({ hasText: 'Mode=any + Zone=Shahra' });
+		await savedRow.getByRole('button', { name: 'edit', exact: true }).click();
+		await expect(source.getByRole('combobox')).toHaveCount(4);
+		for (const control of await source.getByRole('combobox').all()) {
+			await expect(control).toBeDisabled();
+		}
+		for (const name of ['add', 'remove source target 1', 'remove source target 2']) {
+			await expect(source.getByRole('button', { name, exact: true })).toBeDisabled();
+		}
+		await expect(sourceValue).toHaveValue('*');
+		await expect(source.getByRole('combobox', { name: 'source target value 2' })).toHaveValue(
+			'value:Shahra'
+		);
+		await expect(extraValue).toBeEnabled();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-source-locked.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
 		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
 		await page
 			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
@@ -1278,6 +1297,35 @@ test.describe('bidding automation fixture harness', () => {
 			.click();
 		const inventory = page.getByRole('region', { name: 'extra targets presets' });
 		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		const key = source.getByRole('combobox', { name: 'source target key 1', exact: true });
+		const value = source.getByRole('combobox', { name: 'source target value 1', exact: true });
+		await expect(key).toBeDisabled();
+		await expect(value).toBeDisabled();
+		await expect(key).toHaveValue('Biome');
+		await expect(value).toHaveValue('value:42');
+		await expect(source.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+		await expect(
+			source.getByRole('button', { name: 'remove source target 1', exact: true })
+		).toBeDisabled();
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Enter');
+		await expect(source.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-source-locked-help.png'),
+			fullPage: true
+		});
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Escape');
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
+		await expect(key).toBeEnabled();
+		await expect(key).toHaveValue('');
+		await key.selectOption('Zone');
+		await expect(value).toBeEnabled();
+		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-new-source-after-reset.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
 		await inventory
 			.getByRole('combobox', { name: 'extra target value 1', exact: true })
 			.selectOption({ label: 'Daydream' });
@@ -1285,7 +1333,9 @@ test.describe('bidding automation fixture harness', () => {
 		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
 		expect((await api.nextMutation()).body).toMatchObject({
 			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
-			expectedRevision: 1
+			expectedRevision: 1,
+			targetTraits: [{ type: 'Biome', value: '42' }],
+			extraCompetitionTraits: [{ type: 'Mode', value: 'Daydream' }]
 		});
 		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
 			'Mode=Daydream'

@@ -909,7 +909,7 @@ paths:
 
         put:
             tags: [Trading]
-            summary: Create an extra targets preset or an immutable new version
+            summary: Create an extra targets preset or revise its extras
             operationId: upsertCompetitionPreset
             security:
                 - csrfHeader: []
@@ -3279,7 +3279,7 @@ components:
                         - $ref: "#/components/schemas/ExtraCompetitionTraits"
                     minItems: 1
                     maxItems: 2
-                    description: Source pattern with unique trait keys; an omitted value means any value for that key.
+                    description: Source pattern with unique trait keys; an omitted value means any value for that key. Fixed at creation; edits must preserve the same keys, values and wildcard choices. Selector order and surrounding whitespace do not change source identity.
                 extraCompetitionTraits:
                     allOf:
                         - $ref: "#/components/schemas/ExtraCompetitionTraits"

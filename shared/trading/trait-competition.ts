@@ -119,6 +119,28 @@ export function normalizeCompetitionPresetTarget(
     return targets;
 }
 
+// A preset's source fixes its applicability for every revision. Only its extras
+// can change, so jobs on older versions stay eligible for future explicit updates.
+export function assertCompetitionPresetSourceUnchanged(
+    savedTarget: TradingTraitCompetitionSelector[],
+    proposedTarget: TradingTraitCompetitionSelector[],
+): void {
+    const saved = normalizeCompetitionPresetTarget(savedTarget);
+    const proposed = normalizeCompetitionPresetTarget(proposedTarget);
+    if (
+        saved.length !== proposed.length ||
+        saved.some(
+            (trait, index) =>
+                trait.type !== proposed[index].type ||
+                trait.value !== proposed[index].value,
+        )
+    ) {
+        throw new TraitCompetitionValidationError(
+            "Source target cannot change. Create a new preset.",
+        );
+    }
+}
+
 export function competitionPresetMatchesTarget(
     preset: Pick<TradingCompetitionPresetVersion, "targetTraits">,
     traits: TradingTraitCriterion[],

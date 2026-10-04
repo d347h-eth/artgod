@@ -3,7 +3,9 @@ import type { BatchTokenBiddingJobSelectionRequest } from '../../src/lib/backend
 import { buildCollectionBiddingQuery } from '../../src/lib/bidding-query';
 import {
 	normalizeExtraCompetitionTraits,
-	normalizeCompetitionPresetTarget
+	normalizeCompetitionPresetTarget,
+	assertCompetitionPresetSourceUnchanged,
+	TraitCompetitionValidationError
 } from '@artgod/shared/trading/trait-competition';
 import {
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
@@ -182,6 +184,15 @@ export async function installBiddingAutomationApiMock(
 				};
 				const presetId = definition.presetId ?? BIDDING_E2E_COMPETITION_PRESET_ID.Created;
 				const previous = competitionPresets.find((p) => p.presetId === presetId);
+				if (previous) {
+					try {
+						assertCompetitionPresetSourceUnchanged(previous.targetTraits, definition.targetTraits);
+					} catch (error) {
+						if (!(error instanceof TraitCompetitionValidationError)) throw error;
+						await route.fulfill({ status: 422, json: { message: error.message } });
+						return;
+					}
+				}
 				const saved = biddingCompetitionPresetFixture(
 					presetId,
 					normalizeCompetitionPresetTarget(definition.targetTraits),

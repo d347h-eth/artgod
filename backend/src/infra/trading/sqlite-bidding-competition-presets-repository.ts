@@ -4,6 +4,8 @@ import type { TradingCompetitionPreset } from "@artgod/shared/types";
 import {
     normalizeExtraCompetitionTraits,
     normalizeCompetitionPresetTarget,
+    assertCompetitionPresetSourceUnchanged,
+    TraitCompetitionValidationError,
 } from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingCompetitionPresetsRepositoryPort,
@@ -50,12 +52,26 @@ export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompeti
         return db.writeTransaction(() => {
             const presetId = input.presetId ?? randomUUID();
             let revision = 1;
+            let targetTraits = input.targetTraits;
             if (input.presetId) {
                 const saved = this.requirePreset(
                     input,
                     presetId,
                     input.expectedRevision,
                 );
+                try {
+                    targetTraits = normalizeCompetitionPresetTarget(
+                        JSON.parse(saved.target_traits_json),
+                    );
+                    assertCompetitionPresetSourceUnchanged(
+                        targetTraits,
+                        input.targetTraits,
+                    );
+                } catch (error) {
+                    if (error instanceof TraitCompetitionValidationError)
+                        throw new TradingValidationError(error.message);
+                    throw error;
+                }
                 revision = saved.revision + 1;
                 db.prepare<[number, string]>(
                     "UPDATE trading_bidding_competition_presets SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE preset_id = ?",
@@ -72,14 +88,14 @@ export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompeti
                 versionId,
                 presetId,
                 revision,
-                JSON.stringify(input.targetTraits),
+                JSON.stringify(targetTraits),
                 JSON.stringify(input.extraCompetitionTraits),
             );
             return {
                 presetId,
                 versionId,
                 revision,
-                targetTraits: input.targetTraits,
+                targetTraits,
                 extraCompetitionTraits: input.extraCompetitionTraits,
                 archivedAt: null,
             };
@@ -104,13 +120,13 @@ export class SqliteBiddingCompetitionPresetsRepository implements BiddingCompeti
         scope: CompetitionPresetScope,
         presetId: string,
         expectedRevision: number | undefined,
-    ): { revision: number } {
+    ): { revision: number; target_traits_json: string } {
         const row = db
             .prepare<
                 [string, number, number]
-            >("SELECT revision FROM trading_bidding_competition_presets WHERE preset_id = ? AND chain_id = ? AND collection_id = ? AND archived_at IS NULL")
+            >("SELECT p.revision, v.target_traits_json FROM trading_bidding_competition_presets p " + "JOIN trading_bidding_competition_preset_versions v ON v.preset_id = p.preset_id AND v.revision = p.revision " + "WHERE p.preset_id = ? AND p.chain_id = ? AND p.collection_id = ? AND p.archived_at IS NULL")
             .get(presetId, scope.chainId, scope.collectionId) as
-            | { revision: number }
+            | { revision: number; target_traits_json: string }
             | undefined;
         if (!row)
             throw new TradingValidationError(

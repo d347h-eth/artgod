@@ -25,7 +25,7 @@
 
 	const presetFieldHelp = {
 		target:
-			'Choose which of your trait bidding jobs can use this preset. Their targets must use exactly these one or two keys and match the selected values. any (all) accepts every value of a key. After saving, select this preset under extra targets when creating or modifying a matching job.',
+			'Choose which of your trait bidding jobs can use this preset. Their targets must use exactly these one or two keys and match the selected values. any (all) accepts every value of a key. The source target is fixed after creation; create a new preset for a different source. After saving, select this preset under extra targets when creating or modifying a matching job.',
 		extras:
 			'Add bids for other traits to the competition your bot uses to set its price. The bot already considers collection-wide bids and bids for your job’s target traits, alone or together. Each extra includes bids targeting that trait alone; any (all) includes every value of the key. Your bid target and price limits stay unchanged. Existing jobs keep their selected preset version until you choose an updated version and confirm modify.'
 	};
@@ -353,7 +353,7 @@
 				idPrefix="extra-target-source"
 				label="source target"
 				help={presetFieldHelp.target}
-				disabled={busy || loading || catalogLoading}
+				disabled={editing !== null || busy || loading || catalogLoading}
 				onChange={(value) => {
 					targetTraits = value;
 					armedAction = null;

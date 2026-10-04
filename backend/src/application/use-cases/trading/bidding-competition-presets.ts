@@ -21,11 +21,14 @@ export type CompetitionPresetDefinition = {
     presetId?: string;
     // Required on edit to prevent stale editors from overwriting a newer version.
     expectedRevision?: number;
+    // Fixed at creation; edits may change only extraCompetitionTraits.
     targetTraits: TradingTraitCompetitionSelector[];
     extraCompetitionTraits: TradingTraitCompetitionSelector[];
 };
 export interface BiddingCompetitionPresetsRepositoryPort {
     listPresets(scope: CompetitionPresetScope): TradingCompetitionPreset[];
+    // Atomically enforce expectedRevision and the unchanged source before
+    // advancing the inventory revision and inserting an immutable version.
     savePreset(
         input: CompetitionPresetScope & CompetitionPresetDefinition,
     ): TradingCompetitionPreset;
