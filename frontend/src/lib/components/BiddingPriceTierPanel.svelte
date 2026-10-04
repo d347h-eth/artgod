@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { isConfirmationActionTarget } from '$lib/action-confirmation';
+	import {
+		isConfirmationActionTarget,
+		BIDDING_JOB_REAPPLY_ACTION_KEY
+	} from '$lib/action-confirmation';
 	import {
 		TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 		TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
@@ -412,7 +415,7 @@
 	}
 
 	async function handleApplyReapply(): Promise<void> {
-		await confirmAction('reapply:form', async () => {
+		await confirmAction(BIDDING_JOB_REAPPLY_ACTION_KEY, async () => {
 			if (!chain || !collection || !reapplyTierId || selectedReapplyJobIds.length === 0) {
 				return;
 			}

@@ -5,6 +5,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import { buildBiddingE2eCompetitionReapplyFixture } from '$lib/e2e/bidding-automation-fixtures';
 import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
@@ -64,6 +65,32 @@ const BASE_BID: ApiBiddingBidBookRow = {
 };
 
 describe('createBiddingAutomationController', () => {
+	it('refreshes an embedded job while retaining its selected bid and target identity', () => {
+		const controller = createBiddingAutomationController();
+		const fixture = buildBiddingE2eCompetitionReapplyFixture();
+		const existingJob = fixture.jobs[0];
+		const bid = {
+			...BASE_BID,
+			scope: { ...BASE_BID.scope, label: 'Biome=42', traits: [{ type: 'Biome', value: '42' }] }
+		};
+		controller.selectBid({ bid, existingJob });
+		const identity = biddingAutomationSelectionStateKey(get(controller.state).selection);
+		const updated = {
+			...existingJob,
+			revision: existingJob.revision + 1,
+			config: { ...existingJob.config, competitionPreset: fixture.presets[0] }
+		};
+		controller.reconcileJobs([updated]);
+		expect(get(controller.state).selection).toEqual({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+			bid,
+			existingJob: updated
+		});
+		expect(biddingAutomationSelectionStateKey(get(controller.state).selection)).toBe(identity);
+		controller.reconcileJobs([existingJob, fixture.jobs[1]]);
+		expect(get(controller.state).selection).toHaveProperty('existingJob', updated);
+	});
+
 	it('builds shared filtered selection inputs for trait and token target controls', () => {
 			const filter = {
 				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,

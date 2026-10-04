@@ -14,6 +14,7 @@ import type {
 	TokenCardSelectionState,
 	TokenCardSelectionToggleRequest
 } from '$lib/token-card-selection';
+import type { ApiBiddingJob } from '$lib/api-types';
 
 export type BiddingAutomationControllerState = {
 	selection: BiddingAutomationSelection | null;
@@ -38,6 +39,7 @@ export type BiddingAutomationController = {
 	selectFilteredTokens(input: SelectFilteredTokensInput): void;
 	selectExplicitTokens(tokenIds: string[]): void;
 	selectBid(selection: Omit<BiddingAutomationSelectedBidSelection, 'type'>): void;
+	reconcileJobs(jobs: ApiBiddingJob[]): void;
 	toggleToken(input: ToggleBiddingTokenInput): void;
 	pruneInvisibleTokenSelection(visibleTokenIds: string[]): void;
 	clearSelection(): void;
@@ -137,6 +139,20 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		state.set({ selection: null });
 	}
 
+	// Update an embedded declaration without changing the selected bid or target.
+	// Filter-based drafts refresh their job through the panel's lookup signal.
+	function reconcileJobs(jobs: ApiBiddingJob[]): void {
+		state.update((current) => {
+			const selection = current.selection;
+			if (selection?.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) return current;
+			const jobId = selection.existingJob?.jobId ?? selection.bid.materialization.jobId;
+			const updated = jobs.find((job) => job.jobId === jobId);
+			if (!updated || (selection.existingJob && updated.revision < selection.existingJob.revision))
+				return current;
+			return { selection: { ...selection, existingJob: updated } };
+		});
+	}
+
 	function isTokenSelected(tokenId: string): boolean {
 		return isBiddingAutomationTokenSelected(get(state).selection, tokenId);
 	}
@@ -154,6 +170,7 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		selectFilteredTokens,
 		selectExplicitTokens,
 		selectBid,
+		reconcileJobs,
 		toggleToken,
 		pruneInvisibleTokenSelection,
 		clearSelection,

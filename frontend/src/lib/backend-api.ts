@@ -1,6 +1,11 @@
-import { buildCompetitionPresetsPath } from '@artgod/shared/http/trading-routes';
+import {
+	buildCompetitionPresetsPath,
+	buildCompetitionPresetReapplyPreviewPath,
+	buildCompetitionPresetReapplyPath
+} from '@artgod/shared/http/trading-routes';
 import type {
 	TradingCompetitionPreset,
+	TradingCompetitionPresetReapplySelection,
 	TradingTraitCriterion,
 	TradingTraitCompetitionSelector
 } from '@artgod/shared/types';
@@ -38,6 +43,8 @@ import type {
 	BatchTokenBiddingJobMutationApiResponse,
 	BiddingPriceTierReapplyApplyApiResponse,
 	BiddingPriceTierReapplyPreviewApiResponse,
+	CompetitionPresetReapplyPreviewApiResponse,
+	CompetitionPresetReapplyApplyApiResponse,
 	BiddingJobMutationApiResponse,
 	BiddingJobTargetLookupApiResponse,
 	CollectionBiddingBidBookApiResponse,
@@ -1357,6 +1364,32 @@ function parseOptionalInteger(value: string | undefined): number | null {
 }
 
 export type CompetitionPresetsApiResponse = { presets: TradingCompetitionPreset[] };
+export async function previewCompetitionPresetReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	presetId: string
+): Promise<CompetitionPresetReapplyPreviewApiResponse> {
+	return requestJson<CompetitionPresetReapplyPreviewApiResponse>(
+		fetchFn,
+		buildCompetitionPresetReapplyPreviewPath(chainRef, collectionRef, presetId)
+	);
+}
+export async function applyCompetitionPresetReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	presetId: string,
+	body: { expectedRevision: number; jobs: TradingCompetitionPresetReapplySelection[] }
+): Promise<CompetitionPresetReapplyApplyApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CompetitionPresetReapplyApplyApiResponse>(
+		fetchFn,
+		buildCompetitionPresetReapplyPath(chainRef, collectionRef, presetId),
+		'POST',
+		body
+	);
+}
 export async function getCompetitionPresets(
 	fetchFn: typeof fetch,
 	chainRef: string,

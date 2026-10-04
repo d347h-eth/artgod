@@ -1,4 +1,10 @@
 import type { Page, Request } from 'playwright/test';
+import type { ApiBiddingJob } from '../../src/lib/api-types';
+import {
+	buildCompetitionPresetsPath,
+	buildCompetitionPresetReapplyPreviewPath,
+	buildCompetitionPresetReapplyPath
+} from '@artgod/shared/http/trading-routes';
 import type { BatchTokenBiddingJobSelectionRequest } from '../../src/lib/backend-api';
 import { buildCollectionBiddingQuery } from '../../src/lib/bidding-query';
 import {
@@ -14,6 +20,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND,
+	type TradingCompetitionPresetReapplySelection,
 	normalizeTradingTraitCriteria
 } from '@artgod/shared/types';
 import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from '@artgod/shared/types';
@@ -28,6 +35,8 @@ import {
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
 	BIDDING_E2E_SETTINGS,
 	buildBiddingE2eCollectionBiddingData,
+	buildBiddingE2eCompetitionReapplyFixture,
+	BIDDING_E2E_REAPPLY_JOB_ID,
 	buildBiddingE2eTokenDetailData,
 	findBiddingE2eJobForTarget,
 	type BiddingE2eScenario
@@ -43,6 +52,7 @@ export type BiddingAutomationApiMock = {
 	mutations: CapturedBiddingMutation[];
 	nextMutation(): Promise<CapturedBiddingMutation>;
 	setBidBookScenario(scenario: BiddingE2eScenario): void;
+	reviseCompetitionReapplyJob(jobId: string): void;
 };
 
 const BIDDING_E2E_API_PATH_SUFFIX = {
@@ -51,12 +61,31 @@ const BIDDING_E2E_API_PATH_SUFFIX = {
 
 // Captures bidding write calls while returning deterministic API responses to the real UI.
 export async function installBiddingAutomationApiMock(
-	page: Page
+	page: Page,
+	options: { competitionReapply?: boolean } = {}
 ): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
-	let competitionPresets = [...BIDDING_E2E_COMPETITION_PRESETS];
-	const competitionVersions = new Map(competitionPresets.map((p) => [p.versionId, p]));
+	const reapplyFixture = options.competitionReapply
+		? buildBiddingE2eCompetitionReapplyFixture()
+		: null;
+	let competitionPresets = [...(reapplyFixture?.presets ?? BIDDING_E2E_COMPETITION_PRESETS)];
+	const competitionVersions = new Map(
+		(reapplyFixture?.versions ?? competitionPresets).map((p) => [p.versionId, p])
+	);
+	const reapplyJobs = new Map<string, ApiBiddingJob>(
+		(reapplyFixture?.jobs ?? []).map((job) => [job.jobId, job])
+	);
 	const competitionSelections = new Map<string, string | null>();
+	function findReapplyJob(targetTraits: unknown, quantity = 1): ApiBiddingJob | undefined {
+		if (!Array.isArray(targetTraits)) return undefined;
+		const signature = JSON.stringify(normalizeTradingTraitCriteria(targetTraits));
+		return [...reapplyJobs.values()].find(
+			(job) =>
+				job.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+				job.target.quantity === quantity &&
+				JSON.stringify(normalizeTradingTraitCriteria(job.target.targetTraits)) === signature
+		);
+	}
 	let pendingResolve: ((mutation: CapturedBiddingMutation) => void) | null = null;
 	let activeScenario: string | null = null;
 	let bidBookScenarioOverride: BiddingE2eScenario | null = null;
@@ -98,14 +127,53 @@ export async function installBiddingAutomationApiMock(
 			await route.fulfill({ json: { presets: competitionPresets } });
 			return;
 		}
+		const preset = competitionPresets.find(
+			(p) =>
+				url.pathname ===
+					buildCompetitionPresetReapplyPreviewPath(
+						BIDDING_E2E_CHAIN.slug,
+						BIDDING_E2E_COLLECTION.slug,
+						p.presetId
+					) ||
+				url.pathname ===
+					buildCompetitionPresetReapplyPath(
+						BIDDING_E2E_CHAIN.slug,
+						BIDDING_E2E_COLLECTION.slug,
+						p.presetId
+					)
+		);
+		if (preset && request.method() === 'GET') {
+			const jobs = [...reapplyJobs.values()]
+				.filter(
+					(job) =>
+						job.status !== TRADING_JOB_STATUS.Archived &&
+						job.config.competitionPreset?.presetId === preset.presetId
+				)
+				.map((job) => ({
+					job,
+					before: job.config.competitionPreset!,
+					after: preset,
+					changed: job.config.competitionPreset!.versionId !== preset.versionId,
+					error:
+						job.jobId === BIDDING_E2E_REAPPLY_JOB_ID.Ineligible
+							? 'target trait is not available for marketplace bidding: Biome=removed'
+							: null
+				}));
+			await route.fulfill({
+				json: { chain: BIDDING_E2E_CHAIN, collection: BIDDING_E2E_COLLECTION, preset, jobs }
+			});
+			return;
+		}
 		if (url.pathname.endsWith('/bidding/jobs/target-lookup')) {
+			const target = (body as { target?: { targetTraits?: unknown; quantity?: number } }).target;
+			const override = findReapplyJob(target?.targetTraits, target?.quantity);
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify({
 					chain: BIDDING_E2E_CHAIN,
 					collection: BIDDING_E2E_COLLECTION,
-					job: findBiddingE2eJobForTarget(body)
+					job: override ?? findBiddingE2eJobForTarget(body)
 				})
 			});
 			return;
@@ -171,7 +239,51 @@ export async function installBiddingAutomationApiMock(
 			mutations.push(mutation);
 		}
 
-		if (url.pathname.includes('/bidding/competition-presets')) {
+		if (preset && request.method() === 'POST') {
+			const selection = body as {
+				expectedRevision: number;
+				jobs: TradingCompetitionPresetReapplySelection[];
+			};
+			const selected = selection.jobs.map((row) => reapplyJobs.get(row.jobId));
+			if (
+				selection.expectedRevision !== preset.revision ||
+				selected.some(
+					(job, index) =>
+						!job ||
+						job.revision !== selection.jobs[index].expectedRevision ||
+						job.config.competitionPreset?.versionId !== selection.jobs[index].versionId
+				)
+			) {
+				await route.fulfill({
+					status: 422,
+					json: { message: 'Selected jobs changed. Preview reapply again.' }
+				});
+				return;
+			}
+			const jobs = selected.map((job) => ({
+				...job!,
+				revision: job!.revision + 1,
+				config: { ...job!.config, competitionPreset: preset }
+			}));
+			jobs.forEach((job) => reapplyJobs.set(job.jobId, job));
+			await route.fulfill({
+				json: { chain: BIDDING_E2E_CHAIN, collection: BIDDING_E2E_COLLECTION, preset, jobs }
+			});
+			return;
+		}
+		if (
+			url.pathname ===
+				buildCompetitionPresetsPath(BIDDING_E2E_CHAIN.slug, BIDDING_E2E_COLLECTION.slug) ||
+			competitionPresets.some(
+				(p) =>
+					url.pathname ===
+					buildCompetitionPresetsPath(
+						BIDDING_E2E_CHAIN.slug,
+						BIDDING_E2E_COLLECTION.slug,
+						p.presetId
+					)
+			)
+		) {
 			if (request.method() === 'DELETE') {
 				competitionPresets = competitionPresets.filter(
 					(p) => p.presetId !== decodeURIComponent(url.pathname.split('/').at(-1)!)
@@ -209,27 +321,44 @@ export async function installBiddingAutomationApiMock(
 			url.pathname,
 			body,
 			bidBookScenarioOverride ?? activeScenario
-		) as { job?: { config: Record<string, unknown> } };
+		) as { job?: ApiBiddingJob };
 		if (response.job && url.pathname.endsWith('/bidding/jobs/traits')) {
+			const existing = findReapplyJob(
+				mutationTargetTraits(body),
+				(body as { quantity?: number }).quantity
+			);
 			const targetKey = JSON.stringify(normalizeTradingTraitCriteria(mutationTargetTraits(body)));
 			const requestedVersionId = (body as { competitionPresetVersionId?: string | null })
 				.competitionPresetVersionId;
 			// Match the real mutation contract: omission preserves, null explicitly clears.
 			const versionId =
 				requestedVersionId === undefined
-					? competitionSelections.has(targetKey)
-						? competitionSelections.get(targetKey)!
-						: (findBiddingE2eJobForTarget({
-								target: {
-									type: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
-									targetTraits: mutationTargetTraits(body)
-								}
-							})?.config.competitionPreset?.versionId ?? null)
+					? existing
+						? (existing.config.competitionPreset?.versionId ?? null)
+						: competitionSelections.has(targetKey)
+							? competitionSelections.get(targetKey)!
+							: (findBiddingE2eJobForTarget({
+									target: {
+										type: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+										targetTraits: mutationTargetTraits(body)
+									}
+								})?.config.competitionPreset?.versionId ?? null)
 					: requestedVersionId;
 			competitionSelections.set(targetKey, versionId);
 			response.job.config.competitionPreset = versionId
 				? (competitionVersions.get(versionId) ?? null)
 				: null;
+			if (existing) {
+				// Real upserts retain identity, bump revision and preserve the pinned
+				// reference on omitted input, including after a bulk reapply.
+				response.job = {
+					...response.job,
+					jobId: existing.jobId,
+					revision: existing.revision + 1,
+					target: existing.target
+				};
+				reapplyJobs.set(existing.jobId, response.job);
+			}
 		}
 		await route.fulfill({
 			status: 200,
@@ -240,6 +369,11 @@ export async function installBiddingAutomationApiMock(
 
 	return {
 		mutations,
+		reviseCompetitionReapplyJob: (jobId) => {
+			const job = reapplyJobs.get(jobId);
+			if (!job) throw new Error(`Unknown reapply fixture job: ${jobId}`);
+			reapplyJobs.set(jobId, { ...job, revision: job.revision + 1 });
+		},
 		setBidBookScenario: (scenario) => {
 			bidBookScenarioOverride = scenario;
 		},

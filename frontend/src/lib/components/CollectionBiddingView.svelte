@@ -213,6 +213,7 @@
 	const tokenPreviewState = tokenPreview.state;
 	const biddingAutomation = createBiddingAutomationController();
 	const biddingAutomationState = biddingAutomation.state;
+	let biddingJobsChangeSignal = $state(0);
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	const traitFacetPanel = createTraitFacetPanelController();
@@ -645,7 +646,9 @@
 		activeBiddingSettings = nextSettings;
 	}
 
-	function handleBiddingJobsChanged(_jobs: ApiBiddingJob[]): void {
+	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
+		biddingAutomation.reconcileJobs(jobs);
+		biddingJobsChangeSignal++;
 		void refreshCollectionBiddingData();
 	}
 
@@ -1218,6 +1221,8 @@
 			{collection}
 			{facets}
 			open={competitionPresetsOpen && bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
+			reapplyEnabled={trustOpenSeaSignedZoneTraitOffers}
+			onJobsChange={handleBiddingJobsChanged}
 			onClose={() => {
 				competitionPresetsOpen = false;
 			}}
@@ -1371,6 +1376,7 @@
 			job={null}
 			draft={selectedBiddingDraft}
 			bidBook={activeBidBook}
+			jobsChangeSignal={biddingJobsChangeSignal}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
 			{competitionInventory}
