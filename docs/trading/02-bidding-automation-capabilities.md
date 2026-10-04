@@ -173,7 +173,7 @@ Trait-job competition:
   offers `none` by default and compact buttons for matching presets, such as
   `Mode=Terrain` or `Biome=any`.
 - The trait-job picker exposes inventory loading and a failed-load error with
-  `refresh`, including token-browser and holder entry points. Refresh retries
+  `refresh`, including token-browser, holder, and token-detail entry points. Refresh retries
   the shared inventory read and retains unsaved job prices and the selected
   version. Preset management remains in Offers' `traits` view.
 - Source patterns match the complete target key combination. `Zone=any` applies
