@@ -14,6 +14,18 @@ import {
 } from "./types.js";
 
 describe("trading use-case shared types", () => {
+    it.each([
+        ["1.3000000000000000001", "1300000000000000000"],
+        ["1.4000000000000000001", "1400000000000000000"],
+        ["0.99999999999999999996", "1000000000000000000"],
+        ["0.9999999999999999994", "999999999999999999"],
+        ["0.09999999999999999996", "100000000000000000"],
+        ["0.0999999999999999994", "99999999999999999"],
+        ["1.3000000000000000000", "1300000000000000000"],
+    ])("normalizes accepted price %s to %s wei", (input, expected) => {
+        assert.equal(parsePositiveEthToWei(input, "floorEth"), expected);
+    });
+
     it("parses positive Ether amounts and rejects invalid bidding prices", () => {
         assert.equal(
             parsePositiveEthToWei(" 0.25 ", "floorEth"),

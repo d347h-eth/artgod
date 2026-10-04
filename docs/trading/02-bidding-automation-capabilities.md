@@ -267,7 +267,28 @@ Bidding owns typed setting keys and mapping logic, but persistence remains colle
 Current settings:
 
 - tier selector presentation: fixed-width buttons or dropdown
-- default new-tier delta in Ether units
+- default delta for new jobs and tiers in Ether units, applied only when compatible
+  with their resolved floor and ceiling
+
+Job and tier delta inputs use the shared OpenSea WETH price-step rules: 0.0001 ETH
+below 0.1 ETH, 0.001 ETH from 0.1 ETH to below 1 ETH, and 0.01 ETH at 1 ETH or
+above. A range crossing these boundaries uses its coarser endpoint step. Deltas
+must be positive multiples of that step; they may exceed the range width,
+including for jobs with equal floor and ceiling.
+
+Range endpoints use the backend's Ether-to-wei conversion, including rounding
+sub-wei digits, so the required step remains consistent after saving. Delta input
+must remain exactly representable in wei.
+
+Changing a manual floor or ceiling, or a tier's resolved prices, reconciles an
+incompatible delta to the nearest valid value. An incompatible default is ignored
+in favor of the range's minimum step. Typing an invalid delta keeps the entered
+text, immediately shows the nearest valid value (rounding ties upward), and blocks
+saving until corrected. Incomplete or nonnumeric input shows the required step.
+Accepted delta text is serialized as canonical Ether decimals when saved.
+Existing incompatible tier deltas remain visible with a warning; job forms can
+recover by selecting manual pricing, or the operator can correct the tier itself.
+Tier previews and persistence share the same absolute/percent price calculations.
 
 ## Bid Book Capabilities
 
@@ -444,6 +465,53 @@ set above.
   signer-side proof of exact-token membership in the displayed ArtGod scope is
   still deferred; backend mutation validation remains the canonical membership
   gate.
+
+### Bidding Delta Validation Follow-up
+
+The independent delta review on 2026-10-04 inspected `6118d0b4` and found one
+confirmed defect, BDV-001. Commit `dff73580` aligned manual price conversion with
+backend rounding and added regression tests for validation before and after
+saving, including browser save/reload. The remaining items below are test gaps, a product decision, or
+pre-existing behavior; they are not additional confirmed branch regressions.
+`BKL-070` retains this follow-up work.
+
+- **Settings refresh and edited text:** Decide whether an untouched inferred
+  new job draft should adopt a changed collection default immediately. Currently
+  it reads the latest default on a range edit, while an untouched new tier draft
+  reacts to incoming settings. The [tier panel](../../frontend/src/lib/components/BiddingPriceTierPanel.svelte)
+  also reassigns the settings editor's `defaultDeltaEth` from incoming settings,
+  even during editing; that assignment predates this branch. Reproduce an actual
+  settings-prop refresh sequence in the maintained harness before changing it.
+  Test compatible/incompatible defaults and invalid text while focused, then
+  assert the chosen refresh behavior, preservation of edited text, immediate
+  warning, and save eligibility.
+- **Saved-tier correction and reapply:** Existing browser coverage shows the
+  warning, blocked tier save, and recovery through manual pricing. Add the
+  complete journey: correct the tier delta, save and reload it, preview reapply,
+  and apply only selected jobs. Verify returned and persisted prices/deltas;
+  unselected jobs must retain their stored pricing.
+- **Resolved prices and persistence:** The [Playwright API mock](../../frontend/e2e/helpers/bidding-automation-api.ts)
+  returns baseline resolved prices for relative tier configurations, and the
+  incompatible-tier scenario retains cached child prices after changing its
+  root. Make parent/child fixtures reflect their declarations and verify saved
+  resolution with production backend use-case/repository or HTTP fixtures and
+  independent expected amounts. The manual-price responses added for BDV-001
+  do not establish a general browser-to-production-HTTP round trip.
+- **Coverage gates:** The [strategy gate](../../vitest.bidding-strategy.config.ts)
+  requires full coverage of `shared/trading/open-sea-offer-price.ts`, but does
+  not measure or gate `shared/trading/bidding-price-tier-pricing.ts`. Add
+  independent tier-math measurement and a coverage gate; do not infer tier-math
+  or frontend delta/draft-state percentages from the offer-price gate.
+- **Refresh races and rendered interaction:** Extend the bounded test matrix
+  for settings changes while invalid text is focused, touched/untouched drafts,
+  same-target refresh, target switches, and reset. Some established tests force
+  clicks, so representative actions also need normal pointer-hit checks.
+  Screen-reader announcements, native soft keyboards, and packaged WebView
+  rendering remain verification gaps for maintained automation or user QA.
+
+These follow-ups remain scoped to quantity-one jobs. Live wallet/OpenSea bidding,
+remote CI, delivery, and release qualification were outside the review's
+evidence boundary and remain separate verification work.
 
 The [unified backlog](../planning/01-unified-backlog.md) owns priority for the
 retained work.

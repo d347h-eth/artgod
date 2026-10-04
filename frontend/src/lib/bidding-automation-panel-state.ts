@@ -1,7 +1,4 @@
-import {
-	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
-	TRADING_JOB_STATUS
-} from '@artgod/shared/types';
+import { TRADING_BIDDING_JOB_PRICING_SOURCE_KIND, TRADING_JOB_STATUS } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -11,6 +8,7 @@ import {
 	type BiddingAutomationPricingMode
 } from '$lib/bidding-automation';
 import { bidBookRefreshSignalKey } from '$lib/bidding-bid-book-source';
+import { resolveDefaultBiddingDeltaEth } from '$lib/bidding-delta-input';
 
 const BIDDING_PANEL_KEY_PART = {
 	EmptyJob: 'empty',
@@ -83,7 +81,9 @@ export function resolveInitialBiddingAutomationPricingMode(params: {
 	job: ApiBiddingJob | null;
 	draft: BiddingAutomationDraft | null;
 }): BiddingAutomationPricingMode {
-	if (params.job?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
+	if (
+		params.job?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
+	) {
 		return BIDDING_AUTOMATION_PRICING_MODE.Tier;
 	}
 	if (params.draft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
@@ -97,7 +97,9 @@ export function resolveInitialBiddingAutomationPriceTierId(params: {
 	job: ApiBiddingJob | null;
 	draft: BiddingAutomationDraft | null;
 }): string {
-	if (params.job?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
+	if (
+		params.job?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
+	) {
 		return params.job.config.pricingSource.tierId;
 	}
 	if (params.draft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
@@ -143,7 +145,7 @@ export function resolveInitialBiddingAutomationCeilingEth(params: {
 	return '';
 }
 
-// Resolves the initial delta from persisted job config, active draft, or collection default.
+// Persisted/custom draft values remain editable; inferred drafts use a compatible default.
 export function resolveInitialBiddingAutomationDeltaEth(params: {
 	job: ApiBiddingJob | null;
 	draft: BiddingAutomationDraft | null;
@@ -152,13 +154,21 @@ export function resolveInitialBiddingAutomationDeltaEth(params: {
 	if (params.job?.config.deltaEth) {
 		return params.job.config.deltaEth;
 	}
-	if (params.draft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-		return params.draft.pricing.deltaEth || params.defaultDeltaEth;
-	}
 	if (params.draft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 		return params.draft.pricing.deltaEth;
 	}
-	return params.defaultDeltaEth;
+	if (
+		params.draft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual &&
+		params.draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid &&
+		params.draft.pricing.deltaEth
+	) {
+		return params.draft.pricing.deltaEth;
+	}
+	return resolveDefaultBiddingDeltaEth({
+		defaultDeltaEth: params.defaultDeltaEth,
+		floorEth: resolveInitialBiddingAutomationFloorEth(params),
+		ceilingEth: resolveInitialBiddingAutomationCeilingEth(params)
+	});
 }
 
 // Returns the price tier ID backing a persisted job, when it is tier-priced.
@@ -193,7 +203,8 @@ export function hasBiddingAutomationPanelDraftChanges(params: {
 		}
 		return (
 			params.status !== resolveInitialBiddingAutomationStatus(params.currentJob) ||
-			params.currentJob.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier ||
+			params.currentJob.config.pricingSource?.kind ===
+				TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier ||
 			params.floorEth.trim() !== params.currentJob.config.floorEth ||
 			params.ceilingEth.trim() !== params.currentJob.config.ceilingEth ||
 			params.deltaEth.trim() !== params.currentJob.config.deltaEth
@@ -236,9 +247,7 @@ function resolveDraftKey(draft: BiddingAutomationDraft | null): string {
 		resolveDraftTargetIdentityKey(draft),
 		draft.pricing.mode,
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? draft.pricing.floorEth : '',
-		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual
-			? draft.pricing.ceilingEth
-			: '',
+		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? draft.pricing.ceilingEth : '',
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? draft.pricing.deltaEth : '',
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier ? draft.pricing.tierId : ''
 	].join(':');

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import {
 		isConfirmationActionTarget,
 		BIDDING_JOB_REAPPLY_ACTION_KEY
@@ -29,6 +30,13 @@
 	} from '$lib/backend-api';
 	import BiddingPriceTierReapplyPreview from '$lib/components/BiddingPriceTierReapplyPreview.svelte';
 	import BiddingPriceTierRow from '$lib/components/BiddingPriceTierRow.svelte';
+	import {
+		reconcileBiddingDeltaEth,
+		resolveBiddingPriceTierDraftRange,
+		resolveDefaultBiddingDeltaEth,
+		validateBiddingDeltaInput
+	} from '$lib/bidding-delta-input';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	type EditablePriceTierStatus =
 		| typeof TRADING_JOB_STATUS.Enabled
@@ -76,7 +84,17 @@
 	let ceilingDeltaKind = $state<DeltaKind>(TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute);
 	let ceilingDeltaEth = $state('');
 	let ceilingPercent = $state('');
-	let tierDeltaEth = $state(settings.defaultDeltaEth);
+	let tierDeltaEth = $state(
+		untrack(() =>
+			resolveDefaultBiddingDeltaEth({
+				floorEth: '',
+				ceilingEth: '',
+				defaultDeltaEth: settings.defaultDeltaEth
+			})
+		)
+	);
+	let deltaInputTouched = $state(false);
+	let lastDeltaRangeKey = $state(':');
 	let tierSelectionMode = $state<ApiBiddingCollectionSettings['tierSelectionMode']>(
 		settings.tierSelectionMode
 	);
@@ -103,13 +121,20 @@
 		editingTierId ? (tiers.find((tier) => tier.tierId === editingTierId) ?? null) : null
 	);
 	const hasParent = $derived(parentTierId.trim().length > 0);
+	const tierDraftRange = $derived(resolveDraftRange());
+	const tierDeltaValidation = $derived(
+		validateBiddingDeltaInput({ ...tierDraftRange, deltaEth: tierDeltaEth })
+	);
+	const defaultDeltaValidation = $derived(
+		validateBiddingDeltaInput({ floorEth: '', ceilingEth: '', deltaEth: defaultDeltaEth })
+	);
 	const busy = $derived(saving || busyActionKey !== null || reapplyLoading || reapplyApplying);
 	const settingsChanged = $derived(
 		tierSelectionMode !== settings.tierSelectionMode ||
 			defaultDeltaEth.trim() !== settings.defaultDeltaEth
 	);
 	const canSaveSettings = $derived(
-		!!chain && !!collection && !settingsSaving && settingsChanged && defaultDeltaEth.trim().length > 0
+		!!chain && !!collection && !settingsSaving && settingsChanged && defaultDeltaValidation.isValid
 	);
 	const canSubmit = $derived(resolveCanSubmit());
 	const canCreate = $derived(!editingTier && canSubmit);
@@ -125,9 +150,30 @@
 	$effect(() => {
 		tierSelectionMode = settings.tierSelectionMode;
 		defaultDeltaEth = settings.defaultDeltaEth;
-		if (!editingTierId) {
-			tierDeltaEth = settings.defaultDeltaEth;
-		}
+		const nextDefault = settings.defaultDeltaEth;
+		untrack(() => {
+			if (!editingTierId && !deltaInputTouched) {
+				tierDeltaEth = resolveDefaultBiddingDeltaEth({
+					...tierDraftRange,
+					defaultDeltaEth: nextDefault
+				});
+			}
+		});
+	});
+
+	$effect(() => {
+		const range = tierDraftRange;
+		const rangeKey = `${range.floorEth}:${range.ceilingEth}`;
+		// Track endpoints only: typing an invalid delta must never trigger replacement.
+		untrack(() => {
+			if (rangeKey === lastDeltaRangeKey) {
+				return;
+			}
+			lastDeltaRangeKey = rangeKey;
+			tierDeltaEth = deltaInputTouched
+				? reconcileBiddingDeltaEth({ ...range, deltaEth: tierDeltaEth })
+				: resolveDefaultBiddingDeltaEth({ ...range, defaultDeltaEth: settings.defaultDeltaEth });
+		});
 	});
 
 	$effect(() => {
@@ -176,7 +222,13 @@
 		ceilingDeltaKind = TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute;
 		ceilingDeltaEth = '';
 		ceilingPercent = '';
-		tierDeltaEth = settings.defaultDeltaEth;
+		deltaInputTouched = false;
+		lastDeltaRangeKey = ':';
+		tierDeltaEth = resolveDefaultBiddingDeltaEth({
+			floorEth: '',
+			ceilingEth: '',
+			defaultDeltaEth: settings.defaultDeltaEth
+		});
 		saveMessage = null;
 		saveError = null;
 		armedActionKey = null;
@@ -194,6 +246,9 @@
 		applyFloorConfig(tier.floorConfig);
 		applyCeilingConfig(tier.ceilingConfig);
 		tierDeltaEth = tier.deltaEth;
+		deltaInputTouched = true;
+		const range = resolveDraftRange();
+		lastDeltaRangeKey = `${range.floorEth}:${range.ceilingEth}`;
 		saveMessage = null;
 		saveError = null;
 		armedActionKey = null;
@@ -230,7 +285,7 @@
 			Number.isInteger(Number(sortOrderText.trim())) &&
 			isFloorConfigComplete() &&
 			isCeilingConfigComplete() &&
-			tierDeltaEth.trim().length > 0
+			tierDeltaValidation.isValid
 		);
 	}
 
@@ -296,6 +351,14 @@
 			: { deltaKind: kind, percent: percent.trim() };
 	}
 
+	function resolveDraftRange() {
+		return resolveBiddingPriceTierDraftRange({
+			floorConfig: buildFloorConfig(),
+			ceilingConfig: buildCeilingConfig(),
+			parentTier: tiers.find((tier) => tier.tierId === parentTierId) ?? null
+		});
+	}
+
 	async function handleSave(): Promise<void> {
 		if (!canSubmit || !chain || !collection) {
 			return;
@@ -316,7 +379,7 @@
 				parentTierId: parentTierId.trim() || null,
 				floorConfig: buildFloorConfig(),
 				ceilingConfig: buildCeilingConfig(),
-				deltaEth: tierDeltaEth.trim()
+				deltaEth: tierDeltaValidation.normalizedDeltaEth ?? tierDeltaEth.trim()
 			});
 			onTiersChange(response.tiers);
 			if (editingTierId) {
@@ -520,11 +583,14 @@
 			// Persist collection-scoped bidding UI defaults through the settings use case.
 			const response = await updateCollectionBiddingSettings(fetch, chain.slug, collection.slug, {
 				tierSelectionMode,
-				defaultDeltaEth: defaultDeltaEth.trim()
+				defaultDeltaEth: defaultDeltaValidation.normalizedDeltaEth ?? defaultDeltaEth.trim()
 			});
 			onSettingsChange(response.settings);
-			if (!editingTierId) {
-				tierDeltaEth = response.settings.defaultDeltaEth;
+			if (!editingTierId && !deltaInputTouched) {
+				tierDeltaEth = resolveDefaultBiddingDeltaEth({
+					...tierDraftRange,
+					defaultDeltaEth: response.settings.defaultDeltaEth
+				});
 			}
 			saveMessage = 'settings saved';
 		} catch (error) {
@@ -602,8 +668,20 @@
 				type="text"
 				inputmode="decimal"
 				bind:value={defaultDeltaEth}
+				aria-invalid={!defaultDeltaValidation.isValid}
+				aria-describedby={defaultDeltaValidation.warning
+					? TEST_IDS.BiddingDefaultDeltaWarning
+					: undefined}
 				disabled={settingsSaving}
 			/>
+			{#if defaultDeltaValidation.warning}
+				<span
+					id={TEST_IDS.BiddingDefaultDeltaWarning}
+					data-testid={TEST_IDS.BiddingDefaultDeltaWarning}
+					class="runtime-warn bidding-delta-feedback"
+					role="status"
+				>{defaultDeltaValidation.warning}</span>
+			{/if}
 		</div>
 		<div class="bidding-price-tier-settings-actions">
 			<button type="submit" class="token-bidding-action-positive" disabled={!canSaveSettings}>
@@ -843,8 +921,23 @@
 				type="text"
 				inputmode="decimal"
 				bind:value={tierDeltaEth}
+				oninput={() => {
+					deltaInputTouched = true;
+				}}
+				aria-invalid={!tierDeltaValidation.isValid}
+				aria-describedby={tierDeltaValidation.warning
+					? TEST_IDS.BiddingPriceTierDeltaWarning
+					: undefined}
 				disabled={busy}
 			/>
+			{#if tierDeltaValidation.warning}
+				<span
+					id={TEST_IDS.BiddingPriceTierDeltaWarning}
+					data-testid={TEST_IDS.BiddingPriceTierDeltaWarning}
+					class="runtime-warn bidding-delta-feedback"
+					role="status"
+				>{tierDeltaValidation.warning}</span>
+			{/if}
 		</div>
 
 		<div class="panel-footer bidding-price-tier-form-footer">

@@ -115,6 +115,11 @@ Important boundaries:
 - collection bid rows do not gain row-level placement actions;
 - create, modify, activate, pause, archive, and double-confirm states are tested
   independently from the page that opened the panel;
+- delta warnings appear while the field remains focused, preserve invalid typed
+  text, show exact nearest values, and block saving until correction;
+- delta reconciliation covers price-step boundaries, compatible defaults,
+  resolved parent/percent tier prices, and manual recovery from an incompatible
+  persisted tier;
 - fixture amounts and assertion names use human-readable Ether; persistence/EVM
   conversion remains backend/trading coverage.
 

@@ -1,6 +1,9 @@
 // Stable selectors for browser-driven tests where accessible names are repeated.
 export const TEST_IDS = {
 	BiddingPanel: 'bidding-panel',
+	BiddingPanelDeltaWarning: 'bidding-panel-delta-warning',
+	BiddingPriceTierDeltaWarning: 'bidding-price-tier-delta-warning',
+	BiddingDefaultDeltaWarning: 'bidding-default-delta-warning',
 	BiddingPanelCreate: 'bidding-panel-create',
 	BiddingPanelModify: 'bidding-panel-modify',
 	BiddingPanelActivate: 'bidding-panel-activate',

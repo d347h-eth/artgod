@@ -1,7 +1,10 @@
-import { formatEther, parseEther } from "viem";
+import { formatEther } from "viem";
+import {
+    resolveBiddingPriceTierCeilingWei,
+    resolveBiddingPriceTierFloorWei,
+} from "@artgod/shared/trading/bidding-price-tier-pricing";
 import {
     TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
-    TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
     TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
     TRADING_JOB_STATUS,
     type PersistedBiddingPriceTierRecord,
@@ -10,9 +13,6 @@ import {
     type TradingBiddingPriceTierStatus,
 } from "@artgod/shared/types";
 import { TradingValidationError } from "./types.js";
-
-const PERCENT_SCALE = 1_000_000n;
-const PERCENT_BASE = 100n * PERCENT_SCALE;
 
 export type BiddingPriceTierView = {
     tierId: string;
@@ -118,7 +118,9 @@ export function comparePriceTierRecords(
         return left.sortOrder - right.sortOrder;
     }
     const nameCompare = left.name.localeCompare(right.name);
-    return nameCompare === 0 ? left.tierId.localeCompare(right.tierId) : nameCompare;
+    return nameCompare === 0
+        ? left.tierId.localeCompare(right.tierId)
+        : nameCompare;
 }
 
 function resolveTier(
@@ -138,9 +140,7 @@ function resolveTier(
     }
 
     visiting.add(tier.tierId);
-    const parent = tier.parentTierId
-        ? tiersById.get(tier.parentTierId)
-        : null;
+    const parent = tier.parentTierId ? tiersById.get(tier.parentTierId) : null;
     if (tier.parentTierId && !parent) {
         throw new TradingValidationError(
             `price tier ${tier.tierId} references missing parent ${tier.parentTierId}`,
@@ -177,15 +177,17 @@ function resolveFloorWei(
     parent: TierResolutionState | null,
 ): bigint {
     const config = tier.floorConfig;
-    if (config.kind === TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed) {
-        return parsePositiveEthAmount(config.valueEth, "floorConfig.valueEth");
-    }
-    if (!parent) {
+    if (
+        config.kind !== TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed &&
+        !parent
+    ) {
         throw new TradingValidationError(
             `price tier ${tier.name} floor requires a parent tier`,
         );
     }
-    return applyDelta(parent.resolvedFloorWei, config, "floorConfig");
+    return translatePricingError(() =>
+        resolveBiddingPriceTierFloorWei(config, parent?.resolvedFloorWei),
+    );
 }
 
 function resolveCeilingWei(
@@ -194,88 +196,33 @@ function resolveCeilingWei(
     parent: TierResolutionState | null,
 ): bigint {
     const config = tier.ceilingConfig;
-    if (config.kind === TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed) {
-        return parsePositiveEthAmount(config.valueEth, "ceilingConfig.valueEth");
-    }
-    if (config.kind === TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.FloorDelta) {
-        return applyDelta(floorWei, config, "ceilingConfig");
-    }
-    if (!parent) {
+    if (
+        config.kind ===
+            TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta &&
+        !parent
+    ) {
         throw new TradingValidationError(
             `price tier ${tier.name} ceiling requires a parent tier`,
         );
     }
-    return applyDelta(parent.resolvedCeilingWei, config, "ceilingConfig");
+    return translatePricingError(() =>
+        resolveBiddingPriceTierCeilingWei(
+            config,
+            floorWei,
+            parent?.resolvedCeilingWei,
+        ),
+    );
 }
 
-function applyDelta(
-    baseWei: bigint,
-    config: {
-        deltaKind: "absolute" | "percent";
-        deltaEth?: string;
-        percent?: string;
-    },
-    field: string,
-): bigint {
-    const value =
-        config.deltaKind === TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute
-            ? baseWei + parseSignedEthAmount(config.deltaEth, `${field}.deltaEth`)
-            : baseWei + (baseWei * parseSignedPercent(config.percent, `${field}.percent`)) / PERCENT_BASE;
-    if (value <= 0n) {
-        throw new TradingValidationError(`${field} resolves to a non-positive price`);
-    }
-    return value;
-}
-
-function parsePositiveEthAmount(value: string | undefined, field: string): bigint {
-    if (!value?.trim()) {
-        throw new TradingValidationError(`${field} is required`);
-    }
-    const parsed = parseEthAmount(value.trim(), field);
-    if (parsed <= 0n) {
-        throw new TradingValidationError(`${field} must be > 0`);
-    }
-    return parsed;
-}
-
-function parseSignedEthAmount(value: string | undefined, field: string): bigint {
-    if (!value?.trim()) {
-        throw new TradingValidationError(`${field} is required`);
-    }
-    return parseEthAmount(value.trim(), field);
-}
-
-function parseEthAmount(value: string, field: string): bigint {
+function translatePricingError(resolve: () => bigint): bigint {
     try {
-        const sign = value.startsWith("-") ? -1n : 1n;
-        const unsigned = value.startsWith("-") || value.startsWith("+")
-            ? value.slice(1)
-            : value;
-        if (!unsigned) {
-            throw new Error("empty numeric value");
+        return resolve();
+    } catch (error) {
+        if (error instanceof RangeError) {
+            throw new TradingValidationError(error.message);
         }
-        return sign * parseEther(unsigned);
-    } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new TradingValidationError(`${field} is invalid: ${message}`);
+        throw error;
     }
-}
-
-function parseSignedPercent(value: string | undefined, field: string): bigint {
-    if (!value?.trim()) {
-        throw new TradingValidationError(`${field} is required`);
-    }
-    const normalized = value.trim();
-    const sign = normalized.startsWith("-") ? -1n : 1n;
-    const unsigned = normalized.startsWith("-") || normalized.startsWith("+")
-        ? normalized.slice(1)
-        : normalized;
-    if (!/^\d+(\.\d+)?$/.test(unsigned)) {
-        throw new TradingValidationError(`${field} is invalid`);
-    }
-    const [whole, fraction = ""] = unsigned.split(".");
-    const paddedFraction = fraction.padEnd(6, "0").slice(0, 6);
-    return sign * (BigInt(whole) * PERCENT_SCALE + BigInt(paddedFraction));
 }
 
 function formatOptionalWeiAsEth(value: string | null): string | null {
