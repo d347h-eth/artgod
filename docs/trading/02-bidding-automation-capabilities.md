@@ -276,6 +276,10 @@ above. A range crossing these boundaries uses its coarser endpoint step. Deltas
 must be positive multiples of that step; they may exceed the range width,
 including for jobs with equal floor and ceiling.
 
+Range endpoints use the backend's Ether-to-wei conversion, including rounding
+sub-wei digits, so the required step remains consistent after saving. Delta input
+must remain exactly representable in wei.
+
 Changing a manual floor or ceiling, or a tier's resolved prices, reconciles an
 incompatible delta to the nearest valid value. An incompatible default is ignored
 in favor of the range's minimum step. Typing an invalid delta keeps the entered

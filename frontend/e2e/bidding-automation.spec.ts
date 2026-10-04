@@ -2419,6 +2419,140 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	});
 
+	for (const { floorEth, ceilingEth, savedFloorEth, savedCeilingEth, stepEth, invalidDeltaEth } of [
+		{
+			floorEth: '1.3000000000000000001',
+			ceilingEth: '1.4000000000000000001',
+			savedFloorEth: '1.3',
+			savedCeilingEth: '1.4',
+			stepEth: '0.01',
+			invalidDeltaEth: '0.001'
+		},
+		{
+			floorEth: '0.3',
+			ceilingEth: '1.4000000000000000001',
+			savedFloorEth: '0.3',
+			savedCeilingEth: '1.4',
+			stepEth: '0.01',
+			invalidDeltaEth: '0.001'
+		},
+		{
+			floorEth: '0.3',
+			ceilingEth: '0.99999999999999999996',
+			savedFloorEth: '0.3',
+			savedCeilingEth: '1',
+			stepEth: '0.01',
+			invalidDeltaEth: '0.001'
+		},
+		{
+			floorEth: '0.03',
+			ceilingEth: '0.09999999999999999996',
+			savedFloorEth: '0.03',
+			savedCeilingEth: '0.1',
+			stepEth: '0.001',
+			invalidDeltaEth: '0.0001'
+		}
+	]) {
+		test(`keeps delta validation consistent after saving sub-wei range ${floorEth}–${ceilingEth}`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page);
+			const job = findBiddingE2eJobForTarget({
+				target: { type: TRADING_JOB_TARGET_KIND.Token, tokenId: '101' }
+			});
+			if (!job) {
+				throw new Error('The token 101 bidding job fixture is required.');
+			}
+			let persistedJob = job;
+			let mutationCount = 0;
+			await page.route('**/api/**/101/bidding/job', async (route) => {
+				const method = route.request().method();
+				if (method !== 'PUT' && method !== 'GET') {
+					await route.fallback();
+					return;
+				}
+				if (method === 'PUT') {
+					mutationCount += 1;
+					// Explicit canonical prices model persistence independently of UI parsing.
+					persistedJob = {
+						...job,
+						revision: job.revision + 1,
+						config: {
+							...job.config,
+							floorEth: savedFloorEth,
+							ceilingEth: savedCeilingEth,
+							deltaEth: stepEth
+						},
+						runtime: null
+					};
+				}
+				// The token page reloads the job after a successful mutation.
+				await route.fulfill({
+					json: {
+						chain: BIDDING_E2E_CHAIN,
+						collection: BIDDING_E2E_COLLECTION,
+						tokenId: '101',
+						job: persistedJob
+					}
+				});
+			});
+			await openHarnessPage(page, `${COLLECTION_PATH}/101`);
+			await page.getByRole('button', { name: 'bid on token' }).click();
+			const floor = page.locator('#bidding-automation-floor');
+			const ceiling = page.locator('#bidding-automation-ceiling');
+			const delta = page.locator('#bidding-automation-delta');
+			const warning = page.getByTestId(TEST_IDS.BiddingPanelDeltaWarning);
+			const modify = page.getByTestId(TEST_IDS.BiddingPanelModify);
+			const pause = page.getByTestId(TEST_IDS.BiddingPanelPause);
+			await delta.fill(invalidDeltaEth);
+			await floor.fill(floorEth);
+			await ceiling.fill(ceilingEth);
+			await expect(floor).toHaveValue(floorEth);
+			await expect(ceiling).toHaveValue(ceilingEth);
+			await expect(delta).toHaveValue(stepEth);
+
+			await delta.fill(invalidDeltaEth);
+			await expect(delta).toBeFocused();
+			await expect(delta).toHaveValue(invalidDeltaEth);
+			await expect(delta).toHaveAttribute('aria-invalid', 'true');
+			await expect(warning).toHaveText(`Invalid delta. Closest valid value: ${stepEth} ETH.`);
+			await expect(modify).toBeDisabled();
+			await expect(pause).toBeDisabled();
+			expect(mutationCount).toBe(0);
+			expect(api.mutations).toHaveLength(0);
+			await page.screenshot({
+				path: testInfo.outputPath('delta-sub-wei-range-invalid-focused.png'),
+				fullPage: true
+			});
+
+			await delta.fill(stepEth);
+			await expect(warning).toHaveCount(0);
+			await expect(modify).toBeEnabled();
+			const saveRequest = page.waitForRequest(
+				(request) =>
+					request.method() === 'PUT' && new URL(request.url()).pathname.endsWith('/101/bidding/job')
+			);
+			await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+			expect((await saveRequest).postDataJSON()).toMatchObject({
+				floorEth,
+				ceilingEth,
+				deltaEth: stepEth
+			});
+			await expect(floor).toHaveValue(savedFloorEth);
+			await expect(ceiling).toHaveValue(savedCeilingEth);
+			await expect(delta).toHaveValue(stepEth);
+			await expect(delta).toHaveAttribute('aria-invalid', 'false');
+			await expect(warning).toHaveCount(0);
+			await expect(modify).toBeDisabled();
+			await expect(pause).toBeEnabled();
+			expect(mutationCount).toBe(1);
+			await page.screenshot({
+				path: testInfo.outputPath('delta-sub-wei-range-saved.png'),
+				fullPage: true
+			});
+		});
+	}
+
 	test('reconciles job deltas across precision boundaries and ignores incompatible defaults', async ({
 		page
 	}) => {

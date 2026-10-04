@@ -13,6 +13,49 @@ import {
 
 describe('bidding delta input', () => {
 	it.each([
+		['1.3000000000000000001', '1.4000000000000000001', '1.3', '1.4', '0.01', '0.001'],
+		['0.3', '1.4000000000000000001', '0.3', '1.4', '0.01', '0.001'],
+		['1.4000000000000000001', '0.3', '1.4', '0.3', '0.01', '0.001'],
+		['0.3', '0.99999999999999999996', '0.3', '1', '0.01', '0.001'],
+		['0.3', '0.9999999999999999994', '0.3', '0.999999999999999999', '0.001', '0.0001'],
+		['0.03', '0.09999999999999999996', '0.03', '0.1', '0.001', '0.0001'],
+		['0.03', '0.0999999999999999994', '0.03', '0.099999999999999999', '0.0001', '0.00001'],
+		['1.3000000000000000000', '1.4000000000000000000', '1.3', '1.4', '0.01', '0.001']
+	])(
+		'keeps validation consistent with the persisted range for %s–%s',
+		(floorEth, ceilingEth, persistedFloorEth, persistedCeilingEth, stepEth, deltaEth) => {
+			const input = { floorEth, ceilingEth, deltaEth };
+			const persistedRange = { floorEth: persistedFloorEth, ceilingEth: persistedCeilingEth };
+			const validation = validateBiddingDeltaInput(input);
+			expect(validation).toMatchObject({
+				isValid: false,
+				stepEth,
+				nearestDeltaEth: stepEth,
+				normalizedDeltaEth: null,
+				warning: `Invalid delta. Closest valid value: ${stepEth} ETH.`
+			});
+			expect(validation).toEqual(validateBiddingDeltaInput({ ...persistedRange, deltaEth }));
+			expect(reconcileBiddingDeltaEth(input)).toBe(stepEth);
+			expect(resolveDefaultBiddingDeltaEth({ ...input, defaultDeltaEth: deltaEth })).toBe(stepEth);
+
+			const corrected = validateBiddingDeltaInput({ ...input, deltaEth: stepEth });
+			expect(corrected).toMatchObject({ isValid: true, warning: null });
+			expect(corrected).toEqual(
+				validateBiddingDeltaInput({ ...persistedRange, deltaEth: stepEth })
+			);
+		}
+	);
+
+	it.each(['', '.', 'invalid', '-1'])(
+		'uses a complete ceiling while the floor is temporarily %s',
+		(floorEth) => {
+			expect(
+				validateBiddingDeltaInput({ floorEth, ceilingEth: '1.4', deltaEth: '0.001' })
+			).toMatchObject({ isValid: false, stepEth: '0.01', nearestDeltaEth: '0.01' });
+		}
+	);
+
+	it.each([
 		['1.3', '1.4', '0.001', '0.01'],
 		['1.3', '1.4', '0.014999999999999999', '0.01'],
 		['1.3', '1.4', '0.015', '0.02'],

@@ -90,8 +90,14 @@ export function resolveBiddingPriceTierDraftRange(params: {
 }
 
 function nonNegativePriceWei(value: string): bigint {
-	const amount = parseExactEth(value);
-	return amount !== null && amount > 0n ? amount : 0n;
+	try {
+		// Match the backend's price rounding to wei; delta text still requires exact precision.
+		const amount = parseEther(value.trim());
+		return amount > 0n ? amount : 0n;
+	} catch {
+		// Prices can be temporarily incomplete while editing.
+		return 0n;
+	}
 }
 
 function parseExactEth(value: string): bigint | null {
