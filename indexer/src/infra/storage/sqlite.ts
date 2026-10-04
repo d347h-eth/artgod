@@ -7,13 +7,14 @@ import {
 } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
-import type { RpcBlock } from "../../ports/rpc.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
 import {
     ChainSyncConflict,
     type ChainSyncCheckpoint,
+    type SyncBlockHeader,
 } from "../../domain/chain-sync.js";
+import { assertSyncResultMatchesBlocks } from "../../domain/sync-result.js";
 import {
     assertSameErc721Tokens,
     resolveErc721Ownership,
@@ -364,13 +365,22 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
         collections,
     }: {
         checkpoint: ChainSyncCheckpoint;
-        blocks: RpcBlock[];
+        blocks: readonly SyncBlockHeader[];
         data: OnChainData;
         collections: CollectionRecord[];
     }): void {
         const chainId = checkpoint.chainId;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(checkpoint);
+            assertSyncResultMatchesBlocks({ blocks, data });
+            for (const block of blocks) {
+                const storedHash = this.getBlockHash(chainId, block.number);
+                if (storedHash && storedHash !== block.hash) {
+                    throw new ChainSyncConflict(
+                        `Sync conflicts with stored block ${block.number}; rollback is required`,
+                    );
+                }
+            }
             const blockMeta = buildBlockMeta(blocks);
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
@@ -566,11 +576,9 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
             this.persistBlocks(chainId, [
                 {
                     number: snapshot.block.blockNumber,
-                    hash: snapshot.block.blockHash as RpcBlock["hash"],
-                    parentHash: snapshot.block
-                        .parentHash as RpcBlock["parentHash"],
+                    hash: snapshot.block.blockHash,
+                    parentHash: snapshot.block.parentHash,
                     timestamp: snapshot.block.blockTimestamp,
-                    transactions: [],
                 },
             ]);
             this.advanceSyncRevision.run(chainId);
@@ -578,7 +586,10 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
         run();
     }
 
-    private persistBlocks(chainId: number, blocks: RpcBlock[]): void {
+    private persistBlocks(
+        chainId: number,
+        blocks: readonly SyncBlockHeader[],
+    ): void {
         // Store block metadata for reorg checks and future gap detection.
         for (const block of blocks) {
             this.insertBlock.run(
@@ -593,7 +604,7 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
 
     private persistCollectionSyncBlocks(
         chainId: number,
-        blocks: RpcBlock[],
+        blocks: readonly SyncBlockHeader[],
         collections: CollectionRecord[],
     ): void {
         // Mark coverage for each collection this sync job actually targeted.
@@ -998,7 +1009,9 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
     }
 }
 
-function buildBlockMeta(blocks: RpcBlock[]): Map<number, BlockMeta> {
+function buildBlockMeta(
+    blocks: readonly SyncBlockHeader[],
+): Map<number, BlockMeta> {
     const map = new Map<number, BlockMeta>();
     for (const block of blocks) {
         map.set(block.number, { timestamp: block.timestamp });

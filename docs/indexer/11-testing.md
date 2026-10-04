@@ -145,10 +145,21 @@ test doubles. They do not use a live chain, broker, or application database.
 - `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
   burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
   collection coverage rollback.
+- `tests/reorg-rollback.test.ts` covers verified fork ownership with incomplete
+  history and empty resync, persistent absent-token checkpoints, stale sync
+  writes, changing rollback token scope, RPC and transactional failure, paged
+  ERC1155 reversal and bootstrap checkpoint replacement.
+- `tests/sync-result-canonical.test.ts` verifies atomic rejection of orphaned
+  facts and hints across every sync output group, mismatched receipts, missing
+  headers, conflicting stored/duplicate headers and mixed parent chains. It also
+  verifies canonical replacement after rollback and idempotent historical repair.
+- `tests/sync-blocks.test.ts` covers fresh header reads, tip rechecking, changing
+  ranges and common ancestor discovery across missing local history without
+  guessing a fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
 
-Use the same isolated environment described above, selecting these four files
+Use the same isolated environment described above, selecting the affected files
 with `yarn workspace @artgod/indexer test`. This establishes local storage and
 scheduling behavior; it does not establish live RPC completeness or actual
 broker delivery under outage conditions.

@@ -170,11 +170,11 @@ export class ViemRpcProvider implements RpcProviderPort {
 
     async getTransactionReceipt(
         txHash: string,
+        options?: { fresh: boolean },
     ): Promise<RpcTransactionReceipt> {
-        const cached = this.cache?.get<RpcTransactionReceipt>(
-            "receipt",
-            txHash,
-        );
+        const cached = options?.fresh
+            ? undefined
+            : this.cache?.get<RpcTransactionReceipt>("receipt", txHash);
         if (cached) return cached;
 
         const receipt = await this.executeRpc(

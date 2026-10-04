@@ -198,6 +198,13 @@ survive restarts, cascade on collection purge and are cleared when bootstrap
 finalization replaces the ownership snapshot. Only tokens affected by rollback
 are checkpointed; the reorg worker does not scan the whole collection inventory.
 
+Sync persistence validates every result's block identities before writing facts
+or collection coverage. It rejects mismatched fact/header hashes, conflicting
+duplicate headers, broken adjacent parent links and replacement of a stored
+block hash. Reorg rollback owns removal of old headers before canonical resync.
+The verified fork header is retained with the ownership checkpoint even when
+the fork's transfer history was missing.
+
 ## Collection and Bootstrap Tables
 
 ### `tokens`

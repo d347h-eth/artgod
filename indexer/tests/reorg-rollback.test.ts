@@ -17,18 +17,12 @@ import {
     transferFixture,
 } from "./helpers/ownership-fixture.js";
 import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
+import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 
 const A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "0xcccccccccccccccccccccccccccccccccccccccc";
 const D = "0xdddddddddddddddddddddddddddddddddddddddd";
-const block = (number: number) => ({
-    number,
-    hash: `0x${String(number).padStart(64, "0")}`,
-    parentHash: `0x${String(number - 1).padStart(64, "0")}`,
-    timestamp: number,
-    transactions: [],
-});
 
 describe("verified reorg ownership rollback", () => {
     loadTestEnv();

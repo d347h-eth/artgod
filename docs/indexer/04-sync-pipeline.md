@@ -35,7 +35,8 @@ The sync worker:
 4. For each job:
     - Fetches logs for the target block/range.
     - Resolves enabled collection-extension watch specs for the targeted collections.
-    - Fetches full block details for the same range.
+    - Fetches any enabled WETH maker hints before validating the result.
+    - Fetches fresh block details for the same range and rechecks its tip.
     - Persists results via SQLite storage.
     - Publishes domain sync jobs (orders, metadata, activities), collection-scoped metadata refresh jobs, and order update jobs.
 
@@ -94,6 +95,11 @@ Transactions associated with transfer events are persisted into SQLite so downst
 
 Each transaction is also paired with its receipt logs. The receipt logs are not persisted, but they are used during fill decoding to read protocol fill events and to correlate those events with tracked NFT transfer hops.
 
+Receipt reads bypass the cache so retry can observe a transaction moved to the
+new branch. Receipt transaction identity and each receipt log's block identity must match
+the transfer logs before fill decoding. A receipt fetched from another branch
+rejects the sync attempt instead of attributing orphaned fill facts to its block.
+
 Seaport fills are decoded from receipt `OrderFulfilled` logs (no traces) and emitted as collection-scoped `fillEvents` when the protocol fill contains a tracked NFT and maps to a tracked NFT transfer in the same transaction. Matched buy/sell mirror logs for one NFT transfer are canonicalized to one fill; multi-hop bundles can emit multiple fills. Blur fills are decoded from supported calldata methods. See `docs/indexer/15-fill-decoding.md` for the full fill-decoding policy and edge cases. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
 NFT approval logs are decoded into collection-scoped order revalidation hints: ERC721 `Approval` emits an exact-token maker trigger, while ERC721/ERC1155 `ApprovalForAll` emits collection-scoped maker triggers for the tracked contract. WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the order-maintenance policy allows current-state maker revalidation and the bidder index is ready and non-empty (quiet default). When the policy is `skip_global_maker_revalidation`, or when the index is empty/not yet loaded, WETH logs are skipped and no maker triggers are emitted.
@@ -150,6 +156,11 @@ scheduler rediscovers any remaining gaps from collection coverage.
 
 `SqliteStorage.persistSyncResult()`:
 
+- Validates that every fact and fanout hint references a supplied header with the
+  same block number and hash. Adjacent headers must have matching parent links,
+  and repeated heights must contain identical metadata.
+- Rejects a hash conflicting with a stored block; canonical replacement requires
+  rollback first. Validation failure writes no facts, coverage or balances.
 - Writes blocks to `blocks` table.
 - Marks each processed block in `collection_sync_blocks` for every collection the sync job actually targeted.
 - Inserts transfer events into `nft_transfer_events`.
@@ -172,6 +183,12 @@ The sync worker captures the chain sync revision before fetching RPC data.
 Persistence checks that revision in the same write transaction as facts, coverage
 and balances. A rollback advances it, so an earlier in-flight sync cannot restore
 orphaned facts after rollback.
+
+Header reads bypass the RPC block cache. Rechecking the range tip after all
+headers catches a reorg during those reads, including an empty-log range. A
+conflict fails the normal queue attempt and leaves durable gap repair intent
+pending for retry. Changes after the final RPC check remain the responsibility
+of the reorg worker; external chain state cannot be frozen by a SQLite transaction.
 
 This is the key ownership invariant for historical backfill:
 

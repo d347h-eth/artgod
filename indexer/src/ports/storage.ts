@@ -1,13 +1,17 @@
 import type { OnChainData } from "../domain/onchain.js";
 import type { CollectionRecord } from "../domain/collections.js";
-import type { RpcBlock } from "./rpc.js";
-import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
+import type {
+    ChainSyncCheckpoint,
+    SyncBlockHeader,
+} from "../domain/chain-sync.js";
 
 export interface StoragePort {
     captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
+    // Atomically validate revision and block identities before writing facts,
+    // coverage and balances. Conflicts must leave local state untouched.
     persistSyncResult(input: {
         checkpoint: ChainSyncCheckpoint;
-        blocks: RpcBlock[];
+        blocks: readonly SyncBlockHeader[];
         data: OnChainData;
         collections: CollectionRecord[];
     }): void;

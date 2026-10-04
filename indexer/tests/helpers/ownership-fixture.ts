@@ -6,6 +6,7 @@ import type {
     OnChainData,
 } from "../../src/domain/onchain.js";
 import { COLLECTION_STANDARD } from "../../src/domain/collections.js";
+import { syncBlockFixture } from "./chain-fixture.js";
 
 export function insertCollection(input: {
     chainId: number;
@@ -90,7 +91,7 @@ export function transferFixture() {
         amount: "1",
         blockNumber,
         logIndex,
-        blockHash: `0x${String(blockNumber).padStart(64, "0")}`,
+        blockHash: syncBlockFixture(blockNumber).hash,
         txHash: `0x${String(blockNumber * 100 + logIndex).padStart(64, "0")}`,
         kind: COLLECTION_STANDARD.Erc721,
     });
@@ -100,10 +101,8 @@ export function transferFixture() {
         storage.persistSyncResult({
             checkpoint: storage.captureSyncCheckpoint(1),
             blocks: events.map((event) => ({
-                number: event.blockNumber,
+                ...syncBlockFixture(event.blockNumber),
                 hash: event.blockHash,
-                parentHash: `0x${"00".repeat(32)}`,
-                timestamp: event.blockNumber,
             })),
             data: data,
             collections: [loadCollection(1, collectionId)],
