@@ -9,9 +9,9 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 ### Changed
 
-- Extra targets presets keep their source target fixed after creation. Editing
-  changes only their extra targets; existing bidding jobs keep their selected
-  versions until explicitly updated.
+- Extra targets presets let trait-scoped bidding jobs consider competing offers
+  for additional traits. Reuse presets across jobs and preview updates before
+  reapplying them to selected jobs.
 
 ### Fixed
 

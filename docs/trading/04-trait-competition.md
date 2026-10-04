@@ -112,7 +112,7 @@ advances the inventory's current revision. Edit and archive requests require
 definition. The save transaction checks the unchanged source before advancing
 the revision or inserting a version; source changes are rejected even through
 direct API calls. All revisions of a preset therefore match the same job
-targets, simplifying future explicit bulk updates.
+targets, keeping explicit bulk updates within the same applicability pattern.
 
 Each job references one selected version. Editing a preset leaves existing
 job references, revisions, and commands unchanged. Archiving removes the preset
@@ -125,6 +125,60 @@ extras, select `none` and confirm `modify`. An explicit selection change updates
 the existing declaration and durable command outbox atomically; target identity
 and job ID remain the same. The bot reloads the declaration through normal
 command reconciliation.
+
+### Staged preset reapply
+
+Use a preset's `reapply` action to preview its enabled and paused jobs. Jobs on
+older versions are preselected when their concrete targets remain available for
+marketplace bidding. Current-version jobs show `same`; ineligible jobs show the
+reason and cannot be selected. Archived jobs and jobs belonging to other presets
+are excluded. Uncheck jobs to leave their versions pinned, then confirm `apply`
+with the same two-click flow as price-tier reapply. Trait-job reapply is read-only
+in the UI when SignedZone trait-offer trust is disabled.
+
+The preview pins the current preset revision and each selected job's revision
+and old version ID. Apply rejects the entire selection if the preset was revised
+or archived, a selected job changed, or its reference no longer belongs to this
+preset and collection. Refresh the preview with `reapply` before trying again.
+An explicit reference change to the current version counts as a change even when
+the two versions have identical extras.
+
+The writer rechecks those snapshots and current marketplace target support in a
+single SQLite write transaction. A target that loses support while the writer
+waits rejects the whole batch even when job and preset revisions still match. It
+updates only the selected version references, increments job revisions, and
+enqueues normal job commands. Prices, pricing provenance and price-tier links,
+targets, quantities, job IDs, and enabled/paused status stay unchanged. Paused
+jobs use the existing exact-order cancellation and paused-command flow. A failed
+command insert or stale selection rolls back all writes, including cancellation
+records. Post-commit wake-ups use the existing bot reconciliation path.
+
+Successful reapply refreshes an open job editor even when the bot is inactive
+and market data has not changed. Unsaved price edits and explicit extra-target
+choices remain intact; an untouched preset selection shows the applied version.
+
+`GET /api/:chain_ref/:collection_ref/bidding/competition-presets/:preset_id/reapply-preview`
+returns the current `preset` and `jobs` with `job`, `before`, `after`, `changed`,
+and nullable `error`. The matching `POST .../:preset_id/reapply` accepts:
+
+```json
+{
+    "expectedRevision": 2,
+    "jobs": [
+        {
+            "jobId": "reviewed-job",
+            "expectedRevision": 3,
+            "versionId": "old-version"
+        }
+    ]
+}
+```
+
+The selected jobs must be distinct, eligible, and on older versions. The response
+contains the current `preset` and updated `jobs`. No schema or competition matcher
+change is required for reapply; version references are already indexed.
+
+### Individual job mutations
 
 The trait-job mutation field is `competitionPresetVersionId`:
 
@@ -210,11 +264,11 @@ Behavior coverage lives in:
   and OpenSea bidding-service tests for inclusive subsets, standalone extras,
   snapshot/fallback parity, and exact placement and own-order boundaries;
 - backend preset use-case, HTTP adapter, and SQLite job-repository tests for
-  scope, immutable sources and references, stale edits, preservation,
+  scope, immutable sources and references, stale edits and bulk selections, preservation,
   transactional commands, migration replay, and rollback;
 - [`frontend/e2e/bidding-automation.spec.ts`](../../frontend/e2e/bidding-automation.spec.ts)
   and public-mode tests for management, selection, pinned/archived versions,
-  delayed lookup, recovery, restrictions, and desktop/narrow controls.
+  delayed lookup, staged reapply, recovery, restrictions, and desktop/narrow controls.
 
 The owning suite commands are maintained in
 [Verification Coverage](02-bidding-automation-capabilities.md#verification-coverage).
@@ -225,8 +279,6 @@ Current limits:
 
 - Extra targets cannot require a pair of different key/value criteria together.
 - Preset sources contain at most two keys, and extras are bounded at 64 entries.
-- Jobs adopt changed presets individually; a staged bulk reapply flow is not
-  implemented.
 - Historical versions are retained without automatic cleanup.
 - Full per-job snapshot scans, repeated version decoding, and offer deduplication
   remain scaling costs. [Market Data and Scaling](03-market-data-and-scaling.md#trait-competition-processing)

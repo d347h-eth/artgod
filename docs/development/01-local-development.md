@@ -310,6 +310,10 @@ entries. Include packaging-only releases and explain whether users with working
 installations need the new download. Routine refactors, tests, and formatting
 belong in Git history unless they change something users need to know.
 
+Every changelog entry and release-summary bullet must be short and simple,
+explaining only the value for someone using the app. State what users can do
+or benefit from, and combine related changes into one concise feature entry.
+
 For release preparation:
 
 1. Move the accumulated notes into a newest-first section headed
