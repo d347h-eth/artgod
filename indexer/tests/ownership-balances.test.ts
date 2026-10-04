@@ -211,6 +211,42 @@ describe("ownership balance persistence", () => {
         expect(selectTransferCount(1, collectionId, "1")).toBe(2);
     });
 
+    it("preserves transfer senders and reverses ERC721 burns, transfers, and mints", () => {
+        const { collectionId, storage, transfer, persist } = transferFixture();
+        const zero = "0x0000000000000000000000000000000000000000";
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        persist([
+            transfer(101, 1, zero, seller),
+            transfer(102, 1, seller, buyer),
+            transfer(103, 1, buyer, zero),
+        ]);
+
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([]);
+        expect(
+            db
+                .prepare<
+                    [number, number]
+                >("SELECT from_address, to_address FROM nft_transfer_events " + "WHERE chain_id = ? AND collection_id = ? " + "ORDER BY block_number ASC, log_index ASC")
+                .all(1, collectionId),
+        ).toEqual([
+            { from_address: zero, to_address: seller },
+            { from_address: seller, to_address: buyer },
+            { from_address: buyer, to_address: zero },
+        ]);
+
+        storage.rollbackFromBlock(1, 103);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+            { owner: buyer, amount: "1" },
+        ]);
+        storage.rollbackFromBlock(1, 102);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+            { owner: seller, amount: "1" },
+        ]);
+        storage.rollbackFromBlock(1, 101);
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([]);
+    });
+
     it("projects the latest transfer even when logs in one repaired range are unordered", () => {
         const { collectionId, transfer, persist } = transferFixture();
         const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

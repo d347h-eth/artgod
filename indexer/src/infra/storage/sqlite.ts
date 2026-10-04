@@ -39,6 +39,16 @@ type BalanceContext = {
     logIndex: number;
 };
 
+type Erc721OwnershipReplacement = {
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    // A null owner explicitly removes ownership, e.g. a burn or a rolled-back mint.
+    owner: string | null;
+    context: BalanceContext;
+};
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteStorage implements StoragePort {
@@ -539,24 +549,15 @@ export class SqliteStorage implements StoragePort {
         }
     }
 
+    // Projects newly inserted post-anchor transfers into current balances.
+    // ERC721 uses the latest persisted transfer to tolerate out-of-order repairs;
+    // ERC1155 applies each transfer's balance deltas once.
     private applyBalanceUpdatesFromEvents(
         chainId: number,
         events: OnChainData["collectionScoped"]["nftTransferEvents"],
         blockMeta: Map<number, BlockMeta>,
     ): void {
-        // Only apply balance deltas for newly inserted transfers (idempotent).
         for (const event of events) {
-            const context = buildBalanceContext(
-                event.blockNumber,
-                event.blockHash,
-                resolveBlockTimestamp(blockMeta, event.blockNumber),
-                event.txHash,
-                event.logIndex,
-            );
-            const contract = event.contract.toLowerCase();
-            const from = event.from.toLowerCase();
-            const to = event.to.toLowerCase();
-
             if (event.kind === COLLECTION_STANDARD.Erc721) {
                 // Gap repairs can arrive behind realtime or newer backfills.
                 // Project the latest persisted transfer, including burns, rather
@@ -568,29 +569,39 @@ export class SqliteStorage implements StoragePort {
                 ) as TransferRow | undefined;
                 if (!latest)
                     throw new Error("Missing persisted ERC721 transfer");
-                this.deleteTokenBalances.run(
+                this.replaceErc721Ownership({
                     chainId,
-                    event.collectionId,
-                    event.tokenId,
-                );
-                this.applyErc721Transfer(
-                    chainId,
-                    event.collectionId,
-                    contract,
-                    event.tokenId,
-                    ZERO_ADDRESS,
-                    latest.to_address,
-                    buildBalanceContext(
-                        latest.block_number,
-                        latest.block_hash,
-                        latest.block_timestamp,
-                        latest.tx_hash,
-                        latest.log_index,
-                    ),
-                );
+                    collectionId: event.collectionId,
+                    contract: latest.contract,
+                    tokenId: event.tokenId,
+                    owner:
+                        latest.to_address === ZERO_ADDRESS
+                            ? null
+                            : latest.to_address,
+                    context: {
+                        blockNumber: latest.block_number,
+                        blockHash: latest.block_hash,
+                        blockTimestamp: latest.block_timestamp,
+                        txHash: latest.tx_hash,
+                        logIndex: latest.log_index,
+                    },
+                });
                 continue;
             }
 
+            const context: BalanceContext = {
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+                blockTimestamp: resolveBlockTimestamp(
+                    blockMeta,
+                    event.blockNumber,
+                ),
+                txHash: event.txHash,
+                logIndex: event.logIndex,
+            };
+            const contract = event.contract.toLowerCase();
+            const from = event.from.toLowerCase();
+            const to = event.to.toLowerCase();
             const amount = BigInt(event.amount);
             this.applyErc1155Transfer(
                 chainId,
@@ -609,24 +620,23 @@ export class SqliteStorage implements StoragePort {
         const contract = event.contract.toLowerCase();
         const from = event.from_address.toLowerCase();
         const to = event.to_address.toLowerCase();
-        const context = buildBalanceContext(
-            event.block_number,
-            event.block_hash,
-            event.block_timestamp,
-            event.tx_hash,
-            event.log_index,
-        );
+        const context: BalanceContext = {
+            blockNumber: event.block_number,
+            blockHash: event.block_hash,
+            blockTimestamp: event.block_timestamp,
+            txHash: event.tx_hash,
+            logIndex: event.log_index,
+        };
 
-        if (event.kind === "erc721") {
-            this.applyErc721Transfer(
+        if (event.kind === COLLECTION_STANDARD.Erc721) {
+            this.replaceErc721Ownership({
                 chainId,
-                event.collection_id,
+                collectionId: event.collection_id,
                 contract,
-                event.token_id,
-                to,
-                from,
+                tokenId: event.token_id,
+                owner: from === ZERO_ADDRESS ? null : from,
                 context,
-            );
+            });
             return;
         }
 
@@ -659,25 +669,24 @@ export class SqliteStorage implements StoragePort {
         );
     }
 
-    private applyErc721Transfer(
-        chainId: number,
-        collectionId: number,
-        contract: string,
-        tokenId: string,
-        from: string,
-        to: string,
-        context: BalanceContext,
-    ): void {
-        if (from !== ZERO_ADDRESS) {
-            this.deleteBalance.run(chainId, collectionId, tokenId, from);
-        }
-        if (to !== ZERO_ADDRESS) {
+    // Replace every balance row for this token with the specified owner (or none).
+    // Ingestion and rollback call this within their encompassing write transaction.
+    private replaceErc721Ownership({
+        chainId,
+        collectionId,
+        contract,
+        tokenId,
+        owner,
+        context,
+    }: Erc721OwnershipReplacement): void {
+        this.deleteTokenBalances.run(chainId, collectionId, tokenId);
+        if (owner !== null) {
             this.upsertBalance.run(
                 chainId,
                 collectionId,
                 contract,
                 tokenId,
-                to,
+                owner,
                 "1",
                 context.blockNumber,
                 context.blockHash,
@@ -801,20 +810,4 @@ function resolveBlockTimestamp(
         throw new Error(`Missing block timestamp for block ${blockNumber}`);
     }
     return meta.timestamp;
-}
-
-function buildBalanceContext(
-    blockNumber: number,
-    blockHash: string,
-    blockTimestamp: number,
-    txHash: string,
-    logIndex: number,
-): BalanceContext {
-    return {
-        blockNumber,
-        blockHash,
-        blockTimestamp,
-        txHash,
-        logIndex,
-    };
 }
