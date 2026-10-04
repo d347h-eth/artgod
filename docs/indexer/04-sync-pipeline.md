@@ -6,6 +6,7 @@ Primary files:
 
 - `indexer/src/runtime/sync-worker.ts`
 - `indexer/src/application/sync.ts`
+- `indexer/src/application/sync-range-processing.ts`
 - `indexer/src/domain/onchain.ts`
 - `indexer/src/abi/index.ts`
 
@@ -24,6 +25,11 @@ Backfill `source` identifies whether the range is `manual_historical`,
 
 These jobs are published by the scheduler-worker (realtime), backend manual
 blockspace backfill, reorg recovery, bootstrap catch-up, and collection gap repair.
+
+Managed `reorg_recovery` payloads also require `recovery: { recoveryId, revision }`
+and have no collection ID. Logical completion matches that identity and the exact
+range, independently of the broker delivery ID. Legacy reorg hints without this
+ownership cannot complete durable recovery.
 
 ## Sync Worker Flow
 
@@ -50,6 +56,15 @@ The backfill worker classifies each job by collection anchor before execution:
 
 Backfill jobs use the `RPC_BACKFILL_URL_LIST` endpoint pool when configured; realtime jobs always use the `RPC_URL_LIST` endpoint pool.
 Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.
+
+`processRange()` and `publishDomainJobs()` own the shared production persistence
+and fanout pipeline. Gap repairs and managed reorg ranges complete their durable
+intent only after the entire pipeline succeeds. A failed publication after
+persisting coverage leaves the same logical work pending for replay. Reorg
+completion atomically advances its range and outbox continuation. Collection
+eligibility is reloaded inside the gate; no eligible collections leaves recovery
+pending. These admission checks do not add full cancellation of already running
+work.
 
 ## Log Fetching and Decoding
 
