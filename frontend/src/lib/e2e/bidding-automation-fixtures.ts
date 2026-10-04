@@ -104,6 +104,7 @@ const BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS = true;
 
 // Stable test-only route root used by deterministic Playwright harness pages.
 export const BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH = COLLECTION_BASE_PATH;
+export const BIDDING_E2E_HOLDER_ADDRESS = MARKET_ADDRESS_A;
 
 // Opt-in harness query key for deterministic bidding lifecycle scenarios.
 export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
@@ -117,7 +118,8 @@ export const BIDDING_E2E_SCENARIO = {
 	OwnBidStatesUpdated: 'own_bid_states_updated',
 	OwnBidStatesPaused: 'own_bid_states_paused',
 	OwnBidStatesOnlyPaused: 'own_bid_states_only_paused',
-	OwnBidStatesWithoutOwn: 'own_bid_states_without_own'
+	OwnBidStatesWithoutOwn: 'own_bid_states_without_own',
+	TraitCompetitionReadOnly: 'trait_competition_read_only'
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
@@ -496,6 +498,33 @@ export const BIDDING_E2E_PRICE_TIERS: ApiBiddingPriceTier[] = [
 	})
 ];
 
+export const BIDDING_E2E_COMPETITION_PRESET_ID = {
+	Biome: 'competition-biome',
+	Created: 'competition-created'
+} as const;
+export function biddingCompetitionPresetFixture(
+	presetId: string,
+	targetTraits: import('@artgod/shared/types').TradingTraitCompetitionSelector[],
+	extraCompetitionTraits: import('@artgod/shared/types').TradingTraitCompetitionSelector[],
+	revision = 1
+): import('@artgod/shared/types').TradingCompetitionPreset {
+	return {
+		presetId,
+		versionId: `${presetId}:v${revision}`,
+		revision,
+		targetTraits,
+		extraCompetitionTraits,
+		archivedAt: null
+	};
+}
+export const BIDDING_E2E_COMPETITION_PRESETS = [
+	biddingCompetitionPresetFixture(
+		BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+		[{ type: 'Biome', value: '42' }],
+		[{ type: 'Mode', value: 'Terrain' }]
+	)
+];
+
 const JOBS: ApiBiddingJob[] = [
 	biddingJob({
 		jobId: 'job-token-101',
@@ -550,6 +579,7 @@ const JOBS: ApiBiddingJob[] = [
 	biddingJob({
 		jobId: 'job-trait-biome-42',
 		status: TRADING_JOB_STATUS.Enabled,
+		competitionPreset: BIDDING_E2E_COMPETITION_PRESETS[0],
 		target: {
 			type: TRADING_JOB_TARGET_KIND.Collection,
 			quantity: 1,
@@ -664,8 +694,21 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		tokenStatus,
 		displayMode,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS
+	};
+}
+
+// Reuses the token-browser fixture for the production holder bidding entry point.
+export function buildBiddingE2eHolderTokensData(searchParams: URLSearchParams, owner: string) {
+	const data = buildBiddingE2eCollectionDetailData(searchParams);
+	const holdersBasePath = `${data.basePath}/holders`;
+	return {
+		...data,
+		collectionBasePath: data.basePath,
+		holdersBasePath,
+		browserBasePath: `${holdersBasePath}/${owner}`,
+		owner
 	};
 }
 
@@ -725,7 +768,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		bidBook,
 		tokenOfferCards,
@@ -756,7 +799,7 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		media: resolveBiddingE2eTokenMedia(searchParams),
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		trustOpenSeaSignedZoneTraitOffers: traitTrustForScenario(searchParams),
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:
@@ -909,7 +952,14 @@ export function buildBiddingE2eMutationJob(body: unknown, fallbackJobId: string)
 	});
 }
 
-function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
+function traitTrustForScenario(searchParams: URLSearchParams): boolean {
+	return (
+		parseBiddingE2eScenario(searchParams) !== BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly &&
+		BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS
+	);
+}
+
+export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
 	const value = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
 	return Object.values(BIDDING_E2E_SCENARIO).find((scenario) => scenario === value) ?? null;
 }
@@ -1502,6 +1552,7 @@ function biddingJob(params: {
 	deltaEth: string;
 	revision: number;
 	archivedAt?: string | null;
+	competitionPreset?: ApiBiddingJob['config']['competitionPreset'];
 }): ApiBiddingJob {
 	return {
 		jobId: params.jobId,
@@ -1515,7 +1566,8 @@ function biddingJob(params: {
 			floorEth: params.floorEth,
 			ceilingEth: params.ceilingEth,
 			deltaEth: params.deltaEth,
-			pricingSource: null
+			pricingSource: null,
+			...(params.competitionPreset ? { competitionPreset: params.competitionPreset } : {})
 		},
 		runtime: null
 	};

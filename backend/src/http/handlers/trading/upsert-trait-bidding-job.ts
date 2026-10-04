@@ -24,6 +24,7 @@ export type UpsertTraitBiddingJobRoute = {
         priceTierId?: unknown;
         quantity?: unknown;
         targetTraits?: unknown;
+        competitionPresetVersionId?: unknown;
     };
 };
 
@@ -55,11 +56,24 @@ export class UpsertTraitBiddingJobHttpAdapter {
             collectionRef: request.params.collection_ref,
             status: parseEditableBiddingJobStatus(request.body?.status),
             floorEth: parseOptionalString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseOptionalString(request.body?.ceilingEth, "ceilingEth"),
+            ceilingEth: parseOptionalString(
+                request.body?.ceilingEth,
+                "ceilingEth",
+            ),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
-            priceTierId: parseOptionalString(request.body?.priceTierId, "priceTierId"),
+            priceTierId: parseOptionalString(
+                request.body?.priceTierId,
+                "priceTierId",
+            ),
             quantity: parseOptionalQuantity(request.body?.quantity),
             targetTraits: parseTargetTraits(request.body?.targetTraits),
+            competitionPresetVersionId:
+                request.body?.competitionPresetVersionId === null
+                    ? null
+                    : parseOptionalString(
+                          request.body?.competitionPresetVersionId,
+                          "competitionPresetVersionId",
+                      ),
         };
     }
 }
@@ -70,7 +84,9 @@ function parseTargetTraits(value: unknown): { type: string; value: string }[] {
     }
     return value.map((entry) => {
         if (!entry || typeof entry !== "object") {
-            throw new ReadModelBadRequestError("targetTraits entries must be objects");
+            throw new ReadModelBadRequestError(
+                "targetTraits entries must be objects",
+            );
         }
         const record = entry as Record<string, unknown>;
         return {

@@ -20,7 +20,9 @@ import {
     type TradingBiddingJobRuntimeBidPosition,
     type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
+import { SqliteBiddingCompetitionPresetsRepository } from "./sqlite-bidding-competition-presets-repository.js";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
+import { TradingValidationError } from "../../application/use-cases/trading/types.js";
 
 const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
@@ -133,6 +135,380 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(
             pendingCommands[0]?.commandKind,
             TRADING_JOB_COMMAND_KIND.JobCreated,
+        );
+    });
+
+    it("shares wildcard preset references across exact job targets and rejects other key combinations", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+        };
+        const preset = presets.savePreset({
+            ...input,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone" },
+            ],
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        for (const value of ["Kairo", "Elsewhere"]) {
+            const targetTraits = [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value },
+            ];
+            const created = repository.upsertCollectionJob({
+                ...input,
+                targetTraits,
+                competitionPresetVersionId: preset.versionId,
+            });
+            assert.deepEqual(created.job.targetTraits, targetTraits);
+            assert.equal(
+                created.job.competitionPreset?.versionId,
+                preset.versionId,
+            );
+            assert.deepEqual(
+                repository.getJobById(created.job.jobId),
+                created.job,
+            );
+        }
+        for (const targetTraits of [
+            [{ type: "Mode", value: "Terrain" }],
+            [
+                { type: "Mode", value: "Daydream" },
+                { type: "Zone", value: "Kairo" },
+            ],
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        ])
+            assert.throws(() =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    targetTraits,
+                    competitionPresetVersionId: preset.versionId,
+                }),
+            );
+        assert.equal(repository.listCollectionJobs(input).length, 2);
+        assert.equal(repository.listPendingCommands({ limit: 10 }).length, 2);
+    });
+
+    it("rejects source changes atomically while allowing extras-only revisions", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const scope = { chainId: 1, collectionId };
+        const v1 = presets.savePreset({
+            ...scope,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone" },
+            ],
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        const created = repository.upsertCollectionJob({
+            ...scope,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value: "Kairo" },
+            ],
+            competitionPresetVersionId: v1.versionId,
+        });
+        const versions = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_competition_preset_versions ORDER BY revision",
+                )
+                .all();
+        const beforeVersions = versions();
+        const beforeCommands = repository.listPendingCommands({ limit: 10 });
+        for (const targetTraits of [
+            [{ type: "Mode", value: "Daydream" }, { type: "Zone" }],
+            [{ type: "Mode" }, { type: "Zone" }],
+            [{ type: "Mode", value: "Terrain" }, { type: "Biome" }],
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Zone", value: "any" },
+            ],
+            [{ type: "Zone" }],
+        ]) {
+            assert.throws(
+                () =>
+                    presets.savePreset({
+                        ...scope,
+                        presetId: v1.presetId,
+                        expectedRevision: 1,
+                        targetTraits,
+                        extraCompetitionTraits: [{ type: "Chroma" }],
+                    }),
+                TradingValidationError,
+            );
+            assert.deepEqual(presets.listPresets(scope), [v1]);
+            assert.deepEqual(versions(), beforeVersions);
+            assert.deepEqual(
+                repository.getJobById(created.job.jobId),
+                created.job,
+            );
+            assert.deepEqual(
+                repository.listPendingCommands({ limit: 10 }),
+                beforeCommands,
+            );
+        }
+        const v2 = presets.savePreset({
+            ...scope,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            targetTraits: [
+                { type: " Zone " },
+                { type: "Mode", value: " Terrain " },
+            ],
+            extraCompetitionTraits: [{ type: "Chroma" }],
+        });
+        assert.equal(v2.revision, 2);
+        assert.deepEqual(v2.targetTraits, v1.targetTraits);
+        assert.deepEqual(v2.extraCompetitionTraits, [{ type: "Chroma" }]);
+        assert.equal(versions().length, 2);
+        assert.deepEqual(versions()[0], beforeVersions[0]);
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+        assert.deepEqual(
+            repository.listPendingCommands({ limit: 10 }),
+            beforeCommands,
+        );
+    });
+
+    it("pins immutable preset versions and preserves the reference through pricing edits", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        };
+        const v1 = presets.savePreset({
+            ...input,
+            extraCompetitionTraits: [{ type: "Mode" }],
+        });
+        const created = repository.upsertCollectionJob({
+            ...input,
+            competitionPresetVersionId: v1.versionId,
+        });
+        assert.deepEqual(created.job.competitionPreset, {
+            versionId: v1.versionId,
+            presetId: v1.presetId,
+            revision: 1,
+            targetTraits: v1.targetTraits,
+            extraCompetitionTraits: v1.extraCompetitionTraits,
+        });
+        const v2 = presets.savePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            extraCompetitionTraits: [{ type: "Mode", value: "Terrain" }],
+        });
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+        const edited = repository.upsertCollectionJob({
+            ...input,
+            ceilingWei: "12",
+        });
+        assert.deepEqual(
+            edited.job.competitionPreset,
+            created.job.competitionPreset,
+        );
+        repository.updateJobsPricingById([
+            {
+                ...input,
+                jobId: created.job.jobId,
+                priceTierId: null,
+                pricingSource: {
+                    kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+                },
+            },
+        ]);
+        assert.equal(
+            (
+                repository.getJobById(
+                    created.job.jobId,
+                ) as import("@artgod/shared/types").PersistedCollectionBiddingJobRecord
+            ).competitionPreset?.versionId,
+            v1.versionId,
+        );
+        const upgraded = repository.upsertCollectionJob({
+            ...input,
+            competitionPresetVersionId: v2.versionId,
+        });
+        assert.equal(upgraded.job.jobId, created.job.jobId);
+        assert.equal(
+            upgraded.commands[0].commandKind,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+        assert.equal(
+            upgraded.commands[0].requestedRevision,
+            upgraded.job.revision,
+        );
+        assert.equal(upgraded.job.competitionPreset?.versionId, v2.versionId);
+        presets.archivePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 2,
+        });
+        assert.equal(presets.listPresets(input).length, 0);
+        assert.deepEqual(
+            repository.upsertCollectionJob({
+                ...input,
+                competitionPresetVersionId: v2.versionId,
+            }).job.competitionPreset,
+            upgraded.job.competitionPreset,
+        );
+        assert.equal(
+            repository.upsertCollectionJob({
+                ...input,
+                competitionPresetVersionId: null,
+            }).job.competitionPreset,
+            null,
+        );
+        assert.throws(
+            () =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    competitionPresetVersionId: v2.versionId,
+                }),
+            /preset changed/,
+        );
+    });
+
+    it("rejects foreign collections, targets and stale preset versions without mutating intent or outbox", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const presets = new SqliteBiddingCompetitionPresetsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        };
+        const v1 = presets.savePreset({
+            ...input,
+            extraCompetitionTraits: [{ type: "Mode" }],
+        });
+        presets.savePreset({
+            ...input,
+            presetId: v1.presetId,
+            expectedRevision: 1,
+            extraCompetitionTraits: [{ type: "Biome" }],
+        });
+        for (const invalid of [
+            { ...input, competitionPresetVersionId: "missing" },
+            { ...input, competitionPresetVersionId: v1.versionId },
+            {
+                ...input,
+                competitionPresetVersionId: v1.versionId,
+                targetTraits: [],
+            },
+            { ...input, competitionPresetVersionId: v1.versionId, chainId: 2 },
+            {
+                ...input,
+                competitionPresetVersionId: v1.versionId,
+                collectionId: collectionId + 1,
+            },
+        ])
+            assert.throws(() => repository.upsertCollectionJob(invalid));
+        assert.equal(repository.listCollectionJobs(input).length, 0);
+        assert.equal(repository.listPendingCommands({ limit: 10 }).length, 0);
+        assert.throws(
+            () =>
+                presets.savePreset({
+                    ...input,
+                    presetId: v1.presetId,
+                    expectedRevision: 1,
+                    extraCompetitionTraits: [{ type: "Biome" }],
+                }),
+            /changed/,
+        );
+    });
+
+    it("rolls back reference and revision changes when command insertion fails", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        };
+        const preset =
+            new SqliteBiddingCompetitionPresetsRepository().savePreset({
+                ...input,
+                extraCompetitionTraits: [{ type: "Mode" }],
+            });
+        const created = repository.upsertCollectionJob(input);
+        db.exec(
+            "CREATE TRIGGER reject_command BEFORE INSERT ON trading_job_commands BEGIN SELECT RAISE(ABORT, 'fixture command failure'); END",
+        );
+        assert.throws(
+            () =>
+                repository.upsertCollectionJob({
+                    ...input,
+                    competitionPresetVersionId: preset.versionId,
+                }),
+            /fixture command failure/,
+        );
+        assert.deepEqual(repository.getJobById(created.job.jobId), created.job);
+    });
+
+    it("upgrades pre-feature declarations and validates the manual rollback of the superseded migration", async () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "1",
+            ceilingWei: "10",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits: [{ type: "Zone", value: "Kairo" }],
+        });
+        db.exec(
+            "DROP INDEX trading_bidding_job_specs_competition_version_idx; ALTER TABLE trading_bidding_job_specs DROP COLUMN competition_preset_version_id; DROP TABLE trading_bidding_competition_preset_versions; DROP TABLE trading_bidding_competition_presets;",
+        );
+        db.prepare("DELETE FROM migrations WHERE name = ?").run(
+            "062_trait_competition_presets.sql",
+        );
+        db.exec(
+            "ALTER TABLE trading_bidding_job_specs ADD COLUMN extra_competition_traits_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(extra_competition_traits_json) AND json_type(extra_competition_traits_json) = 'array')",
+        );
+        db.prepare("INSERT INTO migrations (name) VALUES (?)").run(
+            "056_trait_bidding_competition.sql",
+        );
+        db.exec(
+            "BEGIN IMMEDIATE; ALTER TABLE trading_bidding_job_specs DROP COLUMN extra_competition_traits_json; DELETE FROM migrations WHERE name = '056_trait_bidding_competition.sql'; COMMIT;",
+        );
+        await createMigrationRunner().runMigrations();
+        await createMigrationRunner().runMigrations();
+        assert.deepEqual(
+            new SqliteBiddingJobsRepository().getJobById(created.job.jobId),
+            created.job,
         );
     });
 

@@ -14,6 +14,9 @@ the supervised bot evaluates state and talks to marketplace and chain APIs.
    limits.
 4. [Bidding runtime observability](03-bidding-runtime-observability.md) — opt-in
    desktop metrics, Grafana panels, latency, pressure, and operator recovery.
+5. [Trait bidding competition](04-trait-competition.md) — inclusive competition,
+   extra selectors, source wildcards, immutable preset versions, and
+   upgrade contracts.
 
 Wallet custody is documented under
 [Desktop](../desktop/03-wallet-keystore-and-bot-unlock.md). Topic documents

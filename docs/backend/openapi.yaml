@@ -885,6 +885,107 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bidding/competition-presets:
+        get:
+            tags: [Trading]
+            summary: List current extra targets presets
+            operationId: listCompetitionPresets
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            responses:
+                "200":
+                    description: Current collection presets; existing job references are unchanged
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CompetitionPresetsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+        put:
+            tags: [Trading]
+            summary: Create an extra targets preset or revise its extras
+            operationId: upsertCompetitionPreset
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertCompetitionPresetRequest"
+            responses:
+                "200":
+                    description: Current collection presets; existing job references are unchanged
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CompetitionPresetsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/competition-presets/{preset_id}:
+        delete:
+            tags: [Trading]
+            summary: Archive a preset while retaining referenced versions
+            operationId: archiveCompetitionPreset
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: preset_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [expectedRevision]
+                            properties:
+                                expectedRevision:
+                                    type: integer
+                                    minimum: 1
+            responses:
+                "200":
+                    description: Current collection presets; referenced versions remain available to jobs
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CompetitionPresetsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bidding/price-tiers:
         get:
             tags: [Trading]
@@ -3099,6 +3200,91 @@ components:
                 value:
                     type: string
 
+        ExtraCompetitionTraits:
+            type: array
+            maxItems: 64
+            description: Preset selectors for standalone single-trait bids. An omitted value includes every observed value for the key. Selectors never alter job targets or marketplace submission criteria.
+            items:
+                type: object
+                required: [type]
+                additionalProperties: false
+                properties:
+                    type:
+                        type: string
+                        minLength: 1
+                    value:
+                        type: string
+                        minLength: 1
+
+        CompetitionPresetVersion:
+            type: object
+            required:
+                [
+                    versionId,
+                    presetId,
+                    revision,
+                    targetTraits,
+                    extraCompetitionTraits,
+                ]
+            additionalProperties: false
+            properties:
+                versionId:
+                    type: string
+                presetId:
+                    type: string
+                revision:
+                    type: integer
+                    minimum: 1
+                targetTraits:
+                    allOf:
+                        - $ref: "#/components/schemas/ExtraCompetitionTraits"
+                    minItems: 1
+                    maxItems: 2
+                    description: Source pattern with unique trait keys. An omitted value matches any concrete value of that key; the complete key combination must match the job target.
+                extraCompetitionTraits:
+                    $ref: "#/components/schemas/ExtraCompetitionTraits"
+                archivedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Included on inventory items; archived presets are omitted from the list.
+
+        CompetitionPresetsResponse:
+            type: object
+            required: [chain, collection, presets]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                presets:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CompetitionPresetVersion"
+
+        UpsertCompetitionPresetRequest:
+            type: object
+            required: [targetTraits, extraCompetitionTraits]
+            additionalProperties: false
+            properties:
+                presetId:
+                    type: string
+                expectedRevision:
+                    type: integer
+                    minimum: 1
+                    description: Required when editing an existing preset; stale revisions are rejected.
+                targetTraits:
+                    allOf:
+                        - $ref: "#/components/schemas/ExtraCompetitionTraits"
+                    minItems: 1
+                    maxItems: 2
+                    description: Source pattern with unique trait keys; an omitted value means any value for that key. Fixed at creation; edits must preserve the same keys, values and wildcard choices. Selector order and surrounding whitespace do not change source identity.
+                extraCompetitionTraits:
+                    allOf:
+                        - $ref: "#/components/schemas/ExtraCompetitionTraits"
+                    minItems: 1
+
         TraitFilterDisplayKind:
             type: string
             enum: [set, range]
@@ -3373,6 +3559,10 @@ components:
                             anyOf:
                                 - $ref: "#/components/schemas/BiddingJobPricingSource"
                                 - $ref: "#/components/schemas/NullValue"
+                        competitionPreset:
+                            anyOf:
+                                - $ref: "#/components/schemas/CompetitionPresetVersion"
+                                - $ref: "#/components/schemas/NullValue"
                 runtime:
                     $ref: "#/components/schemas/BiddingJobRuntimeState"
 
@@ -3417,6 +3607,10 @@ components:
                     minItems: 1
                     items:
                         $ref: "#/components/schemas/TradingTraitCriterion"
+                competitionPresetVersionId:
+                    type: string
+                    nullable: true
+                    description: Select a current preset version for this exact collection and target. Omission preserves the saved reference; null clears it.
 
         UpsertCollectionBiddingJobRequest:
             type: object

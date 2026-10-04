@@ -130,6 +130,28 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+// Competition-only selector: an omitted value includes all standalone bids for
+// that trait key. It never changes the criteria sent to the marketplace.
+export type TradingTraitCompetitionSelector = {
+    type: string;
+    value?: string;
+};
+
+// A job references a specific immutable inventory version, never a mutable preset.
+export type TradingCompetitionPresetVersion = {
+    versionId: string;
+    presetId: string;
+    revision: number;
+    // An omitted source value applies the preset to any exact value of that key.
+    // This pattern never becomes the declared marketplace offer target.
+    targetTraits: TradingTraitCompetitionSelector[];
+    extraCompetitionTraits: TradingTraitCompetitionSelector[];
+};
+
+export type TradingCompetitionPreset = TradingCompetitionPresetVersion & {
+    archivedAt: string | null;
+};
+
 export type TradingBiddingJobTargetDescriptor =
     | {
           targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
@@ -653,6 +675,7 @@ export type PersistedCollectionBiddingJobRecord = PersistedBiddingJobBase & {
     tokenId: null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
+    competitionPreset: TradingCompetitionPresetVersion | null;
     competitorTraits: [];
 };
 

@@ -769,7 +769,12 @@ describe("OpenSeaBiddingService", () => {
                     { type: "Mode", value: "Terrain" },
                 ],
             },
-            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            config: {
+                floor: 1n,
+                ceiling: 2n,
+                delta: 1n,
+                extraCompetitionTraits: [{ type: "Zone" }],
+            },
             state: {},
         };
 
@@ -795,6 +800,8 @@ describe("OpenSeaBiddingService", () => {
         ]);
         assert.equal(inputs[1].traitType, undefined);
         assert.equal(inputs[1].traitValue, undefined);
+        assert.equal(inputs[1].extraCompetitionTraits, undefined);
+        assert.ok(!JSON.stringify(inputs[1]).includes("Zone"));
     });
 
     it("places token offers with unit amount and returns expiration", async () => {
@@ -1423,10 +1430,167 @@ describe("OpenSeaBiddingService", () => {
 
         assert.ok(ids.includes("0xcollectionwide"));
         assert.ok(ids.includes("0xmulti-match"));
-        assert.ok(!ids.includes("0xsingle-only"));
+        assert.ok(ids.includes("0xsingle-only"));
         assert.ok(!ids.includes("0xmulti-miss"));
         assert.ok(!ids.includes("0xexplicit-item"));
         assert.equal(liveCollectionOfferCalls, 0);
+    });
+
+    it("paginates all scopes for trait competition when the snapshot is missing and rejects partial traversal", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const mode = { type: "Mode", value: "Terrain" };
+        const zone = { type: "Zone", value: "Kairo" };
+        const job = {
+            id: "trait-fallback",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+                traits: [mode, zone],
+            },
+            config: { floor: 1n, ceiling: 10n, delta: 1n },
+            state: {},
+        };
+        const requests: Array<string | undefined> = [];
+        sdk.api.getCollectionOffers = async () => {
+            throw new Error("collection-only endpoint loses trait competition");
+        };
+        sdk.api.getAllOffers = async (_slug, _limit, cursor) => {
+            requests.push(cursor);
+            return cursor
+                ? {
+                      offers: [
+                          makeOffer("zone", "other", "4", collectionAddress, {
+                              trait: zone,
+                          }),
+                          makeOffer(
+                              "narrower",
+                              "other",
+                              "9",
+                              collectionAddress,
+                              {
+                                  traits: [
+                                      mode,
+                                      zone,
+                                      { type: "Biome", value: "91" },
+                                  ],
+                              },
+                          ),
+                          makeOffer("mode", "other", "3", collectionAddress, {
+                              trait: mode,
+                          }),
+                      ],
+                  }
+                : {
+                      offers: [
+                          makeOffer(
+                              "collection",
+                              "other",
+                              "1",
+                              collectionAddress,
+                              { encoded_token_ids: "*" },
+                          ),
+                          makeOffer("exact", "other", "2", collectionAddress, {
+                              traits: [mode, zone],
+                          }),
+                          makeOffer("mode", "other", "3", collectionAddress, {
+                              trait: mode,
+                          }),
+                      ],
+                      next: "page2",
+                  };
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+        assert.deepEqual(
+            (await service.getActiveOffers(job)).map((offer) => offer.id),
+            ["zone", "mode", "exact", "collection"],
+        );
+        assert.deepEqual(requests, [undefined, "page2"]);
+        sdk.api.getAllOffers = async () => ({ offers: [], next: "repeat" });
+        await assert.rejects(
+            service.getActiveOffers(job),
+            /Incomplete trait competition/,
+        );
+        sdk.api.getAllOffers = async () => {
+            throw new Error("page unavailable");
+        };
+        await assert.rejects(service.getActiveOffers(job), /page unavailable/);
+    });
+
+    it("uses the same standalone extra-trait policy for cached and fallback competition", async () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        const zone = { type: "Zone", value: "Kairo" };
+        const offers = [
+            makeOffer("target", "other", "1", collectionAddress, {
+                trait: zone,
+            }),
+            makeOffer("extra", "other", "2", collectionAddress, {
+                trait: mode,
+            }),
+            makeOffer("whole-key", "other", "3", collectionAddress, {
+                trait: { type: "Biome", value: "1000" },
+            }),
+            makeOffer("wrong-value", "other", "4", collectionAddress, {
+                trait: { type: "Mode", value: "Water" },
+            }),
+            makeOffer("multi-extra", "other", "5", collectionAddress, {
+                traits: [mode, zone],
+            }),
+        ];
+        const job = {
+            id: "extras",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+                traits: [zone],
+            },
+            config: {
+                floor: 1n,
+                ceiling: 10n,
+                delta: 1n,
+                extraCompetitionTraits: [mode, { type: "Biome" }],
+            },
+            state: {},
+        };
+        for (const cached of [true, false]) {
+            const sdk = new MockOpenSeaSdk();
+            sdk.api.getAllOffers = async () => {
+                assert.equal(cached, false);
+                return { offers };
+            };
+            sdk.api.getTraitOffers = async () => {
+                throw new Error("unexpected selector fan-out");
+            };
+            sdk.api.getTraits = async () => {
+                throw new Error("unexpected key expansion");
+            };
+            const service = new OpenSeaBiddingService(sdk, makerAddress, {
+                collectionOfferSnapshotProvider: cached
+                    ? new FakeCollectionOfferSnapshotProvider({
+                          [collectionSlug]: {
+                              collectionSlug,
+                              refreshedAt: Date.now(),
+                              offers,
+                          },
+                      })
+                    : undefined,
+            });
+            assert.deepEqual(
+                (await service.getActiveOffers(job)).map((offer) => offer.id),
+                ["whole-key", "extra", "target"],
+            );
+        }
     });
 
     it("uses cached token snapshot discovery for collection-wide and applicable criteria offers", async () => {

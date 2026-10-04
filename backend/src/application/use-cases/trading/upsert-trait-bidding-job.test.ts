@@ -63,6 +63,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             ceilingWei: string;
             deltaWei: string;
             targetTraits: { type: string; value: string }[];
+            competitionPresetVersionId?: string | null;
         }[] = [];
         let publishedCommands: TradingJobCommandRecord[] = [];
         const useCase = new UpsertTraitBiddingJobUseCase(
@@ -83,6 +84,8 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                             ceilingWei: input.ceilingWei,
                             deltaWei: input.deltaWei,
                             targetTraits: input.targetTraits,
+                            competitionPresetVersionId:
+                                input.competitionPresetVersionId,
                         }),
                         commands,
                     };
@@ -109,6 +112,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
                 { type: "Mode", value: "Terrain" },
                 { type: "Biome", value: "42" },
             ],
+            competitionPresetVersionId: "preset-version-1",
         });
 
         const persistedInput = persistedInputs[0];
@@ -121,8 +125,15 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             { type: "Mode", value: "Terrain" },
         ]);
         assert.equal(result.job.target.type, "collection");
-        assert.deepEqual(result.job.target.targetTraits, persistedInput.targetTraits);
+        assert.deepEqual(
+            result.job.target.targetTraits,
+            persistedInput.targetTraits,
+        );
         assert.deepEqual(publishedCommands, commands);
+        assert.equal(
+            persistedInput.competitionPresetVersionId,
+            "preset-version-1",
+        );
     });
 
     it("rejects bad trait targets and quantities before persistence", () => {
@@ -274,6 +285,7 @@ function buildPersistedTraitJob(input: {
     ceilingWei: string;
     deltaWei: string;
     targetTraits: { type: string; value: string }[];
+    competitionPresetVersionId?: string | null;
 }): PersistedCollectionBiddingJobRecord {
     return {
         jobId: "job-trait",
@@ -298,6 +310,7 @@ function buildPersistedTraitJob(input: {
         tokenId: null,
         quantity: 1,
         targetTraits: input.targetTraits,
+        competitionPreset: null,
         competitorTraits: [],
     };
 }

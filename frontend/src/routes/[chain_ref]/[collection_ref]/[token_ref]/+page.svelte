@@ -15,6 +15,8 @@
 	} from '@artgod/shared/types';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import BiddingCompetitionPresetPanel from '$lib/components/BiddingCompetitionPresetPanel.svelte';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import TokenDetailMediaError from '$lib/components/TokenDetailMediaError.svelte';
@@ -130,6 +132,7 @@
 	let selectedTokenTraitTarget = $state<ApiTokenDetailTrait | null>(null);
 	let tokenBiddingPanelOpen = $state(false);
 	let tokenBiddingPanelExpandSignal = $state(0);
+	let competitionInventory = $state<BiddingCompetitionPresetInventory | null>(null);
 	let tokenBiddingContentElement = $state<HTMLElement | null>(null);
 	let tokenBiddingNextUpdateAtMs = $state<number | null>(null);
 	let tokenDetailRequestId = 0;
@@ -925,6 +928,15 @@
 		{/if}
 
 		{#if shouldShowTokenBiddingAutomation()}
+			<BiddingCompetitionPresetPanel
+				chain={data?.chain ?? null}
+				collection={data?.collection ?? null}
+				facets={[]}
+				open={false}
+				onInventoryChange={(value) => {
+					competitionInventory = value;
+				}}
+			/>
 			<BiddingAutomationPanel
 				open={tokenBiddingPanelOpen}
 				chain={data?.chain ?? null}
@@ -935,6 +947,7 @@
 				bidBook={tokenBiddingBidBook}
 				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 				priceTiers={data?.priceTiers ?? []}
+				{competitionInventory}
 				trustOpenSeaSignedZoneTraitOffers={data?.trustOpenSeaSignedZoneTraitOffers}
 				expandSignal={tokenBiddingPanelExpandSignal}
 				showCollapsedLauncher={false}

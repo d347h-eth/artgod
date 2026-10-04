@@ -540,6 +540,43 @@ describe("trading HTTP adapters", () => {
         );
     });
 
+    it("maps a preset reference, explicit clearing, and omission at the HTTP boundary", async () => {
+        const adapter = new UpsertTraitBiddingJobHttpAdapter({
+            upsertTraitBiddingJob: (input) => input as never,
+        });
+        const base = {
+            params: { chain_ref: "ethereum", collection_ref: "fixture" },
+            body: {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "1",
+                deltaEth: "0.01",
+                targetTraits: [{ type: "Zone", value: "Kairo" }],
+            },
+        };
+        for (const versionId of [undefined, null, "preset-version-1"]) {
+            const mapped = (await adapter.handle(
+                request({
+                    ...base,
+                    body: {
+                        ...base.body,
+                        competitionPresetVersionId: versionId,
+                    },
+                }),
+            )) as unknown as { competitionPresetVersionId: unknown };
+            assert.equal(mapped.competitionPresetVersionId, versionId);
+        }
+        await assert.rejects(
+            adapter.handle(
+                request({
+                    ...base,
+                    body: { ...base.body, competitionPresetVersionId: [] },
+                }),
+            ),
+            ReadModelBadRequestError,
+        );
+    });
+
     it("maps trait job DTOs and rejects malformed trait targets", async () => {
         let captured: unknown;
         const adapter = new UpsertTraitBiddingJobHttpAdapter({
@@ -573,6 +610,7 @@ describe("trading HTTP adapters", () => {
             priceTierId: undefined,
             quantity: 2,
             targetTraits: [{ type: "Mode", value: "Terrain" }],
+            competitionPresetVersionId: undefined,
         });
         await assert.rejects(
             () =>

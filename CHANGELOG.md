@@ -7,6 +7,12 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 ## Unreleased
 
+### Changed
+
+- Extra targets presets keep their source target fixed after creation. Editing
+  changes only their extra targets; existing bidding jobs keep their selected
+  versions until explicitly updated.
+
 ### Fixed
 
 - Bidding authorization opens in a shorter, resizable window with visible Next

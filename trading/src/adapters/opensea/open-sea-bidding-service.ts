@@ -1,4 +1,5 @@
 import { formatUnits } from "viem";
+import { matchesTraitCompetition } from "../../domain/market/strategy/trait-competition.js";
 import {
     getOpenSeaOfferCriteria,
     inferOpenSeaNftSelectionKind,
@@ -67,7 +68,6 @@ type SnapshotScanSummary = {
     criteriaUntracked?: number;
     encodedTokenIdsMatched?: number;
     encodedTokenIdsSkipped?: number;
-    exactCriteriaMatched?: number;
     metadataFound?: boolean;
     tokenTraits?: TraitTarget[];
     mismatchSamples?: string[];
@@ -90,6 +90,7 @@ export interface OpenSeaBiddingServiceOptions {
 
 // Stable operation names describe each OpenSea SDK boundary used by bidding.
 export const OPEN_SEA_BIDDING_OPERATION = {
+    GetAllOffers: "get_all_offers",
     GetNftOffers: "get_nft_offers",
     GetCollectionOffers: "get_collection_offers",
     GetTraitOffers: "get_trait_offers",
@@ -142,6 +143,7 @@ const sdkCallCosts: Record<
     OpenSeaBiddingOperation,
     { get: number; post: number }
 > = {
+    [OPEN_SEA_BIDDING_OPERATION.GetAllOffers]: { get: 1, post: 0 },
     [OPEN_SEA_BIDDING_OPERATION.GetNftOffers]: { get: 1, post: 0 },
     [OPEN_SEA_BIDDING_OPERATION.GetCollectionOffers]: { get: 1, post: 0 },
     [OPEN_SEA_BIDDING_OPERATION.GetTraitOffers]: { get: 1, post: 0 },
@@ -301,11 +303,12 @@ export class OpenSeaBiddingService implements BiddingService {
                             this.addUniqueOffer(offers, offer),
                         );
                     } else {
-                        // 2b. Fall back to live collection-offer pagination only when the snapshot is unavailable.
+                        // Trait competition needs all offer scopes if the shared snapshot is unavailable.
                         const collectionOffers =
                             await this.fetchAllCollectionOffers(
                                 job.collectionSlug,
                                 context,
+                                (job.target.traits?.length ?? 0) > 0,
                             );
                         this.getLiveCollectionTargetOffers(
                             job,
@@ -1432,7 +1435,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 : [];
         const summary: SnapshotScanSummary = {
             collectionWideAdded: 0,
-            exactCriteriaMatched: 0,
+            criteriaMatched: 0,
             explicitItemSkipped: 0,
         };
 
@@ -1465,7 +1468,13 @@ export class OpenSeaBiddingService implements BiddingService {
             const criteriaTraits = this.normalizeOfferTraitCriteria(
                 this.getOfferCriteria(rawOffer),
             );
-            if (!this.matchesExactTraitTargets(criteriaTraits, targetTraits)) {
+            if (
+                !matchesTraitCompetition(
+                    criteriaTraits,
+                    targetTraits,
+                    job.config.extraCompetitionTraits,
+                )
+            ) {
                 return;
             }
 
@@ -1476,7 +1485,7 @@ export class OpenSeaBiddingService implements BiddingService {
             );
             if (parsed) {
                 this.addUniqueOffer(cachedOffers, parsed);
-                summary.exactCriteriaMatched!++;
+                summary.criteriaMatched!++;
             }
         });
 
@@ -1488,7 +1497,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 snapshotOfferCount: snapshot.offers.length,
                 snapshotAgeMs: Date.now() - snapshot.refreshedAt,
                 collectionWideAdded: summary.collectionWideAdded,
-                exactCriteriaMatched: summary.exactCriteriaMatched ?? 0,
+                criteriaMatched: summary.criteriaMatched ?? 0,
                 explicitItemSkipped: summary.explicitItemSkipped,
                 targetTraits,
             },
@@ -1562,6 +1571,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private async fetchAllCollectionOffers(
         collectionSlug: string,
         context: BiddingServiceRequestContext = {},
+        includeTraitOffers = false,
     ): Promise<unknown[]> {
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
@@ -1569,10 +1579,14 @@ export class OpenSeaBiddingService implements BiddingService {
 
         while (true) {
             const response = await this.withRetry(
-                OPEN_SEA_BIDDING_OPERATION.GetCollectionOffers,
+                includeTraitOffers
+                    ? OPEN_SEA_BIDDING_OPERATION.GetAllOffers
+                    : OPEN_SEA_BIDDING_OPERATION.GetCollectionOffers,
                 "collection offers",
                 () =>
-                    this.sdk.api.getCollectionOffers(
+                    (includeTraitOffers
+                        ? this.sdk.api.getAllOffers.bind(this.sdk.api)
+                        : this.sdk.api.getCollectionOffers.bind(this.sdk.api))(
                         collectionSlug,
                         this.offersPageSize,
                         cursor,
@@ -1588,6 +1602,11 @@ export class OpenSeaBiddingService implements BiddingService {
                 break;
             }
             if (seenCursors.has(next)) {
+                if (includeTraitOffers) {
+                    throw new Error(
+                        "Incomplete trait competition: all-offers pagination cursor repeated",
+                    );
+                }
                 log.error(
                     "collectionOffersPaginationLoop",
                     "Collection offers pagination loop detected",
@@ -1690,7 +1709,15 @@ export class OpenSeaBiddingService implements BiddingService {
             const criteriaTraits = this.normalizeOfferTraitCriteria(
                 this.getOfferCriteria(rawOffer),
             );
-            if (!this.matchesExactTraitTargets(criteriaTraits, targetTraits)) {
+            if (
+                this.inferNftSelectionKind(rawOffer, job.collectionAddress) ===
+                    "item" ||
+                !matchesTraitCompetition(
+                    criteriaTraits,
+                    targetTraits,
+                    job.config.extraCompetitionTraits,
+                )
+            ) {
                 return;
             }
 

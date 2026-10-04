@@ -64,6 +64,7 @@ a:hover {
 
 .breadcrumbs {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 0.4rem;
 	align-items: center;
 	padding: 0.55rem 0.75rem;
@@ -2338,6 +2339,7 @@ th {
 	padding: 0.12rem 0.45rem;
 	white-space: nowrap;
 	text-align: left;
+	vertical-align: middle;
 }
 
 .bidding-price-tier-table th {
@@ -2384,9 +2386,35 @@ th {
 
 .bidding-price-tier-form .bootstrap-form-row,
 .bidding-price-tier-settings-form .bootstrap-form-row {
-	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	grid-template-columns: minmax(0, var(--token-bidding-label-width)) minmax(
+			0,
+			var(--token-bidding-control-width)
+		);
 	column-gap: var(--token-bidding-field-gap);
 	width: 100%;
+}
+
+.bidding-trait-selectors {
+	display: grid;
+	gap: var(--control-button-gap);
+	min-width: 0;
+	width: 100%;
+}
+
+.bidding-trait-selector-row {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr)) 20px;
+	align-items: center;
+	gap: var(--control-button-gap);
+}
+
+.bidding-trait-selector-row > select {
+	min-width: 0;
+	width: 100%;
+}
+
+.bidding-trait-selectors > .bootstrap-form-row > button {
+	justify-self: start;
 }
 
 .bidding-price-tier-form .bootstrap-form-row > label:first-child,
@@ -3506,6 +3534,18 @@ a.bid-book-own-status:focus-visible {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.token-bidding-competition-options {
+	min-width: 0;
+}
+
+.secondary-tabs.token-bidding-competition-options button {
+	min-width: 0;
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	line-height: 1.25;
 }
 
 .token-bidding-form-footer {

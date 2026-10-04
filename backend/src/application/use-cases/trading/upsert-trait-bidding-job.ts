@@ -1,4 +1,12 @@
-import type { ChainRecord, CollectionListItem, TradingTraitCriterion } from "@artgod/shared/types";
+import type {
+    ChainRecord,
+    CollectionListItem,
+    TradingTraitCriterion,
+} from "@artgod/shared/types";
+import {
+    normalizeTraitBiddingTarget,
+    TraitCompetitionValidationError,
+} from "@artgod/shared/trading/trait-competition";
 import type {
     BiddingJobsRepositoryPort,
     UpsertCollectionBiddingJobInput as PersistedUpsertCollectionBiddingJobInput,
@@ -16,13 +24,11 @@ import {
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { UpsertTraitBiddingJobOutput } from "./types.js";
 
-export type TraitBiddingTargetSupportReadPort = {
-    listMarketplaceBiddingSupportedTraits(params: {
-        chainId: number;
-        collectionId: number;
-        traits: { key: string; value: string }[];
-    }): { key: string; value: string }[];
-};
+import {
+    assertMarketplaceBiddingSupportedTargetTraits,
+    type TraitBiddingTargetSupportReadPort,
+} from "./trait-bidding-target.js";
+export type { TraitBiddingTargetSupportReadPort } from "./trait-bidding-target.js";
 
 export type UpsertTraitBiddingJobInput = {
     chainRef: string;
@@ -34,6 +40,7 @@ export type UpsertTraitBiddingJobInput = {
     priceTierId?: string | null;
     quantity?: number;
     targetTraits: TradingTraitCriterion[];
+    competitionPresetVersionId?: string | null;
 };
 
 export class UpsertTraitBiddingJobUseCase {
@@ -73,7 +80,15 @@ export class UpsertTraitBiddingJobUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const targetTraits = normalizeTargetTraits(input.targetTraits);
+        let targetTraits: TradingTraitCriterion[];
+        try {
+            targetTraits = normalizeTraitBiddingTarget(input.targetTraits);
+        } catch (error) {
+            if (error instanceof TraitCompetitionValidationError) {
+                throw new TradingValidationError(error.message);
+            }
+            throw error;
+        }
         assertMarketplaceBiddingSupportedTargetTraits({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -101,11 +116,11 @@ export class UpsertTraitBiddingJobUseCase {
             pricingSource: pricing.pricingSource,
             quantity: parseQuantity(input.quantity),
             targetTraits,
+            competitionPresetVersionId: input.competitionPresetVersionId,
         };
         // Persist the desired trait job and enqueue the matching Outbox command.
-        const result = this.biddingJobsRepositoryPort.upsertCollectionJob(
-            persistedInput,
-        );
+        const result =
+            this.biddingJobsRepositoryPort.upsertCollectionJob(persistedInput);
         // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,
@@ -119,34 +134,6 @@ export class UpsertTraitBiddingJobUseCase {
     }
 }
 
-function assertMarketplaceBiddingSupportedTargetTraits(params: {
-    chainId: number;
-    collectionId: number;
-    targetTraits: TradingTraitCriterion[];
-    traitBiddingTargetSupportReadPort: TraitBiddingTargetSupportReadPort;
-}): void {
-    const supportedTraits =
-        params.traitBiddingTargetSupportReadPort.listMarketplaceBiddingSupportedTraits({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            traits: params.targetTraits.map((trait) => ({
-                key: trait.type,
-                value: trait.value,
-            })),
-        });
-    const supportedTraitKeys = new Set(
-        supportedTraits.map((trait) => traitSignature(trait.key, trait.value)),
-    );
-    const unsupportedTrait = params.targetTraits.find(
-        (trait) => !supportedTraitKeys.has(traitSignature(trait.type, trait.value)),
-    );
-    if (unsupportedTrait) {
-        throw new TradingValidationError(
-            `target trait is not available for marketplace bidding: ${unsupportedTrait.type}=${unsupportedTrait.value}`,
-        );
-    }
-}
-
 function parseQuantity(value: number | undefined): number {
     if (value === undefined) {
         return 1;
@@ -155,50 +142,4 @@ function parseQuantity(value: number | undefined): number {
         throw new TradingValidationError("quantity must be an integer > 0");
     }
     return value;
-}
-
-function normalizeTargetTraits(
-    traits: TradingTraitCriterion[],
-): TradingTraitCriterion[] {
-    if (traits.length === 0) {
-        throw new TradingValidationError("targetTraits is required");
-    }
-
-    const seen = new Set<string>();
-    return traits
-        .map((trait) => ({
-            type: normalizeTraitPart(trait.type, "targetTraits.type"),
-            value: normalizeTraitPart(trait.value, "targetTraits.value"),
-        }))
-        .sort(compareTraits)
-        .map((trait) => {
-            const key = `${trait.type}\u0000${trait.value}`;
-            if (seen.has(key)) {
-                throw new TradingValidationError(
-                    `duplicate target trait ${trait.type}=${trait.value}`,
-                );
-            }
-            seen.add(key);
-            return trait;
-        });
-}
-
-function normalizeTraitPart(value: string, field: string): string {
-    const normalized = value.trim();
-    if (!normalized) {
-        throw new TradingValidationError(`${field} is required`);
-    }
-    return normalized;
-}
-
-function compareTraits(
-    left: TradingTraitCriterion,
-    right: TradingTraitCriterion,
-): number {
-    const typeCompare = left.type.localeCompare(right.type);
-    return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
-}
-
-function traitSignature(type: string, value: string): string {
-    return `${type}\u0000${value}`;
 }

@@ -133,6 +133,8 @@ spinners when an established ArtGod control family already exists.
 
 `InfoTooltip` keeps its popup inside the visible viewport on activation,
 scrolling and resizing, while preserving its placement beside the trigger.
+Clicking or tapping keeps help open after pointer focus is released. Selecting
+another control, clicking or tapping elsewhere, or pressing `Escape` dismisses it.
 
 ### Admin setting summaries
 
@@ -306,6 +308,15 @@ Specific controls:
 Control rules:
 
 - `tiers` toggles collection price-tier management.
+- `extra targets` toggles collection extra-target presets only in the Offers
+  `traits` view. Its editor reuses price-tier headers, tables, field columns and
+  armed action buttons. Sources have at most two unique keys; source and extra
+  dropdowns distinguish `any (all)` from quoted literal metadata values, with
+  flat options. Field labels align with their first input row; form reset uses
+  the same button treatment as tiers and the bidding panel.
+  Editing disables source key, value, add and remove controls while leaving
+  source help available and extras editable. Reset returns to creation mode;
+  another source requires a new preset.
 - `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
 - `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
 - On holder-token pages, `bid on all tokens` is additionally constrained to tokens currently held by that owner.

@@ -124,6 +124,10 @@ import {
 } from "./http/common/observability.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
 import { registerTokenImageCacheStaticRoutes } from "./http/common/token-image-cache-static.js";
+import {
+    BiddingCompetitionPresetsHttpAdapter,
+    type BiddingCompetitionPresetsPort,
+} from "./http/handlers/trading/bidding-competition-presets.js";
 import { registerApiRoutes } from "./http-routes.js";
 import type {
     BackendDeploymentConfig,
@@ -206,6 +210,7 @@ export function createApiApp(
         deploymentConfig.mode,
     ),
     publicGetSyncBackfillStateUseCase: GetSyncBackfillStatePort | null = null,
+    competitionPresetsPort: BiddingCompetitionPresetsPort | null = null,
 ): FastifyInstance {
     const isPublicSingleCollection = isPublicSingleCollectionDeployment(
         deploymentConfig.mode,
@@ -479,6 +484,9 @@ export function createApiApp(
             includeCsrfRoute: !isPublicSingleCollection,
             observability,
         },
+        competitionPresetsPort
+            ? new BiddingCompetitionPresetsHttpAdapter(competitionPresetsPort)
+            : null,
     );
     registerTokenImageCacheStaticRoutes(app, tokenImageCacheDir);
     if (userlandUiDistDir) {

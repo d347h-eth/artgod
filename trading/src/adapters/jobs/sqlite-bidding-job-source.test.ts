@@ -171,6 +171,33 @@ describe("SqliteBiddingJobSource", () => {
             ]),
         });
 
+        db.prepare(
+            "INSERT INTO trading_bidding_competition_presets (preset_id, chain_id, collection_id, revision) VALUES (?, ?, ?, 2)",
+        ).run("source-preset", 1, grailsCollectionId);
+        db.prepare(
+            "INSERT INTO trading_bidding_competition_preset_versions (version_id, preset_id, revision, target_traits_json, extra_traits_json) VALUES (?, ?, ?, ?, ?)",
+        ).run(
+            "source-v1",
+            "source-preset",
+            1,
+            JSON.stringify([{ type: "Background" }]),
+            JSON.stringify([
+                { type: "Mode" },
+                { type: "Zone", value: "Kairo" },
+            ]),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_competition_preset_versions (version_id, preset_id, revision, target_traits_json, extra_traits_json) VALUES (?, ?, ?, ?, ?)",
+        ).run(
+            "source-v2",
+            "source-preset",
+            2,
+            JSON.stringify([{ type: "Background", value: "Gold" }]),
+            JSON.stringify([{ type: "Biome" }]),
+        );
+        db.prepare(
+            "UPDATE trading_bidding_job_specs SET competition_preset_version_id = ? WHERE job_id = ?",
+        ).run("source-v1", "job-collection");
         const source = new SqliteBiddingJobSource(1);
         const jobs = await source.loadEnabledJobs();
         const jobsById = new Map(jobs.map((job) => [job.id, job]));
@@ -212,6 +239,10 @@ describe("SqliteBiddingJobSource", () => {
                 floor: 100000000000000000n,
                 ceiling: 200000000000000000n,
                 delta: 1000000000000000n,
+                extraCompetitionTraits: [
+                    { type: "Mode" },
+                    { type: "Zone", value: "Kairo" },
+                ],
             },
             state: {},
         });

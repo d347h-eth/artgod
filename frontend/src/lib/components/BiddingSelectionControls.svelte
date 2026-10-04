@@ -18,6 +18,9 @@
 		onBidOnTokens,
 		onBidOnCollection = null,
 		onToggleTiers = null,
+		onToggleCompetitionPresets = null,
+		competitionPresetsActive = false,
+		showCompetitionPresetAction = false,
 		onClear
 	}: {
 		summary: string | null;
@@ -34,6 +37,9 @@
 		onBidOnTokens: () => MaybePromise<void>;
 		onBidOnCollection?: (() => MaybePromise<void>) | null;
 		onToggleTiers?: (() => MaybePromise<void>) | null;
+		onToggleCompetitionPresets?: (() => MaybePromise<void>) | null;
+		competitionPresetsActive?: boolean;
+		showCompetitionPresetAction?: boolean;
 		onClear: () => MaybePromise<void>;
 	} = $props();
 
@@ -68,6 +74,17 @@
 			onclick={handleToggleTiers}
 		>
 			{BIDDING_SELECTION_ACTION_LABEL.Tiers}
+		</button>
+	{/if}
+	{#if showCompetitionPresetAction && onToggleCompetitionPresets}
+		<button
+			type="button"
+			class="facet-panel-action-button bidding-price-tier-toggle"
+			class:bidding-price-tier-toggle-active={competitionPresetsActive}
+			aria-pressed={competitionPresetsActive}
+			onclick={() => { void onToggleCompetitionPresets?.(); }}
+		>
+			{BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras}
 		</button>
 	{/if}
 	{#if showTraitAction && onBidOnTraits}

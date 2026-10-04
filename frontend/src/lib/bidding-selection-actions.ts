@@ -9,6 +9,7 @@ export const BIDDING_SELECTION_ACTION_LABEL = {
 	PauseSelected: 'pause selected',
 	ArchiveSelected: 'archive selected',
 	Tiers: 'tiers',
+	CompetitiveExtras: 'extra targets',
 	Clear: 'clear'
 } as const;
 

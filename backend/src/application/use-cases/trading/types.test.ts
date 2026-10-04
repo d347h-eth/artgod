@@ -15,7 +15,10 @@ import {
 
 describe("trading use-case shared types", () => {
     it("parses positive Ether amounts and rejects invalid bidding prices", () => {
-        assert.equal(parsePositiveEthToWei(" 0.25 ", "floorEth"), "250000000000000000");
+        assert.equal(
+            parsePositiveEthToWei(" 0.25 ", "floorEth"),
+            "250000000000000000",
+        );
         assert.throws(
             () => parsePositiveEthToWei(" ", "floorEth"),
             /floorEth is required/,
@@ -75,7 +78,10 @@ describe("trading use-case shared types", () => {
         assert.equal(view.runtime?.currentPriceEth, "0.15");
         assert.equal(view.runtime?.activeOrderId, "order-1");
         assert.equal(view.runtime?.activeOrderPlacedAt, "2026-05-17T00:00:00Z");
-        assert.equal(view.runtime?.activeOrderVerifiedAt, "2026-05-17T00:00:02Z");
+        assert.equal(
+            view.runtime?.activeOrderVerifiedAt,
+            "2026-05-17T00:00:02Z",
+        );
         assert.equal(view.runtime?.bidPosition, null);
         assert.deepEqual(view.runtime?.bidConstraints, []);
         assert.equal(view.runtime?.competitorPriceEth, null);
@@ -96,6 +102,7 @@ function baseJob(): PersistedBiddingJobRecord {
         tokenId: null,
         quantity: 1,
         targetTraits: [],
+        competitionPreset: null,
         competitorTraits: [],
         floorWei: "100000000000000000",
         ceilingWei: "200000000000000000",

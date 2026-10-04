@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
+	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -124,6 +126,7 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
+	let competitionInventory = $state<BiddingCompetitionPresetInventory | null>(null);
 	let visibleBiddableBrowserTokenIds = $state<string[]>(visibleBiddableTokenIds(tokens));
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
@@ -485,6 +488,17 @@
 			{/if}
 		</section>
 	{/if}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingCompetitionPresetPanel
+			{chain}
+			{collection}
+			{facets}
+			open={false}
+			onInventoryChange={(value) => {
+				competitionInventory = value;
+			}}
+		/>
+	{/if}
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && priceTierPanelOpen && collection}
 		<BiddingPriceTierPanel
 			{chain}
@@ -536,6 +550,7 @@
 			bidBook={$tokenPanelBidBookState.bidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{competitionInventory}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

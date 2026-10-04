@@ -12,7 +12,7 @@ contract in `docs/ui/01-interaction-guidelines.md`.
 - The Userland bidding UI creates or edits declared intent; it never bypasses backend use cases or calls trading adapters directly.
 - Bot snapshot projection is a display read model and never replaces the runtime's own authoritative snapshot for bidding decisions.
 - `orders` fallback data is passive bid-book display only and never feeds bidder competitiveness or placement decisions.
-- Public single-collection mode may expose read-only offers and token bid books, but it must not expose bidding jobs, price tiers, or write controls.
+- Public single-collection mode may expose read-only offers and token bid books, but it must not expose bidding jobs, price tiers, presets for extra targets, or write controls.
 - Amounts shown in UI/API fields use Ether units; persisted EVM-facing amount columns use wei strings.
 
 ## Public-Alpha Control Boundary
@@ -157,6 +157,44 @@ Trait targets:
 - In trait bid-book view, a bucket-level `bid` action applies that bucket's traits to the filter and drafts the same trait target.
 - Trait criteria are canonicalized before persistence so the same key/value set resolves to the same declared job regardless of UI order.
 - OR-mode filter exploration remains a display/search aid; a drafted trait job stores the selected traits as a concrete AND target.
+
+Trait-job competition:
+
+- Every trait job considers collection-wide bids and bids whose nonempty trait
+  criteria are a subset of its target. A `Mode=Terrain` + `Zone=Kairo` job
+  therefore considers each single trait as well as that exact pair. A narrower
+  or conflicting combination is excluded by default.
+- Manage collection-scoped presets in the expandable `extra targets` section
+  beside `tiers`, available only in Offers' `traits` view. The form and table
+  reuse price-tier controls and armed create/modify/archive actions.
+- `source target` contains one or two distinct keys with exact or any values;
+  it must match the complete key combination of the concrete job target.
+  The source is fixed after creation; editing allows changes only to extras.
+  Use `reset` to create a different preset for another source.
+  `extra targets` contains up to 64 independent exact or whole-key selectors,
+  each adding standalone single-trait bids. Extras cannot require a trait pair.
+- Both dropdowns distinguish `any (all)` from a quoted literal metadata value
+  named `any`. Source and extra field labels have help popups explaining
+  applicability and competition from the user's perspective.
+- The shared trait-job panel defaults to `none` for new jobs and shows compact
+  buttons for matching presets, such as `Mode=Terrain` or `Biome=any`. Saved
+  jobs retain their selected version, including older or archived versions.
+- Select a newer version and confirm `modify` to update a job explicitly.
+  Select `none` and confirm `modify` to remove its extras. Preset edits do not
+  silently affect jobs; pricing edits and price-tier reapply keep the selection.
+- The picker exposes inventory loading, failed-load feedback, and `refresh`
+  across Offers, token-browser, holder, and token-detail journeys. Refresh
+  retries the shared inventory read and retains unsaved prices and the selected
+  version; late target lookup also preserves user edits.
+- Extras affect competition only. Submitted targets, quantity, price limits,
+  authorization, and exact own-order management remain unchanged.
+
+[Trait Bidding Competition](04-trait-competition.md) owns the matching examples,
+source validation, immutable version and mutation contracts, and
+[upgrade procedure](04-trait-competition.md#upgrade-and-development-schema-rollback).
+
+The legacy competitive-trait job kind retains its existing behavior. The new
+settings belong to ordinary trait-scoped collection jobs.
 
 Bid-book discovery remains available by default, but trait job creation and
 live trait or multi-trait placement require the operator to explicitly enable
@@ -303,23 +341,26 @@ Admin read endpoints:
 | `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup`                   | Resolve a token, trait, or collection draft target into an existing declared job. |
 | `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/lookup`                   | Expand a batch token selection and return its existing declared jobs.             |
 | `GET`  | `/api/:chain_ref/:collection_ref/bidding/price-tiers`                          | List tiers plus collection bidding settings.                                      |
+| `GET`  | `/api/:chain_ref/:collection_ref/bidding/competition-presets`                  | List current, unarchived preset versions for extra targets.                       |
 | `GET`  | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview` | Preview changed tier-backed jobs before applying a tier update.                   |
 | `GET`  | `/api/:chain_ref/bidding/jobs/ceiling-prefills`                                | Batch current-job authorization membership and maximum ceiling per collection.    |
 
 Admin mutation endpoints:
 
-| Method   | Path                                                                   | Capability                                                                                      |
-| -------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `PUT`    | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`               | Create, modify, activate, or pause an exact-token job.                                          |
-| `DELETE` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`               | Archive an exact-token job and enqueue active-offer cancellation.                               |
-| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/traits`                  | Create, modify, activate, or pause a trait-scoped job.                                          |
-| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch`            | Create or update token jobs from explicit token ids, filtered tokens, or token-offer selection. |
-| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/collection`              | Create, modify, activate, or pause the collection-wide job.                                     |
-| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/jobs/:job_id`                 | Archive a token, trait, or collection job by job id.                                            |
-| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/price-tiers`                  | Create, modify, activate, or pause a price tier.                                                |
-| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id`         | Archive a price tier.                                                                           |
-| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/settings`                     | Update collection-scoped bidding settings.                                                      |
-| `POST`   | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply` | Apply selected staged tier changes to jobs and publish runtime wake-ups.                        |
+| Method   | Path                                                                     | Capability                                                                                      |
+| -------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `PUT`    | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`                 | Create, modify, activate, or pause an exact-token job.                                          |
+| `DELETE` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`                 | Archive an exact-token job and enqueue active-offer cancellation.                               |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/traits`                    | Create, modify, activate, or pause a trait-scoped job.                                          |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch`              | Create or update token jobs from explicit token ids, filtered tokens, or token-offer selection. |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/collection`                | Create, modify, activate, or pause the collection-wide job.                                     |
+| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/jobs/:job_id`                   | Archive a token, trait, or collection job by job id.                                            |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/price-tiers`                    | Create, modify, activate, or pause a price tier.                                                |
+| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id`           | Archive a price tier.                                                                           |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/competition-presets`            | Create a preset for extra targets or a new immutable version.                                   |
+| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/competition-presets/:preset_id` | Archive a preset while retaining saved job references.                                          |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/settings`                       | Update collection-scoped bidding settings.                                                      |
+| `POST`   | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply`   | Apply selected staged tier changes to jobs and publish runtime wake-ups.                        |
 
 Every admin `POST`, `PUT`, and `DELETE` route is protected by the local
 host/origin/CSRF boundary. That includes the two structured read-only lookup
@@ -332,6 +373,7 @@ Current coverage is maintained by behavior, not a checked-in percentage snapshot
 The backend suite covers:
 
 - trading use-case validation, tier resolution, target lookup, archive, and reapply behavior;
+- preset inventory, immutable version selection, source applicability, and pricing-only reference preservation;
 - HTTP request/response mapping and error shapes across the bidding mutation routes;
 - SQLite job, command, price-tier, bid-book, runtime-authorization, and cancellation state;
 - NATS command-signal publication and retry-safe command ordering;
@@ -357,6 +399,7 @@ Run the owning suites instead of relying on an old coverage table:
 ```sh
 yarn workspace @artgod/backend test
 yarn workspace @artgod/trading test
+yarn workspace @artgod/shared test trading/trait-competition.test.ts
 yarn test:bidding:strategy
 yarn test:bidding:automation
 yarn test:bidding:automation:public

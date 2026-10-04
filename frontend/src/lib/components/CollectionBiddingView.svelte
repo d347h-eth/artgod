@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
+	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -243,6 +245,8 @@
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	let priceTierPanelOpen = $state(false);
+	let competitionPresetsOpen = $state(false);
+	let competitionInventory = $state<BiddingCompetitionPresetInventory | null>(null);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
 	let bidBookMetadataNowMs = $state(Date.now());
@@ -1178,6 +1182,11 @@
 							activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems === 0
 						}
 						onToggleTiers={togglePriceTierPanel}
+						showCompetitionPresetAction={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
+						competitionPresetsActive={competitionPresetsOpen}
+						onToggleCompetitionPresets={() => {
+							competitionPresetsOpen = !competitionPresetsOpen;
+						}}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onClear={clearBiddingSelection}
@@ -1203,6 +1212,20 @@
 		{/if}
 	{/snippet}
 
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingCompetitionPresetPanel
+			{chain}
+			{collection}
+			{facets}
+			open={competitionPresetsOpen && bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
+			onClose={() => {
+				competitionPresetsOpen = false;
+			}}
+			onInventoryChange={(value) => {
+				competitionInventory = value;
+			}}
+		/>
+	{/if}
 	{#if priceTierPanelOpen && collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 		<BiddingPriceTierPanel
 			{chain}
@@ -1350,6 +1373,7 @@
 			bidBook={activeBidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{competitionInventory}
 			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

@@ -1,4 +1,11 @@
 <script lang="ts">
+	import { isConfirmationActionTarget } from '$lib/action-confirmation';
+	import type { TradingCompetitionPresetVersion } from '@artgod/shared/types';
+	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
+	import {
+		competitionPresetMatchesTarget,
+		competitionTraitsLabel
+	} from '@artgod/shared/trading/trait-competition';
 	import { DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from '@artgod/shared/config/bidding';
 	import {
 		TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -91,8 +98,8 @@
 		bidBook = null,
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
-		trustOpenSeaSignedZoneTraitOffers =
-			DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+		competitionInventory = null,
+		trustOpenSeaSignedZoneTraitOffers = DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		expandSignal = 0,
 		showCollapsedLauncher = true,
 		onClose = null,
@@ -108,6 +115,7 @@
 		bidBook?: ApiBiddingBidBook | null;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		competitionInventory?: BiddingCompetitionPresetInventory | null;
 		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		expandSignal?: number;
 		showCollapsedLauncher?: boolean;
@@ -118,13 +126,22 @@
 
 	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
-	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
+	let selectedCompetitionVersionId = $state<string | null>(
+		initialPanelJob?.config.competitionPreset?.versionId ?? null
+	);
+	let loadedJobKey = $state(
+		resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null })
+	);
 	let loadedDraftKey = $state(resolveBiddingAutomationPanelDraftIdentityKey(draft));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
 		resolveInitialBiddingAutomationPricingMode({ job: initialPanelJob, draft })
 	);
-	let selectedPriceTierId = $state(resolveInitialBiddingAutomationPriceTierId({ job: initialPanelJob, draft }));
-	let status = $state<EditableBiddingJobStatus>(resolveInitialBiddingAutomationStatus(initialPanelJob));
+	let selectedPriceTierId = $state(
+		resolveInitialBiddingAutomationPriceTierId({ job: initialPanelJob, draft })
+	);
+	let status = $state<EditableBiddingJobStatus>(
+		resolveInitialBiddingAutomationStatus(initialPanelJob)
+	);
 	let floorEth = $state(resolveInitialBiddingAutomationFloorEth({ job: initialPanelJob, draft }));
 	let ceilingEth = $state(resolveInitialBiddingAutomationCeilingEth({ job: initialPanelJob, draft }));
 	let deltaEth = $state(
@@ -150,27 +167,22 @@
 	let selectionLookupBusy = $state(false);
 	let selectionJobActionBusy = $state<BiddingSelectionJobAction | null>(null);
 	let draftInputTouched = $state(false);
+	let competitionInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
-	const selectedTokenUnsupported = $derived(
-		!draft && token?.marketplaceBiddingSupported === false
-	);
+	const selectedTokenUnsupported = $derived(!draft && token?.marketplaceBiddingSupported === false);
 	const selectedDraftUnsupported = $derived(
 		selectedTokenUnsupported || !isBiddingAutomationDraftSubmittable(draft)
 	);
 	const selectedDraftUnsupportedMessage = $derived(resolveSelectedDraftUnsupportedMessage());
 	const traitOfferTrustRequired = $derived(
-		!trustOpenSeaSignedZoneTraitOffers &&
-			isBiddingAutomationTraitTarget({ draft, job: currentJob })
+		!trustOpenSeaSignedZoneTraitOffers && isBiddingAutomationTraitTarget({ draft, job: currentJob })
 	);
 	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
 	const authorizationRecoveryMessage = $derived(
 		currentJob?.status === TRADING_JOB_STATUS.Enabled && collection
-			? biddingAuthorizationRecoveryMessage(
-					bidBook?.biddingAuthorization ?? null,
-					collection.slug
-				)
+			? biddingAuthorizationRecoveryMessage(bidBook?.biddingAuthorization ?? null, collection.slug)
 			: null
 	);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
@@ -198,19 +210,46 @@
 			displayedCeilingEth.trim().length > 0 &&
 			displayedDeltaEth.trim().length > 0
 	);
+	const isOrdinaryTraitJob = $derived(
+		draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob ||
+			(!draft &&
+				currentJob?.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+				currentJob.target.targetTraits.length > 0)
+	);
+	const competitionPresets = $derived(competitionInventory?.presets ?? []);
+	const competitionOptions = $derived.by(() => {
+		const traits =
+			draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob
+				? draft.target.traits.map((t) => ({ type: t.key, value: t.value }))
+				: currentJob?.target.type === TRADING_JOB_TARGET_KIND.Collection
+					? currentJob.target.targetTraits
+					: [];
+		const options: TradingCompetitionPresetVersion[] = competitionPresets.filter((p) =>
+			competitionPresetMatchesTarget(p, traits)
+		);
+		const saved = currentJob?.config.competitionPreset;
+		if (saved && !options.some((p) => p.versionId === saved.versionId)) options.unshift(saved);
+		return options;
+	});
+	const competitionChanged = $derived(
+		isOrdinaryTraitJob &&
+			competitionInputTouched &&
+			selectedCompetitionVersionId !== (currentJob?.config.competitionPreset?.versionId ?? null)
+	);
 	const hasDraftChanges = $derived(
-		hasBiddingAutomationPanelDraftChanges({
-			currentJob,
-			status,
-			pricingMode,
-			selectedPriceTierId,
-			displayedFloorEth,
-			displayedCeilingEth,
-			displayedDeltaEth,
-			floorEth,
-			ceilingEth,
-			deltaEth
-		})
+		competitionChanged ||
+			hasBiddingAutomationPanelDraftChanges({
+				currentJob,
+				status,
+				pricingMode,
+				selectedPriceTierId,
+				displayedFloorEth,
+				displayedCeilingEth,
+				displayedDeltaEth,
+				floorEth,
+				ceilingEth,
+				deltaEth
+			})
 	);
 	const canSubmitDraft = $derived(
 		!!chain &&
@@ -228,35 +267,39 @@
 	const pricingInputsDisabled = $derived(
 		panelMutationBusy || selectedDraftUnsupported || traitOfferTrustRequired
 	);
-	const canResetDraft = $derived(
-		!traitOfferTrustRequired && !panelMutationBusy && hasDraftChanges
-	);
+	const canResetDraft = $derived(!traitOfferTrustRequired && !panelMutationBusy && hasDraftChanges);
 	const canApplyBatchJobs = $derived(isBatchTokenDraft && !panelMutationBusy && canSubmitDraft);
 	const canCreateJob = $derived(
 		!hasExistingJob && !isBatchTokenDraft && !panelMutationBusy && canSubmitDraft
 	);
-	const canModifyJob = $derived(hasExistingJob && !panelMutationBusy && hasDraftChanges && canSubmitDraft);
+	const canModifyJob = $derived(
+		hasExistingJob && !panelMutationBusy && hasDraftChanges && canSubmitDraft
+	);
 	const canPauseJob = $derived(
 		isEnabledJob &&
 			!panelMutationBusy &&
-			(traitOfferTrustRequired
-				? !!chain && !!collection && !!currentJob
-				: canSubmitDraft)
+			(traitOfferTrustRequired ? !!chain && !!collection && !!currentJob : canSubmitDraft)
 	);
 	const canActivateJob = $derived(isPausedJob && !panelMutationBusy && canSubmitDraft);
 	const canArchiveJob = $derived(
-		!!currentJob &&
-			(isEnabledJob || isPausedJob) &&
-			!panelMutationBusy &&
-			!!chain &&
-			!!collection
+		!!currentJob && (isEnabledJob || isPausedJob) && !panelMutationBusy && !!chain && !!collection
 	);
-	const showActivateSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate));
+	const showActivateSelectionJobs = $derived(
+		hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate)
+	);
 	const showPauseSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause));
-	const showArchiveSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive));
-	const canActivateSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate));
-	const canPauseSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause));
-	const canArchiveSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive));
+	const showArchiveSelectionJobs = $derived(
+		hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive)
+	);
+	const canActivateSelectionJobs = $derived(
+		canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate)
+	);
+	const canPauseSelectionJobs = $derived(
+		canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause)
+	);
+	const canArchiveSelectionJobs = $derived(
+		canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive)
+	);
 	const showSelectionJobActions = $derived(
 		showActivateSelectionJobs || showPauseSelectionJobs || showArchiveSelectionJobs
 	);
@@ -289,6 +332,10 @@
 			})
 		) {
 			currentJob = nextJob;
+			// A pricing edit does not prevent the lookup from hydrating untouched extras.
+			if (!competitionInputTouched) {
+				selectedCompetitionVersionId = nextJob?.config.competitionPreset?.versionId ?? null;
+			}
 			return;
 		}
 
@@ -351,19 +398,10 @@
 	}
 
 	function clearArmedActionUnlessTarget(target: EventTarget | null): void {
-		if (!armedAction || isArmedActionTarget(target, armedAction)) {
+		if (!armedAction || isConfirmationActionTarget(target, armedAction, 'data-bidding-action')) {
 			return;
 		}
 		armedAction = null;
-	}
-
-	function isArmedActionTarget(
-		target: EventTarget | null,
-		action: ConfirmableBiddingAction
-	): boolean {
-		return target instanceof HTMLElement
-			? target.closest(`[data-bidding-action="${action}"]`) !== null
-			: false;
 	}
 
 	async function confirmBiddingAction(
@@ -434,17 +472,11 @@
 				collection,
 				draft
 			});
-			if (
-				targetLookupKey === nextLookupKey &&
-				targetLookupRequestKey === nextLookupRequestKey
-			) {
+			if (targetLookupKey === nextLookupKey && targetLookupRequestKey === nextLookupRequestKey) {
 				targetLookupJob = lookedUpJob;
 			}
 		} catch (error) {
-			if (
-				targetLookupKey === nextLookupKey &&
-				targetLookupRequestKey === nextLookupRequestKey
-			) {
+			if (targetLookupKey === nextLookupKey && targetLookupRequestKey === nextLookupRequestKey) {
 				saveError = error instanceof Error ? error.message : 'failed to look up bidding job';
 			}
 		}
@@ -505,7 +537,12 @@
 		}
 	}
 
-	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
+	function applyDraft(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): void {
+		selectedCompetitionVersionId = value?.config.competitionPreset?.versionId ?? null;
+		competitionInputTouched = false;
 		pricingMode = resolveInitialBiddingAutomationPricingMode({
 			job: value,
 			draft: currentDraft
@@ -588,6 +625,13 @@
 		draftInputTouched = true;
 	}
 
+	function selectCompetitionPreset(versionId: string | null): void {
+		selectedCompetitionVersionId = versionId;
+		competitionInputTouched = true;
+		markDraftInputTouched();
+		armedAction = null;
+	}
+
 	function tierButtonTitle(tier: ApiBiddingPriceTier): string {
 		const trimmed = tier.name.trim();
 		return trimmed.length <= 100 ? trimmed : `${trimmed.slice(0, 97)}...`;
@@ -636,9 +680,7 @@
 
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
 		const allowedReadOnlyPause =
-			traitOfferTrustRequired &&
-			statusOverride === TRADING_JOB_STATUS.Paused &&
-			canPauseJob;
+			traitOfferTrustRequired && statusOverride === TRADING_JOB_STATUS.Paused && canPauseJob;
 		if (
 			!chain ||
 			!collection ||
@@ -680,6 +722,9 @@
 				draft,
 				targetTokenId,
 				nextStatus,
+				// Omission preserves the saved version for price and lifecycle-only updates.
+				competitionPresetVersionId:
+					competitionChanged && !allowedReadOnlyPause ? selectedCompetitionVersionId : undefined,
 				pricing: pricingRequestBody()
 			});
 			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
@@ -690,11 +735,7 @@
 					? 'paused'
 					: statusOverride === TRADING_JOB_STATUS.Enabled && wasExistingJob
 						? 'activated'
-						: resolveBiddingSaveMessage(
-								changedJobs.length,
-								wasExistingJob,
-								isBatchTokenDraft
-							);
+						: resolveBiddingSaveMessage(changedJobs.length, wasExistingJob, isBatchTokenDraft);
 		} catch (error) {
 			saveError = error instanceof Error ? error.message : 'failed to save bidding job';
 		} finally {
@@ -721,13 +762,7 @@
 	}
 
 	async function handleArchive(): Promise<void> {
-		if (
-			!canArchiveJob ||
-			!chain ||
-			!collection ||
-			!currentJob ||
-			panelMutationBusy
-		) {
+		if (!canArchiveJob || !chain || !collection || !currentJob || panelMutationBusy) {
 			return;
 		}
 
@@ -759,12 +794,7 @@
 	}
 
 	function canApplySelectionJobAction(action: BiddingSelectionJobAction): boolean {
-		if (
-			panelMutationBusy ||
-			selectionLookupBusy ||
-			!chain ||
-			!collection
-		) {
+		if (panelMutationBusy || selectionLookupBusy || !chain || !collection) {
 			return false;
 		}
 		return hasSelectionJobAction(action);
@@ -777,7 +807,9 @@
 		return filterBiddingSelectionJobsForAction(selectionLookupResult.jobs, action).length > 0;
 	}
 
-	function selectionConfirmableAction(action: BiddingSelectionJobAction): PanelSelectionBiddingAction {
+	function selectionConfirmableAction(
+		action: BiddingSelectionJobAction
+	): PanelSelectionBiddingAction {
 		return `${BIDDING_PANEL_SELECTION_ACTION_PREFIX}:${action}`;
 	}
 
@@ -810,8 +842,7 @@
 			notifyJobsChanged(result.jobs);
 			saveMessage = selectionJobActionResultMessage(action, result.jobs.length);
 		} catch (error) {
-			saveError =
-				error instanceof Error ? error.message : 'failed to update selected bidding jobs';
+			saveError = error instanceof Error ? error.message : 'failed to update selected bidding jobs';
 		} finally {
 			selectionJobActionBusy = null;
 		}
@@ -1040,6 +1071,61 @@
 						pricingInputsDisabled}
 				/>
 			</div>
+			{#if isOrdinaryTraitJob}
+				<div class="bootstrap-form-row token-bidding-competition-row">
+					<label for="bidding-extra-targets-select"><span>extra targets</span></label>
+					<div
+						id="bidding-extra-targets-select"
+						class="secondary-tabs token-bidding-competition-options"
+						role="group"
+						aria-label="Extra targets"
+					>
+						<button
+							type="button"
+							class:secondary-tab-active={selectedCompetitionVersionId === null}
+							aria-pressed={selectedCompetitionVersionId === null}
+							disabled={pricingInputsDisabled || selectedCompetitionVersionId === null}
+							onclick={() => selectCompetitionPreset(null)}
+						>
+							none
+						</button>
+						{#each competitionOptions as preset (preset.versionId)}
+							<button
+								type="button"
+								title={competitionTraitsLabel(preset.extraCompetitionTraits)}
+								class:secondary-tab-active={selectedCompetitionVersionId === preset.versionId}
+								aria-pressed={selectedCompetitionVersionId === preset.versionId}
+								disabled={pricingInputsDisabled || selectedCompetitionVersionId === preset.versionId}
+								onclick={() => selectCompetitionPreset(preset.versionId)}
+							>
+								{competitionTraitsLabel(preset.extraCompetitionTraits) + (!competitionPresets.some((p) => p.versionId === preset.versionId) ? ` (v${preset.revision})` : '')}
+							</button>
+						{/each}
+						{#if competitionInventory?.error && !competitionInventory.loading}
+							<button
+								type="button"
+								class="action-button-neutral"
+								onclick={() => void competitionInventory?.refresh()}
+								disabled={panelMutationBusy}
+							>
+								refresh
+							</button>
+						{/if}
+					</div>
+				</div>
+				{#if competitionInventory?.loading || competitionInventory?.error}
+					<div class="bootstrap-form-row">
+						<span aria-hidden="true"></span>
+						{#if competitionInventory.loading}
+							<p class="muted token-bidding-feedback" role="status">loading...</p>
+						{:else}
+							<p class="runtime-error token-bidding-feedback" role="alert">
+								{competitionInventory.error}
+							</p>
+						{/if}
+					</div>
+				{/if}
+			{/if}
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions-left">
 					{#if !traitOfferTrustRequired}

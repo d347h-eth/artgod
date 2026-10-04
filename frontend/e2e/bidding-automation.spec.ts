@@ -1,3 +1,4 @@
+import { BIDDING_E2E_COMPETITION_PRESET_ID } from '../src/lib/e2e/bidding-automation-fixtures';
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -45,9 +46,14 @@ import {
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 import {
 	BIDDING_E2E_FIRST_RUN_INTENT,
+	BIDDING_E2E_FACETS,
+	BIDDING_E2E_HOLDER_ADDRESS,
+	BIDDING_E2E_COMPETITION_PRESETS,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
-	BIDDING_E2E_SCENARIO_QUERY_PARAM
+	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	biddingCompetitionPresetFixture,
+	findBiddingE2eJobForTarget
 } from '../src/lib/e2e/bidding-automation-fixtures';
 
 const COLLECTION_PATH = '/e2e-harness/collection';
@@ -250,60 +256,73 @@ test.describe('bidding automation fixture harness', () => {
 			page
 		}, testInfo) => {
 			await installBiddingAutomationApiMock(page);
-			await openHarnessPage(
-				page,
-				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
-			);
-			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
-			await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
-			const otherScope =
-				scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
-					? COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
-					: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
-			for (const nextScope of [scope, otherScope]) {
+			// Assert the initial fixture after reload without a polling response repairing it.
+			let releaseRefresh!: () => void;
+			const heldRefresh = new Promise<void>((resolve) => {
+				releaseRefresh = resolve;
+			});
+			await page.route('**/bidding/bids?**', async (route) => {
+				await heldRefresh;
+				await route.fallback();
+			});
+			try {
+				await openHarnessPage(
+					page,
+					`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted}=true&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
+				);
+				const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
+				await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+				const otherScope =
+					scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+						? COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+						: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
+				for (const nextScope of [scope, otherScope]) {
+					await page.getByRole('link', { name: 'collection', exact: true }).click();
+					await expect(tabs).toHaveCount(0);
+					expect(
+						new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
+					).toBe(false);
+					// The suspended selection also survives a reload of the collection view.
+					await page.reload();
+					await expect(page.locator('.bid-book-meta')).toBeVisible();
+					await page.getByRole('link', { name: nextScope, exact: true }).click();
+					await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
+					const query = new URL(page.url()).searchParams;
+					expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(nextScope);
+					expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
+						COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+					);
+					expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+						TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+					);
+					expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+				}
+				await page.screenshot({
+					path: testInfo.outputPath(`scope-${scope}-state-resumed.png`),
+					fullPage: true
+				});
+				await tabs
+					.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+					.click();
+				await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
 				await page.getByRole('link', { name: 'collection', exact: true }).click();
 				await expect(tabs).toHaveCount(0);
+				await page.getByRole('link', { name: scope, exact: true }).click();
+				await expect(tabs).toBeVisible();
+				await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
+				await expect(
+					tabs.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
+				).toHaveCount(0);
 				expect(
 					new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
 				).toBe(false);
-				// The suspended selection also survives a reload of the collection view.
-				await page.reload();
-				await expect(page.locator('.bid-book-meta')).toBeVisible();
-				await page.getByRole('link', { name: nextScope, exact: true }).click();
-				await expect(tabs.locator('[aria-current="true"]')).toHaveText('losing [1]');
-				const query = new URL(page.url()).searchParams;
-				expect(query.get(BID_SCOPE_QUERY_PARAM)).toBe(nextScope);
-				expect(query.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
-					COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
-				);
-				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
-					TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
-				);
-				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)).toBe('true');
+				await page.screenshot({
+					path: testInfo.outputPath(`scope-${scope}-reset-retained.png`),
+					fullPage: true
+				});
+			} finally {
+				releaseRefresh();
 			}
-			await page.screenshot({
-				path: testInfo.outputPath(`scope-${scope}-state-resumed.png`),
-				fullPage: true
-			});
-			await tabs
-				.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
-				.click();
-			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
-			await page.getByRole('link', { name: 'collection', exact: true }).click();
-			await expect(tabs).toHaveCount(0);
-			await page.getByRole('link', { name: scope, exact: true }).click();
-			await expect(tabs).toBeVisible();
-			await expect(tabs.locator('[aria-current="true"]')).toHaveCount(0);
-			await expect(
-				tabs.getByRole('button', { name: BID_BOOK_FILTER_LABEL.ResetOwnState, exact: true })
-			).toHaveCount(0);
-			expect(
-				new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)
-			).toBe(false);
-			await page.screenshot({
-				path: testInfo.outputPath(`scope-${scope}-reset-retained.png`),
-				fullPage: true
-			});
 		});
 
 		test(`preserves ${scope} status when applying and clearing a maker filter`, async ({
@@ -704,6 +723,758 @@ test.describe('bidding automation fixture harness', () => {
 			});
 		});
 	}
+
+	test('shows extra targets management only in traits view mode', async ({ page }, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		const toggle = page.getByRole('button', {
+			name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+			exact: true
+		});
+		for (const path of [
+			COLLECTION_PATH,
+			`${BIDDING_PATH}?bid_scope=token`,
+			`${BIDDING_PATH}?bid_scope=collection`
+		]) {
+			await openHarnessPage(page, path);
+			await expect(toggle).toHaveCount(0);
+			await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+		}
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByRole('region', { name: 'extra targets presets' })).toBeVisible();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-traits-entry.png'),
+			fullPage: true
+		});
+		await page.getByRole('link', { name: 'token', exact: true }).click();
+		await expect(toggle).toHaveCount(0);
+		await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+	});
+
+	test('aligns extra target preset controls and keeps field help accessible', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Zone:Shahra`);
+		await page
+			.getByRole('button', {
+				name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+				exact: true
+			})
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		const refresh = await inventory
+			.getByRole('button', { name: 'refresh', exact: true })
+			.boundingBox();
+		const hide = await inventory.getByRole('button', { name: 'hide', exact: true }).boundingBox();
+		expect(refresh).not.toBeNull();
+		expect(hide).not.toBeNull();
+		expect(Math.abs(refresh!.height - hide!.height)).toBeLessThanOrEqual(1);
+		for (const id of ['extra-target-source-key-1', 'extra-target-extra-key-1']) {
+			await expectFieldCenterAligned(inventory, id);
+		}
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
+		for (const [group, name] of [
+			[source, 'source'],
+			[extras, 'extras']
+		] as const) {
+			const help = group.getByRole('button', { name: 'Help', exact: true });
+			const popup = group.getByRole('tooltip');
+			if (testInfo.project.use.hasTouch) {
+				await help.tap();
+				await expect(help).not.toBeFocused();
+			} else await help.hover();
+			await expect(popup).toBeVisible();
+			await expect(popup).toBeInViewport({ ratio: 1 });
+			await page.screenshot({ path: testInfo.outputPath(`extra-targets-${name}-help.png`) });
+			if (testInfo.project.use.hasTouch) await page.keyboard.press('Escape');
+			else await help.press('Escape');
+			await expect(popup).toBeHidden();
+			if (testInfo.project.use.hasTouch) {
+				await help.tap();
+				await expect(help).not.toBeFocused();
+				await expect(popup).toBeVisible();
+				await inventory.getByRole('heading', { name: 'extra targets', exact: true }).tap();
+				await expect(popup).toBeHidden();
+			}
+			await help.press('Enter');
+			await expect(help).toBeFocused();
+			await expect(popup).toBeVisible();
+			await expect(popup).toBeInViewport({ ratio: 1 });
+			await help.press('Escape');
+			await expect(popup).toBeHidden();
+		}
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expectFieldCenterAligned(inventory, 'extra-target-source-key-1');
+		await source.getByRole('button', { name: 'remove source target 2', exact: true }).click();
+		await source.getByRole('button', { name: 'remove source target 1', exact: true }).click();
+		await expect(source.getByRole('button', { name: 'Help', exact: true })).toBeVisible();
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Enter');
+		await expect(source.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Escape');
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expectFieldCenterAligned(inventory, 'extra-target-source-key-1');
+		const row = inventory.getByRole('row').filter({ hasText: 'Biome=42' });
+		const textCenter = await row
+			.getByRole('cell')
+			.first()
+			.evaluate((cell) => {
+				const range = document.createRange();
+				range.selectNodeContents(cell);
+				const bounds = range.getBoundingClientRect();
+				return bounds.y + bounds.height / 2;
+			});
+		const archive = await row.getByRole('button', { name: 'archive', exact: true }).boundingBox();
+		expect(archive).not.toBeNull();
+		expect(Math.abs(textCenter - (archive!.y + archive!.height / 2))).toBeLessThanOrEqual(2);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-centered-controls.png'),
+			fullPage: true
+		});
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.Tiers, exact: true })
+			.click();
+		const tierForm = page
+			.getByRole('heading', { name: 'price tiers', exact: true })
+			.locator('..')
+			.locator('..');
+		const styles = (button: Locator) =>
+			button.evaluate((element) => {
+				const css = getComputedStyle(element);
+				return {
+					fontSize: css.fontSize,
+					lineHeight: css.lineHeight,
+					height: css.height,
+					padding: css.padding,
+					color: css.color,
+					border: css.borderTopColor,
+					background: css.backgroundColor,
+					textTransform: css.textTransform
+				};
+			});
+		expect(await styles(inventory.getByRole('button', { name: 'reset', exact: true }))).toEqual(
+			await styles(tierForm.getByRole('button', { name: 'reset', exact: true }))
+		);
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
+		await source.getByRole('combobox', { name: 'source target key 1' }).selectOption('Zone');
+		await source.getByRole('combobox', { name: 'source target value 1' }).click();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-flat-values.png'),
+			fullPage: true
+		});
+		await page.keyboard.press('Escape');
+	});
+
+	test('applies two-pair wildcard source presets and distinguishes literal any metadata', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await page.route('**/traits/catalog**', (route) =>
+			route.fulfill({
+				json: {
+					traitCatalog: {
+						facets: BIDDING_E2E_FACETS.map((facet) => ({
+							...facet,
+							values: [
+								...facet.values,
+								{ value: 'any', tokenCount: 1, marketplaceBiddingSupported: true }
+							]
+						}))
+					}
+				}
+			})
+		);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=traits&traits=Mode:Terrain&traits=Zone:Shahra`
+		);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
+		await source.getByRole('combobox', { name: 'source target key 1' }).selectOption('Mode');
+		const sourceValue = source.getByRole('combobox', { name: 'source target value 1' });
+		await sourceValue.selectOption({ label: '"any"' });
+		await expect(sourceValue).toHaveValue('value:any');
+		await expect(sourceValue).not.toHaveClass(/trait-group-active/);
+		await extras.getByRole('combobox', { name: 'extra target key 1' }).selectOption('Biome');
+		const extraValue = extras.getByRole('combobox', { name: 'extra target value 1' });
+		await extraValue.selectOption({ label: '"any"' });
+		await expect(extraValue).toHaveValue('value:any');
+		await expect(extraValue).not.toHaveClass(/trait-group-active/);
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-literal-any.png'),
+			fullPage: true
+		});
+		await sourceValue.selectOption({ label: 'any (all)' });
+		await expect(sourceValue).toHaveValue('*');
+		await expect(sourceValue).toHaveClass(/trait-group-active/);
+		await extraValue.selectOption({ label: 'any (all)' });
+		await expect(extraValue).toHaveValue('*');
+		await expect(extraValue).toHaveClass(/trait-group-active/);
+		await source.getByRole('button', { name: 'add', exact: true }).click();
+		await expect(source.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+		await expect(
+			source
+				.getByRole('combobox', { name: 'source target key 2' })
+				.getByRole('option', { name: 'Mode', exact: true })
+		).toBeDisabled();
+		await source.getByRole('combobox', { name: 'source target key 2' }).selectOption('Zone');
+		await source
+			.getByRole('combobox', { name: 'source target value 2' })
+			.selectOption({ label: 'Shahra' });
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-source.png'),
+			fullPage: true
+		});
+		const create = inventory.getByRole('button', { name: 'create', exact: true });
+		await create.click();
+		await expect(create).toHaveClass(/token-bidding-action-armed/);
+		await sourceValue.focus();
+		await expect(create).not.toHaveClass(/token-bidding-action-armed/);
+		await create.click();
+		expect(api.mutations).toHaveLength(0);
+		await create.click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [{ type: 'Mode' }, { type: 'Zone', value: 'Shahra' }],
+			extraCompetitionTraits: [{ type: 'Biome' }]
+		});
+		const savedRow = inventory.getByRole('row').filter({ hasText: 'Mode=any + Zone=Shahra' });
+		await savedRow.getByRole('button', { name: 'edit', exact: true }).click();
+		await expect(source.getByRole('combobox')).toHaveCount(4);
+		for (const control of await source.getByRole('combobox').all()) {
+			await expect(control).toBeDisabled();
+		}
+		for (const name of ['add', 'remove source target 1', 'remove source target 2']) {
+			await expect(source.getByRole('button', { name, exact: true })).toBeDisabled();
+		}
+		await expect(sourceValue).toHaveValue('*');
+		await expect(source.getByRole('combobox', { name: 'source target value 2' })).toHaveValue(
+			'value:Shahra'
+		);
+		await expect(extraValue).toBeEnabled();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-source-locked.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+			.click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Extra targets', { exact: true });
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toBeDisabled();
+		await options.getByRole('button', { name: 'Biome=any', exact: true }).click();
+		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [
+				{ type: 'Mode', value: 'Terrain' },
+				{ type: 'Zone', value: 'Shahra' }
+			],
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Created}:v1`
+		});
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-wildcard-job-saved.png'),
+			fullPage: true
+		});
+	});
+
+	test('creates structured extra targets presets and selects, resets and clears a reference', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Zone:Shahra`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-empty.png') });
+		const targets = inventory.getByRole('group', { name: 'source target', exact: true });
+		await targets
+			.getByRole('combobox', { name: 'source target key 1', exact: true })
+			.selectOption('Zone');
+		await targets
+			.getByRole('combobox', { name: 'source target value 1', exact: true })
+			.selectOption({ label: 'Shahra' });
+		const extras = inventory.getByRole('group', { name: 'extra target', exact: true });
+		await extras
+			.getByRole('combobox', { name: 'extra target key 1', exact: true })
+			.selectOption('Mode');
+		await extras
+			.getByRole('combobox', { name: 'extra target value 1', exact: true })
+			.selectOption({ label: 'Terrain' });
+		await extras.getByRole('button', { name: 'add', exact: true }).click();
+		await extras
+			.getByRole('combobox', { name: 'extra target key 2', exact: true })
+			.selectOption('Biome');
+		await extras
+			.getByRole('combobox', { name: 'extra target value 2', exact: true })
+			.selectOption({ label: 'any (all)' });
+		await expect(
+			extras.getByRole('combobox', { name: 'extra target value 2', exact: true })
+		).toHaveValue('*');
+		await expect(inventory.getByRole('textbox')).toHaveCount(0);
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-editable.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'create', exact: true }).click();
+		expect(api.mutations).toHaveLength(0);
+		await inventory.getByRole('button', { name: 'create', exact: true }).click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
+			extraCompetitionTraits: [{ type: 'Biome' }, { type: 'Mode', value: 'Terrain' }]
+		});
+		await expect(inventory.getByRole('row').filter({ hasText: 'Zone=Shahra' })).toContainText(
+			'Biome=any + Mode=Terrain'
+		);
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-saved.png') });
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+		const options = panel.getByLabel('Extra targets', { exact: true });
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await expect(options.getByRole('button', { name: 'Mode=Terrain', exact: true })).toHaveCount(0);
+		await expect(
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+		).toBeVisible();
+		expect(
+			await options
+				.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+				.evaluate((button) => button.scrollWidth <= button.clientWidth + 1)
+		).toBe(true);
+		await options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true }).click();
+		await fillManualPrice(page, { floor: '0.310', ceiling: '0.410', delta: '0.004' });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelCreate);
+		const created = (await api.nextMutation()).body;
+		expect(created).toMatchObject({
+			targetTraits: [{ type: 'Zone', value: 'Shahra' }],
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Created}:v1`
+		});
+		expect(created).not.toHaveProperty('extraCompetitionTraits');
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-saved.png') });
+		await options.getByRole('button', { name: 'none', exact: true }).click();
+		await panel.getByRole('button', { name: 'reset', exact: true }).click();
+		await expect(
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await options.getByRole('button', { name: 'none', exact: true }).click();
+		let releaseFailure!: () => void;
+		const held = new Promise<void>((resolve) => {
+			releaseFailure = resolve;
+		});
+		await page.route(
+			'**/bidding/jobs/traits',
+			async (route) => {
+				await held;
+				await route.fulfill({
+					status: 400,
+					json: { message: 'Could not save. Try modify again.' }
+				});
+			},
+			{ times: 1 }
+		);
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		await expect(
+			options.getByRole('button', { name: 'Biome=any + Mode=Terrain', exact: true })
+		).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-saving.png') });
+		releaseFailure();
+		await expect(panel.getByRole('alert')).toContainText('Try modify again');
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-save-failed.png') });
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({ competitionPresetVersionId: null });
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+	});
+
+	for (const clearPreset of [false, true]) {
+		test(`preserves ${clearPreset ? 'explicitly cleared' : 'saved'} extra targets during price edits before a delayed lookup`, async ({
+			page
+		}, testInfo) => {
+			const api = await installBiddingAutomationApiMock(page);
+			let release!: () => void;
+			let requested!: () => void;
+			const held = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const lookupRequested = new Promise<void>((resolve) => {
+				requested = resolve;
+			});
+			await page.route(
+				'**/bidding/jobs/target-lookup',
+				async (route) => {
+					const job = findBiddingE2eJobForTarget(route.request().postDataJSON());
+					expect(job?.config.competitionPreset?.versionId).toBe(
+						`${BIDDING_E2E_COMPETITION_PRESET_ID.Biome}:v1`
+					);
+					requested();
+					await held;
+					await route.fulfill({ json: { job } });
+				},
+				{ times: 1 }
+			);
+			await openHarnessPage(page, `${COLLECTION_PATH}?token_status=all&traits=Biome:42`);
+			await page
+				.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+				.click();
+			await lookupRequested;
+			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
+			if (clearPreset) {
+				await options.getByRole('button', { name: 'Mode=Terrain', exact: true }).click();
+				await options.getByRole('button', { name: 'none', exact: true }).click();
+			}
+			await fillManualPrice(page, { floor: '0.360', ceiling: '0.400', delta: '0.004' });
+			release();
+			await expect(panel).toContainText('job-trait-biome-42');
+			await expect(
+				options.getByRole('button', { name: clearPreset ? 'none' : 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.360');
+			await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+			const mutation = await api.nextMutation();
+			expect(mutation.body).toMatchObject({
+				floorEth: '0.360',
+				ceilingEth: '0.400',
+				deltaEth: '0.004'
+			});
+			if (clearPreset) expect(mutation.body).toHaveProperty('competitionPresetVersionId', null);
+			else expect(mutation.body).not.toHaveProperty('competitionPresetVersionId');
+			await expect(panel.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+			await expect(
+				options.getByRole('button', { name: clearPreset ? 'none' : 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await page.screenshot({
+				path: testInfo.outputPath(
+					`extra-targets-delayed-lookup-${clearPreset ? 'cleared' : 'preserved'}.png`
+				)
+			});
+		});
+	}
+
+	for (const [entry, path] of [
+		[
+			'token browser',
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42`
+		],
+		['holder browser', `${COLLECTION_PATH}/holders/${BIDDING_E2E_HOLDER_ADDRESS}?traits=Biome:42`],
+		['token detail', `${COLLECTION_PATH}/101`],
+		['offers', `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`]
+	]) {
+		test(`recovers extra targets inventory in the ${entry} bidding picker`, async ({
+			page
+		}, testInfo) => {
+			await installBiddingAutomationApiMock(page);
+			let releaseFailure!: () => void;
+			let releaseRetry!: () => void;
+			let requested!: () => void;
+			const heldFailure = new Promise<void>((resolve) => {
+				releaseFailure = resolve;
+			});
+			const heldRetry = new Promise<void>((resolve) => {
+				releaseRetry = resolve;
+			});
+			const inventoryRequested = new Promise<void>((resolve) => {
+				requested = resolve;
+			});
+			let attempts = 0;
+			let recoverInventory = false;
+			await page.route('**/bidding/competition-presets', async (route) => {
+				attempts++;
+				if (!recoverInventory) {
+					requested();
+					await heldFailure;
+					await route.fulfill({ status: 500, json: { message: 'Inventory unavailable.' } });
+				} else {
+					await heldRetry;
+					await route.fulfill({
+						json: {
+							presets: [
+								...BIDDING_E2E_COMPETITION_PRESETS,
+								biddingCompetitionPresetFixture(
+									BIDDING_E2E_COMPETITION_PRESET_ID.Created,
+									[{ type: 'Biome' }],
+									[
+										{
+											type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+											value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream
+										}
+									]
+								)
+							]
+						}
+					});
+				}
+			});
+			await openHarnessPage(page, path);
+			if (entry === 'holder browser') {
+				const geometry = await page.evaluate(() => ({
+					width: document.documentElement.clientWidth,
+					scrollWidth: document.documentElement.scrollWidth
+				}));
+				expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+			}
+			await inventoryRequested;
+			if (entry === 'token detail') {
+				await page
+					.locator(`[data-testid="${TEST_IDS.BidBookRowBid}"][data-traits="Biome=42"]`)
+					.first()
+					.click();
+			} else {
+				await page
+					.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits, exact: true })
+					.click();
+			}
+			const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+			const options = panel.getByRole('group', { name: 'Extra targets', exact: true });
+			await expect(panel).toContainText('job-trait-biome-42');
+			await expect(panel.getByRole('status')).toHaveText('loading...');
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(panel.getByRole('alert')).toHaveCount(0);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-loading.png')
+			});
+			await fillManualPrice(page, { floor: '0.360', ceiling: '0.400', delta: '0.004' });
+			releaseFailure();
+			await expect(panel.getByRole('alert')).toContainText(
+				'Could not load extra targets. Refresh.',
+				{ timeout: 20_000 }
+			);
+			await expect(panel.getByRole('status')).toHaveCount(0);
+			await expect(page.getByRole('region', { name: 'extra targets presets' })).toHaveCount(0);
+			await expect(
+				page.getByRole('button', {
+					name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras,
+					exact: true
+				})
+			).toHaveCount(entry === 'offers' ? 1 : 0);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-failed.png')
+			});
+			const failedAttempts = attempts;
+			recoverInventory = true;
+			await options.getByRole('button', { name: 'refresh', exact: true }).click();
+			await expect(panel.getByRole('status')).toHaveText('loading...');
+			await expect(panel.getByRole('alert')).toHaveCount(0);
+			await expect(options.getByRole('button', { name: 'refresh', exact: true })).toHaveCount(0);
+			releaseRetry();
+			await expect(
+				options.getByRole('button', { name: 'Mode=Daydream', exact: true })
+			).toBeVisible();
+			await expect(
+				options.getByRole('button', { name: 'Mode=Terrain', exact: true })
+			).toHaveAttribute('aria-pressed', 'true');
+			await expect(panel.getByRole('status')).toHaveCount(0);
+			await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.360');
+			expect(attempts).toBe(failedAttempts + 1);
+			await page.screenshot({
+				path: testInfo.outputPath('extra-targets-picker-recovered.png')
+			});
+		});
+	}
+
+	test('keeps saved extra targets versions until an explicit newer selection', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		const source = inventory.getByRole('group', { name: 'source target', exact: true });
+		const key = source.getByRole('combobox', { name: 'source target key 1', exact: true });
+		const value = source.getByRole('combobox', { name: 'source target value 1', exact: true });
+		await expect(key).toBeDisabled();
+		await expect(value).toBeDisabled();
+		await expect(key).toHaveValue('Biome');
+		await expect(value).toHaveValue('value:42');
+		await expect(source.getByRole('button', { name: 'add', exact: true })).toBeDisabled();
+		await expect(
+			source.getByRole('button', { name: 'remove source target 1', exact: true })
+		).toBeDisabled();
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Enter');
+		await expect(source.getByRole('tooltip')).toBeInViewport({ ratio: 1 });
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-source-locked-help.png'),
+			fullPage: true
+		});
+		await source.getByRole('button', { name: 'Help', exact: true }).press('Escape');
+		await inventory.getByRole('button', { name: 'reset', exact: true }).click();
+		await expect(key).toBeEnabled();
+		await expect(key).toHaveValue('');
+		await key.selectOption('Zone');
+		await expect(value).toBeEnabled();
+		await expect(inventory.getByRole('button', { name: 'create', exact: true })).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('extra-targets-new-source-after-reset.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		await inventory
+			.getByRole('combobox', { name: 'extra target value 1', exact: true })
+			.selectOption({ label: 'Daydream' });
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+			expectedRevision: 1,
+			targetTraits: [{ type: 'Biome', value: '42' }],
+			extraCompetitionTraits: [{ type: 'Mode', value: 'Daydream' }]
+		});
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Daydream'
+		);
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Extra targets', { exact: true });
+		await expect(
+			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		expect(
+			await options
+				.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+				.evaluate((button) => button.scrollWidth <= button.clientWidth + 1)
+		).toBe(true);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-older.png') });
+		await options.getByRole('button', { name: 'Mode=Daydream', exact: true }).click();
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({
+			competitionPresetVersionId: `${BIDDING_E2E_COMPETITION_PRESET_ID.Biome}:v2`
+		});
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-updated.png') });
+	});
+
+	test('recovers extra targets inventory errors and archives without changing saved jobs', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		let inventoryUnavailable = true;
+		await page.route('**/bidding/competition-presets', (route) =>
+			inventoryUnavailable
+				? route.fulfill({ status: 500, json: { message: 'Preset inventory unavailable.' } })
+				: route.fallback()
+		);
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits&traits=Biome:42`);
+		await page
+			.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.CompetitiveExtras, exact: true })
+			.click();
+		const inventory = page.getByRole('region', { name: 'extra targets presets' });
+		await expect(inventory.getByRole('alert')).toContainText('Refresh', {
+			timeout: 20_000
+		});
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-load-failed.png') });
+		inventoryUnavailable = false;
+		await inventory.getByRole('button', { name: 'refresh', exact: true }).click();
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Terrain'
+		);
+		await expect(inventory.getByRole('alert')).toHaveCount(0);
+		await inventory.getByRole('button', { name: 'edit', exact: true }).click();
+		const value = inventory.getByRole('combobox', {
+			name: 'extra target value 1',
+			exact: true
+		});
+		await value.selectOption({ label: 'Daydream' });
+		let releaseFailure!: () => void;
+		const held = new Promise<void>((resolve) => {
+			releaseFailure = resolve;
+		});
+		await page.route(
+			'**/bidding/competition-presets',
+			async (route) => {
+				await held;
+				await route.fulfill({
+					status: 500,
+					json: { message: 'Could not save preset. Try modify again.' }
+				});
+			},
+			{ times: 1 }
+		);
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await expect(value).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-saving.png'),
+			fullPage: true
+		});
+		releaseFailure();
+		await expect(inventory.getByRole('alert')).toContainText('Try modify again');
+		await expect(value).toHaveValue('value:Daydream');
+		await page.screenshot({
+			path: testInfo.outputPath('competition-presets-save-failed.png'),
+			fullPage: true
+		});
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		await inventory.getByRole('button', { name: 'modify', exact: true }).click();
+		expect((await api.nextMutation()).body).toMatchObject({
+			presetId: BIDDING_E2E_COMPETITION_PRESET_ID.Biome,
+			expectedRevision: 1
+		});
+		await expect(inventory.getByRole('row').filter({ hasText: 'Biome=42' })).toContainText(
+			'Mode=Daydream'
+		);
+		await inventory.getByRole('button', { name: 'archive', exact: true }).click();
+		await inventory.getByRole('button', { name: 'archive', exact: true }).click();
+		expect(await api.nextMutation()).toMatchObject({
+			method: 'DELETE',
+			body: { expectedRevision: 2 }
+		});
+		await expect(inventory.getByRole('button', { name: 'edit', exact: true })).toHaveCount(0);
+		await page.screenshot({ path: testInfo.outputPath('competition-presets-archived.png') });
+		await inventory.getByRole('button', { name: 'hide', exact: true }).click();
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Extra targets', { exact: true });
+		await expect(
+			options.getByRole('button', { name: 'Mode=Terrain (v1)', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await expect(options.getByRole('button', { name: 'Mode=Daydream', exact: true })).toHaveCount(
+			0
+		);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toBeDisabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-archived.png') });
+	});
+
+	test('loads saved extra targets and keeps selection read-only without trait trust', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=Biome:42&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.TraitCompetitionReadOnly}`
+		);
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const options = page
+			.getByTestId(TEST_IDS.BiddingPanel)
+			.getByLabel('Extra targets', { exact: true });
+		await expect(
+			options.getByRole('button', { name: 'Mode=Terrain', exact: true })
+		).toHaveAttribute('aria-pressed', 'true');
+		await expect(options.getByRole('button', { name: 'none', exact: true })).toBeDisabled();
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelModify)).toHaveCount(0);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanelPause)).toBeEnabled();
+		await page.screenshot({ path: testInfo.outputPath('competition-reference-readonly.png') });
+	});
 
 	test('renders token-scope offers from fixtures and captures a TokenOfferFilter mutation', async ({
 		page
@@ -1418,6 +2189,16 @@ async function expectSecondaryTabHoverChrome(locator: Locator): Promise<void> {
 	});
 	expect(colors.border).toBe(colors.yellow);
 	expect(colors.color).toBe(colors.yellow);
+}
+
+async function expectFieldCenterAligned(panel: Locator, id: string): Promise<void> {
+	const label = await panel.locator(`label[for="${id}"]`).boundingBox();
+	const field = await panel.locator(`#${id}`).boundingBox();
+	expect(label).not.toBeNull();
+	expect(field).not.toBeNull();
+	expect(
+		Math.abs(label!.y + label!.height / 2 - (field!.y + field!.height / 2))
+	).toBeLessThanOrEqual(1);
 }
 
 async function fillManualPrice(
