@@ -26,7 +26,8 @@
         "test:watch": "vitest",
         "test:nats:recovery": "tsx scripts/verify-nats-startup-recovery.ts",
         "test:opensea:reconciliation": "vitest run --config vitest.opensea-reconciliation.config.ts",
-        "test:orders:queues": "vitest run --config vitest.order-queue.config.ts"
+        "test:orders:queues": "vitest run --config vitest.order-queue.config.ts",
+        "test:reorg:recovery": "vitest run --config vitest.reorg-recovery.config.ts"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
