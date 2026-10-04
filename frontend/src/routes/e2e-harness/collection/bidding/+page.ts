@@ -8,15 +8,32 @@ import {
 } from '$lib/bidding-query';
 import type { PageLoad } from './$types';
 import {
+	readQueryControlPreference,
+	writeQueryControlPreference,
+	type QueryControlPreferenceDefinitions
+} from '$lib/query-control-preferences';
+import {
+	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
-	buildBiddingE2eCollectionBiddingData
+	buildBiddingE2eCollectionBiddingData,
+	parseBiddingE2eScenario,
+	type BiddingE2eScenario
 } from '$lib/e2e/bidding-automation-fixtures';
 
 export const ssr = false;
 
-// This client-only harness retains its selected fixture across production links,
-// which intentionally rebuild only production query parameters.
-let activeScenario: string | null = null;
+type ScenarioPreference = { scenario: BiddingE2eScenario | null };
+const SCENARIO_STORAGE_KEY = 'artgod.e2e.bidding-scenario';
+const SCENARIO_PREFERENCE_DEFINITIONS: QueryControlPreferenceDefinitions<ScenarioPreference> = {
+	scenario: {
+		param: BIDDING_E2E_SCENARIO_QUERY_PARAM,
+		values: [null, ...Object.values(BIDDING_E2E_SCENARIO)]
+	}
+};
+
+// Production links omit harness query parameters. Session storage retains the
+// selected fixture across reloads; module state also supports client navigation.
+let activeScenario: BiddingE2eScenario | null = null;
 
 export const load: PageLoad = ({ url }) => {
 	if (!dev) {
@@ -36,7 +53,20 @@ export const load: PageLoad = ({ url }) => {
 	}
 
 	if (url.searchParams.has(BIDDING_E2E_SCENARIO_QUERY_PARAM)) {
-		activeScenario = url.searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
+		activeScenario = parseBiddingE2eScenario(url.searchParams);
+		writeQueryControlPreference({
+			storageKey: SCENARIO_STORAGE_KEY,
+			definitions: SCENARIO_PREFERENCE_DEFINITIONS,
+			preference: { scenario: activeScenario },
+			storage: window.sessionStorage
+		});
+	} else {
+		activeScenario =
+			readQueryControlPreference<ScenarioPreference>({
+				storageKey: SCENARIO_STORAGE_KEY,
+				definitions: SCENARIO_PREFERENCE_DEFINITIONS,
+				storage: window.sessionStorage
+			})?.scenario ?? activeScenario;
 	}
 	const searchParams = new URLSearchParams(url.searchParams);
 	if (activeScenario) {
