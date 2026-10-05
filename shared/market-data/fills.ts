@@ -64,7 +64,10 @@ export function fillExecutionIdentity(
 type FillNftSideItem = Pick<
     FillExecutionItem,
     "side" | "itemType" | "contract" | "identifier" | "amount"
->;
+> & {
+    // Validated orders declare both quantity endpoints; executions are fixed.
+    endAmount?: string;
+};
 
 /** Resolve the sold NFT leg from complete protocol items before tracking filters.
  * Matched orders may forward the same concrete NFT multiset on the other leg.
@@ -112,7 +115,7 @@ function haveSameConcreteNfts(
         return false;
 
     const identity = (item: FillNftSideItem) =>
-        `${item.itemType}:${item.contract.toLowerCase()}:${unsignedAmount(item.identifier)}:${unsignedAmount(item.amount)}`;
+        `${item.itemType}:${item.contract.toLowerCase()}:${unsignedAmount(item.identifier)}:${unsignedAmount(item.amount)}:${unsignedAmount(item.endAmount ?? item.amount)}`;
     const unmatched = new Map<string, number>();
     for (const item of considered) {
         const key = identity(item);

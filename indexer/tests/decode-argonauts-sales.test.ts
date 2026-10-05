@@ -8,11 +8,16 @@ import {
     encodeAbiParameters,
     encodeEventTopics,
     zeroAddress,
+    type AbiEvent,
 } from "viem";
 import {
     decodeSeaportFills,
     SEAPORT_ORDER_FULFILLED_ABI,
 } from "../src/application/fills/seaport.js";
+import {
+    decodeSeaportOrderEvents,
+    SEAPORT_EVENT_FILTERS,
+} from "../src/application/fills/seaport-events.js";
 import type { EnhancedTransaction } from "../src/domain/onchain.js";
 import type { RpcLog } from "../src/ports/rpc.js";
 import { readTxDump, toEnhancedTransaction } from "./helpers/tx-dumps.js";
@@ -80,6 +85,98 @@ describe("Seaport matched orders with forwarded NFT consideration", () => {
         tx.events = [];
         expect(decodeSeaportFills(tx, collections)).toEqual([]);
     });
+
+    it.each([
+        {
+            name: "forwarded NFT",
+            swap: false,
+            unequalEndAmount: false,
+            accepted: true,
+        },
+        {
+            name: "different NFT",
+            swap: true,
+            unequalEndAmount: false,
+            accepted: false,
+        },
+        {
+            name: "different ending quantity",
+            swap: false,
+            unequalEndAmount: true,
+            accepted: false,
+        },
+    ])(
+        "uses the same forwarding rules for OrderValidated: $name",
+        async ({ swap, unequalEndAmount, accepted }) => {
+            const tx = await readTransaction(FORWARDED_NATIVE_TX);
+            const fulfillment = tx.receiptLogs.find(
+                (log) => log.topics[0] === orderFulfilledTopic,
+            )!;
+            const args = decodeFulfillment(fulfillment).args;
+            const event = SEAPORT_EVENT_FILTERS.find(
+                (event) => event.name === "OrderValidated",
+            )! as AbiEvent;
+            const item = (value: FulfillmentArgs["offer"][number]) => ({
+                itemType: value.itemType,
+                token: value.token,
+                identifierOrCriteria: value.identifier,
+                startAmount: value.amount,
+                endAmount: value.amount,
+            });
+            const consideration = args.consideration.map((value) => ({
+                ...item(value),
+                identifierOrCriteria:
+                    value.identifier + (swap && value.itemType === 2 ? 1n : 0n),
+                endAmount:
+                    value.amount +
+                    (unequalEndAmount && value.itemType === 2 ? 1n : 0n),
+                recipient: value.recipient,
+            }));
+            const log: RpcLog = {
+                ...fulfillment,
+                topics: encodeEventTopics({
+                    abi: [event],
+                    eventName: event.name,
+                }) as RpcLog["topics"],
+                data: encodeAbiParameters(
+                    event.inputs.filter((input) => !input.indexed),
+                    [
+                        args.orderHash,
+                        {
+                            offerer: args.offerer,
+                            zone: args.zone,
+                            offer: args.offer.map(item),
+                            consideration,
+                            orderType: 0,
+                            startTime: 0n,
+                            endTime: 2_000_000_000n,
+                            zoneHash: `0x${"00".repeat(32)}`,
+                            salt: 0n,
+                            conduitKey: `0x${"00".repeat(32)}`,
+                            totalOriginalConsiderationItems: BigInt(
+                                consideration.length,
+                            ),
+                        },
+                    ],
+                ),
+            };
+            const result = decodeSeaportOrderEvents([log], collections);
+            if (!accepted) {
+                expect(result.orders).toEqual([]);
+            } else {
+                expect(result.orders).toEqual([
+                    expect.objectContaining({
+                        orderId: args.orderHash,
+                        maker: args.offerer.toLowerCase(),
+                        contract: ARGONAUTS_CONTRACT,
+                        tokenId: "3109",
+                        price: "13000000000000000000",
+                        currency: zeroAddress,
+                    }),
+                ]);
+            }
+        },
+    );
 
     it.each<{
         name: string;

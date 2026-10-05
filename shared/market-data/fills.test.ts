@@ -128,6 +128,30 @@ it("requires the complete concrete forwarding multiset and payment on one side",
     ).toBeNull();
 });
 
+it("compares paired start and end quantities for every concrete forwarding item", () => {
+    const items = [
+        { ...item(0, SIDE.Offer, TYPE.Erc1155, "1", "a"), endAmount: "3" },
+        { ...item(1, SIDE.Offer, TYPE.Erc1155, "2", "a"), endAmount: "4" },
+        {
+            ...item(2, SIDE.Consideration, TYPE.Erc1155, "2", "a"),
+            endAmount: "4",
+        },
+        {
+            ...item(3, SIDE.Consideration, TYPE.Erc1155, "1", "a"),
+            endAmount: "3",
+        },
+        item(4, SIDE.Consideration, TYPE.Native, "7"),
+    ];
+    expect(resolveFillNftSide(items)).toBe(SIDE.Offer);
+    // Both endpoint multisets still match independently after this change,
+    // but individual NFT items no longer have matching quantity schedules.
+    const swappedEnds = items.map((item, i) => ({
+        ...item,
+        ...(i === 2 ? { endAmount: "3" } : i === 3 ? { endAmount: "4" } : {}),
+    }));
+    expect(resolveFillNftSide(swappedEnds)).toBeNull();
+});
+
 it("classifies full cash, cross-collection, swap and mixed-payment executions", () => {
     const cash = [
         item(0, SIDE.Offer, TYPE.Erc721, "1", "tracked"),

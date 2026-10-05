@@ -12,6 +12,7 @@ export type SeaportItem = {
     token: Hex;
     identifierOrCriteria: bigint;
     startAmount: bigint;
+    endAmount?: bigint;
 };
 
 export function hasTrackedNft(
@@ -51,6 +52,7 @@ export function resolveSeaportOrderSide(
         contract: item.token,
         identifier: item.identifierOrCriteria.toString(),
         amount: item.startAmount.toString(),
+        endAmount: item.endAmount?.toString(),
     }));
     const side = resolveFillNftSide(items);
     return side === null
