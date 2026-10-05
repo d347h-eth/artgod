@@ -137,6 +137,174 @@ describe("durable production reorg recovery", () => {
         await stop();
     });
 
+    it.each(["rpc", "wrong-height", "checkpoint-read", "header-read"] as const)(
+        "retains the only check owner after journal deferrals followed by a pre-handoff %s failure",
+        async (failure) => {
+            const fixture = seedRecoveryHistory();
+            db.exec(
+                "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+            );
+            const ack = vi.fn(async () => {});
+            const nack = vi.fn(async () => {});
+            const stop = await runWorker(
+                queue,
+                {
+                    queue: QUEUE_NAMES.BlockCheck,
+                    consumerName: "pre-handoff-test",
+                    maxAttempts: 5,
+                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                },
+                async (job: JobEnvelope<{ blockNumber: number }>) =>
+                    services.recovery.checkBlock(job.payload.blockNumber),
+            );
+            const message: QueueMessage<{ blockNumber: number }> = {
+                data: {
+                    jobId: "unretained-check",
+                    kind: REORG_JOB_KIND.BlockCheck,
+                    queue: QUEUE_NAMES.BlockCheck,
+                    chainId: F.ChainId,
+                    scheduledAt: 0,
+                    attempt: 1,
+                    payload: { blockNumber: F.Orphan },
+                },
+                ack,
+                nack,
+                touch: async () => {},
+            };
+            for (let attempt = 1; attempt <= 5; attempt++) {
+                message.data.attempt = attempt;
+                await queue.handler!(message);
+            }
+            db.exec("DROP TRIGGER fail_mismatch_retention;");
+            switch (failure) {
+                case "rpc":
+                    vi.spyOn(rpc, "getBlock").mockRejectedValueOnce(
+                        new Error("RPC unavailable"),
+                    );
+                    break;
+                case "wrong-height":
+                    vi.spyOn(rpc, "getBlock").mockResolvedValueOnce(
+                        canonicalRecoveryBlock(F.Orphan + 1),
+                    );
+                    break;
+                case "checkpoint-read":
+                    vi.spyOn(
+                        services.storage,
+                        "captureSyncCheckpoint",
+                    ).mockImplementationOnce(() => {
+                        throw new Error("Checkpoint unavailable");
+                    });
+                    break;
+                case "header-read":
+                    vi.spyOn(
+                        services.storage,
+                        "getBlockHash",
+                    ).mockImplementationOnce(() => {
+                        throw new Error("Stored header unavailable");
+                    });
+                    break;
+            }
+            message.data.attempt = 6;
+            await queue.handler!(message);
+            expect(ack).not.toHaveBeenCalled();
+            expect(nack).toHaveBeenCalledTimes(6);
+            expect(nack).toHaveBeenLastCalledWith({ delayMs: retryDelayMs });
+            expect(queue.jobs).toHaveLength(0);
+            expect(services.recoveries.getRecovery(F.ChainId)).toBeNull();
+            await services.recovery.resumeDue();
+            expect(revision()).toBe(0);
+            expect(owners(fixture.collectionId)).toEqual([
+                { owner: F.OrphanOwner, amount: "1" },
+            ]);
+
+            message.data.attempt = 7;
+            await queue.handler!(message);
+            expect(ack).toHaveBeenCalledOnce();
+            expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
+                REORG_RECOVERY_PHASE.Resync,
+            );
+            let ranges = 0;
+            while (services.recoveries.getRecovery(F.ChainId)) {
+                expect(
+                    await services.execute(pendingRecoveryJob(), queue),
+                ).toBe(true);
+                expect(++ranges).toBeLessThanOrEqual(2);
+            }
+            expect(ranges).toBe(2);
+            expect(revision()).toBe(1);
+            expect(owners(fixture.collectionId)).toEqual([
+                { owner: F.Owner, amount: "1" },
+            ]);
+            expect(
+                selectTransferCount(F.ChainId, fixture.collectionId, "1"),
+            ).toBe(0);
+            expect(
+                services.storage.countCollectionSyncedBlocksInRange(
+                    F.ChainId,
+                    fixture.collectionId,
+                    F.Orphan,
+                    F.Head,
+                ),
+            ).toBe(3);
+            expect(
+                queue.jobs.some((job) => job.queue === QUEUE_NAMES.DeadLetter),
+            ).toBe(false);
+            await stop();
+        },
+    );
+
+    it("leaves retry with retained recovery when a post-handoff continuation reaches DLQ", async () => {
+        const fixture = seedRecoveryHistory();
+        vi.spyOn(rpc, "readContractAtBlock").mockRejectedValueOnce(
+            new Error("Ownership RPC unavailable"),
+        );
+        vi.spyOn(services.recoveries, "deferProof").mockImplementationOnce(
+            () => {
+                throw new Error("Retry bookkeeping unavailable");
+            },
+        );
+        const ack = vi.fn(async () => {});
+        const stop = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.BlockCheck,
+                consumerName: "post-handoff-test",
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<{ blockNumber: number }>) =>
+                services.recovery.checkBlock(job.payload.blockNumber),
+        );
+        await queue.handler!({
+            data: {
+                jobId: "retained-check",
+                kind: REORG_JOB_KIND.BlockCheck,
+                queue: QUEUE_NAMES.BlockCheck,
+                chainId: F.ChainId,
+                scheduledAt: 0,
+                attempt: 6,
+                payload: { blockNumber: F.Orphan },
+            },
+            ack,
+            nack: vi.fn(async () => {}),
+            touch: async () => {},
+        });
+        expect(ack).toHaveBeenCalledOnce();
+        expect(
+            queue.jobs.filter((job) => job.queue === QUEUE_NAMES.DeadLetter),
+        ).toHaveLength(1);
+        expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
+            REORG_RECOVERY_PHASE.AwaitingAncestor,
+        );
+        expect(revision()).toBe(0);
+        await services.recovery.resumeDue();
+        expect(revision()).toBe(1);
+        expect(owners(fixture.collectionId)).toEqual([
+            { owner: F.Owner, amount: "1" },
+        ]);
+        await stop();
+    });
+
     it("does not let a repaired header hide an earlier orphan when choosing the rollback boundary", async () => {
         const forkBlock = 102;
         const fixture = seedRecoveryHistory(false);

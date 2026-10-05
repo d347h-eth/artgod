@@ -35,7 +35,7 @@ import {
 const REORG_RECOVERY_LOG_ACTION = {
     Resume: "resume",
     Poll: "poll",
-    Retain: "retain",
+    Check: "check",
 } as const;
 
 export interface ReorgRecoveryStore {
@@ -127,21 +127,21 @@ export class RecoverChainReorg {
 
     async checkBlock(blockNumber: number): Promise<void> {
         if (!Number.isSafeInteger(blockNumber) || blockNumber < 1) return;
-        const checkpoint = this.storage.captureSyncCheckpoint(
-            this.options.chainId,
-        );
-        const storedHash = this.storage.getBlockHash(
-            this.options.chainId,
-            blockNumber,
-        );
-        if (!storedHash) return;
-        const block = await this.rpc.getBlock(blockNumber, { fresh: true });
-        if (block.number !== blockNumber)
-            throw new ChainSyncConflict(
-                "Block check RPC returned the wrong block",
-            );
-        if (block.hash === storedHash) return;
         try {
+            const checkpoint = this.storage.captureSyncCheckpoint(
+                this.options.chainId,
+            );
+            const storedHash = this.storage.getBlockHash(
+                this.options.chainId,
+                blockNumber,
+            );
+            if (!storedHash) return;
+            const block = await this.rpc.getBlock(blockNumber, { fresh: true });
+            if (block.number !== blockNumber)
+                throw new ChainSyncConflict(
+                    "Block check RPC returned the wrong block",
+                );
+            if (block.hash === storedHash) return;
             this.recoveries.retainMismatch({
                 checkpoint,
                 checkedBlock: blockNumber,
@@ -151,20 +151,22 @@ export class RecoverChainReorg {
                 now: this.now(),
             });
         } catch (error) {
-            // Until this write commits, the original check is the only recovery
-            // owner. Keep it retryable even beyond the usual transport DLQ budget.
-            logger.warn("Unable to retain known reorg mismatch", {
+            // Until confirmation or durable handoff, this delivery owns retry.
+            // Every pre-handoff failure must stay deferred: broker delivery count
+            // continues advancing during waits and can exceed the normal budget.
+            logger.warn("Reorg check is pending before durable handoff", {
                 component: REORG_RECOVERY_LOG_COMPONENT,
-                action: REORG_RECOVERY_LOG_ACTION.Retain,
-                chainId: checkpoint.chainId,
+                action: REORG_RECOVERY_LOG_ACTION.Check,
+                chainId: this.options.chainId,
                 checkedBlock: blockNumber,
                 error: String(error),
             });
             throw new JobDeferred(
-                "Reorg mismatch persistence is pending",
+                "Reorg check awaits confirmation or durable recovery",
                 this.retryDelayMs,
             );
         }
+        // After retention, SQLite owns retry even if this continuation fails.
         await this.resumeDue();
     }
 
