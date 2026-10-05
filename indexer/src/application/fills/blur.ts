@@ -1,7 +1,7 @@
 import {
     decodeEventLog,
     decodeFunctionData,
-    encodeEventTopics,
+    parseAbi,
     zeroAddress,
 } from "viem";
 import type { EnhancedTransaction } from "../../domain/onchain.js";
@@ -63,6 +63,14 @@ type BlurFillInput = {
 type BlurExecutionLog = {
     orderHash: Hex;
     logIndex: number;
+    maker: string;
+    contract: string;
+    tokenId: string;
+    listingIndex: bigint;
+    amount: bigint;
+    price: bigint;
+    orderSide: OrderSide;
+    assetType: number;
 };
 
 export const BLUR_EXCHANGE_V2_ADDRESSES = new Set(
@@ -71,7 +79,7 @@ export const BLUR_EXCHANGE_V2_ADDRESSES = new Set(
     ),
 );
 
-const BLUR_EXCHANGE_V2_ABI = [
+export const BLUR_EXCHANGE_V2_ABI = [
     {
         type: "function",
         name: "takeAskSingle",
@@ -159,10 +167,14 @@ const BLUR_EXCHANGE_V2_ABI = [
     },
 ] as const;
 
-const [EXECUTION_721_PACKED_TOPIC] = encodeEventTopics({
-    abi: BLUR_EXCHANGE_V2_ABI,
-    eventName: "Execution721Packed",
-}) as [Hex];
+// The generic Execution event covers ERC1155, both fees, and values that cannot
+// fit the packed ERC721 representation. All variants identify a successful trade.
+export const BLUR_EXECUTION_ABI = parseAbi([
+    "event Execution721Packed(bytes32 orderHash, uint256 tokenIdListingIndexTrader, uint256 collectionPriceSide)",
+    "event Execution721TakerFeePacked(bytes32 orderHash, uint256 tokenIdListingIndexTrader, uint256 collectionPriceSide, uint256 takerFeeRecipientRate)",
+    "event Execution721MakerFeePacked(bytes32 orderHash, uint256 tokenIdListingIndexTrader, uint256 collectionPriceSide, uint256 makerFeeRecipientRate)",
+    "event Execution((address trader,uint256 id,uint256 amount,address collection,uint8 assetType) transfer, bytes32 orderHash, uint256 listingIndex, uint256 price, (address recipient,uint16 rate) makerFee, ((address recipient,uint16 rate) protocolFee,(address recipient,uint16 rate) takerFee) fees, uint8 orderType)",
+]);
 
 // Decode direct Blur V2 calls from calldata; routed Blur remains explicit follow-up work.
 export function decodeBlurFills(
@@ -182,15 +194,34 @@ export function decodeBlurFills(
         return [];
     }
 
-    const fills = toBlurFillInputs(tx, decoded).flatMap((input) =>
-        toBlurFill(tx, input, collections),
-    );
     const executionLogs = decodeBlurExecutionLogs(tx.receiptLogs);
-    return fills.map((fill, index) => ({
-        ...fill,
-        orderId: executionLogs[index]?.orderHash ?? fill.orderId,
-        logIndex: executionLogs[index]?.logIndex ?? fill.logIndex,
-    }));
+    const used = new Set<number>();
+    return toBlurFillInputs(tx, decoded).flatMap((input) => {
+        // Match before tracking filters; unsuccessful batch exchanges have no
+        // execution event and must never consume a later successful trade's log.
+        const execution = executionLogs.find(
+            (log) => !used.has(log.logIndex) && matchesExecution(input, log),
+        );
+        if (!execution) return [];
+        used.add(execution.logIndex);
+        return toBlurFill(tx, input, execution, collections);
+    });
+}
+
+function matchesExecution(
+    input: BlurFillInput,
+    log: BlurExecutionLog,
+): boolean {
+    return (
+        log.maker === input.order.trader.toLowerCase() &&
+        log.contract === input.order.collection.toLowerCase() &&
+        log.tokenId === input.exchange.taker.tokenId.toString() &&
+        log.listingIndex === input.exchange.listing.index &&
+        log.orderSide === input.orderSide &&
+        log.assetType === input.order.assetType &&
+        log.amount === input.exchange.taker.amount &&
+        log.price === input.exchange.listing.price * input.exchange.taker.amount
+    );
 }
 
 function toBlurFillInputs(
@@ -278,6 +309,7 @@ function toBatchInputs(
 function toBlurFill(
     tx: EnhancedTransaction,
     input: BlurFillInput,
+    execution: BlurExecutionLog,
     collections: Set<string>,
 ): DecodedFillEvent[] {
     const contract = input.order.collection.toLowerCase();
@@ -288,20 +320,22 @@ function toBlurFill(
     return [
         {
             kind: FILL_KIND.BlurV2,
+            orderId: execution.orderHash,
             orderSide: input.orderSide,
             maker: input.order.trader.toLowerCase(),
             taker: input.taker,
             contract,
             tokenId,
             amount: input.exchange.taker.amount.toString(),
-            price: input.exchange.listing.price.toString(),
-            // Blur V2 listing.price is specific to this token, also in batch calls.
-            priceNftCount: "1",
+            // listing.price is per NFT unit. Execution.price is its gross total,
+            // already multiplied by the actually executed taker quantity.
+            price: execution.price.toString(),
+            priceNftCount: execution.amount.toString(),
             currency: input.currency,
             blockNumber: tx.blockNumber,
             blockHash: tx.blockHash,
             txHash: tx.txHash,
-            logIndex: firstMatchingTransferLogIndex(tx, contract, tokenId),
+            logIndex: execution.logIndex,
         },
     ];
 }
@@ -325,41 +359,58 @@ function hasMatchingTransfer(
     );
 }
 
-function firstMatchingTransferLogIndex(
-    tx: EnhancedTransaction,
-    contract: string,
-    tokenId: string,
-): number {
-    const event = tx.events.find(
-        (candidate) =>
-            candidate.base.contract.toLowerCase() === contract &&
-            candidate.decoded.tokenId === tokenId,
-    );
-    return event?.base.logIndex ?? 0;
-}
-
 function decodeBlurExecutionLogs(logs: RpcLog[]): BlurExecutionLog[] {
     const out: BlurExecutionLog[] = [];
     for (const log of logs) {
         if (!BLUR_EXCHANGE_V2_ADDRESSES.has(log.address.toLowerCase()))
             continue;
-        if (log.topics[0] !== EXECUTION_721_PACKED_TOPIC) continue;
         try {
             const decoded = decodeEventLog({
-                abi: BLUR_EXCHANGE_V2_ABI,
-                eventName: "Execution721Packed",
+                abi: BLUR_EXECUTION_ABI,
                 data: log.data,
                 topics: log.topics as [Hex, ...Hex[]],
             });
-            out.push({
-                orderHash: decoded.args.orderHash as Hex,
-                logIndex: log.logIndex,
-            });
+            if (decoded.eventName === "Execution") {
+                const args = decoded.args;
+                out.push({
+                    orderHash: args.orderHash,
+                    logIndex: log.logIndex,
+                    maker: args.transfer.trader.toLowerCase(),
+                    contract: args.transfer.collection.toLowerCase(),
+                    tokenId: args.transfer.id.toString(),
+                    listingIndex: args.listingIndex,
+                    amount:
+                        args.transfer.assetType === 0
+                            ? 1n
+                            : args.transfer.amount,
+                    price: args.price,
+                    orderSide: args.orderType === 0 ? "sell" : "buy",
+                    assetType: args.transfer.assetType,
+                });
+            } else {
+                const args = decoded.args;
+                const token = args.tokenIdListingIndexTrader;
+                const price = args.collectionPriceSide;
+                const address = (value: bigint) =>
+                    `0x${(value & ((1n << 160n) - 1n)).toString(16).padStart(40, "0")}`;
+                out.push({
+                    orderHash: args.orderHash,
+                    logIndex: log.logIndex,
+                    maker: address(token),
+                    contract: address(price),
+                    tokenId: (token >> 168n).toString(),
+                    listingIndex: (token >> 160n) & 255n,
+                    amount: 1n,
+                    price: (price >> 160n) & ((1n << 88n) - 1n),
+                    orderSide: price >> 248n === 0n ? "sell" : "buy",
+                    assetType: 0,
+                });
+            }
         } catch {
             continue;
         }
     }
-    return out;
+    return out.sort((a, b) => a.logIndex - b.logIndex);
 }
 
 function toSafeIndex(value: bigint): number {

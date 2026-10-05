@@ -292,6 +292,25 @@ This transaction is protocol-valid even if it is a phishing/scam sale. The decod
 
 ## Blur Decoding
 
+Calldata exchanges are matched to successful execution events by maker,
+collection, token, listing index, side, asset type, executed quantity, and gross
+total, before collection filtering. Missing events do not fall back to transfer
+log identities. Failed batch exchanges therefore cannot steal another fill's
+order hash or log index. Event ordering does not determine the match.
+
+The decoder recognizes `Execution721Packed`, its maker/taker-fee variants, and
+the general `Execution` event. Packed fields reserve 160 bits for addresses,
+8 bits for listing index, and 88 bits for token ID/price. ERC-1155 trades use the
+general event. `listing.price` is per unit; the execution price is the total for
+the actual taker quantity, not the listing's maximum quantity. Identity always
+uses the event's order hash rather than reconstructing it from a salt.
+
+Protocol references: [verified executor source](https://goto.etherscan.com/tx-decoder?tx=0x3af207b302b14520ebb8c2120468c34ad535239c66382ecebe60481e13cb02c2)
+(`_computeFees`, execution emission/packing) and
+[OpenSea's Blur V2 integration](https://github.com/ProjectOpenSea/marketplace-benchmarks/blob/main/src/marketplaces/blur-2.0/BlurV2Config.sol).
+The bundled receipts verify matching against actual execution identities;
+synthetic event mutations cover fee forms, failures, and quantity arithmetic.
+
 Blur V2 fills are decoded from calldata for known methods. Current supported methods:
 
 - `takeAskSingle`
