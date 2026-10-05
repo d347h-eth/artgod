@@ -177,7 +177,8 @@ sale history.
   block provenance, protocol address, payment total and currency or an exclusion
   reason, and the full NFT quantity.
 - `fill_execution_items`: every normalized payment/NFT leg in protocol order,
-  keyed by execution and item index. Untracked legs remain. `unit_offset` is the
+  keyed by execution and item index. Untracked and forwarding legs remain.
+  Forwarded NFTs contribute units once, on the sold leg. `unit_offset` is the
   exact preceding NFT quantity used for deterministic payment remainder allocation.
 - `fills`: collection-scoped concrete NFT attribution, keyed uniquely by
   `(collection_id, execution_id, item_index)`, with order/participant/quantity

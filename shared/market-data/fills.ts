@@ -61,6 +61,72 @@ export function fillExecutionIdentity(
     return `${chainId}:${kind}:${txHash.toLowerCase()}:${logIndex}`;
 }
 
+type FillNftSideItem = Pick<
+    FillExecutionItem,
+    "side" | "itemType" | "contract" | "identifier" | "amount"
+>;
+
+/** Resolve the sold NFT leg from complete protocol items before tracking filters.
+ * Matched orders may forward the same concrete NFT multiset on the other leg.
+ * Currency on exactly one side establishes which leg carries the sold units. */
+export function resolveFillNftSide(
+    items: readonly FillNftSideItem[],
+): FillItemSide | null {
+    const offered = items.filter(
+        (item) => isFillNftItem(item) && item.side === FILL_ITEM_SIDE.Offer,
+    );
+    const considered = items.filter(
+        (item) =>
+            isFillNftItem(item) && item.side === FILL_ITEM_SIDE.Consideration,
+    );
+    if (!offered.length && !considered.length) return null;
+    if (!considered.length) return FILL_ITEM_SIDE.Offer;
+    if (!offered.length) return FILL_ITEM_SIDE.Consideration;
+    if (!haveSameConcreteNfts(offered, considered)) return null;
+
+    const paymentSides = new Set(
+        items
+            .filter(
+                (item) =>
+                    item.itemType === FILL_ITEM_TYPE.Native ||
+                    item.itemType === FILL_ITEM_TYPE.Erc20,
+            )
+            .map((item) => item.side),
+    );
+    if (paymentSides.size !== 1) return null;
+    return paymentSides.has(FILL_ITEM_SIDE.Offer)
+        ? FILL_ITEM_SIDE.Consideration
+        : FILL_ITEM_SIDE.Offer;
+}
+
+function haveSameConcreteNfts(
+    offered: readonly FillNftSideItem[],
+    considered: readonly FillNftSideItem[],
+): boolean {
+    if (
+        offered.length !== considered.length ||
+        [...offered, ...considered].some(
+            (item) => item.itemType > FILL_ITEM_TYPE.Erc1155,
+        )
+    )
+        return false;
+
+    const identity = (item: FillNftSideItem) =>
+        `${item.itemType}:${item.contract.toLowerCase()}:${unsignedAmount(item.identifier)}:${unsignedAmount(item.amount)}`;
+    const unmatched = new Map<string, number>();
+    for (const item of considered) {
+        const key = identity(item);
+        unmatched.set(key, (unmatched.get(key) ?? 0) + 1);
+    }
+    for (const item of offered) {
+        const key = identity(item);
+        const count = unmatched.get(key) ?? 0;
+        if (!count) return false;
+        unmatched.set(key, count - 1);
+    }
+    return true;
+}
+
 /** Derive the monetary shape once at ingestion, from all protocol items. No tracking
  * or chart scope participates. A bid's offer is its gross payment; same-currency
  * consideration can distribute that payment alongside its NFTs (fees/proceeds).
@@ -68,7 +134,11 @@ export function fillExecutionIdentity(
 export function summarizeFillPayment(
     items: readonly FillExecutionItem[],
 ): FillPayment {
-    const nfts = items.filter(isFillNftItem);
+    const nftSide = resolveFillNftSide(items);
+    const nfts = items.filter(
+        (item) =>
+            isFillNftItem(item) && (nftSide === null || item.side === nftSide),
+    );
     const nftQuantity = nfts
         .reduce((n, item) => n + positiveQuantity(item.amount), 0n)
         .toString();
@@ -86,10 +156,9 @@ export function summarizeFillPayment(
         )
     )
         return excluded(FILL_PRICE_EXCLUSION.UnsupportedItems);
-    const nftSides = new Set(nfts.map((i) => i.side));
-    if (nftSides.size !== 1)
+    if (nftSide === null)
         return excluded(
-            nftSides.size
+            nfts.length
                 ? FILL_PRICE_EXCLUSION.Swap
                 : FILL_PRICE_EXCLUSION.UnsupportedItems,
         );
@@ -98,13 +167,13 @@ export function summarizeFillPayment(
     const currencies = new Set(money.map((i) => i.contract.toLowerCase()));
     if (currencies.size !== 1)
         return excluded(FILL_PRICE_EXCLUSION.MixedPayment);
-    const payments = money.filter((i) => !nftSides.has(i.side));
+    const payments = money.filter((i) => i.side !== nftSide);
     if (!payments.length) return excluded(FILL_PRICE_EXCLUSION.NoPayment);
     const total = payments.reduce((n, i) => n + unsignedAmount(i.amount), 0n);
-    const returns = money.filter((i) => nftSides.has(i.side));
+    const returns = money.filter((i) => i.side === nftSide);
     if (
         returns.length &&
-        (nftSides.has(FILL_ITEM_SIDE.Offer) ||
+        (nftSide === FILL_ITEM_SIDE.Offer ||
             returns.reduce((n, i) => n + unsignedAmount(i.amount), 0n) > total)
     )
         return excluded(FILL_PRICE_EXCLUSION.MixedPayment);
@@ -125,9 +194,11 @@ export function isFillNftItem(
     );
 }
 
-/** Validate item identities and prepare quantity prefixes once at ingestion. */
+/** Retain every raw item, but prefix sold NFT units only: forwarding legs must
+ * not double the unit-price denominator or consume another remainder share. */
 export function prepareFillExecution(execution: FillExecution) {
     let offset = 0n;
+    const nftSide = resolveFillNftSide(execution.items);
     const items = execution.items.map((item, index) => {
         if (
             item.index !== index ||
@@ -137,7 +208,8 @@ export function prepareFillExecution(execution: FillExecution) {
         unsignedAmount(item.identifier);
         unsignedAmount(item.amount);
         const unitOffset = offset.toString();
-        if (isFillNftItem(item)) offset += positiveQuantity(item.amount);
+        if (isFillNftItem(item) && (nftSide === null || item.side === nftSide))
+            offset += positiveQuantity(item.amount);
         return { ...item, unitOffset };
     });
     return { payment: summarizeFillPayment(execution.items), items };
@@ -149,10 +221,12 @@ export function fillAttributionItem(
     attribution: { contract: string; tokenId: string; amount?: string },
 ): FillExecutionItem {
     const item = execution.items[index];
+    const nftSide = resolveFillNftSide(execution.items);
     if (
         !item ||
         !isFillNftItem(item) ||
         item.itemType > FILL_ITEM_TYPE.Erc1155 ||
+        (nftSide !== null && item.side !== nftSide) ||
         item.index !== index ||
         item.contract !== attribution.contract ||
         item.identifier !== attribution.tokenId ||

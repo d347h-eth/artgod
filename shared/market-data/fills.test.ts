@@ -9,6 +9,7 @@ import {
     summarizeFillPayment,
     prepareFillExecution,
     fillAttributionItem,
+    resolveFillNftSide,
     type FillExecutionItem,
 } from "./fills.js";
 const item = (
@@ -25,6 +26,106 @@ const item = (
     contract,
     identifier: "1",
     recipient: null,
+});
+
+it.each([SIDE.Offer, SIDE.Consideration])(
+    "counts forwarded NFT units once on the %s leg while retaining all raw items",
+    (soldSide) => {
+        const items = [
+            item(0, SIDE.Offer, TYPE.Erc721, "1", "a"),
+            item(1, SIDE.Offer, TYPE.Erc1155, "2", "b"),
+            item(
+                2,
+                soldSide === SIDE.Offer ? SIDE.Consideration : SIDE.Offer,
+                TYPE.Native,
+                "7",
+            ),
+            item(3, SIDE.Consideration, TYPE.Erc1155, "2", "b"),
+            item(4, SIDE.Consideration, TYPE.Erc721, "1", "a"),
+        ];
+        const execution = { protocolAddress: "protocol", items };
+        expect(resolveFillNftSide(items)).toBe(soldSide);
+        const prepared = prepareFillExecution(execution);
+        expect(prepared.payment).toEqual({
+            exclusion: null,
+            totalPrice: "7",
+            currency: "eth",
+            nftQuantity: "3",
+        });
+        expect(prepared.items.map(({ unitOffset, ...raw }) => raw)).toEqual(
+            items,
+        );
+        const sold = prepared.items.filter(
+            (item) => item.side === soldSide && item.itemType >= TYPE.Erc721,
+        );
+        const allocations = sold.map((item) =>
+            allocateFillPayment("7", "3", item.amount, item.unitOffset),
+        );
+        expect(
+            allocations.reduce((n, a) => n + BigInt(a.attributedPrice), 0n),
+        ).toBe(7n);
+        expect(allocations.map((a) => a.unitPrice)).toEqual([
+            { numeratorWei: "7", denominator: "3" },
+            { numeratorWei: "7", denominator: "3" },
+        ]);
+        const forwarded = items.find(
+            (item) => item.side !== soldSide && item.itemType >= TYPE.Erc721,
+        )!;
+        expect(() =>
+            fillAttributionItem(execution, forwarded.index, {
+                contract: forwarded.contract,
+                tokenId: forwarded.identifier,
+                amount: forwarded.amount,
+            }),
+        ).toThrow("contradicts");
+    },
+);
+
+it("requires the complete concrete forwarding multiset and payment on one side", () => {
+    const nfts = [
+        item(0, SIDE.Offer, TYPE.Erc721, "1", "tracked"),
+        item(1, SIDE.Offer, TYPE.Erc1155, "2", "untracked"),
+        item(2, SIDE.Consideration, TYPE.Erc721, "1", "tracked"),
+        item(3, SIDE.Consideration, TYPE.Erc1155, "2", "untracked"),
+    ];
+    const payment = item(4, SIDE.Consideration, TYPE.Native, "7");
+    for (const mutation of [
+        { identifier: "2" },
+        { amount: "3" },
+        { contract: "different" },
+        { itemType: TYPE.Criteria1155 },
+    ]) {
+        const items = [
+            ...nfts.map((item, i) =>
+                i === 3 ? { ...item, ...mutation } : item,
+            ),
+            payment,
+        ];
+        expect(resolveFillNftSide(items)).toBeNull();
+        expect(summarizeFillPayment(items).exclusion).toBe(
+            "itemType" in mutation
+                ? EXCLUSION.UnsupportedItems
+                : EXCLUSION.Swap,
+        );
+    }
+    expect(resolveFillNftSide(nfts)).toBeNull();
+    expect(
+        resolveFillNftSide([
+            ...nfts,
+            payment,
+            item(5, SIDE.Offer, TYPE.Native, "1"),
+        ]),
+    ).toBeNull();
+    // Same lengths and total quantity cannot substitute for equal individual items.
+    expect(
+        resolveFillNftSide([
+            nfts[0]!,
+            { ...nfts[0]!, index: 1 },
+            nfts[2]!,
+            nfts[3]!,
+            payment,
+        ]),
+    ).toBeNull();
 });
 
 it("classifies full cash, cross-collection, swap and mixed-payment executions", () => {

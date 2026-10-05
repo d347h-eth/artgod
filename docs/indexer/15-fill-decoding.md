@@ -23,7 +23,10 @@ archived.
 `shared/market-data/fills.ts` owns payment classification and exact arithmetic.
 Cash asks sum currency consideration. Cash bids use the gross currency offer;
 same-currency consideration can distribute that payment alongside the NFT and
-is not added again. NFTs on both sides, multiple currencies, cash offered with
+is not added again. Matched forwarding sales may repeat the complete concrete
+NFT multiset on both sides, with currency on exactly one side. Both raw legs
+remain stored, but only the sold leg receives attribution and contributes NFT
+units or remainder offsets. Different NFT legs, multiple currencies, cash offered with
 ask NFTs, excess bid return payments, missing payments and unsupported items
 retain normalized facts with an exclusion reason rather than an invented price.
 
