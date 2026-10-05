@@ -154,7 +154,9 @@ test doubles. They do not use a live chain, broker, or application database.
   fanout processing. It covers missing ancestors repaired by gap processing at
   stationary HEAD, reopen/startup continuation, failed initial retention and
   atomic rollback publication, partial fanout, terminal/sent redrive, stale proof,
-  newer mismatch, concurrent token scope and pre-rollback realtime results.
+  newer mismatch, concurrent token scope and pre-rollback realtime results. A
+  two-token mixed-fork fixture proves that a repaired matching header cannot hide
+  an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
 - `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
   against independently coherent disagreeing providers. Owners and recognized
   absence must come from the exact canonical hash; unsupported/unavailable/
@@ -169,8 +171,8 @@ test doubles. They do not use a live chain, broker, or application database.
   headers, conflicting stored/duplicate headers and mixed parent chains. It also
   verifies canonical replacement after rollback and idempotent historical repair.
 - `tests/sync-blocks.test.ts` covers fresh header reads, tip rechecking, changing
-  ranges and common ancestor discovery across missing local history without
-  guessing a fork.
+  ranges and complete bounded ancestor proof across sparse/mixed local history,
+  including retained parent identities at missing heights, without guessing a fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
 

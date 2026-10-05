@@ -41,10 +41,13 @@ export const REORG_FIXTURE = {
     Weth: "0x0000000000000000000000000000000000000001",
 } as const;
 
-export function canonicalRecoveryBlock(number: number) {
+export function canonicalRecoveryBlock(
+    number: number,
+    forkBlock: number = REORG_FIXTURE.Fork,
+) {
     const header = syncBlockFixture(number);
     const hash = (n: number) =>
-        syncBlockFixture(n >= REORG_FIXTURE.Orphan ? n + 10_000 : n).hash;
+        syncBlockFixture(n > forkBlock ? n + 10_000 : n).hash;
     return {
         ...header,
         hash: hash(number),
@@ -55,6 +58,8 @@ export function canonicalRecoveryBlock(number: number) {
 // Deterministic chain fixture; orchestration, exact-block snapshot translation,
 // persistence, revision fences and fanout all use the production implementations.
 export class RecoveryRpc implements RpcProviderPort {
+    constructor(private readonly forkBlock: number = REORG_FIXTURE.Fork) {}
+
     ownerReads: ChainBlockReference[] = [];
     logReads = 0;
     beforeOwnerRead?: () => Promise<void>;
@@ -63,7 +68,7 @@ export class RecoveryRpc implements RpcProviderPort {
         return REORG_FIXTURE.Head;
     }
     async getBlock(number: number) {
-        return canonicalRecoveryBlock(number);
+        return canonicalRecoveryBlock(number, this.forkBlock);
     }
     async getLogs(filter: RpcLogFilter) {
         this.logReads++;
@@ -78,7 +83,8 @@ export class RecoveryRpc implements RpcProviderPort {
         if (
             input.block.chainId !== REORG_FIXTURE.ChainId ||
             input.block.blockHash !==
-                canonicalRecoveryBlock(input.block.blockNumber).hash
+                canonicalRecoveryBlock(input.block.blockNumber, this.forkBlock)
+                    .hash
         )
             throw new Error(
                 "Fixture cannot serve the requested canonical hash",
