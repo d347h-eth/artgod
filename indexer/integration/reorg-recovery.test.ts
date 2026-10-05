@@ -10,6 +10,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
+import { runWorker } from "../src/application/worker-runner.js";
+import type { BlockCheckPayload } from "../src/domain/reorg-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { REORG_JOB_KIND } from "../src/domain/reorg-jobs.js";
@@ -327,6 +329,98 @@ describe("isolated broker and process reorg recovery", () => {
         db.exec("DROP TRIGGER fail_mismatch_retention;");
         await complete();
         await retained.stop();
+    });
+
+    it("keeps broker ownership when an RPC failure follows journal deferrals beyond the production retry budget", async () => {
+        db.exec(
+            "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+        );
+        const rpc = new RecoveryRpc();
+        services = reorgRecoveryServices(rpc, { retryDelayMs: 20 });
+        const deliveries: number[] = [];
+        let releaseSeventh!: () => void;
+        const seventhGate = new Promise<void>((resolve) => {
+            releaseSeventh = resolve;
+        });
+        stops.push(
+            await runWorker(
+                queue,
+                {
+                    queue: QUEUE_NAMES.BlockCheck,
+                    consumerName: CONSUMER.Reorg,
+                    maxInFlight: 1,
+                    ackWaitMs: 150,
+                    extendLeaseMs: 25,
+                    maxAttempts: 5,
+                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                },
+                async (job: JobEnvelope<BlockCheckPayload>) => {
+                    const attempt = job.attempt!;
+                    deliveries.push(attempt);
+                    if (attempt === 6) {
+                        db.exec("DROP TRIGGER fail_mismatch_retention;");
+                        rpc.beforeBlockRead = async () => {
+                            rpc.beforeBlockRead = undefined;
+                            throw new Error(
+                                "Temporary RPC outage after journal recovery",
+                            );
+                        };
+                    }
+                    if (attempt === 7) await seventhGate;
+                    await services.recovery.checkBlock(job.payload.blockNumber);
+                },
+            ),
+        );
+        await publishCheck("retention-followup-check");
+        const manager = await broker.connection.jetstreamManager();
+        try {
+            await waitForFixture(
+                () => deliveries.includes(7),
+                "the original check survives its sixth-delivery RPC failure",
+            );
+            expect(deliveries).toEqual([1, 2, 3, 4, 5, 6, 7]);
+            expect(deadLetters).toHaveLength(0);
+            expect(services.recoveries.getRecovery(F.ChainId)).toBeNull();
+            expect(revision()).toBe(0);
+            const consumer = await manager.consumers.info(
+                resolveNatsJobStreamName(prefix),
+                CONSUMER.Reorg,
+            );
+            expect(consumer.num_ack_pending).toBe(1);
+        } finally {
+            releaseSeventh();
+        }
+        await waitForFixture(
+            () =>
+                services.recoveries.getRecovery(F.ChainId)?.phase ===
+                REORG_RECOVERY_PHASE.Resync,
+            "healthy delivery retains and rolls back recovery",
+        );
+        const resumed = await worker({ role: ROLE.Resync });
+        await complete();
+        await waitForFixture(async () => {
+            const consumer = await manager.consumers.info(
+                resolveNatsJobStreamName(prefix),
+                CONSUMER.Reorg,
+            );
+            return consumer.num_pending === 0 && consumer.num_ack_pending === 0;
+        }, "the handed-off check is acknowledged");
+        expect(deadLetters).toHaveLength(0);
+        await writeFile(
+            path.join(artifacts, "retention-followup-result.json"),
+            JSON.stringify(
+                {
+                    deliveries,
+                    deadLetters: deadLetters.length,
+                    recovery: services.recoveries.getRecovery(F.ChainId),
+                    revision: revision(),
+                    owners: owners(),
+                },
+                null,
+                2,
+            ),
+        );
+        await resumed.stop();
     });
 
     it("replays partial fanout after coverage, process death and broker restart", async () => {

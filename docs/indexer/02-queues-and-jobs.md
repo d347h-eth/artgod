@@ -150,6 +150,9 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
   first delivery is attempt 1). Successful maker continuations are separate
   step messages; many successful steps do not exhaust a retry limit.
 - A deferred maker lease wait nacks with delay without entering the DLQ path.
+- Reorg checks retain their delivery through every pre-handoff failure, including
+  database reads and RPC errors after earlier journal-write deferrals. Ordinary
+  DLQ exhaustion becomes safe only after durable recovery takes ownership.
 - Maker admission failures also retain the original delivery with a one-second
   delay, including unavailable replay metadata or SQLite persistence. Before
   admission commits there may be no run for durable recovery to find.

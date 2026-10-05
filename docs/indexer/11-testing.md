@@ -157,6 +157,8 @@ test doubles. They do not use a live chain, broker, or application database.
   newer mismatch, concurrent token scope and pre-rollback realtime results. A
   two-token mixed-fork fixture proves that a repaired matching header cannot hide
   an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
+  Initial journal deferrals followed by RPC, wrong-height, checkpoint or header
+  read failures cannot ACK/DLQ the only check owner after retry-budget exhaustion.
 - `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
   against independently coherent disagreeing providers. Owners and recognized
   absence must come from the exact canonical hash; unsupported/unavailable/
@@ -206,7 +208,8 @@ worker/broker logs and reports under `tmp/reorg-recovery-nats/`.
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
 
-- initial retention failure beyond ordinary broker retry limits;
+- initial retention failure beyond ordinary broker retry limits, including a
+  later RPC outage after five failed journal writes and healthy eventual recovery;
 - worker death before rollback continuation publication and during partial fanout;
 - broker restart over the retained private JetStream store;
 - accepted publication with a lost reply, terminal outbox state and an ACKed

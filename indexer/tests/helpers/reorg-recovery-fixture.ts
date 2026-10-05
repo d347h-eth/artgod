@@ -63,11 +63,13 @@ export class RecoveryRpc implements RpcProviderPort {
     ownerReads: ChainBlockReference[] = [];
     logReads = 0;
     beforeOwnerRead?: () => Promise<void>;
+    beforeBlockRead?: (number: number) => Promise<void>;
     beforeLogs?: (filter: RpcLogFilter) => Promise<void>;
     async getBlockNumber(): Promise<number> {
         return REORG_FIXTURE.Head;
     }
     async getBlock(number: number) {
+        await this.beforeBlockRead?.(number);
         return canonicalRecoveryBlock(number, this.forkBlock);
     }
     async getLogs(filter: RpcLogFilter) {

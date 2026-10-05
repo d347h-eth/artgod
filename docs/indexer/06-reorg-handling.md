@@ -41,10 +41,13 @@ When a block-check job is received:
    checked height and captured chain revision before relinquishing the delivery.
 6. Attempt due ancestor proof and rollback. An unavailable proof remains pending.
 
-If initial mismatch retention fails, `JobDeferred` keeps the original check
-retryable even beyond the ordinary worker DLQ budget: no durable business owner
-exists yet. Once retained, recovery failures can be acknowledged or dead-lettered
-without forgetting the pending workflow. The reorg consumer renews its broker
+Any failure before confirmation or durable mismatch retention uses `JobDeferred`
+to keep the original check retryable beyond the ordinary worker DLQ budget. This
+includes checkpoint/header reads, fresh RPC acquisition, wrong-height responses
+and the retention transaction: no durable business owner exists yet. Broker
+delivery counts still advance during deferral, so later pre-handoff errors must
+remain deferred too. Once retained, recovery failures can be acknowledged or
+dead-lettered without forgetting the pending workflow. The reorg consumer renews its broker
 lease every 10 seconds through `runWorker`; identity, revision and token-scope
 fences still protect against duplicate delivery.
 
