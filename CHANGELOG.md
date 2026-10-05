@@ -16,6 +16,7 @@ Changes since
 
 - Easier collection setup with metadata previews and Art Blocks token ranges.
 - Extra target presets for trait-scoped bidding.
+- Explore collection sale prices with interactive charts and trait filters.
 - Collections automatically recover missing history and refresh all collection data
   after app shutdown and relaunch.
 - More reliable market data, bidding, and desktop startup.
@@ -25,10 +26,11 @@ Changes since
 **Desktop users do not need to run cleanup manually.** The app handles cleanup
 automatically when it starts.
 
-- **Existing listing history and bid/cancellation activity history are permanently
-  deleted.**
-  Daily listing history starts afresh. Sales, transfers, artwork, metadata,
-  ownership, settings, wallets, and bidding state are kept.
+- **Existing listing history, bid/cancellation activity history and sales history
+  are permanently deleted.**
+  Daily listing history starts afresh. Resync sales history through normal
+  backfill. Transfers, artwork, metadata, ownership, settings, wallets, and bidding
+  state are kept.
 - Large databases may take longer to start. Use Stop to interrupt cleanup or
   `retry start` to resume it after a failure.
 - **Custom or standalone hosted installations need manual cleanup.** Follow the
@@ -36,6 +38,8 @@ automatically when it starts.
 
 ### Added
 
+- Explore collection sale prices on an interactive chart with trait filters,
+  token previews, bundle averages, and NFT quantity and ETH volume.
 - Preview token metadata and estimate image storage before adding a collection.
 - Suggested token ranges for recognized Art Blocks projects.
 - Extra targets presets let trait-scoped bidding jobs consider competing offers
@@ -53,4 +57,3 @@ automatically when it starts.
 - Listings and bids update more reliably after sales, cancellations, and restarts.
 - Collection setup shows progress more often while finding NFTs.
 - Bidding authorization opens in a shorter, resizable window with visible Next
-

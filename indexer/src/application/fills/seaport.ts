@@ -1,19 +1,21 @@
 import { logger } from "@artgod/shared/utils";
-import { FILL_KIND } from "@artgod/shared/market-data/fills";
+import {
+    FILL_KIND,
+    FILL_ITEM_SIDE,
+    FILL_ITEM_TYPE,
+    isFillNftItem,
+    summarizeFillPayment,
+    type FillExecution,
+    type FillExecutionItem,
+} from "@artgod/shared/market-data/fills";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
 } from "../../domain/onchain.js";
 import type { Hex, RpcLog } from "../../ports/rpc.js";
-import {
-    findTrackedNftItems,
-    isCurrencyItem,
-    normalizeCurrency,
-    sumAmounts,
-    type SeaportItem,
-} from "./seaport-shared.js";
-import type { DecodedFillEvent, OrderSide } from "./types.js";
+import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
+import type { DecodedFillEvent } from "./types.js";
 
 type OrderFulfilledItem = {
     itemType: number;
@@ -114,95 +116,67 @@ function decodeOrderFulfilled(
         });
 
         const offerer = (decoded.args.offerer as Hex).toLowerCase();
-        const offer = normalizeFulfilledItems(
-            decoded.args.offer as readonly OrderFulfilledItem[],
+        const offer = decoded.args.offer as readonly OrderFulfilledItem[];
+        const consideration = decoded.args
+            .consideration as readonly OrderFulfilledConsiderationItem[];
+        const items: FillExecutionItem[] = [
+            ...offer.map((item) => ({
+                ...item,
+                side: FILL_ITEM_SIDE.Offer,
+                recipient: (decoded.args.recipient as Hex).toLowerCase(),
+            })),
+            ...consideration.map((item) => ({
+                ...item,
+                side: FILL_ITEM_SIDE.Consideration,
+                recipient: item.recipient.toLowerCase(),
+            })),
+        ].map((item, index) => ({
+            index,
+            side: item.side,
+            itemType: Number(item.itemType),
+            contract: item.token.toLowerCase(),
+            identifier: item.identifier.toString(),
+            amount: item.amount.toString(),
+            recipient: item.recipient,
+        }));
+        const execution: FillExecution = {
+            protocolAddress: log.address.toLowerCase(),
+            items,
+        };
+        const payment = summarizeFillPayment(items);
+        // Keep swaps and mixed shapes as facts. Only concrete tracked NFT legs
+        // receive attribution; all other legs remain in their execution context.
+        const nfts = items.filter(
+            (item) =>
+                isFillNftItem(item) &&
+                item.itemType <= FILL_ITEM_TYPE.Erc1155 &&
+                collections.has(item.contract),
         );
-        const consideration = normalizeFulfilledItems(
-            decoded.args
-                .consideration as readonly OrderFulfilledConsiderationItem[],
-        );
 
-        const offeredNfts = findTrackedNftItems(offer, collections);
-        const consideredNfts = findTrackedNftItems(consideration, collections);
-        if (offeredNfts.length > 0 && consideredNfts.length > 0) return [];
-        if (offeredNfts.length === 0 && consideredNfts.length === 0) return [];
-
-        const orderSide: OrderSide = offeredNfts.length > 0 ? "sell" : "buy";
-        const nfts = orderSide === "sell" ? offeredNfts : consideredNfts;
-
-        const currencyItems =
-            orderSide === "sell"
-                ? consideration.filter((item) => isCurrencyItem(item.itemType))
-                : offer.filter((item) => isCurrencyItem(item.itemType));
-        if (currencyItems.length === 0) return [];
-        const currency = resolveSingleCurrency(log, currencyItems, tx);
-        if (!currency) return [];
-
-        const price = sumAmounts(currencyItems.map((item) => item.startAmount));
-        // Count both sides before tracking filters. NFT-for-NFT legs must not
-        // masquerade as a single-token monetary sale either.
-        const priceNftCount = sumAmounts(
-            [...offer, ...consideration]
-                .filter((item) => item.itemType >= 2 && item.itemType <= 5)
-                .map((item) => item.startAmount),
-        ).toString();
-
-        return nfts.flatMap((nft) => {
-            return [
-                {
-                    kind: FILL_KIND.Seaport,
-                    orderId: decoded.args.orderHash as Hex,
-                    orderSide,
-                    maker: offerer,
-                    taker: tx.transaction.from.toLowerCase(),
-                    contract: nft.contract,
-                    tokenId: nft.tokenId,
-                    amount: nft.amount,
-                    price: price.toString(),
-                    currency,
-                    priceNftCount,
-                    blockNumber: tx.blockNumber,
-                    blockHash: tx.blockHash,
-                    txHash: tx.txHash,
-                    logIndex: log.logIndex,
-                },
-            ];
-        });
+        return nfts.map((nft) => ({
+            kind: FILL_KIND.Seaport,
+            orderId: decoded.args.orderHash as Hex,
+            orderSide:
+                nft.side === FILL_ITEM_SIDE.Offer
+                    ? ORDER_SIDE.Sell
+                    : ORDER_SIDE.Buy,
+            maker: offerer,
+            taker: tx.transaction.from.toLowerCase(),
+            contract: nft.contract,
+            tokenId: nft.identifier,
+            amount: nft.amount,
+            price: payment.totalPrice ?? undefined,
+            currency: payment.currency ?? undefined,
+            execution,
+            executionItemIndex: nft.index,
+            blockNumber: tx.blockNumber,
+            blockHash: tx.blockHash,
+            txHash: tx.txHash,
+            logIndex: log.logIndex,
+        }));
     } catch {
         return [];
     }
-}
-
-function resolveSingleCurrency(
-    log: RpcLog,
-    currencyItems: readonly SeaportItem[],
-    tx: EnhancedTransaction,
-): string | null {
-    const currencies = new Set(
-        currencyItems.map((item) => normalizeCurrency(item.token)),
-    );
-    const [currency] = currencies;
-    if (currency && currencies.size === 1) return currency;
-
-    logger.warn("Mixed-currency Seaport fill skipped", {
-        component: "SeaportFillDecoder",
-        action: "decodeSeaportFills",
-        txHash: tx.txHash,
-        logIndex: log.logIndex,
-        currencies: [...currencies],
-    });
-    return null;
-}
-
-function normalizeFulfilledItems(
-    items: readonly OrderFulfilledItem[],
-): SeaportItem[] {
-    return items.map((item) => ({
-        itemType: Number(item.itemType),
-        token: item.token,
-        identifierOrCriteria: item.identifier,
-        startAmount: item.amount,
-    }));
 }
 
 function getMatchingTransfers(
@@ -251,7 +225,21 @@ function matchAndCanonicalizeTokenFills(
     const transfers = getMatchingTransfers(tx.events, first).sort(
         (a, b) => a.base.logIndex - b.base.logIndex,
     );
-    const matches = chooseBestTransferMatches(tx, group, transfers);
+    // Repeated NFT identifiers in one execution are separate raw items, but can
+    // settle in one aggregated ERC1155 transfer. Match the execution once, then
+    // restore its item attributions; mirror candidates still compete per hop.
+    const byExecution = new Map<string, SeaportFillCandidate[]>();
+    for (const fill of group) {
+        const key = `${fill.logIndex}:${fill.orderSide}`;
+        byExecution.set(key, [...(byExecution.get(key) ?? []), fill]);
+    }
+    const candidates = [...byExecution.values()].map((items) => ({
+        ...items[0]!,
+        amount: items
+            .reduce((n, item) => n + BigInt(item.amount!), 0n)
+            .toString(),
+    }));
+    const matches = chooseBestTransferMatches(tx, candidates, transfers);
     if (matches.length === 0) return [];
 
     const byTransfer = new Map<number, CandidateTransferMatch[]>();
@@ -266,7 +254,15 @@ function matchAndCanonicalizeTokenFills(
 
     const out: DecodedFillEvent[] = [];
     for (const transferMatches of byTransfer.values()) {
-        out.push(...chooseCanonicalTransferFills(tx, transferMatches));
+        for (const canonical of chooseCanonicalTransferFills(
+            tx,
+            transferMatches,
+        )) {
+            for (const item of byExecution.get(
+                `${canonical.logIndex}:${canonical.orderSide}`,
+            )!)
+                out.push({ ...item, taker: canonical.taker });
+        }
     }
     return out;
 }

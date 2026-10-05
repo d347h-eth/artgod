@@ -9,11 +9,14 @@ import {
     priceHistoryBucket,
     type PriceHistory,
     type PriceHistoryRequest,
+    type PriceHistoryObservation,
+    type PriceHistoryCounts,
     type RealizedPriceBucket,
     type RealizedSale,
 } from "@artgod/shared/types/price-history";
 
 import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
+import { compareUnitPrices } from "@artgod/shared/market-data/fills";
 
 export class PriceHistoryInputError extends Error {}
 
@@ -77,11 +80,11 @@ export function realizedSaleExecution(
     return { action: null, seller: null, buyer: null };
 }
 
-/** One pass over already eligible, chronologically ordered sales. Exact arithmetic
+/** One pass over classified, chronologically ordered NFT observations. Exact arithmetic
  * belongs here; adapters own ordering, and renderers only map the result to pixels.
  * No bucket state is persisted. */
 export function buildRealizedPriceHistory(
-    source: Iterable<RealizedSale>,
+    source: Iterable<PriceHistoryObservation>,
     input: PriceHistoryRequest,
     end: number,
 ): PriceHistory {
@@ -90,18 +93,44 @@ export function buildRealizedPriceHistory(
     const buckets: RealizedPriceBucket[] = [];
     const sales: RealizedSale[] = [];
     let current: RealizedPriceBucket | undefined;
-    let high = 0n,
-        low = 0n,
-        turnover = 0n;
+    let turnover = 0n,
+        volume = 0n;
+    const counts: PriceHistoryCounts = {
+        observations: 0,
+        pricedObservations: 0,
+        excludedObservations: 0,
+        executions: 0,
+        pricedNftQuantity: "0",
+        excludedNftQuantity: "0",
+        excludedByReason: {},
+    };
+    const executions = new Set<string>();
+    let includedUnits = 0n,
+        excludedUnits = 0n,
+        previous = -1;
     let from = end,
         to = end;
-    for (const sale of source) {
-        if (sales.length === PRICE_HISTORY_LIMITS.fills)
+    for (const observation of source) {
+        if (counts.observations === PRICE_HISTORY_LIMITS.fills)
             throw new PriceHistoryInputError(
                 "Choose a shorter price history range.",
             );
-        if (sales.length && sale.timestamp < sales[sales.length - 1]!.timestamp)
+        if (observation.timestamp < previous)
             throw new Error("Price history reader returned unordered sales");
+        previous = observation.timestamp;
+        counts.observations++;
+        executions.add(observation.executionId);
+        if ("exclusionReason" in observation) {
+            counts.excludedObservations++;
+            excludedUnits += BigInt(observation.quantity);
+            const reason = observation.exclusionReason;
+            counts.excludedByReason[reason] =
+                (counts.excludedByReason[reason] ?? 0) + 1;
+            continue;
+        }
+        const sale = observation;
+        counts.pricedObservations++;
+        includedUnits += BigInt(sale.quantity);
         const timestamp = priceBucketStart(sale.timestamp, bucket);
         if (!sales.length) from = timestamp;
         to = timestamp + bucketSeconds;
@@ -109,36 +138,44 @@ export function buildRealizedPriceHistory(
             throw new PriceHistoryInputError(
                 "Choose a larger time bucket or a shorter range.",
             );
-        const price = BigInt(sale.priceWei);
+        const price = sale.unitPrice;
         if (!current || current.timestamp !== timestamp) {
-            if (current) current.turnoverWei = turnover.toString();
-            high = low = turnover = price;
+            if (current) {
+                current.turnoverWei = turnover.toString();
+                current.volume = volume.toString();
+            }
+            turnover = BigInt(sale.attributedPriceWei);
+            volume = BigInt(sale.quantity);
             current = {
                 timestamp,
-                openWei: sale.priceWei,
-                highWei: sale.priceWei,
-                lowWei: sale.priceWei,
-                closeWei: sale.priceWei,
-                volume: 1,
-                turnoverWei: sale.priceWei,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+                volume: sale.quantity,
+                turnoverWei: sale.attributedPriceWei,
             };
             buckets.push(current);
         } else {
-            if (price > high) {
-                high = price;
-                current.highWei = sale.priceWei;
+            if (compareUnitPrices(price, current.high) > 0) {
+                current.high = price;
             }
-            if (price < low) {
-                low = price;
-                current.lowWei = sale.priceWei;
+            if (compareUnitPrices(price, current.low) < 0) {
+                current.low = price;
             }
-            current.closeWei = sale.priceWei;
-            current.volume++;
-            turnover += price;
+            current.close = price;
+            volume += BigInt(sale.quantity);
+            turnover += BigInt(sale.attributedPriceWei);
         }
         sales.push(sale);
     }
-    if (current) current.turnoverWei = turnover.toString();
+    if (current) {
+        current.turnoverWei = turnover.toString();
+        current.volume = volume.toString();
+    }
+    counts.executions = executions.size;
+    counts.pricedNftQuantity = includedUnits.toString();
+    counts.excludedNftQuantity = excludedUnits.toString();
     return {
         unit: PRICE_HISTORY_UNIT,
         bucket,
@@ -148,5 +185,6 @@ export function buildRealizedPriceHistory(
         to,
         sales,
         buckets,
+        counts,
     };
 }

@@ -1,8 +1,12 @@
 import { db } from "@artgod/shared/database";
-import { FILL_KIND } from "@artgod/shared/market-data/fills";
+import {
+    allocateFillPayment,
+    FILL_PRICE_EXCLUSION,
+    type FillPriceExclusion,
+} from "@artgod/shared/market-data/fills";
 import type {
     PriceHistoryCurrencySymbol,
-    RealizedSale,
+    PriceHistoryObservation,
 } from "@artgod/shared/types/price-history";
 import type { PriceHistoryReadPort } from "../../application/use-cases/collections/get-price-history.js";
 import { realizedSaleExecution } from "../../domain/realized-price-history.js";
@@ -18,8 +22,13 @@ type FillRow = {
     id: number;
     block_timestamp: number;
     token_id: string;
-    price: string;
-    currency: string;
+    total_price: string | null;
+    currency: string | null;
+    execution_id: string;
+    amount: string;
+    nft_quantity: string;
+    unit_offset: string;
+    price_exclusion: FillPriceExclusion | null;
     order_side: string | null;
     maker: string | null;
     taker: string | null;
@@ -46,9 +55,9 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         );
     }
 
-    *iterateSingleTokenSales(
-        input: Parameters<PriceHistoryReadPort["iterateSingleTokenSales"]>[0],
-    ): Iterable<RealizedSale> {
+    *iterateObservations(
+        input: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
+    ): Iterable<PriceHistoryObservation> {
         const candidates = resolveTraitFilterTokenCandidates({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -61,21 +70,18 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
             ),
         });
         if (candidates.isEmpty) return;
-        // Legacy Seaport rows cannot prove a single NFT: an untracked sibling
-        // leaves no fill row. Blur V2 has always quoted each exchange separately.
+        // Indexed chronology reads each attributed item once. Header totals and
+        // raw-item offsets already include untracked/cross-collection siblings.
         const query = db.prepare(
-            `SELECT id, block_timestamp, token_id, price, currency, tx_hash, order_side, maker, taker
-             FROM fills
-             WHERE chain_id = ? AND collection_id = ?
-               AND block_timestamp >= ? AND block_timestamp < ?
-               ${input.tokenId === undefined ? "" : "AND token_id = ?"}
-               ${candidates.tokenIds === null ? "" : "AND token_id IN (SELECT value FROM json_each(?))"}
-               AND amount = '1'
-               AND (price_nft_count = '1' OR (price_nft_count IS NULL AND kind = ?))
-               AND currency IN (${Array.from(this.currencies, () => "?").join(",")})
-               AND price IS NOT NULL AND price != '' AND price NOT GLOB '*[^0-9]*'
-               AND length(price) <= 78
-             ORDER BY block_timestamp, block_number, log_index, id
+            `SELECT f.id, f.block_timestamp, f.token_id, f.amount, f.execution_id, e.total_price, e.currency, e.nft_quantity, e.price_exclusion, i.unit_offset, f.tx_hash, f.order_side, f.maker, f.taker
+             FROM fills f
+             JOIN fill_executions e ON e.id=f.execution_id
+             JOIN fill_execution_items i ON i.execution_id=f.execution_id AND i.item_index=f.item_index
+             WHERE f.chain_id = ? AND f.collection_id = ?
+               AND f.block_timestamp >= ? AND f.block_timestamp < ?
+               ${input.tokenId === undefined ? "" : "AND f.token_id = ?"}
+               ${candidates.tokenIds === null ? "" : "AND f.token_id IN (SELECT value FROM json_each(?))"}
+             ORDER BY f.block_timestamp, f.block_number, f.log_index, f.id
              LIMIT ?`,
         );
         const args: (string | number)[] = [
@@ -88,17 +94,44 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         // One binding avoids SQLite's variable limit on large matching token sets.
         if (candidates.tokenIds !== null)
             args.push(JSON.stringify(candidates.tokenIds));
-        args.push(FILL_KIND.BlurV2, ...this.currencies.keys(), input.limit);
+        args.push(input.limit);
         for (const raw of query.iterate(...args)) {
             const row = raw as FillRow;
-            yield {
+            const identity = {
                 id: String(row.id),
                 timestamp: row.block_timestamp,
                 tokenId: row.token_id,
-                priceWei: row.price,
-                currencyAddress: row.currency,
-                // The SQL whitelist guarantees this configured execution symbol.
-                currencySymbol: this.currencies.get(row.currency)!,
+                quantity: row.amount,
+                executionId: row.execution_id,
+            };
+            const currencySymbol =
+                row.currency === null
+                    ? undefined
+                    : this.currencies.get(row.currency);
+            const exclusionReason =
+                row.price_exclusion ??
+                (currencySymbol
+                    ? null
+                    : FILL_PRICE_EXCLUSION.UnsupportedCurrency);
+            if (exclusionReason) {
+                yield { ...identity, exclusionReason };
+                continue;
+            }
+            const allocation = allocateFillPayment(
+                row.total_price!,
+                row.nft_quantity,
+                row.amount,
+                row.unit_offset,
+            );
+            yield {
+                ...identity,
+                unitPrice: allocation.unitPrice,
+                attributedPriceWei: allocation.attributedPrice,
+                priceBasis: allocation.priceBasis,
+                executionTotalWei: row.total_price!,
+                executionNftQuantity: row.nft_quantity,
+                currencyAddress: row.currency!,
+                currencySymbol: currencySymbol!,
                 ...realizedSaleExecution(row.order_side, row.maker, row.taker),
                 txHash: row.tx_hash,
             };

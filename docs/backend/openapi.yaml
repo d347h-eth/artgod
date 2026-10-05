@@ -52,18 +52,23 @@ paths:
     /api/{chain_ref}/{collection_ref}/price-history:
         get:
             tags: [Collections]
-            summary: Realized single-token sale prices in ETH
+            summary: Realized NFT unit sale prices in ETH
             operationId: getPriceHistory
             description: |
                 Reads locally stored fills and aggregates in memory. ETH, WETH,
                 and BETH map 1:1 to ETH for aggregation; each sale retains its
                 original currency address and symbol.
-                Bundles, quantities other than one, and unknown legacy Seaport
-                executions are excluded. Empty UTC buckets are omitted.
+                Cash bundles use an exact average per NFT unit, based on all
+                execution items before collection/token/trait filtering. Each NFT
+                item is one observation with an explicit quantity and conserved
+                attributed amount. Swaps, unsupported items/payment shapes, and
+                unsupported currencies are omitted from prices and counted in
+                response metadata. Empty UTC buckets are omitted.
                 All-history requests always use daily buckets, regardless of the
                 requested bucket. Public deployments may reuse an expiring
                 collection snapshot; desktop reads query SQLite directly.
-                Requests over 100000 eligible fills or 30000 buckets return 400.
+                Requests over 100000 attributed NFT items (including omissions)
+                or 30000 buckets return 400.
                 Trait filters use current token attributes, including extension
                 traits, before the fill limit and aggregation. Values within one
                 key are ORed; keys and numeric ranges are ANDed. Filtered requests
@@ -2536,10 +2541,56 @@ components:
                             type: array
                             items:
                                 $ref: "#/components/schemas/TraitFacet"
+        ExactUnitPrice:
+            type: object
+            required: [numeratorWei, denominator]
+            properties:
+                numeratorWei: { type: string, pattern: "^[0-9]+$" }
+                denominator: { type: string, pattern: "^[1-9][0-9]*$" }
+            description: Exact ETH base-unit numerator divided by NFT unit denominator; may contain fractional wei
+        PriceHistoryCounts:
+            type: object
+            required:
+                [
+                    observations,
+                    pricedObservations,
+                    excludedObservations,
+                    executions,
+                    pricedNftQuantity,
+                    excludedNftQuantity,
+                    excludedByReason,
+                ]
+            description: Requested collection/time/token/trait scope; observations are NFT items, quantities are NFT units, executions are distinct protocol events
+            properties:
+                observations: { type: integer }
+                pricedObservations: { type: integer }
+                excludedObservations: { type: integer }
+                executions: { type: integer }
+                pricedNftQuantity: { type: string }
+                excludedNftQuantity: { type: string }
+                excludedByReason:
+                    type: object
+                    description: NFT item counts by omitted price reason
+                    properties:
+                        nft-swap: { type: integer }
+                        mixed-payment: { type: integer }
+                        no-payment: { type: integer }
+                        unsupported-items: { type: integer }
+                        unsupported-currency: { type: integer }
         PriceHistory:
             type: object
             required:
-                [unit, bucket, bucketSeconds, range, from, to, sales, buckets]
+                [
+                    unit,
+                    bucket,
+                    bucketSeconds,
+                    range,
+                    from,
+                    to,
+                    sales,
+                    buckets,
+                    counts,
+                ]
             properties:
                 unit: { type: string, enum: [ETH] }
                 bucket: { type: string, enum: [1h, 4h, 1d, 1w] }
@@ -2564,7 +2615,13 @@ components:
                                 id,
                                 timestamp,
                                 tokenId,
-                                priceWei,
+                                unitPrice,
+                                quantity,
+                                executionId,
+                                executionTotalWei,
+                                executionNftQuantity,
+                                attributedPriceWei,
+                                priceBasis,
                                 currencyAddress,
                                 currencySymbol,
                                 action,
@@ -2576,7 +2633,31 @@ components:
                             id: { type: string }
                             timestamp: { type: integer }
                             tokenId: { type: string }
-                            priceWei: { type: string }
+                            unitPrice:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            quantity:
+                                {
+                                    type: string,
+                                    description: NFT units in this attributed item,
+                                }
+                            executionId: { type: string }
+                            executionTotalWei:
+                                {
+                                    type: string,
+                                    description: Whole gross payment before tracking or filtering,
+                                }
+                            executionNftQuantity:
+                                {
+                                    type: string,
+                                    description: All NFT units covered by this execution payment,
+                                }
+                            attributedPriceWei:
+                                {
+                                    type: string,
+                                    description: Conserved whole-wei amount attributed to this item,
+                                }
+                            priceBasis:
+                                { type: string, enum: [unit, bundle-average] }
                             currencyAddress:
                                 type: string
                                 description: Original execution currency address; zero address for ETH
@@ -2598,29 +2679,35 @@ components:
                         required:
                             [
                                 timestamp,
-                                openWei,
-                                highWei,
-                                lowWei,
-                                closeWei,
+                                open,
+                                high,
+                                low,
+                                close,
                                 volume,
                                 turnoverWei,
                             ]
                         properties:
                             timestamp: { type: integer }
-                            openWei: { type: string }
-                            highWei: { type: string }
-                            lowWei: { type: string }
-                            closeWei: { type: string }
+                            open:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            high:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            low:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            close:
+                                $ref: "#/components/schemas/ExactUnitPrice"
                             volume:
                                 {
-                                    type: integer,
-                                    description: Number of NFTs sold,
+                                    type: string,
+                                    description: Exact number of NFT units sold,
                                 }
                             turnoverWei:
                                 {
                                     type: string,
-                                    description: Sum of realized prices,
+                                    description: Sum of conserved attributed amounts in ETH base units,
                                 }
+                counts:
+                    $ref: "#/components/schemas/PriceHistoryCounts"
         # OpenAPI 3.0 nullable does not widen an allOf reference or its enum.
         # See https://spec.openapis.org/oas/v3.0.3.html#schema-object
         NullValue:

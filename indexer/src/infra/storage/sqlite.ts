@@ -1,11 +1,21 @@
 import { db } from "@artgod/shared/database";
+import { isDeepStrictEqual } from "node:util";
+import {
+    fillExecutionIdentity,
+    fillAttributionItem,
+} from "@artgod/shared/market-data/fills";
+import { persistFillExecution } from "./sqlite-fill-executions.js";
 import { zeroHash } from "viem";
 import { normalizeErc721Owner } from "@artgod/shared/evm/erc721-ownership";
 import {
     COLLECTION_STANDARD,
     CollectionRecord,
 } from "../../domain/collections.js";
-import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
+import type {
+    OnChainData,
+    TransactionRecord,
+    FillEvent,
+} from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
@@ -164,35 +174,10 @@ export class SqliteStorage
             "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    private insertFill = db.prepare<
-        [
-            number,
-            number,
-            string,
-            string | null,
-            string | null,
-            string | null,
-            string | null,
-            string,
-            string,
-            string | null,
-            string | null,
-            string | null,
-            number,
-            string,
-            number,
-            string,
-            number,
-            string | null,
-        ]
-    >(
+    private insertFill = db.prepare(
         "INSERT INTO fills " +
-            "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index, price_nft_count) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-            // An explicit replay can enrich legacy rows without replacing their identity.
-            "ON CONFLICT(chain_id, tx_hash, log_index, collection_id, token_id, kind) " +
-            "DO UPDATE SET price_nft_count = excluded.price_nft_count " +
-            "WHERE excluded.price_nft_count IS NOT NULL AND fills.price_nft_count IS NOT excluded.price_nft_count",
+            "(chain_id, collection_id, execution_id, item_index, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
+            "VALUES (@chainId, @collectionId, @executionId, @itemIndex, @kind, @orderId, @orderSide, @maker, @taker, @contract, @tokenId, @amount, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex) ON CONFLICT(collection_id, execution_id, item_index) DO NOTHING",
     );
     private insertCollectionExtensionEvent = db.prepare<{
         chainId: number;
@@ -313,7 +298,8 @@ export class SqliteStorage
         "DELETE FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ?",
     );
     private deleteFillsFromBlock = db.prepare<[number, number]>(
-        "DELETE FROM fills WHERE chain_id = ? AND block_number >= ?",
+        // Cascades through item facts and collection attributions, in the same rollback.
+        "DELETE FROM fill_executions WHERE chain_id = ? AND block_number >= ?",
     );
     private deleteCollectionExtensionEventsFromBlock = db.prepare<{
         chainId: number;
@@ -717,32 +703,64 @@ export class SqliteStorage
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
     ): void {
+        const executions = new Map<string, FillEvent["execution"]>();
         for (const fill of data.collectionScoped.fillEvents) {
             const contract = fill.contract.toLowerCase();
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 fill.blockNumber,
             );
-            this.insertFill.run(
+            const executionId = fillExecutionIdentity(
                 chainId,
-                fill.collectionId,
                 fill.kind ?? "unknown",
-                fill.orderId ?? null,
-                fill.orderSide ?? null,
-                fill.maker?.toLowerCase() ?? null,
-                fill.taker?.toLowerCase() ?? null,
-                contract,
-                fill.tokenId,
-                fill.amount ?? null,
-                fill.price ?? null,
-                fill.currency?.toLowerCase() ?? null,
-                fill.blockNumber,
-                fill.blockHash,
-                blockTimestamp,
                 fill.txHash,
                 fill.logIndex,
-                fill.priceNftCount ?? null,
             );
+            const previous = executions.get(executionId);
+            if (
+                previous &&
+                previous !== fill.execution &&
+                !isDeepStrictEqual(previous, fill.execution)
+            )
+                throw new Error("Conflicting immutable fill execution");
+            if (!previous) {
+                persistFillExecution({
+                    executionId,
+                    chainId,
+                    kind: fill.kind ?? "unknown",
+                    blockNumber: fill.blockNumber,
+                    blockHash: fill.blockHash,
+                    blockTimestamp,
+                    txHash: fill.txHash,
+                    logIndex: fill.logIndex,
+                    execution: fill.execution,
+                });
+                executions.set(executionId, fill.execution);
+            }
+            const item = fillAttributionItem(
+                fill.execution,
+                fill.executionItemIndex,
+                { contract, tokenId: fill.tokenId, amount: fill.amount },
+            );
+            this.insertFill.run({
+                chainId,
+                collectionId: fill.collectionId,
+                executionId,
+                itemIndex: fill.executionItemIndex,
+                kind: fill.kind ?? "unknown",
+                orderId: fill.orderId ?? null,
+                orderSide: fill.orderSide ?? null,
+                maker: fill.maker?.toLowerCase() ?? null,
+                taker: fill.taker?.toLowerCase() ?? null,
+                contract,
+                tokenId: fill.tokenId,
+                amount: item.amount,
+                blockNumber: fill.blockNumber,
+                blockHash: fill.blockHash,
+                blockTimestamp,
+                txHash: fill.txHash.toLowerCase(),
+                logIndex: fill.logIndex,
+            });
         }
     }
 

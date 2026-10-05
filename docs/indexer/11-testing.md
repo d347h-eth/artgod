@@ -190,6 +190,12 @@ test doubles. They do not use a live chain, broker, or application database.
   including retained parent identities at missing heights, without guessing a fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
+- `tests/fill-execution-upgrades.test.ts` upgrades populated legacy history,
+  removes every sale source, preserves unrelated tables, and verifies atomic
+  rollback/retry and resumed market-data recovery without restoring old sales.
+  Real captured bundle receipts pass through the normal backfill
+  handler, SQLite writer, activity projector and chart reader before/after the
+  anchor, including duplicate transfers and a missing older ERC721 transfer.
 
 Use the same isolated environment described above, selecting the affected files
 with `yarn workspace @artgod/indexer test`. This establishes local storage and

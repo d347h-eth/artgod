@@ -1,3 +1,4 @@
+import { insertFillFixture } from "@artgod/shared/testing/fills";
 import {
     afterEach,
     beforeAll,
@@ -34,13 +35,92 @@ describe("activity domain", () => {
                 "DELETE FROM activity_sources;",
                 "DELETE FROM activities;",
                 "DELETE FROM collection_extension_events;",
-                "DELETE FROM fills;",
+                "DELETE FROM fill_executions;",
                 "DELETE FROM nft_transfer_events;",
                 "DELETE FROM collections;",
             ].join("\n"),
         );
     });
     afterEach(() => vi.useRealTimers());
+
+    it("projects repeated NFT item quantities with conserved leg amounts and distinct activity identities", async () => {
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(1, "bundle", contract);
+        const items = [
+            {
+                index: 0,
+                side: "offer" as const,
+                itemType: 3,
+                contract,
+                identifier: "1",
+                amount: "2",
+                recipient: null,
+            },
+            {
+                index: 1,
+                side: "offer" as const,
+                itemType: 3,
+                contract,
+                identifier: "1",
+                amount: "1",
+                recipient: null,
+            },
+            {
+                index: 2,
+                side: "consideration" as const,
+                itemType: 0,
+                contract: ZERO_ADDRESS,
+                identifier: "0",
+                amount: "5",
+                recipient: null,
+            },
+        ];
+        const common = {
+            chainId: 1,
+            collectionId,
+            contract,
+            tokenId: "1",
+            txHash: "bundle",
+            logIndex: 2,
+            blockNumber: 100,
+            blockTimestamp: 1700000100,
+            items,
+        };
+        insertFillFixture({ ...common, itemIndex: 0 });
+        insertFillFixture({ ...common, itemIndex: 1 });
+        const projector = new SqliteActivityDomain([ZERO_ADDRESS]);
+        const sync = {
+            chainId: 1,
+            collectionId,
+            fromBlock: 100,
+            toBlock: 100,
+            mode: "backfill" as const,
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+            sourceJobId: "bundle",
+            sourceKind: "test",
+        };
+        await projector.handleDomainSync(sync);
+        await projector.handleDomainSync(sync);
+        const rows = db
+            .prepare(
+                "SELECT amount,price,payload_json,dedupe_key FROM activities WHERE kind='sale' ORDER BY id",
+            )
+            .all() as {
+            amount: string;
+            price: string;
+            payload_json: string;
+            dedupe_key: string;
+        }[];
+        expect(rows.map((r) => [r.amount, r.price])).toEqual([
+            ["2", "4"],
+            ["1", "1"],
+        ]);
+        expect(new Set(rows.map((r) => r.dedupe_key)).size).toBe(2);
+        expect(rows.map((r) => JSON.parse(r.payload_json).unitPrice)).toEqual([
+            { numeratorWei: "5", denominator: "3" },
+            { numeratorWei: "5", denominator: "3" },
+        ]);
+    });
 
     it("projects collection extension event facts into custom activity rows", async () => {
         const chainId = 1;
@@ -268,7 +348,18 @@ describe("activity domain", () => {
                 currency: ZERO_ADDRESS,
                 from_address: "0x3000000000000000000000000000000000000000",
                 to_address: "0x4000000000000000000000000000000000000000",
-                payload_json: JSON.stringify({ orderKind: "seaport" }),
+                payload_json: JSON.stringify({
+                    orderKind: "seaport",
+                    executionId: "1:seaport:0xtx-sale:2",
+                    executionTotal: "1000000000000000000",
+                    executionNftQuantity: "1",
+                    unitPrice: {
+                        numeratorWei: "1000000000000000000",
+                        denominator: "1",
+                    },
+                    priceBasis: "unit",
+                    priceExclusion: null,
+                }),
             },
         ]);
     });
@@ -692,47 +783,11 @@ function insertFill(input: {
     logIndex: number;
     kind: string;
 }): void {
-    db.prepare<
-        [
-            number,
-            number,
-            string,
-            string,
-            string,
-            string,
-            string,
-            string,
-            string,
-            string,
-            string,
-            string,
-            number,
-            string,
-            number,
-            string,
-            number,
-        ]
-    >(
-        "INSERT INTO fills " +
-            "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-        input.chainId,
-        input.collectionId,
-        input.kind,
-        input.orderId ?? `order-${input.txHash}`,
-        input.side,
-        input.maker.toLowerCase(),
-        input.taker.toLowerCase(),
-        input.contract.toLowerCase(),
-        input.tokenId,
-        input.amount,
-        input.price,
-        input.currency.toLowerCase(),
-        input.blockNumber,
-        `0xblock-${input.blockNumber}`,
-        input.blockTimestamp,
-        input.txHash,
-        input.logIndex,
-    );
+    insertFillFixture({
+        ...input,
+        orderId: input.orderId ?? `order-${input.txHash}`,
+        orderSide: input.side,
+        totalPrice: input.price,
+        blockHash: `0xblock-${input.blockNumber}`,
+    });
 }

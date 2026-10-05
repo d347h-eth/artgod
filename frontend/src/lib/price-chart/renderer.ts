@@ -15,7 +15,7 @@ import {
 	saleBars,
 	saleVolumeTooltip,
 	saleActionColor,
-	ethValue,
+	unitPriceValue,
 	withSaleGaps,
 	standardMacd,
 	type SaleBar,
@@ -141,7 +141,7 @@ function drawPrices({
 			// timestamps. No jitter, deduplication, or timestamp overwrite.
 			const index = i - 0.5 + (sale.timestamp - bar.timestamp / 1000) / drawing.seconds;
 			const sx = xAxis.convertToPixel(index);
-			const y = yAxis.convertToPixel(ethValue(sale.priceWei));
+			const y = yAxis.convertToPixel(unitPriceValue(sale.unitPrice));
 			// Use exact dot positions, including partial buckets at either time edge.
 			if (sx >= 0 && sx <= bounding.width && y < 0) salesAboveView = true;
 			const selected = drawing.selected.has(sale.id);

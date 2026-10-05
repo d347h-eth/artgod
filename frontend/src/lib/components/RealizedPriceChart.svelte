@@ -362,7 +362,7 @@
 
 	{#if loading}<p class="muted" role="status">loading sales…</p>
 	{:else if error}<p role="alert">{error} <button class="facet-panel-action-button" onclick={() => revision++}>retry</button></p>
-	{:else if history?.sales.length === 0}<p class="muted" role="status">no single-token sales</p>{/if}
+	{:else if history?.sales.length === 0}<p class="muted" role="status">no sale prices</p>{/if}
 	{#if chartError}<p role="alert">{chartError}</p>{/if}
 	<div class="price-workspace" hidden={loading || !!error || !!chartError || !history?.sales.length}>
 		<div class="price-plot">

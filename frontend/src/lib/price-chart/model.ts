@@ -1,4 +1,5 @@
 import type { KLineData, IndicatorCalcCallback, Indicator } from 'klinecharts';
+import { FILL_PRICE_BASIS, type ExactUnitPrice } from '@artgod/shared/market-data/fills';
 import {
 	PRICE_HISTORY_CURRENCY_SYMBOL,
 	REALIZED_SALE_ACTION,
@@ -73,6 +74,7 @@ export type SaleBar = KLineData & {
 	sales: RealizedSale[];
 	populated: boolean;
 	turnoverWei: string | null;
+	nftQuantity: string | null;
 };
 
 /** Both values refer to the same UTC bucket. Preserve the exact ETH sum for
@@ -83,7 +85,7 @@ export function saleVolumeTooltip(bar: SaleBar | undefined) {
 		calcParamsText: '',
 		features: [],
 		legends: [
-			{ title: 'NFTs: ', value: bar?.populated ? String(bar.volume) : '—' },
+			{ title: 'NFTs: ', value: bar?.populated ? bar.nftQuantity! : '—' },
 			{
 				title: 'ETH: ',
 				value: bar?.populated && bar.turnoverWei !== null ? ethText(bar.turnoverWei) : '—'
@@ -94,6 +96,34 @@ export function saleVolumeTooltip(bar: SaleBar | undefined) {
 export function ethValue(wei: string): number {
 	return Number(wei) / 1e18;
 }
+export function unitPriceValue(price: ExactUnitPrice): number {
+	return ethValue(price.numeratorWei) / Number(price.denominator);
+}
+export function unitPriceText(price: ExactUnitPrice): string {
+	const numerator = BigInt(price.numeratorWei),
+		denominator = BigInt(price.denominator);
+	return numerator % denominator === 0n
+		? ethText((numerator / denominator).toString())
+		: `${ethText(price.numeratorWei)} / ${price.denominator}`;
+}
+export function salePriceTitle(
+	sale: Pick<
+		RealizedSale,
+		| 'unitPrice'
+		| 'currencySymbol'
+		| 'priceBasis'
+		| 'quantity'
+		| 'executionTotalWei'
+		| 'executionNftQuantity'
+	>
+): string {
+	const price = `${unitPriceText(sale.unitPrice)} ${sale.currencySymbol}`;
+	return sale.priceBasis === FILL_PRICE_BASIS.BundleAverage
+		? `${price}/NFT · bundle average · ${ethText(sale.executionTotalWei)} ${sale.currencySymbol} / ${sale.executionNftQuantity} NFTs`
+		: sale.quantity === '1'
+			? price
+			: `${price}/NFT · ${sale.quantity} NFTs`;
+}
 export function ethText(wei: string): string {
 	const padded = wei.padStart(19, '0');
 	const fraction = padded.slice(-18).replace(/0+$/, '');
@@ -101,9 +131,10 @@ export function ethText(wei: string): string {
 }
 
 /** Round sale-row amounts to three decimals without losing precision through Number. */
-export function salePriceText(wei: string): string {
+export function salePriceText(price: ExactUnitPrice): string {
 	const incrementWei = 10n ** 15n;
-	const roundedWei = ((BigInt(wei) + incrementWei / 2n) / incrementWei) * incrementWei;
+	const divisor = BigInt(price.denominator) * incrementWei;
+	const roundedWei = ((2n * BigInt(price.numeratorWei) + divisor) / (2n * divisor)) * incrementWei;
 	return ethText(roundedWei.toString());
 }
 
@@ -126,11 +157,12 @@ export function saleBars(history: PriceHistory): SaleBar[] {
 			timestamp: time * 1000,
 			populated: !!bar,
 			sales,
-			open: bar ? ethValue(bar.openWei) : NaN,
-			high: bar ? ethValue(bar.highWei) : NaN,
-			low: bar ? ethValue(bar.lowWei) : NaN,
-			close: bar ? ethValue(bar.closeWei) : NaN,
-			volume: bar?.volume ?? 0,
+			open: bar ? unitPriceValue(bar.open) : NaN,
+			high: bar ? unitPriceValue(bar.high) : NaN,
+			low: bar ? unitPriceValue(bar.low) : NaN,
+			close: bar ? unitPriceValue(bar.close) : NaN,
+			volume: bar ? Number(bar.volume) : 0,
+			nftQuantity: bar?.volume ?? null,
 			turnover: bar ? ethValue(bar.turnoverWei) : 0,
 			turnoverWei: bar?.turnoverWei ?? null
 		});

@@ -8,7 +8,7 @@ import {
     PRICE_HISTORY_RANGE_DAYS,
     PRICE_HISTORY_LIMITS,
     type PriceHistory,
-    type RealizedSale,
+    type PriceHistoryObservation,
 } from "@artgod/shared/types/price-history";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
@@ -30,11 +30,12 @@ export type GetPriceHistoryPort = {
     getPriceHistory(input: GetPriceHistoryInput): PriceHistory;
 };
 export type PriceHistoryReadPort = {
-    // Only verified single-NFT ETH-equivalent fills, retaining execution currency.
+    // Prepared attributed NFT items, including classified omissions. Allocation
+    // uses the complete execution before request filters; currency is retained.
     // Ascending timestamp, block, log and row identity. The domain consumes once;
     // Trait predicates use current token attributes and apply before the limit.
     // The adapter must include one extra row so limits never silently truncate.
-    iterateSingleTokenSales(input: {
+    iterateObservations(input: {
         chainId: number;
         collectionId: number;
         tokenId?: string;
@@ -43,7 +44,7 @@ export type PriceHistoryReadPort = {
         from: number;
         to: number;
         limit: number;
-    }): Iterable<RealizedSale>;
+    }): Iterable<PriceHistoryObservation>;
 };
 
 export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
@@ -91,7 +92,7 @@ export class GetPriceHistoryUseCase implements GetPriceHistoryPort {
         );
         const to = this.now() + 1;
         const days = PRICE_HISTORY_RANGE_DAYS[request.range];
-        const fills = this.prices.iterateSingleTokenSales({
+        const fills = this.prices.iterateObservations({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: request.tokenId,

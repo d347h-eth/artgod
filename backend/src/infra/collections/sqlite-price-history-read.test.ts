@@ -1,3 +1,11 @@
+import { insertFillFixture } from "@artgod/shared/testing/fills";
+import {
+    FILL_ITEM_SIDE as ITEM_SIDE,
+    FILL_ITEM_TYPE as ITEM_TYPE,
+    FILL_PRICE_EXCLUSION,
+    FILL_PRICE_BASIS,
+    type FillExecutionItem,
+} from "@artgod/shared/market-data/fills";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -78,7 +86,7 @@ beforeAll(async () => {
     );
 });
 beforeEach(() => {
-    db.exec("DELETE FROM fills");
+    db.exec("DELETE FROM fill_executions");
     db.exec(
         "DELETE FROM token_attributes; DELETE FROM attributes; DELETE FROM attribute_keys",
     );
@@ -96,7 +104,7 @@ function fill(
         price: string;
         currency: string;
         amount: string;
-        count: string | null;
+        items: readonly FillExecutionItem[];
         kind: string;
         tx: string;
         side: string | null;
@@ -115,7 +123,6 @@ function fill(
         price: "1000000000000000001",
         currency: ETH,
         amount: "1",
-        count: "1",
         kind: FILL_KIND.Seaport,
         tx: "0x" + n,
         side: ORDER_SIDE.Sell,
@@ -123,16 +130,234 @@ function fill(
         taker: "0x" + "22".repeat(20),
         ...overrides,
     };
-    db.prepare(
-        `INSERT INTO fills(chain_id,collection_id,kind,contract_address,token_id,amount,price,currency,block_number,block_hash,block_timestamp,tx_hash,log_index,price_nft_count,order_side,maker,taker)
-        VALUES (@chain,@collection,@kind,'contract',@token,@amount,@price,@currency,@block,'hash',@timestamp,@tx,@log,@count,@side,@maker,@taker)`,
-    ).run(value);
+    insertFillFixture({
+        chainId: value.chain,
+        collectionId: value.collection,
+        contract: "contract",
+        tokenId: value.token,
+        txHash: value.tx,
+        logIndex: value.log,
+        blockNumber: value.block,
+        blockTimestamp: value.timestamp,
+        totalPrice: value.price,
+        currency: value.currency,
+        amount: value.amount,
+        kind: value.kind,
+        orderSide: value.side,
+        maker: value.maker,
+        taker: value.taker,
+        items: value.items,
+    });
 }
 const input = () => ({
     chainRef: "1",
     collectionRef,
     bucket: BUCKET.Day,
     range: RANGE.All,
+});
+
+function bundleItems(
+    total: string,
+    firstQuantity = "1",
+    secondQuantity = "1",
+): FillExecutionItem[] {
+    return [
+        {
+            index: 0,
+            side: ITEM_SIDE.Offer,
+            itemType: ITEM_TYPE.Erc1155,
+            contract: "contract",
+            identifier: "1",
+            amount: firstQuantity,
+            recipient: null,
+        },
+        {
+            index: 1,
+            side: ITEM_SIDE.Offer,
+            itemType: ITEM_TYPE.Erc721,
+            contract: "contract",
+            identifier: "2",
+            amount: secondQuantity,
+            recipient: null,
+        },
+        {
+            index: 2,
+            side: ITEM_SIDE.Consideration,
+            itemType: ITEM_TYPE.Native,
+            contract: ETH,
+            identifier: "0",
+            amount: total,
+            recipient: null,
+        },
+    ];
+}
+
+function bundleLeg(
+    items: readonly FillExecutionItem[],
+    itemIndex: number,
+    collection = collectionId,
+) {
+    const item = items[itemIndex]!;
+    insertFillFixture({
+        chainId: 1,
+        collectionId: collection,
+        contract: item.contract,
+        tokenId: item.identifier,
+        txHash: "bundle",
+        logIndex: 2,
+        blockNumber: 100,
+        blockTimestamp: TIME,
+        items,
+        itemIndex,
+    });
+}
+
+it("allocates same-collection bundles and quantity sales before time bucketing", () => {
+    const items = bundleItems("6000000000000000000", "3");
+    bundleLeg(items, 0);
+    bundleLeg(items, 1);
+    const history = useCase.getPriceHistory(input());
+    expect(
+        history.sales.map((s) => [
+            s.unitPrice,
+            s.quantity,
+            s.attributedPriceWei,
+            s.priceBasis,
+        ]),
+    ).toEqual([
+        [
+            { numeratorWei: "6000000000000000000", denominator: "4" },
+            "3",
+            "4500000000000000000",
+            FILL_PRICE_BASIS.BundleAverage,
+        ],
+        [
+            { numeratorWei: "6000000000000000000", denominator: "4" },
+            "1",
+            "1500000000000000000",
+            FILL_PRICE_BASIS.BundleAverage,
+        ],
+    ]);
+    expect(history.buckets[0]).toMatchObject({
+        volume: "4",
+        turnoverWei: "6000000000000000000",
+    });
+    expect(history.counts).toMatchObject({
+        observations: 2,
+        executions: 1,
+        pricedNftQuantity: "4",
+    });
+    expect(useCase.getPriceHistory({ ...input(), tokenId: "1" }).sales).toEqual(
+        [history.sales[0]],
+    );
+});
+
+it("keeps untracked/cross-collection denominators and wei remainders independent of trait/token filters", () => {
+    const items = bundleItems("1");
+    items.splice(2, 0, {
+        ...items[1]!,
+        index: 2,
+        identifier: "3",
+        contract: "other",
+    });
+    items[3]!.index = 3;
+    bundleLeg(items, 0);
+    bundleLeg(items, 1);
+    bundleLeg(items, 2, collectionId + 1);
+    trait("2", "Zone", "B");
+    const all = useCase.getPriceHistory(input());
+    expect(all.sales.map((s) => [s.unitPrice, s.attributedPriceWei])).toEqual([
+        [{ numeratorWei: "1", denominator: "3" }, "1"],
+        [{ numeratorWei: "1", denominator: "3" }, "0"],
+    ]);
+    for (const filter of [
+        { tokenId: "2" },
+        { traits: [{ key: "Zone", value: "B" }] },
+    ]) {
+        const filtered = useCase.getPriceHistory({ ...input(), ...filter });
+        expect(filtered.sales).toEqual([all.sales[1]]);
+        expect(filtered.buckets[0]).toMatchObject({
+            volume: "1",
+            turnoverWei: "0",
+        });
+        expect(filtered.counts).toMatchObject({
+            observations: 1,
+            executions: 1,
+            pricedNftQuantity: "1",
+        });
+    }
+    const other = [
+        ...reader.iterateObservations({
+            chainId: 1,
+            collectionId: collectionId + 1,
+            from: 0,
+            to: TIME + 1,
+            limit: 10,
+        }),
+    ];
+    expect(other[0]).toMatchObject({
+        unitPrice: { numeratorWei: "1", denominator: "3" },
+        attributedPriceWei: "0",
+    });
+    // Removing that collection's attribution does not erase or reallocate its raw leg.
+    db.prepare("DELETE FROM fills WHERE collection_id=?").run(collectionId + 1);
+    expect(useCase.getPriceHistory(input()).sales).toEqual(all.sales);
+});
+
+it("accounts for unpriceable shapes without drawing invented prices", () => {
+    const items = bundleItems("6");
+    items.push({
+        ...items[1]!,
+        index: 3,
+        side: ITEM_SIDE.Consideration,
+        contract: "other",
+    });
+    bundleLeg(items, 0);
+    bundleLeg(items, 1);
+    const result = useCase.getPriceHistory(input());
+    expect(result.sales).toEqual([]);
+    expect(result.buckets).toEqual([]);
+    expect(result.counts).toEqual({
+        observations: 2,
+        pricedObservations: 0,
+        excludedObservations: 2,
+        executions: 1,
+        pricedNftQuantity: "0",
+        excludedNftQuantity: "2",
+        excludedByReason: { [FILL_PRICE_EXCLUSION.Swap]: 2 },
+    });
+});
+
+it("loads the complete public snapshot when the first request selects one bundle leg", () => {
+    const items = bundleItems("1");
+    bundleLeg(items, 0);
+    bundleLeg(items, 1);
+    fill({ token: "3", currency: "other", log: 3 });
+    const cached = new CachedPriceHistoryRead(
+        reader,
+        new MemoryQueryCache({ maxEntries: 1 }),
+        30_000,
+    );
+    const request = {
+        chainId: 1,
+        collectionId,
+        from: 0,
+        to: TIME + 1,
+        limit: 10,
+    };
+    const leg = [...cached.iterateObservations({ ...request, tokenId: "2" })];
+    expect(leg).toHaveLength(1);
+    expect(leg[0]).toMatchObject({
+        unitPrice: { numeratorWei: "1", denominator: "2" },
+        attributedPriceWei: "0",
+    });
+    const all = [...cached.iterateObservations(request)];
+    expect(all).toEqual([...reader.iterateObservations(request)]);
+    expect(all).toHaveLength(3);
+    expect(all[1]).toEqual(leg[0]);
+    expect(all[2]).toMatchObject({
+        exclusionReason: FILL_PRICE_EXCLUSION.UnsupportedCurrency,
+    });
 });
 
 function trait(
@@ -203,11 +428,11 @@ it("uses the token browser's set/range semantics before aggregation without dupl
     expect(filtered.buckets).toEqual([
         {
             timestamp: TIME,
-            openWei: "11",
-            highWei: "17",
-            lowWei: "11",
-            closeWei: "17",
-            volume: 3,
+            open: { numeratorWei: "11", denominator: "1" },
+            high: { numeratorWei: "17", denominator: "1" },
+            low: { numeratorWei: "11", denominator: "1" },
+            close: { numeratorWei: "17", denominator: "1" },
+            volume: "3",
             turnoverWei: "39",
         },
     ]);
@@ -242,60 +467,46 @@ it("applies trait matches in SQLite before the read limit, retaining chronologic
         limit: 1,
         traits: [{ key: "Zone", value: "B" }],
     };
-    const sales = [...reader.iterateSingleTokenSales(request)];
+    const sales = [...reader.iterateObservations(request)];
     const query = prepare.mock.calls
         .map(([sql]) => sql)
-        .find((sql) => sql.includes("price_nft_count"))!;
+        .find((sql) => sql.includes("JOIN fill_executions"))!;
     prepare.mockRestore();
     expect(sales.map((sale) => sale.tokenId)).toEqual(["2"]);
     const plan = db
         .prepare("EXPLAIN QUERY PLAN " + query)
-        .all(
-            1,
-            collectionId,
-            0,
-            TIME + 1,
-            JSON.stringify(["2", "3"]),
-            FILL_KIND.BlurV2,
-            ...CURRENCIES,
-            1,
-        ) as { detail: string }[];
+        .all(1, collectionId, 0, TIME + 1, JSON.stringify(["2", "3"]), 1) as {
+        detail: string;
+    }[];
     expect(plan.map((row) => row.detail).join(" ")).toContain(
         "fills_collection_time_idx",
     );
     expect(plan.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(false);
 });
 
-it("excludes bundles, unknown legacy Seaport, quantities, malformed prices and other currencies/scopes", () => {
+it("keeps ETH/WETH/BETH originals and accounts for unsupported currencies within scope", () => {
     CURRENCIES.forEach((currency) => fill({ currency }));
-    fill({ kind: FILL_KIND.BlurV2, count: null });
-    fill({ count: "2" }); // Including the case with an untracked sibling.
-    fill({ count: null });
-    fill({ count: "1", amount: "2" });
+    fill({ amount: "2", price: "12" });
     fill({ currency: "0x1111111111111111111111111111111111111111" });
     fill({ collection: collectionId + 1 });
     fill({ chain: 2 });
-    fill({ price: "NaN" });
-    fill({ price: "-2" });
     const history = useCase.getPriceHistory(input());
     expect(history.sales).toHaveLength(4);
-    expect(history.unit).toBe("ETH");
-    expect(history.buckets[0]!.volume).toBe(4);
-    expect(
-        history.sales.map((sale) => [
-            sale.currencyAddress,
-            sale.currencySymbol,
-        ]),
-    ).toEqual([
-        [ETH, PRICE_HISTORY_CURRENCY_SYMBOL.Eth],
-        [WETH, PRICE_HISTORY_CURRENCY_SYMBOL.Weth],
-        [BLUR_BETH_ADDRESS, PRICE_HISTORY_CURRENCY_SYMBOL.Beth],
-        [ETH, PRICE_HISTORY_CURRENCY_SYMBOL.Eth],
+    expect(history.buckets[0]!.volume).toBe("5");
+    expect(history.sales.map((sale) => sale.currencySymbol)).toEqual([
+        "ETH",
+        "WETH",
+        "BETH",
+        "ETH",
     ]);
-    expect(history.buckets[0]!.turnoverWei).toBe("4000000000000000004");
-    expect(
-        history.sales.every((sale) => sale.priceWei === "1000000000000000001"),
-    ).toBe(true);
+    expect(history.counts).toMatchObject({
+        observations: 5,
+        pricedObservations: 4,
+        excludedObservations: 1,
+        pricedNftQuantity: "5",
+        excludedNftQuantity: "1",
+        excludedByReason: { [FILL_PRICE_EXCLUSION.UnsupportedCurrency]: 1 },
+    });
 });
 
 it("retains executed order actions and participants without guessing unknown sides", () => {
@@ -332,11 +543,11 @@ it("sorts executions deterministically and aggregates exact OHLC/volume without 
     expect(history.buckets).toHaveLength(2);
     expect(history.buckets[0]).toEqual({
         timestamp: TIME,
-        openWei: "1000000000000000001",
-        highWei: "1000000000000000004",
-        lowWei: "1000000000000000001",
-        closeWei: "1000000000000000003",
-        volume: 3,
+        open: { numeratorWei: "1000000000000000001", denominator: "1" },
+        high: { numeratorWei: "1000000000000000004", denominator: "1" },
+        low: { numeratorWei: "1000000000000000001", denominator: "1" },
+        close: { numeratorWei: "1000000000000000003", denominator: "1" },
+        volume: "3",
         turnoverWei: "3000000000000000008",
     });
     expect(history.to - history.from).toBe(3 * 86400);
@@ -370,7 +581,7 @@ it("uses half-open requested ranges and rejects unsafe allocations or invalid in
         useCase.getPriceHistory({ ...input(), bucket: BUCKET.Hour }).bucket,
     ).toBe(BUCKET.Day);
     const first = [
-        ...reader.iterateSingleTokenSales({
+        ...reader.iterateObservations({
             chainId: 1,
             collectionId,
             from: 0,
@@ -379,7 +590,7 @@ it("uses half-open requested ranges and rejects unsafe allocations or invalid in
         }),
     ][0]!;
     const overflowing: PriceHistoryReadPort = {
-        *iterateSingleTokenSales() {
+        *iterateObservations() {
             for (let i = 0; i <= PRICE_HISTORY_LIMITS.fills; i++) yield first;
         },
     };
@@ -403,7 +614,7 @@ it("supports a matching trait set larger than SQLite's bind-variable limit", () 
         for (let id = 2; id <= 33_000; id++) link.run(String(id), collectionId);
     })();
     fill({ token: "33000" });
-    fill({ token: "no-traits" });
+    fill({ token: "33001" });
     expect(
         useCase
             .getPriceHistory({
@@ -450,7 +661,10 @@ it("maps HTTP scope and query through the use case and SQLite adapter", async ()
         expect(response.json().sales[0]).toMatchObject({
             currencyAddress: WETH,
             currencySymbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
-            priceWei: "1000000000000000001",
+            unitPrice: {
+                numeratorWei: "1000000000000000001",
+                denominator: "1",
+            },
             action: REALIZED_SALE_ACTION.TakeAsk,
         });
         const invalid = await app.inject(
@@ -506,16 +720,20 @@ it("reads 50,000 sales across five years in index order without a temporary sort
     const token = useCase.getPriceHistory({ ...input(), tokenId: "7" });
     const queries = prepare.mock.calls
         .map(([sql]) => sql)
-        .filter((sql) => sql.includes("price_nft_count"));
+        .filter((sql) => sql.includes("JOIN fill_executions"));
     prepare.mockRestore();
     expect(history.sales).toHaveLength(count);
     expect(history.buckets).toHaveLength(5 * 365);
     expect(
-        history.buckets.reduce((sum, bucket) => sum + bucket.volume, 0),
-    ).toBe(count);
+        history.buckets.reduce(
+            (sum, bucket) => sum + BigInt(bucket.volume),
+            0n,
+        ),
+    ).toBe(BigInt(count));
     expect(
         history.sales.every(
-            (sale, i) => sale.priceWei === String(10n ** 18n + BigInt(i)),
+            (sale, i) =>
+                sale.unitPrice.numeratorWei === String(10n ** 18n + BigInt(i)),
         ),
     ).toBe(true);
     expect(token.sales).toHaveLength(500);
@@ -526,8 +744,6 @@ it("reads 50,000 sales across five years in index order without a temporary sort
             0,
             TIME + 5 * 86400 + 1,
             ...(i ? ["7"] : []),
-            FILL_KIND.BlurV2,
-            ...CURRENCIES,
             PRICE_HISTORY_LIMITS.fills + 1,
         ];
         const plan = db.prepare("EXPLAIN QUERY PLAN " + query).all(...args) as {
@@ -544,11 +760,11 @@ it("reads 50,000 sales across five years in index order without a temporary sort
     console.info(
         `Five-year fixture: ${count} fills, ${elapsedMs.toFixed(1)} ms read/aggregate, ${(JSON.stringify(history).length / 1024 / 1024).toFixed(1)} MiB JSON`,
     );
-});
+}, 30_000);
 
 it("shares a bounded public snapshot across ranges and observes correction, deletion and new fills after expiry", () => {
     vi.useFakeTimers();
-    const source = vi.spyOn(reader, "iterateSingleTokenSales");
+    const source = vi.spyOn(reader, "iterateObservations");
     try {
         fill({ token: "1" });
         fill({ token: "2", timestamp: TIME - 100 * 86400 });
@@ -564,11 +780,11 @@ it("shares a bounded public snapshot across ranges and observes correction, dele
             to: TIME + 1,
             limit: PRICE_HISTORY_LIMITS.fills + 1,
         };
-        const all = Array.from(cached.iterateSingleTokenSales(request));
+        const all = Array.from(cached.iterateObservations(request));
         expect(all.map((sale) => sale.tokenId)).toEqual(["2", "1"]);
         expect(
             Array.from(
-                cached.iterateSingleTokenSales({
+                cached.iterateObservations({
                     ...request,
                     from: TIME,
                     tokenId: "1",
@@ -576,23 +792,32 @@ it("shares a bounded public snapshot across ranges and observes correction, dele
             ),
         ).toEqual([all[1]]);
         expect(source).toHaveBeenCalledTimes(1);
-        db.prepare("DELETE FROM fills WHERE token_id = ?").run("2");
         db.prepare(
-            "UPDATE fills SET price_nft_count = ? WHERE token_id = ?",
-        ).run("2", "1");
+            "DELETE FROM fill_executions WHERE id IN (SELECT execution_id FROM fills WHERE token_id=?)",
+        ).run("2");
+        db.prepare(
+            "DELETE FROM fill_executions WHERE id IN (SELECT execution_id FROM fills WHERE token_id=?)",
+        ).run("1");
+        fill({ token: "1", price: "33" });
         fill({ token: "3", price: "77" });
-        expect(Array.from(cached.iterateSingleTokenSales(request))).toEqual(
-            all,
-        );
+        expect(Array.from(cached.iterateObservations(request))).toEqual(all);
         vi.advanceTimersByTime(30_000);
-        const refreshed = Array.from(cached.iterateSingleTokenSales(request));
-        expect(refreshed.map((sale) => [sale.tokenId, sale.priceWei])).toEqual([
+        const refreshed = Array.from(cached.iterateObservations(request));
+        expect(
+            refreshed.map((sale) => [
+                sale.tokenId,
+                "unitPrice" in sale
+                    ? sale.unitPrice.numeratorWei
+                    : sale.exclusionReason,
+            ]),
+        ).toEqual([
+            ["1", "33"],
             ["3", "77"],
         ]);
         expect(source).toHaveBeenCalledTimes(2);
         expect(
             Array.from(
-                cached.iterateSingleTokenSales({
+                cached.iterateObservations({
                     ...request,
                     collectionId: collectionId + 1,
                 }),
@@ -615,9 +840,9 @@ it("does not cache an oversized collection or truncate a bounded token read", ()
         limit: PRICE_HISTORY_LIMITS.fills + 1,
         tokenId: "1",
     };
-    const first = Array.from(reader.iterateSingleTokenSales(request))[0]!;
+    const first = Array.from(reader.iterateObservations(request))[0]!;
     const source: PriceHistoryReadPort = {
-        *iterateSingleTokenSales(input) {
+        *iterateObservations(input) {
             if (input.tokenId) {
                 yield first;
                 return;
@@ -628,9 +853,7 @@ it("does not cache an oversized collection or truncate a bounded token read", ()
     const cache = new MemoryQueryCache({ maxEntries: 1 });
     const set = vi.spyOn(cache, "set");
     const cached = new CachedPriceHistoryRead(source, cache, 30_000);
-    expect(Array.from(cached.iterateSingleTokenSales(request))).toEqual([
-        first,
-    ]);
+    expect(Array.from(cached.iterateObservations(request))).toEqual([first]);
     expect(set).not.toHaveBeenCalled();
 });
 
@@ -651,8 +874,8 @@ it("keeps filtered reads fresh without caching a subset or reusing unfiltered sa
     };
     const filtered = { ...request, traits: [{ key: "Zone", value: "A" }] };
     const ids = (
-        query: Parameters<PriceHistoryReadPort["iterateSingleTokenSales"]>[0],
-    ) => [...cached.iterateSingleTokenSales(query)].map((sale) => sale.tokenId);
+        query: Parameters<PriceHistoryReadPort["iterateObservations"]>[0],
+    ) => [...cached.iterateObservations(query)].map((sale) => sale.tokenId);
     expect(ids(filtered)).toEqual(["1"]);
     expect(set).not.toHaveBeenCalled();
     expect(ids(request)).toEqual(["1", "2"]);

@@ -194,6 +194,25 @@ export class SqliteMarketDataMaintenance
                         POLICY.maintenanceBatchRows,
                     ) as SqlRow[];
                 if (!rows.length) {
+                    if (table === "activities") {
+                        // Migrations can retire sales after an interrupted copy.
+                        // Keep the source authoritative until the atomic swap.
+                        const removed = this.conn
+                            .prepare(
+                                `DELETE FROM ${replacement} WHERE kind=? AND NOT EXISTS (
+                                    SELECT 1 FROM activities source
+                                    WHERE source.id=${replacement}.id AND source.kind=?)`,
+                            )
+                            .run(
+                                ACTIVITY_KIND.Sale,
+                                ACTIVITY_KIND.Sale,
+                            ).changes;
+                        this.conn
+                            .prepare(
+                                "UPDATE market_data_recovery SET removed_rows=removed_rows+? WHERE singleton=1",
+                            )
+                            .run(removed);
+                    }
                     const definitions = this.conn
                         .prepare(
                             "SELECT type,name,sql FROM sqlite_schema WHERE tbl_name=? AND sql IS NOT NULL AND type IN ('index','trigger')",

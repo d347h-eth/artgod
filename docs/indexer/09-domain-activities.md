@@ -88,9 +88,17 @@ projects:
 Important behavior:
 
 - sales and transfers remain separate feed items
-- sales keep price / currency / timestamp from fills
+- sales retain execution currency and fill timestamp; price is the conserved
+  total attributed to that NFT item, with its quantity in `amount`
 - projection uses idempotent insert semantics via dedupe keys
 - historical backfill before the bootstrap anchor is still valid here because activities are a feed projection over append-only facts, not a current-state table
+
+Sale payloads retain execution identity/total/NFT quantity, exact rational unit
+price and price basis. Unpriceable executions retain the exclusion reason with
+no fabricated monetary price. Bundle totals are allocated through the same
+shared owner as the chart; token/collection scope never changes the denominator.
+Sale dedupe keys include raw item index so repeated NFT identifiers in one
+execution remain distinct. See [fill pricing](15-fill-decoding.md#execution-facts-and-prices).
 
 ## Offchain Projection
 

@@ -13,6 +13,7 @@ import {
     decodeBlurFills,
 } from "../src/application/fills/blur.js";
 import { readTxDump, toEnhancedTransaction } from "./helpers/tx-dumps.js";
+import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 async function batch() {
@@ -76,7 +77,11 @@ it.each(["Execution721MakerFeePacked", "Execution721TakerFeePacked"] as const)(
             decoded.args.collectionPriceSide,
             100n,
         ]);
-        expect(decodeBlurFills(tx, new Set([CONTRACT]))).toEqual(original);
+        expect(
+            decodeBlurFills(tx, new Set([CONTRACT])).map(
+                ({ execution, ...fill }) => fill,
+            ),
+        ).toEqual(original.map(({ execution, ...fill }) => fill));
     },
 );
 
@@ -107,6 +112,17 @@ it("uses the actually executed ERC1155 quantity and gross total from Execution",
     const event = BLUR_EXECUTION_ABI.find((e) => e.name === "Execution")!;
     const noFee = { recipient: zeroAddress, rate: 0 };
     const total = exchange.listing.price * 3n;
+    tx.events = tx.events
+        .filter((event) => event.decoded.tokenId === "3215")
+        .map((event) => ({
+            ...event,
+            kind: COLLECTION_STANDARD.Erc1155,
+            decoded: {
+                ...event.decoded,
+                standard: COLLECTION_STANDARD.Erc1155,
+                amount: "3",
+            },
+        }));
     log.topics = encodeEventTopics({
         abi: BLUR_EXECUTION_ABI,
         eventName: "Execution",
@@ -131,7 +147,7 @@ it("uses the actually executed ERC1155 quantity and gross total from Execution",
             tokenId: "3215",
             amount: "3",
             price: total.toString(),
-            priceNftCount: "3",
+            executionItemIndex: 0,
             logIndex: 286,
         },
     ]);

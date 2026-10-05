@@ -8,7 +8,8 @@ import {
 	type PriceHistoryRequest,
 	type RealizedSale
 } from '@artgod/shared/types/price-history';
-import { BLUR_BETH_ADDRESS } from '@artgod/shared/market-data/fills';
+import { BLUR_BETH_ADDRESS, FILL_PRICE_BASIS } from '@artgod/shared/market-data/fills';
+import { pricedSaleFixture } from '@artgod/shared/testing/price-history';
 
 const CURRENCIES = [
 	{
@@ -64,7 +65,7 @@ export function priceHistoryFixture(
 				id: `${day}-${sale}`,
 				timestamp: start + day * 86400 + (sale === 1 ? 18000 : 30000),
 				tokenId: String(sale + 101),
-				priceWei: value.toString(),
+				...pricedSaleFixture(value.toString(), `${day}-${sale}`),
 				action: sale === 1 ? REALIZED_SALE_ACTION.TakeOffer : REALIZED_SALE_ACTION.TakeAsk,
 				seller: '0x' + '29'.repeat(20),
 				buyer: '0x' + 'ab'.repeat(20),
@@ -126,7 +127,7 @@ export function priceHistoryPrecisionFixture() {
 		history.sales.slice(-3).map((sale, i) => ({
 			...sale,
 			timestamp: history.from + i * 86400,
-			priceWei: i === 1 ? '1234568890000000000' : '1234567890000000000',
+			...pricedSaleFixture(i === 1 ? '1234568890000000000' : '1234567890000000000', String(i)),
 			action: actions[i],
 			blockNumber: i,
 			logIndex: i
@@ -146,7 +147,7 @@ export function priceHistoryOutlierFixture() {
 				...last,
 				id: 'outlier-' + i,
 				timestamp: last.timestamp + 1200 * (i + 1),
-				priceWei: (price * 10n ** 18n).toString(),
+				...pricedSaleFixture((price * 10n ** 18n).toString(), 'outlier-' + i),
 				action: REALIZED_SALE_ACTION.TakeAsk
 			}))
 		].map((sale, i) => ({ ...sale, blockNumber: i, logIndex: i })),
@@ -161,11 +162,51 @@ export function priceHistoryZeroFixture() {
 		history.sales.slice(-3).map((sale, i) => ({
 			...sale,
 			timestamp: history.from + i * 86400,
-			priceWei: (BigInt(i) * 10n ** 18n).toString(),
+			...pricedSaleFixture((BigInt(i) * 10n ** 18n).toString(), String(i)),
 			action: REALIZED_SALE_ACTION.TakeAsk,
 			blockNumber: i,
 			logIndex: i
 		})),
+		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
+		history.to
+	);
+}
+
+export function priceHistoryBundleFixture() {
+	const history = priceHistoryFixture();
+	const last = {
+		...history.sales.at(-1)!,
+		...CURRENCIES[0],
+		action: REALIZED_SALE_ACTION.TakeAsk
+	};
+	return fixtureHistory(
+		[
+			{
+				...last,
+				...pricedSaleFixture('1000000000000000000', 'single'),
+				id: 'single',
+				timestamp: last.timestamp - 5 * 86400,
+				blockNumber: 0,
+				logIndex: 0
+			},
+			...[
+				['101', '3', '4500000000000000000'],
+				['102', '1', '1500000000000000000']
+			].map(([tokenId, quantity, attributedPriceWei], i) => ({
+				...last,
+				id: 'bundle-' + tokenId,
+				tokenId,
+				quantity,
+				attributedPriceWei,
+				executionId: 'bundle',
+				executionTotalWei: '6000000000000000000',
+				executionNftQuantity: '4',
+				unitPrice: { numeratorWei: '6000000000000000000', denominator: '4' },
+				priceBasis: FILL_PRICE_BASIS.BundleAverage,
+				blockNumber: 1,
+				logIndex: i
+			}))
+		],
 		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
 		history.to
 	);

@@ -90,7 +90,28 @@ function dataWithAllFacts(event: NftTransferEvent): OnChainData {
                 },
             ],
             nftBalanceDeltas: [{ ...event, owner: B, delta: "1" }],
-            fillEvents: [{ ...event, maker: A, taker: B }],
+            fillEvents: [
+                {
+                    ...event,
+                    maker: A,
+                    taker: B,
+                    executionItemIndex: 0,
+                    execution: {
+                        protocolAddress: event.contract,
+                        items: [
+                            {
+                                index: 0,
+                                side: "offer",
+                                itemType: 2,
+                                contract: event.contract,
+                                identifier: event.tokenId,
+                                amount: event.amount,
+                                recipient: B,
+                            },
+                        ],
+                    },
+                },
+            ],
             orderInfos: [{ ...event, maker: A }],
             makerTriggers: [
                 {
