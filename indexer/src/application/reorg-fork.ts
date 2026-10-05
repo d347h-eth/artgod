@@ -1,34 +1,43 @@
 import {
-    ChainSyncConflict,
-    type VerifiedChainBlock,
-} from "../domain/chain-sync.js";
+    proveReorgAncestor,
+    type ReorgAncestorProof,
+    type ReorgHistorySnapshot,
+} from "../domain/reorg-fork.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
-import type { StoragePort } from "../ports/storage.js";
+import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 
-// Missing local history is not proof of a fork. Only a stored header matching a
-// fresh RPC read authorizes rollback; absence within the bounded search is null.
+export interface ReorgForkStore {
+    // One local read snapshot, without a writer held during RPC acquisition.
+    captureReorgHistory(input: {
+        chainId: number;
+        fromBlock: number;
+        toBlock: number;
+    }): ReorgHistorySnapshot;
+}
+
+// Matching islands added by gap repair are not ancestry proof. Compare the
+// complete bounded window against one coherent, freshly checked RPC chain.
 export async function findCommonAncestor(input: {
     rpc: Pick<RpcProviderPort, "getBlock">;
-    storage: Pick<StoragePort, "getBlockHash">;
+    storage: ReorgForkStore;
     chainId: number;
     startBlock: number;
     reorgDepth: number;
-}): Promise<VerifiedChainBlock | null> {
+}): Promise<ReorgAncestorProof | null> {
     const minBlock = Math.max(
         0,
         input.startBlock - Math.max(1, input.reorgDepth),
     );
-    for (let number = input.startBlock - 1; number >= minBlock; number -= 1) {
-        const storedHash = input.storage.getBlockHash(input.chainId, number);
-        if (!storedHash) continue;
-        const block = await input.rpc.getBlock(number, { fresh: true });
-        if (block.number !== number) {
-            throw new ChainSyncConflict(
-                "Fork search RPC returned the wrong block",
-            );
-        }
-        if (block.hash === storedHash)
-            return { ...block, chainId: input.chainId };
-    }
-    return null;
+    const history = input.storage.captureReorgHistory({
+        chainId: input.chainId,
+        fromBlock: minBlock,
+        toBlock: input.startBlock,
+    });
+    if (!history.headers.length) return null;
+    const canonicalBlocks = await fetchCanonicalSyncBlocks({
+        rpc: input.rpc,
+        fromBlock: minBlock,
+        toBlock: input.startBlock,
+    });
+    return proveReorgAncestor({ history, canonicalBlocks });
 }

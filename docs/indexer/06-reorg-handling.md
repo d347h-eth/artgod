@@ -73,13 +73,18 @@ range rather than retrying a permanently stale checkpoint.
 
 The fork point search (`findCommonAncestor()`):
 
-- Walks backwards from the mismatched block up to `reorgDepth` blocks.
-- Compares stored block hashes to fresh RPC block hashes.
-- Skips missing local headers and continues searching; missing history does not
-  establish a common ancestor.
-- Returns the most recent matching block.
-- If no stored header matches within the bounded search, returns `null`. The
-  recovery remains pending; facts, balances and chain revision stay untouched.
+- Captures the sparse local headers and chain revision over the entire
+  `reorgDepth` window through the mismatched block in one read transaction.
+- Reads a fresh, parent-linked canonical RPC window and rechecks its tip, reusing
+  the sync pipeline's header acquisition contract.
+- Compares every stored header and parent identity. A parent mismatch can reveal
+  divergence at a height whose local header is missing.
+- Returns the most recent matching stored header below every observed divergence,
+  together with its local history evidence. A canonical header inserted by gap
+  repair above an earlier orphan cannot authorize an incomplete rollback.
+- Returns `null` when no such header exists inside the bound. Recovery remains
+  pending without changing facts, balances or revision. Gap repair can still fill
+  missing proof headers; ancestor search does not reject those sparse repairs.
 
 ## Rollback Strategy
 
@@ -106,7 +111,8 @@ requested fork. Unknown RPC failures leave local state untouched; only a
 recognized nonexistent-token revert establishes absent ownership.
 
 One SQLite transaction validates that the recovery and rollback plan are still
-current, writes the fork ownership checkpoints (including absent tokens), removes
+current and that the complete local proof window is unchanged, including newly
+filled holes and parent metadata. It writes the fork ownership checkpoints (including absent tokens), removes
 orphaned facts and coverage, advances the chain sync revision, retains resync
 progress and enqueues its first range in `queue_outbox`. Failure retaining that
 continuation rolls back every part of the transaction. RPC remains outside the

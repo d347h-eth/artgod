@@ -7,6 +7,8 @@ import {
 } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
+import type { ReorgForkStore } from "../../application/reorg-fork.js";
+import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
 import {
@@ -69,7 +71,12 @@ type Erc721OwnershipReplacement = {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ROLLBACK_TRANSFER_PAGE_SIZE = 256;
 
-export class SqliteStorage implements StoragePort, ReorgRollbackStore {
+export class SqliteStorage
+    implements StoragePort, ReorgRollbackStore, ReorgForkStore
+{
+    private selectReorgHeaders = db.prepare<[number, number, number]>(
+        "SELECT block_number AS number, block_hash AS hash, parent_hash AS parentHash, timestamp FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number",
+    );
     private selectSyncRevision = db.prepare<[number]>(
         "SELECT revision FROM chain_sync_revisions WHERE chain_id = ?",
     );
@@ -414,6 +421,51 @@ export class SqliteStorage implements StoragePort, ReorgRollbackStore {
             | BlockHashRow
             | undefined;
         return row?.block_hash ?? null;
+    }
+
+    captureReorgHistory(input: {
+        chainId: number;
+        fromBlock: number;
+        toBlock: number;
+    }): ReorgHistorySnapshot {
+        // A deferred read transaction gives the revision and sparse headers one
+        // snapshot, without acquiring the writer or keeping it open across RPC.
+        return db.raw.transaction(() => ({
+            checkpoint: this.captureSyncCheckpoint(input.chainId),
+            fromBlock: input.fromBlock,
+            toBlock: input.toBlock,
+            headers: this.selectReorgHeaders.all(
+                input.chainId,
+                input.fromBlock,
+                input.toBlock,
+            ) as SyncBlockHeader[],
+        }))();
+    }
+
+    // The recovery adapter holds its rollback writer through this validation and
+    // the commit; a revision alone cannot fence intervening sparse header inserts.
+    assertReorgHistoryUnchanged(expected: ReorgHistorySnapshot): void {
+        this.assertSyncCheckpoint(expected.checkpoint);
+        const current = this.captureReorgHistory({
+            chainId: expected.checkpoint.chainId,
+            fromBlock: expected.fromBlock,
+            toBlock: expected.toBlock,
+        });
+        if (
+            current.headers.length !== expected.headers.length ||
+            current.headers.some((header, index) => {
+                const previous = expected.headers[index];
+                return (
+                    header.number !== previous.number ||
+                    header.hash !== previous.hash ||
+                    header.parentHash !== previous.parentHash ||
+                    header.timestamp !== previous.timestamp
+                );
+            })
+        )
+            throw new ChainSyncConflict(
+                "Reorg ancestor history changed during preparation",
+            );
     }
 
     countBlocksInRange(

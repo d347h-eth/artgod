@@ -139,11 +139,22 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
             this.assertCurrent(input.expected);
             if (
                 input.plan.checkpoint.chainId !== input.expected.chainId ||
-                input.plan.checkpoint.revision !== input.expected.revision
+                input.plan.checkpoint.revision !== input.expected.revision ||
+                input.proof.history.checkpoint.chainId !==
+                    input.expected.chainId ||
+                input.proof.history.checkpoint.revision !==
+                    input.expected.revision ||
+                input.proof.history.toBlock !== input.expected.checkedBlock ||
+                input.proof.fork.chainId !== input.expected.chainId ||
+                input.proof.fork.number < input.proof.history.fromBlock ||
+                input.proof.fork.number >= input.proof.history.toBlock ||
+                input.plan.fromBlock !== input.proof.fork.number + 1 ||
+                input.snapshot.block.blockHash !== input.proof.fork.hash
             )
                 throw new ChainSyncConflict(
-                    "Rollback plan does not match recovery checkpoint",
+                    "Rollback plan does not match recovery ancestor proof",
                 );
+            this.storage.assertReorgHistoryUnchanged(input.proof.history);
             if (
                 input.next &&
                 (input.next.chainId !== input.expected.chainId ||

@@ -24,7 +24,8 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import { JobDeferred } from "../domain/job-deferred.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
-import { findCommonAncestor } from "./reorg-fork.js";
+import { findCommonAncestor, type ReorgForkStore } from "./reorg-fork.js";
+import type { ReorgAncestorProof } from "../domain/reorg-fork.js";
 import {
     RollbackChainRange,
     type ReorgRollbackPlan,
@@ -59,11 +60,12 @@ export interface ReorgRecoveryStore {
         retryAt: number;
         error: string | null;
     }): void;
-    // Atomically validate recovery/rollback, remove orphan state, advance revision,
-    // retain resync progress and enqueue its first bounded range in the outbox.
+    // Atomically revalidate recovery, ancestor evidence and rollback, remove
+    // orphan state, advance revision, retain resync and enqueue its first range.
     // next=null explicitly completes recovery when no canonical range remains.
     commitRollbackAndResync(input: {
         expected: AwaitingReorgAncestor;
+        proof: ReorgAncestorProof;
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
         next: ReorgResync | null;
@@ -104,7 +106,8 @@ export class RecoverChainReorg {
         private readonly storage: Pick<
             StoragePort,
             "captureSyncCheckpoint" | "getBlockHash"
-        >,
+        > &
+            ReorgForkStore,
         private readonly recoveries: ReorgRecoveryStore,
         private readonly rollback: RollbackChainRange,
         private readonly options: ReorgRecoveryOptions,
@@ -199,14 +202,14 @@ export class RecoverChainReorg {
             return;
         }
         try {
-            const fork = await findCommonAncestor({
+            const proof = await findCommonAncestor({
                 rpc: this.rpc,
                 storage: this.storage,
                 chainId: recovery.chainId,
                 startBlock: recovery.checkedBlock,
                 reorgDepth: this.options.reorgDepth,
             });
-            if (!fork) {
+            if (!proof) {
                 this.recoveries.deferProof({
                     expected: recovery,
                     retryAt: this.now() + this.retryDelayMs,
@@ -221,7 +224,7 @@ export class RecoverChainReorg {
                 });
                 return;
             }
-            const prepared = await this.rollback.prepare(fork);
+            const prepared = await this.rollback.prepare(proof.fork);
             if (prepared.plan.checkpoint.revision !== recovery.revision)
                 throw new ChainSyncConflict(
                     "Recovery revision changed before rollback preparation",
@@ -236,6 +239,7 @@ export class RecoverChainReorg {
             });
             this.recoveries.commitRollbackAndResync({
                 expected: recovery,
+                proof,
                 ...prepared,
                 next,
                 now: this.now(),
