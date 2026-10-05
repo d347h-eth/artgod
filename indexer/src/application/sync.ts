@@ -678,7 +678,7 @@ function accumulateOnChainData(
             data.collectionScoped.nftTransferEvents.push(transfer);
             pushBalanceDeltas(data, transfer);
         }
-        // Fill decoders use tx calldata plus receipt logs; no trace namespace required.
+        // Protocol receipt logs and tracked NFT transfers suffice without traces.
         const fills = [
             ...decodeSeaportFills(tx, resolutionContext.trackedContracts),
             ...decodeBlurFills(tx, resolutionContext.trackedContracts),
