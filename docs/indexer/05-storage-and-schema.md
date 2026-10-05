@@ -158,6 +158,43 @@ nft_transfer_events(chain_id, collection_id, contract_address, from_address, to_
   descending block number and log index for ownership projection after late repairs.
 - `amount` stored as `TEXT` to preserve integer precision
 
+### Fill executions and collection attributions
+
+Migration `064_fill_execution_facts.sql` replaces the old fill shape in one
+transaction. It removes all old fills and all `activities.kind = sale` rows,
+including other sale sources, then creates the final execution/item/fill schema.
+Transfer facts, balances, blocks, collection coverage and unrelated app state
+remain. Legacy rows cannot supply the complete execution items; ordinary
+historical backfill rebuilds sales from receipts. No staged cleanup, RPC work or
+automatic refill is part of the migration.
+An interrupted earlier market-data recovery discards copied sales whose source
+rows were removed, before its activities-table swap; it cannot restore retired
+sale history.
+
+- `fill_executions`: immutable identity `(chain_id, kind, tx_hash, log_index)`,
+  block provenance, protocol address, payment total and currency or an exclusion
+  reason, and the full NFT quantity.
+- `fill_execution_items`: every normalized payment/NFT leg in protocol order,
+  keyed by execution and item index. Untracked legs remain. `unit_offset` is the
+  exact preceding NFT quantity used for deterministic payment remainder allocation.
+- `fills`: collection-scoped concrete NFT attribution, keyed uniquely by
+  `(collection_id, execution_id, item_index)`, with order/participant/quantity
+  and block facts. Repeated token IDs do not collide. Prices live on executions,
+  rather than being copied onto each attributed NFT.
+
+Headers, items and attributions commit in the existing sync transaction.
+Headers and items contain normalized fields, with no raw event JSON or encoded
+topics/data. Contradictory normalized replays or item attributions fail and roll
+back the whole write. Replays with unchanged facts are idempotent. Collection/token chronological
+indexes provide timestamp/block/log/row-ID order without a request-time sort;
+execution and block indexes support joins, orphan checks and rollback.
+
+Reorg rollback deletes execution headers for the affected chain/blocks, cascading
+items and fill attributions. Collection purge deletes its attributions, then
+only orphaned headers. Shared execution context survives while another collection
+still references it, including legs from a purged collection. See
+[fill decoding](15-fill-decoding.md#execution-facts-and-prices) for pricing rules.
+
 ### `collection_extension_events`
 
 ```sql

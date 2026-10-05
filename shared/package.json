@@ -14,6 +14,8 @@
         "./bootstrap/operation-stream": "./bootstrap/operation-stream.ts",
         "./network/http-fetch-observation": "./network/http-fetch-observation.ts",
         "./testing/bootstrap-probe": "./testing/bootstrap-probe.ts",
+        "./testing/fills": "./testing/fills.ts",
+        "./testing/price-history": "./testing/price-history.ts",
         "./collections/token-scope": "./collections/token-scope.ts",
         "./evm/token-id": "./evm/token-id.ts",
         "./bootstrap/scope": "./bootstrap/scope.ts",

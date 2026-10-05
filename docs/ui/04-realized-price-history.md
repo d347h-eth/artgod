@@ -60,7 +60,9 @@ Right-aligned, vertically centered sidebar rows show relative time, a borderless
 image, and price use content-sized columns with consistent spacing. The currency
 uses a fixed-width `E`, `W`, or `B` label for ETH, WETH, or BETH, preserving the
 vertical amount alignment. The hover text retains the full currency symbol.
-Amounts round to at most three decimal places; price hover retains the exact amount.
+Amounts round to at most three decimal places; price hover retains the exact unit
+amount. Bundle hovers identify the average and full payment/NFT denominator;
+quantity-bearing single-item hovers retain their quantity.
 Amount and currency share a baseline, with extra space before the seller column.
 Time and price link to the configured transaction explorer; time hover shows
 absolute UTC. Seller/buyer links open collection owner pages. Token image hover
@@ -113,29 +115,43 @@ limits chart history to the configured chain.
 two years to daily buckets. The API normalizes the requested bucket, and the UI
 keeps both its selector and URL consistent with that policy.
 
-Eligible fills arrive through a SQLite iterator ordered by timestamp, block
+NFT observations arrive through a SQLite iterator ordered by timestamp, block
 number, log index, and row ID. Collection and token indexes provide that order
 without a request-time sort. The backend domain computes OHLC, NFT volume, and
-turnover in one pass with bigint prices. Buckets remain the inputs to technical indicators even though
+turnover in one pass with exact rational prices and bigint quantities. Buckets remain the inputs to technical indicators even though
 only individual sale dots are rendered.
 
 Each sale retains its original currency address and symbol (ETH, WETH, or BETH);
 all map 1:1 to ETH for coordinates and calculations. Other currencies are excluded.
-Exact base-unit prices survive aggregation and hover; canvas coordinates and
+Exact numerator/denominator prices survive aggregation and hover; canvas coordinates and
 indicators use floating-point ETH approximations.
 
-Only quantity-one, single-NFT prices are eligible. Seaport executions must have
-the original NFT count captured before tracking filters. Legacy Seaport fills
-with unknown counts are excluded; legacy Blur V2 fills remain eligible because
-their exchange price is token-specific. There is no automatic RPC replay. See
-[fill decoding](../indexer/15-fill-decoding.md#single-token-price-eligibility).
+Pure cash executions include quantity-bearing NFT items and shared-price
+bundles. One raw NFT item is one dot/sidebar observation; quantity contributes
+to volume. The unit price is the exact execution payment divided by all its NFT
+units, including untracked and other-collection legs. Bundle prices are averages,
+not token-specific valuations. Deterministic whole-wei allocation conserves
+payment across all legs; this attributed total contributes to turnover. Token
+and trait filters cannot change prices or reassign remainder wei.
+
+Swaps, mixed payments, missing payments and unsupported items are retained as
+normalized facts without an invented price. Scoped API `counts` distinguish
+observations, priced/excluded observations, distinct executions, exact priced/excluded NFT
+quantities and exclusions by reason. Unsupported currencies count too. These
+counts are API metadata; no additional chart legend or counters are shown.
+See [fill pricing](../indexer/15-fill-decoding.md#execution-facts-and-prices).
+
+The execution/item storage upgrade clears existing fills and sale activities,
+preserving other activity and collection state. Rebuild historical sales through
+normal backfill; no automatic refill or whole-database reset is required.
 
 All buckets use UTC; weeks start Monday. The response spans first through last
 eligible sale buckets. Missing buckets remain blank, without interpolated or
 carried prices. No sync-coverage classification is attempted. Unrealized prices
 and open orders are out of scope.
 
-Requests are capped at 100,000 eligible fills and 30,000 time buckets. Exceeding
+Requests are capped at 100,000 scoped NFT observations, including exclusions,
+and 30,000 time buckets. Exceeding
 either returns an actionable 400 response, never silent truncation. There is no
 persisted candle projection, automatic refresh, or historical fetch pagination.
 
@@ -160,8 +176,8 @@ enabled while its settings are hidden:
 - Multiple independently configurable SMA/EMA instances overlay the price pane.
 - MACD defaults to 12/26/9. Its histogram is MACD minus signal.
 - RSI defaults to 14.
-- Volume bars count NFTs. The readout shows both the NFT count and exact ETH
-  turnover for the same bucket, using the original integer sum. Empty buckets
+- Volume bars sum NFT quantity. The readout shows both the exact NFT quantity
+  and ETH turnover for the same bucket, using conserved leg totals. Empty buckets
   keep blank readouts; ETH/WETH/BETH remain normalized 1:1.
 - Lengths count populated buckets; calculations use all loaded populated history,
   then restore blank gaps on the time grid. Panning does not alter the values.
@@ -172,13 +188,14 @@ The chart targets one local collection with roughly 10,000–50,000 fills over f
 years. The existing fills remain authoritative; no chart projection or persisted
 bucket table is maintained.
 
-1. Indexer decoding stores execution facts and original NFT price counts before
-   tracking filters. Existing replay enriches eligibility; reorg rollback removes
-   orphaned fills. The normal fills uniqueness constraint handles duplicate ingestion.
-2. `SqlitePriceHistoryRead` applies collection/time/token/trait, currency, and single-NFT
-   eligibility filters. Migration 057 extends the collection and token time indexes
-   with block/log ordering; SQLite row ID breaks remaining ties. The bounded
-   iterator reads at most 100,001 eligible fills so overflow is explicit.
+1. Indexer decoding stores complete execution/items before tracking filters.
+   Shared payment classification and quantity prefixes are prepared at ingestion.
+   Atomic immutable writes and item identities handle duplicates; reorg rollback
+   cascades headers/items/attributions, and collection purge retains shared context.
+2. `SqlitePriceHistoryRead` applies collection/time/token/trait scope and joins
+   execution totals and item offsets. Migration 064 retains collection/token
+   chronological indexes; SQLite row ID breaks remaining ties. A bounded iterator
+   reads at most 100,001 scoped items and prepares exact observations or exclusions.
 3. `GetPriceHistoryUseCase` validates through the domain, resolves scope, and
    streams the ordered reader into exact aggregation. No intermediate sort or
    copied SQL-row array is needed. HTTP adapters only translate request/response
@@ -194,8 +211,9 @@ bucket table is maintained.
    fifty rows. Media cards load separately through their bounded cache.
 
 In `public_single_collection` mode with `BACKEND_QUERY_CACHE_PROVIDER=memory`,
-the fills reader retains one collection snapshot, capped at 100,000 eligible
-sales. Range, bucket, and token requests reuse it until expiry. The existing
+the fills reader retains one collection snapshot of prepared observations and
+exclusions, capped at 100,000 items. It loads the unfiltered collection even if
+the first request selects one token. Range, bucket, and token requests reuse it until expiry. The existing
 `BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS` setting controls its TTL (default
 30 seconds). Expiry reloads current SQLite facts, including historical changes
 and deletions; there is no stale fallback or background refresh for this cache.
@@ -213,7 +231,7 @@ Accepted alpha limits:
 - SQLite row IDs identify dots within a loaded response. No new identity or
   revision protocol is needed while selections and results are replaced together.
 - Daily long-history buckets keep five years to roughly 1,825 grid entries.
-  The 100,000-fill and 30,000-bucket guards remain; they are explicit errors.
+  The 100,000-observation and 30,000-bucket guards remain; they are explicit errors.
 - Indicator initialization still depends on the requested range. Periods count
   populated buckets, and gaps stay blank. Pre-range warmup and recursive
   checkpoints are deferred.
@@ -233,6 +251,8 @@ Relevant checks:
 
 - `yarn workspace @artgod/backend test src/infra/collections/sqlite-price-history-read.test.ts src/domain/realized-price-history.test.ts`
 - `yarn workspace @artgod/backend test src/api.test.ts`
+- `yarn workspace @artgod/indexer test tests/fill-executions.test.ts tests/decode-fill-fixtures.test.ts tests/decode-blur-executions.test.ts tests/activities-domain.test.ts`
+- `yarn exec vitest run shared/market-data/fills.test.ts`
 - `yarn workspace @artgod/frontend test src/lib/price-chart src/lib/collection-navigation.test.ts`
 - `yarn workspace @artgod/frontend check`
 - `yarn test:prices:history`
@@ -252,7 +272,9 @@ browser history, daily all-history normalization, and 50,000-sale rendering with
 bounded sidebar rows. Disposable SQLite coverage uses real migrations and 50,000
 fills spread across five years, checks collection/token query plans for indexed
 ordering without a temporary sort, and verifies public-cache expiry after new
-fills, eligibility correction, and deletion. HTTP tests cover scope and compact
+fills, corrections, and deletion. Bundle/quantity tests cover exact averages,
+conserved turnover, allocation before filters, omitted payment shapes and
+shared-context cleanup. HTTP tests cover scope and compact
 chart context; page-load tests reject accidental token-grid requests. Trait checks
 cover set/range matching, extension sources, exact filtered aggregation, limits,
 indexed ordering, cache bypass after trait changes, customized facets, shared

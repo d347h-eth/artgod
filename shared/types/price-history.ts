@@ -6,6 +6,11 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "./browse.js";
+import type {
+    ExactUnitPrice,
+    FillPriceBasis,
+    FillPriceExclusion,
+} from "../market-data/fills.js";
 
 export type CollectionPriceChartContext = {
     chain: ChainRecord;
@@ -83,7 +88,13 @@ export type RealizedSale = {
     id: string;
     timestamp: number;
     tokenId: string;
-    priceWei: string;
+    unitPrice: ExactUnitPrice;
+    quantity: string;
+    executionId: string;
+    executionTotalWei: string;
+    executionNftQuantity: string;
+    attributedPriceWei: string;
+    priceBasis: FillPriceBasis;
     currencyAddress: string;
     currencySymbol: PriceHistoryCurrencySymbol;
     // The executed order side, not an inference from currency or price movement.
@@ -94,12 +105,30 @@ export type RealizedSale = {
 };
 export type RealizedPriceBucket = {
     timestamp: number;
-    openWei: string;
-    highWei: string;
-    lowWei: string;
-    closeWei: string;
-    volume: number;
+    open: ExactUnitPrice;
+    high: ExactUnitPrice;
+    low: ExactUnitPrice;
+    close: ExactUnitPrice;
+    volume: string;
     turnoverWei: string;
+};
+export type ExcludedSale = Pick<
+    RealizedSale,
+    "id" | "timestamp" | "tokenId" | "quantity" | "executionId"
+> & {
+    exclusionReason: FillPriceExclusion;
+};
+export type PriceHistoryObservation = RealizedSale | ExcludedSale;
+export type PriceHistoryCounts = {
+    // Counts describe the current collection/time/token/trait scope, before price
+    // exclusions. An observation is one attributed NFT item, not one NFT unit.
+    observations: number;
+    pricedObservations: number;
+    excludedObservations: number;
+    executions: number;
+    pricedNftQuantity: string;
+    excludedNftQuantity: string;
+    excludedByReason: Partial<Record<FillPriceExclusion, number>>;
 };
 export type PriceHistory = {
     unit: typeof PRICE_HISTORY_UNIT;
@@ -111,6 +140,7 @@ export type PriceHistory = {
     sales: RealizedSale[];
     // Empty buckets are absent on the wire; the renderer expands the UTC grid.
     buckets: RealizedPriceBucket[];
+    counts: PriceHistoryCounts;
 };
 
 /** Bound long histories without pagination. This rule also covers future ranges. */

@@ -5,9 +5,16 @@ import {
     zeroAddress,
 } from "viem";
 import type { EnhancedTransaction } from "../../domain/onchain.js";
+import { COLLECTION_STANDARD } from "../../domain/collections.js";
 import type { Hex, RpcLog } from "../../ports/rpc.js";
 import type { DecodedFillEvent, OrderSide } from "./types.js";
-import { BLUR_BETH_ADDRESS, FILL_KIND } from "@artgod/shared/market-data/fills";
+import {
+    BLUR_BETH_ADDRESS,
+    FILL_KIND,
+    FILL_ITEM_SIDE,
+    FILL_ITEM_TYPE,
+    type FillExecution,
+} from "@artgod/shared/market-data/fills";
 export { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
 
 type BlurOrder = {
@@ -71,6 +78,7 @@ type BlurExecutionLog = {
     price: bigint;
     orderSide: OrderSide;
     assetType: number;
+    log: RpcLog;
 };
 
 export const BLUR_EXCHANGE_V2_ADDRESSES = new Set(
@@ -315,7 +323,48 @@ function toBlurFill(
     const contract = input.order.collection.toLowerCase();
     const tokenId = input.exchange.taker.tokenId.toString();
     if (!collections.has(contract)) return [];
-    if (!hasMatchingTransfer(tx, contract, tokenId)) return [];
+    if (!hasMatchingTransfer(tx, input, execution)) return [];
+    const executionContext: FillExecution = {
+        protocolAddress: execution.log.address.toLowerCase(),
+        items: [
+            {
+                index: 0,
+                side:
+                    input.orderSide === "sell"
+                        ? FILL_ITEM_SIDE.Offer
+                        : FILL_ITEM_SIDE.Consideration,
+                itemType:
+                    execution.assetType === 0
+                        ? FILL_ITEM_TYPE.Erc721
+                        : FILL_ITEM_TYPE.Erc1155,
+                contract,
+                identifier: tokenId,
+                amount: execution.amount.toString(),
+                recipient:
+                    input.orderSide === "sell"
+                        ? input.taker
+                        : input.order.trader.toLowerCase(),
+            },
+            {
+                index: 1,
+                side:
+                    input.orderSide === "sell"
+                        ? FILL_ITEM_SIDE.Consideration
+                        : FILL_ITEM_SIDE.Offer,
+                itemType:
+                    input.currency === zeroAddress
+                        ? FILL_ITEM_TYPE.Native
+                        : FILL_ITEM_TYPE.Erc20,
+                contract: input.currency,
+                identifier: "0",
+                amount: execution.price.toString(),
+                recipient:
+                    input.orderSide === "sell"
+                        ? input.order.trader.toLowerCase()
+                        : input.taker,
+            },
+        ],
+    };
 
     return [
         {
@@ -330,7 +379,8 @@ function toBlurFill(
             // listing.price is per NFT unit. Execution.price is its gross total,
             // already multiplied by the actually executed taker quantity.
             price: execution.price.toString(),
-            priceNftCount: execution.amount.toString(),
+            execution: executionContext,
+            executionItemIndex: 0,
             currency: input.currency,
             blockNumber: tx.blockNumber,
             blockHash: tx.blockHash,
@@ -349,13 +399,23 @@ function resolveAskTaker(
 
 function hasMatchingTransfer(
     tx: EnhancedTransaction,
-    contract: string,
-    tokenId: string,
+    input: BlurFillInput,
+    execution: BlurExecutionLog,
 ): boolean {
+    const maker = input.order.trader.toLowerCase();
+    const seller = input.orderSide === "sell" ? maker : input.taker;
+    const buyer = input.orderSide === "sell" ? input.taker : maker;
     return tx.events.some(
         (event) =>
-            event.base.contract.toLowerCase() === contract &&
-            event.decoded.tokenId === tokenId,
+            event.base.contract.toLowerCase() === execution.contract &&
+            event.decoded.tokenId === execution.tokenId &&
+            event.decoded.from.toLowerCase() === seller &&
+            event.decoded.to.toLowerCase() === buyer &&
+            event.decoded.amount === execution.amount.toString() &&
+            event.kind ===
+                (execution.assetType === 0
+                    ? COLLECTION_STANDARD.Erc721
+                    : COLLECTION_STANDARD.Erc1155),
     );
 }
 
@@ -373,6 +433,7 @@ function decodeBlurExecutionLogs(logs: RpcLog[]): BlurExecutionLog[] {
             if (decoded.eventName === "Execution") {
                 const args = decoded.args;
                 out.push({
+                    log,
                     orderHash: args.orderHash,
                     logIndex: log.logIndex,
                     maker: args.transfer.trader.toLowerCase(),
@@ -394,6 +455,7 @@ function decodeBlurExecutionLogs(logs: RpcLog[]): BlurExecutionLog[] {
                 const address = (value: bigint) =>
                     `0x${(value & ((1n << 160n) - 1n)).toString(16).padStart(40, "0")}`;
                 out.push({
+                    log,
                     orderHash: args.orderHash,
                     logIndex: log.logIndex,
                     maker: address(token),

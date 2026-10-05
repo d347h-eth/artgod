@@ -8,7 +8,7 @@
 	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import { joinPath } from '$lib/route-paths';
 	import {
-		ethText,
+		salePriceTitle,
 		salePriceText,
 		saleActionColor,
 		SALE_CURRENCY_LABEL
@@ -83,7 +83,7 @@
 				<div class="sale-row" role="row" data-sale-id={sale.id}>
 					<span role="cell"><a class="sale-time" href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={new Date(sale.timestamp * 1000).toISOString()}>{relativeTime(sale.timestamp)}</a></span>
 					<span role="cell"><SaleTokenThumbnail tokenId={sale.tokenId} href={buildTokenDetailHref({ basePath, tokenId: sale.tokenId, mediaMode: media.selectedMode, mediaPreference: media.preference })} {loader} {onpreview} /></span>
-					<span role="cell" class="sale-price" style:--sale-color={`var(--c-${saleActionColor(sale.action)})`}><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={ethText(sale.priceWei) + ' ' + sale.currencySymbol}><span class="sale-amount">{salePriceText(sale.priceWei)}</span><small aria-label={sale.currencySymbol}>{SALE_CURRENCY_LABEL[sale.currencySymbol]}</small></a></span>
+					<span role="cell" class="sale-price" style:--sale-color={`var(--c-${saleActionColor(sale.action)})`}><a href={txHref ?? undefined} target="_blank" rel="noopener noreferrer" title={salePriceTitle(sale)}><span class="sale-amount">{salePriceText(sale.unitPrice)}</span><small aria-label={sale.currencySymbol}>{SALE_CURRENCY_LABEL[sale.currencySymbol]}</small></a></span>
 					<span role="cell">{#if sale.seller}<a class="sale-seller" href={ownerHref(sale.seller)} title={sale.seller}>{sale.seller.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 					<span role="cell">{#if sale.buyer}<a class="sale-buyer" href={ownerHref(sale.buyer)} title={sale.buyer}>{sale.buyer.slice(2, 8)}</a>{:else}<span class="muted">—</span>{/if}</span>
 				</div>

@@ -11,7 +11,8 @@ import {
 	priceHistoryFixture,
 	priceHistoryPrecisionFixture,
 	priceHistoryOutlierFixture,
-	priceHistoryZeroFixture
+	priceHistoryZeroFixture,
+	priceHistoryBundleFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
 import {
@@ -73,6 +74,39 @@ async function surface(page: Page, info: TestInfo, name: string, fullPage = true
 }
 const chart = (page: Page) => page.locator('.realized-price');
 const rows = (page: Page) => page.locator('.sale-row[data-sale-id]');
+
+test('bundle dots keep quantity-aware volume, exact averages and both selectable NFT items', async ({
+	page
+}, info) => {
+	await recordCanvasText(page);
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
+		route.fulfill({ json: priceHistoryBundleFixture() })
+	);
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await sharedChrome(page);
+	await chartGutters(page);
+	const prices = rows(page).filter({ has: page.locator('[title*="bundle average"]') });
+	await expect(prices).toHaveCount(2);
+	await expect(prices.locator('.sale-amount')).toHaveText(['1.5', '1.5']);
+	await expect(prices.locator('.sale-price a').first()).toHaveAttribute(
+		'title',
+		'1.5 ETH/NFT · bundle average · 6 ETH / 4 NFTs'
+	);
+	await expect.poll(() => salePoint(page)).not.toBeNull();
+	const point = (await salePoint(page))!;
+	await page.mouse.move(point.x, point.y);
+	await expect.poll(() => dotHighlighted(page, point)).toBe(true);
+	await expect(rows(page)).toHaveCount(2);
+	await expect(page.locator('.sale-card-preview .token-grid-media')).toBeVisible();
+	await page.mouse.click(point.x, point.y);
+	await expect(page.locator('.sale-sidebar')).toHaveAttribute('data-pinned', 'true');
+	await page.mouse.move(2, 2);
+	await expect(rows(page)).toHaveCount(2);
+	await surface(page, info, 'bundle-average-pinned');
+	await page.locator('.sale-sidebar').getByRole('button', { name: 'unpin', exact: true }).click();
+	await expect(rows(page)).toHaveCount(3);
+});
 async function loaded(page: Page) {
 	await expect(page.locator('[data-chart-ready="true"]')).toBeVisible();
 	await expect(page.getByText('loading sales…', { exact: true })).toHaveCount(0);
@@ -888,7 +922,7 @@ test('loading, empty, failure and retry preserve the chart page controls', async
 	await sharedChrome(page);
 	await surface(page, info, 'chart-loading');
 	release();
-	await expect(page.getByText('no single-token sales', { exact: true })).toBeVisible();
+	await expect(page.getByText('no sale prices', { exact: true })).toBeVisible();
 	await sharedChrome(page);
 	await surface(page, info, 'chart-empty');
 	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
@@ -1127,7 +1161,7 @@ test('customized numeric facets filter the chart and recover from empty results 
 	await biome.getByLabel('from', { exact: true }).fill('43');
 	await biome.getByLabel('to', { exact: true }).fill('');
 	await biome.getByRole('button', { name: 'apply', exact: true }).click();
-	await expect(page.getByText('no single-token sales', { exact: true })).toBeVisible();
+	await expect(page.getByText('no sale prices', { exact: true })).toBeVisible();
 	await surface(page, info, 'chart-trait-empty');
 	await page.getByRole('button', { name: 'reset', exact: true }).click();
 	await loaded(page);

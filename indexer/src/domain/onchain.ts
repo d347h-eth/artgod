@@ -1,9 +1,7 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
-import {
-    COLLECTION_STANDARD,
-    type CollectionStandard,
-} from "./collections.js";
+import type { FillExecution } from "@artgod/shared/market-data/fills";
+import { COLLECTION_STANDARD, type CollectionStandard } from "./collections.js";
 import type {
     CollectionScopedMakerTriggerReason,
     GlobalMakerTriggerReason,
@@ -89,8 +87,8 @@ export type FillEvent = CollectionScopedTokenAttribution & {
     amount?: string;
     price?: string;
     currency?: string;
-    // NFT units covered by price before collection/token attribution; absent means unknown.
-    priceNftCount?: string;
+    execution: FillExecution;
+    executionItemIndex: number;
 };
 
 // Cancel = explicit on-chain invalidation of an order (e.g. Seaport cancel/counter).
