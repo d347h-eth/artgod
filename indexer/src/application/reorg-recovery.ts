@@ -293,7 +293,7 @@ export function startReorgRecoveryLoop(
 // reorg hint cannot perform unowned work or complete a newer logical range.
 export async function executeReorgResync(
     job: JobEnvelope<BackfillSyncPayload>,
-    store: ReorgRecoveryStore,
+    store: Pick<ReorgRecoveryStore, "getRecovery" | "completeResyncRange">,
     policy: { batchSize: number; retryDelayMs?: number; now?: () => number },
     syncAndPublish: () => Promise<void>,
 ): Promise<boolean> {

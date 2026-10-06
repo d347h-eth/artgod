@@ -148,6 +148,10 @@ test doubles. They do not use a live chain, broker, or application database.
   progress, restart and failed fanout, stale members, RPC failure and legacy jobs.
   The isolated broker suite also delivers one grouped gap job through JetStream
   and checks each member's scoped publications and completed intent.
+- `tests/sync-job-contract.test.ts` checks the source/policy/member contract and
+  retained legacy shapes. The broker suite uses the same backfill handler as the
+  runtime to reject wrong-source member batches with retained or completed
+  intents, and to exercise valid manual/bootstrap, legacy gap and reorg jobs.
 - `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
   burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
   collection coverage rollback.
