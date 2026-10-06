@@ -1,5 +1,6 @@
 import { ChainSyncConflict, type SyncBlockHeader } from "./chain-sync.js";
 import type { OnChainData } from "./onchain.js";
+import { SYNC_FOLLOW_UP_KIND, type SyncFollowUp } from "./sync-follow-ups.js";
 
 // Sparse historical input is allowed; adjacent supplied headers must belong to
 // one chain. Repeated heights must describe the same immutable block metadata.
@@ -60,5 +61,36 @@ export function assertSyncResultMatchesBlocks(input: {
                 );
             }
         }
+    }
+}
+
+export function assertSyncFollowUpsMatchBlocks(input: {
+    chainId: number;
+    blocks: readonly SyncBlockHeader[];
+    collectionIds: readonly number[];
+    followUps: readonly SyncFollowUp[];
+}): void {
+    const headers = new Map(
+        input.blocks.map((block) => [block.number, block.hash]),
+    );
+    const collections = new Set(input.collectionIds);
+    for (const followUp of input.followUps) {
+        if (
+            followUp.job.chainId !== input.chainId ||
+            (followUp.job.collectionId !== undefined &&
+                !collections.has(followUp.job.collectionId))
+        )
+            throw new ChainSyncConflict(
+                "Sync follow-up has a different acquisition scope",
+            );
+        if (
+            followUp.kind === SYNC_FOLLOW_UP_KIND.Event &&
+            (followUp.block.chainId !== input.chainId ||
+                headers.get(followUp.block.blockNumber) !==
+                    followUp.block.blockHash)
+        )
+            throw new ChainSyncConflict(
+                "Sync follow-up does not match its canonical header",
+            );
     }
 }

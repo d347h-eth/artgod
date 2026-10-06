@@ -25,6 +25,8 @@ import {
 } from "@artgod/shared/media/token-image-cache-jobs";
 import { loadConfig } from "../config/index.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
+import { CanonicalSyncJobAdmission } from "../application/canonical-sync-job-admission.js";
+import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
 import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
 import { startQueueOutboxDrainer } from "../application/queue-outbox/drainer.js";
@@ -234,6 +236,9 @@ async function main() {
             config.debugPayloads,
         );
         const queueOutbox = new SqliteQueueOutbox();
+        const syncJobAdmission = new CanonicalSyncJobAdmission(
+            new SqliteStorage(),
+        );
         const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
             queueOutbox,
         );
@@ -272,6 +277,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.ordersDomain.consume",
             },
         );
@@ -316,6 +322,7 @@ async function main() {
                     },
                     {
                         apm: runtimeApm.apm,
+                        admission: syncJobAdmission,
                         spanName:
                             queueName === QUEUE_NAMES.OrdersUpdateByMaker
                                 ? "worker.ordersUpdateByMaker.consume"
@@ -365,6 +372,7 @@ async function main() {
                     }),
                     {
                         apm: runtimeApm.apm,
+                        admission: syncJobAdmission,
                         spanName:
                             queueName === QUEUE_NAMES.OrdersUpdateById
                                 ? "worker.ordersUpdateById.consume"
@@ -397,6 +405,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.ordersUpsert.consume",
             },
         );
@@ -433,6 +442,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataDomain.consume",
             },
         );
@@ -497,6 +507,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataRefresh.consume",
             },
         );
@@ -516,6 +527,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataStats.consume",
             },
         );
@@ -559,6 +571,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.tokenImageCache.consume",
             },
         );
@@ -578,6 +591,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.activityDomain.consume",
             },
         );
@@ -596,6 +610,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.activityUpsert.consume",
             },
         );

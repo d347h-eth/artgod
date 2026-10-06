@@ -629,6 +629,11 @@ export class SqliteStorage
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
+            // Keep range follow-ups: they read current facts, including unfinished
+            // pre-fork work. Orphan event hints cannot be published after rollback.
+            db.prepare(
+                "DELETE FROM queue_outbox WHERE chain_id = ? AND sync_block_number >= ?",
+            ).run(chainId, fromBlock);
             // Retain the verified fork header even when its transfer facts were
             // missing, so later reorg checks can invalidate this checkpoint.
             this.persistBlocks(chainId, [

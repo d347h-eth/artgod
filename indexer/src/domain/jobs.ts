@@ -1,4 +1,5 @@
 import type { QueueName } from "./queues.js";
+import type { ChainBlockReference } from "./chain-sync.js";
 
 /** Opaque stream incarnation plus delivery position, without SDK/driver types. */
 export type QueueDeliveryOrigin = {
@@ -25,4 +26,7 @@ export type JobEnvelope<TPayload = unknown> = {
     traceId?: string;
     collectionId?: number;
     chainId: number;
+    // Event-specific sync hints must still refer to the retained canonical block
+    // at consumer admission, including when publication races with rollback.
+    onchainBlock?: ChainBlockReference;
 };

@@ -4,6 +4,8 @@ import type { QueueName } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
 import {
     QUEUE_OUTBOX_STATUS,
+    QUEUE_OUTBOX_RETRY_POLICY,
+    type QueueOutboxRetryPolicy,
     type QueueOutboxStatus,
 } from "../../domain/queue-outbox.js";
 import {
@@ -27,6 +29,7 @@ export type QueueOutboxDrainRecord = {
     queueName: QueueName;
     jobJson: string;
     attempts: number;
+    retryPolicy: QueueOutboxRetryPolicy;
 };
 
 // QueueOutboxDrainPort is the application boundary for persisted publications.
@@ -167,9 +170,11 @@ export async function drainQueueOutbox(
                     );
                 } catch (error) {
                     const terminal =
+                        row.retryPolicy !==
+                            QUEUE_OUTBOX_RETRY_POLICY.Required &&
                         attempts >=
-                        (options.maxAttempts ??
-                            QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
+                            (options.maxAttempts ??
+                                QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
                     outbox.markFailed({
                         outboxId: row.outboxId,
                         attempts,
