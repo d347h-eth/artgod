@@ -16,18 +16,17 @@ sequenceDiagram
 
     RPC-->>Scheduler: Head update (WS)
     Scheduler->>RPC: Poll head (HTTP)
-    Scheduler->>NATS: Publish realtime sync jobs
-    Scheduler->>NATS: Publish block-check jobs
-
-    NATS-->>Sync: Deliver sync job
-    Sync->>RPC: getLogs + extension watch logs + getBlock + getTx + getReceipts
-    Sync->>DB: Persist blocks/transfers/fills/balances
-    Sync->>NATS: Publish domain sync jobs
-    Sync->>NATS: Publish targeted order update jobs
-    Sync->>NATS: Publish metadata refresh jobs (core + extension-derived)
-
-    NATS-->>Domain: Deliver domain sync + order jobs
-    Domain->>DB: Persist activities / metadata / orders
+    Scheduler->>NATS: Publish realtime and block-check jobs
+    NATS-->>Sync: Deliver realtime job
+    Sync->>RPC: Fetch logs, extensions, headers, transactions and receipts
+    Sync->>DB: Atomic facts, coverage, balances and required follow-up intent
+    Sync->>NATS: ACK successful acquisition
+    Domain->>DB: Read due required follow-ups
+    Domain->>NATS: Publish domain, order and refresh jobs
+    Domain->>DB: Remove accepted sync intent; retry failed publication
+    NATS-->>Domain: Deliver domain and order jobs
+    Domain->>DB: Check event origin hash before admission
+    Domain->>DB: Project activities, metadata and orders
 ```
 
 ## Perpetual Collection Gap Repair
@@ -36,27 +35,34 @@ sequenceDiagram
 sequenceDiagram
     participant Scheduler as Scheduler Worker
     participant DB as SQLite
-    participant NATS as NATS JetStream
-    participant Sync as Sync Worker
+    participant Sync as Sync Worker Automatic Executor
     participant RPC as RPC Node
+    participant Domain as Domain Worker Outbox Drainer
+    participant NATS as NATS JetStream
 
     loop Startup and HTTP head polls, including unchanged heads
-        Scheduler->>DB: Page live collections and read saved scan progress
-        Scheduler->>DB: Read bounded descending collection coverage
-        alt Missing coverage and no outstanding repair
-            Scheduler->>DB: Save cursor and pending repair identity
-            Scheduler->>NATS: Publish collection-scoped gap repair
-        else Pending repair is due for retry
-            Scheduler->>NATS: Republish the same repair identity
+        Scheduler->>DB: Page live collections and saved scan progress
+        Scheduler->>DB: Stream bounded descending collection coverage
+        alt Missing coverage and no pending repair
+            Scheduler->>DB: Save cursor and one pending range per collection
         end
     end
-    NATS-->>Sync: Deliver gap repair
-    Sync->>DB: Recheck live collection, anchor, and pending identity
-    Sync->>RPC: Fetch range through normal backfill path
-    Sync->>DB: Persist facts, coverage, and anchor-gated balances
-    Sync->>NATS: Publish domain jobs and current-state followups
-    Sync->>DB: Complete matching repair
-    Note over Scheduler,DB: Next pass continues toward anchor; completed sweeps restart at head
+    loop Sync startup and periodic bounded passes
+        Sync->>DB: Read due retained intent
+        Sync->>RPC: Read head only when gap intent is due
+        Sync->>DB: Recheck oldest due member and peers after gate admission
+        Sync->>RPC: Acquire one common suffix for participating collections
+        alt Valid acquisition and retained owners
+            Sync->>DB: Atomic data, required follow-ups and exact member progress
+        else Acquisition or commit failed
+            Sync->>DB: Delay only failed member identities
+        end
+    end
+    Domain->>DB: Read retained follow-up intent
+    Domain->>NATS: Publish required jobs with stable IDs
+    Domain->>DB: Remove accepted intent or retain retry with capped delay
+    Note over Scheduler,DB: Completed sweeps restart at head; older remainders keep their repair identity
+    Note over Sync,Domain: Failed publication repeats no RPC acquisition
 ```
 
 ## Durable Reorg Recovery
@@ -66,43 +72,39 @@ sequenceDiagram
     participant Reorg as Reorg Worker
     participant RPC as RPC Node
     participant DB as SQLite
+    participant Sync as Sync Worker Automatic Executor
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
-    participant Sync as Sync Worker
 
     NATS-->>Reorg: Block-check delivery
     Reorg->>RPC: Fresh header differs from stored hash
     Reorg->>DB: Retain mismatch identity and revision
     alt Retention fails
-        Reorg->>NATS: Deferred NACK, preserve original recovery owner
+        Reorg->>NATS: Deferred NACK beyond ordinary retry budget
     else Mismatch retained
-        Reorg->>RPC: Bounded common-ancestor proof
+        Reorg->>RPC: Complete bounded common-ancestor proof
         alt Proof unavailable
-            Reorg->>DB: Retain awaiting_ancestor and delayed retry
+            Reorg->>DB: Retain awaiting_ancestor with delayed retry
         else Verified ancestor
             Reorg->>RPC: ownerOf at exact fork hash, requireCanonical
-            Reorg->>DB: Atomic rollback, ownership, revision, resync and first outbox job
+            Reorg->>DB: Atomic checkpoints, rollback, revision and resync range
         end
         Reorg->>NATS: ACK retained check
     end
-    loop Startup and periodic recovery, independent of HEAD changes
-        Reorg->>DB: Read due unfinished recovery
-        alt Still awaiting proof
-            Reorg->>RPC: Retry bounded proof and exact-hash snapshot
-        else Resync unfinished
-            Reorg->>DB: Replace wakeup with fresh delivery ID, same logical range
-        end
+    loop Reorg startup and proof polling, independent of HEAD changes
+        Reorg->>DB: Read due awaiting_ancestor
+        Reorg->>RPC: Retry bounded proof and exact-hash snapshot
     end
-    Domain->>DB: Read due outbox publication
-    Domain->>NATS: Publish bounded canonical resync
-    NATS-->>Sync: Reorg range with recovery ID and revision
-    Sync->>DB: Recheck current logical range and eligible collections
-    Sync->>RPC: Normal range fetch
-    Sync->>DB: Persist canonical facts and coverage
-    Sync->>NATS: Publish all required downstream jobs
-    Sync->>DB: Atomically complete range and enqueue next, or clear recovery
-    Note over DB,Sync: Failed fanout retains work even when coverage exists
-    Note over DB,NATS: Publication ACK, DLQ and dedupe are transport state, not completion
+    loop Sync startup and periodic automatic passes
+        Sync->>DB: Read one retained canonical range and eligible collections
+        Sync->>RPC: Acquire canonical range through shared pipeline
+        Sync->>DB: Atomic data, required follow-ups and next range or completion
+    end
+    Domain->>DB: Read independently retained follow-up intent
+    Domain->>NATS: Publish stable revision-qualified jobs
+    Domain->>DB: Remove accepted intent or retain required retry
+    Note over DB,Sync: Failure before commit leaves acquisition pending; after commit publication needs no RPC
+    Note over DB,Domain: Rollback keeps DB-range intent and removes orphan event intent; late orphan hints fail admission
 ```
 
 ## Collection Bootstrap + OpenSea Bootstrap

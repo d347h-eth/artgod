@@ -50,8 +50,8 @@ Block-check jobs are scheduled after blocks become old enough to be safe from sh
 If scheduling would fall below block 1, the scheduler-worker logs a warning and skips the check.
 
 `lastChecked` tracks scheduled checks, not completed recovery. The reorg worker
-retains a detected mismatch separately and resumes due proof/resync at startup
-and periodically, including at stationary HEAD. Collection gap sweeps can fill
+retains a detected mismatch separately and resumes due proof at startup
+and periodically; the sync worker executes retained resync ranges, including at stationary HEAD. Collection gap sweeps can fill
 missing ancestor headers; covered orphan blocks still require that retained
 [reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
 
@@ -86,42 +86,32 @@ selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
 persisted cursor prevents newer heads or scheduler restarts from resetting the
 backward sweep; after the anchor it starts another sweep from the current head.
 
-Before publishing, the scheduler saves the next scan position and repair intent
-in `collection_sync_gap_scans`. There is at most one outstanding logical repair
-per collection. After retaining that page's intents, the scheduler groups ranges
-with the same upper block into descending batches capped by `BACKFILL_BATCH_SIZE`.
-The shared range starts at the highest member start or the block-size limit,
-whichever is later. This common suffix is inside every participating intent;
-it does not fetch another participant's already covered history just to widen
-the batch. For A pending 101–110 and B pending 110 alone, block 110 is shared
-and A retains 101–109 for a later pass.
-Each `gap_repair` job explicitly carries its members' collection IDs, repair IDs,
-anchors and expected remaining ranges, with `current_state` order maintenance.
-It uses the existing backfill queue and multi-collection sync pipeline. Identical
-gaps share header, log and transaction/receipt acquisition. Different upper
-bounds remain separate in that pass; at most 16 collections participate.
-The anchor block itself remains facts-only under the existing projection guard.
+The scheduler saves the next scan position and one repair intent per collection
+in `collection_sync_gap_scans`. It publishes no automatic range job. The sync
+worker's `AutomaticSyncExecutor` reads due intent directly, running at most one
+range per startup/poll pass (default 12 seconds). It selects the oldest due
+collection, shares its common suffix with other due collections having the same
+upper bound, and caps membership at 16 and range size at `BACKFILL_BATCH_SIZE`.
+For A pending 101–110 and B pending 110 alone, block 110 is shared and A retains
+101–109. Different upper bounds remain separate. Identical gaps share headers,
+logs and transaction/receipt reads; covered peers stay outside older remainders.
 
-The sync worker rechecks each member's persisted repair identity, remaining
-bounds, liveness and anchor inside its execution gate. Stale members are excluded;
-no active members means no RPC work. One acquisition persists collection-specific
-coverage for the admitted members. Domain range jobs remain collection-scoped;
-shared event fanout, including global order hints, runs once.
-Retained intent, rather than missing coverage alone, determines the needed range:
-a failed fanout can require replay even after coverage has been written.
+The executor rechecks member liveness, anchor, repair ID and exact remaining
+bounds after entering the current-state gate. The sync commit rechecks those
+members again inside its SQLite writer. It atomically writes facts, coverage,
+anchor-gated balances, all required downstream publication intent and matching
+repair progress. A failed data, follow-up or progress write rolls back all of
+these. The anchor itself remains facts-only. Partial progress retains the same
+repair ID with its older contiguous remainder.
 
-Only after all required publications succeed does each member complete, or retain
-its older unfinished range if the bounded batch covered only its newest portion.
-The repair ID survives partial progress. Conditional writes fence late completion
-and publication responses by repair ID, anchor and expected bounds. New batches
-use a deterministic job ID from their range and sorted membership; unchanged
-publication retries reuse it after restart. Already completed or replaced members
-become no-ops. A failed publication leaves the same intents due; an accepted but
-unfinished batch is republished after five minutes. This
-also redrives dead-lettered work. Broker redelivery and retry publications may
-produce duplicate deliveries; they do not admit additional logical ranges.
+Acquisition completion clears or advances repair intent. Domain-worker drains
+the required follow-ups from `queue_outbox` separately; publication failures
+retry there without reacquiring RPC data. Failed acquisition defers its exact
+members for five minutes, leaving other collections eligible. Old queued gap
+hints are acknowledged without acquisition; upgrade retains their SQLite intent.
 
-These limits belong to `SYNC_GAP_POLICY`; the runtime uses the existing typed
+Scan limits belong to `SYNC_GAP_POLICY`, executor timing to
+`AUTOMATIC_SYNC_POLICY`; the runtime uses the existing typed
 `BACKFILL_BATCH_SIZE` setting for repair size. A failing collection does not stop
 other batches. A persistent failure in one batch holds its members' sweeps until
 repair succeeds. Reorg coverage deletions and new holes behind a

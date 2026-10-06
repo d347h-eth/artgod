@@ -124,14 +124,13 @@ collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
 - Primary key: `(chain_id, collection_id)`; collection purge cascades the row.
 - Retains the backward coverage-sweep cursor and at most one pending repair.
 - A null cursor begins the next sweep at the currently observed head.
-- Saves intent before publication and reuses the pending ID after restart or
-  failed publication. Retry timestamps are epoch milliseconds.
-- The legacy `pending_job_id` column stores the collection's logical repair ID.
-  A grouped queue job has a separate deterministic identity and explicitly lists
-  every member's repair ID, anchor and expected bounds; no new table is required.
-- Worker progress and retry writes match the repair ID, anchor and bounds after
-  downstream publication. A partial batch retains only the older unfinished
-  range with the same repair ID. Coverage alone does not complete pending work.
+- Retains intent before acquisition and reuses the pending ID across restart or
+  failure. Retry timestamps are epoch milliseconds.
+- The legacy `pending_job_id` column stores the logical repair ID; no broker
+  range or delivery generation is needed. The sync executor reads due rows.
+- Data, required publication intent and progress commit atomically. Matching
+  writes use repair ID, anchor and exact pending bounds. A partial batch retains
+  its older range with the same repair ID; publication failure cannot rewind it.
 - A changed bootstrap anchor replaces the previous sweep and repair intent.
 
 ### `transactions`
@@ -252,13 +251,16 @@ Defined in `063_chain_reorg_recoveries.sql`, with one row per operational chain.
 The row records recovery ID, conditional-update version, chain revision, checked
 height, stored/observed hashes, phase, retry eligibility and last proof error.
 `awaiting_ancestor` may also carry the earliest unfinished resync block;
-`resync` records one bounded range, captured target head and delivery generation.
+`resync` records one bounded range and captured target head. Migration
+`065_direct_automatic_sync.sql` removes the obsolete delivery counter while
+preserving ranges and making retained automatic work immediately eligible.
 
-`SqliteReorgRecoveries` commits rollback, ownership checkpoints, revision,
-recovery progress and first outbox job together. Completing a matching range
-advances progress and its next outbox job atomically, after required downstream
-publication. Redrive replaces the current outbox row with a fresh transport ID;
-sent or terminal transport state does not remove business recovery.
+`SqliteReorgRecoveries` commits rollback, ownership checkpoints, revision and
+resync progress together. `SqliteSyncRangeCommit` advances a matching range in
+the transaction retaining acquired data and every required downstream envelope.
+No resync continuation outbox row is needed. Publication is independently
+retryable after acquisition completion; rollback preserves pending DB-range
+projection jobs and removes orphan event-specific hints.
 
 This chain-wide workflow has no collection foreign key. Purging one collection
 cascades its ownership checkpoints and gap-scan rows, while keeping chain recovery
@@ -828,15 +830,26 @@ unchanged; neither requires retaining expired-order evidence. See [activity sema
 
 ### `queue_outbox`
 
-Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
+Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`, extended by
+`064_required_sync_followups.sql`.
 
 - stores queue envelopes before publication to the broker
 - unique key on `(queue_name, job_id)` makes repeated enqueue attempts idempotent
-- domain-worker drains due rows and marks them sent after broker publish succeeds
+- domain-worker publishes due rows to the broker
 - collection-scoped rows are deleted by collection purge
-- reorg rollback/range advancement enqueue required continuations atomically;
-  the reorg recovery owner replaces sent or terminal unfinished publications on
-  redrive, retaining at most one outbox publication for its current logical range
+- sync acquisition inserts every required domain/order/refresh follow-up in the
+  same transaction as facts, coverage, balances and acquisition progress
+- `retry_policy = required` keeps sync publication retryable indefinitely;
+  ordinary `bounded` rows preserve existing terminal retry limits and receipts
+- accepted sync follow-ups are removed explicitly, preventing a permanent row
+  per block/event; ordinary metadata/maker sent receipts remain available
+- event-specific sync hints store `sync_block_number`/`sync_block_hash` and carry
+  `onchainBlock` in the envelope; rollback deletes their orphan rows and consumer
+  admission rejects already published stale hints
+- range follow-ups reread canonical facts and survive rollback, including
+  unprocessed pre-fork facts; revision-qualified IDs admit replacement events
+- migration 065 deletes obsolete reorg range publications while retaining their
+  chain recovery journal and collection gap intent
 
 ### `metadata_refresh_runs`
 
@@ -868,6 +881,15 @@ The token image cache is separate from canonical metadata and extension artifact
 - Generic collection read models prefer cached image paths before remote canonical image URLs.
 
 ## Storage Adapter Behavior
+
+### Atomic sync range commit (`indexer/src/infra/storage/sqlite-sync-range-commit.ts`)
+
+`SyncRangeCommitPort` declares one transaction for validated data, all required
+follow-ups and explicit completion (`unmanaged`, `gap_repair`, `reorg_resync`).
+The SQLite adapter rechecks durable ownership, uses the existing facts/outbox/
+progress adapters inside the same writer, and rolls everything back if any part
+fails. Automatic completion requires all headers in its exact acquired range.
+RPC acquisition and queue publication happen outside this transaction.
 
 ### Onchain storage (`indexer/src/infra/storage/sqlite.ts`)
 

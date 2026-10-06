@@ -121,36 +121,41 @@ ordinary numeric/latest contract reads retain their separate contract.
 ## Collection Gap Scheduling Ports
 
 `indexer/src/application/sync-gap-scheduler.ts` owns the narrow collection-list,
-coverage/progress, and detector contracts used by automatic gap repair.
-`SqliteCollectionRegistry` pages live anchored collections, and
-`SqliteSyncGapStore` streams bounded coverage windows and persists scan cursors,
-publication retries, and progress fenced by repair ID, anchor and pending bounds. The scheduler entrypoint
-constructs these adapters; the sync worker uses the same progress port to
-validate and finish repair jobs after downstream publication.
+coverage/progress and detector contracts. The registry pages live anchored
+collections; `SqliteSyncGapStore` streams bounded coverage windows and retains
+one repair and cursor per collection. The scheduler publishes no automatic job.
+Repair membership, bounds and common-suffix planning live in
+`domain/sync-gap-repair.ts`.
 
-`domain/sync-jobs.ts` owns the backfill wire contract and decoder.
-`application/backfill-sync-handler.ts` validates it before selecting a lane,
-then orchestrates the existing execution gate, range pipeline and durable
-gap/reorg owners through injected ports. The runtime composes this handler;
-broker regressions exercise the same implementation.
+`AutomaticSyncExecutor` in `application/automatic-sync-executor.ts` owns bounded
+serial acquisition for due gap and canonical resync ranges. It reloads admission
+after the shared current-state gate, feeds `processSyncRange()` and defers failed
+owners through injected ports. `SyncRangeCommitPort` explicitly commits data,
+required follow-ups and named acquisition completion together.
+`SqliteSyncRangeCommit` composes the existing SQLite adapters in one writer,
+including current membership/range revalidation. RPC and broker calls stay out.
+
+`domain/sync-jobs.ts` owns the backfill wire decoder. The production
+`createBackfillSyncHandler()` validates source/policy/member shapes before
+collection selection, executes manual/bootstrap requests through the shared
+pipeline, and ACKs obsolete automatic hints without acquisition. Broker tests
+exercise this same handler.
 
 ## Reorg Recovery Port
 
-`RecoverChainReorg` in `application/reorg-recovery.ts` owns mismatch retention,
-bounded proof and recovery retry. Its `ReorgRecoveryStore` contract explicitly
-requires atomic rollback/checkpoint/revision/progress/outbox commitment and
-atomic completed-range advancement. `SqliteReorgRecoveries` implements it using
-the existing rollback storage and queue outbox adapters; RPC stays outside the
-writer. Domain transitions and logical range identity live in
-`domain/reorg-recovery.ts`.
+`RecoverChainReorg` owns mismatch retention, bounded proof and proof retry.
+`ReorgRecoveryStore` requires atomic rollback/checkpoint/revision/resync
+commitment and matching acquisition progress. `SqliteReorgRecoveries` uses the
+rollback storage adapter; its phase/range transitions live in
+`domain/reorg-recovery.ts`. The sync executor reads retained resync directly;
+transport generation and continuation publication are absent.
 
 `RollbackChainRange.prepare()` passes an explicit verified fork to the ownership
 port and returns a prepared commit candidate. Plain rollback and durable
-recovery choose their named atomic commit operations; callers do not pass SQL
-callbacks or fabricated transfers. Runtime entrypoints construct these owners
-and delegate queue mapping. `executeReorgResync()` validates the durable logical
-range before the shared production sync/fanout operation and records completion
-after it succeeds.
+recovery choose named atomic operations; callers do not pass SQL callbacks or
+fabricated transfers. Runtime entrypoints compose these owners and queue mapping.
+The existing outbox retains downstream intent. Required sync publications retry
+until accepted, then are removed; ordinary workflows keep their sent receipts.
 
 ## Bidder Index Port
 

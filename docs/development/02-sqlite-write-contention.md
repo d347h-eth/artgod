@@ -155,27 +155,30 @@ retain deferred snapshot reads; they must not acquire a writer lock.
 
 ### Indexer
 
-| Owner                                             | Write operations                                                                                      | Handling                                                         |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `infra/bootstrap/sqlite-runs.ts`                  | run status/anchor updates and run events                                                              | protected autocommit                                             |
-| `infra/bootstrap/sqlite-steps.ts`                 | claim, lease, progress, completion, failure, pause, and resume                                        | claim transaction converted; remaining statements protected      |
-| `infra/bootstrap/sqlite.ts`                       | snapshot rows/finalization/cleanup; metadata, image, ownership, and extension-artifact task lifecycle | 8 transaction units plus protected task statements               |
-| `infra/attributes/sqlite-token-attributes.ts`     | replace attribute links, keys, and values                                                             | called inside metadata or extension transactions                 |
-| `infra/collection-extensions/sqlite.ts`           | extension install/artifact upsert; synthetic-token publish/replace/retire; attribute replacement      | 4 transaction units plus protected single writes                 |
-| `infra/collections/sqlite.ts`                     | collection bootstrap and OpenSea identity/lifecycle/health state                                      | 15 protected single-statement operations                         |
-| `infra/conduits/sqlite.ts`                        | conduit upsert and channel replacement                                                                | 1 transaction unit plus protected upsert                         |
-| `infra/domain/activities.ts`                      | replay-safe activity and source projection                                                            | 1 transaction unit plus protected domain-sync statements         |
-| `infra/domain/metadata.ts`                        | token identity, metadata, and attributes                                                              | 1 transaction unit; remote resolution completes before it begins |
-| `infra/domain/metadata-stats.ts`                  | collection trait-stat rebuild                                                                         | 1 transaction unit                                               |
-| `infra/domain/orders.ts`                          | maker/order state and observation-driven upserts                                                      | protected single statements and loops                            |
-| `infra/media/sqlite-token-image-cache-records.ts` | conditional cache record upsert                                                                       | protected autocommit                                             |
-| `infra/metadata/sqlite-refresh-followups.ts`      | refresh run/task state and transactional outbox enqueue                                               | 3 transaction units                                              |
-| `infra/offchain/sqlite-observations.ts`           | order observation insert                                                                              | protected autocommit                                             |
-| `infra/offchain/sqlite-order-source-state.ts`     | mark missing snapshot orders inactive                                                                 | protected autocommit                                             |
-| `infra/offchain/sqlite-orderbook-runs.ts`         | orderbook run start/complete/fail                                                                     | protected autocommit                                             |
-| `infra/queue/sqlite-queue-outbox.ts`              | enqueue, mark sent, and mark failed                                                                   | protected autocommit; post-publish ambiguity remains below       |
-| `infra/storage/sqlite.ts`                         | canonical sync persistence and reorg rollback                                                         | 2 transaction units                                              |
-| `infra/token-sets/sqlite.ts`                      | token-set upsert and member insertion                                                                 | member transaction converted; split atomicity remains below      |
+| Owner                                             | Write operations                                                                                      | Handling                                                                                |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `infra/bootstrap/sqlite-runs.ts`                  | run status/anchor updates and run events                                                              | protected autocommit                                                                    |
+| `infra/bootstrap/sqlite-steps.ts`                 | claim, lease, progress, completion, failure, pause, and resume                                        | claim transaction converted; remaining statements protected                             |
+| `infra/bootstrap/sqlite.ts`                       | snapshot rows/finalization/cleanup; metadata, image, ownership, and extension-artifact task lifecycle | 8 transaction units plus protected task statements                                      |
+| `infra/attributes/sqlite-token-attributes.ts`     | replace attribute links, keys, and values                                                             | called inside metadata or extension transactions                                        |
+| `infra/collection-extensions/sqlite.ts`           | extension install/artifact upsert; synthetic-token publish/replace/retire; attribute replacement      | 4 transaction units plus protected single writes                                        |
+| `infra/collections/sqlite.ts`                     | collection bootstrap and OpenSea identity/lifecycle/health state                                      | 15 protected single-statement operations                                                |
+| `infra/conduits/sqlite.ts`                        | conduit upsert and channel replacement                                                                | 1 transaction unit plus protected upsert                                                |
+| `infra/domain/activities.ts`                      | replay-safe activity and source projection                                                            | 1 transaction unit plus protected domain-sync statements                                |
+| `infra/domain/metadata.ts`                        | token identity, metadata, and attributes                                                              | 1 transaction unit; remote resolution completes before it begins                        |
+| `infra/domain/metadata-stats.ts`                  | collection trait-stat rebuild                                                                         | 1 transaction unit                                                                      |
+| `infra/domain/orders.ts`                          | maker/order state and observation-driven upserts                                                      | protected single statements and loops                                                   |
+| `infra/media/sqlite-token-image-cache-records.ts` | conditional cache record upsert                                                                       | protected autocommit                                                                    |
+| `infra/metadata/sqlite-refresh-followups.ts`      | refresh run/task state and transactional outbox enqueue                                               | 3 transaction units                                                                     |
+| `infra/offchain/sqlite-observations.ts`           | order observation insert                                                                              | protected autocommit                                                                    |
+| `infra/offchain/sqlite-order-source-state.ts`     | mark missing snapshot orders inactive                                                                 | protected autocommit                                                                    |
+| `infra/offchain/sqlite-orderbook-runs.ts`         | orderbook run start/complete/fail                                                                     | protected autocommit                                                                    |
+| `infra/queue/sqlite-queue-outbox.ts`              | enqueue, record acceptance or remove published sync intent, and mark failed                           | protected autocommit; post-publish ambiguity remains below                              |
+| `infra/storage/sqlite-sync-range-commit.ts`       | atomic canonical data, required follow-ups and gap/reorg acquisition progress                         | one outer writer with existing nested persistence adapters; RPC/publication outside     |
+| `infra/storage/sqlite-sync-gaps.ts`               | retain scan cursor and gap intent; conditional failure/progress writes                                | protected autocommit; completion occurs inside the sync commit writer                   |
+| `infra/storage/sqlite-reorg-recoveries.ts`        | mismatch/proof retry, atomic checkpoint rollback/resync retention and range progress                  | protected autocommit and writers; range completion occurs inside the sync commit writer |
+| `infra/storage/sqlite.ts`                         | canonical sync persistence and reorg rollback                                                         | 2 transaction units                                                                     |
+| `infra/token-sets/sqlite.ts`                      | token-set upsert and member insertion                                                                 | member transaction converted; split atomicity remains below                             |
 
 The read-only bidder index, image-cache policy, and order-activity lookup
 adapters are excluded.
@@ -227,7 +230,8 @@ exhaustion means lease loss, a stopped runtime, or a process-fatal invariant.
 
 ### External side effect followed by database bookkeeping
 
-- The queue-outbox drainer publishes to NATS before marking the row sent. A
+- The queue-outbox drainer publishes to NATS before recording acceptance: ordinary workflows
+  retain sent receipts; required sync follow-ups are removed. A
   successful publish followed by exhausted database contention can consume an
   outbox attempt and rely on message-ID deduplication.
 - Trading command completion and offer/cancellation runtime-state writes can
