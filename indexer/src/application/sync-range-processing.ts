@@ -32,7 +32,7 @@ import type { CollectionRecord } from "../domain/collections.js";
 import type { Hex, RpcBlock, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort, SyncRangeResult } from "../ports/storage.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
-import type { QueuePort } from "../ports/queue.js";
+import type { SyncWorkCompletion } from "../domain/sync-work.js";
 import type {
     CollectionRegistryPort,
     CollectionScopeResolverPort,
@@ -92,15 +92,6 @@ export async function acquireSyncRange(input: {
 
 export type SyncRangeInput = Parameters<typeof acquireSyncRange>[0];
 
-// Low-level acquisition/persistence remains available to facts-only callers.
-export async function processRange(
-    input: SyncRangeInput,
-): Promise<SyncRangeResult> {
-    const result = await acquireSyncRange(input);
-    input.storage.persistSyncResult(result);
-    return result;
-}
-
 // Production sync acquisition ends at durable retention, independent of broker
 // availability. The outbox owns publication; it never repeats remote acquisition.
 export async function processSyncRange(
@@ -108,6 +99,7 @@ export async function processSyncRange(
         commit: SyncRangeCommitPort;
         sources: readonly DomainSyncSource[];
         mode: DomainSyncMode;
+        completion: SyncWorkCompletion;
     },
 ): Promise<SyncRangeResult> {
     const result = await acquireSyncRange(input);
@@ -120,7 +112,11 @@ export async function processSyncRange(
         result.data,
         input.orderMaintenancePolicy,
     );
-    input.commit.commitSyncRange({ result, followUps });
+    input.commit.commitSyncRange({
+        result,
+        followUps,
+        completion: input.completion,
+    });
     return result;
 }
 
@@ -248,28 +244,6 @@ export function buildSyncFollowUps(
         ),
     );
     return followUps;
-}
-
-export async function publishDomainJobs(
-    queue: Pick<QueuePort, "publish">,
-    chainId: number,
-    collections: CollectionRecord[],
-    range: SyncRange,
-    sources: readonly DomainSyncSource[],
-    mode: DomainSyncMode,
-    data: OnChainData,
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
-    for (const { job } of buildSyncFollowUps(
-        chainId,
-        collections,
-        range,
-        sources,
-        mode,
-        data,
-        orderMaintenancePolicy,
-    ))
-        await queue.publish(job.queue, job);
 }
 
 export function resolveBackfillCollections(

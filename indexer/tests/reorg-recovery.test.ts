@@ -2,15 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { processSyncRange } from "../src/application/sync-range-processing.js";
+import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
 import { startReorgRecoveryLoop } from "../src/application/reorg-recovery.js";
-import {
-    SyncGapScheduler,
-    executeSyncGapRepair,
-} from "../src/application/sync-gap-scheduler.js";
+import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
-import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
+import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
+import {
+    REORG_RECOVERY_PHASE,
+    type ReorgResyncRange,
+} from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
 import {
     SYNC_JOB_KIND,
@@ -36,7 +39,7 @@ import {
     RecoveryRpc,
     reorgRecoveryServices,
     seedRecoveryHistory,
-    pendingRecoveryJob,
+    pendingRecoveryRange,
     canonicalRecoveryBlock,
 } from "./helpers/reorg-recovery-fixture.js";
 
@@ -81,6 +84,11 @@ describe("durable production reorg recovery", () => {
     function reopen() {
         setDbPath(dbPath);
         services = reorgRecoveryServices(rpc, { now: () => now, retryDelayMs });
+    }
+    async function acquireAndPublish(range: ReorgResyncRange) {
+        const completed = await services.acquireRecoveryRange(range);
+        await services.publishRetained(queue);
+        return completed;
     }
     function revision() {
         return services.storage.captureSyncCheckpoint(F.ChainId).revision;
@@ -225,9 +233,9 @@ describe("durable production reorg recovery", () => {
             );
             let ranges = 0;
             while (services.recoveries.getRecovery(F.ChainId)) {
-                expect(
-                    await services.execute(pendingRecoveryJob(), queue),
-                ).toBe(true);
+                expect(await acquireAndPublish(pendingRecoveryRange())).toBe(
+                    true,
+                );
                 expect(++ranges).toBeLessThanOrEqual(2);
             }
             expect(ranges).toBe(2);
@@ -317,31 +325,20 @@ describe("durable production reorg recovery", () => {
         rpc = new RecoveryRpc(forkBlock);
         reopen();
         const gaps = new SqliteSyncGapStore();
-        const scheduler = new SyncGapScheduler(services.registry, gaps, queue, {
+        const scheduler = new SyncGapScheduler(services.registry, gaps, {
             chainId: F.ChainId,
             batchSize: F.BatchSize,
             now: () => now,
         });
         async function repairNext(expected: number[]) {
             await scheduler.scan(F.Orphan);
-            const job = queue.jobs
-                .filter((j) => j.queue === QUEUE_NAMES.BackfillSync)
-                .at(-1)! as JobEnvelope<BackfillSyncPayload>;
-            expect([job.payload.fromBlock, job.payload.toBlock]).toEqual(
-                expected,
-            );
-            expect(
-                await executeSyncGapRepair(
-                    job,
-                    services.registry,
-                    gaps,
-                    (collections, sources) =>
-                        services.syncAndPublish(job, queue, {
-                            collections,
-                            sources,
-                        }),
-                ),
-            ).toBe(true);
+            const batch = planSyncGapRepairBatches(
+                gaps.listDue({ chainId: F.ChainId, now, limit: 16 }),
+                F.BatchSize,
+            )[0];
+            expect([batch.fromBlock, batch.toBlock]).toEqual(expected);
+            await services.executor.runDue();
+            await services.publishRetained(queue);
         }
         await services.recovery.checkBlock(F.Orphan);
         expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
@@ -378,9 +375,9 @@ describe("durable production reorg recovery", () => {
         ]);
         const ranges: number[][] = [];
         while (services.recoveries.getRecovery(F.ChainId)) {
-            const job = pendingRecoveryJob();
-            ranges.push([job.payload.fromBlock, job.payload.toBlock]);
-            expect(await services.execute(job, queue)).toBe(true);
+            const job = pendingRecoveryRange();
+            ranges.push([job.fromBlock, job.toBlock]);
+            expect(await acquireAndPublish(job)).toBe(true);
             expect(ranges.length).toBeLessThanOrEqual(3);
         }
         expect(ranges).toEqual([
@@ -529,7 +526,7 @@ describe("durable production reorg recovery", () => {
         expect(revision()).toBe(0);
         reopen();
         const gaps = new SqliteSyncGapStore();
-        const scheduler = new SyncGapScheduler(services.registry, gaps, queue, {
+        const scheduler = new SyncGapScheduler(services.registry, gaps, {
             chainId: 1,
             batchSize: F.BatchSize,
             now: () => now,
@@ -537,22 +534,13 @@ describe("durable production reorg recovery", () => {
         const repaired: number[][] = [];
         for (let i = 0; i < 3; i++) {
             await scheduler.scan(F.Head);
-            const job = queue.jobs
-                .filter((j) => j.queue === QUEUE_NAMES.BackfillSync)
-                .at(-1)! as JobEnvelope<BackfillSyncPayload>;
-            repaired.push([job.payload.fromBlock, job.payload.toBlock]);
-            expect(
-                await executeSyncGapRepair(
-                    job,
-                    services.registry,
-                    gaps,
-                    (collections, sources) =>
-                        services.syncAndPublish(job, queue, {
-                            collections,
-                            sources,
-                        }),
-                ),
-            ).toBe(true);
+            const batch = planSyncGapRepairBatches(
+                gaps.listDue({ chainId: 1, now, limit: 16 }),
+                F.BatchSize,
+            )[0];
+            repaired.push([batch.fromBlock, batch.toBlock]);
+            await services.executor.runDue();
+            await services.publishRetained(queue);
         }
         expect(repaired).toEqual([
             [106, 107],
@@ -577,14 +565,14 @@ describe("durable production reorg recovery", () => {
             { owner: F.Owner, amount: "1" },
         ]);
         expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
-        expect(pendingRecoveryJob().payload).toMatchObject({
+        expect(pendingRecoveryRange()).toMatchObject({
             fromBlock: 105,
             toBlock: 106,
         });
         while (services.recoveries.getRecovery(1)) {
-            const job = pendingRecoveryJob();
+            const job = pendingRecoveryRange();
             await drainQueueOutbox(services.outbox, queue);
-            expect(await services.execute(job, queue)).toBe(true);
+            expect(await acquireAndPublish(job)).toBe(true);
         }
         expect(
             services.storage.countCollectionSyncedBlocksInRange(
@@ -595,15 +583,13 @@ describe("durable production reorg recovery", () => {
             ),
         ).toBe(8);
         expect(
-            await services.execute(
-                queue.jobs.find(
-                    (j) =>
-                        j.queue === QUEUE_NAMES.BackfillSync &&
-                        j.payload &&
-                        "recovery" in (j.payload as object),
-                )! as JobEnvelope<BackfillSyncPayload>,
-                queue,
-            ),
+            await services.acquireRecoveryRange({
+                chainId: 1,
+                recoveryId: "completed-recovery",
+                revision: 1,
+                fromBlock: 105,
+                toBlock: 106,
+            }),
         ).toBe(false);
     });
 
@@ -659,10 +645,10 @@ describe("durable production reorg recovery", () => {
         expect(services.outbox.listDue(now, 10)).toHaveLength(0);
     });
 
-    it("rolls back the entire transaction if the continuation cannot be retained", async () => {
+    it("rolls back checkpoints, ownership and revision if retaining resync state fails", async () => {
         const fixture = seedRecoveryHistory();
         db.exec(
-            "CREATE TEMP TRIGGER fail_recovery_publication BEFORE INSERT ON queue_outbox BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END;",
+            `CREATE TEMP TRIGGER fail_recovery_publication BEFORE UPDATE ON chain_reorg_recoveries WHEN NEW.phase = '${REORG_RECOVERY_PHASE.Resync}' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;`,
         );
         await services.recovery.checkBlock(F.Orphan);
         expect(revision()).toBe(0);
@@ -684,18 +670,22 @@ describe("durable production reorg recovery", () => {
         now += retryDelayMs;
         await services.recovery.resumeDue();
         expect(revision()).toBe(1);
-        expect(pendingRecoveryJob()).toBeDefined();
+        expect(pendingRecoveryRange()).toBeDefined();
     });
 
-    it("resumes after rollback commit before publication and after coverage with partial fanout", async () => {
+    it("resumes direct acquisition after rollback and retries partial publication without acquiring again", async () => {
         const fixture = seedRecoveryHistory();
         await services.recovery.checkBlock(F.Orphan);
-        const first = pendingRecoveryJob();
+        const first = pendingRecoveryRange();
         reopen();
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
-        await expect(services.execute(first, queue)).rejects.toThrow(
-            "Publication unavailable",
-        );
+        expect(await services.acquireRecoveryRange(first)).toBe(true);
+        expect(pendingRecoveryRange()).toMatchObject({
+            fromBlock: 107,
+            toBlock: 107,
+        });
+        const rpcReads = rpc.logReads;
+        await services.publishRetained(queue);
         expect(
             services.storage.countCollectionSyncedBlocksInRange(
                 1,
@@ -705,58 +695,50 @@ describe("durable production reorg recovery", () => {
             ),
         ).toBe(2);
         expect(
-            queue.jobs.filter((j) => j.queue === QUEUE_NAMES.ActivityDomain),
-        ).toHaveLength(1);
-        expect(services.recoveries.getRecovery(1)).toMatchObject({
-            phase: REORG_RECOVERY_PHASE.Resync,
-            fromBlock: 105,
-            toBlock: 106,
-        });
+            db
+                .prepare("SELECT status FROM queue_outbox WHERE queue_name = ?")
+                .get(QUEUE_NAMES.OrdersDomain),
+        ).toEqual({ status: QUEUE_OUTBOX_STATUS.FailedRetry });
         reopen();
-        now += retryDelayMs;
-        await services.recovery.resumeDue();
-        const redrive = pendingRecoveryJob();
-        expect(redrive.jobId).not.toBe(first.jobId);
-        expect(redrive.payload).toEqual(first.payload);
         queue.failureQueue = undefined;
-        // An old delivery can finish this same logical range after redrive.
-        expect(await services.execute(first, queue)).toBe(true);
-        expect(await services.execute(redrive, queue)).toBe(false);
-        expect(pendingRecoveryJob().payload).toMatchObject({
-            fromBlock: 107,
-            toBlock: 107,
-        });
-        expect(await services.execute(pendingRecoveryJob(), queue)).toBe(true);
+        await services.publishRetained(queue);
+        expect(rpc.logReads).toBe(rpcReads);
+        expect(await services.acquireRecoveryRange(first)).toBe(false);
+        expect(await acquireAndPublish(pendingRecoveryRange())).toBe(true);
         expect(services.recoveries.getRecovery(1)).toBeNull();
-        expect(revision()).toBe(1); // Restart never performs rollback a second time.
+        expect(revision()).toBe(1);
     });
 
-    it("redrives terminal and acknowledged publication states without erasing logical work", async () => {
+    it("keeps required publication retryable beyond the ordinary budget after recovery completion", async () => {
         seedRecoveryHistory();
         await services.recovery.checkBlock(F.Orphan);
-        const first = pendingRecoveryJob();
-        queue.failureQueue = QUEUE_NAMES.BackfillSync;
-        await drainQueueOutbox(services.outbox, queue, { maxAttempts: 1 });
-        expect(db.prepare("SELECT status FROM queue_outbox").get()).toEqual({
-            status: QUEUE_OUTBOX_STATUS.FailedTerminal,
-        });
-        now += retryDelayMs;
-        await services.recovery.resumeDue();
-        queue.failureQueue = undefined;
-        const second = pendingRecoveryJob();
-        await drainQueueOutbox(services.outbox, queue);
-        expect(db.prepare("SELECT status FROM queue_outbox").get()).toEqual({
-            status: QUEUE_OUTBOX_STATUS.Sent,
-        });
-        now += retryDelayMs;
-        await services.recovery.resumeDue(); // Also redrive a delivery ACKed without completion.
-        const third = pendingRecoveryJob();
-        expect(new Set([first.jobId, second.jobId, third.jobId]).size).toBe(3);
-        expect(third.payload).toEqual(first.payload);
+        while (services.recoveries.getRecovery(1))
+            expect(
+                await services.acquireRecoveryRange(pendingRecoveryRange()),
+            ).toBe(true);
+        const reads = rpc.logReads;
+        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        for (let i = 0; i < 7; i++)
+            await drainQueueOutbox(services.outbox, queue, {
+                maxAttempts: 1,
+                retryBaseDelayMs: 0,
+            });
         expect(
-            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 1 });
-        expect(await services.execute(third, queue)).toBe(true);
+            db
+                .prepare(
+                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
+                )
+                .all(QUEUE_NAMES.OrdersDomain),
+        ).toEqual([
+            { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
+            { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
+        ]);
+        reopen();
+        queue.failureQueue = undefined;
+        await services.publishRetained(queue);
+        await services.executor.runDue();
+        expect(rpc.logReads).toBe(reads);
+        expect(services.recoveries.getRecovery(1)).toBeNull();
     });
 
     it("fences stale proof superseded by an earlier mismatch", async () => {
@@ -823,23 +805,32 @@ describe("durable production reorg recovery", () => {
             entered();
             await releasePromise;
         };
-        const realtime = services.syncAndPublish(
-            {
-                jobId: "realtime",
-                chainId: 1,
-                queue: QUEUE_NAMES.RealtimeSync,
-                kind: SYNC_JOB_KIND.RealtimeBlock,
-                scheduledAt: 0,
-                payload: {
-                    fromBlock: 107,
-                    toBlock: 107,
-                    source: BACKFILL_SOURCE.ManualHistorical,
-                    orderMaintenancePolicy:
-                        BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+        const realtime = processSyncRange({
+            rpc,
+            storage: services.storage,
+            commit: services.commit,
+            collectionScopeResolver: services.registry,
+            collectionExtensions: { getInstall: () => null },
+            chainId: 1,
+            collections: services.registry.listCollectionsForSync(
+                1,
+                "realtime",
+            ),
+            range: { fromBlock: 107, toBlock: 107 },
+            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            wethAddress: F.Weth,
+            orderMaintenancePolicy:
+                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            sources: [
+                {
+                    fanoutId: "realtime",
+                    sourceJobId: "realtime",
+                    sourceKind: SYNC_JOB_KIND.RealtimeBlock,
                 },
-            },
-            queue,
-        );
+            ],
+            mode: "realtime",
+            completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
+        });
         await enteredPromise;
         await services.recovery.checkBlock(F.Orphan);
         released();
@@ -848,20 +839,21 @@ describe("durable production reorg recovery", () => {
         expect(queue.jobs).toHaveLength(0);
     });
 
-    it("preserves unfinished fanout when a newer mismatch interrupts resync", async () => {
+    it("preserves unfinished pre-fork range publications when a newer mismatch interrupts resync", async () => {
         seedRecoveryHistory();
         await services.recovery.checkBlock(F.Orphan);
-        const oldJob = pendingRecoveryJob();
+        const old = pendingRecoveryRange();
+        expect(await services.acquireRecoveryRange(old)).toBe(true);
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
-        await expect(services.execute(oldJob, queue)).rejects.toThrow();
-        const previousId = services.recoveries.getRecovery(1)!.recoveryId;
-        const previousGetBlock = rpc.getBlock.bind(rpc);
+        await services.publishRetained(queue);
+        const previousId = services.recoveries.getRecovery(1)!.recoveryId,
+            previousGetBlock = rpc.getBlock.bind(rpc);
         rpc.getBlock = async (number) => {
-            const block = await previousGetBlock(number);
+            const header = await previousGetBlock(number);
             return number < 106
-                ? block
+                ? header
                 : {
-                      ...block,
+                      ...header,
                       hash: `0x${String(number + 20_000).padStart(64, "0")}`,
                   };
         };
@@ -870,46 +862,37 @@ describe("durable production reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)!.recoveryId).not.toBe(
             previousId,
         );
-        // The rollback begins at 106, but fanout from 105 never completed.
-        expect(pendingRecoveryJob().payload).toMatchObject({
-            fromBlock: 105,
-            toBlock: 106,
+        expect(pendingRecoveryRange()).toMatchObject({
+            fromBlock: 106,
+            toBlock: 107,
         });
-        expect(await services.execute(oldJob, queue)).toBe(false);
+        expect(
+            db
+                .prepare(
+                    "SELECT job_json FROM queue_outbox WHERE queue_name = ? AND status = ?",
+                )
+                .all(QUEUE_NAMES.OrdersDomain, QUEUE_OUTBOX_STATUS.FailedRetry),
+        ).toEqual([
+            expect.objectContaining({
+                job_json: expect.stringContaining('"fromBlock":105'),
+            }),
+        ]);
+        expect(await services.acquireRecoveryRange(old)).toBe(false);
     });
 
-    it("rejects incorrectly scoped or configured jobs as chain recovery completion", async () => {
+    it("does not complete or acquire a retained reorg range when all eligible collections are paused", async () => {
         const fixture = seedRecoveryHistory();
         await services.recovery.checkBlock(F.Orphan);
-        const job = pendingRecoveryJob();
-        expect(
-            await services.execute(
-                { ...job, collectionId: fixture.collectionId },
-                queue,
-            ),
-        ).toBe(false);
-        expect(
-            await services.execute(
-                {
-                    ...job,
-                    payload: {
-                        ...job.payload,
-                        orderMaintenancePolicy:
-                            BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-                    },
-                },
-                queue,
-            ),
-        ).toBe(false);
-        expect(rpc.logReads).toBe(0);
+        const range = pendingRecoveryRange();
         db.prepare(
             "UPDATE collections SET status = ? WHERE collection_id = ?",
         ).run(COLLECTION_STATUS.Paused, fixture.collectionId);
-        expect(services.registry.listCollectionsForSync(1, "backfill")).toEqual(
-            [],
-        );
-        expect(services.recoveries.getRecovery(1)?.phase).toBe(
-            REORG_RECOVERY_PHASE.Resync,
-        );
+        await services.executor.runDue();
+        expect(rpc.logReads).toBe(0);
+        expect(pendingRecoveryRange()).toEqual(range);
+        db.prepare(
+            "UPDATE collections SET status = ? WHERE collection_id = ?",
+        ).run(COLLECTION_STATUS.Bootstrapping, fixture.collectionId);
+        expect(await services.acquireRecoveryRange(range)).toBe(true);
     });
 });

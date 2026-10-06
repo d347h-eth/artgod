@@ -191,14 +191,6 @@ export class SqliteQueueOutbox {
         }));
     }
 
-    // The business owner supersedes/completes this publication. Already sent
-    // broker messages remain possible and must be fenced by that owner's identity.
-    discardJob(queueName: QueueName, jobId: string): void {
-        db.prepare(
-            "DELETE FROM queue_outbox WHERE queue_name = ? AND job_id = ?",
-        ).run(queueName, jobId);
-    }
-
     markSent(outboxId: number, publication?: QueuePublication): void {
         this.markSentStmt.run({
             outboxId,
@@ -206,6 +198,14 @@ export class SqliteQueueOutbox {
             streamId: publication?.streamId ?? null,
             sequence: publication?.sequence ?? null,
         });
+    }
+
+    // Published sync work no longer needs an outbox owner. Stable envelope IDs
+    // and idempotent consumers handle a late duplicate acquisition/publication.
+    removePublishedSyncFollowUp(outboxId: number): void {
+        db.prepare(
+            "DELETE FROM queue_outbox WHERE outbox_id = ? AND retry_policy = ?",
+        ).run(outboxId, QUEUE_OUTBOX_RETRY_POLICY.Required);
     }
 
     markFailed(input: {

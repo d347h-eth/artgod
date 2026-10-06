@@ -11,6 +11,8 @@ import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { runWorker } from "../src/application/worker-runner.js";
+import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
+import { startQueueOutboxDrainer } from "../src/application/queue-outbox/drainer.js";
 import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
@@ -43,7 +45,7 @@ import {
     canonicalRecoveryBlock,
     reorgRecoveryServices,
     seedRecoveryHistory,
-    pendingRecoveryJob,
+    pendingRecoveryRange,
 } from "../tests/helpers/reorg-recovery-fixture.js";
 import {
     REORG_FIXTURE_ROLE as ROLE,
@@ -155,7 +157,7 @@ describe("isolated broker and process reorg recovery", () => {
         setDbPath(dbPath);
         db.raw.close();
     });
-    it("delivers one grouped gap job through JetStream and fans out only its participating collections", async () => {
+    it("executes one retained shared gap and publishes only its participating collections through JetStream", async () => {
         db.exec(
             "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
         );
@@ -179,11 +181,17 @@ describe("isolated broker and process reorg recovery", () => {
         const gaps = new SqliteSyncGapStore();
         const delivered: JobEnvelope[] = [];
         await startBackfillHandler(rpc, gaps, delivered);
-        const scheduler = new SyncGapScheduler(services.registry, gaps, queue, {
+        const scheduler = new SyncGapScheduler(services.registry, gaps, {
             chainId: F.ChainId,
             batchSize: F.BatchSize,
         });
         await scheduler.scan(F.Head);
+        const batch = planSyncGapRepairBatches(
+            gaps.listDue({ chainId: 1, now: Date.now(), limit: 16 }),
+            F.BatchSize,
+        )[0];
+        await services.executor.runDue();
+        await services.publishRetained(queue);
         await waitForFixture(
             () =>
                 ids.every(
@@ -191,8 +199,7 @@ describe("isolated broker and process reorg recovery", () => {
                 ) && fanout.length === 6,
             "grouped repair and collection-scoped fanout",
         );
-        expect(delivered).toHaveLength(1);
-        expect(delivered[0].collectionId).toBeUndefined();
+        expect(delivered).toHaveLength(0);
         expect(blockReads).toEqual([106, 107, 107]);
         expect(rpc.logReads).toBe(4);
         for (const id of ids) {
@@ -219,7 +226,9 @@ describe("isolated broker and process reorg recovery", () => {
         }
         expect(
             fanout.every(
-                (job) => job.payload.sourceJobId === delivered[0].jobId,
+                (job) =>
+                    job.payload.sourceJobId ===
+                    `${batch.repairs.find((r) => r.collectionId === job.collectionId)!.repairId}:range:${batch.fromBlock}-${batch.toBlock}`,
             ),
         ).toBe(true);
         expect(deadLetters).toHaveLength(0);
@@ -277,19 +286,11 @@ describe("isolated broker and process reorg recovery", () => {
                     107,
                 ),
             );
-            const jobs: JobEnvelope<BackfillSyncPayload>[] = [];
-            const scheduler = new SyncGapScheduler(
-                services.registry,
-                gaps,
-                {
-                    publish: async (_name, job) => {
-                        jobs.push(job as JobEnvelope<BackfillSyncPayload>);
-                    },
-                },
-                { chainId: F.ChainId, batchSize: F.BatchSize },
-            );
-            await scheduler.scan(F.Head);
-            const batch = jobs[0];
+            await new SyncGapScheduler(services.registry, gaps, {
+                chainId: F.ChainId,
+                batchSize: F.BatchSize,
+            }).scan(F.Head);
+            const batch = retainedGapJob(gaps);
             if (
                 batch.payload.source !== BACKFILL_SOURCE.GapRepair ||
                 !batch.payload.repairs
@@ -402,84 +403,107 @@ describe("isolated broker and process reorg recovery", () => {
         },
     );
 
-    it("consumes a retained legacy scoped gap delivery through the production handler", async () => {
+    function retainedGapJob(
+        gaps: SqliteSyncGapStore,
+    ): JobEnvelope<BackfillSyncPayload> {
+        const batch = planSyncGapRepairBatches(
+            gaps.listDue({ chainId: 1, now: Date.now(), limit: 16 }),
+            F.BatchSize,
+        )[0];
+        return {
+            jobId: "legacy-gap-batch",
+            kind: SYNC_JOB_KIND.BackfillRange,
+            queue: QUEUE_NAMES.BackfillSync,
+            chainId: 1,
+            attempt: 0,
+            scheduledAt: 0,
+            payload: {
+                ...batch,
+                source: BACKFILL_SOURCE.GapRepair,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            },
+        };
+    }
+
+    it("ACKs legacy scoped gap hints without acquisition, then executes their durable owner", async () => {
         const rpc = new RecoveryRpc();
         services = reorgRecoveryServices(rpc);
-        const gaps = new SqliteSyncGapStore();
-        const jobs: JobEnvelope<BackfillSyncPayload>[] = [];
-        await new SyncGapScheduler(
-            services.registry,
-            gaps,
-            {
-                publish: async (_name, job) => {
-                    jobs.push(job as JobEnvelope<BackfillSyncPayload>);
-                },
-            },
-            { chainId: F.ChainId, batchSize: F.BatchSize },
-        ).scan(F.Head);
-        const batch = jobs[0];
-        if (
-            batch.payload.source !== BACKFILL_SOURCE.GapRepair ||
-            !batch.payload.repairs
-        )
-            throw new Error("Missing legacy repair fixture");
-        const target = batch.payload.repairs[0];
-        const legacy = {
-            ...batch,
-            jobId: target.repairId,
-            collectionId: target.collectionId,
-            payload: { ...batch.payload, repairs: undefined },
-        };
+        const gaps = services.gaps;
+        await new SyncGapScheduler(services.registry, gaps, {
+            chainId: 1,
+            batchSize: F.BatchSize,
+        }).scan(F.Head);
+        const batch = retainedGapJob(gaps);
+        if (batch.payload.source !== BACKFILL_SOURCE.GapRepair)
+            throw new Error("Invalid gap fixture");
+        const target = batch.payload.repairs![0],
+            legacy = {
+                ...batch,
+                jobId: target.repairId,
+                collectionId: target.collectionId,
+                payload: { ...batch.payload, repairs: undefined },
+            };
         const delivered: JobEnvelope[] = [];
         await startBackfillHandler(rpc, gaps, delivered);
         await queue.publish(QUEUE_NAMES.BackfillSync, legacy);
         await waitForFixture(
-            () => delivered.length === 1 && fanout.length === 3,
-            "legacy scoped completion and fanout",
+            () => delivered.length === 1,
+            "legacy hint acknowledged",
         );
+        expect(rpc.logReads).toBe(0);
         expect(
-            gaps.getProgress(F.ChainId, target.collectionId)?.pending,
-        ).toBeNull();
+            gaps.getProgress(1, target.collectionId)?.pending?.repairId,
+        ).toBe(target.repairId);
+        await services.executor.runDue();
+        await services.publishRetained(queue);
+        await waitForFixture(() => fanout.length === 3, "direct repair fanout");
+        expect(gaps.getProgress(1, target.collectionId)?.pending).toBeNull();
         expect(
-            fanout.every(
-                (job) =>
-                    job.collectionId === target.collectionId &&
-                    job.payload.sourceJobId === legacy.jobId,
-            ),
+            fanout.every((j) => j.collectionId === target.collectionId),
         ).toBe(true);
     });
 
-    it("completes managed reorg ranges through the production backfill handler", async () => {
+    it("ACKs obsolete reorg range hints and completes managed acquisition directly", async () => {
         const rpc = new RecoveryRpc();
-        let now = Date.now();
-        services = reorgRecoveryServices(rpc, {
-            now: () => now,
-            retryDelayMs: 100,
-        });
+        services = reorgRecoveryServices(rpc);
         await services.recovery.checkBlock(F.Orphan);
-        now += 100;
-        await services.recovery.resumeDue();
+        const first = pendingRecoveryRange();
         const delivered: JobEnvelope[] = [];
-        await startBackfillHandler(rpc, new SqliteSyncGapStore(), delivered);
-        for (let i = 0; services.recoveries.getRecovery(F.ChainId); i++) {
-            expect(i).toBeLessThan(3);
-            const job = pendingRecoveryJob();
-            await queue.publish(QUEUE_NAMES.BackfillSync, job);
-            await waitForFixture(
-                () => delivered.some((entry) => entry.jobId === job.jobId),
-                "managed range completed",
-            );
-        }
-        expect(
-            delivered.map(
-                (job) =>
-                    job.payload && (job.payload as BackfillSyncPayload).source,
-            ),
-        ).toEqual([
-            BACKFILL_SOURCE.ReorgRecovery,
-            BACKFILL_SOURCE.ReorgRecovery,
-        ]);
-        expect(selectBalanceOwners(F.ChainId, collectionId, "1")).toEqual([
+        await startBackfillHandler(rpc, services.gaps, delivered);
+        await queue.publish(QUEUE_NAMES.BackfillSync, {
+            jobId: "old-reorg-delivery",
+            kind: SYNC_JOB_KIND.BackfillRange,
+            queue: QUEUE_NAMES.BackfillSync,
+            chainId: 1,
+            attempt: 0,
+            scheduledAt: 0,
+            payload: {
+                fromBlock: first.fromBlock,
+                toBlock: first.toBlock,
+                source: BACKFILL_SOURCE.ReorgRecovery,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                recovery: {
+                    recoveryId: first.recoveryId,
+                    revision: first.revision,
+                },
+            },
+        });
+        await waitForFixture(
+            () => delivered.length === 1,
+            "old reorg hint acknowledged",
+        );
+        expect(rpc.logReads).toBe(0);
+        expect(pendingRecoveryRange()).toEqual(first);
+        while (services.recoveries.getRecovery(1))
+            await services.executor.runDue();
+        await services.publishRetained(queue);
+        await waitForFixture(
+            () => fanout.length === 6,
+            "required reorg fanout",
+        );
+        expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
             { owner: F.Owner, amount: "1" },
         ]);
         expect(deadLetters).toHaveLength(0);
@@ -490,19 +514,22 @@ describe("isolated broker and process reorg recovery", () => {
         gaps: SqliteSyncGapStore,
         delivered: JobEnvelope[],
     ) {
+        stops.push(
+            startQueueOutboxDrainer(services.outbox, queue, {
+                pollMs: 20,
+                retryBaseDelayMs: 20,
+            }),
+        );
         const handle = createBackfillSyncHandler({
             chainId: F.ChainId,
-            batchSize: F.BatchSize,
             workerCount: 1,
             wethAddress: F.Weth,
             rpc,
             storage: services.storage,
+            commit: services.commit,
             collectionsPort: services.registry,
             extensions: { getInstall: () => null },
-            queue,
             bidderIndex: { isActive: () => false, shouldEmit: () => false },
-            gaps,
-            recoveries: services.recoveries,
             gate: new BackfillExecutionGate(),
         });
         stops.push(
@@ -680,9 +707,9 @@ describe("isolated broker and process reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.Resync,
         );
-        expect(db.prepare("SELECT status FROM queue_outbox").get()).toEqual({
-            status: QUEUE_OUTBOX_STATUS.Pending,
-        });
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
+        ).toEqual({ count: 0 });
         await first.kill();
         await restartedBroker();
         const resumed = await worker();
@@ -804,6 +831,69 @@ describe("isolated broker and process reorg recovery", () => {
         await resumed.stop();
     });
 
+    it("retries acquisition after process death during RPC with intent and progress unchanged", async () => {
+        await services.recovery.checkBlock(F.Orphan);
+        const retained = pendingRecoveryRange();
+        const interrupted = await worker({
+            role: ROLE.Resync,
+            resume: false,
+            publish: false,
+            holdAcquisition: true,
+        });
+        await interrupted.wait(
+            () =>
+                interrupted.reports.some(
+                    (r) => r.phase === PHASE.AcquisitionHeld,
+                ),
+            "acquisition held before commit",
+        );
+        expect(pendingRecoveryRange()).toEqual(retained);
+        expect(
+            services.storage.countCollectionSyncedBlocksInRange(
+                1,
+                collectionId,
+                105,
+                106,
+            ),
+        ).toBe(0);
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
+        ).toEqual({ count: 0 });
+        await interrupted.kill();
+        await restartedBroker();
+        const resumed = await worker();
+        await complete();
+        await resumed.stop();
+    });
+
+    it("publishes retained follow-ups after process death following acquisition completion without new RPC", async () => {
+        await services.recovery.checkBlock(F.Orphan);
+        const acquired = await worker({
+            role: ROLE.Resync,
+            resume: false,
+            publish: false,
+        });
+        await acquired.wait(
+            () => services.recoveries.getRecovery(1) === null,
+            "acquisition complete before publication",
+        );
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ?",
+                )
+                .get(QUEUE_OUTBOX_STATUS.Pending),
+        ).toEqual({ count: 6 });
+        await acquired.kill();
+        await restartedBroker();
+        const resumed = await worker();
+        await complete();
+        expect(
+            resumed.reports.filter((r) => r.phase === PHASE.Resynced),
+        ).toEqual([]);
+        await resumed.stop();
+    });
+
     it("replays partial fanout after coverage, process death and broker restart", async () => {
         await services.recovery.checkBlock(F.Orphan);
         const first = await worker({
@@ -823,11 +913,24 @@ describe("isolated broker and process reorg recovery", () => {
                 106,
             ),
         ).toBe(2);
-        expect(services.recoveries.getRecovery(1)).toMatchObject({
-            phase: REORG_RECOVERY_PHASE.Resync,
-            fromBlock: 105,
-            toBlock: 106,
-        });
+        const retained = services.recoveries.getRecovery(1);
+        expect(
+            retained === null ||
+                (retained.phase === REORG_RECOVERY_PHASE.Resync &&
+                    retained.fromBlock >= 107),
+        ).toBe(true);
+        expect(
+            (
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS count FROM queue_outbox WHERE queue_name = ? AND status = ?",
+                    )
+                    .get(
+                        QUEUE_NAMES.MetadataDomain,
+                        QUEUE_OUTBOX_STATUS.Pending,
+                    ) as { count: number }
+            ).count,
+        ).toBeGreaterThan(0);
         await first.kill();
         await restartedBroker();
         const resumed = await worker();
@@ -842,84 +945,84 @@ describe("isolated broker and process reorg recovery", () => {
         ).toBe(true);
     });
 
-    it("redrives accepted publication with lost reply after terminal outbox state and ACK inside the broker dedupe window", async () => {
+    it("retries required publications with a lost broker reply using the same deduplication identity", async () => {
         await services.recovery.checkBlock(F.Orphan);
-        const first = pendingRecoveryJob();
+        while (services.recoveries.getRecovery(1))
+            await services.executor.runDue();
+        const first = services.outbox
+            .listDue(Date.now(), 10)
+            .map((r) => JSON.parse(r.jobJson) as JobEnvelope)
+            .find((j) => j.queue === QUEUE_NAMES.MetadataDomain)!;
         const publisher = await worker({
             role: ROLE.Publisher,
             resume: false,
             publication: PUBLICATION.Ambiguous,
         });
+        await publisher.wait(
+            () =>
+                publisher.reports.some(
+                    (r) =>
+                        r.phase === PHASE.AmbiguousPublication &&
+                        r.jobId === first.jobId,
+                ),
+            "broker reply lost after acceptance",
+        );
         await waitForFixture(
             () =>
-                (
-                    db.prepare("SELECT status FROM queue_outbox").get() as {
-                        status: string;
-                    }
-                ).status === QUEUE_OUTBOX_STATUS.FailedTerminal,
-            "ambiguous publication terminal transport state",
-        );
-        let originalSequence: number | undefined;
-        const stopSink = await queue.subscribe(
-            QUEUE_NAMES.BackfillSync,
-            async (message) => {
-                originalSequence = message.origin!.sequence;
-                await message.ack(); // Delivery acceptance alone is deliberately not business completion.
-            },
-            {
-                consumerName: CONSUMER.Resync,
-                maxInFlight: 1,
-                ackWaitMs: 150,
-            },
+                !db
+                    .prepare(
+                        "SELECT outbox_id FROM queue_outbox WHERE job_id = ?",
+                    )
+                    .get(first.jobId),
+            "required publication accepted and removed",
         );
         await waitForFixture(
-            () => originalSequence !== undefined,
-            "original delivery acknowledged",
+            () => fanout.length === 6,
+            "all required publications delivered",
         );
-        await stopSink();
         await publisher.stop();
-        const duplicate = await queue.publish(QUEUE_NAMES.BackfillSync, first);
-        expect(duplicate.sequence).toBe(originalSequence);
-        expect(services.recoveries.getRecovery(1)?.phase).toBe(
-            REORG_RECOVERY_PHASE.Resync,
-        );
-        const resumed = await worker();
-        await complete();
-        const completed = resumed.reports.find(
-            (r) => r.phase === PHASE.Resynced && r.completed,
-        );
-        expect(completed!.jobId).not.toBe(first.jobId);
-        await resumed.stop();
+        const before = fanout.length;
+        await queue.publish(QUEUE_NAMES.MetadataDomain, first);
+        await delay(100);
+        expect(fanout).toHaveLength(before);
+        expect(services.recoveries.getRecovery(1)).toBeNull();
+        expect(deadLetters).toHaveLength(0);
     });
 
-    it("retains recovery through real DLQ exhaustion and redrives after broker restart", async () => {
+    it("keeps required fanout beyond ordinary retry limits and recovers after broker restart", async () => {
         await services.recovery.checkBlock(F.Orphan);
-        const failedJob = pendingRecoveryJob();
         const failing = await worker({
             role: ROLE.Resync,
             resume: false,
             publication: PUBLICATION.FailMetadata,
         });
-        await waitForFixture(
-            () => deadLetters.length === 1,
-            "backfill retry exhaustion routed to DLQ",
-        );
-        expect(services.recoveries.getRecovery(1)).toMatchObject({
-            fromBlock: 105,
-            toBlock: 106,
-        });
-        expect(db.prepare("SELECT status FROM queue_outbox").get()).toEqual({
-            status: QUEUE_OUTBOX_STATUS.Sent,
-        });
+        await waitForFixture(() => {
+            const rows = db
+                .prepare(
+                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
+                )
+                .all(QUEUE_NAMES.MetadataDomain) as {
+                status: string;
+                attempts: number;
+            }[];
+            return (
+                services.recoveries.getRecovery(1) === null &&
+                rows.length === 2 &&
+                rows.every(
+                    (r) =>
+                        r.status === QUEUE_OUTBOX_STATUS.FailedRetry &&
+                        r.attempts >= 6,
+                )
+            );
+        }, "required publication remains retryable beyond budget");
+        expect(deadLetters).toHaveLength(0);
         await failing.stop();
         await restartedBroker();
         const resumed = await worker();
         await complete();
         expect(
-            resumed.reports.find(
-                (r) => r.phase === PHASE.Resynced && r.completed,
-            )!.jobId,
-        ).not.toBe(failedJob.jobId);
+            resumed.reports.filter((r) => r.phase === PHASE.Resynced),
+        ).toEqual([]);
         await resumed.stop();
     });
 
@@ -952,7 +1055,7 @@ describe("isolated broker and process reorg recovery", () => {
         await delayed.stop();
     });
 
-    it("remains idempotent under forced broker redelivery and a lost resync ACK", async () => {
+    it("remains idempotent under forced check redelivery and a lost obsolete hint ACK", async () => {
         const delayed = await worker({
             role: ROLE.Reorg,
             resume: false,
@@ -976,15 +1079,36 @@ describe("isolated broker and process reorg recovery", () => {
         expect(delayed.reports.some((r) => (r.attempt ?? 0) > 1)).toBe(true);
         await delayed.stop();
         const resumed = await worker({ dropAckOnce: true });
+        await queue.publish(QUEUE_NAMES.BackfillSync, {
+            jobId: "old-automatic-hint",
+            kind: SYNC_JOB_KIND.BackfillRange,
+            queue: QUEUE_NAMES.BackfillSync,
+            chainId: 1,
+            attempt: 0,
+            scheduledAt: 0,
+            payload: {
+                fromBlock: 105,
+                toBlock: 106,
+                source: BACKFILL_SOURCE.ReorgRecovery,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                recovery: {
+                    recoveryId: pendingRecoveryRange().recoveryId,
+                    revision: 1,
+                },
+            },
+        });
+        await resumed.wait(
+            () =>
+                resumed.reports.some(
+                    (r) =>
+                        r.phase === PHASE.Acknowledged &&
+                        r.jobId === "old-automatic-hint" &&
+                        (r.attempt ?? 0) > 1,
+                ),
+            "obsolete hint redelivery acknowledged",
+        );
         await complete();
-        expect(
-            resumed.reports.some(
-                (r) =>
-                    r.phase === PHASE.Resynced &&
-                    !r.completed &&
-                    (r.attempt ?? 0) > 1,
-            ),
-        ).toBe(true);
         await resumed.stop();
     });
 
@@ -1051,8 +1175,8 @@ describe("isolated broker and process reorg recovery", () => {
         ).toEqual({ count: 401 });
         expect(
             db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 1 });
-        expect(pendingRecoveryJob().payload).toMatchObject({
+        ).toEqual({ count: 0 });
+        expect(pendingRecoveryRange()).toMatchObject({
             fromBlock: 105,
             toBlock: 106,
         });
@@ -1084,7 +1208,7 @@ describe("isolated broker and process reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.Resync,
         );
-        expect(pendingRecoveryJob().payload).toMatchObject({
+        expect(pendingRecoveryRange()).toMatchObject({
             fromBlock: 105,
             toBlock: 106,
         });
@@ -1119,14 +1243,14 @@ describe("isolated broker and process reorg recovery", () => {
             "competing process commits rollback",
         );
         expect(revision()).toBe(1);
-        const job = pendingRecoveryJob();
+        const retainedRange = pendingRecoveryRange();
         first.child.send(COMMAND.ReleaseRpc);
         await first.wait(
             () => first.reports.some((r) => r.phase === PHASE.Acknowledged),
             "stale process safely finishes",
         );
         expect(revision()).toBe(1);
-        expect(pendingRecoveryJob().jobId).toBe(job.jobId);
+        expect(pendingRecoveryRange()).toEqual(retainedRange);
         expect(owners()).toEqual([{ owner: F.Owner, amount: "1" }]);
         await competitor.stop();
         await first.stop();

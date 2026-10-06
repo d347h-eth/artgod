@@ -94,3 +94,19 @@ export function assertSyncFollowUpsMatchBlocks(input: {
             );
     }
 }
+
+export function assertSyncBlocksCoverRange(input: {
+    blocks: readonly SyncBlockHeader[];
+    fromBlock: number;
+    toBlock: number;
+}): void {
+    if (
+        input.blocks.length !== input.toBlock - input.fromBlock + 1 ||
+        input.blocks.some(
+            (block, index) => block.number !== input.fromBlock + index,
+        )
+    )
+        throw new ChainSyncConflict(
+            "Sync acquisition does not cover its completion range",
+        );
+}

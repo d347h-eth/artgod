@@ -20,6 +20,9 @@ import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import type { SyncRangeResult } from "../src/ports/storage.js";
 import type { QueuePort } from "../src/ports/queue.js";
 import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
+import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
+import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
+import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
 import { SqliteSyncRangeCommit } from "../src/infra/storage/sqlite-sync-range-commit.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
@@ -92,8 +95,15 @@ describe("atomic sync follow-up retention", () => {
             ...f,
             result,
             followUps,
+            completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
             outbox,
-            commit: new SqliteSyncRangeCommit(f.storage, outbox),
+            commit: new SqliteSyncRangeCommit({
+                storage: f.storage,
+                outbox,
+                gaps: new SqliteSyncGapStore(),
+                recoveries: new SqliteReorgRecoveries(f.storage),
+                collections: new SqliteCollectionRegistry(),
+            }),
         };
     }
 
@@ -137,10 +147,14 @@ describe("atomic sync follow-up retention", () => {
         });
         for (let attempt = 0; attempt < 7; attempt++)
             expect(
-                await drainQueueOutbox(outbox, { publish } as QueuePort, {
-                    maxAttempts: 1,
-                    retryBaseDelayMs: 0,
-                }),
+                await drainQueueOutbox(
+                    outbox,
+                    { publish },
+                    {
+                        maxAttempts: 1,
+                        retryBaseDelayMs: 0,
+                    },
+                ),
             ).toBe(0);
         const rows = db
             .prepare("SELECT status, retry_policy, attempts FROM queue_outbox")
@@ -153,9 +167,8 @@ describe("atomic sync follow-up retention", () => {
             })),
         );
         publish.mockResolvedValue(undefined);
-        expect(await drainQueueOutbox(outbox, { publish } as QueuePort)).toBe(
-            4,
-        );
+        expect(await drainQueueOutbox(outbox, { publish })).toBe(4);
+        expect(count("queue_outbox")).toBe(0);
         const jobs = publish.mock.calls.slice(-4).map(([, job]) => job);
         expect(
             jobs.every((job) => job.jobId.endsWith("chain-revision:0")),
@@ -175,7 +188,13 @@ describe("atomic sync follow-up retention", () => {
         await processSyncRange({
             rpc,
             storage: f.storage,
-            commit: new SqliteSyncRangeCommit(f.storage, outbox),
+            commit: new SqliteSyncRangeCommit({
+                storage: f.storage,
+                outbox,
+                gaps: new SqliteSyncGapStore(),
+                recoveries: new SqliteReorgRecoveries(f.storage),
+                collections: new SqliteCollectionRegistry(),
+            }),
             collectionScopeResolver: new SqliteCollectionRegistry(),
             collectionExtensions: { getInstall: () => null },
             chainId: 1,
@@ -186,6 +205,7 @@ describe("atomic sync follow-up retention", () => {
             orderMaintenancePolicy: POLICY,
             sources: [SOURCE],
             mode: "backfill",
+            completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
         });
         const calls = {
             logs: rpc.logReads,
@@ -196,15 +216,17 @@ describe("atomic sync follow-up retention", () => {
             accepted.push(job);
             throw new Error("accepted but reply lost");
         });
-        await drainQueueOutbox(outbox, { publish } as QueuePort, {
-            retryBaseDelayMs: 0,
-        });
+        await drainQueueOutbox(
+            outbox,
+            { publish },
+            {
+                retryBaseDelayMs: 0,
+            },
+        );
         publish.mockImplementation(async (_queue, job) => {
             accepted.push(job);
         });
-        expect(await drainQueueOutbox(outbox, { publish } as QueuePort)).toBe(
-            3,
-        );
+        expect(await drainQueueOutbox(outbox, { publish })).toBe(3);
         expect(accepted.slice(0, 3).map((job) => job.jobId)).toEqual(
             accepted.slice(3).map((job) => job.jobId),
         );
@@ -212,6 +234,44 @@ describe("atomic sync follow-up retention", () => {
             logs: rpc.logReads,
             headers: headers.mock.calls.length,
         }).toEqual(calls);
+    });
+
+    it("retries accepted publication when local completion fails, without remote acquisition", async () => {
+        const f = fixture();
+        f.commit.commitSyncRange(f);
+        const accepted: JobEnvelope[] = [];
+        const publish = async (_queue: unknown, job: JobEnvelope) => {
+            accepted.push(job);
+        };
+        vi.spyOn(
+            f.outbox,
+            "removePublishedSyncFollowUp",
+        ).mockImplementationOnce(() => {
+            throw new Error("completion temporarily unavailable");
+        });
+        expect(
+            await drainQueueOutbox(
+                f.outbox,
+                { publish },
+                {
+                    maxAttempts: 1,
+                    retryBaseDelayMs: 0,
+                },
+            ),
+        ).toBe(3);
+        expect(count("queue_outbox")).toBe(1);
+        expect(
+            await drainQueueOutbox(
+                f.outbox,
+                { publish },
+                {
+                    maxAttempts: 1,
+                    retryBaseDelayMs: 0,
+                },
+            ),
+        ).toBe(1);
+        expect(accepted.at(-1)!.jobId).toBe(accepted[0].jobId);
+        expect(count("queue_outbox")).toBe(0);
     });
 
     it("removes orphan event publications but preserves unfinished range publications and canonical pre-fork hints", () => {
@@ -303,7 +363,7 @@ describe("atomic sync follow-up retention", () => {
             .listDue(Date.now(), 10)
             .map((row) => JSON.parse(row.jobJson) as JobEnvelope)
             .find((job) => job.onchainBlock)!;
-        let consume!: (message: QueueMessage) => Promise<void>;
+        let consume!: (message: QueueMessage<unknown>) => Promise<void>;
         const queue = {
             subscribe: async (_queue: unknown, handler: typeof consume) => {
                 consume = handler;

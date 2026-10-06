@@ -11,7 +11,6 @@ import {
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { orderUpdateQueue } from "../domain/order-processing.js";
 import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
-import type { QueuePort } from "../ports/queue.js";
 import {
     eventSyncFollowUp,
     type SyncFollowUp,
@@ -111,23 +110,6 @@ export function buildOrderUpdateFollowUps(
         );
     }
     return followUps;
-}
-
-// Transport callers use the same builders as atomic sync retention.
-export async function publishOrderUpdateJobs(
-    queue: Pick<QueuePort, "publish">,
-    chainId: number,
-    collections: CollectionRecord[],
-    data: OnChainData,
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
-    for (const { job } of buildOrderUpdateFollowUps(
-        chainId,
-        collections,
-        data,
-        orderMaintenancePolicy,
-    ))
-        await queue.publish(job.queue, job);
 }
 
 function buildTokenScopedMakerJob(

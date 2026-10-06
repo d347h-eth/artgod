@@ -1,4 +1,40 @@
-import type { SyncGapRepairTarget } from "./sync-jobs.js";
+import type { CollectionRecord } from "./collections.js";
+
+export type SyncGapRange = { fromBlock: number; toBlock: number };
+export type PendingSyncGapRepair = SyncGapRange & {
+    repairId: string;
+    retryAt: number;
+};
+export type SyncGapProgress = {
+    anchorBlock: number;
+    cursorBlock: number | null;
+    pending: PendingSyncGapRepair | null;
+};
+export type SyncGapRepairTarget = SyncGapRange & {
+    collectionId: number;
+    repairId: string;
+    anchorBlock: number;
+};
+
+export function isCurrentSyncGapRepair(input: {
+    chainId: number;
+    repair: SyncGapRepairTarget;
+    collection: CollectionRecord | null;
+    progress: SyncGapProgress | null;
+}): boolean {
+    const { chainId, repair, collection, progress } = input;
+    if (!collection || chainId !== collection.chainId) return false;
+    const window = collection.gapRepairWindow(repair.toBlock);
+    return (
+        !!window &&
+        repair.anchorBlock === window.fromBlock &&
+        repair.fromBlock >= window.fromBlock &&
+        progress?.anchorBlock === window.fromBlock &&
+        progress.pending?.repairId === repair.repairId &&
+        progress.pending.fromBlock === repair.fromBlock &&
+        progress.pending.toBlock === repair.toBlock
+    );
+}
 
 export type SyncGapRepairBatch = {
     fromBlock: number;

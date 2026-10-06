@@ -4,14 +4,11 @@ import {
     REORG_RECOVERY_PHASE,
     retainReorgMismatch,
     advanceReorgResync,
-    buildReorgResyncJob,
     isCurrentReorgRange,
     type ReorgRecoveryState,
-    type ReorgResync,
 } from "../../domain/reorg-recovery.js";
 import type { ReorgRecoveryStore } from "../../application/reorg-recovery.js";
 import type { SqliteStorage } from "./sqlite.js";
-import type { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 
 type RecoveryRow = {
     chain_id: number;
@@ -26,16 +23,12 @@ type RecoveryRow = {
     range_from: number | null;
     range_to: number | null;
     target_block: number | null;
-    delivery: number;
 };
 
-// One adapter owns the atomic rollback/progress/publication transaction. Pure
+// One adapter owns the atomic rollback and retained resync progress. Pure
 // recovery transitions live in the domain; SQL and nested adapter writes stay here.
 export class SqliteReorgRecoveries implements ReorgRecoveryStore {
-    constructor(
-        private readonly storage: SqliteStorage,
-        private readonly outbox: SqliteQueueOutbox,
-    ) {}
+    constructor(private readonly storage: SqliteStorage) {}
 
     getRecovery(chainId: number): ReorgRecoveryState | null {
         const row = db
@@ -66,7 +59,6 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
             fromBlock: row.range_from,
             toBlock: row.range_to,
             targetBlock: row.target_block,
-            delivery: row.delivery,
         };
     }
 
@@ -88,7 +80,6 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
             const current = this.getRecovery(input.checkpoint.chainId);
             const next = retainReorgMismatch({ ...input, current });
             if (next !== current) {
-                this.discardPublication(current);
                 this.save(next);
             }
             return next;
@@ -104,7 +95,6 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
                 input.checkpoint.chainId,
                 input.checkpoint.revision,
             );
-            this.discardPublication(input.expected);
             this.save(
                 retainReorgMismatch({
                     current: input.expected,
@@ -169,34 +159,20 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
                 plan: input.plan,
                 snapshot: input.snapshot,
             });
-            if (input.next) {
-                this.save(input.next);
-                this.outbox.enqueueJob(
-                    buildReorgResyncJob(input.next, input.now),
-                );
-            } else this.remove(input.expected.chainId);
+            if (input.next) this.save(input.next);
+            else this.remove(input.expected.chainId);
         })();
     }
 
-    redriveResync(
-        input: Parameters<ReorgRecoveryStore["redriveResync"]>[0],
-    ): void {
-        db.writeTransaction(() => {
-            this.assertCurrent(input.expected);
-            this.assertCheckpoint(
-                input.expected.chainId,
-                input.expected.revision,
-            );
-            const next = {
-                ...input.expected,
-                version: input.expected.version + 1,
-                delivery: input.expected.delivery + 1,
-                retryAt: input.retryAt,
-            };
-            this.discardPublication(input.expected);
-            this.save(next);
-            this.outbox.enqueueJob(buildReorgResyncJob(next, input.now));
-        })();
+    deferResync(input: Parameters<ReorgRecoveryStore["deferResync"]>[0]): void {
+        db.prepare(
+            "UPDATE chain_reorg_recoveries SET retry_at = @retryAt, last_error = @error WHERE chain_id = @chainId AND recovery_id = @recoveryId AND revision = @revision AND phase = @phase AND range_from = @fromBlock AND range_to = @toBlock",
+        ).run({
+            ...input.range,
+            retryAt: input.retryAt,
+            error: input.error,
+            phase: REORG_RECOVERY_PHASE.Resync,
+        });
     }
 
     completeResyncRange(
@@ -211,11 +187,8 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
                 batchSize: input.batchSize,
                 retryAt: input.retryAt,
             });
-            this.discardPublication(current);
-            if (next) {
-                this.save(next);
-                this.outbox.enqueueJob(buildReorgResyncJob(next, input.now));
-            } else this.remove(current.chainId);
+            if (next) this.save(next);
+            else this.remove(current.chainId);
             return true;
         })();
     }
@@ -239,12 +212,6 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
             );
     }
 
-    private discardPublication(recovery: ReorgRecoveryState | null): void {
-        if (recovery?.phase !== REORG_RECOVERY_PHASE.Resync) return;
-        const job = buildReorgResyncJob(recovery, 0);
-        this.outbox.discardJob(job.queue, job.jobId);
-    }
-
     private remove(chainId: number): void {
         db.prepare("DELETE FROM chain_reorg_recoveries WHERE chain_id = ?").run(
             chainId,
@@ -254,13 +221,12 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
     private save(state: ReorgRecoveryState): void {
         const resync = state.phase === REORG_RECOVERY_PHASE.Resync;
         db.prepare(
-            "INSERT INTO chain_reorg_recoveries (chain_id, recovery_id, version, revision, checked_block, stored_hash, observed_hash, phase, retry_at, range_from, range_to, target_block, delivery) VALUES (@chainId, @recoveryId, @version, @revision, @checkedBlock, @storedHash, @observedHash, @phase, @retryAt, @rangeFrom, @rangeTo, @targetBlock, @delivery) ON CONFLICT(chain_id) DO UPDATE SET recovery_id=excluded.recovery_id, version=excluded.version, revision=excluded.revision, checked_block=excluded.checked_block, stored_hash=excluded.stored_hash, observed_hash=excluded.observed_hash, phase=excluded.phase, retry_at=excluded.retry_at, range_from=excluded.range_from, range_to=excluded.range_to, target_block=excluded.target_block, delivery=excluded.delivery, last_error=NULL",
+            "INSERT INTO chain_reorg_recoveries (chain_id, recovery_id, version, revision, checked_block, stored_hash, observed_hash, phase, retry_at, range_from, range_to, target_block) VALUES (@chainId, @recoveryId, @version, @revision, @checkedBlock, @storedHash, @observedHash, @phase, @retryAt, @rangeFrom, @rangeTo, @targetBlock) ON CONFLICT(chain_id) DO UPDATE SET recovery_id=excluded.recovery_id, version=excluded.version, revision=excluded.revision, checked_block=excluded.checked_block, stored_hash=excluded.stored_hash, observed_hash=excluded.observed_hash, phase=excluded.phase, retry_at=excluded.retry_at, range_from=excluded.range_from, range_to=excluded.range_to, target_block=excluded.target_block, last_error=NULL",
         ).run({
             ...state,
             rangeFrom: resync ? state.fromBlock : state.resumeFrom,
             rangeTo: resync ? state.toBlock : null,
             targetBlock: resync ? state.targetBlock : null,
-            delivery: resync ? state.delivery : 0,
         });
     }
 }

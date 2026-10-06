@@ -1,13 +1,4 @@
 import { ChainSyncConflict, type ChainSyncCheckpoint } from "./chain-sync.js";
-import type { JobEnvelope } from "./jobs.js";
-import { QUEUE_NAMES } from "./queues.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    SYNC_JOB_KIND,
-    type ReorgResyncPayload,
-} from "./sync-jobs.js";
-
 export const REORG_RECOVERY_PHASE = {
     AwaitingAncestor: "awaiting_ancestor",
     Resync: "resync",
@@ -36,7 +27,7 @@ type RecoveryBase = ReorgResyncIdentity & {
 };
 export type AwaitingReorgAncestor = RecoveryBase & {
     phase: typeof REORG_RECOVERY_PHASE.AwaitingAncestor;
-    // Preserve unfinished fanout if a new mismatch interrupts canonical resync.
+    // Preserve unfinished acquisition if a new mismatch interrupts canonical resync.
     resumeFrom: number | null;
 };
 export type ReorgResync = RecoveryBase & {
@@ -44,7 +35,6 @@ export type ReorgResync = RecoveryBase & {
     fromBlock: number;
     toBlock: number;
     targetBlock: number;
-    delivery: number;
 };
 export type ReorgRecoveryState = AwaitingReorgAncestor | ReorgResync;
 
@@ -110,7 +100,6 @@ export function beginReorgResync(input: {
         fromBlock,
         toBlock: Math.min(input.head, fromBlock + input.batchSize - 1),
         targetBlock: input.head,
-        delivery: 0,
         retryAt: input.retryAt,
     };
 }
@@ -130,7 +119,6 @@ export function advanceReorgResync(input: {
             input.recovery.targetBlock,
             fromBlock + input.batchSize - 1,
         ),
-        delivery: 0,
         retryAt: input.retryAt,
     };
 }
@@ -147,31 +135,4 @@ export function isCurrentReorgRange(
         recovery.fromBlock === range.fromBlock &&
         recovery.toBlock === range.toBlock
     );
-}
-
-// A stable recovery/range identity is separate from broker deduplication identity.
-// Redrive changes only delivery, so terminal/acknowledged messages cannot swallow it.
-export function buildReorgResyncJob(
-    recovery: ReorgResync,
-    now: number,
-): JobEnvelope<ReorgResyncPayload> {
-    return {
-        jobId: `sync:reorg:${recovery.recoveryId}:${recovery.fromBlock}-${recovery.toBlock}:delivery:${recovery.delivery}`,
-        chainId: recovery.chainId,
-        kind: SYNC_JOB_KIND.BackfillRange,
-        queue: QUEUE_NAMES.BackfillSync,
-        attempt: 0,
-        scheduledAt: now,
-        payload: {
-            source: BACKFILL_SOURCE.ReorgRecovery,
-            orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            fromBlock: recovery.fromBlock,
-            toBlock: recovery.toBlock,
-            recovery: {
-                recoveryId: recovery.recoveryId,
-                revision: recovery.revision,
-            },
-        },
-    };
 }

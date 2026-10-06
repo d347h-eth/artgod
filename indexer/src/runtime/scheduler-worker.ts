@@ -74,7 +74,6 @@ async function main() {
             new SyncGapScheduler(
                 new SqliteCollectionRegistry(),
                 new SqliteSyncGapStore(),
-                queue,
                 {
                     chainId: config.chainId,
                     batchSize: config.sync.backfillBatchSize,

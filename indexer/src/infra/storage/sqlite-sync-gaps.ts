@@ -1,3 +1,4 @@
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { db } from "@artgod/shared/database";
 import type {
     SyncGapProgress,
@@ -30,6 +31,9 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         "SELECT block_number FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number DESC",
     );
+    private selectDue = db.prepare(
+        "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock FROM collection_sync_gap_scans s JOIN collections c ON c.collection_id = s.collection_id AND c.chain_id = s.chain_id WHERE s.chain_id = @chainId AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block AND s.pending_job_id IS NOT NULL AND s.retry_at <= @now ORDER BY s.retry_at, s.collection_id LIMIT @limit",
+    );
     private updateRetry = db.prepare(
         "UPDATE collection_sync_gap_scans SET retry_at = @retryAt " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId AND anchor_block = @anchorBlock " +
@@ -59,6 +63,16 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
                           retryAt: row.retry_at!,
                       },
         };
+    }
+
+    listDue(
+        input: Parameters<SyncGapStorePort["listDue"]>[0],
+    ): SyncGapRepairTarget[] {
+        const rows = this.selectDue.all({
+            ...input,
+            status: COLLECTION_STATUS.Live,
+        }) as SyncGapRepairTarget[];
+        return rows;
     }
 
     saveProgress(
@@ -125,14 +139,16 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         repair,
         remaining,
         retryAt,
-    }: Parameters<SyncGapStorePort["recordRepairProgress"]>[0]): void {
-        this.advanceRepair.run({
-            chainId,
-            ...repair,
-            nextId: remaining ? repair.repairId : null,
-            nextFrom: remaining?.fromBlock ?? null,
-            nextTo: remaining?.toBlock ?? null,
-            retryAt: remaining ? retryAt : null,
-        });
+    }: Parameters<SyncGapStorePort["recordRepairProgress"]>[0]): boolean {
+        return (
+            this.advanceRepair.run({
+                chainId,
+                ...repair,
+                nextId: remaining ? repair.repairId : null,
+                nextFrom: remaining?.fromBlock ?? null,
+                nextTo: remaining?.toBlock ?? null,
+                retryAt: remaining ? retryAt : null,
+            }).changes === 1
+        );
     }
 }
