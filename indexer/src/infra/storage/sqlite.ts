@@ -4,18 +4,18 @@ import {
     fillExecutionIdentity,
     fillAttributionItem,
 } from "@artgod/shared/market-data/fills";
-import { persistFillExecution } from "./sqlite-fill-executions.js";
+import {
+    FILL_EXECUTION_CONFLICT,
+    persistFillExecution,
+    type FillExecutionWrite,
+} from "./sqlite-fill-executions.js";
 import { zeroHash } from "viem";
 import { normalizeErc721Owner } from "@artgod/shared/evm/erc721-ownership";
 import {
     COLLECTION_STANDARD,
     CollectionRecord,
 } from "../../domain/collections.js";
-import type {
-    OnChainData,
-    TransactionRecord,
-    FillEvent,
-} from "../../domain/onchain.js";
+import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
@@ -80,6 +80,8 @@ type Erc721OwnershipReplacement = {
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ROLLBACK_TRANSFER_PAGE_SIZE = 256;
+export const FILL_ATTRIBUTION_CONFLICT =
+    "Conflicting immutable fill attribution";
 
 export class SqliteStorage
     implements StoragePort, ReorgRollbackStore, ReorgForkStore
@@ -178,6 +180,19 @@ export class SqliteStorage
         "INSERT INTO fills " +
             "(chain_id, collection_id, execution_id, item_index, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
             "VALUES (@chainId, @collectionId, @executionId, @itemIndex, @kind, @orderId, @orderSide, @maker, @taker, @contract, @tokenId, @amount, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex) ON CONFLICT(collection_id, execution_id, item_index) DO NOTHING",
+    );
+    private selectFillAttribution = db.prepare<{
+        collectionId: number;
+        executionId: string;
+        itemIndex: number;
+    }>(
+        `SELECT chain_id AS chainId, collection_id AS collectionId,
+            execution_id AS executionId, item_index AS itemIndex, kind,
+            order_id AS orderId, order_side AS orderSide, maker, taker,
+            contract_address AS contract, token_id AS tokenId, amount,
+            block_number AS blockNumber, block_hash AS blockHash,
+            block_timestamp AS blockTimestamp, tx_hash AS txHash, log_index AS logIndex
+         FROM fills WHERE collection_id=@collectionId AND execution_id=@executionId AND item_index=@itemIndex`,
     );
     private insertCollectionExtensionEvent = db.prepare<{
         chainId: number;
@@ -703,7 +718,7 @@ export class SqliteStorage
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
     ): void {
-        const executions = new Map<string, FillEvent["execution"]>();
+        const executions = new Map<string, FillExecutionWrite>();
         for (const fill of data.collectionScoped.fillEvents) {
             const contract = fill.contract.toLowerCase();
             const blockTimestamp = resolveBlockTimestamp(
@@ -716,33 +731,31 @@ export class SqliteStorage
                 fill.txHash,
                 fill.logIndex,
             );
+            const execution: FillExecutionWrite = {
+                executionId,
+                chainId,
+                kind: fill.kind ?? "unknown",
+                blockNumber: fill.blockNumber,
+                blockHash: fill.blockHash,
+                blockTimestamp,
+                txHash: fill.txHash.toLowerCase(),
+                logIndex: fill.logIndex,
+                execution: fill.execution,
+            };
             const previous = executions.get(executionId);
-            if (
-                previous &&
-                previous !== fill.execution &&
-                !isDeepStrictEqual(previous, fill.execution)
-            )
-                throw new Error("Conflicting immutable fill execution");
+            // Sharing an item context does not establish identical block provenance.
+            if (previous && !isDeepStrictEqual(previous, execution))
+                throw new Error(FILL_EXECUTION_CONFLICT);
             if (!previous) {
-                persistFillExecution({
-                    executionId,
-                    chainId,
-                    kind: fill.kind ?? "unknown",
-                    blockNumber: fill.blockNumber,
-                    blockHash: fill.blockHash,
-                    blockTimestamp,
-                    txHash: fill.txHash,
-                    logIndex: fill.logIndex,
-                    execution: fill.execution,
-                });
-                executions.set(executionId, fill.execution);
+                persistFillExecution(execution);
+                executions.set(executionId, execution);
             }
             const item = fillAttributionItem(
                 fill.execution,
                 fill.executionItemIndex,
                 { contract, tokenId: fill.tokenId, amount: fill.amount },
             );
-            this.insertFill.run({
+            const attribution = {
                 chainId,
                 collectionId: fill.collectionId,
                 executionId,
@@ -760,7 +773,17 @@ export class SqliteStorage
                 blockTimestamp,
                 txHash: fill.txHash.toLowerCase(),
                 logIndex: fill.logIndex,
-            });
+            };
+            if (this.insertFill.run(attribution).changes === 0) {
+                // An idempotent replay must agree with every stored attribution fact.
+                const existing = this.selectFillAttribution.get({
+                    collectionId: attribution.collectionId,
+                    executionId,
+                    itemIndex: attribution.itemIndex,
+                }) as typeof attribution | undefined;
+                if (!isDeepStrictEqual(existing, attribution))
+                    throw new Error(FILL_ATTRIBUTION_CONFLICT);
+            }
         }
     }
 
