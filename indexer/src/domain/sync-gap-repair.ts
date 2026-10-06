@@ -6,9 +6,9 @@ export type SyncGapRepairBatch = {
     repairs: SyncGapRepairTarget[];
 };
 
-// Group overlapping intents from newest to oldest. Every member's covered part
-// is a suffix, so its unfinished intent remains one contiguous older range.
-// A batch may also read already covered blocks for its participating collections.
+// Only share a suffix that is inside every retained intent. Equal upper bounds
+// keep each unfinished intent contiguous; unequal starts leave older remainders.
+// Widening to the union would reacquire already covered participants' receipts.
 export function planSyncGapRepairBatches(
     repairs: readonly SyncGapRepairTarget[],
     batchSize: number,
@@ -26,13 +26,10 @@ export function planSyncGapRepairBatches(
         const lowerBound = first.toBlock - batchSize + 1;
         let fromBlock = Math.max(first.fromBlock, lowerBound);
         const members = [first];
-        while (pending.length && pending[0].toBlock >= fromBlock) {
+        while (pending.length && pending[0].toBlock === first.toBlock) {
             const next = pending.shift()!;
             members.push(next);
-            fromBlock = Math.max(
-                lowerBound,
-                Math.min(fromBlock, next.fromBlock),
-            );
+            fromBlock = Math.max(fromBlock, next.fromBlock);
         }
         batches.push({
             fromBlock,

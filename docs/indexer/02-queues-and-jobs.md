@@ -213,10 +213,12 @@ and retained legacy scoped gap deliveries keep their existing routing.
 
 Automatic gap jobs carry explicit collection/repair members from
 `collection_sync_gap_scans`; their envelope has no collection ID. The scheduler
-groups overlapping intents into bounded shared ranges. Batch transport IDs are
-deterministic from sorted membership and bounds, while each collection retains
-its independent repair ID across partial progress and restart. A new repair gets
-a new identity even when a later sweep finds the same range missing again.
+groups intents with the same upper block into a bounded common pending suffix.
+Every participant needs that entire suffix; older remainders stay retained.
+Batch transport IDs are deterministic from sorted membership and bounds, while
+each collection retains its independent repair ID across partial progress and
+restart. A new repair gets a new identity even when a later sweep finds the same
+range missing again.
 Completion follows shared persistence and required downstream fanout; stale
 members become no-ops. Older collection-scoped jobs without `repairs` can still
 finish their exact retained intent. See

@@ -144,10 +144,13 @@ test doubles. They do not use a live chain, broker, or application database.
   shutdown draining.
 - `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
   SQLite adapters to verify shared headers/logs/receipts, separate coverage and
-  ownership, scoped domain fanout and one global hint, overlapping partial
+  ownership, scoped domain fanout and one global hint, common-suffix partial
   progress, restart and failed fanout, stale members, RPC failure and legacy jobs.
   The isolated broker suite also delivers one grouped gap job through JetStream
   and checks each member's scoped publications and completed intent.
+  A busy-peer comparison verifies that unequal gaps avoid its nine already
+  covered transactions/receipts; 3,000 small planner configurations check exact
+  per-member block accounting, no widening, bounds and eventual completion.
 - `tests/sync-job-contract.test.ts` checks the source/policy/member contract and
   retained legacy shapes. The broker suite uses the same backfill handler as the
   runtime to reject wrong-source member batches with retained or completed

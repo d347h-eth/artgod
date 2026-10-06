@@ -164,7 +164,12 @@ and `current_state` order maintenance. The worker rechecks each member's livenes
 anchor, repair identity and expected bounds inside its backfill execution gate,
 then calls `processRange()` once with the admitted collections. Existing
 collection-scoped coverage and anchor projection rules apply to the shared range;
-it can include already covered or pre-anchor facts for a participating collection.
+newly planned batches cover a common pending suffix with the same upper block
+for every member. Older remainders run separately, keeping already covered busy
+collections out of unrelated transaction/receipt acquisition. Already queued
+batches from the previous planner can still contain a wider shared range and
+remain consumable under their retained member bounds. Fanout retries deliberately
+reacquire retained work even if its coverage is already present.
 
 `publishDomainJobs()` accepts explicit domain sources: each grouped member gets
 collection-scoped activity, order and metadata range jobs with stable fanout IDs.
