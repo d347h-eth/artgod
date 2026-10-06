@@ -3965,6 +3965,10 @@ a.bid-book-own-status:focus-visible {
 	width: var(--activity-col-narrow);
 }
 
+.activities-sale-quantity {
+	display: block;
+}
+
 .activities-media-col {
 	width: 13rem;
 }
