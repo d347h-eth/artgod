@@ -11,10 +11,9 @@ import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { runWorker } from "../src/application/worker-runner.js";
-import {
-    SyncGapScheduler,
-    executeSyncGapRepair,
-} from "../src/application/sync-gap-scheduler.js";
+import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
+import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
+import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import type { BlockCheckPayload } from "../src/domain/reorg-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
@@ -41,6 +40,7 @@ import { syncBlockFixture } from "../tests/helpers/chain-fixture.js";
 import {
     REORG_FIXTURE as F,
     RecoveryRpc,
+    canonicalRecoveryBlock,
     reorgRecoveryServices,
     seedRecoveryHistory,
     pendingRecoveryJob,
@@ -56,6 +56,8 @@ import {
 } from "../tests/fixtures/reorg-recovery-protocol.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
 import {
+    BACKFILL_SOURCE,
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
 } from "../src/domain/sync-jobs.js";
@@ -175,33 +177,8 @@ describe("isolated broker and process reorg recovery", () => {
         };
         services = reorgRecoveryServices(rpc);
         const gaps = new SqliteSyncGapStore();
-        const delivered: JobEnvelope<BackfillSyncPayload>[] = [];
-        stops.push(
-            await runWorker(
-                queue,
-                {
-                    queue: QUEUE_NAMES.BackfillSync,
-                    consumerName: "fixture-grouped-gap",
-                    maxInFlight: 1,
-                    maxAttempts: 5,
-                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
-                },
-                async (job: JobEnvelope<BackfillSyncPayload>) => {
-                    if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
-                    delivered.push(job);
-                    await executeSyncGapRepair(
-                        job,
-                        services.registry,
-                        gaps,
-                        (collections, sources) =>
-                            services.syncAndPublish(job, queue, {
-                                collections,
-                                sources,
-                            }),
-                    );
-                },
-            ),
-        );
+        const delivered: JobEnvelope[] = [];
+        await startBackfillHandler(rpc, gaps, delivered);
         const scheduler = new SyncGapScheduler(services.registry, gaps, queue, {
             chainId: F.ChainId,
             batchSize: F.BatchSize,
@@ -255,6 +232,296 @@ describe("isolated broker and process reorg recovery", () => {
             ),
         );
     });
+
+    it.each([
+        BACKFILL_SOURCE.ManualHistorical,
+        BACKFILL_SOURCE.BootstrapCatchup,
+        "unknown",
+    ])(
+        "rejects %s batches through the production handler with retained and stale members",
+        async (source) => {
+            db.exec(
+                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
+            );
+            const ids = [1, 2, 3].map((number) =>
+                insertCollection({
+                    chainId: F.ChainId,
+                    slug: `invalid-source-${number}`,
+                    address: `0x${String(number).repeat(40)}`,
+                    anchorBlock: F.Anchor,
+                }),
+            );
+            const rpc = new RecoveryRpc();
+            let blockReads = 0;
+            rpc.beforeBlockRead = async () => {
+                blockReads++;
+            };
+            services = reorgRecoveryServices(rpc);
+            const gaps = new SqliteSyncGapStore();
+            // Keep a third live collection fully covered and outside the members.
+            services.storage.persistSyncResult({
+                checkpoint: services.storage.captureSyncCheckpoint(F.ChainId),
+                blocks: Array.from({ length: 8 }, (_, i) =>
+                    canonicalRecoveryBlock(100 + i),
+                ),
+                data: emptyOnChainData(),
+                collections: [
+                    services.registry.getCollection(F.ChainId, ids[2])!,
+                ],
+            });
+            const initialCoverage = ids.map((id) =>
+                services.storage.countCollectionSyncedBlocksInRange(
+                    F.ChainId,
+                    id,
+                    106,
+                    107,
+                ),
+            );
+            const jobs: JobEnvelope<BackfillSyncPayload>[] = [];
+            const scheduler = new SyncGapScheduler(
+                services.registry,
+                gaps,
+                {
+                    publish: async (_name, job) => {
+                        jobs.push(job as JobEnvelope<BackfillSyncPayload>);
+                    },
+                },
+                { chainId: F.ChainId, batchSize: F.BatchSize },
+            );
+            await scheduler.scan(F.Head);
+            const batch = jobs[0];
+            if (
+                batch.payload.source !== BACKFILL_SOURCE.GapRepair ||
+                !batch.payload.repairs
+            )
+                throw new Error("Missing retained batch fixture");
+            expect(
+                batch.payload.repairs.map((repair) => repair.collectionId),
+            ).toEqual(ids.slice(0, 2));
+            const delivered: JobEnvelope[] = [];
+            await startBackfillHandler(rpc, gaps, delivered);
+            for (const state of ["retained", "stale"]) {
+                if (state === "stale") {
+                    for (const repair of batch.payload.repairs)
+                        gaps.recordRepairProgress({
+                            chainId: F.ChainId,
+                            repair,
+                            remaining: null,
+                            retryAt: Date.now(),
+                        });
+                }
+                const before = ids.map((id) => gaps.getProgress(F.ChainId, id));
+                const invalid = {
+                    ...batch,
+                    jobId: `invalid:${source}:${state}`,
+                    payload: {
+                        ...batch.payload,
+                        source,
+                        orderMaintenancePolicy:
+                            source === BACKFILL_SOURCE.ManualHistorical
+                                ? BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation
+                                : BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                    },
+                };
+                await queue.publish(QUEUE_NAMES.BackfillSync, invalid);
+                await waitForFixture(
+                    () => delivered.some((job) => job.jobId === invalid.jobId),
+                    "invalid delivery rejected",
+                );
+                expect(
+                    ids.map((id) => gaps.getProgress(F.ChainId, id)),
+                ).toEqual(before);
+                expect(blockReads).toBe(0);
+                expect(rpc.logReads).toBe(0);
+                expect(fanout).toHaveLength(0);
+                expect(
+                    ids.map((id) =>
+                        services.storage.countCollectionSyncedBlocksInRange(
+                            F.ChainId,
+                            id,
+                            106,
+                            107,
+                        ),
+                    ),
+                ).toEqual(initialCoverage);
+            }
+            expect(deadLetters).toHaveLength(0);
+        },
+    );
+
+    it.each([
+        BACKFILL_SOURCE.ManualHistorical,
+        BACKFILL_SOURCE.BootstrapCatchup,
+    ])(
+        "preserves valid %s global and collection-scoped delivery",
+        async (source) => {
+            const rpc = new RecoveryRpc();
+            services = reorgRecoveryServices(rpc);
+            const gaps = new SqliteSyncGapStore();
+            const delivered: JobEnvelope[] = [];
+            await startBackfillHandler(rpc, gaps, delivered);
+            for (const scope of [undefined, collectionId]) {
+                const job = {
+                    jobId: `valid:${source}:${scope ?? "all"}`,
+                    kind: SYNC_JOB_KIND.BackfillRange,
+                    queue: QUEUE_NAMES.BackfillSync,
+                    chainId: F.ChainId,
+                    collectionId: scope,
+                    scheduledAt: Date.now(),
+                    attempt: 0,
+                    payload: {
+                        fromBlock: 106,
+                        toBlock: 107,
+                        source,
+                        orderMaintenancePolicy:
+                            source === BACKFILL_SOURCE.ManualHistorical
+                                ? BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation
+                                : BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                    },
+                };
+                await queue.publish(QUEUE_NAMES.BackfillSync, job);
+                await waitForFixture(
+                    () =>
+                        delivered.some((entry) => entry.jobId === job.jobId) &&
+                        fanout.filter(
+                            (entry) => entry.payload.sourceJobId === job.jobId,
+                        ).length === 3,
+                    "valid ordinary backfill fanout",
+                );
+                const produced = fanout.filter(
+                    (entry) => entry.payload.sourceJobId === job.jobId,
+                );
+                expect(produced.map((entry) => entry.collectionId)).toEqual([
+                    scope,
+                    scope,
+                    scope,
+                ]);
+            }
+            expect(rpc.logReads).toBe(8);
+            expect(deadLetters).toHaveLength(0);
+        },
+    );
+
+    it("consumes a retained legacy scoped gap delivery through the production handler", async () => {
+        const rpc = new RecoveryRpc();
+        services = reorgRecoveryServices(rpc);
+        const gaps = new SqliteSyncGapStore();
+        const jobs: JobEnvelope<BackfillSyncPayload>[] = [];
+        await new SyncGapScheduler(
+            services.registry,
+            gaps,
+            {
+                publish: async (_name, job) => {
+                    jobs.push(job as JobEnvelope<BackfillSyncPayload>);
+                },
+            },
+            { chainId: F.ChainId, batchSize: F.BatchSize },
+        ).scan(F.Head);
+        const batch = jobs[0];
+        if (
+            batch.payload.source !== BACKFILL_SOURCE.GapRepair ||
+            !batch.payload.repairs
+        )
+            throw new Error("Missing legacy repair fixture");
+        const target = batch.payload.repairs[0];
+        const legacy = {
+            ...batch,
+            jobId: target.repairId,
+            collectionId: target.collectionId,
+            payload: { ...batch.payload, repairs: undefined },
+        };
+        const delivered: JobEnvelope[] = [];
+        await startBackfillHandler(rpc, gaps, delivered);
+        await queue.publish(QUEUE_NAMES.BackfillSync, legacy);
+        await waitForFixture(
+            () => delivered.length === 1 && fanout.length === 3,
+            "legacy scoped completion and fanout",
+        );
+        expect(
+            gaps.getProgress(F.ChainId, target.collectionId)?.pending,
+        ).toBeNull();
+        expect(
+            fanout.every(
+                (job) =>
+                    job.collectionId === target.collectionId &&
+                    job.payload.sourceJobId === legacy.jobId,
+            ),
+        ).toBe(true);
+    });
+
+    it("completes managed reorg ranges through the production backfill handler", async () => {
+        const rpc = new RecoveryRpc();
+        let now = Date.now();
+        services = reorgRecoveryServices(rpc, {
+            now: () => now,
+            retryDelayMs: 100,
+        });
+        await services.recovery.checkBlock(F.Orphan);
+        now += 100;
+        await services.recovery.resumeDue();
+        const delivered: JobEnvelope[] = [];
+        await startBackfillHandler(rpc, new SqliteSyncGapStore(), delivered);
+        for (let i = 0; services.recoveries.getRecovery(F.ChainId); i++) {
+            expect(i).toBeLessThan(3);
+            const job = pendingRecoveryJob();
+            await queue.publish(QUEUE_NAMES.BackfillSync, job);
+            await waitForFixture(
+                () => delivered.some((entry) => entry.jobId === job.jobId),
+                "managed range completed",
+            );
+        }
+        expect(
+            delivered.map(
+                (job) =>
+                    job.payload && (job.payload as BackfillSyncPayload).source,
+            ),
+        ).toEqual([
+            BACKFILL_SOURCE.ReorgRecovery,
+            BACKFILL_SOURCE.ReorgRecovery,
+        ]);
+        expect(selectBalanceOwners(F.ChainId, collectionId, "1")).toEqual([
+            { owner: F.Owner, amount: "1" },
+        ]);
+        expect(deadLetters).toHaveLength(0);
+    });
+
+    async function startBackfillHandler(
+        rpc: RecoveryRpc,
+        gaps: SqliteSyncGapStore,
+        delivered: JobEnvelope[],
+    ) {
+        const handle = createBackfillSyncHandler({
+            chainId: F.ChainId,
+            batchSize: F.BatchSize,
+            workerCount: 1,
+            wethAddress: F.Weth,
+            rpc,
+            storage: services.storage,
+            collectionsPort: services.registry,
+            extensions: { getInstall: () => null },
+            queue,
+            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            gaps,
+            recoveries: services.recoveries,
+            gate: new BackfillExecutionGate(),
+        });
+        stops.push(
+            await runWorker(
+                queue,
+                {
+                    queue: QUEUE_NAMES.BackfillSync,
+                    consumerName: "fixture-backfill",
+                    maxInFlight: 1,
+                    maxAttempts: 5,
+                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                },
+                async (job) => {
+                    await handle(job);
+                    delivered.push(job);
+                },
+            ),
+        );
+    }
 
     async function worker(overrides: Partial<ReorgFixtureConfig> = {}) {
         const config: ReorgFixtureConfig = {

@@ -8,6 +8,7 @@ import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
+    decodeBackfillSyncJob,
     type BackfillSyncPayload,
     type SyncGapRepairTarget,
 } from "../domain/sync-jobs.js";
@@ -359,69 +360,23 @@ function readSyncGapRepairTargets(
     job: JobEnvelope<BackfillSyncPayload>,
     store: Pick<SyncGapStorePort, "getProgress">,
 ): SyncGapRepairTarget[] {
-    if (
-        job.kind !== SYNC_JOB_KIND.BackfillRange ||
-        job.payload.source !== BACKFILL_SOURCE.GapRepair ||
-        job.payload.orderMaintenancePolicy !==
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState ||
-        !Number.isSafeInteger(job.payload.fromBlock) ||
-        job.payload.fromBlock < 1 ||
-        !Number.isSafeInteger(job.payload.toBlock) ||
-        job.payload.toBlock < job.payload.fromBlock
-    )
-        return [];
-    let repairs: SyncGapRepairTarget[];
-    if (job.payload.repairs === undefined) {
-        // Old queued jobs use their collection-scoped envelope as repair identity.
-        // New jobs always carry explicit members, even for one collection.
-        if (job.collectionId === undefined) return [];
-        const progress = store.getProgress(job.chainId, job.collectionId);
-        if (!progress) return [];
-        repairs = [
-            {
-                collectionId: job.collectionId,
-                repairId: job.jobId,
-                anchorBlock: progress.anchorBlock,
-                fromBlock: job.payload.fromBlock,
-                toBlock: job.payload.toBlock,
-            },
-        ];
-    } else {
-        if (
-            job.collectionId !== undefined ||
-            !Array.isArray(job.payload.repairs)
-        )
-            return [];
-        repairs = job.payload.repairs;
-    }
-    const seen = new Set<number>();
-    let firstBlock = Number.POSITIVE_INFINITY;
-    let lastBlock = 0;
-    for (const repair of repairs) {
-        if (
-            !repair ||
-            !Number.isSafeInteger(repair.collectionId) ||
-            repair.collectionId < 1 ||
-            seen.has(repair.collectionId) ||
-            typeof repair.repairId !== "string" ||
-            !repair.repairId ||
-            !Number.isSafeInteger(repair.anchorBlock) ||
-            repair.anchorBlock < 1 ||
-            !Number.isSafeInteger(repair.fromBlock) ||
-            repair.fromBlock < repair.anchorBlock ||
-            !Number.isSafeInteger(repair.toBlock) ||
-            repair.toBlock < repair.fromBlock ||
-            repair.toBlock < job.payload.fromBlock ||
-            repair.toBlock > job.payload.toBlock
-        )
-            return [];
-        seen.add(repair.collectionId);
-        firstBlock = Math.min(firstBlock, repair.fromBlock);
-        lastBlock = Math.max(lastBlock, repair.toBlock);
-    }
-    return job.payload.fromBlock >= firstBlock &&
-        job.payload.toBlock === lastBlock
-        ? repairs
+    const decoded = decodeBackfillSyncJob(job);
+    if (decoded?.payload.source !== BACKFILL_SOURCE.GapRepair) return [];
+    if (decoded.payload.repairs !== undefined) return decoded.payload.repairs;
+    // Old queued jobs use their collection-scoped envelope as repair identity.
+    // New jobs always carry explicit members, even for one collection.
+    if (decoded.collectionId === undefined) return [];
+    const progress = store.getProgress(decoded.chainId, decoded.collectionId);
+    return progress
+        ? [
+              {
+                  collectionId: decoded.collectionId,
+                  repairId: decoded.jobId,
+                  anchorBlock: progress.anchorBlock,
+                  fromBlock: decoded.payload.fromBlock,
+                  toBlock: decoded.payload.toBlock,
+              },
+          ]
         : [];
 }
 

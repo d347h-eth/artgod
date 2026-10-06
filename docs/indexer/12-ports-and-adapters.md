@@ -124,9 +124,15 @@ ordinary numeric/latest contract reads retain their separate contract.
 coverage/progress, and detector contracts used by automatic gap repair.
 `SqliteCollectionRegistry` pages live anchored collections, and
 `SqliteSyncGapStore` streams bounded coverage windows and persists scan cursors,
-publication retries, and completion fenced by job ID. The scheduler entrypoint
+publication retries, and progress fenced by repair ID, anchor and pending bounds. The scheduler entrypoint
 constructs these adapters; the sync worker uses the same progress port to
 validate and finish repair jobs after downstream publication.
+
+`domain/sync-jobs.ts` owns the backfill wire contract and decoder.
+`application/backfill-sync-handler.ts` validates it before selecting a lane,
+then orchestrates the existing execution gate, range pipeline and durable
+gap/reorg owners through injected ports. The runtime composes this handler;
+broker regressions exercise the same implementation.
 
 ## Reorg Recovery Port
 

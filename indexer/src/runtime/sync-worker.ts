@@ -2,22 +2,17 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
-import {
-    BackfillExecutionGate,
-    resolveBackfillExecutionMode,
-} from "../application/backfill-execution.js";
+import { BackfillExecutionGate } from "../application/backfill-execution.js";
 import type { SyncRange } from "../application/sync.js";
 import {
     domainSyncSource,
     processRange,
     publishDomainJobs,
-    resolveBackfillCollections,
 } from "../application/sync-range-processing.js";
 import {
-    executeSyncGapRepair,
-    resolveCurrentSyncGapRepairs,
-} from "../application/sync-gap-scheduler.js";
-import { executeReorgResync } from "../application/reorg-recovery.js";
+    createBackfillSyncHandler,
+    SYNC_WORKER_LOG_COMPONENT,
+} from "../application/backfill-sync-handler.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
 import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -26,12 +21,10 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
     SYNC_JOB_KIND,
 } from "../domain/sync-jobs.js";
 import type {
     BackfillOrderMaintenancePolicy,
-    BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
@@ -47,8 +40,6 @@ import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlit
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import type { DomainSyncSource } from "../domain/domain-jobs.js";
-import type { CollectionRecord } from "../domain/collections.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
@@ -124,13 +115,13 @@ async function main() {
         try {
             const initialIndex = await bidderIndex.refresh();
             logger.info("Bidder index refreshed", {
-                component: "IndexerSyncWorker",
+                component: SYNC_WORKER_LOG_COMPONENT,
                 action: "bidderIndexRefresh",
                 ...initialIndex,
             });
         } catch (error) {
             logger.warn("Bidder index refresh failed", {
-                component: "IndexerSyncWorker",
+                component: SYNC_WORKER_LOG_COMPONENT,
                 action: "bidderIndexRefresh",
                 error: String(error),
             });
@@ -139,13 +130,13 @@ async function main() {
             try {
                 const state = await bidderIndex.refresh();
                 logger.debug("Bidder index refreshed", {
-                    component: "IndexerSyncWorker",
+                    component: SYNC_WORKER_LOG_COMPONENT,
                     action: "bidderIndexRefresh",
                     ...state,
                 });
             } catch (error) {
                 logger.warn("Bidder index refresh failed", {
-                    component: "IndexerSyncWorker",
+                    component: SYNC_WORKER_LOG_COMPONENT,
                     action: "bidderIndexRefresh",
                     error: String(error),
                 });
@@ -170,7 +161,7 @@ async function main() {
                 );
                 if (collections.length === 0) {
                     logger.debug("No realtime collections for sync", {
-                        component: "IndexerSyncWorker",
+                        component: SYNC_WORKER_LOG_COMPONENT,
                         action: "syncBlock",
                         blockNumber: job.payload.blockNumber,
                     });
@@ -204,7 +195,7 @@ async function main() {
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 );
                 logger.info("Sync block processed", {
-                    component: "IndexerSyncWorker",
+                    component: SYNC_WORKER_LOG_COMPONENT,
                     action: "syncBlock",
                     blockNumber: job.payload.blockNumber,
                     collectionIds: collections.map(
@@ -234,128 +225,21 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<BackfillSyncPayload>) => {
-                if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
-                const isGapRepair =
-                    job.payload.source === BACKFILL_SOURCE.GapRepair;
-                const isReorgRecovery =
-                    job.payload.source === BACKFILL_SOURCE.ReorgRecovery;
-                if (isReorgRecovery && job.chainId !== config.chainId) return;
-                // Explicit batch members (or a retained legacy scoped intent)
-                // determine admission; an unowned hint cannot select all collections.
-                if (isGapRepair && job.chainId !== config.chainId) return;
-                const collections = isGapRepair
-                    ? resolveCurrentSyncGapRepairs(
-                          job,
-                          collectionRegistry,
-                          syncGapStore,
-                      ).map((target) => target.collection)
-                    : resolveBackfillCollections(
-                          collectionRegistry,
-                          config.chainId,
-                          job.collectionId ?? null,
-                      );
-                if (collections.length === 0) {
-                    logger.debug("No collections for backfill sync", {
-                        component: "IndexerSyncWorker",
-                        action: "backfillRange",
-                        fromBlock: job.payload.fromBlock,
-                        toBlock: job.payload.toBlock,
-                        collectionId: job.collectionId ?? null,
-                    });
-                    return;
-                }
-                const range: SyncRange = {
-                    fromBlock: job.payload.fromBlock,
-                    toBlock: job.payload.toBlock,
-                };
-                const orderMaintenancePolicy =
-                    job.payload.orderMaintenancePolicy;
-                const executionMode = resolveBackfillExecutionMode(
-                    collections,
-                    range,
-                );
-                await backfillExecutionGate.run(executionMode, async () => {
-                    const syncAndPublish = async (
-                        collections: CollectionRecord[],
-                        sources: DomainSyncSource[],
-                    ) => {
-                        const { data, blocks } = await processRange({
-                            rpc: backfillRpc,
-                            storage,
-                            collectionScopeResolver: collectionRegistry,
-                            collectionExtensions,
-                            chainId: config.chainId,
-                            collections,
-                            range,
-                            bidderIndex,
-                            wethAddress: config.tokens.wethAddress,
-                            orderMaintenancePolicy: orderMaintenancePolicy,
-                        });
-                        await publishDomainJobs(
-                            queue,
-                            config.chainId,
-                            collections,
-                            range,
-                            sources,
-                            "backfill",
-                            data,
-                            orderMaintenancePolicy,
-                        );
-                        logger.info("Backfill range processed", {
-                            component: "IndexerSyncWorker",
-                            action: "backfillRange",
-                            fromBlock: job.payload.fromBlock,
-                            toBlock: job.payload.toBlock,
-                            source: job.payload.source,
-                            orderMaintenancePolicy,
-                            collectionIds: collections.map(
-                                (collection) => collection.id,
-                            ),
-                            backfillExecutionMode: executionMode,
-                            backfillWorkerCount:
-                                config.sync.backfillWorkerCount,
-                            blocks: blocks.length,
-                            transfers:
-                                data.collectionScoped.nftTransferEvents.length,
-                            nftApprovals:
-                                data.collectionScoped.nftApprovalEvents.length,
-                            balanceDeltas:
-                                data.collectionScoped.nftBalanceDeltas.length,
-                        });
-                    };
-                    if (isGapRepair) {
-                        await executeSyncGapRepair(
-                            job,
-                            collectionRegistry,
-                            syncGapStore,
-                            syncAndPublish,
-                        );
-                    } else if (isReorgRecovery) {
-                        // Reload after gate admission. An empty eligible set does
-                        // not complete recovery; its durable range remains pending.
-                        const currentCollections = resolveBackfillCollections(
-                            collectionRegistry,
-                            config.chainId,
-                            job.collectionId ?? null,
-                        );
-                        if (!currentCollections.length) return;
-                        await executeReorgResync(
-                            job,
-                            reorgRecoveries,
-                            { batchSize: config.sync.backfillBatchSize },
-                            () =>
-                                syncAndPublish(currentCollections, [
-                                    domainSyncSource(job),
-                                ]),
-                        );
-                    } else {
-                        await syncAndPublish(collections, [
-                            domainSyncSource(job),
-                        ]);
-                    }
-                });
-            },
+            createBackfillSyncHandler({
+                chainId: config.chainId,
+                batchSize: config.sync.backfillBatchSize,
+                workerCount: config.sync.backfillWorkerCount,
+                wethAddress: config.tokens.wethAddress,
+                rpc: backfillRpc,
+                storage,
+                collectionsPort: collectionRegistry,
+                extensions: collectionExtensions,
+                queue,
+                bidderIndex,
+                gaps: syncGapStore,
+                recoveries: reorgRecoveries,
+                gate: backfillExecutionGate,
+            }),
             {
                 apm: runtimeApm.apm,
                 spanName: "worker.backfillSync.consume",
@@ -363,14 +247,14 @@ async function main() {
         );
 
         logger.info("Sync worker ready", {
-            component: "IndexerSyncWorker",
+            component: SYNC_WORKER_LOG_COMPONENT,
             action: "main",
             backfillWorkerCount: config.sync.backfillWorkerCount,
         });
 
         const shutdown = async () => {
             logger.info("Sync worker shutting down", {
-                component: "IndexerSyncWorker",
+                component: SYNC_WORKER_LOG_COMPONENT,
                 action: "shutdown",
             });
             clearInterval(bidderRefreshTimer);
@@ -386,7 +270,7 @@ async function main() {
         process.on("SIGTERM", shutdown);
     } catch (error) {
         logger.error("Sync worker startup failed", {
-            component: "IndexerSyncWorker",
+            component: SYNC_WORKER_LOG_COMPONENT,
             action: "main",
             error: String(error),
         });

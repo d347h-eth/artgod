@@ -204,6 +204,13 @@ preserves raw facts and activity projection while suppressing WETH/counter
 maker-wide order revalidation fanout. Reorg recovery, collection gap repair,
 bootstrap catch-up, and realtime processing use `current_state`.
 
+The sync worker decodes backfill source, range, policy and member/recovery shape
+before choosing a lane or selecting collections. Explicit `repairs` belong only
+to `gap_repair`; managed recovery identity belongs only to `reorg_recovery`.
+Unknown sources and inconsistent combinations are rejected without acquisition
+or fanout. Supported manual/bootstrap global and scoped jobs, managed reorg jobs
+and retained legacy scoped gap deliveries keep their existing routing.
+
 Automatic gap jobs carry explicit collection/repair members from
 `collection_sync_gap_scans`; their envelope has no collection ID. The scheduler
 groups overlapping intents into bounded shared ranges. Batch transport IDs are
