@@ -132,6 +132,13 @@ design work, outside the regular SQLite contention baseline. The proposed
   ingress/egress. Report pending commands, live marketplace bids, active leases,
   and other unfinished work; closing admission must preserve cancellation and
   cleanup paths.
+- For indexer pause, define whether already admitted RPC/sync work may finish
+  and what completion means before adding stronger cancellation. Gap jobs
+  currently reload collection liveness, anchor, and repair identity at admission;
+  this does not establish shutdown of every producer or callback already in
+  flight. Future cancellation and commit rules must follow the declared lifecycle
+  across restarts rather than adding independent pause flags. This broader
+  design remains deferred under `BKL-064`/`BKL-065`.
 - Define how queued deliveries, retries, already-running callbacks, external
   effects, and persistence are fenced across processes and restarts. An entry
   check alone cannot prevent a write racing with purge. Decide how stale

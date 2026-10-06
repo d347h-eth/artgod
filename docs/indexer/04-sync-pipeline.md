@@ -6,6 +6,7 @@ Primary files:
 
 - `indexer/src/runtime/sync-worker.ts`
 - `indexer/src/application/sync.ts`
+- `indexer/src/application/sync-range-processing.ts`
 - `indexer/src/domain/onchain.ts`
 - `indexer/src/abi/index.ts`
 
@@ -23,7 +24,12 @@ Backfill `source` identifies whether the range is `manual_historical`,
 `skip_global_maker_revalidation` for manual historical enrichment.
 
 These jobs are published by the scheduler-worker (realtime), backend manual
-blockspace backfill, reorg recovery, bootstrap catch-up, and realtime gap repair.
+blockspace backfill, reorg recovery, bootstrap catch-up, and collection gap repair.
+
+Managed `reorg_recovery` payloads also require `recovery: { recoveryId, revision }`
+and have no collection ID. Logical completion matches that identity and the exact
+range, independently of the broker delivery ID. Legacy reorg hints without this
+ownership cannot complete durable recovery.
 
 ## Sync Worker Flow
 
@@ -35,7 +41,8 @@ The sync worker:
 4. For each job:
     - Fetches logs for the target block/range.
     - Resolves enabled collection-extension watch specs for the targeted collections.
-    - Fetches full block details for the same range.
+    - Fetches any enabled WETH maker hints before validating the result.
+    - Fetches fresh block details for the same range and rechecks its tip.
     - Persists results via SQLite storage.
     - Publishes domain sync jobs (orders, metadata, activities), collection-scoped metadata refresh jobs, and order update jobs.
 
@@ -49,6 +56,15 @@ The backfill worker classifies each job by collection anchor before execution:
 
 Backfill jobs use the `RPC_BACKFILL_URL_LIST` endpoint pool when configured; realtime jobs always use the `RPC_URL_LIST` endpoint pool.
 Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.
+
+`processRange()` and `publishDomainJobs()` own the shared production persistence
+and fanout pipeline. Gap repairs and managed reorg ranges complete their durable
+intent only after the entire pipeline succeeds. A failed publication after
+persisting coverage leaves the same logical work pending for replay. Reorg
+completion atomically advances its range and outbox continuation. Collection
+eligibility is reloaded inside the gate; no eligible collections leaves recovery
+pending. These admission checks do not add full cancellation of already running
+work.
 
 ## Log Fetching and Decoding
 
@@ -94,6 +110,11 @@ Transactions associated with transfer events are persisted into SQLite so downst
 
 Each transaction is also paired with its receipt logs. The receipt logs are not persisted, but they are used during fill decoding to read protocol fill events and to correlate those events with tracked NFT transfer hops.
 
+Receipt reads bypass the cache so retry can observe a transaction moved to the
+new branch. Receipt transaction identity and each receipt log's block identity must match
+the transfer logs before fill decoding. A receipt fetched from another branch
+rejects the sync attempt instead of attributing orphaned fill facts to its block.
+
 Seaport fills are decoded from receipt `OrderFulfilled` logs (no traces) and emitted as collection-scoped `fillEvents` when the protocol fill contains a tracked NFT and maps to a tracked NFT transfer in the same transaction. Matched buy/sell mirror logs for one NFT transfer are canonicalized to one fill; multi-hop bundles can emit multiple fills. Blur fills are decoded from supported calldata methods. See `docs/indexer/15-fill-decoding.md` for the full fill-decoding policy and edge cases. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
 NFT approval logs are decoded into collection-scoped order revalidation hints: ERC721 `Approval` emits an exact-token maker trigger, while ERC721/ERC1155 `ApprovalForAll` emits collection-scoped maker triggers for the tracked contract. WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the order-maintenance policy allows current-state maker revalidation and the bidder index is ready and non-empty (quiet default). When the policy is `skip_global_maker_revalidation`, or when the index is empty/not yet loaded, WETH logs are skipped and no maker triggers are emitted.
@@ -132,12 +153,46 @@ The `Terraformed` log also emits an extension event fact. The Terraforms extensi
 
 ## Gap Check
 
-After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block `gap_repair` backfill job with `current_state` order maintenance to close the gap.
+The scheduler performs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
+on startup and every HTTP head poll. It repeatedly walks collection-specific
+coverage from head through each live collection's bootstrap anchor, including
+holes behind bootstrap's last-synced block. The former global predecessor check
+has been removed.
+
+Repairs are bounded `gap_repair` batches with explicit collection/repair members
+and `current_state` order maintenance. The worker rechecks each member's liveness,
+anchor, repair identity and expected bounds inside its backfill execution gate,
+then calls `processRange()` once with the admitted collections. Existing
+collection-scoped coverage and anchor projection rules apply to the shared range;
+newly planned batches cover a common pending suffix with the same upper block
+for every member. Older remainders run separately, keeping already covered busy
+collections out of unrelated transaction/receipt acquisition. Already queued
+batches from the previous planner can still contain a wider shared range and
+remain consumable under their retained member bounds. Fanout retries deliberately
+reacquire retained work even if its coverage is already present.
+
+`publishDomainJobs()` accepts explicit domain sources: each grouped member gets
+collection-scoped activity, order and metadata range jobs with stable fanout IDs.
+Their `sourceJobId` retains the actual originating batch identity. Shared order
+hints and metadata refreshes are published once per acquisition. Fully pre-anchor
+members receive activity projection only.
+
+Pending intent advances only after all publications succeed, so a crash after
+writing coverage still retries fanout. A partially covered member retains its
+older contiguous remainder; retries and completions are fenced by its original
+identity, anchor and expected bounds. Retained single-collection deliveries from
+older runtimes remain supported. Unowned predecessor hints and fully stale
+batches are acknowledged without executing; remaining gaps are rediscovered.
 
 ## Persisting Sync Results
 
 `SqliteStorage.persistSyncResult()`:
 
+- Validates that every fact and fanout hint references a supplied header with the
+  same block number and hash. Adjacent headers must have matching parent links,
+  and repeated heights must contain identical metadata.
+- Rejects a hash conflicting with a stored block; canonical replacement requires
+  rollback first. Validation failure writes no facts, coverage or balances.
 - Writes blocks to `blocks` table.
 - Marks each processed block in `collection_sync_blocks` for every collection the sync job actually targeted.
 - Inserts transfer events into `nft_transfer_events`.
@@ -149,6 +204,23 @@ The storage layer is idempotent:
 - Transfers are inserted with `INSERT OR IGNORE` against a unique constraint.
 - Collection block coverage is upserted by `(chain_id, collection_id, block_number)`.
 - Balances are updated only for transfers that were newly inserted.
+- For ERC721 tokens touched by new post-anchor transfers, ownership is projected
+  from the latest persisted transfer by block number and log index, or the verified
+  fork ownership checkpoint when it is at or after that transfer's block. Older repair
+  ranges cannot restore a previous owner, leave multiple owners, or resurrect a
+  token whose latest transfer burns it. ERC1155 deltas remain additive and are
+  applied once per inserted transfer.
+
+The sync worker captures the chain sync revision before fetching RPC data.
+Persistence checks that revision in the same write transaction as facts, coverage
+and balances. A rollback advances it, so an earlier in-flight sync cannot restore
+orphaned facts after rollback.
+
+Header reads bypass the RPC block cache. Rechecking the range tip after all
+headers catches a reorg during those reads, including an empty-log range. A
+conflict fails the normal queue attempt and leaves durable gap repair intent
+pending for retry. Changes after the final RPC check remain the responsibility
+of the reorg worker; external chain state cannot be frozen by a SQLite transaction.
 
 This is the key ownership invariant for historical backfill:
 

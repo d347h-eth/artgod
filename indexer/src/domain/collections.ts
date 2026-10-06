@@ -6,7 +6,10 @@ import type {
     OpenSeaCollectionStatus,
     OpenSeaStreamIngestionStatus,
 } from "@artgod/shared/types";
-import { OPENSEA_STREAM_INGESTION_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    OPENSEA_STREAM_INGESTION_STATUS,
+} from "@artgod/shared/types";
 
 // Collection standards supported by the on-chain indexer and order domain.
 export const COLLECTION_STANDARD = {
@@ -184,6 +187,26 @@ export class CollectionRecord {
         return CollectionRecord.hasBootstrapAnchorValue(
             this.bootstrapAnchorBlock,
         );
+    }
+
+    // Automatic repair owns the inclusive anchor-to-head window of live
+    // collections. Bootstrap progress and global block presence are not proof
+    // that this collection has complete coverage.
+    gapRepairWindow(
+        headBlock: number,
+    ): { fromBlock: number; toBlock: number } | null {
+        const anchor = this.bootstrapAnchorBlock;
+        if (
+            this.status !== COLLECTION_STATUS.Live ||
+            anchor === null ||
+            !Number.isSafeInteger(anchor) ||
+            anchor < 1 ||
+            !Number.isSafeInteger(headBlock) ||
+            anchor > headBlock
+        ) {
+            return null;
+        }
+        return { fromBlock: anchor, toBlock: headBlock };
     }
 
     canProjectCurrentStateAt(blockNumber: number): boolean {

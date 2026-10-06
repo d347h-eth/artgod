@@ -26,7 +26,8 @@
         "test:watch": "vitest",
         "test:nats:recovery": "tsx scripts/verify-nats-startup-recovery.ts",
         "test:opensea:reconciliation": "vitest run --config vitest.opensea-reconciliation.config.ts",
-        "test:orders:queues": "vitest run --config vitest.order-queue.config.ts"
+        "test:orders:queues": "vitest run --config vitest.order-queue.config.ts",
+        "test:reorg:recovery": "vitest run --config vitest.reorg-recovery.config.ts"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
@@ -35,7 +36,7 @@
         "better-sqlite3": "12.10.0",
         "dotenv": "17.4.2",
         "nats": "2.29.3",
-        "sharp": "0.35.4",
+        "sharp": "0.35.5",
         "viem": "2.54.6"
     },
     "devDependencies": {

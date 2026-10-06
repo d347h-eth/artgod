@@ -150,6 +150,9 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
   first delivery is attempt 1). Successful maker continuations are separate
   step messages; many successful steps do not exhaust a retry limit.
 - A deferred maker lease wait nacks with delay without entering the DLQ path.
+- Reorg checks retain their delivery through every pre-handoff failure, including
+  database reads and RPC errors after earlier journal-write deferrals. Ordinary
+  DLQ exhaustion becomes safe only after durable recovery takes ownership.
 - Maker admission failures also retain the original delivery with a one-second
   delay, including unavailable replay metadata or SQLite persistence. Before
   admission commits there may be no run for durable recovery to find.
@@ -171,22 +174,70 @@ DLQ payload:
 intent:
 
 ```ts
-type BackfillSyncPayload = {
+type BackfillRange = {
     fromBlock: number;
     toBlock: number;
-    source:
-        | "manual_historical"
-        | "reorg_recovery"
-        | "bootstrap_catchup"
-        | "gap_repair";
     orderMaintenancePolicy: "current_state" | "skip_global_maker_revalidation";
 };
+type BackfillSyncPayload = BackfillRange &
+    (
+        | { source: "manual_historical" | "bootstrap_catchup" }
+        | {
+              source: "gap_repair";
+              repairs: Array<{
+                  collectionId: number;
+                  repairId: string;
+                  anchorBlock: number;
+                  fromBlock: number;
+                  toBlock: number;
+              }>;
+          }
+        | {
+              source: "reorg_recovery";
+              recovery: { recoveryId: string; revision: number };
+          }
+    );
 ```
 
 Manual historical backfills use `skip_global_maker_revalidation`, which
 preserves raw facts and activity projection while suppressing WETH/counter
-maker-wide order revalidation fanout. Reorg recovery, realtime gap repair,
+maker-wide order revalidation fanout. Reorg recovery, collection gap repair,
 bootstrap catch-up, and realtime processing use `current_state`.
+
+The sync worker decodes backfill source, range, policy and member/recovery shape
+before choosing a lane or selecting collections. Explicit `repairs` belong only
+to `gap_repair`; managed recovery identity belongs only to `reorg_recovery`.
+Unknown sources and inconsistent combinations are rejected without acquisition
+or fanout. Supported manual/bootstrap global and scoped jobs, managed reorg jobs
+and retained legacy scoped gap deliveries keep their existing routing.
+
+Automatic gap jobs carry explicit collection/repair members from
+`collection_sync_gap_scans`; their envelope has no collection ID. The scheduler
+groups intents with the same upper block into a bounded common pending suffix.
+Every participant needs that entire suffix; older remainders stay retained.
+Batch transport IDs are deterministic from sorted membership and bounds, while
+each collection retains its independent repair ID across partial progress and
+restart. A new repair gets a new identity even when a later sweep finds the same
+range missing again.
+Completion follows shared persistence and required downstream fanout; stale
+members become no-ops. Older collection-scoped jobs without `repairs` can still
+finish their exact retained intent. See
+[gap repair scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair).
+
+Managed reorg resync is chain-wide and uses `current_state`. Its logical identity
+is the recovery ID, chain revision and exact range; its `jobId` additionally
+includes a delivery generation. The recovery owner redrives unfinished work with
+a new transport ID after five minutes, including sent/terminal outbox rows,
+ACKed deliveries and DLQ exhaustion. A broker dedupe hit or publication ACK is
+never completion. The sync worker completes only after persistence and required
+fanout, then atomically retains the next bounded range. See
+[resync after rollback](06-reorg-handling.md#resync-after-rollback).
+
+A new mismatch whose initial SQLite retention fails uses `JobDeferred`, keeping
+the original check retryable beyond the ordinary DLQ budget. After retention,
+SQLite owns retry independently of broker delivery. Reorg and backfill workers
+renew long-running leases through the existing `touch` mechanism; duplicate
+delivery remains fenced by recovery/revision/token identity.
 
 - Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
     - `reorg.block-check`

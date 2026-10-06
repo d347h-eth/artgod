@@ -94,6 +94,12 @@ type BootstrapCollectionExtensionArtifactTaskDbRow = {
 };
 
 export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
+    private deleteOwnershipCheckpointsStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+    }>(
+        "DELETE FROM erc721_ownership_checkpoints WHERE chain_id = @chainId AND collection_id = @collectionId",
+    );
     private resetSnapshotStmt = db.prepare<{ runId: number }>(
         "DELETE FROM nft_balance_snapshots WHERE run_id = @runId",
     );
@@ -558,6 +564,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         const finalize = db.writeTransaction(
             (params: SnapshotFinalizeInput) => {
                 this.deleteBalancesStmt.run({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                });
+                this.deleteOwnershipCheckpointsStmt.run({
                     chainId: params.chainId,
                     collectionId: params.collectionId,
                 });

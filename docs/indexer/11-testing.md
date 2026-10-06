@@ -129,6 +129,116 @@ Important environment assumption:
 - `smoke.test.ts` requires Docker or another supported container runtime
 - if Docker is unavailable, this test fails explicitly
 
+## Perpetual Gap Repair Coverage
+
+The deterministic gap tests use disposable migrated SQLite databases and queue
+test doubles. They do not use a live chain, broker, or application database.
+
+- `tests/sync-gap-scheduler.test.ts` covers collection-specific internal holes,
+  inclusive anchor bounds, all small coverage shapes, bounded backward scans,
+  restart persistence, advancing and stationary heads, newly live collections,
+  paused/disabled/unanchored collections, fair paging, reorg deletions, failed
+  publication, repeated repair, stale identities, and failed downstream fanout.
+- `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
+  WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
+  shutdown draining.
+- `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
+  SQLite adapters to verify shared headers/logs/receipts, separate coverage and
+  ownership, scoped domain fanout and one global hint, common-suffix partial
+  progress, restart and failed fanout, stale members, RPC failure and legacy jobs.
+  The isolated broker suite also delivers one grouped gap job through JetStream
+  and checks each member's scoped publications and completed intent.
+  A busy-peer comparison verifies that unequal gaps avoid its nine already
+  covered transactions/receipts; 3,000 small planner configurations check exact
+  per-member block accounting, no widening, bounds and eventual completion.
+- `tests/sync-job-contract.test.ts` checks the source/policy/member contract and
+  retained legacy shapes. The broker suite uses the same backfill handler as the
+  runtime to reject wrong-source member batches with retained or completed
+  intents, and to exercise valid manual/bootstrap, legacy gap and reorg jobs.
+- `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
+  burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
+  collection coverage rollback.
+- `tests/reorg-rollback.test.ts` covers verified fork ownership with incomplete
+  history and empty resync, persistent absent-token checkpoints, stale sync
+  writes, changing rollback token scope, RPC and transactional failure, paged
+  ERC1155 reversal and bootstrap checkpoint replacement.
+- `tests/reorg-recovery.test.ts` exercises actual recovery use cases, fork search,
+  worker acknowledgment, exact-block snapshot adapter, SQLite and shared range/
+  fanout processing. It covers missing ancestors repaired by gap processing at
+  stationary HEAD, reopen/startup continuation, failed initial retention and
+  atomic rollback publication, partial fanout, terminal/sent redrive, stale proof,
+  newer mismatch, concurrent token scope and pre-rollback realtime results. A
+  two-token mixed-fork fixture proves that a repaired matching header cannot hide
+  an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
+  Initial journal deferrals followed by RPC, wrong-height, checkpoint or header
+  read failures cannot ACK/DLQ the only check owner after retry-budget exhaustion.
+- `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
+  against independently coherent disagreeing providers. Owners and recognized
+  absence must come from the exact canonical hash; unsupported/unavailable/
+  noncanonical selectors and unknown reverts cannot become absence or mutate
+  facts, checkpoints or revision.
+- `tests/reorg-recovery-migrations.test.ts` runs main-first and feature-first
+  upgrade orders, preserving existing balances and unfinished recovery across
+  reopen. It checks distinct same-prefix migration ledger entries, foreign keys
+  and the actual collection purge adapter.
+- `tests/sync-result-canonical.test.ts` verifies atomic rejection of orphaned
+  facts and hints across every sync output group, mismatched receipts, missing
+  headers, conflicting stored/duplicate headers and mixed parent chains. It also
+  verifies canonical replacement after rollback and idempotent historical repair.
+- `tests/sync-blocks.test.ts` covers fresh header reads, tip rechecking, changing
+  ranges and complete bounded ancestor proof across sparse/mixed local history,
+  including retained parent identities at missing heights, without guessing a fork.
+- `tests/backfill-execution.test.ts` preserves serialization of current-state
+  ranges and parallel execution of facts-only ranges.
+
+Use the same isolated environment described above, selecting the affected files
+with `yarn workspace @artgod/indexer test`. This establishes local storage and
+scheduling behavior; it does not establish live RPC completeness or actual
+broker delivery under outage conditions.
+
+## Real-Broker Reorg Recovery Gate
+
+`test:reorg:recovery` is an explicit integration runner using a provisioned NATS
+binary and private loopback listeners. Use the isolated test environment above,
+including required token/Seaport fixture values; inspect `.env.test` because it
+overwrites shell values. From the active worktree root:
+
+```sh
+mkdir -p tmp
+recovery_test_dir="$(mktemp -d "$PWD/tmp/reorg-tests.XXXXXX")"
+TMPDIR="$recovery_test_dir" SQLITE_TMPDIR="$recovery_test_dir" \
+  ARTGOD_DB_PATH="$recovery_test_dir/indexer.sqlite" \
+  REORG_RECOVERY_TEST_NATS_BINARY="$PWD/src-tauri/resources/runtime/nats/nats-server" \
+  yarn workspace @artgod/indexer test:reorg:recovery
+```
+
+Set `REORG_RECOVERY_TEST_NATS_BINARY` to an existing staged pinned binary if it is
+provisioned outside this worktree. Missing inputs fail explicitly; the harness
+does not download tools or use configured live services. The shared isolated-NATS
+helper and child-worker bundler retain disposable SQLite/JetStream stores,
+worker/broker logs and reports under `tmp/reorg-recovery-nats/`.
+
+`integration/reorg-recovery.test.ts` exercises production recovery, worker,
+outbox, SQLite and range/fanout implementations across:
+
+- initial retention failure beyond ordinary broker retry limits, including a
+  later RPC outage after five failed journal writes and healthy eventual recovery;
+- worker death before rollback continuation publication and during partial fanout;
+- broker restart over the retained private JetStream store;
+- accepted publication with a lost reply, terminal outbox state and an ACKed
+  original delivery inside NATS's dedupe window;
+- actual backfill DLQ exhaustion followed by durable redrive;
+- lease renewal with ownership slower than the acknowledgment deadline;
+- a 401-token serial rollback snapshot with controlled per-read latency, recording
+  completion time and process RSS while keeping one bounded resync continuation;
+- forced broker redelivery and a lost resync ACK;
+- a competing SQLite writer requiring bounded transaction retries, and stale
+  proof from one process after another commits rollback.
+
+RPC chain responses are deterministic fixtures. These checks establish the local
+broker/database failure contracts; external-RPC smoke, native/package execution
+and remote CI are separate qualification evidence.
+
 ## Offchain / OpenSea Coverage
 
 Current focused coverage includes:

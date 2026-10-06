@@ -9,6 +9,15 @@ export const DOMAIN_JOB_KIND = {
 
 export type DomainSyncMode = "realtime" | "backfill";
 
+// One originating sync can have several collection-scoped domain publications.
+// Keep their dedupe identity separate from the actual source job's provenance.
+export type DomainSyncSource = {
+    fanoutId: string;
+    sourceJobId: string;
+    sourceKind: string;
+    collectionId?: number;
+};
+
 // This tells domains whether a sync may update current state.
 export const DOMAIN_SYNC_PROJECTION = {
     FactsOnly: "facts_only",

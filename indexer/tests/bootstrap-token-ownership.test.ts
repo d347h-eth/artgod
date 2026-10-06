@@ -9,25 +9,33 @@ import {
     ERC721_OWNER_OF_FUNCTION,
     ERC721_ABSENT_TOKEN_ERROR,
 } from "@artgod/shared/evm/erc721-ownership";
-import { Erc721TokenOwnership } from "../src/infra/bootstrap/erc721-token-ownership.js";
+import { Erc721TokenOwnership } from "../src/infra/ownership/erc721-token-ownership.js";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";
 const SAMPLE = "2";
-const ANCHOR = 123456;
+const ANCHOR = {
+    chainId: 1,
+    blockNumber: 123456,
+    blockHash: `0x${"ab".repeat(32)}`,
+};
 
 describe("anchored token ownership", () => {
     it("reads the exact token at the pinned block", async () => {
-        const rpc = { readContract: vi.fn().mockResolvedValue(OWNER) };
+        const rpc = { readContractAtBlock: vi.fn().mockResolvedValue(OWNER) };
         await expect(
-            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+            new Erc721TokenOwnership(rpc).readOwner({
+                contract: ADDRESS,
+                tokenId: SAMPLE,
+                block: ANCHOR,
+            }),
         ).resolves.toBe(OWNER);
-        expect(rpc.readContract).toHaveBeenCalledExactlyOnceWith({
+        expect(rpc.readContractAtBlock).toHaveBeenCalledExactlyOnceWith({
             address: ADDRESS,
             abi: ERC721_OWNERSHIP_ABI,
             functionName: ERC721_OWNER_OF_FUNCTION,
             args: [2n],
-            blockNumber: ANCHOR,
+            block: ANCHOR,
         });
     });
 
@@ -42,12 +50,16 @@ describe("anchored token ownership", () => {
             }),
         });
         const rpc = {
-            readContract: vi
+            readContractAtBlock: vi
                 .fn()
                 .mockRejectedValue(new Error("call failed", { cause: revert })),
         };
         await expect(
-            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+            new Erc721TokenOwnership(rpc).readOwner({
+                contract: ADDRESS,
+                tokenId: SAMPLE,
+                block: ANCHOR,
+            }),
         ).resolves.toBeNull();
     });
 
@@ -57,9 +69,13 @@ describe("anchored token ownership", () => {
             functionName: ERC721_OWNER_OF_FUNCTION,
             message: ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery,
         });
-        const rpc = { readContract: vi.fn().mockRejectedValue(revert) };
+        const rpc = { readContractAtBlock: vi.fn().mockRejectedValue(revert) };
         await expect(
-            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+            new Erc721TokenOwnership(rpc).readOwner({
+                contract: ADDRESS,
+                tokenId: SAMPLE,
+                block: ANCHOR,
+            }),
         ).resolves.toBeNull();
     });
 
@@ -73,9 +89,13 @@ describe("anchored token ownership", () => {
                 args: [0n],
             }),
         });
-        const rpc = { readContract: vi.fn().mockRejectedValue(revert) };
+        const rpc = { readContractAtBlock: vi.fn().mockRejectedValue(revert) };
         await expect(
-            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+            new Erc721TokenOwnership(rpc).readOwner({
+                contract: ADDRESS,
+                tokenId: SAMPLE,
+                block: ANCHOR,
+            }),
         ).rejects.toBe(revert);
     });
 
@@ -86,22 +106,28 @@ describe("anchored token ownership", () => {
         "historical state is not available",
     ])("keeps uncertain reads as failures (%s)", async (message) => {
         const failure = new Error(message);
-        const rpc = { readContract: vi.fn().mockRejectedValue(failure) };
+        const rpc = { readContractAtBlock: vi.fn().mockRejectedValue(failure) };
         await expect(
-            new Erc721TokenOwnership(rpc).readOwner(ADDRESS, SAMPLE, ANCHOR),
+            new Erc721TokenOwnership(rpc).readOwner({
+                contract: ADDRESS,
+                tokenId: SAMPLE,
+                block: ANCHOR,
+            }),
         ).rejects.toBe(failure);
     });
 
     it.each([zeroAddress, "0x", "invalid"])(
         "rejects invalid ownership (%s)",
         async (owner) => {
-            const rpc = { readContract: vi.fn().mockResolvedValue(owner) };
+            const rpc = {
+                readContractAtBlock: vi.fn().mockResolvedValue(owner),
+            };
             await expect(
-                new Erc721TokenOwnership(rpc).readOwner(
-                    ADDRESS,
-                    SAMPLE,
-                    ANCHOR,
-                ),
+                new Erc721TokenOwnership(rpc).readOwner({
+                    contract: ADDRESS,
+                    tokenId: SAMPLE,
+                    block: ANCHOR,
+                }),
             ).rejects.toThrow();
         },
     );

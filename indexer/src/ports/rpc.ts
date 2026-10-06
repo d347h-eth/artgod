@@ -1,3 +1,5 @@
+import type { ChainBlockReference } from "../domain/chain-sync.js";
+
 export type Hex = `0x${string}`;
 
 /** Upper bound for one optional aggregate call, independent of provider retries. */
@@ -68,9 +70,18 @@ export interface RpcProviderPort {
     ): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
-    getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;
+    // Sync must bypass cached receipts when a transaction can move across a reorg.
+    getTransactionReceipt(
+        txHash: string,
+        options?: { fresh: boolean },
+    ): Promise<RpcTransactionReceipt>;
     readContract<T = unknown>(
         params: RpcContractRead & { blockNumber?: number },
+    ): Promise<T>;
+    // Read state at this exact canonical hash or reject. Endpoint retries must
+    // retain the hash; unsupported/unavailable blocks are not contract absence.
+    readContractAtBlock<T = unknown>(
+        params: RpcContractRead & { block: ChainBlockReference },
     ): Promise<T>;
     /**
      * Optional bounded aggregate at one explicit block, with positional results.

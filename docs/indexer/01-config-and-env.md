@@ -48,6 +48,9 @@ The indexer reads these variables from the root `.env`:
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 32)
 - `BACKFILL_BATCH_SIZE` (default: 10)
+    - Caps automatic collection gap repairs as well as explicit backfill chunks.
+    - Perpetual repair is enabled by default for live, anchored collections;
+      bounded scan and retry policy is described in [scheduler behavior](03-scheduler-worker.md#perpetual-collection-gap-repair).
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.

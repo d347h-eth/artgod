@@ -110,6 +110,29 @@ collection_sync_blocks(chain_id, collection_id, block_number, first_synced_at, l
 - Primary key: `(chain_id, collection_id, block_number)`
 - Records which collection context a sync/backfill job actually processed for each block
 - Drives collection-specific sync/backfill coverage UI and collection-scoped bootstrap completion checks
+- Supplies perpetual gap detection for live collections, independently of global block presence
+
+### `collection_sync_gap_scans`
+
+Defined in `057_collection_sync_gap_scans.sql`.
+
+```sql
+collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
+                          pending_job_id, pending_from_block, pending_to_block, retry_at)
+```
+
+- Primary key: `(chain_id, collection_id)`; collection purge cascades the row.
+- Retains the backward coverage-sweep cursor and at most one pending repair.
+- A null cursor begins the next sweep at the currently observed head.
+- Saves intent before publication and reuses the pending ID after restart or
+  failed publication. Retry timestamps are epoch milliseconds.
+- The legacy `pending_job_id` column stores the collection's logical repair ID.
+  A grouped queue job has a separate deterministic identity and explicitly lists
+  every member's repair ID, anchor and expected bounds; no new table is required.
+- Worker progress and retry writes match the repair ID, anchor and bounds after
+  downstream publication. A partial batch retains only the older unfinished
+  range with the same repair ID. Coverage alone does not complete pending work.
+- A changed bootstrap anchor replaces the previous sweep and repair intent.
 
 ### `transactions`
 
@@ -131,6 +154,8 @@ nft_transfer_events(chain_id, collection_id, contract_address, from_address, to_
 
 - Unique constraint on `(chain_id, tx_hash, log_index, collection_id, token_id)`
 - Indexed by `(chain_id, collection_id, token_id)`, `(chain_id, contract_address, token_id)`, and `(chain_id, tx_hash)`
+- `056_transfer_projection_order.sql` also indexes collection/token transfers by
+  descending block number and log index for ownership projection after late repairs.
 - `amount` stored as `TEXT` to preserve integer precision
 
 ### `collection_extension_events`
@@ -159,6 +184,75 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 - Attribution columns capture the last onchain event that changed the balance
 - Mutated only by forward-processing for blocks strictly greater than `collections.bootstrap_anchor_block`
 - Historical backfill at or before the anchor must not rewrite this table
+
+### Chain revisions and ERC721 ownership checkpoints
+
+Migration `062_chain_sync_ownership_checkpoints.sql` adds:
+
+- `chain_sync_revisions`: a durable revision per chain, advanced atomically by
+  rollback to fence sync work already fetching RPC data.
+- `erc721_ownership_checkpoints`: end-of-block ownership verified at a reorg fork,
+  keyed by chain, collection and token. A nullable owner explicitly records token
+  absence. The checkpoint retains the block hash, timestamp and collection anchor.
+
+ERC721 projection chooses the latest transfer after the checkpoint, or the
+checkpoint itself if no newer transfer exists. Snapshot attribution in
+`nft_balances` uses the fork block and a zero transaction hash/log index. Checkpoints
+survive restarts, cascade on collection purge and are cleared when bootstrap
+finalization replaces the ownership snapshot. Only tokens affected by rollback
+are checkpointed; the reorg worker does not scan the whole collection inventory.
+
+Sync persistence validates every result's block identities before writing facts
+or collection coverage. It rejects mismatched fact/header hashes, conflicting
+duplicate headers, broken adjacent parent links and replacement of a stored
+block hash. Reorg rollback owns removal of old headers before canonical resync.
+The verified fork header is retained with the ownership checkpoint even when
+the fork's transfer history was missing.
+
+### `chain_reorg_recoveries`
+
+Defined in `063_chain_reorg_recoveries.sql`, with one row per operational chain.
+The row records recovery ID, conditional-update version, chain revision, checked
+height, stored/observed hashes, phase, retry eligibility and last proof error.
+`awaiting_ancestor` may also carry the earliest unfinished resync block;
+`resync` records one bounded range, captured target head and delivery generation.
+
+`SqliteReorgRecoveries` commits rollback, ownership checkpoints, revision,
+recovery progress and first outbox job together. Completing a matching range
+advances progress and its next outbox job atomically, after required downstream
+publication. Redrive replaces the current outbox row with a fresh transport ID;
+sent or terminal transport state does not remove business recovery.
+
+This chain-wide workflow has no collection foreign key. Purging one collection
+cascades its ownership checkpoints and gap-scan rows, while keeping chain recovery
+for other collections. An empty admitted collection set leaves resync pending;
+full lifecycle cancellation remains deferred. See
+[reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
+
+### Deferred Balance Completeness and Provenance
+
+ERC1155 projection applies each newly persisted transfer delta once. When a
+later debit arrives before a missing earlier mint or credit, the stored amount
+can temporarily be negative. Exact amounts converge as the missing canonical
+facts arrive, but a row alone does not prove that its required history is
+complete. Clamping the intermediate amount to zero would discard information
+needed for convergence.
+
+ERC1155 `last_block_*`, transaction, and log attribution is also arrival ordered:
+an older repair can replace newer provenance, and rollback reversal can retain
+the removed event's context. These are existing limitations, deferred from the
+perpetual gap-detection change under `BKL-069` in the
+[unified backlog](../planning/01-unified-backlog.md). They are distinct from the
+ERC721 latest-transfer and verified-checkpoint projection rules above.
+
+The future balance contract must distinguish incomplete projection from
+authoritative state using the required collection coverage and baseline. It
+must retain exact signed deltas internally and define how consumers handle
+incomplete balances. Provenance must identify the latest surviving canonical
+fact or applicable baseline, independently of arrival order, and be restored
+after rollback; processing progress is a separate concern. Validate reordered
+mint/transfer/burn ingestion, duplicates, reopen, and rollback with incomplete
+history before changing these semantics. This design is not implemented yet.
 
 ## Collection and Bootstrap Tables
 
@@ -703,6 +797,9 @@ Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
 - unique key on `(queue_name, job_id)` makes repeated enqueue attempts idempotent
 - domain-worker drains due rows and marks them sent after broker publish succeeds
 - collection-scoped rows are deleted by collection purge
+- reorg rollback/range advancement enqueue required continuations atomically;
+  the reorg recovery owner replaces sent or terminal unfinished publications on
+  redrive, retaining at most one outbox publication for its current logical range
 
 ### `metadata_refresh_runs`
 

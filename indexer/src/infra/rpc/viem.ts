@@ -1,4 +1,12 @@
-import { createPublicClient, http, type Abi } from "viem";
+import {
+    BaseError,
+    createPublicClient,
+    decodeFunctionResult,
+    encodeFunctionData,
+    getContractError,
+    http,
+    type Abi,
+} from "viem";
 import { isRpcDeterministicContractError } from "@artgod/shared/evm/rpc-errors";
 import {
     getDefaultRpcEndpointResilienceConfig,
@@ -170,11 +178,11 @@ export class ViemRpcProvider implements RpcProviderPort {
 
     async getTransactionReceipt(
         txHash: string,
+        options?: { fresh: boolean },
     ): Promise<RpcTransactionReceipt> {
-        const cached = this.cache?.get<RpcTransactionReceipt>(
-            "receipt",
-            txHash,
-        );
+        const cached = options?.fresh
+            ? undefined
+            : this.cache?.get<RpcTransactionReceipt>("receipt", txHash);
         if (cached) return cached;
 
         const receipt = await this.executeRpc(
@@ -239,6 +247,57 @@ export class ViemRpcProvider implements RpcProviderPort {
             }),
         );
         return result as T;
+    }
+
+    async readContractAtBlock<T>(
+        params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+    ): Promise<T> {
+        const { block, ...contract } = params;
+        if (
+            !Number.isSafeInteger(block.chainId) ||
+            block.chainId < 1 ||
+            !Number.isSafeInteger(block.blockNumber) ||
+            block.blockNumber < 0 ||
+            !/^0x[0-9a-fA-F]{64}$/.test(block.blockHash)
+        )
+            throw new Error("Invalid exact-block contract read");
+        const abi = contract.abi as Abi;
+        const data = encodeFunctionData({
+            abi,
+            functionName: contract.functionName,
+            args: contract.args,
+        });
+        return this.executeRpc("readContractAtBlock", async (client) => {
+            try {
+                // viem's readContract action accepts heights, not EIP-1898
+                // selectors. Keep the raw call and decoded contract errors here.
+                const result = await client.request(
+                    {
+                        method: "eth_call",
+                        params: [
+                            { to: contract.address, data },
+                            {
+                                blockHash: block.blockHash as Hex,
+                                requireCanonical: true,
+                            },
+                        ],
+                    },
+                    { retryCount: VIEM_TRANSPORT_RETRY_DISABLED },
+                );
+                return decodeFunctionResult({
+                    abi,
+                    functionName: contract.functionName,
+                    data: result,
+                }) as T;
+            } catch (error) {
+                if (!(error instanceof BaseError)) throw error;
+                throw getContractError(error, {
+                    ...contract,
+                    abi,
+                    args: contract.args,
+                });
+            }
+        });
     }
 
     async getBalance(

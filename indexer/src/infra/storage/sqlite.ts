@@ -1,10 +1,33 @@
 import { db } from "@artgod/shared/database";
-import { CollectionRecord } from "../../domain/collections.js";
+import { zeroHash } from "viem";
+import { normalizeErc721Owner } from "@artgod/shared/evm/erc721-ownership";
+import {
+    COLLECTION_STANDARD,
+    CollectionRecord,
+} from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
-import type { RpcBlock } from "../../ports/rpc.js";
+import type { ReorgForkStore } from "../../application/reorg-fork.js";
+import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
+import {
+    ChainSyncConflict,
+    type ChainSyncCheckpoint,
+    type SyncBlockHeader,
+} from "../../domain/chain-sync.js";
+import { assertSyncResultMatchesBlocks } from "../../domain/sync-result.js";
+import {
+    assertSameErc721Tokens,
+    resolveErc721Ownership,
+    type BalanceContext,
+    type Erc721TokenReference,
+} from "../../domain/ownership.js";
+import type {
+    Erc721RollbackSnapshot,
+    ReorgRollbackPlan,
+    ReorgRollbackStore,
+} from "../../application/reorg-rollback.js";
 
 type BalanceRow = { amount: string };
 type BlockHashRow = { block_hash: string };
@@ -28,17 +51,76 @@ type BlockMeta = {
     timestamp: number;
 };
 
-type BalanceContext = {
-    blockNumber: number;
-    blockHash: string;
-    blockTimestamp: number;
-    txHash: string;
-    logIndex: number;
+type OwnershipCheckpointRow = {
+    owner: string | null;
+    block_number: number;
+    block_hash: string;
+    block_timestamp: number;
+};
+
+type Erc721OwnershipReplacement = {
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    // A null owner explicitly removes ownership, e.g. a burn or a rolled-back mint.
+    owner: string | null;
+    context: BalanceContext;
 };
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const ROLLBACK_TRANSFER_PAGE_SIZE = 256;
 
-export class SqliteStorage implements StoragePort {
+export class SqliteStorage
+    implements StoragePort, ReorgRollbackStore, ReorgForkStore
+{
+    private selectReorgHeaders = db.prepare<[number, number, number]>(
+        "SELECT block_number AS number, block_hash AS hash, parent_hash AS parentHash, timestamp FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number",
+    );
+    private selectSyncRevision = db.prepare<[number]>(
+        "SELECT revision FROM chain_sync_revisions WHERE chain_id = ?",
+    );
+    private advanceSyncRevision = db.prepare<[number]>(
+        "INSERT INTO chain_sync_revisions (chain_id, revision) VALUES (?, 1) " +
+            "ON CONFLICT(chain_id) DO UPDATE SET revision = revision + 1",
+    );
+    private selectOwnershipCheckpoint = db.prepare<[number, number, string]>(
+        "SELECT p.owner, p.block_number, p.block_hash, p.block_timestamp " +
+            "FROM erc721_ownership_checkpoints p JOIN collections c ON c.collection_id = p.collection_id " +
+            "WHERE p.chain_id = ? AND p.collection_id = ? AND p.token_id = ? " +
+            "AND p.bootstrap_anchor_block IS c.bootstrap_anchor_block",
+    );
+    private upsertOwnershipCheckpoint = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        contract: string;
+        tokenId: string;
+        owner: string | null;
+        blockNumber: number;
+        blockHash: string;
+        blockTimestamp: number;
+    }>(
+        "INSERT INTO erc721_ownership_checkpoints " +
+            "(chain_id, collection_id, contract_address, token_id, owner, block_number, block_hash, block_timestamp, bootstrap_anchor_block) " +
+            "SELECT @chainId, @collectionId, @contract, @tokenId, @owner, @blockNumber, @blockHash, @blockTimestamp, bootstrap_anchor_block " +
+            "FROM collections WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
+            "contract_address = excluded.contract_address, owner = excluded.owner, block_number = excluded.block_number, " +
+            "block_hash = excluded.block_hash, block_timestamp = excluded.block_timestamp, bootstrap_anchor_block = excluded.bootstrap_anchor_block",
+    );
+    private selectRollbackTokens = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+        standard: string;
+    }>(
+        "SELECT c.collection_id AS collectionId, c.address AS contract, t.token_id AS tokenId FROM (" +
+            "SELECT collection_id, token_id FROM nft_transfer_events WHERE chain_id = @chainId AND block_number >= @fromBlock AND kind = @standard " +
+            "UNION SELECT collection_id, token_id FROM nft_balances WHERE chain_id = @chainId AND last_block_number >= @fromBlock " +
+            "UNION SELECT collection_id, token_id FROM erc721_ownership_checkpoints WHERE chain_id = @chainId AND block_number >= @fromBlock" +
+            ") t JOIN collections c ON c.collection_id = t.collection_id " +
+            "WHERE c.chain_id = @chainId AND c.standard = @standard AND c.bootstrap_anchor_block IS NOT NULL " +
+            "ORDER BY c.collection_id, t.token_id",
+    );
     private insertBlock = db.prepare<[number, number, string, string, number]>(
         "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp) VALUES (?, ?, ?, ?, ?) " +
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
@@ -156,6 +238,14 @@ export class SqliteStorage implements StoragePort {
     private selectBalance = db.prepare<[number, number, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
     );
+    private selectLatestTransfer = db.prepare<[number, number, string]>(
+        "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
+            "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+            "ORDER BY block_number DESC, log_index DESC LIMIT 1",
+    );
+    private deleteTokenBalances = db.prepare<[number, number, string]>(
+        "DELETE FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+    );
     private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
     );
@@ -168,10 +258,22 @@ export class SqliteStorage implements StoragePort {
         "SELECT COUNT(1) as count FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ?",
     );
-    private selectTransfersFromBlock = db.prepare<[number, number]>(
+    private selectTransfersFromBlock = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+        afterBlock: number | null;
+        afterLog: number;
+        afterCollection: number;
+        afterToken: string;
+        afterTx: string;
+        limit: number;
+    }>(
         "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
-            "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
-            "ORDER BY block_number DESC, log_index DESC",
+            "FROM nft_transfer_events WHERE chain_id = @chainId AND block_number >= @fromBlock " +
+            "AND (@afterBlock IS NULL OR block_number < @afterBlock " +
+            "OR (block_number = @afterBlock AND log_index < @afterLog) " +
+            "OR (block_number = @afterBlock AND log_index = @afterLog AND (collection_id, token_id, tx_hash) > (@afterCollection, @afterToken, @afterTx))) " +
+            "ORDER BY block_number DESC, log_index DESC, collection_id ASC, token_id ASC, tx_hash ASC LIMIT @limit",
     );
     private upsertBalance = db.prepare<
         [
@@ -246,13 +348,46 @@ export class SqliteStorage implements StoragePort {
         "DELETE FROM collection_sync_blocks WHERE chain_id = ? AND block_number >= ?",
     );
 
-    persistSyncResult(
-        chainId: number,
-        blocks: RpcBlock[],
-        data: OnChainData,
-        collections: CollectionRecord[],
-    ): void {
+    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint {
+        const row = this.selectSyncRevision.get(chainId) as
+            | { revision: number }
+            | undefined;
+        return { chainId, revision: row?.revision ?? 0 };
+    }
+
+    private assertSyncCheckpoint(checkpoint: ChainSyncCheckpoint): void {
+        if (
+            this.captureSyncCheckpoint(checkpoint.chainId).revision !==
+            checkpoint.revision
+        )
+            throw new ChainSyncConflict(
+                "Sync work predates a committed chain rollback",
+            );
+    }
+
+    persistSyncResult({
+        checkpoint,
+        blocks,
+        data,
+        collections,
+    }: {
+        checkpoint: ChainSyncCheckpoint;
+        blocks: readonly SyncBlockHeader[];
+        data: OnChainData;
+        collections: CollectionRecord[];
+    }): void {
+        const chainId = checkpoint.chainId;
         const run = db.writeTransaction(() => {
+            this.assertSyncCheckpoint(checkpoint);
+            assertSyncResultMatchesBlocks({ blocks, data });
+            for (const block of blocks) {
+                const storedHash = this.getBlockHash(chainId, block.number);
+                if (storedHash && storedHash !== block.hash) {
+                    throw new ChainSyncConflict(
+                        `Sync conflicts with stored block ${block.number}; rollback is required`,
+                    );
+                }
+            }
             const blockMeta = buildBlockMeta(blocks);
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
@@ -288,6 +423,51 @@ export class SqliteStorage implements StoragePort {
         return row?.block_hash ?? null;
     }
 
+    captureReorgHistory(input: {
+        chainId: number;
+        fromBlock: number;
+        toBlock: number;
+    }): ReorgHistorySnapshot {
+        // A deferred read transaction gives the revision and sparse headers one
+        // snapshot, without acquiring the writer or keeping it open across RPC.
+        return db.raw.transaction(() => ({
+            checkpoint: this.captureSyncCheckpoint(input.chainId),
+            fromBlock: input.fromBlock,
+            toBlock: input.toBlock,
+            headers: this.selectReorgHeaders.all(
+                input.chainId,
+                input.fromBlock,
+                input.toBlock,
+            ) as SyncBlockHeader[],
+        }))();
+    }
+
+    // The recovery adapter holds its rollback writer through this validation and
+    // the commit; a revision alone cannot fence intervening sparse header inserts.
+    assertReorgHistoryUnchanged(expected: ReorgHistorySnapshot): void {
+        this.assertSyncCheckpoint(expected.checkpoint);
+        const current = this.captureReorgHistory({
+            chainId: expected.checkpoint.chainId,
+            fromBlock: expected.fromBlock,
+            toBlock: expected.toBlock,
+        });
+        if (
+            current.headers.length !== expected.headers.length ||
+            current.headers.some((header, index) => {
+                const previous = expected.headers[index];
+                return (
+                    header.number !== previous.number ||
+                    header.hash !== previous.hash ||
+                    header.parentHash !== previous.parentHash ||
+                    header.timestamp !== previous.timestamp
+                );
+            })
+        )
+            throw new ChainSyncConflict(
+                "Reorg ancestor history changed during preparation",
+            );
+    }
+
     countBlocksInRange(
         chainId: number,
         fromBlock: number,
@@ -318,8 +498,57 @@ export class SqliteStorage implements StoragePort {
         return row?.count ?? 0;
     }
 
-    rollbackFromBlock(chainId: number, fromBlock: number): void {
+    prepareRollback(input: {
+        chainId: number;
+        fromBlock: number;
+    }): ReorgRollbackPlan {
+        if (!Number.isSafeInteger(input.fromBlock) || input.fromBlock < 1)
+            throw new RangeError(
+                "Rollback block must be a positive safe integer",
+            );
+        return {
+            checkpoint: this.captureSyncCheckpoint(input.chainId),
+            fromBlock: input.fromBlock,
+            tokens: this.selectRollbackTokens.all({
+                ...input,
+                standard: COLLECTION_STANDARD.Erc721,
+            }) as Erc721TokenReference[],
+        };
+    }
+
+    rollbackFromBlock({
+        plan,
+        snapshot,
+    }: {
+        plan: ReorgRollbackPlan;
+        snapshot: Erc721RollbackSnapshot;
+    }): void {
+        const { chainId } = plan.checkpoint;
+        const fromBlock = plan.fromBlock;
         const run = db.writeTransaction(() => {
+            this.assertSyncCheckpoint(plan.checkpoint);
+            if (snapshot.block.blockNumber !== fromBlock - 1)
+                throw new ChainSyncConflict(
+                    "Rollback ownership snapshot has the wrong block",
+                );
+            const storedForkHash = this.getBlockHash(chainId, fromBlock - 1);
+            if (storedForkHash && storedForkHash !== snapshot.block.blockHash)
+                throw new ChainSyncConflict(
+                    "Rollback fork no longer matches persisted history",
+                );
+            const currentTokens = this.selectRollbackTokens.all({
+                chainId,
+                fromBlock,
+                standard: COLLECTION_STANDARD.Erc721,
+            }) as Erc721TokenReference[];
+            assertSameErc721Tokens({
+                expected: plan.tokens,
+                actual: currentTokens,
+            });
+            assertSameErc721Tokens({
+                expected: plan.tokens,
+                actual: snapshot.owners,
+            });
             // Invalidate uncertain chain-derived terminal state. An OpenSea
             // cancellation is independent of this chain rollback and must stay.
             db.prepare(
@@ -334,13 +563,49 @@ export class SqliteStorage implements StoragePort {
             db.prepare<[number, string]>(
                 "DELETE FROM market_order_retirements WHERE chain_id=? AND reason=?",
             ).run(chainId, ORDER_RETIREMENT_REASON.Terminal);
-            const events = this.selectTransfersFromBlock.all(
-                chainId,
-                fromBlock,
-            ) as TransferRow[];
-            for (const event of events) {
-                this.applyTransferRollback(chainId, event);
-                this.resetOrderFromTransfer(chainId, event);
+            // The driver disallows writes while a read cursor is open. Close
+            // each bounded page before applying deltas, in this same transaction.
+            let after: TransferRow | undefined;
+            while (true) {
+                const events = this.selectTransfersFromBlock.all({
+                    chainId,
+                    fromBlock,
+                    limit: ROLLBACK_TRANSFER_PAGE_SIZE,
+                    afterBlock: after?.block_number ?? null,
+                    afterLog: after?.log_index ?? 0,
+                    afterCollection: after?.collection_id ?? 0,
+                    afterToken: after?.token_id ?? "",
+                    afterTx: after?.tx_hash ?? "",
+                }) as TransferRow[];
+                for (const event of events) {
+                    if (event.kind === COLLECTION_STANDARD.Erc1155)
+                        this.rollbackErc1155Transfer(chainId, event);
+                    this.resetOrderFromTransfer(chainId, event);
+                }
+                if (events.length < ROLLBACK_TRANSFER_PAGE_SIZE) break;
+                after = events[events.length - 1];
+            }
+            for (const token of snapshot.owners) {
+                const owner =
+                    token.owner === null
+                        ? null
+                        : normalizeErc721Owner(token.owner);
+                this.upsertOwnershipCheckpoint.run({
+                    chainId,
+                    ...token,
+                    owner,
+                    ...snapshot.block,
+                });
+                this.replaceErc721Ownership({
+                    chainId,
+                    ...token,
+                    owner,
+                    context: {
+                        ...snapshot.block,
+                        txHash: zeroHash,
+                        logIndex: 0,
+                    },
+                });
             }
             this.deleteTransfersFromBlock.run(chainId, fromBlock);
             this.deleteFillsFromBlock.run(chainId, fromBlock);
@@ -358,11 +623,25 @@ export class SqliteStorage implements StoragePort {
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
+            // Retain the verified fork header even when its transfer facts were
+            // missing, so later reorg checks can invalidate this checkpoint.
+            this.persistBlocks(chainId, [
+                {
+                    number: snapshot.block.blockNumber,
+                    hash: snapshot.block.blockHash,
+                    parentHash: snapshot.block.parentHash,
+                    timestamp: snapshot.block.blockTimestamp,
+                },
+            ]);
+            this.advanceSyncRevision.run(chainId);
         });
         run();
     }
 
-    private persistBlocks(chainId: number, blocks: RpcBlock[]): void {
+    private persistBlocks(
+        chainId: number,
+        blocks: readonly SyncBlockHeader[],
+    ): void {
         // Store block metadata for reorg checks and future gap detection.
         for (const block of blocks) {
             this.insertBlock.run(
@@ -377,7 +656,7 @@ export class SqliteStorage implements StoragePort {
 
     private persistCollectionSyncBlocks(
         chainId: number,
-        blocks: RpcBlock[],
+        blocks: readonly SyncBlockHeader[],
         collections: CollectionRecord[],
     ): void {
         // Mark coverage for each collection this sync job actually targeted.
@@ -528,37 +807,81 @@ export class SqliteStorage implements StoragePort {
         }
     }
 
+    // Projects newly inserted post-anchor transfers into current balances.
+    // ERC721 uses the latest transfer or verified fork ownership checkpoint;
+    // ERC1155 applies each transfer's balance deltas once.
     private applyBalanceUpdatesFromEvents(
         chainId: number,
         events: OnChainData["collectionScoped"]["nftTransferEvents"],
         blockMeta: Map<number, BlockMeta>,
     ): void {
-        // Only apply balance deltas for newly inserted transfers (idempotent).
         for (const event of events) {
-            const context = buildBalanceContext(
-                event.blockNumber,
-                event.blockHash,
-                resolveBlockTimestamp(blockMeta, event.blockNumber),
-                event.txHash,
-                event.logIndex,
-            );
-            const contract = event.contract.toLowerCase();
-            const from = event.from.toLowerCase();
-            const to = event.to.toLowerCase();
-
-            if (event.kind === "erc721") {
-                this.applyErc721Transfer(
+            if (event.kind === COLLECTION_STANDARD.Erc721) {
+                // Gap repairs can arrive behind realtime or newer backfills.
+                // Project the latest persisted transfer, including burns, rather
+                // than letting delivery order determine the token's owner.
+                const latest = this.selectLatestTransfer.get(
                     chainId,
                     event.collectionId,
-                    contract,
                     event.tokenId,
-                    from,
-                    to,
-                    context,
-                );
+                ) as TransferRow | undefined;
+                const checkpoint = this.selectOwnershipCheckpoint.get(
+                    chainId,
+                    event.collectionId,
+                    event.tokenId,
+                ) as OwnershipCheckpointRow | undefined;
+                const state = resolveErc721Ownership({
+                    latestTransfer: latest
+                        ? {
+                              owner:
+                                  latest.to_address === ZERO_ADDRESS
+                                      ? null
+                                      : latest.to_address,
+                              context: {
+                                  blockNumber: latest.block_number,
+                                  blockHash: latest.block_hash,
+                                  blockTimestamp: latest.block_timestamp,
+                                  txHash: latest.tx_hash,
+                                  logIndex: latest.log_index,
+                              },
+                          }
+                        : null,
+                    checkpoint: checkpoint
+                        ? {
+                              owner: checkpoint.owner,
+                              context: {
+                                  blockNumber: checkpoint.block_number,
+                                  blockHash: checkpoint.block_hash,
+                                  blockTimestamp: checkpoint.block_timestamp,
+                                  txHash: zeroHash,
+                                  logIndex: 0,
+                              },
+                          }
+                        : null,
+                });
+                this.replaceErc721Ownership({
+                    chainId,
+                    collectionId: event.collectionId,
+                    contract: event.contract.toLowerCase(),
+                    tokenId: event.tokenId,
+                    ...state,
+                });
                 continue;
             }
 
+            const context: BalanceContext = {
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+                blockTimestamp: resolveBlockTimestamp(
+                    blockMeta,
+                    event.blockNumber,
+                ),
+                txHash: event.txHash,
+                logIndex: event.logIndex,
+            };
+            const contract = event.contract.toLowerCase();
+            const from = event.from.toLowerCase();
+            const to = event.to.toLowerCase();
             const amount = BigInt(event.amount);
             this.applyErc1155Transfer(
                 chainId,
@@ -573,30 +896,17 @@ export class SqliteStorage implements StoragePort {
         }
     }
 
-    private applyTransferRollback(chainId: number, event: TransferRow): void {
+    private rollbackErc1155Transfer(chainId: number, event: TransferRow): void {
         const contract = event.contract.toLowerCase();
         const from = event.from_address.toLowerCase();
         const to = event.to_address.toLowerCase();
-        const context = buildBalanceContext(
-            event.block_number,
-            event.block_hash,
-            event.block_timestamp,
-            event.tx_hash,
-            event.log_index,
-        );
-
-        if (event.kind === "erc721") {
-            this.applyErc721Transfer(
-                chainId,
-                event.collection_id,
-                contract,
-                event.token_id,
-                to,
-                from,
-                context,
-            );
-            return;
-        }
+        const context: BalanceContext = {
+            blockNumber: event.block_number,
+            blockHash: event.block_hash,
+            blockTimestamp: event.block_timestamp,
+            txHash: event.tx_hash,
+            logIndex: event.log_index,
+        };
 
         const amount = BigInt(event.amount);
         this.applyErc1155Transfer(
@@ -627,25 +937,24 @@ export class SqliteStorage implements StoragePort {
         );
     }
 
-    private applyErc721Transfer(
-        chainId: number,
-        collectionId: number,
-        contract: string,
-        tokenId: string,
-        from: string,
-        to: string,
-        context: BalanceContext,
-    ): void {
-        if (from !== ZERO_ADDRESS) {
-            this.deleteBalance.run(chainId, collectionId, tokenId, from);
-        }
-        if (to !== ZERO_ADDRESS) {
+    // Replace every balance row for this token with the specified owner (or none).
+    // Ingestion and rollback call this within their encompassing write transaction.
+    private replaceErc721Ownership({
+        chainId,
+        collectionId,
+        contract,
+        tokenId,
+        owner,
+        context,
+    }: Erc721OwnershipReplacement): void {
+        this.deleteTokenBalances.run(chainId, collectionId, tokenId);
+        if (owner !== null) {
             this.upsertBalance.run(
                 chainId,
                 collectionId,
                 contract,
                 tokenId,
-                to,
+                owner,
                 "1",
                 context.blockNumber,
                 context.blockHash,
@@ -752,7 +1061,9 @@ export class SqliteStorage implements StoragePort {
     }
 }
 
-function buildBlockMeta(blocks: RpcBlock[]): Map<number, BlockMeta> {
+function buildBlockMeta(
+    blocks: readonly SyncBlockHeader[],
+): Map<number, BlockMeta> {
     const map = new Map<number, BlockMeta>();
     for (const block of blocks) {
         map.set(block.number, { timestamp: block.timestamp });
@@ -769,20 +1080,4 @@ function resolveBlockTimestamp(
         throw new Error(`Missing block timestamp for block ${blockNumber}`);
     }
     return meta.timestamp;
-}
-
-function buildBalanceContext(
-    blockNumber: number,
-    blockHash: string,
-    blockTimestamp: number,
-    txHash: string,
-    logIndex: number,
-): BalanceContext {
-    return {
-        blockNumber,
-        blockHash,
-        blockTimestamp,
-        txHash,
-        logIndex,
-    };
 }

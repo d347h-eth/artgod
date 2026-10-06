@@ -16,7 +16,7 @@ import { allowsGlobalMakerRevalidation } from "./backfill-order-maintenance.js";
 
 // Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.
 export async function publishOrderUpdateJobs(
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     collections: CollectionRecord[],
     data: OnChainData,
@@ -179,7 +179,7 @@ export function canAnyCollectionProjectCurrentStateAt(
 }
 
 async function publishOrderUpdateById(
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     orderId: string,
     reason: string,

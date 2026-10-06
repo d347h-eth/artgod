@@ -30,6 +30,81 @@ sequenceDiagram
     Domain->>DB: Persist activities / metadata / orders
 ```
 
+## Perpetual Collection Gap Repair
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as Scheduler Worker
+    participant DB as SQLite
+    participant NATS as NATS JetStream
+    participant Sync as Sync Worker
+    participant RPC as RPC Node
+
+    loop Startup and HTTP head polls, including unchanged heads
+        Scheduler->>DB: Page live collections and read saved scan progress
+        Scheduler->>DB: Read bounded descending collection coverage
+        alt Missing coverage and no outstanding repair
+            Scheduler->>DB: Save cursor and pending repair identity
+            Scheduler->>NATS: Publish collection-scoped gap repair
+        else Pending repair is due for retry
+            Scheduler->>NATS: Republish the same repair identity
+        end
+    end
+    NATS-->>Sync: Deliver gap repair
+    Sync->>DB: Recheck live collection, anchor, and pending identity
+    Sync->>RPC: Fetch range through normal backfill path
+    Sync->>DB: Persist facts, coverage, and anchor-gated balances
+    Sync->>NATS: Publish domain jobs and current-state followups
+    Sync->>DB: Complete matching repair
+    Note over Scheduler,DB: Next pass continues toward anchor; completed sweeps restart at head
+```
+
+## Durable Reorg Recovery
+
+```mermaid
+sequenceDiagram
+    participant Reorg as Reorg Worker
+    participant RPC as RPC Node
+    participant DB as SQLite
+    participant Domain as Domain Worker Outbox Drainer
+    participant NATS as NATS JetStream
+    participant Sync as Sync Worker
+
+    NATS-->>Reorg: Block-check delivery
+    Reorg->>RPC: Fresh header differs from stored hash
+    Reorg->>DB: Retain mismatch identity and revision
+    alt Retention fails
+        Reorg->>NATS: Deferred NACK, preserve original recovery owner
+    else Mismatch retained
+        Reorg->>RPC: Bounded common-ancestor proof
+        alt Proof unavailable
+            Reorg->>DB: Retain awaiting_ancestor and delayed retry
+        else Verified ancestor
+            Reorg->>RPC: ownerOf at exact fork hash, requireCanonical
+            Reorg->>DB: Atomic rollback, ownership, revision, resync and first outbox job
+        end
+        Reorg->>NATS: ACK retained check
+    end
+    loop Startup and periodic recovery, independent of HEAD changes
+        Reorg->>DB: Read due unfinished recovery
+        alt Still awaiting proof
+            Reorg->>RPC: Retry bounded proof and exact-hash snapshot
+        else Resync unfinished
+            Reorg->>DB: Replace wakeup with fresh delivery ID, same logical range
+        end
+    end
+    Domain->>DB: Read due outbox publication
+    Domain->>NATS: Publish bounded canonical resync
+    NATS-->>Sync: Reorg range with recovery ID and revision
+    Sync->>DB: Recheck current logical range and eligible collections
+    Sync->>RPC: Normal range fetch
+    Sync->>DB: Persist canonical facts and coverage
+    Sync->>NATS: Publish all required downstream jobs
+    Sync->>DB: Atomically complete range and enqueue next, or clear recovery
+    Note over DB,Sync: Failed fanout retains work even when coverage exists
+    Note over DB,NATS: Publication ACK, DLQ and dedupe are transport state, not completion
+```
+
 ## Collection Bootstrap + OpenSea Bootstrap
 
 ```mermaid

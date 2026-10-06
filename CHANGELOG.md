@@ -15,6 +15,8 @@ Curated entries begin with `0.1.3-alpha`; earlier releases remain available in
 
 ### Fixed
 
+- Collections automatically fill missing history and keep NFT ownership up to date
+  after interruptions, using fewer RPC requests.
 - Bidding authorization opens in a shorter, resizable window with visible Next
   and Cancel buttons. Long reviews continue through Next before wallet unlock.
 - Bootstrap enumeration reports progress at roughly 1% intervals, keeping the
