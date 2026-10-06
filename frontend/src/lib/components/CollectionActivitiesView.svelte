@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { ACTIVITY_KIND } from '@artgod/shared/types';
 	import type {
 		ApiActivitiesPage,
 		ApiActivityEventMedia,
@@ -833,6 +834,8 @@
 													<span class="muted">-</span>
 												{/if}
 											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Price}
+												{@const saleQuantity = activity.kind === ACTIVITY_KIND.Sale && activity.amount !== '1' ? activity.amount : null}
+												{#if saleQuantity}<span class="activities-sale-quantity muted">{saleQuantity} tokens, </span>{/if}
 												{#if activityPriceLabel(activity)}
 													{#if marketplaceItemHref(activity)}
 														<a
@@ -845,6 +848,7 @@
 													{:else}
 														{activityPriceLabel(activity)}
 													{/if}
+													{#if saleQuantity}<span class="muted"> total</span>{/if}
 												{:else}
 													<span class="muted">-</span>
 												{/if}
