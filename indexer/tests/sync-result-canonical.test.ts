@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import { encodeEventTopics, type Hex } from "viem";
 import { ERC721_ABI } from "../src/abi/index.js";
 import { syncRange } from "../src/application/sync.js";
@@ -8,9 +9,13 @@ import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import {
     NFT_APPROVAL_SCOPE,
+    type FillEvent,
     type NftTransferEvent,
     type OnChainData,
 } from "../src/domain/onchain.js";
+import { ORDER_SIDE } from "../src/domain/orders.js";
+import { FILL_ATTRIBUTION_CONFLICT } from "../src/infra/storage/sqlite.js";
+import { FILL_EXECUTION_CONFLICT } from "../src/infra/storage/sqlite-fill-executions.js";
 import {
     GLOBAL_MAKER_TRIGGER_REASON,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
@@ -44,13 +49,20 @@ function snapshot() {
             "transactions",
             "nft_transfer_events",
             "nft_balances",
+            "erc721_ownership_checkpoints",
+            "fill_executions",
+            "fill_execution_items",
             "fills",
             "collection_extension_events",
             "collection_extension_event_media",
             "chain_sync_revisions",
         ].map((table) => [
             table,
-            db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+            db
+                .prepare(
+                    `SELECT * FROM ${table} ORDER BY ${table === "fill_execution_items" ? "execution_id, item_index" : "rowid"}`,
+                )
+                .all(),
         ]),
     );
 }
@@ -169,7 +181,7 @@ describe("canonical sync persistence", () => {
     });
     beforeEach(() => {
         db.exec(
-            "DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM transactions; DELETE FROM collection_sync_blocks; DELETE FROM blocks; DELETE FROM chain_sync_revisions;",
+            "DELETE FROM fill_executions; DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM transactions; DELETE FROM collection_sync_blocks; DELETE FROM blocks; DELETE FROM chain_sync_revisions;",
         );
     });
 
@@ -182,6 +194,137 @@ describe("canonical sync persistence", () => {
             collections: [loadCollection(1, f.collectionId)],
         };
     }
+
+    const attributionConflicts: Array<{
+        field: string;
+        patch: Partial<FillEvent>;
+    }> = [
+        { field: "maker", patch: { maker: C } },
+        { field: "taker", patch: { taker: D } },
+        { field: "order side", patch: { orderSide: ORDER_SIDE.Buy } },
+        { field: "order ID", patch: { orderId: "different-order" } },
+        { field: "missing maker", patch: { maker: undefined } },
+        { field: "missing order ID", patch: { orderId: undefined } },
+    ];
+    it.each(
+        attributionConflicts.flatMap((conflict) =>
+            ["same batch", "later replay"].map((mode) => ({
+                ...conflict,
+                mode,
+            })),
+        ),
+    )(
+        "rejects conflicting attribution $field in $mode atomically",
+        ({ patch, mode }) => {
+            const f = harness();
+            const original: FillEvent = {
+                ...dataWithAllFacts(f.transfer(102, 1, B, C)).collectionScoped
+                    .fillEvents[0]!,
+                kind: FILL_KIND.Seaport,
+                orderId: "original-order",
+                orderSide: ORDER_SIDE.Sell,
+            };
+            if (mode === "later replay") {
+                const data = emptyOnChainData();
+                data.collectionScoped.fillEvents = [original];
+                f.storage.persistSyncResult({
+                    ...f,
+                    blocks: [block(102)],
+                    data,
+                });
+            }
+            const before = snapshot();
+            const data = dataWithAllFacts(f.transfer(103, 1, B, D));
+            data.collectionScoped.fillEvents = [
+                ...(mode === "same batch" ? [original] : []),
+                { ...original, ...patch },
+            ];
+            expect(() =>
+                f.storage.persistSyncResult({
+                    ...f,
+                    blocks: [block(102), block(103)],
+                    data,
+                }),
+            ).toThrow(FILL_ATTRIBUTION_CONFLICT);
+            expect(snapshot()).toEqual(before);
+            expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+                { owner: B, amount: "1" },
+            ]);
+        },
+    );
+
+    it("accepts attribution replays after existing address and optional-field normalization", () => {
+        const f = harness();
+        const data = dataWithAllFacts(f.transfer(102, 1, B, C));
+        const original = data.collectionScoped.fillEvents[0]!;
+        f.storage.persistSyncResult({ ...f, blocks: [block(102)], data });
+        const before = snapshot();
+        const replay = emptyOnChainData();
+        replay.collectionScoped.fillEvents = [
+            {
+                ...original,
+                maker: original.maker!.toUpperCase(),
+                taker: original.taker!.toUpperCase(),
+                contract: original.contract.toUpperCase(),
+                txHash: original.txHash.toUpperCase(),
+                orderId: undefined,
+                orderSide: undefined,
+            },
+        ];
+        f.storage.persistSyncResult({
+            ...f,
+            blocks: [block(102)],
+            data: replay,
+            collections: [],
+        });
+        expect(snapshot()).toEqual(before);
+    });
+
+    it.each(["shared", "separately allocated"])(
+        "rejects conflicting execution provenance with %s equal contexts atomically",
+        (contextMode) => {
+            const f = harness();
+            const before = snapshot();
+            const data = dataWithAllFacts(f.transfer(102, 1, B, C));
+            const original = data.collectionScoped.fillEvents[0]!;
+            const execution = {
+                ...original.execution,
+                items: [
+                    ...original.execution.items,
+                    {
+                        ...original.execution.items[0]!,
+                        index: 1,
+                        identifier: "2",
+                    },
+                ],
+            };
+            data.collectionScoped.fillEvents = [
+                { ...original, execution },
+                {
+                    ...original,
+                    tokenId: "2",
+                    executionItemIndex: 1,
+                    blockNumber: 103,
+                    blockHash: block(103).hash,
+                    execution:
+                        contextMode === "shared"
+                            ? execution
+                            : structuredClone(execution),
+                },
+            ];
+            expect(() =>
+                f.storage.persistSyncResult({
+                    ...f,
+                    blocks: [block(102), block(103)],
+                    data,
+                }),
+            ).toThrow(FILL_EXECUTION_CONFLICT);
+            expect(snapshot()).toEqual(before);
+            expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+                { owner: B, amount: "1" },
+            ]);
+        },
+    );
 
     it("rejects the reproduced orphan transfer with canonical metadata without changing ownership or coverage", () => {
         const f = harness();

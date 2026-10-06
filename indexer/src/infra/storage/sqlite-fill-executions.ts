@@ -5,9 +5,9 @@ import {
     type FillExecution,
 } from "@artgod/shared/market-data/fills";
 
-/** Called inside the sync write transaction. Immutable protocol facts can be
- * re-attributed to another tracked collection, but cannot change on replay. */
-export function persistFillExecution(input: {
+export const FILL_EXECUTION_CONFLICT = "Conflicting immutable fill execution";
+
+export type FillExecutionWrite = {
     executionId: string;
     chainId: number;
     kind: string;
@@ -17,7 +17,11 @@ export function persistFillExecution(input: {
     blockHash: string;
     blockTimestamp: number;
     execution: FillExecution;
-}): void {
+};
+
+/** Called inside the sync write transaction. Immutable protocol facts can be
+ * re-attributed to another tracked collection, but cannot change on replay. */
+export function persistFillExecution(input: FillExecutionWrite): void {
     const { payment, items } = prepareFillExecution(input.execution);
     const header = {
         id: input.executionId,
@@ -63,7 +67,7 @@ export function persistFillExecution(input: {
             !isDeepStrictEqual(existing, header) ||
             !isDeepStrictEqual(storedItems, itemRows)
         )
-            throw new Error("Conflicting immutable fill execution");
+            throw new Error(FILL_EXECUTION_CONFLICT);
         return;
     }
     db.prepare(
