@@ -11,6 +11,11 @@ import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { runWorker } from "../src/application/worker-runner.js";
+import {
+    SyncGapScheduler,
+    executeSyncGapRepair,
+} from "../src/application/sync-gap-scheduler.js";
+import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import type { BlockCheckPayload } from "../src/domain/reorg-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
@@ -28,6 +33,7 @@ import { loadReorgRecoveryTestConfig } from "../tests/helpers/reorg-recovery-tes
 import { loadTestEnv } from "../tests/helpers/test-env.js";
 import {
     emptyOnChainData,
+    insertCollection,
     selectBalanceOwners,
     selectTransferCount,
 } from "../tests/helpers/ownership-fixture.js";
@@ -48,6 +54,11 @@ import {
     type ReorgFixtureConfig,
     type ReorgFixtureReport,
 } from "../tests/fixtures/reorg-recovery-protocol.js";
+import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
+import {
+    SYNC_JOB_KIND,
+    type BackfillSyncPayload,
+} from "../src/domain/sync-jobs.js";
 
 describe("isolated broker and process reorg recovery", () => {
     loadTestEnv();
@@ -142,6 +153,109 @@ describe("isolated broker and process reorg recovery", () => {
         setDbPath(dbPath);
         db.raw.close();
     });
+    it("delivers one grouped gap job through JetStream and fans out only its participating collections", async () => {
+        db.exec(
+            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
+        );
+        const ids = [
+            "0x1111111111111111111111111111111111111111",
+            "0x2222222222222222222222222222222222222222",
+        ].map((address, i) =>
+            insertCollection({
+                chainId: F.ChainId,
+                slug: `broker-gap-${i}`,
+                address,
+                anchorBlock: F.Anchor,
+            }),
+        );
+        const rpc = new RecoveryRpc();
+        const blockReads: number[] = [];
+        rpc.beforeBlockRead = async (number) => {
+            blockReads.push(number);
+        };
+        services = reorgRecoveryServices(rpc);
+        const gaps = new SqliteSyncGapStore();
+        const delivered: JobEnvelope<BackfillSyncPayload>[] = [];
+        stops.push(
+            await runWorker(
+                queue,
+                {
+                    queue: QUEUE_NAMES.BackfillSync,
+                    consumerName: "fixture-grouped-gap",
+                    maxInFlight: 1,
+                    maxAttempts: 5,
+                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                },
+                async (job: JobEnvelope<BackfillSyncPayload>) => {
+                    if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
+                    delivered.push(job);
+                    await executeSyncGapRepair(
+                        job,
+                        services.registry,
+                        gaps,
+                        (collections, sources) =>
+                            services.syncAndPublish(job, queue, {
+                                collections,
+                                sources,
+                            }),
+                    );
+                },
+            ),
+        );
+        const scheduler = new SyncGapScheduler(services.registry, gaps, queue, {
+            chainId: F.ChainId,
+            batchSize: F.BatchSize,
+        });
+        await scheduler.scan(F.Head);
+        await waitForFixture(
+            () =>
+                ids.every(
+                    (id) => gaps.getProgress(F.ChainId, id)?.pending === null,
+                ) && fanout.length === 6,
+            "grouped repair and collection-scoped fanout",
+        );
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0].collectionId).toBeUndefined();
+        expect(blockReads).toEqual([106, 107, 107]);
+        expect(rpc.logReads).toBe(4);
+        for (const id of ids) {
+            expect(
+                services.storage.countCollectionSyncedBlocksInRange(
+                    F.ChainId,
+                    id,
+                    106,
+                    107,
+                ),
+            ).toBe(2);
+            expect(
+                fanout
+                    .filter((job) => job.collectionId === id)
+                    .map((job) => job.kind)
+                    .sort(),
+            ).toEqual(
+                [
+                    DOMAIN_JOB_KIND.ActivitySync,
+                    DOMAIN_JOB_KIND.OrdersSync,
+                    DOMAIN_JOB_KIND.MetadataSync,
+                ].sort(),
+            );
+        }
+        expect(
+            fanout.every(
+                (job) => job.payload.sourceJobId === delivered[0].jobId,
+            ),
+        ).toBe(true);
+        expect(deadLetters).toHaveLength(0);
+        await writeFile(
+            path.join(artifacts, "grouped-gap-result.json"),
+            JSON.stringify(
+                { delivered, blockReads, logReads: rpc.logReads, fanout },
+                null,
+                2,
+            ),
+        );
+    });
+
     async function worker(overrides: Partial<ReorgFixtureConfig> = {}) {
         const config: ReorgFixtureConfig = {
             dbPath,
