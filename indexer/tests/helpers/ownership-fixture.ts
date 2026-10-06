@@ -44,8 +44,7 @@ export function selectBalanceOwners(
 ): Array<{ owner: string; amount: string }> {
     return db
         .prepare<
-            [number, number, string],
-            { owner: string; amount: string }
+            [number, number, string]
         >("SELECT owner, amount FROM nft_balances " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " + "ORDER BY owner ASC")
         .all(chainId, collectionId, tokenId) as Array<{
         owner: string;
@@ -58,14 +57,12 @@ export function selectTransferCount(
     collectionId: number,
     tokenId: string,
 ): number {
-    return (
-        db
-            .prepare<
-                [number, number, string],
-                { count: number }
-            >("SELECT COUNT(*) AS count FROM nft_transfer_events " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ?")
-            .get(chainId, collectionId, tokenId)?.count ?? 0
-    );
+    const row = db
+        .prepare<
+            [number, number, string]
+        >("SELECT COUNT(*) AS count FROM nft_transfer_events " + "WHERE chain_id = ? AND collection_id = ? AND token_id = ?")
+        .get(chainId, collectionId, tokenId) as { count: number } | undefined;
+    return row?.count ?? 0;
 }
 
 export function transferFixture() {

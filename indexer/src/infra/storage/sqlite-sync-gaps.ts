@@ -4,6 +4,7 @@ import type {
     SyncGapRange,
     SyncGapStorePort,
 } from "../../application/sync-gap-scheduler.js";
+import type { SyncGapRepairTarget } from "../../domain/sync-jobs.js";
 
 type ProgressRow = {
     anchor_block: number;
@@ -21,7 +22,7 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
     );
     private upsertProgress = db.prepare(
         "INSERT INTO collection_sync_gap_scans (chain_id, collection_id, anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at) " +
-            "VALUES (@chainId, @collectionId, @anchorBlock, @cursorBlock, @jobId, @fromBlock, @toBlock, @retryAt) " +
+            "VALUES (@chainId, @collectionId, @anchorBlock, @cursorBlock, @repairId, @fromBlock, @toBlock, @retryAt) " +
             "ON CONFLICT(chain_id, collection_id) DO UPDATE SET anchor_block = excluded.anchor_block, cursor_block = excluded.cursor_block, " +
             "pending_job_id = excluded.pending_job_id, pending_from_block = excluded.pending_from_block, pending_to_block = excluded.pending_to_block, retry_at = excluded.retry_at",
     );
@@ -29,12 +30,15 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         "SELECT block_number FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number DESC",
     );
-    private updateRetry = db.prepare<[number, number, number, string]>(
-        "UPDATE collection_sync_gap_scans SET retry_at = ? WHERE chain_id = ? AND collection_id = ? AND pending_job_id = ?",
+    private updateRetry = db.prepare(
+        "UPDATE collection_sync_gap_scans SET retry_at = @retryAt " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND anchor_block = @anchorBlock " +
+            "AND pending_job_id = @repairId AND pending_from_block = @fromBlock AND pending_to_block = @toBlock",
     );
-    private finishRepair = db.prepare<[number, number, string]>(
-        "UPDATE collection_sync_gap_scans SET pending_job_id = NULL, pending_from_block = NULL, pending_to_block = NULL, retry_at = NULL " +
-            "WHERE chain_id = ? AND collection_id = ? AND pending_job_id = ?",
+    private advanceRepair = db.prepare(
+        "UPDATE collection_sync_gap_scans SET pending_job_id = @nextId, pending_from_block = @nextFrom, pending_to_block = @nextTo, retry_at = @retryAt " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND anchor_block = @anchorBlock " +
+            "AND pending_job_id = @repairId AND pending_from_block = @fromBlock AND pending_to_block = @toBlock",
     );
 
     getProgress(chainId: number, collectionId: number): SyncGapProgress | null {
@@ -49,7 +53,7 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
                 row.pending_job_id === null
                     ? null
                     : {
-                          jobId: row.pending_job_id,
+                          repairId: row.pending_job_id,
                           fromBlock: row.pending_from_block!,
                           toBlock: row.pending_to_block!,
                           retryAt: row.retry_at!,
@@ -67,7 +71,7 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
             collectionId,
             anchorBlock: progress.anchorBlock,
             cursorBlock: progress.cursorBlock,
-            jobId: progress.pending?.jobId ?? null,
+            repairId: progress.pending?.repairId ?? null,
             fromBlock: progress.pending?.fromBlock ?? null,
             toBlock: progress.pending?.toBlock ?? null,
             retryAt: progress.pending?.retryAt ?? null,
@@ -110,14 +114,25 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
 
     deferRetry(
         chainId: number,
-        collectionId: number,
-        jobId: string,
+        repair: SyncGapRepairTarget,
         retryAt: number,
     ): void {
-        this.updateRetry.run(retryAt, chainId, collectionId, jobId);
+        this.updateRetry.run({ chainId, ...repair, retryAt });
     }
 
-    completeRepair(chainId: number, collectionId: number, jobId: string): void {
-        this.finishRepair.run(chainId, collectionId, jobId);
+    recordRepairProgress({
+        chainId,
+        repair,
+        remaining,
+        retryAt,
+    }: Parameters<SyncGapStorePort["recordRepairProgress"]>[0]): void {
+        this.advanceRepair.run({
+            chainId,
+            ...repair,
+            nextId: remaining ? repair.repairId : null,
+            nextFrom: remaining?.fromBlock ?? null,
+            nextTo: remaining?.toBlock ?? null,
+            retryAt: remaining ? retryAt : null,
+        });
     }
 }

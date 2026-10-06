@@ -142,6 +142,12 @@ test doubles. They do not use a live chain, broker, or application database.
 - `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
   WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
   shutdown draining.
+- `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
+  SQLite adapters to verify shared headers/logs/receipts, separate coverage and
+  ownership, scoped domain fanout and one global hint, overlapping partial
+  progress, restart and failed fanout, stale members, RPC failure and legacy jobs.
+  The isolated broker suite also delivers one grouped gap job through JetStream
+  and checks each member's scoped publications and completed intent.
 - `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
   burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
   collection coverage rollback.

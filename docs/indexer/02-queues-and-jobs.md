@@ -181,7 +181,17 @@ type BackfillRange = {
 };
 type BackfillSyncPayload = BackfillRange &
     (
-        | { source: "manual_historical" | "bootstrap_catchup" | "gap_repair" }
+        | { source: "manual_historical" | "bootstrap_catchup" }
+        | {
+              source: "gap_repair";
+              repairs: Array<{
+                  collectionId: number;
+                  repairId: string;
+                  anchorBlock: number;
+                  fromBlock: number;
+                  toBlock: number;
+              }>;
+          }
         | {
               source: "reorg_recovery";
               recovery: { recoveryId: string; revision: number };
@@ -194,11 +204,15 @@ preserves raw facts and activity projection while suppressing WETH/counter
 maker-wide order revalidation fanout. Reorg recovery, collection gap repair,
 bootstrap catch-up, and realtime processing use `current_state`.
 
-Automatic gap jobs carry a collection ID and a durable repair identity from
-`collection_sync_gap_scans`. The scheduler reuses that identity for publication
-retries; a new repair gets a new identity even when a later sweep finds the same
-range missing again. Completion follows sync persistence and downstream fanout,
-and stale duplicate deliveries become no-ops. See
+Automatic gap jobs carry explicit collection/repair members from
+`collection_sync_gap_scans`; their envelope has no collection ID. The scheduler
+groups overlapping intents into bounded shared ranges. Batch transport IDs are
+deterministic from sorted membership and bounds, while each collection retains
+its independent repair ID across partial progress and restart. A new repair gets
+a new identity even when a later sweep finds the same range missing again.
+Completion follows shared persistence and required downstream fanout; stale
+members become no-ops. Older collection-scoped jobs without `repairs` can still
+finish their exact retained intent. See
 [gap repair scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair).
 
 Managed reorg resync is chain-wide and uses `current_state`. Its logical identity

@@ -159,13 +159,25 @@ coverage from head through each live collection's bootstrap anchor, including
 holes behind bootstrap's last-synced block. The former global predecessor check
 has been removed.
 
-Repairs are collection-scoped `gap_repair` jobs with `current_state` order
-maintenance. The worker rechecks liveness, anchor, and durable job identity
-inside its backfill execution gate, then uses the normal range sync and fanout
-path. It clears pending intent only after downstream publications succeed, so a
-crash after writing coverage still retries fanout. Late duplicate jobs and
-legacy unscoped predecessor hints are acknowledged without executing; the
-scheduler rediscovers any remaining gaps from collection coverage.
+Repairs are bounded `gap_repair` batches with explicit collection/repair members
+and `current_state` order maintenance. The worker rechecks each member's liveness,
+anchor, repair identity and expected bounds inside its backfill execution gate,
+then calls `processRange()` once with the admitted collections. Existing
+collection-scoped coverage and anchor projection rules apply to the shared range;
+it can include already covered or pre-anchor facts for a participating collection.
+
+`publishDomainJobs()` accepts explicit domain sources: each grouped member gets
+collection-scoped activity, order and metadata range jobs with stable fanout IDs.
+Their `sourceJobId` retains the actual originating batch identity. Shared order
+hints and metadata refreshes are published once per acquisition. Fully pre-anchor
+members receive activity projection only.
+
+Pending intent advances only after all publications succeed, so a crash after
+writing coverage still retries fanout. A partially covered member retains its
+older contiguous remainder; retries and completions are fenced by its original
+identity, anchor and expected bounds. Retained single-collection deliveries from
+older runtimes remain supported. Unowned predecessor hints and fully stale
+batches are acknowledged without executing; remaining gaps are rediscovered.
 
 ## Persisting Sync Results
 
