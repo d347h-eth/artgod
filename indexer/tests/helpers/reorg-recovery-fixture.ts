@@ -5,6 +5,7 @@ import {
 } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
 import {
+    domainSyncSource,
     processRange,
     publishDomainJobs,
 } from "../../src/application/sync-range-processing.js";
@@ -13,7 +14,9 @@ import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     type BackfillSyncPayload,
 } from "../../src/domain/sync-jobs.js";
+import type { DomainSyncSource } from "../../src/domain/domain-jobs.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
+import type { CollectionRecord } from "../../src/domain/collections.js";
 import type {
     RpcProviderPort,
     RpcContractRead,
@@ -130,11 +133,14 @@ export function reorgRecoveryServices(
     const syncAndPublish = async (
         job: JobEnvelope<BackfillSyncPayload>,
         queue: QueuePort,
+        admission?: {
+            collections: CollectionRecord[];
+            sources: DomainSyncSource[];
+        },
     ) => {
-        const collections = registry.listCollectionsForSync(
-            job.chainId,
-            "backfill",
-        );
+        const collections =
+            admission?.collections ??
+            registry.listCollectionsForSync(job.chainId, "backfill");
         if (!collections.length)
             throw new Error("No admitted fixture collection");
         const range = {
@@ -159,7 +165,7 @@ export function reorgRecoveryServices(
             job.chainId,
             collections,
             range,
-            job,
+            admission?.sources ?? [domainSyncSource(job)],
             "backfill",
             data,
             job.payload.orderMaintenancePolicy,

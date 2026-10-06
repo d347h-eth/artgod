@@ -331,8 +331,15 @@ describe("durable production reorg recovery", () => {
                 expected,
             );
             expect(
-                await executeSyncGapRepair(job, services.registry, gaps, () =>
-                    services.syncAndPublish(job, queue),
+                await executeSyncGapRepair(
+                    job,
+                    services.registry,
+                    gaps,
+                    (collections, sources) =>
+                        services.syncAndPublish(job, queue, {
+                            collections,
+                            sources,
+                        }),
                 ),
             ).toBe(true);
         }
@@ -535,8 +542,15 @@ describe("durable production reorg recovery", () => {
                 .at(-1)! as JobEnvelope<BackfillSyncPayload>;
             repaired.push([job.payload.fromBlock, job.payload.toBlock]);
             expect(
-                await executeSyncGapRepair(job, services.registry, gaps, () =>
-                    services.syncAndPublish(job, queue),
+                await executeSyncGapRepair(
+                    job,
+                    services.registry,
+                    gaps,
+                    (collections, sources) =>
+                        services.syncAndPublish(job, queue, {
+                            collections,
+                            sources,
+                        }),
                 ),
             ).toBe(true);
         }

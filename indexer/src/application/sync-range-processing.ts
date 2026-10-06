@@ -16,6 +16,7 @@ import {
     DOMAIN_JOB_KIND,
     DOMAIN_SYNC_PROJECTION,
     type DomainSyncMode,
+    type DomainSyncSource,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
     type MetadataRefreshRangePayload,
@@ -84,77 +85,112 @@ export async function processRange(input: {
     return { data, blocks };
 }
 
-export async function publishDomainJobs<TPayload>(
-    queue: QueuePort,
+export function domainSyncSource(
+    job: Pick<JobEnvelope, "jobId" | "kind" | "collectionId">,
+): DomainSyncSource {
+    return {
+        fanoutId: job.jobId,
+        sourceJobId: job.jobId,
+        sourceKind: job.kind,
+        collectionId: job.collectionId,
+    };
+}
+
+export async function publishDomainJobs(
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     collections: CollectionRecord[],
     range: SyncRange,
-    job: JobEnvelope<TPayload>,
+    sources: readonly DomainSyncSource[],
     mode: DomainSyncMode,
     data: OnChainData,
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
 ): Promise<void> {
-    // Build the current-state sync payload for this range.
-    const currentStatePayload: DomainSyncPayload = {
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        mode,
-        projection: DOMAIN_SYNC_PROJECTION.CurrentState,
-        sourceJobId: job.jobId,
-        sourceKind: job.kind,
-    };
-    // Build the facts-only sync payload for this range.
-    const factsOnlyPayload: DomainSyncPayload = {
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        mode,
-        projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
-        sourceJobId: job.jobId,
-        sourceKind: job.kind,
-    };
+    const collectionIds = new Set(
+        collections.map((collection) => collection.id),
+    );
+    if (
+        !sources.length ||
+        sources.some((source) =>
+            source.collectionId === undefined
+                ? sources.length !== 1
+                : !collectionIds.has(source.collectionId),
+        )
+    )
+        throw new Error(
+            "Domain sync sources do not match the acquired collections",
+        );
+    // Grouped repairs retain collection-scoped domain identities. Shared event
+    // fanout below runs once for the whole acquisition, including global hints.
+    for (const source of sources) {
+        const targetCollections =
+            source.collectionId === undefined
+                ? collections
+                : collections.filter(
+                      (collection) => collection.id === source.collectionId,
+                  );
+        // Build the current-state sync payload for this range.
+        const currentStatePayload: DomainSyncPayload = {
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+            mode,
+            projection: DOMAIN_SYNC_PROJECTION.CurrentState,
+            sourceJobId: source.sourceJobId,
+            sourceKind: source.sourceKind,
+        };
+        // Build the facts-only sync payload for this range.
+        const factsOnlyPayload: DomainSyncPayload = {
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+            mode,
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+            sourceJobId: source.sourceJobId,
+            sourceKind: source.sourceKind,
+        };
 
-    const activityJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:activity:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.ActivitySync,
-        queue: QUEUE_NAMES.ActivityDomain,
-        payload: factsOnlyPayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
+        const activityJob: JobEnvelope<DomainSyncPayload> = {
+            jobId: `domain:activity:${source.fanoutId}`,
+            kind: DOMAIN_JOB_KIND.ActivitySync,
+            queue: QUEUE_NAMES.ActivityDomain,
+            payload: factsOnlyPayload,
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+            collectionId: source.collectionId,
+        };
 
-    await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
+        await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 
-    // Skip current-state fanout for fully pre-anchor ranges.
-    if (!hasAnyCurrentStateProjection(collections, range)) {
-        return;
+        // Skip current-state fanout for fully pre-anchor ranges.
+        if (!hasAnyCurrentStateProjection(targetCollections, range)) {
+            continue;
+        }
+
+        const ordersJob: JobEnvelope<DomainSyncPayload> = {
+            jobId: `domain:orders:${source.fanoutId}`,
+            kind: DOMAIN_JOB_KIND.OrdersSync,
+            queue: QUEUE_NAMES.OrdersDomain,
+            payload: currentStatePayload,
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+            collectionId: source.collectionId,
+        };
+        const metadataJob: JobEnvelope<DomainSyncPayload> = {
+            jobId: `domain:metadata:${source.fanoutId}`,
+            kind: DOMAIN_JOB_KIND.MetadataSync,
+            queue: QUEUE_NAMES.MetadataDomain,
+            payload: currentStatePayload,
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+            collectionId: source.collectionId,
+        };
+        await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
+        await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
     }
-
-    const ordersJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:orders:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.OrdersSync,
-        queue: QUEUE_NAMES.OrdersDomain,
-        payload: currentStatePayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
-    const metadataJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:metadata:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.MetadataSync,
-        queue: QUEUE_NAMES.MetadataDomain,
-        payload: currentStatePayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: job.collectionId,
-    };
+    if (!hasAnyCurrentStateProjection(collections, range)) return;
     const currentStateData = filterCurrentStateOnChainData(collections, data);
-
-    await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
-    await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
 
     // Only post-anchor events may drive current-state side effects.
     await publishOrderUpdateJobs(
@@ -232,7 +268,7 @@ function resolveCollectionExtensionWatchSpecs(
 
 // Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).
 async function publishMetadataRefreshJobs(
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     chainId: number,
     collections: CollectionRecord[],
     data: OnChainData,

@@ -8,11 +8,15 @@ import {
 } from "../application/backfill-execution.js";
 import type { SyncRange } from "../application/sync.js";
 import {
+    domainSyncSource,
     processRange,
     publishDomainJobs,
     resolveBackfillCollections,
 } from "../application/sync-range-processing.js";
-import { executeSyncGapRepair } from "../application/sync-gap-scheduler.js";
+import {
+    executeSyncGapRepair,
+    resolveCurrentSyncGapRepairs,
+} from "../application/sync-gap-scheduler.js";
 import { executeReorgResync } from "../application/reorg-recovery.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
 import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
@@ -43,6 +47,7 @@ import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlit
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
+import type { DomainSyncSource } from "../domain/domain-jobs.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
@@ -193,7 +198,7 @@ async function main() {
                     config.chainId,
                     collections,
                     range,
-                    job,
+                    [domainSyncSource(job)],
                     "realtime",
                     data,
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
@@ -236,19 +241,20 @@ async function main() {
                 const isReorgRecovery =
                     job.payload.source === BACKFILL_SOURCE.ReorgRecovery;
                 if (isReorgRecovery && job.chainId !== config.chainId) return;
-                // Legacy predecessor hints were unscoped. The scheduler now
-                // rediscovers their missing coverage through durable scoped work.
-                if (
-                    isGapRepair &&
-                    (job.collectionId === undefined ||
-                        job.chainId !== config.chainId)
-                )
-                    return;
-                const collections = resolveBackfillCollections(
-                    collectionRegistry,
-                    config.chainId,
-                    job.collectionId ?? null,
-                );
+                // Explicit batch members (or a retained legacy scoped intent)
+                // determine admission; an unowned hint cannot select all collections.
+                if (isGapRepair && job.chainId !== config.chainId) return;
+                const collections = isGapRepair
+                    ? resolveCurrentSyncGapRepairs(
+                          job,
+                          collectionRegistry,
+                          syncGapStore,
+                      ).map((target) => target.collection)
+                    : resolveBackfillCollections(
+                          collectionRegistry,
+                          config.chainId,
+                          job.collectionId ?? null,
+                      );
                 if (collections.length === 0) {
                     logger.debug("No collections for backfill sync", {
                         component: "IndexerSyncWorker",
@@ -272,6 +278,7 @@ async function main() {
                 await backfillExecutionGate.run(executionMode, async () => {
                     const syncAndPublish = async (
                         collections: CollectionRecord[],
+                        sources: DomainSyncSource[],
                     ) => {
                         const { data, blocks } = await processRange({
                             rpc: backfillRpc,
@@ -290,7 +297,7 @@ async function main() {
                             config.chainId,
                             collections,
                             range,
-                            job,
+                            sources,
                             "backfill",
                             data,
                             orderMaintenancePolicy,
@@ -322,7 +329,7 @@ async function main() {
                             job,
                             collectionRegistry,
                             syncGapStore,
-                            (collection) => syncAndPublish([collection]),
+                            syncAndPublish,
                         );
                     } else if (isReorgRecovery) {
                         // Reload after gate admission. An empty eligible set does
@@ -337,10 +344,15 @@ async function main() {
                             job,
                             reorgRecoveries,
                             { batchSize: config.sync.backfillBatchSize },
-                            () => syncAndPublish(currentCollections),
+                            () =>
+                                syncAndPublish(currentCollections, [
+                                    domainSyncSource(job),
+                                ]),
                         );
                     } else {
-                        await syncAndPublish(collections);
+                        await syncAndPublish(collections, [
+                            domainSyncSource(job),
+                        ]);
                     }
                 });
             },

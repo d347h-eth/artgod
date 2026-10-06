@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { logger } from "@artgod/shared/utils";
 import type { CollectionRecord } from "../domain/collections.js";
+import type { DomainSyncSource } from "../domain/domain-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -8,11 +9,17 @@ import {
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
+    type SyncGapRepairTarget,
 } from "../domain/sync-jobs.js";
+import {
+    planSyncGapRepairBatches,
+    remainingSyncGapRepairRange,
+} from "../domain/sync-gap-repair.js";
 import type { QueuePort } from "../ports/queue.js";
 
 // Bound SQLite work and durable outstanding ranges independently of RPC log
-// chunking. Retries reuse the saved job identity, including across restarts.
+// chunking. Retries reuse retained repair identities across restarts; shared
+// transport identities also include batch membership and remaining bounds.
 export const SYNC_GAP_POLICY = {
     ScanWindowBlocks: 10_000,
     CollectionsPerPass: 16,
@@ -23,7 +30,7 @@ const SYNC_GAP_LOG_COMPONENT = "IndexerSyncGapScheduler";
 
 export type SyncGapRange = { fromBlock: number; toBlock: number };
 export type PendingSyncGapRepair = SyncGapRange & {
-    jobId: string;
+    repairId: string;
     retryAt: number;
 };
 export type SyncGapProgress = {
@@ -58,12 +65,17 @@ export interface SyncGapStorePort {
     ): SyncGapRange | null;
     deferRetry(
         chainId: number,
-        collectionId: number,
-        jobId: string,
+        repair: SyncGapRepairTarget,
         retryAt: number,
     ): void;
-    // Only the matching worker may complete a repair, after downstream fanout.
-    completeRepair(chainId: number, collectionId: number, jobId: string): void;
+    // After fanout, conditionally advance this exact intent to its older remainder
+    // or clear it. An old delivery cannot advance a changed anchor or range.
+    recordRepairProgress(input: {
+        chainId: number;
+        repair: SyncGapRepairTarget;
+        remaining: SyncGapRange | null;
+        retryAt: number;
+    }): void;
 }
 
 export interface SyncGapDetectorPort {
@@ -138,10 +150,12 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
                 this.pageSize,
             );
         }
+        const repairs: SyncGapRepairTarget[] = [];
         for (const collection of collections) {
             this.afterCollectionId = collection.id;
             try {
-                await this.scanCollection(collection, headBlock);
+                const repair = this.scanCollection(collection, headBlock);
+                if (repair) repairs.push(repair);
             } catch (error) {
                 // A failed collection or publish must not starve other collections.
                 logger.warn("Collection gap scan failed", {
@@ -153,14 +167,66 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
                 });
             }
         }
+        for (const batch of planSyncGapRepairBatches(
+            repairs,
+            this.options.batchSize,
+        )) {
+            // Membership and remaining bounds determine a stable transport ID.
+            // The per-collection rows already own every intent before publication.
+            const identity = createHash("sha256")
+                .update(JSON.stringify(batch))
+                .digest("hex");
+            const job: JobEnvelope<BackfillSyncPayload> = {
+                jobId: `sync:gap:batch:${this.options.chainId}:${identity}`,
+                kind: SYNC_JOB_KIND.BackfillRange,
+                queue: QUEUE_NAMES.BackfillSync,
+                chainId: this.options.chainId,
+                attempt: 0,
+                scheduledAt: this.now(),
+                payload: {
+                    ...batch,
+                    source: BACKFILL_SOURCE.GapRepair,
+                    orderMaintenancePolicy:
+                        BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                },
+            };
+            try {
+                await this.queue.publish(QUEUE_NAMES.BackfillSync, job);
+                for (const repair of batch.repairs)
+                    this.store.deferRetry(
+                        this.options.chainId,
+                        repair,
+                        this.now() + this.retryDelayMs,
+                    );
+                logger.info("Collection gap repair batch scheduled", {
+                    component: SYNC_GAP_LOG_COMPONENT,
+                    action: "schedule",
+                    chainId: this.options.chainId,
+                    collectionIds: batch.repairs.map(
+                        (repair) => repair.collectionId,
+                    ),
+                    jobId: job.jobId,
+                    fromBlock: batch.fromBlock,
+                    toBlock: batch.toBlock,
+                });
+            } catch (error) {
+                logger.warn("Collection gap repair batch publication failed", {
+                    component: SYNC_GAP_LOG_COMPONENT,
+                    action: "schedule",
+                    chainId: this.options.chainId,
+                    jobId: job.jobId,
+                    error: String(error),
+                });
+            }
+        }
     }
 
-    private async scanCollection(
+    private scanCollection(
         collection: CollectionRecord,
         headBlock: number,
-    ): Promise<void> {
+    ): SyncGapRepairTarget | null {
         const window = collection.gapRepairWindow(headBlock);
-        if (!window) return;
+        if (!window) return null;
         const chainId = this.options.chainId;
         let progress = this.store.getProgress(chainId, collection.id);
         if (!progress || progress.anchorBlock !== window.fromBlock) {
@@ -192,7 +258,7 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
                 pending: gap
                     ? {
                           ...gap,
-                          jobId: `sync:gap:${chainId}:${collection.id}:${randomUUID()}`,
+                          repairId: `sync:gap:${chainId}:${collection.id}:${randomUUID()}`,
                           retryAt: this.now(),
                       }
                     : null,
@@ -207,39 +273,14 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
             pending.retryAt > this.now() ||
             pending.toBlock > headBlock
         )
-            return;
-        const job: JobEnvelope<BackfillSyncPayload> = {
-            jobId: pending.jobId,
-            kind: SYNC_JOB_KIND.BackfillRange,
-            queue: QUEUE_NAMES.BackfillSync,
-            chainId,
+            return null;
+        return {
             collectionId: collection.id,
-            attempt: 0,
-            scheduledAt: this.now(),
-            payload: {
-                fromBlock: pending.fromBlock,
-                toBlock: pending.toBlock,
-                source: BACKFILL_SOURCE.GapRepair,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            },
-        };
-        await this.queue.publish(QUEUE_NAMES.BackfillSync, job);
-        this.store.deferRetry(
-            chainId,
-            collection.id,
-            job.jobId,
-            this.now() + this.retryDelayMs,
-        );
-        logger.info("Collection gap repair scheduled", {
-            component: SYNC_GAP_LOG_COMPONENT,
-            action: "schedule",
-            chainId,
-            collectionId: collection.id,
-            jobId: job.jobId,
+            repairId: pending.repairId,
+            anchorBlock: progress.anchorBlock,
             fromBlock: pending.fromBlock,
             toBlock: pending.toBlock,
-        });
+        };
     }
 }
 
@@ -251,26 +292,137 @@ export function isCurrentSyncGapRepair(
     collection: CollectionRecord | null,
     store: Pick<SyncGapStorePort, "getProgress">,
 ): collection is CollectionRecord {
-    if (
-        !collection ||
-        job.chainId !== collection.chainId ||
-        job.collectionId !== collection.id
-    )
-        return false;
-    const window = collection.gapRepairWindow(job.payload.toBlock);
+    if (!collection) return false;
+    const repair = readSyncGapRepairTargets(job, store).find(
+        (target) => target.collectionId === collection.id,
+    );
+    return (
+        !!repair &&
+        isCurrentRepairTarget(job.chainId, repair, collection, store)
+    );
+}
+
+function isCurrentRepairTarget(
+    chainId: number,
+    repair: SyncGapRepairTarget,
+    collection: CollectionRecord,
+    store: Pick<SyncGapStorePort, "getProgress">,
+): boolean {
+    if (chainId !== collection.chainId) return false;
+    const window = collection.gapRepairWindow(repair.toBlock);
     if (
         !window ||
-        job.payload.fromBlock < window.fromBlock ||
-        job.payload.fromBlock > job.payload.toBlock
+        repair.anchorBlock !== window.fromBlock ||
+        repair.fromBlock < window.fromBlock
     )
         return false;
     const progress = store.getProgress(collection.chainId, collection.id);
     return (
         progress?.anchorBlock === window.fromBlock &&
-        progress.pending?.jobId === job.jobId &&
-        progress.pending.fromBlock === job.payload.fromBlock &&
-        progress.pending.toBlock === job.payload.toBlock
+        progress.pending?.repairId === repair.repairId &&
+        progress.pending.fromBlock === repair.fromBlock &&
+        progress.pending.toBlock === repair.toBlock
     );
+}
+
+type GapRepairCollectionsPort = {
+    getCollection(
+        chainId: number,
+        collectionId: number,
+    ): CollectionRecord | null;
+};
+
+export function resolveCurrentSyncGapRepairs(
+    job: JobEnvelope<BackfillSyncPayload>,
+    collections: GapRepairCollectionsPort,
+    store: Pick<SyncGapStorePort, "getProgress">,
+): { repair: SyncGapRepairTarget; collection: CollectionRecord }[] {
+    const current: {
+        repair: SyncGapRepairTarget;
+        collection: CollectionRecord;
+    }[] = [];
+    for (const repair of readSyncGapRepairTargets(job, store)) {
+        const collection = collections.getCollection(
+            job.chainId,
+            repair.collectionId,
+        );
+        if (
+            collection &&
+            isCurrentRepairTarget(job.chainId, repair, collection, store)
+        )
+            current.push({ repair, collection });
+    }
+    return current;
+}
+
+function readSyncGapRepairTargets(
+    job: JobEnvelope<BackfillSyncPayload>,
+    store: Pick<SyncGapStorePort, "getProgress">,
+): SyncGapRepairTarget[] {
+    if (
+        job.kind !== SYNC_JOB_KIND.BackfillRange ||
+        job.payload.source !== BACKFILL_SOURCE.GapRepair ||
+        job.payload.orderMaintenancePolicy !==
+            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState ||
+        !Number.isSafeInteger(job.payload.fromBlock) ||
+        job.payload.fromBlock < 1 ||
+        !Number.isSafeInteger(job.payload.toBlock) ||
+        job.payload.toBlock < job.payload.fromBlock
+    )
+        return [];
+    let repairs: SyncGapRepairTarget[];
+    if (job.payload.repairs === undefined) {
+        // Old queued jobs use their collection-scoped envelope as repair identity.
+        // New jobs always carry explicit members, even for one collection.
+        if (job.collectionId === undefined) return [];
+        const progress = store.getProgress(job.chainId, job.collectionId);
+        if (!progress) return [];
+        repairs = [
+            {
+                collectionId: job.collectionId,
+                repairId: job.jobId,
+                anchorBlock: progress.anchorBlock,
+                fromBlock: job.payload.fromBlock,
+                toBlock: job.payload.toBlock,
+            },
+        ];
+    } else {
+        if (
+            job.collectionId !== undefined ||
+            !Array.isArray(job.payload.repairs)
+        )
+            return [];
+        repairs = job.payload.repairs;
+    }
+    const seen = new Set<number>();
+    let firstBlock = Number.POSITIVE_INFINITY;
+    let lastBlock = 0;
+    for (const repair of repairs) {
+        if (
+            !repair ||
+            !Number.isSafeInteger(repair.collectionId) ||
+            repair.collectionId < 1 ||
+            seen.has(repair.collectionId) ||
+            typeof repair.repairId !== "string" ||
+            !repair.repairId ||
+            !Number.isSafeInteger(repair.anchorBlock) ||
+            repair.anchorBlock < 1 ||
+            !Number.isSafeInteger(repair.fromBlock) ||
+            repair.fromBlock < repair.anchorBlock ||
+            !Number.isSafeInteger(repair.toBlock) ||
+            repair.toBlock < repair.fromBlock ||
+            repair.toBlock < job.payload.fromBlock ||
+            repair.toBlock > job.payload.toBlock
+        )
+            return [];
+        seen.add(repair.collectionId);
+        firstBlock = Math.min(firstBlock, repair.fromBlock);
+        lastBlock = Math.max(lastBlock, repair.toBlock);
+    }
+    return job.payload.fromBlock >= firstBlock &&
+        job.payload.toBlock === lastBlock
+        ? repairs
+        : [];
 }
 
 // The runtime invokes this inside its current-state execution gate. Reloading
@@ -278,19 +430,35 @@ export function isCurrentSyncGapRepair(
 // or anchor state. Completion follows the entire sync and fanout operation.
 export async function executeSyncGapRepair(
     job: JobEnvelope<BackfillSyncPayload>,
-    collections: {
-        getCollection(
-            chainId: number,
-            collectionId: number,
-        ): CollectionRecord | null;
-    },
-    store: Pick<SyncGapStorePort, "getProgress" | "completeRepair">,
-    syncAndPublish: (collection: CollectionRecord) => Promise<void>,
+    collections: GapRepairCollectionsPort,
+    store: Pick<SyncGapStorePort, "getProgress" | "recordRepairProgress">,
+    syncAndPublish: (
+        collections: CollectionRecord[],
+        sources: DomainSyncSource[],
+    ) => Promise<void>,
+    now: () => number = Date.now,
 ): Promise<boolean> {
-    if (job.collectionId === undefined) return false;
-    const collection = collections.getCollection(job.chainId, job.collectionId);
-    if (!isCurrentSyncGapRepair(job, collection, store)) return false;
-    await syncAndPublish(collection);
-    store.completeRepair(job.chainId, collection.id, job.jobId);
+    const current = resolveCurrentSyncGapRepairs(job, collections, store);
+    if (!current.length) return false;
+    await syncAndPublish(
+        current.map((target) => target.collection),
+        current.map(({ repair }) => ({
+            fanoutId: `${job.jobId}:collection:${repair.collectionId}`,
+            sourceJobId: job.jobId,
+            sourceKind: job.kind,
+            collectionId: repair.collectionId,
+        })),
+    );
+    for (const { repair } of current) {
+        store.recordRepairProgress({
+            chainId: job.chainId,
+            repair,
+            remaining: remainingSyncGapRepairRange(
+                repair,
+                job.payload.fromBlock,
+            ),
+            retryAt: now(),
+        });
+    }
     return true;
 }

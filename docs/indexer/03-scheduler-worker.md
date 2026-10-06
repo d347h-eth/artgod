@@ -88,22 +88,36 @@ backward sweep; after the anchor it starts another sweep from the current head.
 
 Before publishing, the scheduler saves the next scan position and repair intent
 in `collection_sync_gap_scans`. There is at most one outstanding logical repair
-per collection. It carries `collectionId`, source `gap_repair`, and
-`current_state` order maintenance, using the existing backfill queue and worker.
+per collection. After retaining that page's intents, the scheduler groups
+overlapping ranges into descending batches capped by `BACKFILL_BATCH_SIZE`.
+Each `gap_repair` job explicitly carries its members' collection IDs, repair IDs,
+anchors and expected remaining ranges, with `current_state` order maintenance.
+It uses the existing backfill queue and multi-collection sync pipeline. Identical
+gaps share header, log and transaction/receipt acquisition. Disjoint gaps remain
+separate; at most 16 collections participate in a normal pass.
 The anchor block itself remains facts-only under the existing projection guard.
 
-The sync worker rechecks the persisted repair identity, liveness, and anchor
-inside its execution gate. It completes the repair only after persistence and
-all downstream job publications succeed. Already completed or replaced jobs
-become no-ops. A failed publication leaves the same intent due; an accepted but
-unfinished repair is republished with the same job ID after five minutes. This
+The sync worker rechecks each member's persisted repair identity, remaining
+bounds, liveness and anchor inside its execution gate. Stale members are excluded;
+no active members means no RPC work. One acquisition persists collection-specific
+coverage for the admitted members. Domain range jobs remain collection-scoped;
+shared event fanout, including global order hints, runs once.
+
+Only after all required publications succeed does each member complete, or retain
+its older unfinished range if the bounded batch covered only its newest portion.
+The repair ID survives partial progress. Conditional writes fence late completion
+and publication responses by repair ID, anchor and expected bounds. New batches
+use a deterministic job ID from their range and sorted membership; unchanged
+publication retries reuse it after restart. Already completed or replaced members
+become no-ops. A failed publication leaves the same intents due; an accepted but
+unfinished batch is republished after five minutes. This
 also redrives dead-lettered work. Broker redelivery and retry publications may
 produce duplicate deliveries; they do not admit additional logical ranges.
 
 These limits belong to `SYNC_GAP_POLICY`; the runtime uses the existing typed
 `BACKFILL_BATCH_SIZE` setting for repair size. A failing collection does not stop
-other collections. A persistent failure in one range holds that collection's
-sweep until repair succeeds. Reorg coverage deletions and new holes behind a
+other batches. A persistent failure in one batch holds its members' sweeps until
+repair succeeds. Reorg coverage deletions and new holes behind a
 cursor are discovered on a subsequent sweep. Shutdown drains active scheduling
 and scan work before closing the queue.
 

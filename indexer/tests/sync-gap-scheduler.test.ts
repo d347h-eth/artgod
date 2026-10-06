@@ -8,7 +8,8 @@ import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
-    type BackfillSyncPayload,
+    type GapRepairSyncPayload,
+    type SyncGapRepairTarget,
 } from "../src/domain/sync-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
@@ -25,7 +26,7 @@ import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
-type RepairJob = JobEnvelope<BackfillSyncPayload>;
+type RepairJob = JobEnvelope<GapRepairSyncPayload>;
 
 describe("perpetual collection gap repair", () => {
     loadTestEnv();
@@ -55,12 +56,12 @@ describe("perpetual collection gap repair", () => {
         expect(h.jobs).toHaveLength(1);
         expect(h.jobs[0]).toMatchObject({
             chainId: 1,
-            collectionId: id,
             kind: SYNC_JOB_KIND.BackfillRange,
             queue: QUEUE_NAMES.BackfillSync,
             payload: {
                 fromBlock: 107,
                 toBlock: 108,
+                repairs: [expect.objectContaining({ collectionId: id })],
                 source: BACKFILL_SOURCE.GapRepair,
                 orderMaintenancePolicy:
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
@@ -156,8 +157,11 @@ describe("perpetual collection gap repair", () => {
         expect(h.jobs).toHaveLength(1);
         expect(h.jobs[0]).toMatchObject({
             chainId: 1,
-            collectionId: second,
-            payload: { fromBlock: 109, toBlock: 110 },
+            payload: {
+                fromBlock: 109,
+                toBlock: 110,
+                repairs: [expect.objectContaining({ collectionId: second })],
+            },
         });
     });
 
@@ -170,7 +174,7 @@ describe("perpetual collection gap repair", () => {
         expect(pending?.fromBlock).toBe(109);
         h.restart();
         await h.scheduler.scan(110);
-        expect(h.jobs[0].jobId).toBe(pending?.jobId);
+        expect(firstRepair(h.jobs[0]).repairId).toBe(pending?.repairId);
         for (let i = 0; i < 10; i++) await h.scheduler.scan(111);
         expect(h.jobs).toHaveLength(1);
         h.advance(100);
@@ -197,8 +201,15 @@ describe("perpetual collection gap repair", () => {
                 h.store,
             ),
         ).toBe(true);
-        h.store.completeRepair(1, id, "unrelated-job");
-        expect(h.store.getProgress(1, id)?.pending?.jobId).toBe(job.jobId);
+        h.store.recordRepairProgress({
+            chainId: 1,
+            repair: { ...firstRepair(job), repairId: "unrelated-job" },
+            remaining: null,
+            retryAt: 0,
+        });
+        expect(h.store.getProgress(1, id)?.pending?.repairId).toBe(
+            firstRepair(job).repairId,
+        );
         h.finish(job);
         expect(
             isCurrentSyncGapRepair(
@@ -209,9 +220,9 @@ describe("perpetual collection gap repair", () => {
         ).toBe(false);
         await h.scheduler.scan(102);
         // A late publication response cannot overwrite the next repair's retry.
-        h.store.deferRetry(1, id, job.jobId, 9999);
-        expect(h.store.getProgress(1, id)?.pending?.jobId).toBe(
-            h.jobs[2].jobId,
+        h.store.deferRetry(1, firstRepair(job), 9999);
+        expect(h.store.getProgress(1, id)?.pending?.repairId).toBe(
+            firstRepair(h.jobs[2]).repairId,
         );
         expect(h.store.getProgress(1, id)?.pending?.retryAt).not.toBe(9999);
     });
@@ -225,7 +236,9 @@ describe("perpetual collection gap repair", () => {
         setDbPath(testDbPath);
         const after = harness();
         await after.scheduler.scan(110);
-        expect(after.jobs[0].jobId).toBe(saved?.pending?.jobId);
+        expect(firstRepair(after.jobs[0]).repairId).toBe(
+            saved?.pending?.repairId,
+        );
         expect(after.store.getProgress(1, id)?.cursorBlock).toBe(
             saved?.cursorBlock,
         );
@@ -236,13 +249,21 @@ describe("perpetual collection gap repair", () => {
         const h = harness({ collectionsPerPass: 2 });
         h.publish.mockRejectedValueOnce(new Error("first publication failed"));
         await h.scheduler.scan(110);
-        expect(h.publish).toHaveBeenCalledTimes(2);
+        expect(h.publish).toHaveBeenCalledTimes(1);
         await h.scheduler.scan(110);
         await h.scheduler.scan(110);
-        expect(h.jobs.map((job) => job.collectionId)).toEqual(ids.slice(1));
+        expect(
+            h.jobs.flatMap((job) =>
+                job.payload.repairs!.map((repair) => repair.collectionId),
+            ),
+        ).toEqual(ids.slice(2));
         await h.scheduler.scan(110);
-        expect(h.jobs.at(-1)?.collectionId).toBe(ids[0]);
-        expect(h.jobs).toHaveLength(5);
+        expect(
+            h.jobs
+                .at(-1)
+                ?.payload.repairs!.map((repair) => repair.collectionId),
+        ).toEqual(ids.slice(0, 2));
+        expect(h.jobs).toHaveLength(3);
     });
 
     it("retries failed worker fanout and acknowledges late duplicate deliveries without running them", async () => {
@@ -257,7 +278,9 @@ describe("perpetual collection gap repair", () => {
         await expect(
             executeSyncGapRepair(job, h.registry, h.store, work),
         ).rejects.toThrow("downstream publish failed");
-        expect(h.store.getProgress(1, id)?.pending?.jobId).toBe(job.jobId);
+        expect(h.store.getProgress(1, id)?.pending?.repairId).toBe(
+            firstRepair(job).repairId,
+        );
         const retry = vi.fn(async () => {});
         expect(
             await executeSyncGapRepair(job, h.registry, h.store, retry),
@@ -306,7 +329,11 @@ describe("perpetual collection gap repair", () => {
         expect(valid()).toBe(true);
         expect(
             isCurrentSyncGapRepair(
-                { ...job, collectionId: undefined },
+                {
+                    ...job,
+                    payload: { ...job.payload, repairs: undefined },
+                    collectionId: undefined,
+                },
                 h.registry.getCollection(1, id),
                 h.store,
             ),
@@ -443,12 +470,25 @@ function harness(overrides: Partial<SyncGapSchedulerOptions> = {}) {
             now += ms;
         },
         finish(job: RepairJob) {
-            cover(
-                job.collectionId!,
-                job.payload.fromBlock,
-                job.payload.toBlock,
-            );
-            store.completeRepair(job.chainId, job.collectionId!, job.jobId);
+            for (const repair of job.payload.repairs!) {
+                cover(
+                    repair.collectionId,
+                    job.payload.fromBlock,
+                    job.payload.toBlock,
+                );
+                store.recordRepairProgress({
+                    chainId: job.chainId,
+                    repair,
+                    remaining:
+                        job.payload.fromBlock > repair.fromBlock
+                            ? {
+                                  fromBlock: repair.fromBlock,
+                                  toBlock: job.payload.fromBlock - 1,
+                              }
+                            : null,
+                    retryAt: 0,
+                });
+            }
         },
     };
 }
@@ -487,4 +527,8 @@ function cover(
         for (let block = fromBlock; block <= toBlock; block++)
             if (!missing.includes(block)) stmt.run(collectionId, block);
     })();
+}
+
+function firstRepair(job: RepairJob): SyncGapRepairTarget {
+    return job.payload.repairs![0];
 }

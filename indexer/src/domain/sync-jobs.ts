@@ -33,8 +33,29 @@ export type ReorgResyncPayload = BackfillRangePayload & {
     recovery: ReorgResyncIdentity;
 };
 
+// A batch carries the retained intent for each member, independently of its
+// broker identity. Bounds fence deliveries after a partially completed repair.
+export type SyncGapRepairTarget = {
+    collectionId: number;
+    repairId: string;
+    anchorBlock: number;
+    fromBlock: number;
+    toBlock: number;
+};
+
+export type GapRepairSyncPayload = BackfillRangePayload & {
+    source: typeof BACKFILL_SOURCE.GapRepair;
+    // Optional only to consume collection-scoped deliveries from older runtimes.
+    repairs?: SyncGapRepairTarget[];
+};
+
 export type BackfillSyncPayload =
     | ReorgResyncPayload
+    | GapRepairSyncPayload
     | (BackfillRangePayload & {
-          source: Exclude<BackfillSource, typeof BACKFILL_SOURCE.ReorgRecovery>;
+          source: Exclude<
+              BackfillSource,
+              | typeof BACKFILL_SOURCE.ReorgRecovery
+              | typeof BACKFILL_SOURCE.GapRepair
+          >;
       });

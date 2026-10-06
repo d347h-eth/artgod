@@ -126,8 +126,12 @@ collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
 - A null cursor begins the next sweep at the currently observed head.
 - Saves intent before publication and reuses the pending ID after restart or
   failed publication. Retry timestamps are epoch milliseconds.
-- Worker completion is fenced by job ID and follows downstream publication;
-  coverage alone does not terminalize a pending repair.
+- The legacy `pending_job_id` column stores the collection's logical repair ID.
+  A grouped queue job has a separate deterministic identity and explicitly lists
+  every member's repair ID, anchor and expected bounds; no new table is required.
+- Worker progress and retry writes match the repair ID, anchor and bounds after
+  downstream publication. A partial batch retains only the older unfinished
+  range with the same repair ID. Coverage alone does not complete pending work.
 - A changed bootstrap anchor replaces the previous sweep and repair intent.
 
 ### `transactions`
