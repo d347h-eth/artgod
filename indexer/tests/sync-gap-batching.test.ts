@@ -12,7 +12,10 @@ import {
     processRange,
     publishDomainJobs,
 } from "../src/application/sync-range-processing.js";
-import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
+import {
+    planSyncGapRepairBatches,
+    remainingSyncGapRepairRange,
+} from "../src/domain/sync-gap-repair.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
 import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
 import {
@@ -36,6 +39,7 @@ import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import {
     insertCollection,
     selectBalanceOwners,
+    selectTransferCount,
 } from "./helpers/ownership-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -186,22 +190,25 @@ describe("shared collection gap acquisition", () => {
                     ].includes(job.kind as never),
             ),
         ).toHaveLength(3);
-        expect(coverage(first)).toBe(10);
-        expect(coverage(atAnchor)).toBe(10);
+        expect(coverage(first)).toBe(1);
+        expect(coverage(atAnchor)).toBe(1);
+        expect(h.store.getProgress(1, first)?.pending).toMatchObject({
+            fromBlock: 101,
+            toBlock: 109,
+        });
         expect(h.store.getProgress(1, atAnchor)?.pending).toBeNull();
     });
 
-    it("shares overlapping gaps within the block limit and retains only the older unfinished range", async () => {
+    it("shares only the common pending suffix and retains the older unfinished range", async () => {
         const h = harness(10);
         const older = seed(0),
             newer = seed(1);
-        cover(older, 100, 115);
-        cover(newer, 100, 105);
-        removeCoverage(older, 101, 106);
+        cover(older, 100, 105);
+        cover(newer, 100, 114);
         await h.scheduler.scan(115);
         const first = h.jobs[0];
         expect([first.payload.fromBlock, first.payload.toBlock]).toEqual([
-            106, 115,
+            115, 115,
         ]);
         expect(first.payload.repairs).toHaveLength(2);
         const oldTarget = first.payload.repairs!.find(
@@ -211,8 +218,8 @@ describe("shared collection gap acquisition", () => {
         expect(h.store.getProgress(1, newer)?.pending).toBeNull();
         expect(h.store.getProgress(1, older)?.pending).toMatchObject({
             repairId: oldTarget.repairId,
-            fromBlock: 101,
-            toBlock: 105,
+            fromBlock: 106,
+            toBlock: 114,
             retryAt: 1000,
         });
         // Publication responses and duplicate commits from the old range cannot
@@ -224,20 +231,170 @@ describe("shared collection gap acquisition", () => {
             remaining: null,
             retryAt: 0,
         });
-        expect(h.store.getProgress(1, older)?.pending?.toBlock).toBe(105);
+        expect(h.store.getProgress(1, older)?.pending?.toBlock).toBe(114);
         expect(h.store.getProgress(1, older)?.pending?.retryAt).toBe(1000);
         expect(await run(h, first, testRpc())).toBe(false);
         h.restart();
         await h.scheduler.scan(115);
         const next = h.jobs[1];
         expect([next.payload.fromBlock, next.payload.toBlock]).toEqual([
-            101, 105,
+            106, 114,
         ]);
         expect(next.jobId).not.toBe(first.jobId);
         await run(h, next, testRpc());
         expect(h.store.getProgress(1, older)?.pending).toBeNull();
         expect(coverage(older)).toBe(16);
         expect(coverage(newer)).toBe(16);
+    });
+
+    it("avoids reacquiring a busy covered peer while completing unequal gaps", async () => {
+        const costs: Record<
+            string,
+            {
+                headers: number;
+                logs: number;
+                transactions: number;
+                receipts: number;
+            }
+        > = {};
+        for (const mode of ["separate", "shared"]) {
+            db.exec(
+                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
+            );
+            const h = harness();
+            const first = seed(0),
+                busy = seed(1);
+            cover(first, 100, 100);
+            cover(busy, 100, 100);
+            const logs = Array.from({ length: 9 }, (_, i) =>
+                transferLog(1, 101 + i, BigInt(i + 1)),
+            );
+            logs.push(transferLog(0, 110, 10n));
+            const rpc = testRpc(logs);
+            const storage = new SqliteStorage();
+            await processRange({
+                rpc,
+                storage,
+                collectionScopeResolver: h.registry,
+                collectionExtensions: { getInstall: () => null },
+                chainId: 1,
+                collections: [h.registry.getCollection(1, busy)!],
+                range: { fromBlock: 101, toBlock: 109 },
+                bidderIndex: { isActive: () => false, shouldEmit: () => false },
+                wethAddress: CONTRACTS[0],
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            });
+            rpc.getBlock.mockClear();
+            rpc.getLogs.mockClear();
+            rpc.getTransaction.mockClear();
+            rpc.getTransactionReceipt.mockClear();
+            await h.scheduler.scan(110);
+            const firstBatch = h.jobs[0];
+            expect([
+                firstBatch.payload.fromBlock,
+                firstBatch.payload.toBlock,
+            ]).toEqual([110, 110]);
+            const published: JobEnvelope[] = [];
+            if (mode === "shared") {
+                await run(h, firstBatch, rpc, async (job) => {
+                    published.push(job);
+                });
+                expect(h.store.getProgress(1, busy)?.pending).toBeNull();
+                expect(h.store.getProgress(1, first)?.pending).toMatchObject({
+                    fromBlock: 101,
+                    toBlock: 109,
+                });
+                h.restart();
+                await h.scheduler.scan(110);
+                const remainder = h.jobs[1];
+                expect(
+                    remainder.payload.repairs!.map(
+                        (repair) => repair.collectionId,
+                    ),
+                ).toEqual([first]);
+                await run(h, remainder, rpc, async (job) => {
+                    published.push(job);
+                });
+                expect(
+                    published
+                        .filter(
+                            (job) =>
+                                job.kind === DOMAIN_JOB_KIND.ActivitySync &&
+                                job.collectionId === busy,
+                        )
+                        .map((job) => job.payload),
+                ).toEqual([
+                    expect.objectContaining({ fromBlock: 110, toBlock: 110 }),
+                ]);
+            } else {
+                for (const target of firstBatch.payload.repairs!)
+                    await run(
+                        h,
+                        {
+                            ...firstBatch,
+                            jobId: `${firstBatch.jobId}:${target.collectionId}`,
+                            payload: {
+                                ...firstBatch.payload,
+                                fromBlock: target.fromBlock,
+                                toBlock: target.toBlock,
+                                repairs: [target],
+                            },
+                        },
+                        rpc,
+                    );
+            }
+            for (const id of [first, busy]) {
+                expect(h.store.getProgress(1, id)?.pending).toBeNull();
+                expect(coverage(id)).toBe(11);
+            }
+            for (let token = 1; token <= 9; token++) {
+                expect(selectBalanceOwners(1, busy, String(token))).toEqual([
+                    { owner: BUYER, amount: "1" },
+                ]);
+                expect(selectTransferCount(1, busy, String(token))).toBe(1);
+            }
+            expect(selectBalanceOwners(1, first, "10")).toEqual([
+                { owner: BUYER, amount: "1" },
+            ]);
+            expect(rpc.getTransaction.mock.calls.map(([hash]) => hash)).toEqual(
+                [logs[9].transactionHash],
+            );
+            expect(rpc.getTransactionReceipt).toHaveBeenCalledExactlyOnceWith(
+                logs[9].transactionHash,
+                { fresh: true },
+            );
+            costs[mode] = {
+                headers: rpc.getBlock.mock.calls.length,
+                logs: rpc.getLogs.mock.calls.length,
+                transactions: rpc.getTransaction.mock.calls.length,
+                receipts: rpc.getTransactionReceipt.mock.calls.length,
+            };
+        }
+        expect(costs).toEqual({
+            separate: { headers: 13, logs: 8, transactions: 1, receipts: 1 },
+            shared: { headers: 12, logs: 8, transactions: 1, receipts: 1 },
+        });
+    });
+
+    it("finishes a previously queued widened batch using its original member intents", async () => {
+        const h = harness();
+        const first = seed(0),
+            second = seed(1);
+        cover(first, 100, 100);
+        cover(second, 100, 109);
+        await h.scheduler.scan(110);
+        const current = h.jobs[0];
+        const retained = {
+            ...current,
+            jobId: `${current.jobId}:retained`,
+            payload: { ...current.payload, fromBlock: 101 },
+        };
+        expect(await run(h, retained, testRpc())).toBe(true);
+        expect(h.store.getProgress(1, first)?.pending).toBeNull();
+        expect(h.store.getProgress(1, second)?.pending).toBeNull();
+        expect(coverage(first)).toBe(11);
+        expect(coverage(second)).toBe(11);
     });
 
     it("keeps the whole batch pending after partial fanout, then retries the same identities after restart", async () => {
@@ -366,7 +523,105 @@ describe("shared collection gap acquisition", () => {
 });
 
 describe("bounded gap batch planning", () => {
-    it("keeps disjoint gaps separate and groups connected overlap without exceeding the block bound", () => {
+    it("covers every pending block exactly once without widening across all small interval combinations", () => {
+        const intervals: Array<{ fromBlock: number; toBlock: number }> = [];
+        for (let fromBlock = 1; fromBlock <= 4; fromBlock++)
+            for (let toBlock = fromBlock; toBlock <= 4; toBlock++)
+                intervals.push({ fromBlock, toBlock });
+        for (const first of intervals)
+            for (const second of intervals)
+                for (const third of intervals) {
+                    for (let cap = 1; cap <= 3; cap++) {
+                        const original = [first, second, third].map(
+                            (range, i): SyncGapRepairTarget => ({
+                                ...range,
+                                collectionId: i + 1,
+                                repairId: String(i + 1),
+                                anchorBlock: 1,
+                            }),
+                        );
+                        let pending = original;
+                        const served = new Map(
+                            original.map((target) => [
+                                target.collectionId,
+                                [] as number[],
+                            ]),
+                        );
+                        for (let pass = 0; pending.length; pass++) {
+                            expect(pass).toBeLessThan(4);
+                            const batches = planSyncGapRepairBatches(
+                                pending,
+                                cap,
+                            );
+                            expect(
+                                planSyncGapRepairBatches(
+                                    [...pending].reverse(),
+                                    cap,
+                                ),
+                            ).toEqual(batches);
+                            const admitted = batches.flatMap((batch) =>
+                                batch.repairs.map(
+                                    (target) => target.collectionId,
+                                ),
+                            );
+                            expect(admitted).toHaveLength(pending.length);
+                            expect(new Set(admitted)).toEqual(
+                                new Set(
+                                    pending.map(
+                                        (target) => target.collectionId,
+                                    ),
+                                ),
+                            );
+                            const next: SyncGapRepairTarget[] = [];
+                            for (const batch of batches) {
+                                expect(
+                                    batch.toBlock - batch.fromBlock + 1,
+                                ).toBeLessThanOrEqual(cap);
+                                for (const target of batch.repairs) {
+                                    expect(
+                                        batch.fromBlock,
+                                    ).toBeGreaterThanOrEqual(target.fromBlock);
+                                    expect(batch.toBlock).toBe(target.toBlock);
+                                    for (
+                                        let number = batch.fromBlock;
+                                        number <= batch.toBlock;
+                                        number++
+                                    )
+                                        served
+                                            .get(target.collectionId)!
+                                            .push(number);
+                                    const remaining =
+                                        remainingSyncGapRepairRange(
+                                            target,
+                                            batch.fromBlock,
+                                        );
+                                    if (remaining)
+                                        next.push({ ...target, ...remaining });
+                                }
+                            }
+                            pending = next;
+                        }
+                        for (const target of original)
+                            expect(
+                                served
+                                    .get(target.collectionId)!
+                                    .sort((a, b) => a - b),
+                            ).toEqual(
+                                Array.from(
+                                    {
+                                        length:
+                                            target.toBlock -
+                                            target.fromBlock +
+                                            1,
+                                    },
+                                    (_, i) => target.fromBlock + i,
+                                ),
+                            );
+                    }
+                }
+    });
+
+    it("shares a common suffix only when upper bounds match, within the block bound", () => {
         const target = (
             collectionId: number,
             fromBlock: number,
@@ -384,6 +639,7 @@ describe("bounded gap batch planning", () => {
                 target(2, 95, 104),
                 target(3, 100, 109),
                 target(4, 120, 122),
+                target(5, 103, 109),
             ],
             10,
         );
@@ -395,13 +651,18 @@ describe("bounded gap batch planning", () => {
             ]),
         ).toEqual([
             [120, 122, [4]],
-            [100, 109, [2, 3]],
+            [103, 109, [3, 5]],
+            [95, 104, [2]],
             [90, 99, [1]],
         ]);
         for (const batch of batches) {
             expect(batch.toBlock - batch.fromBlock + 1).toBeLessThanOrEqual(10);
-            for (const member of batch.repairs)
-                expect(member.toBlock).toBeGreaterThanOrEqual(batch.fromBlock);
+            for (const member of batch.repairs) {
+                expect(batch.fromBlock).toBeGreaterThanOrEqual(
+                    member.fromBlock,
+                );
+                expect(batch.toBlock).toBe(member.toBlock);
+            }
         }
     });
 });
@@ -512,14 +773,19 @@ function testRpc(logs: RpcLog[] = []) {
                     log.blockNumber <= filter.toBlock,
             );
         }),
-        getTransaction: vi.fn<RpcProviderPort["getTransaction"]>(async () => ({
-            hash: TX,
-            from: SELLER,
-            to: CONTRACTS[0],
-            input: "0x" as Hex,
-        })),
+        getTransaction: vi.fn<RpcProviderPort["getTransaction"]>(
+            async (hash) => ({
+                hash: hash as Hex,
+                from: SELLER,
+                to: CONTRACTS[0],
+                input: "0x" as Hex,
+            }),
+        ),
         getTransactionReceipt: vi.fn<RpcProviderPort["getTransactionReceipt"]>(
-            async () => ({ transactionHash: TX, logs }),
+            async (hash) => ({
+                transactionHash: hash as Hex,
+                logs: logs.filter((log) => log.transactionHash === hash),
+            }),
         ),
         readContract: async () => {
             throw new Error("Unexpected contract read");
@@ -548,10 +814,20 @@ function cover(collectionId: number, from: number, to: number) {
             stmt.run(collectionId, number);
     })();
 }
-function removeCoverage(collectionId: number, from: number, to: number) {
-    db.prepare(
-        "DELETE FROM collection_sync_blocks WHERE collection_id = ? AND block_number BETWEEN ? AND ?",
-    ).run(collectionId, from, to);
+function transferLog(index: number, number: number, tokenId: bigint): RpcLog {
+    return {
+        address: CONTRACTS[index],
+        data: "0x",
+        topics: encodeEventTopics({
+            abi: ERC721_ABI,
+            eventName: "Transfer",
+            args: { from: SELLER, to: BUYER, tokenId },
+        }) as Hex[],
+        blockNumber: number,
+        blockHash: block(number).hash,
+        transactionHash: `0x${number.toString(16).padStart(64, "0")}` as Hex,
+        logIndex: 0,
+    };
 }
 function coverage(collectionId: number) {
     return (
