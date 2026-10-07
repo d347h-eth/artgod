@@ -187,7 +187,7 @@ jobs:
               run: yarn install --immutable --mode=skip-build
 
             - name: Test Windows package-manager and Tauri launchers
-              run: yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/build-tauri.test.mjs
+              run: yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/frontend-dev-process-tree.test.mjs ./scripts/build/build-tauri.test.mjs
 
             - name: Build trusted native SQLite dependency
               run: yarn build:sqlite-native

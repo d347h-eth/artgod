@@ -1192,7 +1192,7 @@ test("compiles the Windows sensitive-process hardening path", async () => {
         ],
         [
             "Test Windows package-manager and Tauri launchers",
-            "yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/build-tauri.test.mjs",
+            "yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/frontend-dev-process-tree.test.mjs ./scripts/build/build-tauri.test.mjs",
         ],
         ["Build trusted native SQLite dependency", "yarn build:sqlite-native"],
         ["Build Windows userland frontend", "yarn build:userland"],
