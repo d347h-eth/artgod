@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
 import {
+    allocateFillPayment,
+    type FillPriceExclusion,
+} from "@artgod/shared/market-data/fills";
+import {
     admitsListingObservation,
     listingDayIdentity,
     MARKET_DATA_STORAGE_POLICY,
@@ -34,6 +38,14 @@ type TransferRow = {
     transfer_standard: string;
 };
 
+function fillActivitySelect(): string {
+    return `SELECT f.collection_id, f.kind AS fill_kind, f.order_id, f.order_side, f.maker, f.taker, f.contract_address AS contract, f.token_id, f.amount,
+        e.total_price, e.currency, e.price_exclusion, e.nft_quantity, i.unit_offset, f.execution_id, f.item_index,
+        f.block_number, f.block_timestamp, f.tx_hash, f.log_index
+        FROM fills f JOIN fill_executions e ON e.id=f.execution_id
+        JOIN fill_execution_items i ON i.execution_id=f.execution_id AND i.item_index=f.item_index`;
+}
+
 type FillRow = {
     collection_id: number;
     fill_kind: string;
@@ -43,8 +55,13 @@ type FillRow = {
     taker: string | null;
     contract: string;
     token_id: string;
-    amount: string | null;
-    price: string | null;
+    amount: string;
+    total_price: string | null;
+    price_exclusion: FillPriceExclusion | null;
+    nft_quantity: string;
+    unit_offset: string;
+    execution_id: string;
+    item_index: number;
     currency: string | null;
     block_number: number;
     block_timestamp: number;
@@ -120,14 +137,15 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private selectFills = db.prepare<[number, number, number]>(
-        "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
-            "FROM fills WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
+        fillActivitySelect() +
+            // Execution block index bounds each projection batch before its NFT joins.
+            " WHERE e.chain_id = ? AND e.block_number >= ? AND e.block_number <= ?",
     );
     private selectFillsForCollection = db.prepare<
         [number, number, number, number]
     >(
-        "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
-            "FROM fills WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
+        fillActivitySelect() +
+            " WHERE e.chain_id = ? AND f.collection_id = ? AND e.block_number >= ? AND e.block_number <= ?",
     );
     private selectCollectionExtensionEvents = db.prepare<{
         chainId: number;
@@ -479,6 +497,15 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 maker,
                 taker,
             );
+            const allocation =
+                row.price_exclusion === null
+                    ? allocateFillPayment(
+                          row.total_price!,
+                          row.nft_quantity,
+                          row.amount!,
+                          row.unit_offset,
+                      )
+                    : null;
             const result = this.insertActivity.run({
                 chainId,
                 collectionId: row.collection_id,
@@ -499,17 +526,25 @@ export class SqliteActivityDomain implements ActivityDomainPort {
                 taker,
                 side,
                 amount: row.amount,
-                price: row.price,
+                // This feed's amount/price describe the NFT leg, not the whole
+                // execution. Share the chart's allocation to avoid repeated totals.
+                price: allocation?.attributedPrice ?? null,
                 currency: normalizeAddress(row.currency),
                 payloadJson: JSON.stringify({
                     orderKind: row.fill_kind,
+                    executionId: row.execution_id,
+                    executionTotal: row.total_price,
+                    executionNftQuantity: row.nft_quantity,
+                    unitPrice: allocation?.unitPrice ?? null,
+                    priceBasis: allocation?.priceBasis ?? null,
+                    priceExclusion: row.price_exclusion,
                 }),
                 dedupeKey: buildOnchainDedupeKey(
                     ACTIVITY_KIND.Sale,
                     row.collection_id,
                     row.tx_hash,
                     row.log_index,
-                    row.token_id,
+                    `${row.token_id}:${row.item_index}`,
                 ),
                 isOpen: toStoredActivityOpenFlag(
                     ACTIVITY_PROJECTION_STATE.Closed,

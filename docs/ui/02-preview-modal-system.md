@@ -239,6 +239,12 @@ choices.
   It also supports inert text inspection with `allowScripts={false}`. The
   bootstrap JSON inspector uses that stricter sandbox, escaped text, and a CSP
   denying network access. Token media retains its existing script allowance.
+- The chart's `SaleCardPreview.svelte` renders the grid's `TokenCardTile.svelte`
+  at its normal media height. It has no added border, caption, or backdrop.
+  Hover cards disappear on pointer exit; pinned cards remain interactive until
+  selection is cleared. Clicking card media opens this same fullscreen preview
+  through the shared controller and sandboxed iframe boundary. The grid-card
+  read contract is separate from the lightweight fullscreen-media contract.
 - `frontend/src/app.css` owns viewport, contain-fit, controls, and request-state
   styling through the shared chrome color contract.
 

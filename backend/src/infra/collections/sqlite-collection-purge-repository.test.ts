@@ -1,3 +1,4 @@
+import { insertFillFixture } from "@artgod/shared/testing/fills";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +45,100 @@ describe("SqliteCollectionPurgeRepository", () => {
         );
         seedCollectionScopedRows(collectionId, COLLECTION_ADDRESS);
         seedCollectionScopedRows(otherCollectionId, OTHER_COLLECTION_ADDRESS);
+    });
+
+    it("retains full cross-collection execution items until the last attribution is purged", () => {
+        const items = [
+            {
+                index: 0,
+                side: "offer" as const,
+                itemType: 2,
+                contract: COLLECTION_ADDRESS,
+                identifier: "9",
+                amount: "1",
+                recipient: null,
+            },
+            {
+                index: 1,
+                side: "offer" as const,
+                itemType: 2,
+                contract: OTHER_COLLECTION_ADDRESS,
+                identifier: "8",
+                amount: "1",
+                recipient: null,
+            },
+            {
+                index: 2,
+                side: "consideration" as const,
+                itemType: 0,
+                contract: "0x0000000000000000000000000000000000000000",
+                identifier: "0",
+                amount: "6",
+                recipient: null,
+            },
+        ];
+        const common = {
+            chainId: 1,
+            txHash: "bundle",
+            logIndex: 20,
+            blockNumber: 11,
+            blockTimestamp: 1100,
+            items,
+        };
+        const execution = insertFillFixture({
+            ...common,
+            collectionId,
+            contract: COLLECTION_ADDRESS,
+            tokenId: "9",
+            itemIndex: 0,
+        });
+        insertFillFixture({
+            ...common,
+            collectionId: otherCollectionId,
+            contract: OTHER_COLLECTION_ADDRESS,
+            tokenId: "8",
+            itemIndex: 1,
+        });
+        const repository = new SqliteCollectionPurgeRepository();
+        repository.purgeCollectionData({ chainId: 1, collectionId });
+        assert.equal(
+            (
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS n FROM fill_execution_items WHERE execution_id=?",
+                    )
+                    .get(execution) as { n: number }
+            ).n,
+            3,
+        );
+        assert.deepEqual(
+            db
+                .prepare(
+                    "SELECT total_price,nft_quantity FROM fill_executions WHERE id=?",
+                )
+                .get(execution),
+            { total_price: "6", nft_quantity: "2" },
+        );
+        repository.purgeCollectionData({
+            chainId: 1,
+            collectionId: otherCollectionId,
+        });
+        assert.equal(
+            (
+                db
+                    .prepare("SELECT COUNT(*) AS n FROM fill_execution_items")
+                    .get() as { n: number }
+            ).n,
+            0,
+        );
+        assert.equal(
+            (
+                db
+                    .prepare("SELECT COUNT(*) AS n FROM fill_executions")
+                    .get() as { n: number }
+            ).n,
+            0,
+        );
     });
 
     it("removes collection-scoped rows while preserving other collections", () => {
@@ -405,11 +500,16 @@ function seedOnchainRows(collectionId: number, address: string): void {
             "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
             "VALUES (1, ?, ?, '0x0000000000000000000000000000000000000000', ?, '1', '1', 11, '0xblock', 1100, ?, 1, 'transfer')",
     ).run(collectionId, address, OWNER_ADDRESS, `0xtx${collectionId}`);
-    db.prepare(
-        "INSERT INTO fills " +
-            "(chain_id, collection_id, kind, contract_address, token_id, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (1, ?, 'sale', ?, '1', 11, '0xblock', 1100, ?, 2)",
-    ).run(collectionId, address, `0xfill${collectionId}`);
+    insertFillFixture({
+        chainId: 1,
+        collectionId,
+        contract: address,
+        tokenId: "1",
+        blockNumber: 11,
+        blockTimestamp: 1100,
+        txHash: `0xfill${collectionId}`,
+        logIndex: 2,
+    });
 }
 
 function seedOrderRows(collectionId: number, address: string): void {

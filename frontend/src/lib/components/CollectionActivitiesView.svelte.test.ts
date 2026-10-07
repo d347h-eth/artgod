@@ -17,6 +17,7 @@ import {
 	type BlockExplorerConfig
 } from '@artgod/shared/config/block-explorer';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
+import { buildSaleHistoryFixture } from '$lib/e2e/listing-history-fixture';
 import CollectionActivitiesView from './CollectionActivitiesView.svelte';
 
 installBuiltInCollectionExtensions();
@@ -30,6 +31,17 @@ function testBlockExplorerConfig(overrides: Partial<BlockExplorerConfig>): Block
 }
 
 describe('CollectionActivitiesView', () => {
+	it('shows NFT quantity with sale leg totals, including bundle and zero allocations', () => {
+		const { body } = render(CollectionActivitiesView, { props: buildSaleHistoryFixture() });
+		const text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+		expect(text).toContain('4 tokens, 8 ETH total');
+		expect(text).toContain('2 tokens, 4 ETH total');
+		expect(text).toContain('2 tokens, 0 ETH total');
+		expect(text).toContain('4 tokens, -');
+		expect(text).not.toContain('1.5 ETH total');
+		expect(text).not.toContain('2 ETH total');
+	});
+
 	it('renders collection activity rows with grouped filter navigation', () => {
 		const { body } = render(CollectionActivitiesView, {
 			props: {

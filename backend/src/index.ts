@@ -46,6 +46,13 @@ import {
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetCollectionTraitCatalogUseCase } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import { GetTokenCardUseCase } from "./application/use-cases/collections/get-token-card.js";
+import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
+import { GetPriceChartContextUseCase } from "./application/use-cases/collections/get-price-chart-context.js";
+import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
+import { CachedPriceHistoryRead } from "./infra/collections/cached-price-history-read.js";
+import { BLUR_BETH_ADDRESS } from "@artgod/shared/market-data/fills";
+import { PRICE_HISTORY_CURRENCY_SYMBOL } from "@artgod/shared/types/price-history";
 import {
     GetTokenPreviewUseCase,
     type GetTokenPreviewPort,
@@ -450,6 +457,43 @@ export function createBackendApp(
         extensionAwareCollectionCustomization,
         backendObservability.apm,
     );
+    const priceHistoryRead = new SqlitePriceHistoryRead([
+        {
+            address: ZERO_ADDRESS,
+            symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Eth,
+        },
+        {
+            address: config.wethAddress,
+            symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Weth,
+        },
+        ...(config.defaultChainId === 1
+            ? [
+                  {
+                      address: BLUR_BETH_ADDRESS,
+                      symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Beth,
+                  },
+              ]
+            : []),
+    ]);
+    const getPriceChartContextUseCase = new GetPriceChartContextUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
+    );
+    const getPriceHistoryUseCase = new GetPriceHistoryUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        isPublicSingleCollectionDeployment(config.deployment.mode) &&
+            config.queryCache.provider === QUERY_CACHE_PROVIDERS.Memory
+            ? new CachedPriceHistoryRead(
+                  priceHistoryRead,
+                  new MemoryQueryCache({ maxEntries: 1 }),
+                  config.queryCache.publicCollection.detailRefreshMs,
+              )
+            : priceHistoryRead,
+    );
     const getCollectionTraitCatalogUseCase =
         new GetCollectionTraitCatalogUseCase(
             config.defaultChainId,
@@ -505,6 +549,12 @@ export function createBackendApp(
         extensionAwareCollectionsReadModel,
     );
     const getTokenDetailUseCase = new GetTokenDetailUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
+    );
+    const getTokenCardUseCase = new GetTokenCardUseCase(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
@@ -731,6 +781,9 @@ export function createBackendApp(
         getCollectionTraitCatalogUseCase,
         collectionDetail.port,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
+        getPriceChartContextUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         tokenPreview.port,
         getTokenUriUseCase,

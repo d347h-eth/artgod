@@ -25,6 +25,7 @@
 		navigation: CollectionNavigation;
 		activeSection:
 			| 'tokens'
+			| 'chart'
 			| 'activities'
 			| 'holders'
 			| 'customization'

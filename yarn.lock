@@ -69,6 +69,7 @@ __metadata:
     eslint-config-prettier: "npm:10.1.8"
     eslint-plugin-svelte: "npm:3.19.0"
     globals: "npm:17.6.0"
+    klinecharts: "npm:10.0.2"
     playwright: "npm:1.60.0"
     svelte: "npm:5.56.3"
     svelte-check: "npm:4.6.0"
@@ -5090,6 +5091,13 @@ __metadata:
   version: 4.1.5
   resolution: "kleur@npm:4.1.5"
   checksum: 10/44d84cc4eedd4311099402ef6d4acd9b2d16e08e499d6ef3bb92389bd4692d7ef09e35248c26e27f98acac532122acb12a1bfee645994ae3af4f0a37996da7df
+  languageName: node
+  linkType: hard
+
+"klinecharts@npm:10.0.2":
+  version: 10.0.2
+  resolution: "klinecharts@npm:10.0.2"
+  checksum: 10/da832b1971a12fd9b350df551432d57ae6c49837d828dd8416475c53e6b562f061335cf453217347e6322d539e7f05b0cbe293cb2a2bc6b6ecc71be061600f72
   languageName: node
   linkType: hard
 

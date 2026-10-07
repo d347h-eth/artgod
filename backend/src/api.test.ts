@@ -137,9 +137,14 @@ import {
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
     buildUpdateCollectionOpenSeaStreamIngestionPath,
+    buildTokenCardPath,
+    buildPriceChartContextPath,
 } from "@artgod/shared/http/collection-routes";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
+import { GetPriceHistoryUseCase } from "./application/use-cases/collections/get-price-history.js";
+import { GetPriceChartContextUseCase } from "./application/use-cases/collections/get-price-chart-context.js";
+import { SqlitePriceHistoryRead } from "./infra/collections/sqlite-price-history-read.js";
 import {
     QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
     QUERY_CACHE_DEBUG_HEADER_NAME,
@@ -269,6 +274,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
+    const { GetTokenCardUseCase } =
+        await import("./application/use-cases/collections/get-token-card.js");
     const tokenPreviewUseCaseModule =
         await import("./application/use-cases/collections/get-token-preview.js");
     const tokenUriUseCaseModule =
@@ -432,6 +439,18 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
         );
+    const getPriceHistoryUseCase = new GetPriceHistoryUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        new SqlitePriceHistoryRead([]),
+    );
+    const getPriceChartContextUseCase = new GetPriceChartContextUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        customizationReadModel,
+    );
     const getTokenDetailUseCase =
         new tokenDetailUseCaseModule.GetTokenDetailUseCase(
             1,
@@ -439,6 +458,12 @@ beforeAll(async () => {
             collectionsReadModel,
             customizationReadModel,
         );
+    const getTokenCardUseCase = new GetTokenCardUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        customizationReadModel,
+    );
     const getTokenPreviewUseCase =
         new tokenPreviewUseCaseModule.GetTokenPreviewUseCase(
             1,
@@ -1089,6 +1114,9 @@ beforeAll(async () => {
         getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
+        getPriceChartContextUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -1152,6 +1180,9 @@ beforeAll(async () => {
         getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
+        getPriceHistoryUseCase,
+        getPriceChartContextUseCase,
+        getTokenCardUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         getTokenUriUseCase,
@@ -1558,6 +1589,27 @@ describe("backend api routes", () => {
             }
         },
     );
+
+    it("serves price history behind the same public collection scope guard", async () => {
+        const allowed = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/price-history",
+        );
+        expect(allowed.statusCode).toBe(200);
+        expect(allowed.payload.unit).toBe("ETH");
+        expect(
+            (await resolvePublic("GET", "/api/ethereum/milady/price-history"))
+                .statusCode,
+        ).toBe(404);
+        expect(
+            (
+                await resolve(
+                    "GET",
+                    "/api/ethereum/terraforms/price-history?bucket=invalid",
+                )
+            ).statusCode,
+        ).toBe(400);
+    });
 
     it("returns null for tokens without a job", async () => {
         clearTradingJobFixtures();
@@ -4155,6 +4207,124 @@ describe("backend api routes", () => {
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
     });
 
+    it("returns chart context with shared facets, media preferences and public collection scope", async () => {
+        const path = buildPriceChartContextPath("ethereum", "terraforms");
+        const result = await resolvePublic("GET", path);
+        expect(result.statusCode).toBe(200);
+        expect(Object.keys(result.payload).sort()).toEqual([
+            "chain",
+            "collection",
+            "media",
+            "traits",
+        ]);
+        expect(result.payload.collection.slug).toBe("terraforms");
+        const grid = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms?token_status=all",
+        );
+        expect(result.payload.traits).toEqual(grid.payload.traits);
+        const selected = await resolvePublic(
+            "GET",
+            path + "?trait=Mode:Terrain&trait_range=Level:3..9",
+        );
+        expect(selected.statusCode).toBe(200);
+        expect(selected.payload.traits).toEqual({
+            selected: [{ key: "Mode", value: "Terrain" }],
+            selectedRanges: [{ key: "Level", fromValue: "3", toValue: "9" }],
+            facets: grid.payload.traits.facets,
+        });
+        expect(
+            (await resolvePublic("GET", path + "?trait_ranges=Level:9..3"))
+                .statusCode,
+        ).toBe(400);
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        const disabled = await resolvePublic(
+            "GET",
+            path +
+                `?${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
+        );
+        expect(disabled.statusCode).toBe(200);
+        expect(disabled.payload.media).not.toEqual(result.payload.media);
+        const liveQuery = new URLSearchParams({
+            [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]:
+                TERRAFORMS_MEDIA_MODES.Live,
+            [COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]:
+                COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+        });
+        const live = await resolvePublic("GET", path + "?" + liveQuery);
+        const liveGrid = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms?" + liveQuery,
+        );
+        expect(live.statusCode).toBe(200);
+        expect(live.payload.media).toEqual(liveGrid.payload.media);
+        expect(live.payload.media.selectedMode).toBe(
+            TERRAFORMS_MEDIA_MODES.Live,
+        );
+        expect(
+            (
+                await resolvePublic(
+                    "GET",
+                    buildPriceChartContextPath("ethereum", "milady"),
+                )
+            ).statusCode,
+        ).toBe(404);
+    });
+
+    it("returns the same single card as the asks grid, with current listing and traits", async () => {
+        const grid = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=listed&limit=10",
+        );
+        const card = await resolve(
+            "GET",
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef: "milady",
+                tokenRef: "1",
+            }),
+        );
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token).toEqual(
+            grid.payload.tokens.items.find(
+                (token: { tokenId: string }) => token.tokenId === "1",
+            ),
+        );
+        expect(card.payload.token.listingPrice).toBe("500000000000000000");
+        expect(card.payload.media).toEqual(grid.payload.media);
+    });
+
+    it("keeps single-card reads scoped and returns 404 for absent tokens", async () => {
+        const path = (collectionRef: string, tokenRef: string) =>
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef,
+                tokenRef,
+            });
+        expect(
+            (await resolve("GET", path("milady", "999999"))).statusCode,
+        ).toBe(404);
+        expect(
+            (await resolvePublic("GET", path("milady", "1"))).statusCode,
+        ).toBe(404);
+        const card = await resolvePublic("GET", path("terraforms", "7710"));
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token.image).toBe(
+            "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+        const canonical = await resolvePublic(
+            "GET",
+            path("terraforms", "7710") +
+                `?${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
+        );
+        expect(canonical.statusCode).toBe(200);
+        expect(canonical.payload.token.image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+    });
+
     it("matches owner-scoped token queries against mixed-case owner refs", async () => {
         clearNftBalances(MILADY_ADDRESS);
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
@@ -4814,7 +4984,7 @@ describe("backend api routes", () => {
         });
     });
 
-    it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
+    it("updates collection trait filter presentation for tokens, activities and chart context", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:42710",
             origin: "http://127.0.0.1:42701",
@@ -4886,6 +5056,14 @@ describe("backend api routes", () => {
                 (item: { tokenId: string }) => item.tokenId,
             ),
         ).toEqual(["1"]);
+
+        const chart = await resolve(
+            "GET",
+            buildPriceChartContextPath("ethereum", "milady") +
+                "?trait_ranges=Power:3..9",
+        );
+        expect(chart.statusCode).toBe(200);
+        expect(chart.payload.traits).toEqual(detail.payload.traits);
 
         const activity = await resolve(
             "GET",
@@ -5007,6 +5185,17 @@ describe("backend api routes", () => {
         expect(detail.statusCode).toBe(200);
         expect(detail.payload.tokens.items[0].traitSummary).toBe("P7");
         expect(detail.payload.tokens.items[1].traitSummary).toBe("P2");
+
+        const card = await resolve(
+            "GET",
+            buildTokenCardPath({
+                chainRef: "ethereum",
+                collectionRef: "milady",
+                tokenRef: "1",
+            }),
+        );
+        expect(card.statusCode).toBe(200);
+        expect(card.payload.token.traitSummary).toBe("P7");
 
         const activity = await resolve(
             "GET",

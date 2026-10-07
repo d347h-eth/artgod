@@ -4,6 +4,58 @@ This document captures the current onchain fill-decoding rules for ArtGod. It ex
 
 The indexer should treat chain/protocol facts as the source of truth at the raw `fills` layer. Product-facing summaries can collapse or relabel those facts later, but the decoder should avoid mutating one protocol event with values from another protocol event.
 
+## Execution facts and prices
+
+Fresh ingestion stores one `fill_executions` header per chain, protocol,
+transaction and execution-log index. Its `fill_execution_items` retain every
+NFT and monetary item in protocol order, including untracked collections and
+unresolved criteria items. Only normalized fields are stored; encoded event
+topics/data and raw payload snapshots are not retained. Each collection-scoped
+`fills` row refers to one concrete NFT item; repeated token IDs
+therefore remain separate attributions. Independent purchases in one transaction
+are separate executions, not a transaction-wide bundle.
+
+Seaport item rows preserve its original offer/consideration items. Blur maps each
+successful exchange to its NFT item and gross monetary total. Fee/royalty
+breakdowns are not classified here, and uninterpreted event fields are not
+archived.
+
+`shared/market-data/fills.ts` owns payment classification and exact arithmetic.
+Cash asks sum currency consideration. Cash bids use the gross currency offer;
+same-currency consideration can distribute that payment alongside the NFT and
+is not added again. NFTs on both sides, multiple currencies, cash offered with
+ask NFTs, excess bid return payments, missing payments and unsupported items
+retain normalized facts with an exclusion reason rather than an invented price.
+
+For a priced execution with payment `P` and `N` NFT units, every attributed item
+has the exact rational unit price `P/N`. More than one NFT item is labelled a
+bundle average, including cross-collection and partly tracked bundles. One
+quantity-bearing item is one observation with quantity `Q`, not `Q` repeated
+rows. The denominator includes all execution NFT units before any tracking,
+collection, token or trait filter.
+
+Turnover is separate from that rational price: each raw NFT unit receives
+`floor(P/N)` wei, with the first `P mod N` units receiving one additional wei.
+The stored quantity prefix fixes this ordering before filtering. All legs
+together conserve the full payment, including one wei across three units.
+Activity rows use the attributed leg total; chart coordinates use the unit price.
+
+The chart maps ETH, configured WETH and Ethereum BETH 1:1 to ETH, retaining the
+original currency address/symbol. Other currencies retain normalized facts and
+appear in scoped API exclusion counts. No exchange-rate inference is made.
+
+Migration `064_fill_execution_facts.sql` atomically removes all old fills and
+all sale activities before creating the new tables. It preserves transfers,
+balances, blocks and collection coverage. Historical sales remain empty until
+ordinary backfill is requested; the migration neither reconstructs incomplete
+legacy rows nor schedules refill work.
+
+Backfill reacquires receipts even for already-covered blocks and writes fill
+facts independently of transfer insertion. Existing transfers do not apply
+their balance changes again. Newly discovered post-anchor transfers use the
+normal ownership projection: ERC721 follows the latest persisted transfer,
+while ERC1155 applies each newly inserted quantity delta once.
+
 Primary files:
 
 - `indexer/src/application/fills/seaport.ts`
@@ -11,6 +63,7 @@ Primary files:
 - `indexer/src/application/fills/blur.ts`
 - `indexer/src/application/fills/types.ts`
 - `indexer/tests/decode-fill-fixtures.test.ts`
+- `indexer/tests/fill-execution-upgrades.test.ts`
 - `indexer/tests/fixtures/fill-txs/`
 
 ## Core Principles
@@ -26,12 +79,12 @@ Fill decoding follows these principles:
     - one order id
     - one side
     - one maker/taker interpretation
-    - one price/currency
-    - one log index or protocol call source
+    - one complete execution context and NFT item identity
+    - one execution event log index
 - Do not graft price/currency from one `OrderFulfilled` log onto another order's identity.
 - If a bundle contains multiple standalone protocol fills, persist multiple fill rows.
 - If a matched-order execution emits buy/sell mirror logs for one NFT transfer, keep one canonical fill for that transfer.
-- Currency in `fills.currency` is the execution/protocol currency, not a normalized display currency.
+- Currency in `fill_executions.currency` is the execution/protocol currency, not a normalized display currency.
 
 ## Data Flow
 
@@ -42,7 +95,7 @@ The sync worker flow is:
 3. Fetch the transaction and receipt for each relevant transaction.
 4. Decode fills using the transaction calldata and receipt logs.
 5. Match decoded fill candidates to concrete tracked NFT transfer hops.
-6. Persist `fills` rows idempotently.
+6. Persist execution headers, all items and collection attributions atomically and idempotently.
 7. Project activity rows from persisted `fills`.
 
 This keeps bandwidth constrained to transactions that already touched a tracked collection while still exposing enough receipt context to decode routed marketplace activity.
@@ -57,11 +110,11 @@ For each `OrderFulfilled` log:
 
 - If tracked NFTs appear in `offer`, the order side is `sell`.
 - If tracked NFTs appear in `consideration`, the order side is `buy`.
-- If tracked NFTs appear on both sides, the log is skipped.
 - If no tracked NFTs appear, the log is skipped.
-- If the opposite side has no native/ERC20 currency item, the log is skipped.
-- If multiple currencies are present in the same fill, the log is skipped and warned.
-- Multi-token orders emit one fill per tracked NFT item.
+- Concrete tracked NFTs on either side receive candidates, including swaps and
+  unpriceable payment shapes. All normalized execution items are retained before
+  filtering.
+- Multi-token orders emit one fill per tracked NFT item, with its raw item index.
 
 The side names mean orderbook side:
 
@@ -87,6 +140,8 @@ After candidates are assigned to transfer hops:
 
 - Different transfer hops can each produce a fill row.
 - Multiple candidates assigned to the same transfer hop are canonicalized.
+- Repeated NFT identifiers within one event are grouped for transfer matching,
+  then restored as distinct raw items after choosing the canonical execution.
 
 This is why Gondi-style multi-hop transactions persist multiple fills, while matched buy/sell mirror logs for one transfer persist only one fill.
 
@@ -121,7 +176,7 @@ Persisted fill:
 
 - `kind = seaport`
 - `order_side = sell`
-- `price = sum(currency consideration)`
+- execution `total_price = sum(currency consideration)`
 - `currency = native ETH zero address or ERC20 token`
 
 Fixture examples:
@@ -141,7 +196,8 @@ Persisted fill:
 
 - `kind = seaport`
 - `order_side = buy`
-- `price = sum(currency offer)`
+- execution `total_price = sum(currency offer)`; same-currency fee/proceeds
+  distributions in consideration are not added to that gross payment
 - `currency = native ETH zero address or ERC20 token`
 
 Fixture examples:
@@ -158,7 +214,6 @@ Supported baseline rule:
 
 - log address is known Seaport
 - `OrderFulfilled` contains a tracked NFT
-- opposite side contains native/ERC20 currency
 - candidate maps to a tracked NFT transfer in the same transaction
 
 Current examples:
@@ -261,7 +316,9 @@ Policy:
 
 - emit one fill row per tracked NFT item.
 - keep the same order id/log index for rows that came from the same `OrderFulfilled` log.
-- keep the same gross order price on each per-token row until a later allocation model exists.
+- retain the gross payment once on the execution, including every untracked leg.
+- derive exact unit averages and conserved leg totals through the shared owner
+  described in [execution facts and prices](#execution-facts-and-prices).
 
 Fixture example:
 
@@ -270,6 +327,25 @@ Fixture example:
 This transaction is protocol-valid even if it is a phishing/scam sale. The decoder should persist protocol truth; later product layers can flag suspicious context.
 
 ## Blur Decoding
+
+Calldata exchanges are matched to successful execution events by maker,
+collection, token, listing index, side, asset type, executed quantity, and gross
+total, before collection filtering. Missing events do not fall back to transfer
+log identities. Failed batch exchanges therefore cannot steal another fill's
+order hash or log index. Event ordering does not determine the match.
+
+The decoder recognizes `Execution721Packed`, its maker/taker-fee variants, and
+the general `Execution` event. Packed fields reserve 160 bits for addresses,
+8 bits for listing index, and 88 bits for token ID/price. ERC-1155 trades use the
+general event. `listing.price` is per unit; the execution price is the total for
+the actual taker quantity, not the listing's maximum quantity. Identity always
+uses the event's order hash rather than reconstructing it from a salt.
+
+Protocol references: [verified executor source](https://goto.etherscan.com/tx-decoder?tx=0x3af207b302b14520ebb8c2120468c34ad535239c66382ecebe60481e13cb02c2)
+(`_computeFees`, execution emission/packing) and
+[OpenSea's Blur V2 integration](https://github.com/ProjectOpenSea/marketplace-benchmarks/blob/main/src/marketplaces/blur-2.0/BlurV2Config.sol).
+The bundled receipts verify matching against actual execution identities;
+synthetic event mutations cover fee forms, failures, and quantity arithmetic.
 
 Blur V2 fills are decoded from calldata for known methods. Current supported methods:
 
@@ -300,10 +376,10 @@ Blur pool fills can settle through the Blur pool token:
 
 Policy:
 
-- persist this address as `fills.currency`.
+- persist this address as `fill_executions.currency`.
 - do not flatten it to ETH at the raw fill layer.
 
-Other feeds may label these rows as ETH because they display economic equivalence or user-facing payment framing. ArtGod's raw `fills` table stores execution/protocol currency. Display normalization can be added above the raw fact layer.
+Other feeds may label these rows as ETH because they display economic equivalence or user-facing payment framing. ArtGod retains execution/protocol currency; the chart normalizes its display unit above these raw facts.
 
 ## Marketplace Feeds Are Not Ground Truth
 
@@ -323,7 +399,7 @@ ArtGod should use these feeds as comparison tools, not as ground truth. The deco
 
 ## Raw Fills vs Product Views
 
-The `fills` table is a protocol-fact table with light canonicalization to avoid same-transfer double-counting.
+The execution/item tables and `fills` attributions are protocol facts with light canonicalization to avoid same-transfer double-counting. Prepared totals, classifications and quantity prefixes are derived at ingestion, not a chart projection. Reorg rollback deletes execution headers and cascades all items/attributions. Collection purge removes only its attributions and deletes headers only after their last collection reference is gone.
 
 Product-facing views can later derive:
 
@@ -346,6 +422,9 @@ Every new fill-decoding edge case should add a fixture under:
 And an assertion in:
 
 - `indexer/tests/decode-fill-fixtures.test.ts`
+- `indexer/tests/decode-blur-executions.test.ts` for event matching and wire mutations
+- `indexer/tests/fill-executions.test.ts` for full-context ingestion and lifecycle
+- `shared/market-data/fills.test.ts` for classification and exact allocation
 
 Fixture tests should cover:
 
@@ -354,6 +433,8 @@ Fixture tests should cover:
 - price
 - currency
 - number of emitted fills
+- complete context before tracking and distinct raw item identities
+- execution quantity/total semantics, replay, rollback and conserved allocation
 
 Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new fixtures.
 
@@ -361,8 +442,8 @@ Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new f
 
 - No transaction traces are used.
 - Criteria-based Seaport NFT items are skipped until criteria resolution is implemented.
-- Mixed-currency Seaport fills are skipped.
-- Multi-token orders currently duplicate gross order price per token row; allocation is deferred.
+- Mixed-currency and swap facts are retained but have no chart price. General
+  ERC-20 conversion and token-specific bundle valuation remain out of scope.
 - Router payment-path details are not persisted as first-class context yet.
 - Financing context such as loan emission/repayment is not modeled in `fills` yet.
 - Blur methods not listed above are not decoded yet.

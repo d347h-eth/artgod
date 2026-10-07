@@ -1,16 +1,24 @@
 import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import { LISTING_HISTORY_HARNESS } from '../src/lib/e2e/listing-history-contract';
-import { BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH } from '../src/lib/e2e/bidding-automation-fixtures';
+import { openseaItemHref } from '../src/lib/marketplace-links';
+import {
+	BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH,
+	BIDDING_E2E_CHAIN,
+	BIDDING_E2E_COLLECTION
+} from '../src/lib/e2e/bidding-automation-fixtures';
 import {
 	captureDiagnosticsForTest,
 	attachDiagnosticsForTestFailure,
 	type PageDiagnosticsRegistry
 } from './attached-app';
+import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 
 const diagnostics: PageDiagnosticsRegistry = new Map();
 test.beforeEach(async ({ page }, info) => {
 	captureDiagnosticsForTest(diagnostics, page, info);
 	await page.clock.install();
+	// Navigation to asks uses the same isolated API fixtures as the bidding harness.
+	await installBiddingAutomationApiMock(page);
 });
 test.afterEach(async ({ page }, info) => {
 	if (info.status !== info.expectedStatus) await surface(page, info, 'failure-surface');
@@ -25,6 +33,39 @@ async function surface(page: Page, info: TestInfo, name: string) {
 		true
 	);
 }
+
+test('sales distinguish NFT quantities from leg totals without changing single-unit prices', async ({
+	page
+}, info) => {
+	await page.goto(`${LISTING_HISTORY_HARNESS.path}?${LISTING_HISTORY_HARNESS.salesKey}=1`);
+	for (const label of [
+		'1.5 ETH',
+		'4 tokens, 8 ETH total',
+		'2 ETH',
+		'2 tokens, 4 ETH total',
+		'2 tokens, 0 ETH total',
+		'4 tokens, -'
+	]) {
+		const cell = page.getByRole('cell', { name: label, exact: true });
+		await expect(cell).toBeVisible();
+		expect(await cell.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	}
+	const quantityRow = page.getByRole('row').filter({
+		has: page.getByRole('cell', { name: '4 tokens, 8 ETH total', exact: true })
+	});
+	const tokenId = await quantityRow.getByRole('link', { name: /^\d+$/ }).innerText();
+	await expect(page.getByRole('link', { name: '8 ETH', exact: true })).toHaveAttribute(
+		'href',
+		openseaItemHref({
+			chainSlug: BIDDING_E2E_CHAIN.slug,
+			collectionAddress: BIDDING_E2E_COLLECTION.address,
+			tokenId
+		})!
+	);
+	await surface(page, info, 'sale-quantities');
+	await page.setViewportSize({ width: 1280, height: 1024 });
+	await surface(page, info, 'sale-quantities-desktop');
+});
 
 test('daily listings retain historical prices and pinned timestamps after expiry', async ({
 	page

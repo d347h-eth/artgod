@@ -127,6 +127,12 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows("market_order_retirements"),
             this.deleteCollectionRows("market_order_observations"),
             this.deleteCollectionRows("fills"),
+            // A cross-collection execution must retain all raw legs while any
+            // other collection still refers to it. Items cascade with the header.
+            this.deleteFrom(
+                "fill_executions",
+                "DELETE FROM fill_executions WHERE chain_id=@chainId AND NOT EXISTS (SELECT 1 FROM fills WHERE fills.execution_id=fill_executions.id)",
+            ),
             this.deleteCollectionRows("nft_transfer_events"),
             this.deleteCollectionRows("orders"),
             this.deleteCollectionRows("collections"),

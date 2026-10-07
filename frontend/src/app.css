@@ -23,6 +23,10 @@
 		'Mathcastles Remix', 'Noto Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
+	/* Collection page chrome and full-width bodies share one content inset. */
+	--panel-content-padding: 0.75rem;
+	/* Grid cards and floating chart cards use the same natural media size. */
+	--token-grid-media-height: 400px;
 	/* Shared width for collection and OpenSea slug inputs. */
 	--bootstrap-input-slug-width: 36ch;
 	/* Shared fill for own bid rows and bid-book update flashes. */
@@ -57,6 +61,17 @@ a:hover {
 	color: var(--c-yellow);
 }
 
+/* Numeric inputs retain keyboard stepping, without browser spinner chrome. */
+input[type='number'] {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
 .panel {
 	margin: 1rem;
 	background: var(--c-bg);
@@ -67,7 +82,7 @@ a:hover {
 	flex-wrap: wrap;
 	gap: 0.4rem;
 	align-items: center;
-	padding: 0.55rem 0.75rem;
+	padding: 0.55rem var(--panel-content-padding);
 	font-size: 0.72rem;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
@@ -87,7 +102,7 @@ a:hover {
 	flex-wrap: wrap;
 	align-items: flex-end;
 	justify-content: space-between;
-	padding: 0.75rem;
+	padding: var(--panel-content-padding);
 }
 
 .panel-header-main {
@@ -2930,7 +2945,7 @@ a.bid-book-own-status:focus-visible {
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.75rem;
-	padding: 0.75rem;
+	padding: var(--panel-content-padding);
 }
 
 .results-toolbar {
@@ -2984,8 +2999,9 @@ a.bid-book-own-status:focus-visible {
 	font-size: 0.8rem;
 }
 
-.token-grid-wrap {
-	padding: 0.75rem;
+.token-grid-wrap,
+.panel-content {
+	padding: var(--panel-content-padding);
 }
 
 .token-offers-panel {
@@ -3052,7 +3068,6 @@ a.bid-book-own-status:focus-visible {
 }
 
 .token-grid-media {
-	--token-grid-media-height: 400px;
 	background: var(--c-bg);
 	height: var(--token-grid-media-height);
 	min-height: var(--token-grid-media-height);
@@ -3948,6 +3963,10 @@ a.bid-book-own-status:focus-visible {
 
 .activities-price-col {
 	width: var(--activity-col-narrow);
+}
+
+.activities-sale-quantity {
+	display: block;
 }
 
 .activities-media-col {

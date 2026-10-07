@@ -5,5 +5,6 @@ export const LISTING_HISTORY_HARNESS = {
 	soldKey: 'sold',
 	soldTokenId: '101',
 	pageTwoCursor: 'daily-page-2',
-	emptyKey: 'empty'
+	emptyKey: 'empty',
+	salesKey: 'sales'
 } as const;

@@ -76,11 +76,17 @@ import type {
 	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
 	TokenPreviewApiResponse,
+	TokenCardApiResponse,
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
+import type {
+	PriceHistoryRequest,
+	PriceHistory,
+	CollectionPriceChartContext
+} from '@artgod/shared/types/price-history';
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	type CollectionBiddingBidBookOwnershipFilter,
@@ -101,6 +107,9 @@ import {
 import {
 	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
+	buildTokenCardPath,
+	buildPriceHistoryPath,
+	buildPriceChartContextPath,
 	buildStartCollectionOpenSeaSyncPath,
 	buildUpdateCollectionOpenSeaStreamIngestionPath
 } from '@artgod/shared/http/collection-routes';
@@ -145,6 +154,31 @@ export class BackendApiError extends Error {
 
 export async function getDefaultChain(fetchFn: typeof fetch): Promise<DefaultChainResponse> {
 	return requestJson<DefaultChainResponse>(fetchFn, RUNTIME_API_ROUTES.DefaultChain);
+}
+
+export async function getPriceHistory(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	input: PriceHistoryRequest,
+	signal?: AbortSignal
+): Promise<PriceHistory> {
+	return requestJson<PriceHistory>(fetchFn, buildPriceHistoryPath(chainRef, collectionRef, input), {
+		signal
+	});
+}
+
+export async function getPriceChartContext(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	query: URLSearchParams
+): Promise<CollectionPriceChartContext> {
+	const suffix = query.toString();
+	return requestJson<CollectionPriceChartContext>(
+		fetchFn,
+		buildPriceChartContextPath(chainRef, collectionRef) + (suffix ? '?' + suffix : '')
+	);
 }
 
 export async function getRuntimeConfig(fetchFn: typeof fetch): Promise<RuntimeConfigApiResponse> {
@@ -809,19 +843,36 @@ export async function getTokenDetail(
 	);
 }
 
+export async function getTokenCard(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string,
+	params?: URLSearchParams,
+	signal?: AbortSignal
+): Promise<TokenCardApiResponse> {
+	const query = params?.toString();
+	return requestJson<TokenCardApiResponse>(
+		fetchFn,
+		buildTokenCardPath({ chainRef, collectionRef, tokenRef }) + (query ? `?${query}` : ''),
+		{ ...tokenMediaRequestInit(params), signal }
+	);
+}
+
 export async function getTokenPreview(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
 	tokenRef: string,
-	params?: URLSearchParams
+	params?: URLSearchParams,
+	signal?: AbortSignal
 ): Promise<TokenPreviewApiResponse> {
 	const query = params?.toString() ?? '';
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenPreviewApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/preview${suffix}`,
-		tokenMediaRequestInit(params)
+		{ ...tokenMediaRequestInit(params), signal }
 	);
 }
 
@@ -1011,6 +1062,7 @@ async function requestJsonResponse<T>(
 		try {
 			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`, init, output);
 		} catch (cause) {
+			if (init?.signal?.aborted) throw cause;
 			const mapped = toBackendApiError(cause);
 			if (output || !isRetryableStartupError(mapped) || Date.now() >= deadline) {
 				throw mapped;

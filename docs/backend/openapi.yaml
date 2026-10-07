@@ -23,6 +23,85 @@ tags:
     - name: Trading
 
 paths:
+    /api/{chain_ref}/{collection_ref}/chart-context:
+        get:
+            tags: [Collections]
+            summary: Collection identity, media settings and trait facets for the chart page
+            operationId: getPriceChartContext
+            description: Returns chart navigation, media context and the same collection-wide trait facets and customized set/range presentation as the token browser, without querying token lists. Thumbnail reads remain snapshot-only.
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
+                - $ref: "#/components/parameters/Traits"
+                - $ref: "#/components/parameters/Trait"
+                - $ref: "#/components/parameters/TraitRanges"
+                - $ref: "#/components/parameters/TraitRange"
+            responses:
+                "200":
+                    description: Collection chart context
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionPriceChartContext"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /api/{chain_ref}/{collection_ref}/price-history:
+        get:
+            tags: [Collections]
+            summary: Realized NFT unit sale prices in ETH
+            operationId: getPriceHistory
+            description: |
+                Reads locally stored fills and aggregates in memory. ETH, WETH,
+                and BETH map 1:1 to ETH for aggregation; each sale retains its
+                original currency address and symbol.
+                Cash bundles use an exact average per NFT unit, based on all
+                execution items before collection/token/trait filtering. Each NFT
+                item is one observation with an explicit quantity and conserved
+                attributed amount. Swaps, unsupported items/payment shapes, and
+                unsupported currencies are omitted from prices and counted in
+                response metadata. Empty UTC buckets are omitted.
+                All-history requests always use daily buckets, regardless of the
+                requested bucket. Public deployments may reuse an expiring
+                collection snapshot; desktop reads query SQLite directly.
+                Requests over 100000 attributed NFT items (including omissions)
+                or 30000 buckets return 400.
+                Trait filters use current token attributes, including extension
+                traits, before the fill limit and aggregation. Values within one
+                key are ORed; keys and numeric ranges are ANDed. Filtered requests
+                bypass the public snapshot cache.
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: bucket
+                  in: query
+                  schema: { type: string, enum: [1h, 4h, 1d, 1w], default: 1d }
+                - name: range
+                  in: query
+                  schema:
+                      { type: string, enum: [30d, 90d, 1y, all], default: all }
+                - name: token_id
+                  in: query
+                  description: Optional unsigned decimal token ID within this collection
+                  schema: { type: string, pattern: "^[0-9]+$" }
+                - $ref: "#/components/parameters/Traits"
+                - $ref: "#/components/parameters/Trait"
+                - $ref: "#/components/parameters/TraitRanges"
+                - $ref: "#/components/parameters/TraitRange"
+            responses:
+                "200":
+                    description: Exact base-unit prices, sales and populated OHLC buckets
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PriceHistory"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /health:
         get:
             tags: [Health]
@@ -1643,6 +1722,32 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/{token_ref}/card:
+        get:
+            tags: [Collections]
+            summary: Get a single token grid card
+            description: Reuses collection grid media selection, current ask, and effective trait summary template. Applies the public collection scope guard.
+            operationId: getTokenCard
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+                - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
+            responses:
+                "200":
+                    description: Token card for the selected media source
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetTokenCardResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/{token_ref}/preview:
         get:
             tags: [Collections]
@@ -2121,6 +2226,42 @@ components:
             description: CSRF cookie token
 
     parameters:
+        Traits:
+            name: traits
+            in: query
+            description: Repeated `key:value` filter; values within a key are ORed and different keys are ANDed
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        Trait:
+            name: trait
+            in: query
+            description: Legacy alias of `traits`
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        TraitRanges:
+            name: trait_ranges
+            in: query
+            description: Repeated `key:from..to` inclusive unsigned-integer range filter; either bound can be omitted
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
+        TraitRange:
+            name: trait_range
+            in: query
+            description: Legacy alias of `trait_ranges`
+            schema:
+                type: array
+                items: { type: string }
+            style: form
+            explode: true
         ChainRef:
             name: chain_ref
             in: path
@@ -2372,6 +2513,201 @@ components:
                 while HTTP remains 200. An interrupted stream is never a successful operation.
                 See docs/indexer/14-collection-bootstrap.md, Live Setup Output, for per-operation
                 requirements, retention bounds and retry behavior. Security checks are unchanged.
+        CollectionPriceChartContext:
+            type: object
+            required: [chain, collection, media, traits]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
+                traits:
+                    type: object
+                    required: [selected, selectedRanges, facets]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        selectedRanges:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitRangeFilter"
+                        facets:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFacet"
+        ExactUnitPrice:
+            type: object
+            required: [numeratorWei, denominator]
+            properties:
+                numeratorWei: { type: string, pattern: "^[0-9]+$" }
+                denominator: { type: string, pattern: "^[1-9][0-9]*$" }
+            description: Exact ETH base-unit numerator divided by NFT unit denominator; may contain fractional wei
+        PriceHistoryCounts:
+            type: object
+            required:
+                [
+                    observations,
+                    pricedObservations,
+                    excludedObservations,
+                    executions,
+                    pricedNftQuantity,
+                    excludedNftQuantity,
+                    excludedByReason,
+                ]
+            description: Requested collection/time/token/trait scope; observations are NFT items, quantities are NFT units, executions are distinct protocol events
+            properties:
+                observations: { type: integer }
+                pricedObservations: { type: integer }
+                excludedObservations: { type: integer }
+                executions: { type: integer }
+                pricedNftQuantity: { type: string }
+                excludedNftQuantity: { type: string }
+                excludedByReason:
+                    type: object
+                    description: NFT item counts by omitted price reason
+                    properties:
+                        nft-swap: { type: integer }
+                        mixed-payment: { type: integer }
+                        no-payment: { type: integer }
+                        unsupported-items: { type: integer }
+                        unsupported-currency: { type: integer }
+        PriceHistory:
+            type: object
+            required:
+                [
+                    unit,
+                    bucket,
+                    bucketSeconds,
+                    range,
+                    from,
+                    to,
+                    sales,
+                    buckets,
+                    counts,
+                ]
+            properties:
+                unit: { type: string, enum: [ETH] }
+                bucket: { type: string, enum: [1h, 4h, 1d, 1w] }
+                bucketSeconds: { type: integer }
+                range: { type: string, enum: [30d, 90d, 1y, all] }
+                from:
+                    {
+                        type: integer,
+                        description: First bucket start in Unix seconds,
+                    }
+                to:
+                    {
+                        type: integer,
+                        description: Exclusive end in Unix seconds,
+                    }
+                sales:
+                    type: array
+                    items:
+                        type: object
+                        required:
+                            [
+                                id,
+                                timestamp,
+                                tokenId,
+                                unitPrice,
+                                quantity,
+                                executionId,
+                                executionTotalWei,
+                                executionNftQuantity,
+                                attributedPriceWei,
+                                priceBasis,
+                                currencyAddress,
+                                currencySymbol,
+                                action,
+                                seller,
+                                buyer,
+                                txHash,
+                            ]
+                        properties:
+                            id: { type: string }
+                            timestamp: { type: integer }
+                            tokenId: { type: string }
+                            unitPrice:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            quantity:
+                                {
+                                    type: string,
+                                    description: NFT units in this attributed item,
+                                }
+                            executionId: { type: string }
+                            executionTotalWei:
+                                {
+                                    type: string,
+                                    description: Whole gross payment before tracking or filtering,
+                                }
+                            executionNftQuantity:
+                                {
+                                    type: string,
+                                    description: All NFT units covered by this execution payment,
+                                }
+                            attributedPriceWei:
+                                {
+                                    type: string,
+                                    description: Conserved whole-wei amount attributed to this item,
+                                }
+                            priceBasis:
+                                { type: string, enum: [unit, bundle-average] }
+                            currencyAddress:
+                                type: string
+                                description: Original execution currency address; zero address for ETH
+                            currencySymbol:
+                                { type: string, enum: [ETH, WETH, BETH] }
+                            action:
+                                {
+                                    type: string,
+                                    nullable: true,
+                                    enum: [take-ask, take-offer, null],
+                                }
+                            seller: { type: string, nullable: true }
+                            buyer: { type: string, nullable: true }
+                            txHash: { type: string }
+                buckets:
+                    type: array
+                    items:
+                        type: object
+                        required:
+                            [
+                                timestamp,
+                                open,
+                                high,
+                                low,
+                                close,
+                                volume,
+                                turnoverWei,
+                            ]
+                        properties:
+                            timestamp: { type: integer }
+                            open:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            high:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            low:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            close:
+                                $ref: "#/components/schemas/ExactUnitPrice"
+                            volume:
+                                {
+                                    type: string,
+                                    description: Exact number of NFT units sold,
+                                }
+                            turnoverWei:
+                                {
+                                    type: string,
+                                    description: Sum of conserved attributed amounts in ETH base units,
+                                }
+                counts:
+                    $ref: "#/components/schemas/PriceHistoryCounts"
         # OpenAPI 3.0 nullable does not widen an allOf reference or its enum.
         # See https://spec.openapis.org/oas/v3.0.3.html#schema-object
         NullValue:
@@ -5679,6 +6015,16 @@ components:
                     $ref: "#/components/schemas/TokenDetail"
                 traitFilterPresentation:
                     $ref: "#/components/schemas/TraitFilterPresentationFeatureState"
+
+        GetTokenCardResponse:
+            type: object
+            required: [media, token]
+            additionalProperties: false
+            properties:
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
+                token:
+                    $ref: "#/components/schemas/TokenCard"
 
         GetTokenPreviewResponse:
             type: object

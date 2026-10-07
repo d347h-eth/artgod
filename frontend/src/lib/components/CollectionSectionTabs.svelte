@@ -24,6 +24,7 @@
 		navigation: CollectionNavigation;
 		active:
 			| 'tokens'
+			| 'chart'
 			| 'activities'
 			| 'holders'
 			| 'customization'
@@ -120,6 +121,7 @@
 			{#each COLLECTION_ACTIVITY_FILTER_KINDS as kind}
 				{@render navItem(kind, activityKindHref(kind), active === 'activities' && activeActivityKind === kind)}
 			{/each}
+			{@render navItem('chart', navigation.hrefs.chart, active === 'chart')}
 		</div>
 	</div>
 	{#each extensionNavigationGroups as eventFeedGroup}

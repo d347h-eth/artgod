@@ -1,4 +1,6 @@
-export type OrderSide = "sell" | "buy";
+import type { FillExecution } from "@artgod/shared/market-data/fills";
+import type { OrderSide } from "@artgod/shared/market-data/orders";
+export type { OrderSide } from "@artgod/shared/market-data/orders";
 
 export type DecodedFillEvent = {
     orderId?: string;
@@ -11,6 +13,8 @@ export type DecodedFillEvent = {
     amount?: string;
     price?: string;
     currency?: string;
+    execution: FillExecution;
+    executionItemIndex: number;
     blockNumber: number;
     blockHash: string;
     txHash: string;

@@ -38,11 +38,16 @@ Shared structure:
 3. stacked top-action rows
 4. page body
 
+Every collection page supplies the shared `CollectionJumpForm` and
+`KeyboardShortcutsHelp` in the header-actions slot. Wire the existing help,
+preview, and collection-navigation keyboard handlers before page-specific
+shortcuts so overlays and text entry retain focus ownership.
+
 Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and currently exposes:
 
 - grouped `explore`: `asks`, `offers`, `tokens`
 - standalone `bidding`
-- grouped `events`: `sales`, `listings`, `transfers`
+- grouped `asset events`: `sales`, `listings`, `transfers`, `chart`
 - `holders`
 - `customization`
 
@@ -83,6 +88,7 @@ Rules:
 - preserve the existing left-aligned compact chrome unless a request explicitly names the page shell/navigation itself
 - feature-specific visualizations may use their own centered grids, but their CSS must not mutate generic `.panel`, `.panel-header`, navigation tab, or shared top-action behavior
 - side panels attached to a centered visualization should align through one shared layout grid, not through per-row content width
+- full-width feature bodies still respect the panel's outer margin and the shared `--panel-content-padding` inset; use `.panel-content` for a body that does not already have a padded content wrapper
 
 ## Default Width Policy
 
@@ -136,6 +142,9 @@ scrolling and resizing, while preserving its placement beside the trigger.
 Clicking or tapping keeps help open after pointer focus is released. Selecting
 another control, clicking or tapping elsewhere, or pressing `Escape` dismisses it.
 
+Never show native increment/decrement spinners on numeric inputs by default.
+Use the shared `app.css` rule; retain number validation and keyboard stepping.
+
 ### Admin setting summaries
 
 Read-only summaries of Admin configuration must remain visibly connected to the
@@ -187,6 +196,10 @@ Collection pages should compose the shared shell like this:
         - user-defined setting
         - extension-defined setting
 
+6. `CollectionPriceChartView.svelte`
+    - row 1: shared trait panel controls, reset, and selected-trait pills
+    - body: shared trait sidebar beside the chart and sales list
+
 Do not reintroduce page-level action rows inside leaf views once the action belongs to the shared page shell.
 
 Token status, collection activity kind, and bidding view navigation belong to `CollectionSectionTabs.svelte`.
@@ -216,7 +229,7 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 
 - Component/class family: `CollectionSectionTabs.svelte`, `.runtime-tabs`
 - Scope: top-level collection page navigation
-- Includes grouped collection choices: `explore` (`asks`, `offers`, `tokens`) and `events` (`sales`, `listings`, `transfers`)
+- Includes grouped collection choices: `explore` (`asks`, `offers`, `tokens`) and `asset events` (`sales`, `listings`, `transfers`, `chart`)
 - Visual contract:
     - active/selected: orange
     - hover/focus: yellow
@@ -634,6 +647,7 @@ Trait-aware pages:
 
 - collection tokens
 - collection activities
+- collection sale chart
 - collection bidding `bid_scope=token`
 - collection bidding `bid_scope=traits`
 - holder-token page
@@ -643,7 +657,7 @@ The collection holders leaderboard is intentionally not trait-aware and acts as 
 Navigation rules:
 
 - primary collection navigation built through `collection-navigation.ts` preserves trait filters for trait-aware destinations
-- collection `tokens` <-> collection `activities` <-> collection bidding preserve trait filters
+- collection `tokens` <-> collection `activities` <-> collection `chart` <-> collection bidding preserve trait filters
 - holder-token page -> collection `tokens` / `activities` / bidding preserves trait filters
 - collection `tokens` / `activities` -> holder-token page does not carry trait filters
 - collection `holders` leaderboard does not preserve trait filters
@@ -867,6 +881,7 @@ Shortcut and navigation rules:
   across:
     - tokens
     - activities
+    - chart
     - holders
     - holder-token pages
     - token detail

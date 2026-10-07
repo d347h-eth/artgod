@@ -17,6 +17,10 @@ import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
 import { RUNTIME_API_ROUTES } from "@artgod/shared/http/runtime-routes";
 import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
 import { COLLECTION_API_ROUTE_TEMPLATE } from "@artgod/shared/http/collection-routes";
+import type {
+    GetTokenCardHttpAdapter,
+    GetTokenCardRoute,
+} from "./http/handlers/collections/get-token-card.js";
 import { TRADING_API_ROUTE_TEMPLATE } from "@artgod/shared/http/trading-routes";
 import type {
     CreateBootstrapRunHttpAdapter,
@@ -87,6 +91,14 @@ import type {
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
 import { getCollectionDetailSpanAttributes } from "./http/handlers/collections/get-collection-detail.js";
+import type {
+    GetPriceHistoryHttpAdapter,
+    GetPriceHistoryRoute,
+} from "./http/handlers/collections/get-price-history.js";
+import type {
+    GetPriceChartContextHttpAdapter,
+    GetPriceChartContextRoute,
+} from "./http/handlers/collections/get-price-chart-context.js";
 import type {
     GetCollectionHoldersHttpAdapter,
     GetCollectionHoldersRoute,
@@ -310,6 +322,9 @@ export function registerApiRoutes(
     getCollectionTraitCatalogAdapter: GetCollectionTraitCatalogHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
+    getPriceHistoryAdapter: GetPriceHistoryHttpAdapter,
+    getPriceChartContextAdapter: GetPriceChartContextHttpAdapter,
+    getTokenCardAdapter: GetTokenCardHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     getTokenUriAdapter: GetTokenUriHttpAdapter,
@@ -448,6 +463,20 @@ export function registerApiRoutes(
             preHandler: publicCollectionScopeGuard,
         },
     );
+    registerObservedGet<GetPriceHistoryRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.PriceHistory,
+        getPriceHistoryAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
+    );
+    registerObservedGet<GetPriceChartContextRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.PriceChartContext,
+        getPriceChartContextAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
+    );
     registerObservedGet<GetTokenActivityRoute>(
         app,
         options,
@@ -475,6 +504,13 @@ export function registerApiRoutes(
         {
             preHandler: publicCollectionScopeGuard,
         },
+    );
+    registerObservedGet<GetTokenCardRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.TokenCard,
+        getTokenCardAdapter.handle,
+        { preHandler: publicCollectionScopeGuard },
     );
     registerObservedGet<GetTokenUriRoute>(
         app,
