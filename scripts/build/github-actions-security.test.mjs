@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +9,8 @@ import {
     TAURI_LINUX_BUNDLER_TARGET,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
 import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
+import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -82,7 +85,7 @@ const macosPromptContainmentJobName = "macos-prompt-containment-check";
 const macosUniversalSqliteBuildStepName =
     "Build universal macOS SQLite dependency";
 const macosUniversalSqliteBuildCommand =
-    "node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
+    "yarn node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
 const yarnArtifactCacheStepName = "Cache Yarn local artifacts";
 const macosRuntimeCachePaths = [
     ".yarn/cache",
@@ -504,6 +507,56 @@ test("cross-builds the universal SQLite binding before release tags", async () =
     assert.match(macosJob, /^ {8}runs-on: macos-latest$/m);
     assertStepRunsCommand(sqliteBuildStep, macosUniversalSqliteBuildCommand);
     assertStepIsRequired(sqliteBuildStep);
+});
+
+test("the macOS workflow launcher loads the real locked SQLite installation", async () => {
+    const source = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const step = extractWorkflowStep(
+        extractWorkflowJob(source, macosPromptContainmentJobName),
+        macosUniversalSqliteBuildStepName,
+    );
+    const tokens = step
+        .match(/^ {14}run: (.+)$/m)[1]
+        .trim()
+        .split(/\s+/);
+    tokens.pop(); // Substitute a read-only probe for native macOS compilation.
+    const probe = "./scripts/build/fixtures/resolve-installed-sqlite.mjs";
+    const launch =
+        tokens[0] === "yarn"
+            ? projectYarnCommand([...tokens.slice(1), probe])
+            : { command: process.execPath, args: [...tokens.slice(1), probe] };
+    const environment = {
+        ...process.env,
+        YARN_ENABLE_NETWORK: "0",
+        COREPACK_ENABLE_NETWORK: "0",
+    };
+    // The child must obtain its loader from the workflow invocation itself.
+    delete environment.NODE_OPTIONS;
+    delete environment.NODE_PATH;
+    const result = spawnSync(launch.command, launch.args, {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    const resolved = JSON.parse(result.stdout.trim());
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    const packageName = NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3;
+    assert.equal(resolved.name, packageName);
+    assert.equal(resolved.version, manifest.dependencies[packageName]);
+    assert.equal(resolved.pnp, true);
+
+    const withoutLoader = spawnSync(process.execPath, [probe], {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.notEqual(withoutLoader.status, 0);
+    assert.match(withoutLoader.stderr, /requires the locked Yarn PnP install/);
 });
 
 test("binds and starts the final macOS runtime before notarization", async () => {
