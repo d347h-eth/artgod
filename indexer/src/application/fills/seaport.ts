@@ -5,6 +5,7 @@ import {
     FILL_ITEM_TYPE,
     isFillNftItem,
     summarizeFillPayment,
+    resolveFillNftSide,
     type FillExecution,
     type FillExecutionItem,
 } from "@artgod/shared/market-data/fills";
@@ -36,7 +37,7 @@ type CandidateTransferMatch = {
     score: number;
 };
 
-const SEAPORT_ORDER_FULFILLED_ABI = [
+export const SEAPORT_ORDER_FULFILLED_ABI = [
     {
         type: "event",
         name: "OrderFulfilled",
@@ -144,13 +145,16 @@ function decodeOrderFulfilled(
             items,
         };
         const payment = summarizeFillPayment(items);
+        const nftSide = resolveFillNftSide(items);
         // Keep swaps and mixed shapes as facts. Only concrete tracked NFT legs
         // receive attribution; all other legs remain in their execution context.
+        // Forwarding records both raw legs but attributes the sold units once.
         const nfts = items.filter(
             (item) =>
                 isFillNftItem(item) &&
                 item.itemType <= FILL_ITEM_TYPE.Erc1155 &&
-                collections.has(item.contract),
+                collections.has(item.contract) &&
+                (nftSide === null || item.side === nftSide),
         );
 
         return nfts.map((nft) => ({

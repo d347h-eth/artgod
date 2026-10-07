@@ -23,7 +23,10 @@ archived.
 `shared/market-data/fills.ts` owns payment classification and exact arithmetic.
 Cash asks sum currency consideration. Cash bids use the gross currency offer;
 same-currency consideration can distribute that payment alongside the NFT and
-is not added again. NFTs on both sides, multiple currencies, cash offered with
+is not added again. Matched forwarding sales may repeat the complete concrete
+NFT multiset on both sides, with currency on exactly one side. Both raw legs
+remain stored, but only the sold leg receives attribution and contributes NFT
+units or remainder offsets. Different NFT legs, multiple currencies, cash offered with
 ask NFTs, excess bid return payments, missing payments and unsupported items
 retain normalized facts with an exclusion reason rather than an invented price.
 
@@ -64,6 +67,9 @@ Primary files:
 - `indexer/src/application/fills/types.ts`
 - `indexer/tests/decode-fill-fixtures.test.ts`
 - `indexer/tests/fill-execution-upgrades.test.ts`
+- `indexer/tests/decode-argonauts-sales.test.ts`
+- `indexer/tests/decode-blur-receipts.test.ts`
+- `indexer/tests/argonauts-sales-pipeline.test.ts`
 - `indexer/tests/fixtures/fill-txs/`
 
 ## Core Principles
@@ -74,7 +80,7 @@ Fill decoding follows these principles:
 - NFT transfers from tracked collections are the entrypoint for transaction selection.
 - Full transactions and receipts are fetched only for transactions that contain tracked NFT transfer events.
 - Seaport fills are decoded from receipt `OrderFulfilled` logs.
-- Blur fills are decoded from Blur calldata for supported methods.
+- Blur V2 fills are decoded from receipt execution logs emitted by known exchange addresses.
 - A persisted fill must be internally consistent:
     - one order id
     - one side
@@ -93,7 +99,7 @@ The sync worker flow is:
 1. Fetch tracked NFT `Transfer` logs for enabled collections.
 2. Group the decoded NFT transfer events by transaction.
 3. Fetch the transaction and receipt for each relevant transaction.
-4. Decode fills using the transaction calldata and receipt logs.
+4. Decode fills using protocol receipt logs.
 5. Match decoded fill candidates to concrete tracked NFT transfer hops.
 6. Persist execution headers, all items and collection attributions atomically and idempotently.
 7. Project activity rows from persisted `fills`.
@@ -110,6 +116,7 @@ For each `OrderFulfilled` log:
 
 - If tracked NFTs appear in `offer`, the order side is `sell`.
 - If tracked NFTs appear in `consideration`, the order side is `buy`.
+- If NFTs appear on both sides, classify a priced forwarding sale only when both complete concrete NFT item multisets match by item type, contract, token ID and amount, with currency on exactly one side. The raw forwarding leg remains stored but does not receive a second attribution. `OrderValidated` uses the same side rules and compares both starting and ending quantities.
 - If no tracked NFTs appear, the log is skipped.
 - Concrete tracked NFTs on either side receive candidates, including swaps and
   unpriceable payment shapes. All normalized execution items are retained before
@@ -328,32 +335,34 @@ This transaction is protocol-valid even if it is a phishing/scam sale. The decod
 
 ## Blur Decoding
 
-Calldata exchanges are matched to successful execution events by maker,
-collection, token, listing index, side, asset type, executed quantity, and gross
-total, before collection filtering. Missing events do not fall back to transfer
-log identities. Failed batch exchanges therefore cannot steal another fill's
-order hash or log index. Event ordering does not determine the match.
+Blur V2 fills are decoded from all four receipt execution layouts emitted by
+`BLUR_EXCHANGE_V2_ADDRESSES`:
 
-The decoder recognizes `Execution721Packed`, its maker/taker-fee variants, and
-the general `Execution` event. Packed fields reserve 160 bits for addresses,
-8 bits for listing index, and 88 bits for token ID/price. ERC-1155 trades use the
-general event. `listing.price` is per unit; the execution price is the total for
-the actual taker quantity, not the listing's maximum quantity. Identity always
-uses the event's order hash rather than reconstructing it from a salt.
+- `Execution721Packed`
+- `Execution721MakerFeePacked`
+- `Execution721TakerFeePacked`
+- `Execution`
 
-Protocol references: [verified executor source](https://goto.etherscan.com/tx-decoder?tx=0x3af207b302b14520ebb8c2120468c34ad535239c66382ecebe60481e13cb02c2)
-(`_computeFees`, execution emission/packing) and
-[OpenSea's Blur V2 integration](https://github.com/ProjectOpenSea/marketplace-benchmarks/blob/main/src/marketplaces/blur-2.0/BlurV2Config.sol).
-The bundled receipts verify matching against actual execution identities;
-synthetic event mutations cover fee forms, failures, and quantity arithmetic.
+The decoder uses each execution's order hash, maker, collection, token ID,
+quantity, gross price, side, and log index. Packed ERC721 events contain an
+88-bit token ID and price; unpacked events also support full-width token IDs and
+ERC1155 quantities. ERC721 quantity is one even when the unpacked transfer's
+unused amount field is zero.
 
-Blur V2 fills are decoded from calldata for known methods. Current supported methods:
+An execution must match a preceding, unused tracked NFT transfer with the same
+contract, token ID, standard, and quantity. The transfer's seller must be the ask
+maker, or its buyer must be the bid maker. The closest matching transfer supplies
+the taker. This preserves each successful execution's identity when a batch
+skips inputs or collection filtering excludes earlier executions.
 
-- `takeAskSingle`
-- `takeBidSingle`
-- `takeBid`
-- `takeAsk`
-- `takeAskSinglePool`
+Direct calls, router calls, and pool-funded ask batches use the same decoder.
+The transaction destination and outer calldata do not determine whether an
+execution is a sale. Malformed logs, unknown emitters, and executions without
+matching NFT transfers are skipped.
+
+The ABI, packing, and settlement rules come from Blur V2's verified
+`Executor.sol`, `Structs.sol`, and `BlurExchangeV2.sol`
+[implementation source](https://eth.blockscout.com/api/v2/smart-contracts/0x5fa60726E62c50Af45Ff2F6280C468DA438A7837).
 
 Current examples:
 
@@ -365,21 +374,32 @@ Current examples:
     - `0x9ed1dee993634827655217ad5d0b36047acb4ce67748a70efb5e3d02cf4f43cd`
 - take ask batch:
     - `0x406e361a6cc71c62326f0fddb92bfc291459da516b4dc928a789a8b8c7a80416`
-- take ask from Blur pool/BETH:
+- pool-funded take ask single:
     - `0x0a1a86e26d16771806e1266e5b77eca7de1e4c73989ffa66452b5c60f9bf1994`
+- router combining Seaport and Blur asks:
+    - `0x14be04e98cbe409dc602ca208c8d3c5fefeff89892ff776042c6b540be68a7bd`
+- pool-funded take ask batch:
+    - `0xbe27fe81487e69e1bbb49701f13317469929e3eb2b1165533cf3cdbae51313b1`
 
 ## Blur BETH / Pool Currency
 
-Blur pool fills can settle through the Blur pool token:
+Blur bids settle through the Blur pool token (BETH):
 
 - `0x0000000000a39bb272e79075ade125fd351887ac`
 
 Policy:
 
-- persist this address as `fill_executions.currency`.
-- do not flatten it to ETH at the raw fill layer.
+- Persist this address as `fill_executions.currency` for bids.
+- Persist the zero address for asks, which settle in native ETH.
+- `takeAskSinglePool` and `takeAskPool` withdraw pool funds into ETH before
+  executing asks. The funding route does not change the settlement currency.
 
 Other feeds may label these rows as ETH because they display economic equivalence or user-facing payment framing. ArtGod retains execution/protocol currency; the chart normalizes its display unit above these raw facts.
+
+Decoder corrections apply to newly persisted execution facts. The writer
+rejects replayed executions or attributions that contradict stored facts; an
+ordinary historical backfill does not silently replace an existing currency or
+execution price classification.
 
 ## Marketplace Feeds Are Not Ground Truth
 
@@ -425,6 +445,14 @@ And an assertion in:
 - `indexer/tests/decode-blur-executions.test.ts` for event matching and wire mutations
 - `indexer/tests/fill-executions.test.ts` for full-context ingestion and lifecycle
 - `shared/market-data/fills.test.ts` for classification and exact allocation
+- `indexer/tests/decode-argonauts-sales.test.ts`
+- `indexer/tests/decode-blur-receipts.test.ts` for routed receipt decoding
+
+`indexer/tests/argonauts-sales-pipeline.test.ts` exercises sync, collection scope,
+SQLite execution/item persistence, activity projection and exact price-history
+observations for the Argonauts receipts. Repeated
+backfills must preserve one sale per canonical fill, including the matched
+Seaport transaction where OpenSea also reports a seller-to-self mirror row.
 
 Fixture tests should cover:
 
@@ -446,8 +474,6 @@ Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new f
   ERC-20 conversion and token-specific bundle valuation remain out of scope.
 - Router payment-path details are not persisted as first-class context yet.
 - Financing context such as loan emission/repayment is not modeled in `fills` yet.
-- Blur methods not listed above are not decoded yet.
 - Partial order quantity progression and marketplace/royalty fee
   classification are not persisted beside raw fills.
-- Routed or delegate-called Blur execution that cannot be attributed from the
-  transaction input and receipt logs remains outside the receipt-only decoder.
+- Blur execution logs from unknown exchange emitters remain unsupported.

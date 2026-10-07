@@ -5,9 +5,9 @@ import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import { SEAPORT_EXCHANGE_ADDRESSES } from "./seaport.js";
 import {
     findTrackedNftItem,
-    hasTrackedNft,
     isCurrencyItem,
     normalizeCurrency,
+    resolveSeaportOrderSide,
     sumAmounts,
     type SeaportItem,
 } from "./seaport-shared.js";
@@ -243,18 +243,11 @@ function decodeOrderValidated(
         const params = decoded.args.orderParameters as OrderParameters;
         const maker = params.offerer.toLowerCase();
 
-        const offerHasTrackedNft = hasTrackedNft(params.offer, collections);
-        const considerationHasTrackedNft = hasTrackedNft(
+        const orderSide = resolveSeaportOrderSide(
+            params.offer,
             params.consideration,
             collections,
         );
-
-        const orderSide =
-            offerHasTrackedNft === considerationHasTrackedNft
-                ? null
-                : offerHasTrackedNft
-                  ? "sell"
-                  : "buy";
 
         if (!orderSide) return null;
 

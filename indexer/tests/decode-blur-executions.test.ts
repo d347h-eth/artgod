@@ -151,7 +151,8 @@ it("uses the actually executed ERC1155 quantity and gross total from Execution",
             logIndex: 286,
         },
     ]);
-    // A contradicted quote cannot turn an unrelated execution into a price.
+    // Receipt executions remain authoritative when routed or batched calldata
+    // does not expose the executed quote at the top-level transaction.
     exchange.listing.price += 1n;
     tx.transaction.input = encodeFunctionData({
         abi: BLUR_EXCHANGE_V2_ABI,
@@ -161,5 +162,12 @@ it("uses the actually executed ERC1155 quantity and gross total from Execution",
             decoded.args[1],
         ],
     });
-    expect(decodeBlurFills(tx, new Set([CONTRACT]))).toEqual([]);
+    expect(decodeBlurFills(tx, new Set([CONTRACT]))).toMatchObject([
+        {
+            tokenId: "3215",
+            amount: "3",
+            price: total.toString(),
+            logIndex: 286,
+        },
+    ]);
 });

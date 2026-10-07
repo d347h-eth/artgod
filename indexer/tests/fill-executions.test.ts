@@ -3,6 +3,7 @@ import {
     decodeAbiParameters,
     encodeAbiParameters,
     parseAbiParameters,
+    zeroAddress,
 } from "viem";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +14,12 @@ import {
     FILL_PRICE_EXCLUSION,
     FILL_PRICE_BASIS,
     summarizeFillPayment,
+    FILL_ITEM_SIDE,
+    FILL_ITEM_TYPE,
 } from "@artgod/shared/market-data/fills";
+import { ACTIVITY_KIND } from "../src/domain/activities.js";
+import { DOMAIN_SYNC_PROJECTION } from "../src/domain/domain-jobs.js";
+import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 import { decodeSeaportFills } from "../src/application/fills/seaport.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import type { FillEvent } from "../src/domain/onchain.js";
@@ -300,3 +306,143 @@ it("feeds real decoded bundle facts through storage into exact chart observation
         ...reader.iterateObservations({ ...request, tokenId: "1546" }),
     ]).toEqual([history.sales[1]]);
 });
+
+it.each([false, true])(
+    "prices forwarded bundles once through storage, activities and filtered history (untracked quantity: %s)",
+    async (withUntracked) => {
+        db.prepare("DELETE FROM activities WHERE kind=?").run(
+            ACTIVITY_KIND.Sale,
+        );
+        const tx = await bundle();
+        const original = decodeSeaportFills(tx, new Set([CONTRACT]));
+        const log = tx.receiptLogs.find(
+            (l) => l.logIndex === original[0]!.logIndex,
+        )!;
+        const [hash, recipient, offer, consideration] = decodeAbiParameters(
+            EVENT_DATA,
+            log.data,
+        );
+        const nfts = withUntracked
+            ? [
+                  ...offer,
+                  {
+                      ...offer[0]!,
+                      token: OTHER,
+                      itemType: FILL_ITEM_TYPE.Erc1155,
+                      amount: 2n,
+                  },
+              ]
+            : offer;
+        log.data = encodeAbiParameters(EVENT_DATA, [
+            hash,
+            recipient,
+            nfts,
+            [
+                ...consideration.map((item, index) => ({
+                    ...item,
+                    amount: index === 0 ? 7n : 0n,
+                })),
+                ...nfts.map((item) => ({ ...item, recipient })),
+            ],
+        ]);
+        const fills = decodeSeaportFills(tx, new Set([CONTRACT])).map(
+            (fill) => ({
+                ...fill,
+                collectionId: 1,
+                blockNumber: 1,
+                blockHash: syncBlockFixture(1).hash,
+            }),
+        );
+        expect(fills).toHaveLength(2);
+        persist(fills);
+        persist(fills);
+        expect(db.prepare("SELECT COUNT(*) AS n FROM fills").get()).toEqual({
+            n: 2,
+        });
+        const units = withUntracked ? "4" : "2";
+        expect(
+            db
+                .prepare(
+                    "SELECT total_price, nft_quantity, price_exclusion FROM fill_executions",
+                )
+                .get(),
+        ).toEqual({
+            total_price: "7",
+            nft_quantity: units,
+            price_exclusion: null,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS n FROM fill_execution_items WHERE item_type>=?",
+                )
+                .get(FILL_ITEM_TYPE.Erc721),
+        ).toEqual({
+            n: nfts.length * 2,
+        });
+        expect(
+            db
+                .prepare(
+                    `SELECT i.side FROM fills f JOIN fill_execution_items i
+            ON i.execution_id=f.execution_id AND i.item_index=f.item_index`,
+                )
+                .all(),
+        ).toEqual([
+            { side: FILL_ITEM_SIDE.Offer },
+            { side: FILL_ITEM_SIDE.Offer },
+        ]);
+        const activities = new SqliteActivityDomain([zeroAddress]);
+        for (let attempt = 0; attempt < 2; attempt++)
+            await activities.handleDomainSync({
+                chainId: 1,
+                collectionId: 1,
+                fromBlock: 1,
+                toBlock: 1,
+                mode: "backfill",
+                projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+                sourceJobId: "forwarded-bundle-regression",
+                sourceKind: "test",
+            });
+        const reader = new SqlitePriceHistoryRead([
+            { address: zeroAddress, symbol: PRICE_HISTORY_CURRENCY_SYMBOL.Eth },
+        ]);
+        const request = {
+            chainId: 1,
+            collectionId: 1,
+            from: 0,
+            to: 1000000,
+            limit: 10,
+        };
+        const history = buildRealizedPriceHistory(
+            reader.iterateObservations(request),
+            {
+                bucket: PRICE_HISTORY_BUCKET.Day,
+                range: PRICE_HISTORY_RANGE.All,
+            },
+            request.to,
+        );
+        expect(history.sales).toHaveLength(2);
+        const prices = withUntracked ? ["2", "2"] : ["4", "3"];
+        expect(history.sales.map((sale) => sale.attributedPriceWei)).toEqual(
+            prices,
+        );
+        expect(history.sales.map((sale) => sale.unitPrice)).toEqual([
+            { numeratorWei: "7", denominator: units },
+            { numeratorWei: "7", denominator: units },
+        ]);
+        expect(history.buckets[0]).toMatchObject({
+            volume: "2",
+            turnoverWei: withUntracked ? "4" : "7",
+        });
+        expect([
+            ...reader.iterateObservations({ ...request, tokenId: "1546" }),
+        ]).toEqual([history.sales[1]]);
+        expect(
+            db
+                .prepare(
+                    "SELECT price FROM activities WHERE kind=? ORDER BY id",
+                )
+                .all(ACTIVITY_KIND.Sale),
+        ).toEqual(prices.map((price) => ({ price })));
+    },
+);

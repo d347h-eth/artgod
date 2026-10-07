@@ -373,7 +373,7 @@ const BLUR_CASES: Array<{
         ],
     },
     {
-        name: "takeAskSinglePool emits BETH sell fill",
+        name: "takeAskSinglePool withdraws BETH and settles the ask in ETH",
         dumpFile:
             "0x0a1a86e26d16771806e1266e5b77eca7de1e4c73989ffa66452b5c60f9bf1994.json",
         expected: [
@@ -381,7 +381,7 @@ const BLUR_CASES: Array<{
                 tokenId: "3140",
                 orderSide: "sell",
                 price: "0.278999",
-                currency: BLUR_BETH_ADDRESS,
+                currency: zeroAddress,
             },
         ],
     },
