@@ -41,7 +41,7 @@ yarn build:desktop-runtime-resources
 yarn dev:desktop
 ```
 
-`yarn dev:desktop` runs `tauri dev --no-watch`, which does not run
+`yarn dev:desktop` runs the locked Tauri development owner with `--no-watch`, which does not run
 `beforeBuildCommand`, so
 `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist
 after a clean checkout or `yarn clean:build`. The debug sidecar is built by
@@ -443,8 +443,12 @@ yarn cargo:age-gate
   A cold complete check takes several minutes; unavailable metadata fails the
   check rather than weakening admission.
 - Maintained Cargo commands use `--locked`. Tauri entry points share
-  `scripts/build/build-tauri.mjs`, which preserves caller flags such as
-  no-bundle `--debug` before appending Cargo lock enforcement. The Linux bundle
+  `scripts/build/build-tauri.mjs` for builds and development. It preserves Tauri
+  flags such as no-bundle `--debug` and appends `--locked` to Cargo arguments.
+  Development application arguments stay after their second `--` separator;
+  `yarn dev:desktop -- --features <feature> -- <app-args>` keeps those boundaries.
+  Run standalone invocations through `yarn node` to load the locked dependencies.
+  The Linux bundle
   wrapper retains its additional pinned packaging-input controls.
 - CI runs `yarn install --immutable --mode=skip-build` before this alias for
   the same fresh-checkout package-script install-state reason.

@@ -1343,6 +1343,15 @@ test("compiles the Windows sensitive-process hardening path", async () => {
     assert.doesNotMatch(windowsJob, /^ {8}continue-on-error:/m);
 });
 
+test("the maintained desktop development alias uses the shared locked owner", async () => {
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    assert.equal(
+        manifest.scripts["dev:desktop"],
+        "node ./scripts/build/build-tauri.mjs dev --no-watch",
+    );
+    assert.ok(manifest.scripts["dev:composition"].endsWith("yarn dev:desktop"));
+});
+
 async function readWorkflows() {
     const workflowNames = (await readdir(workflowsDirectory))
         .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
