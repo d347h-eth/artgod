@@ -241,10 +241,6 @@ test("CI consumes the ordered Linux verification owner", async () => {
             "check:linux-bundled-runtime",
         ],
     );
-    assert.equal(
-        bundle.at(-1).args[1],
-        `src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle`,
-    );
 });
 
 test("keeps checkout credentials out of subsequent workflow steps", async () => {

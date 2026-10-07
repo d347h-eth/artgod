@@ -5,6 +5,7 @@ import { runRedactedCommand } from "./secret-output-redaction.mjs";
 import {
     TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME,
     TAURI_LINUX_BUNDLER_TARGET,
+    resolveTauriCargoTargetDirectory,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
 import {
     DESKTOP_BUILD_TARGET_ENV_KEYS,
@@ -14,7 +15,6 @@ import { DESKTOP_CARGO_PROJECTS } from "./cargo-projects.mjs";
 
 const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 export const LINUX_RELEASE_BUILD_SCRIPT_NAME = "check:linux-release-build";
-export const LINUX_RELEASE_BUNDLE_DIRECTORY = `src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle`;
 export const LINUX_RELEASE_BUILD_PHASE = Object.freeze({
     Prerequisites: "prerequisites",
     NoBundle: "no-bundle",
@@ -23,6 +23,9 @@ export const LINUX_RELEASE_BUILD_PHASE = Object.freeze({
 
 function yarn(label, ...args) {
     return Object.freeze({ label, command: "yarn", args: Object.freeze(args) });
+}
+function yarnOutput(label, scriptName, outputDirectory) {
+    return Object.freeze({ ...yarn(label, scriptName), outputDirectory });
 }
 function cargo(label, ...args) {
     return Object.freeze({
@@ -84,6 +87,8 @@ export const LINUX_RELEASE_BUILD_CHECKS = Object.freeze({
             "Tauri no-bundle build check",
             "build:desktop:no-bundle",
             "--debug",
+            "--target",
+            TAURI_LINUX_BUNDLER_TARGET,
         ),
         yarn(
             "Verify staged desktop runtime resources",
@@ -93,9 +98,10 @@ export const LINUX_RELEASE_BUILD_CHECKS = Object.freeze({
             "Test desktop runtime loader isolation",
             "test:desktop:runtime-environment",
         ),
-        yarn(
+        yarnOutput(
             "Verify no-bundle desktop runtime output",
             "check:desktop-no-bundle-runtime",
+            ({ noBundleRuntimeDirectory }) => noBundleRuntimeDirectory,
         ),
     ]),
     [LINUX_RELEASE_BUILD_PHASE.Bundle]: Object.freeze([
@@ -104,13 +110,33 @@ export const LINUX_RELEASE_BUILD_CHECKS = Object.freeze({
             "Verify staged desktop runtime resources",
             "check:desktop-runtime-resources",
         ),
-        yarn(
+        yarnOutput(
             "Verify Linux bundled runtime integrity",
             "check:linux-bundled-runtime",
-            LINUX_RELEASE_BUNDLE_DIRECTORY,
+            ({ bundleDirectory }) => bundleDirectory,
         ),
     ]),
 });
+
+export async function resolveLinuxReleaseOutputDirectories(options = {}) {
+    const targetDirectory = await resolveTauriCargoTargetDirectory(options);
+    return {
+        targetDirectory,
+        noBundleRuntimeDirectory: path.join(
+            targetDirectory,
+            TAURI_LINUX_BUNDLER_TARGET,
+            "debug",
+            "resources",
+            "runtime",
+        ),
+        bundleDirectory: path.join(
+            targetDirectory,
+            TAURI_LINUX_BUNDLER_TARGET,
+            "release",
+            "bundle",
+        ),
+    };
+}
 
 export async function verifyLinuxReleaseBuild({
     phase,
@@ -135,9 +161,28 @@ export async function verifyLinuxReleaseBuild({
         [DESKTOP_BUILD_TARGET_ENV_KEYS.NatsDistributionTarget]:
             DESKTOP_NODE_DIST_TARGET.LinuxX64,
         APPIMAGE_EXTRACT_AND_RUN: "1",
+        // This lane qualifies Linux x64. Keep tests and both build profiles on
+        // that explicit target, regardless of inherited Cargo target settings.
+        CARGO_BUILD_TARGET: TAURI_LINUX_BUNDLER_TARGET,
     };
+    const outputDirectories = phases.some(
+        (selectedPhase) =>
+            selectedPhase !== LINUX_RELEASE_BUILD_PHASE.Prerequisites,
+    )
+        ? await resolveLinuxReleaseOutputDirectories({
+              projectRoot: cwd,
+              environment: env,
+              runCommand,
+          })
+        : undefined;
     for (const selectedPhase of phases) {
-        for (const check of LINUX_RELEASE_BUILD_CHECKS[selectedPhase]) {
+        for (const definition of LINUX_RELEASE_BUILD_CHECKS[selectedPhase]) {
+            const { outputDirectory, ...check } = definition;
+            if (outputDirectory)
+                check.args = [
+                    ...check.args,
+                    outputDirectory(outputDirectories),
+                ];
             console.log(`\n${check.label}`);
             await onCheck({
                 ...check,

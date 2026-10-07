@@ -119,10 +119,6 @@ async function main() {
     ]);
     if (record.actualRevision !== revision)
         throw new Error("Checkout HEAD differs from the requested revision.");
-    const { LINUX_RELEASE_BUNDLE_DIRECTORY } = await import(
-        path.join(checkout, "scripts/build/verify-linux-release-build.mjs")
-    );
-    bundleDirectory = path.join(checkout, LINUX_RELEASE_BUNDLE_DIRECTORY);
     ({ listLinuxBundleFiles: listBundleFiles } = await import(
         path.join(checkout, "scripts/build/verify-linux-bundled-runtime.mjs")
     ));
@@ -226,9 +222,27 @@ async function main() {
     await run("Check source versions", "yarn", ["check:version"]);
     await run("Test documentation contracts", "yarn", ["test:docs"]);
     await run("Check documentation", "yarn", ["check:docs"]);
-    const { LINUX_RELEASE_BUILD_SCRIPT_NAME } = await import(
+    const {
+        LINUX_RELEASE_BUILD_SCRIPT_NAME,
+        resolveLinuxReleaseOutputDirectories,
+    } = await import(
         path.join(checkout, "scripts/build/verify-linux-release-build.mjs")
     );
+    record.outputDirectories = await resolveLinuxReleaseOutputDirectories({
+        projectRoot: checkout,
+        environment,
+        runCommand: async (command, args, options) => ({
+            stdout: await run(
+                "Resolve Cargo build output",
+                command,
+                args,
+                options.cwd,
+                false,
+            ),
+        }),
+    });
+    bundleDirectory = record.outputDirectories.bundleDirectory;
+    await save();
     await run("Verify unsigned Linux release build", "yarn", [
         LINUX_RELEASE_BUILD_SCRIPT_NAME,
         "--report",

@@ -161,6 +161,9 @@ runtime verification. The Ubuntu build-check workflow calls the same owner in
 three phases, preserving security checks before compilation and final artifact
 checks after packaging. Reports are retained under `tmp/linux-release-checks-*`.
 This command requires an installed project and Linux x64 build tools.
+It selects the Linux x64 Cargo target for tests and both build profiles, and
+resolves output paths through Cargo metadata. `CARGO_TARGET_DIR` and Cargo's
+`target-dir` configuration therefore apply to both packaging and verification.
 
 Ubuntu 22 release-lane reproduction in Docker:
 

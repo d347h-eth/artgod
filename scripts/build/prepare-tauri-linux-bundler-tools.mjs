@@ -140,14 +140,24 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
 // Match the pinned Tauri CLI's local-tools resolution through Cargo metadata,
 // including CARGO_TARGET_DIR and Cargo configuration. Do not guess src-tauri/target
 // or redirect unrelated caches to select the packaging tools.
-export async function resolveTauriLocalToolsDirectory({
+export async function resolveTauriLocalToolsDirectory(options = {}) {
+    return path.join(
+        await resolveTauriCargoTargetDirectory(options),
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+}
+
+// Packaging tools and output verification must follow the same Cargo metadata
+// result, including target-dir configuration and CARGO_TARGET_DIR overrides.
+export async function resolveTauriCargoTargetDirectory({
     environment = process.env,
     runCommand = runRedactedCommand,
+    projectRoot = rootDir,
 } = {}) {
     const result = await runCommand(
         "cargo",
         ["metadata", "--no-deps", "--format-version", "1", "--locked"],
-        { cwd: path.join(rootDir, "src-tauri"), env: environment },
+        { cwd: path.join(projectRoot, "src-tauri"), env: environment },
     );
     const metadata = JSON.parse(result.stdout);
     if (
@@ -155,13 +165,10 @@ export async function resolveTauriLocalToolsDirectory({
         !path.isAbsolute(metadata.target_directory)
     ) {
         throw new Error(
-            "Cargo metadata must provide an absolute target_directory for Tauri's local tools.",
+            "Cargo metadata must provide an absolute target_directory for Tauri builds.",
         );
     }
-    return path.join(
-        metadata.target_directory,
-        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
-    );
+    return metadata.target_directory;
 }
 
 // Tauri mutates linuxdeploy's ELF header. Refresh only our execution copies and
