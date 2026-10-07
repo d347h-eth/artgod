@@ -14,21 +14,39 @@ import {
 } from "./wallet-recipient-integrity-snapshot.mjs";
 
 const paths = localDesktopPaths();
-const profileOutput = process.argv[2]
-    ? path.resolve(process.argv[2])
-    : path.join(paths.cargo, "release");
-const snapshot = await readWalletRecipientIntegritySnapshot(
-    path.join(profileOutput, WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME),
-);
+const args = process.argv.slice(2);
+const debug = args[0] === "--debug";
+if (debug) args.shift();
+if (args.length > 2 || args.some((arg) => arg.startsWith("--")))
+    throw new Error(
+        "Usage: verify-local-desktop-runtime.mjs [--debug] [profile-output] [extracted-runtime]",
+    );
+const profileOutput = args[0]
+    ? path.resolve(args[0])
+    : path.join(paths.cargo, debug ? "debug" : "release");
+if (debug && path.basename(profileOutput) !== "debug")
+    throw new Error("--debug requires a Cargo debug output directory.");
+// Cargo debug builds intentionally omit release wallet-recipient hashes.
+// Keep release verification mandatory unless debug is selected explicitly.
+const snapshot = debug
+    ? null
+    : await readWalletRecipientIntegritySnapshot(
+          path.join(
+              profileOutput,
+              WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+          ),
+      );
 const roots = [path.join(profileOutput, LOCAL_RUNTIME_RELATIVE_PATH)];
-if (process.argv[3]) roots.push(path.resolve(process.argv[3]));
-await verifyWalletRecipientIntegritySnapshot(snapshot, paths.resources);
+if (args[1]) roots.push(path.resolve(args[1]));
+if (snapshot)
+    await verifyWalletRecipientIntegritySnapshot(snapshot, paths.resources);
 for (const runtimeRoot of roots) {
     await verifyTauriNoBundleRuntime({
         stagedRuntimeRoot: paths.resources,
         noBundleRuntimeRoot: runtimeRoot,
     });
-    await verifyWalletRecipientIntegritySnapshot(snapshot, runtimeRoot);
+    if (snapshot)
+        await verifyWalletRecipientIntegritySnapshot(snapshot, runtimeRoot);
     const nodeBinaryPath = path.join(
         runtimeRoot,
         "node",
@@ -43,6 +61,6 @@ for (const runtimeRoot of roots) {
         nodeBinaryPath,
     });
     console.log(
-        `Verified local desktop runtime bytes, integrity and native imports: ${runtimeRoot}`,
+        `Verified local desktop runtime bytes${snapshot ? ", integrity" : ""} and native imports: ${runtimeRoot}`,
     );
 }

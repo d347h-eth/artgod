@@ -1,6 +1,11 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { buildLockedTauri } from "./build-tauri.mjs";
+import {
+    buildLockedTauri,
+    runLockedTauri,
+    TAURI_OPERATION,
+} from "./build-tauri.mjs";
+import { prepareLocalDesktop } from "./prepare-local-desktop.mjs";
 import {
     preparePinnedTauriLinuxBundlerTools,
     resolveTauriLocalToolsDirectory,
@@ -90,13 +95,6 @@ export function localDesktopBuildInvocation(
             `Unsupported local desktop argument: ${arg}. Use --debug, --target <triple>, or --bundle --bundles <formats>.`,
         );
     }
-    const env = { ...environment, CARGO_TARGET_DIR: localDesktopPaths().cargo };
-    // A caller's release signing environment must not turn this into the release path.
-    for (const key of Object.keys(env)) {
-        if (key.startsWith("APPLE_") || key.startsWith("TAURI_SIGNING_"))
-            delete env[key];
-    }
-    delete env.TAURI_CONFIG;
     return {
         args: [
             "--ci",
@@ -107,8 +105,64 @@ export function localDesktopBuildInvocation(
             JSON.stringify(localTauriConfig(platform)),
             ...forwarded,
         ],
-        env,
+        env: localDesktopEnvironment(environment),
     };
+}
+
+function localDesktopEnvironment(environment) {
+    const env = { ...environment, CARGO_TARGET_DIR: localDesktopPaths().cargo };
+    // A caller's release signing environment must not turn this into the release path.
+    for (const key of Object.keys(env)) {
+        if (key.startsWith("APPLE_") || key.startsWith("TAURI_SIGNING_"))
+            delete env[key];
+    }
+    delete env.TAURI_CONFIG;
+    return env;
+}
+
+// The managed Admin server supplies frontend reload; native resources stay local.
+export function localDesktopDevInvocation(
+    args,
+    environment = process.env,
+    platform = process.platform,
+) {
+    for (const arg of args) {
+        if (!["--verbose", "-v", "--help", "-h"].includes(arg))
+            throw new Error(
+                `Unsupported local desktop dev argument: ${arg}. Use --verbose or --help.`,
+            );
+    }
+    const config = localTauriConfig(platform);
+    config.build.beforeDevCommand =
+        "node ./scripts/build/dev-frontend-target.mjs admin";
+    return {
+        args: [
+            "--no-watch",
+            "--features",
+            LOCAL_DESKTOP_FEATURE,
+            "--config",
+            JSON.stringify(config),
+            ...args,
+        ],
+        env: localDesktopEnvironment(environment),
+    };
+}
+
+export async function devLocalDesktop(
+    args,
+    {
+        environment = process.env,
+        platform = process.platform,
+        prepare = prepareLocalDesktop,
+        runTauri = runLockedTauri,
+    } = {},
+) {
+    const invocation = localDesktopDevInvocation(args, environment, platform);
+    if (!args.some((arg) => ["--help", "-h"].includes(arg)))
+        await prepare({ development: true, environment: invocation.env });
+    return runTauri(TAURI_OPERATION.Dev, invocation.args, {
+        environment: invocation.env,
+    });
 }
 
 // Shared tool owners enforce locks/input admission; local selection stays here.
