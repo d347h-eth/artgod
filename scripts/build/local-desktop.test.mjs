@@ -6,6 +6,8 @@ import {
     localDesktopBuildInvocation,
     localTauriConfig,
     buildLocalDesktop,
+    localDesktopDevInvocation,
+    devLocalDesktop,
 } from "./local-desktop-command.mjs";
 import {
     LOCAL_DESKTOP_FEATURE,
@@ -27,7 +29,95 @@ import {
     RUNTIME_BUILD_PROFILE,
     runtimeBuildProfileMarkerSource,
 } from "./runtime-build-profile.mjs";
-import { buildLockedTauri } from "./build-tauri.mjs";
+import {
+    buildLockedTauri,
+    runLockedTauri,
+    TAURI_OPERATION,
+} from "./build-tauri.mjs";
+import { prepareLocalDesktop } from "./prepare-local-desktop.mjs";
+
+test("local dev prepares the full closure before the locked debug desktop starts", async () => {
+    const commands = [];
+    for (const platform of ["linux", "win32"]) {
+        await devLocalDesktop([], {
+            platform,
+            environment: { TAURI_CONFIG: "production", APPLE_ID: "unused" },
+            async prepare(options) {
+                assert.equal(options.development, true);
+                await prepareLocalDesktop({
+                    ...options,
+                    async runCommand(command, args, { env }) {
+                        commands.push(args);
+                        assert.equal(
+                            env.CARGO_TARGET_DIR,
+                            localDesktopPaths().cargo,
+                        );
+                        assert.equal(env.TAURI_CONFIG, undefined);
+                        assert.equal(env.APPLE_ID, undefined);
+                    },
+                });
+            },
+            async runTauri(operation, args, options) {
+                assert.equal(operation, TAURI_OPERATION.Dev);
+                assert.equal(commands.length, 5);
+                assert.deepEqual(
+                    commands.map((args) => args.slice(-1)[0]),
+                    [
+                        "--if-needed",
+                        "build:userland",
+                        "scripts/build/build-local-desktop-runtime.mjs",
+                        "scripts/build/prepare-local-desktop-resources.mjs",
+                        "debug",
+                    ],
+                );
+                assert.ok(
+                    commands.every((args) => !args.includes("build:admin")),
+                );
+                const overlay = JSON.parse(args[args.indexOf("--config") + 1]);
+                assert.equal(
+                    overlay.build.beforeDevCommand,
+                    "node ./scripts/build/dev-frontend-target.mjs admin",
+                );
+                assert.ok(
+                    overlay.bundle.externalBin[0].startsWith("binaries-local/"),
+                );
+                await runLockedTauri(operation, args, {
+                    ...options,
+                    platform,
+                    resolveCliEntrypoint: () => "installed-tauri.js",
+                    async runCommand(command, commandArgs) {
+                        assert.ok(commandArgs.includes("dev"));
+                        assert.ok(commandArgs.includes(LOCAL_DESKTOP_FEATURE));
+                        assert.ok(!commandArgs.includes("--release"));
+                        assert.deepEqual(commandArgs.slice(-2), [
+                            "--",
+                            "--locked",
+                        ]);
+                    },
+                });
+                commands.length = 0;
+            },
+        });
+    }
+    for (const args of [
+        ["--release"],
+        ["--config", "other.json"],
+        ["--features", "other"],
+    ])
+        assert.throws(() => localDesktopDevInvocation(args));
+});
+
+test("local dev help does not prepare artifacts or start the app", async () => {
+    await devLocalDesktop(["--help"], {
+        prepare() {
+            assert.fail("Help must not prepare local artifacts");
+        },
+        async runTauri(operation, args) {
+            assert.equal(operation, TAURI_OPERATION.Dev);
+            assert.ok(args.includes("--help"));
+        },
+    });
+});
 
 test("local CLI pairs native capability, hook, resources and separate output", async () => {
     const production = JSON.parse(
