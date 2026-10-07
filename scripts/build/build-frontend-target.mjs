@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,8 +23,13 @@ const env = {
     VITE_FRONTEND_BUILD_TARGET: target,
 };
 
-const yarnBin = process.platform === "win32" ? "yarn.cmd" : "yarn";
-runCommand(yarnBin, ["workspace", "@artgod/frontend", "run", "build"], {
+const yarn = projectYarnCommand([
+    "workspace",
+    "@artgod/frontend",
+    "run",
+    "build",
+]);
+runCommand(yarn.command, yarn.args, {
     cwd: rootDir,
     env,
 })

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,7 +43,6 @@ const env = {
     VITE_FRONTEND_BUILD_TARGET: target,
 };
 
-const yarnBin = process.platform === "win32" ? "yarn.cmd" : "yarn";
 let activeChild = null;
 let activeChildExited = true;
 let shutdownStarted = false;
@@ -93,8 +93,7 @@ async function run() {
 
     return await runManagedCommand({
         label: "frontend dev server",
-        command: yarnBin,
-        args: ["workspace", "@artgod/frontend", "run", "dev"],
+        ...projectYarnCommand(["workspace", "@artgod/frontend", "run", "dev"]),
         env,
         requireSuccess: false,
     });

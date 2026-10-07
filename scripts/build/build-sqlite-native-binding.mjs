@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
 import { constants as fsConstants } from "node:fs";
 import {
     access,
@@ -223,8 +224,8 @@ async function buildUniversalMacOSBinding({
 }
 
 function runPackageInstall({ packageDir, nodeArchitecture, environment }) {
-    const yarnBinary = process.platform === "win32" ? "yarn.cmd" : "yarn";
-    const result = spawnSync(yarnBinary, ["run", "install"], {
+    const yarn = projectYarnCommand(["run", "install"]);
+    const result = spawnSync(yarn.command, yarn.args, {
         cwd: packageDir,
         env: {
             ...environment,
