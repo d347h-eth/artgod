@@ -16,12 +16,65 @@ import {
 	salePriceTitle,
 	salePriceText,
 	saleBars,
+	salePriceRange,
 	saleVolumeTooltip,
 	standardMacd,
 	withSaleGaps,
 	validIndicatorParameters,
 	PRICE_INDICATOR
 } from './model';
+
+it('fits individual unit prices through the 95th percentile without changing the sales', () => {
+	const sales = Array.from({ length: 100 }, (_, i) => ({
+		unitPrice: {
+			numeratorWei: (BigInt(i < 95 ? i + 1 : 10_000) * 10n ** 18n).toString(),
+			denominator: '1'
+		}
+	})).reverse();
+	const original = structuredClone(sales);
+	expect(salePriceRange(sales)).toEqual({ from: 1, to: 95 });
+	expect(sales).toEqual(original);
+});
+
+it.each([1, 2, 19])('retains every price in a sparse sample of %i sales', (count) => {
+	const sales = Array.from({ length: count }, (_, i) => ({
+		unitPrice: { numeratorWei: (BigInt(i + 1) * 10n ** 18n).toString(), denominator: '1' }
+	}));
+	expect(salePriceRange(sales)).toEqual({ from: 1, to: count });
+});
+
+it('includes at least 95% of observations at the percentile boundary and across ties', () => {
+	const sales = Array.from({ length: 20 }, (_, i) => ({
+		unitPrice: {
+			numeratorWei: (BigInt(i === 19 ? 50 : 2) * 10n ** 18n).toString(),
+			denominator: '1'
+		}
+	}));
+	expect(salePriceRange(sales)).toEqual({ from: 2, to: 2 });
+	// 20 of 21 are needed to include at least 95%; rounding down the rank
+	// would unnecessarily clip the second-highest observation.
+	sales.push({ unitPrice: { numeratorWei: (100n * 10n ** 18n).toString(), denominator: '1' } });
+	expect(salePriceRange(sales)).toEqual({ from: 2, to: 50 });
+});
+
+it('uses rational unit prices and preserves low, flat and zero-price distributions', () => {
+	expect(salePriceRange([])).toBeNull();
+	expect(salePriceRange([{ unitPrice: { numeratorWei: '0', denominator: '1' } }])).toEqual({
+		from: 0,
+		to: 0
+	});
+	expect(
+		salePriceRange(
+			Array.from({ length: 30 }, () => ({ unitPrice: { numeratorWei: '6', denominator: '4' } }))
+		)
+	).toEqual({ from: 1.5e-18, to: 1.5e-18 });
+	expect(
+		salePriceRange([
+			{ unitPrice: { numeratorWei: '1', denominator: '3' } },
+			{ unitPrice: { numeratorWei: '0', denominator: '1' } }
+		])
+	).toEqual({ from: 0, to: 1e-18 / 3 });
+});
 
 it.each([
 	['0', '0'],
