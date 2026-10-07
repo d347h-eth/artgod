@@ -116,8 +116,8 @@ desktop defaults. Backend/indexer metrics hosts stay native-owned `127.0.0.1`.
 
 This selected native schema drives the generic Admin form, saved overrides, and
 rendered child environment together. No frontend mode flag controls the live
-form. Use `yarn build:desktop:local` to select both this capability and the
-matching instrumented resources.
+form. Use `yarn dev:composition:observability` or `yarn build:desktop:local`
+to select both this capability and the matching instrumented resources.
 
 Both builds share `settings.json`. Production ignores local-only overrides
 when loading/rendering. Saving through production replaces the document with
