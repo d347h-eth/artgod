@@ -22,6 +22,8 @@ import {
     summarizeFillPayment,
 } from "@artgod/shared/market-data/fills";
 import { PRICE_HISTORY_CURRENCY_SYMBOL } from "@artgod/shared/types/price-history";
+import { AutomaticSyncExecutor } from "../src/application/automatic-sync-executor.js";
+import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
 import {
@@ -56,6 +58,7 @@ import { syncBlockFixture } from "./helpers/chain-fixture.js";
 
 // Filenames and legacy columns are deliberately asserted at the storage boundary.
 const UPGRADE = "064_fill_execution_facts.sql";
+const COVERAGE_RESET = "067_reset_collection_sale_coverage.sql";
 const BUNDLE_FIXTURE =
     "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json";
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
@@ -228,40 +231,8 @@ describe("fill execution schema adoption", () => {
             // Runtime backfill starts after every current migration, not at the
             // isolated fill-adoption boundary used by the migration-only cases.
             await createMigrationRunner().runMigrations();
-            const storage = new SqliteStorage();
-            const registry = new SqliteCollectionRegistry();
-            const outbox = new SqliteQueueOutbox();
-            const commit = new SqliteSyncRangeCommit({
-                storage,
-                outbox,
-                gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(storage),
-                collections: registry,
-            });
-            const gate = new BackfillExecutionGate();
+            const { outbox, gate, publish, handler } = replayServices(tx);
             const admission = vi.spyOn(gate, "run");
-            const rpc = bundleRpc(tx);
-            const activities = new SqliteActivityDomain([zeroAddress]);
-            const publish = vi.fn<QueuePort["publish"]>(async (_queue, job) => {
-                if (job.kind === DOMAIN_JOB_KIND.ActivitySync)
-                    await activities.handleDomainSync({
-                        ...(job.payload as DomainSyncPayload),
-                        chainId: job.chainId!,
-                        collectionId: job.collectionId!,
-                    });
-            });
-            const handler = createBackfillSyncHandler({
-                chainId: 1,
-                workerCount: 2,
-                wethAddress: zeroAddress,
-                rpc,
-                storage,
-                commit,
-                collectionsPort: registry,
-                extensions: { getInstall: () => null },
-                bidderIndex: { isActive: () => false, shouldEmit: () => false },
-                gate,
-            });
             const [job] = buildManualHistoricalBackfillJobs({
                 chainId: 1,
                 collectionId,
@@ -341,6 +312,191 @@ describe("fill execution schema adoption", () => {
             expect(db.raw.pragma("foreign_key_check")).toEqual([]);
         },
     );
+
+    describe("sale-history coverage reset", () => {
+        async function prepareReset(normalized: boolean) {
+            const collectionId = seedHistory({
+                rows: normalized ? 2 : 0,
+                postAnchor: true,
+            });
+            await installUpgrade();
+            await runner.runMigrations();
+            const source = resolveProjectPath("database/migrations");
+            for (const name of await readdir(source))
+                if (
+                    name.endsWith(".sql") &&
+                    name > UPGRADE &&
+                    name < COVERAGE_RESET
+                )
+                    await copyFile(
+                        join(source, name),
+                        join(migrationsDir, name),
+                    );
+            await runner.runMigrations();
+            const services = replayServices(tx, tx.blockNumber + 1);
+            if (normalized) {
+                const [job] = buildManualHistoricalBackfillJobs({
+                    chainId: 1,
+                    collectionId,
+                    fromBlock: tx.blockNumber,
+                    toBlock: tx.blockNumber,
+                    batchSize: 1,
+                    nonce: "normalized-before-reset",
+                });
+                await services.handler(job!);
+                await drainQueueOutbox(services.outbox, {
+                    publish: services.publish,
+                });
+                expect(count("fills")).toBe(2);
+            }
+            // Include a different chain and a paused collection, not just active sales.
+            const other = db
+                .prepare(
+                    "SELECT collection_id FROM collections WHERE chain_id=2",
+                )
+                .get() as { collection_id: number };
+            db.prepare(
+                "UPDATE collections SET status='paused' WHERE collection_id=?",
+            ).run(other.collection_id);
+            db.prepare(
+                "INSERT INTO collection_sync_blocks(chain_id,collection_id,block_number) VALUES(2,?,?)",
+            ).run(other.collection_id, tx.blockNumber);
+            for (const [chainId, id] of [
+                [1, collectionId],
+                [2, other.collection_id],
+            ])
+                services.gaps.saveProgress(chainId, id, {
+                    anchorBlock: tx.blockNumber - 1,
+                    cursorBlock: tx.blockNumber,
+                    pending: {
+                        repairId: `old:${chainId}:${id}`,
+                        fromBlock: tx.blockNumber,
+                        toBlock: tx.blockNumber + 1,
+                        retryAt: 999999,
+                    },
+                });
+            return { collectionId, ...services };
+        }
+        async function installReset(fail = false) {
+            const sql = await readFile(
+                resolveProjectPath(`database/migrations/${COVERAGE_RESET}`),
+                "utf8",
+            );
+            await writeFile(
+                join(migrationsDir, COVERAGE_RESET),
+                fail
+                    ? `${sql}\nSELECT * FROM missing_coverage_reset_fixture;\n`
+                    : sql,
+            );
+        }
+        function protectedState() {
+            return snapshotTables([
+                "migrations",
+                "collection_sync_blocks",
+                "collection_sync_gap_scans",
+            ]);
+        }
+        it.each([false, true])(
+            "clears only coverage and scan state, preserving normalized fills=%s",
+            async (normalized) => {
+                const services = await prepareReset(normalized);
+                const before = protectedState();
+                await installReset();
+                await runner.runMigrations();
+                expect(count("collection_sync_blocks")).toBe(0);
+                expect(count("collection_sync_gap_scans")).toBe(0);
+                expect(protectedState()).toEqual(before);
+                expect(db.raw.pragma("foreign_key_check")).toEqual([]);
+                expect(db.raw.pragma("integrity_check", { simple: true })).toBe(
+                    "ok",
+                );
+                // A later launch must keep any rebuilt coverage and scan progress.
+                const coverage = db.prepare(
+                    "INSERT INTO collection_sync_blocks(chain_id,collection_id,block_number) SELECT chain_id,collection_id,bootstrap_anchor_block FROM collections WHERE bootstrap_anchor_block IS NOT NULL",
+                );
+                coverage.run();
+                services.gaps.saveProgress(1, services.collectionId, {
+                    anchorBlock: tx.blockNumber - 1,
+                    cursorBlock: tx.blockNumber,
+                    pending: null,
+                });
+                const resumed = snapshotTables(["migrations"]);
+                setDbPath(databasePath);
+                await runner.runMigrations();
+                expect(snapshotTables(["migrations"])).toEqual(resumed);
+            },
+        );
+        it("rolls back coverage, intent and ledger together and succeeds on retry", async () => {
+            await prepareReset(true);
+            const before = snapshotTables([]);
+            await installReset(true);
+            await expect(runner.runMigrations()).rejects.toThrow(
+                "missing_coverage_reset_fixture",
+            );
+            expect(snapshotTables([])).toEqual(before);
+            await installReset();
+            await runner.runMigrations();
+            expect(count("collection_sync_blocks")).toBe(0);
+            expect(count("collection_sync_gap_scans")).toBe(0);
+        });
+        it.each([false, true])(
+            "automatic repair starts at HEAD and rebuilds sales without changing balances, normalized=%s",
+            async (normalized) => {
+                const s = await prepareReset(normalized);
+                const balances = balanceOwnershipState();
+                const transfers = db
+                    .prepare(
+                        "SELECT * FROM nft_transfer_events ORDER BY collection_id,token_id,block_number",
+                    )
+                    .all();
+                await installReset();
+                await runner.runMigrations();
+                const scanner = new SyncGapScheduler(s.registry, s.gaps, {
+                    chainId: 1,
+                    batchSize: 2,
+                    now: () => 1000,
+                });
+                await scanner.scan(tx.blockNumber + 1);
+                expect(
+                    s.gaps.getProgress(1, s.collectionId)?.pending,
+                ).toMatchObject({
+                    fromBlock: tx.blockNumber,
+                    toBlock: tx.blockNumber + 1,
+                });
+                await s.executor.runDue();
+                await drainQueueOutbox(s.outbox, { publish: s.publish });
+                expect(count("fill_executions")).toBe(1);
+                expect(count("fills")).toBe(2);
+                expect(saleCount()).toBe(2);
+                await scanner.scan(tx.blockNumber + 1);
+                await s.executor.runDue();
+                expect(
+                    s.storage.countCollectionSyncedBlocksInRange(
+                        1,
+                        s.collectionId,
+                        tx.blockNumber - 1,
+                        tx.blockNumber + 1,
+                    ),
+                ).toBe(3);
+                expect(
+                    s.storage.countCollectionSyncedBlocksInRange(
+                        1,
+                        s.collectionId,
+                        1,
+                        tx.blockNumber - 2,
+                    ),
+                ).toBe(0);
+                expect(balanceOwnershipState()).toEqual(balances);
+                expect(
+                    db
+                        .prepare(
+                            "SELECT * FROM nft_transfer_events ORDER BY collection_id,token_id,block_number",
+                        )
+                        .all(),
+                ).toEqual(transfers);
+            },
+        );
+    });
 
     function seedHistory(input: {
         rows: number;
@@ -574,7 +730,73 @@ describe("fill execution schema adoption", () => {
     }
 });
 
-function bundleRpc(tx: EnhancedTransaction): RpcProviderPort {
+function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
+    const storage = new SqliteStorage();
+    const registry = new SqliteCollectionRegistry();
+    const outbox = new SqliteQueueOutbox();
+    const gaps = new SqliteSyncGapStore();
+    const recoveries = new SqliteReorgRecoveries(storage);
+    const commit = new SqliteSyncRangeCommit({
+        storage,
+        outbox,
+        gaps,
+        recoveries,
+        collections: registry,
+    });
+    const gate = new BackfillExecutionGate();
+    const rpc = bundleRpc(tx, headBlock);
+    const activities = new SqliteActivityDomain([zeroAddress]);
+    const publish = vi.fn<QueuePort["publish"]>(async (_queue, job) => {
+        if (job.kind === DOMAIN_JOB_KIND.ActivitySync)
+            await activities.handleDomainSync({
+                ...(job.payload as DomainSyncPayload),
+                chainId: job.chainId!,
+                collectionId: job.collectionId!,
+            });
+    });
+    const handler = createBackfillSyncHandler({
+        chainId: 1,
+        workerCount: 2,
+        wethAddress: zeroAddress,
+        rpc,
+        storage,
+        commit,
+        collectionsPort: registry,
+        extensions: { getInstall: () => null },
+        bidderIndex: { isActive: () => false, shouldEmit: () => false },
+        gate,
+    });
+    const executor = new AutomaticSyncExecutor({
+        chainId: 1,
+        batchSize: 2,
+        wethAddress: zeroAddress,
+        rpc,
+        storage,
+        commit,
+        collectionsPort: registry,
+        collectionExtensions: { getInstall: () => null },
+        bidderIndex: { isActive: () => false, shouldEmit: () => false },
+        gate,
+        gaps,
+        recoveries,
+        now: () => 1000,
+    });
+    return {
+        storage,
+        registry,
+        gaps,
+        outbox,
+        gate,
+        publish,
+        handler,
+        executor,
+    };
+}
+
+function bundleRpc(
+    tx: EnhancedTransaction,
+    headBlock = tx.blockNumber,
+): RpcProviderPort {
     const transferIndices = new Set(
         tx.events
             .filter((event) => event.base.contract === CONTRACT)
@@ -587,9 +809,21 @@ function bundleRpc(tx: EnhancedTransaction): RpcProviderPort {
         throw new Error("Unexpected RPC call in stored-history replay");
     };
     return {
-        getBlockNumber: async () => tx.blockNumber,
+        getBlockNumber: async () => headBlock,
         getBlock: async (number) => {
-            expect(number).toBe(tx.blockNumber);
+            expect(number).toBeGreaterThanOrEqual(tx.blockNumber - 1);
+            expect(number).toBeLessThanOrEqual(headBlock);
+            if (number !== tx.blockNumber) {
+                return {
+                    ...syncBlockFixture(number),
+                    parentHash:
+                        number === tx.blockNumber + 1
+                            ? (tx.blockHash as Hex)
+                            : syncBlockFixture(number - 1).hash,
+                    timestamp: TIMESTAMP + (number - tx.blockNumber) * 12,
+                    transactions: [],
+                };
+            }
             return {
                 number,
                 hash: tx.blockHash as Hex,
@@ -599,6 +833,8 @@ function bundleRpc(tx: EnhancedTransaction): RpcProviderPort {
             };
         },
         getLogs: async (filter) =>
+            filter.fromBlock <= tx.blockNumber &&
+            filter.toBlock >= tx.blockNumber &&
             filter.events?.some((event) => event.name === "Transfer")
                 ? transferLogs
                 : [],
@@ -654,19 +890,30 @@ function appliedUpgrade(): boolean {
     );
 }
 function snapshotOtherTables() {
+    return snapshotTables([
+        "fills",
+        "activities",
+        "migrations",
+        "fill_executions",
+        "fill_execution_items",
+    ]);
+}
+function snapshotTables(excluded: string[]) {
     const tables = db
         .prepare(
-            "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('fills','activities','migrations','fill_executions','fill_execution_items') ORDER BY name",
+            "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
         )
         .all() as { name: string }[];
     return Object.fromEntries(
-        tables.map(({ name }) => [
-            name,
-            db
-                .prepare(`SELECT * FROM "${name}"`)
-                .all()
-                .map((row) => JSON.stringify(row))
-                .sort(),
-        ]),
+        tables
+            .filter(({ name }) => !excluded.includes(name))
+            .map(({ name }) => [
+                name,
+                db
+                    .prepare(`SELECT * FROM "${name}"`)
+                    .all()
+                    .map((row) => JSON.stringify(row))
+                    .sort(),
+            ]),
     );
 }
