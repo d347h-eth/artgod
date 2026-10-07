@@ -17,6 +17,8 @@ import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
+    BOOTSTRAP_BACKFILL_RECOVERY_RETRY_MS,
+    BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD,
     BOOTSTRAP_BACKFILL_STEP_RESULT_REASON,
     BOOTSTRAP_OPENSEA_STEP_RESULT_REASON,
     BootstrapBackfillExecutor,
@@ -26,6 +28,7 @@ import {
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillRunsPort,
     type BootstrapBackfillStepsPort,
+    type BootstrapBackfillCoverageGapPort,
 } from "../src/application/bootstrap-backfill-executor.js";
 import { BOOTSTRAP_BACKFILL_PLAN_KIND } from "../src/application/bootstrap-backfill-plan.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
@@ -156,16 +159,12 @@ describe("bootstrap backfill executor", () => {
                 progress: { completed: 0, total: 5 },
             },
         ]);
-        expect(harness.resultUpdates).toEqual([
-            {
-                runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
-                result: buildBootstrapBackfillDelegatedStepResult({
-                    fromBlock: 101,
-                    toBlock: 105,
-                }),
-            },
-        ]);
+        expect(harness.resultUpdates.at(-1)?.result).toEqual(
+            buildBootstrapBackfillDelegatedStepResult({
+                fromBlock: 101,
+                toBlock: 105,
+            }),
+        );
         expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
         expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
     });
@@ -204,15 +203,87 @@ describe("bootstrap backfill executor", () => {
                 toBlock: 105,
             },
         ]);
-        expect(harness.resultUpdates).toEqual([
-            {
-                runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
-                result: buildBootstrapBackfillDelegatedStepResult({
-                    fromBlock: 101,
-                    toBlock: 105,
-                }),
+        expect(harness.resultUpdates.at(-1)?.result).toEqual(
+            expect.objectContaining({
+                [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: 101,
+                [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: 105,
+                [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Recovery]:
+                    expect.any(Object),
+            }),
+        );
+    });
+
+    it("reacquires a missing batch for a retained delegated range", async () => {
+        const harness = createHarness({ syncedBlockCount: 0 });
+
+        await harness.executor.checkProgress(checkInput());
+
+        expect(harness.backfillRanges).toEqual([
+            expect.objectContaining({
+                chainId: 1,
+                collectionId: 7,
+                fromBlock: 104,
+                toBlock: 105,
+                batchSize: 2,
+                recoveryId: expect.any(String),
+            }),
+        ]);
+    });
+
+    it("waits for one pending batch and retries missing coverage with a fresh identity after the delay", async () => {
+        let now = 1000;
+        const harness = createHarness({ now: () => now });
+        await harness.executor.checkProgress(checkInput());
+        await harness.executor.checkProgress(checkInput());
+        expect(harness.backfillRanges).toHaveLength(1);
+
+        now += BOOTSTRAP_BACKFILL_RECOVERY_RETRY_MS;
+        await harness.executor.checkProgress(checkInput());
+        expect(harness.backfillRanges).toHaveLength(2);
+        expect(harness.backfillRanges[1].recoveryId).not.toBe(
+            harness.backfillRanges[0].recoveryId,
+        );
+    });
+
+    it("reuses the retained delivery after an uncertain publication instead of waiting or admitting a duplicate", async () => {
+        let failed = false;
+        const harness = createHarness({
+            publish: async () => {
+                if (!failed) {
+                    failed = true;
+                    throw new Error("Uncertain broker acknowledgement");
+                }
             },
+        });
+        await expect(
+            harness.executor.checkProgress(checkInput()),
+        ).rejects.toThrow("Uncertain broker acknowledgement");
+        await harness.executor.checkProgress(checkInput());
+        expect(harness.backfillRanges).toHaveLength(2);
+        expect(harness.backfillRanges[1]).toEqual(harness.backfillRanges[0]);
+    });
+
+    it("schedules the next missing batch immediately when the pending batch is covered", async () => {
+        let covered = false;
+        const harness = createHarness({
+            findGap: (_chain, _collection, window) => {
+                if (covered && window.fromBlock === 104) return null;
+                return covered
+                    ? { fromBlock: 102, toBlock: 103 }
+                    : { fromBlock: 104, toBlock: 105 };
+            },
+        });
+        await harness.executor.checkProgress(checkInput());
+        covered = true;
+        await harness.executor.checkProgress(checkInput());
+        expect(
+            harness.backfillRanges.map(({ fromBlock, toBlock }) => ({
+                fromBlock,
+                toBlock,
+            })),
+        ).toEqual([
+            { fromBlock: 104, toBlock: 105 },
+            { fromBlock: 102, toBlock: 103 },
         ]);
     });
 
@@ -243,14 +314,6 @@ describe("bootstrap backfill executor", () => {
             },
         ]);
         expect(harness.resultUpdates).toEqual([
-            {
-                runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
-                result: buildBootstrapBackfillDelegatedStepResult({
-                    fromBlock: 101,
-                    toBlock: 105,
-                }),
-            },
             {
                 runId: 41,
                 stepKey: BOOTSTRAP_STEP_KEY.Backfill,
@@ -337,13 +400,9 @@ type Harness = {
         stepKey: BootstrapStepKey;
         result: Record<string, unknown>;
     }>;
-    backfillRanges: Array<{
-        chainId: number;
-        collectionId: number;
-        fromBlock: number;
-        toBlock: number;
-        batchSize: number;
-    }>;
+    backfillRanges: Array<
+        Parameters<BootstrapBackfillQueuePort["scheduleBackfillRange"]>[0]
+    >;
     backfillChecks: Array<{
         chainId: number;
         runId: number;
@@ -377,6 +436,9 @@ function createHarness(input: {
     imageCacheCounts?: BootstrapTaskCounts;
     ownershipCounts?: BootstrapTaskCounts;
     collectionExtensionArtifactCounts?: BootstrapTaskCounts;
+    now?: () => number;
+    findGap?: BootstrapBackfillCoverageGapPort["findGap"];
+    publish?: BootstrapBackfillQueuePort["scheduleBackfillRange"];
 }): Harness {
     const run = input.run ?? buildRun({});
     const events: Harness["events"] = [];
@@ -390,6 +452,7 @@ function createHarness(input: {
     const backfillChecks: Harness["backfillChecks"] = [];
     const openSeaSchedules: Harness["openSeaSchedules"] = [];
     const cleanupDeletedRows = emptyCleanupDeletedRows();
+    let resultJson: string | null = null;
     const runsPort: BootstrapBackfillRunsPort = {
         updateRunStatus: (runId, status) => {
             if (runId === run.runId) {
@@ -401,6 +464,7 @@ function createHarness(input: {
         },
     };
     const stepsPort: BootstrapBackfillStepsPort = {
+        getStep: () => ({ resultJson }),
         markStepRunning: (runId, stepKey) => {
             runningSteps.push({ runId, stepKey });
         },
@@ -418,6 +482,7 @@ function createHarness(input: {
             progressUpdates.push({ runId, stepKey, progress });
         },
         updateStepResult: (runId, stepKey, result) => {
+            resultJson = JSON.stringify(result);
             resultUpdates.push({ runId, stepKey, result });
         },
     };
@@ -434,6 +499,7 @@ function createHarness(input: {
     const queuePort: BootstrapBackfillQueuePort = {
         scheduleBackfillRange: async (request) => {
             backfillRanges.push(request);
+            await input.publish?.(request);
         },
         scheduleBackfillCheck: async (request) => {
             backfillChecks.push(request);
@@ -447,12 +513,25 @@ function createHarness(input: {
             getBlockNumber: async () => input.headBlock ?? 105,
         },
         {
-            countCollectionSyncedBlocksInRange: () => input.syncedBlockCount ?? 0,
+            countCollectionSyncedBlocksInRange: () =>
+                input.syncedBlockCount ?? 0,
         },
         collectionPort,
         runsPort,
         stepsPort,
         queuePort,
+        {
+            findGap:
+                input.findGap ??
+                ((_chainId, _collectionId, window, batchSize) => ({
+                    fromBlock: Math.max(
+                        window.fromBlock,
+                        window.toBlock - batchSize + 1,
+                    ),
+                    toBlock: window.toBlock,
+                })),
+        },
+        input.now,
     );
 
     return {
@@ -498,6 +577,7 @@ function checkInput() {
         address: TEST_CONTRACT_ADDRESS,
         fromBlock: 101,
         toBlock: 105,
+        backfillBatchSize: 2,
         traceId: "trace-1",
         sourceJobId: "job-1",
     };

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import {
     BOOTSTRAP_RUN_STATUS,
@@ -6,10 +7,9 @@ import {
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
+import type { SyncGapStorePort } from "./sync-gap-scheduler.js";
 import type { OpenSeaBootstrapCollectionPayload } from "../domain/opensea-jobs.js";
-import {
-    type BootstrapTemporaryDataCleanupResult,
-} from "./bootstrap-temporary-data-cleanup.js";
+import { type BootstrapTemporaryDataCleanupResult } from "./bootstrap-temporary-data-cleanup.js";
 import {
     BOOTSTRAP_BACKFILL_PLAN_KIND,
     type BootstrapBackfillPlan,
@@ -40,7 +40,21 @@ export const BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD = {
     FromBlock: "fromBlock",
     ToBlock: "toBlock",
     LiveBlock: "liveBlock",
+    Recovery: "recovery",
+    RecoveryId: "recoveryId",
+    RetryAt: "retryAt",
 } as const;
+
+// A slow or unavailable sync worker must not accumulate recovery work on every
+// five-second progress check. Retry one missing batch at most once per minute.
+export const BOOTSTRAP_BACKFILL_RECOVERY_RETRY_MS = 60_000;
+
+type BootstrapBackfillRecovery = {
+    fromBlock: number;
+    toBlock: number;
+    recoveryId: string;
+    retryAt: number;
+};
 
 // OpenSea skip reasons are persisted on bootstrap_run_steps.result_json.
 export const BOOTSTRAP_OPENSEA_STEP_RESULT_REASON = {
@@ -67,6 +81,7 @@ export type BootstrapBackfillCheckInput = {
     address: string;
     fromBlock: number;
     toBlock: number;
+    backfillBatchSize: number;
     traceId: string;
     sourceJobId: string;
 };
@@ -110,6 +125,11 @@ export interface BootstrapBackfillSyncProgressPort {
     ): number;
 }
 
+export interface BootstrapBackfillCoverageGapPort extends Pick<
+    SyncGapStorePort,
+    "findGap"
+> {}
+
 export interface BootstrapBackfillQueuePort {
     scheduleBackfillRange(input: {
         chainId: number;
@@ -117,6 +137,9 @@ export interface BootstrapBackfillQueuePort {
         fromBlock: number;
         toBlock: number;
         batchSize: number;
+        // A retained recovery identity bypasses ACKed initial-job deduplication;
+        // retrying an ambiguous publication must reuse this identity.
+        recoveryId?: string;
     }): Promise<void>;
     scheduleBackfillCheck(input: {
         chainId: number;
@@ -131,18 +154,24 @@ export interface BootstrapBackfillQueuePort {
     ): Promise<void>;
 }
 
-export interface BootstrapBackfillRunsPort
-    extends Pick<BootstrapRunsPort, "updateRunStatus" | "appendRunEvent"> {}
+export interface BootstrapBackfillRunsPort extends Pick<
+    BootstrapRunsPort,
+    "updateRunStatus" | "appendRunEvent"
+> {}
 
-export interface BootstrapBackfillStepsPort
-    extends Pick<
-        BootstrapStepsPort,
-        | "markStepRunning"
-        | "markStepSucceeded"
-        | "markStepSkipped"
-        | "updateStepProgress"
-        | "updateStepResult"
-    > {}
+export interface BootstrapBackfillStepsPort extends Pick<
+    BootstrapStepsPort,
+    | "markStepRunning"
+    | "markStepSucceeded"
+    | "markStepSkipped"
+    | "updateStepProgress"
+    | "updateStepResult"
+> {
+    getStep(
+        runId: number,
+        stepKey: typeof BOOTSTRAP_STEP_KEY.Backfill,
+    ): { resultJson: string | null } | null;
+}
 
 // Executes bootstrap backfill scheduling/checking and writes the collection-live handoff.
 export class BootstrapBackfillExecutor {
@@ -153,7 +182,26 @@ export class BootstrapBackfillExecutor {
         private readonly runsPort: BootstrapBackfillRunsPort,
         private readonly stepsPort: BootstrapBackfillStepsPort,
         private readonly queuePort: BootstrapBackfillQueuePort,
+        private readonly coverageGaps: BootstrapBackfillCoverageGapPort,
+        private readonly now: () => number = Date.now,
     ) {}
+
+    // A restarted step must resume its retained range rather than schedule a new
+    // range from today's head. Explicit checks use the same execution path.
+    async executeStep(
+        input: BootstrapBackfillScheduleInput,
+        checkRange?: { fromBlock: number; toBlock: number },
+    ): Promise<BootstrapBackfillScheduleResult | BootstrapBackfillCheckResult> {
+        const range =
+            checkRange ??
+            parseBootstrapBackfillDelegatedRange(
+                this.stepsPort.getStep(input.runId, BOOTSTRAP_STEP_KEY.Backfill)
+                    ?.resultJson ?? null,
+            );
+        return range
+            ? this.checkProgress({ ...input, ...range })
+            : this.scheduleAfterSnapshot(input);
+    }
 
     async scheduleAfterSnapshot(
         input: BootstrapBackfillScheduleInput,
@@ -185,11 +233,18 @@ export class BootstrapBackfillExecutor {
             toBlock: plan.toBlock,
             batchSize: input.backfillBatchSize,
         });
-        this.stepsPort.markStepRunning(input.runId, BOOTSTRAP_STEP_KEY.Backfill);
-        this.stepsPort.updateStepProgress(input.runId, BOOTSTRAP_STEP_KEY.Backfill, {
-            completed: 0,
-            total: plan.totalBlocks,
-        });
+        this.stepsPort.markStepRunning(
+            input.runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+        );
+        this.stepsPort.updateStepProgress(
+            input.runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            {
+                completed: 0,
+                total: plan.totalBlocks,
+            },
+        );
         this.stepsPort.updateStepResult(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
@@ -198,7 +253,10 @@ export class BootstrapBackfillExecutor {
                 toBlock: plan.toBlock,
             }),
         );
-        this.runsPort.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Backfill);
+        this.runsPort.updateRunStatus(
+            input.runId,
+            BOOTSTRAP_RUN_STATUS.Backfill,
+        );
         this.runsPort.appendRunEvent({
             runId: input.runId,
             chainId: input.chainId,
@@ -245,26 +303,22 @@ export class BootstrapBackfillExecutor {
             };
         }
 
-        const synced =
-            this.syncProgressPort.countCollectionSyncedBlocksInRange(
-                input.chainId,
-                input.collectionId,
-                input.fromBlock,
-                input.toBlock,
-            );
-        this.stepsPort.updateStepProgress(input.runId, BOOTSTRAP_STEP_KEY.Backfill, {
-            completed: synced,
-            total: expected,
-        });
-        this.stepsPort.updateStepResult(
+        const synced = this.syncProgressPort.countCollectionSyncedBlocksInRange(
+            input.chainId,
+            input.collectionId,
+            input.fromBlock,
+            input.toBlock,
+        );
+        this.stepsPort.updateStepProgress(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
-            buildBootstrapBackfillDelegatedStepResult({
-                fromBlock: input.fromBlock,
-                toBlock: input.toBlock,
-            }),
+            {
+                completed: synced,
+                total: expected,
+            },
         );
         if (synced < expected) {
+            await this.recoverMissingRange(input);
             await this.queuePort.scheduleBackfillCheck({
                 chainId: input.chainId,
                 runId: input.runId,
@@ -283,10 +337,14 @@ export class BootstrapBackfillExecutor {
             };
         }
 
-        this.stepsPort.markStepSucceeded(input.runId, BOOTSTRAP_STEP_KEY.Backfill, {
-            completed: expected,
-            total: expected,
-        });
+        this.stepsPort.markStepSucceeded(
+            input.runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            {
+                completed: expected,
+                total: expected,
+            },
+        );
         this.stepsPort.updateStepResult(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
@@ -305,6 +363,65 @@ export class BootstrapBackfillExecutor {
             synced,
             cleanup: { deleted: false },
         };
+    }
+
+    private async recoverMissingRange(
+        input: BootstrapBackfillCheckInput,
+    ): Promise<void> {
+        const retained = parseBootstrapBackfillRecovery(
+            this.stepsPort.getStep(input.runId, BOOTSTRAP_STEP_KEY.Backfill)
+                ?.resultJson ?? null,
+            input,
+        );
+        const pendingGap = retained
+            ? this.coverageGaps.findGap(
+                  input.chainId,
+                  input.collectionId,
+                  retained,
+                  input.backfillBatchSize,
+              )
+            : null;
+        const now = this.now();
+        if (retained && pendingGap && retained.retryAt > now) return;
+
+        const gap =
+            pendingGap ??
+            this.coverageGaps.findGap(
+                input.chainId,
+                input.collectionId,
+                input,
+                input.backfillBatchSize,
+            );
+        if (!gap) return;
+        const recovery =
+            retained && pendingGap && retained.retryAt === 0
+                ? retained
+                : { ...gap, recoveryId: randomUUID(), retryAt: 0 };
+        const saveRecovery = (pending: BootstrapBackfillRecovery) =>
+            this.stepsPort.updateStepResult(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+                buildBootstrapBackfillDelegatedStepResult({
+                    ...input,
+                    recovery: pending,
+                }),
+            );
+        // Retain identity before publishing. A crash or uncertain broker ACK
+        // retries the same delivery; a settled but still missing batch gets a
+        // fresh identity after the delay so ACKed jobs cannot suppress repair.
+        saveRecovery(recovery);
+        await this.queuePort.scheduleBackfillRange({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            fromBlock: recovery.fromBlock,
+            toBlock: recovery.toBlock,
+            batchSize: input.backfillBatchSize,
+            recoveryId: recovery.recoveryId,
+        });
+        saveRecovery({
+            ...recovery,
+            retryAt: now + BOOTSTRAP_BACKFILL_RECOVERY_RETRY_MS,
+        });
     }
 
     private async completeWithoutBackfill(
@@ -385,7 +502,10 @@ export class BootstrapBackfillExecutor {
             return;
         }
 
-        this.collectionPort.markOpenSeaPending(input.chainId, input.collectionId);
+        this.collectionPort.markOpenSeaPending(
+            input.chainId,
+            input.collectionId,
+        );
         await this.queuePort.scheduleOpenSeaBootstrap({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -417,6 +537,7 @@ export class BootstrapBackfillExecutor {
 export type BootstrapBackfillDelegatedStepResult = {
     [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: number;
     [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: number;
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Recovery]?: BootstrapBackfillRecovery;
 };
 
 export type BootstrapBackfillTerminalStepResult = Partial<{
@@ -431,11 +552,55 @@ export type BootstrapBackfillTerminalStepResult = Partial<{
 export function buildBootstrapBackfillDelegatedStepResult(input: {
     fromBlock: number;
     toBlock: number;
+    recovery?: BootstrapBackfillRecovery;
 }): BootstrapBackfillDelegatedStepResult {
     return {
         [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: input.fromBlock,
         [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: input.toBlock,
+        ...(input.recovery
+            ? {
+                  [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Recovery]:
+                      input.recovery,
+              }
+            : {}),
     };
+}
+
+function parseBootstrapBackfillRecovery(
+    resultJson: string | null,
+    range: { fromBlock: number; toBlock: number },
+): BootstrapBackfillRecovery | null {
+    const value =
+        parseBackfillStepResult(resultJson)?.[
+            BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Recovery
+        ];
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return null;
+    const fields = value as Record<string, unknown>;
+    const fromBlock = readBackfillNumberField(
+        fields,
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock,
+    );
+    const toBlock = readBackfillNumberField(
+        fields,
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock,
+    );
+    const retryAt = readBackfillNumberField(
+        fields,
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.RetryAt,
+    );
+    const recoveryId = fields[BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.RecoveryId];
+    return fromBlock !== null &&
+        toBlock !== null &&
+        retryAt !== null &&
+        fromBlock >= range.fromBlock &&
+        toBlock <= range.toBlock &&
+        fromBlock <= toBlock &&
+        retryAt >= 0 &&
+        typeof recoveryId === "string" &&
+        recoveryId.length > 0
+        ? { fromBlock, toBlock, recoveryId, retryAt }
+        : null;
 }
 
 // Builds the persisted handoff state consumed by the collection-live step.

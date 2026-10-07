@@ -91,10 +91,17 @@ Each grid cell returns:
 - synced block count
 - state: `empty`, `partial`, or `complete`
 - drill-down permission
-- optional collection deployment marker
+- optional collection deployment and bootstrap-anchor markers
 
 When a selected collection has `deployment_block`, the UI marks the cell that
-contains that block. Drill-down before deployment is blocked in the
+contains that block with `❀`. Its bootstrap anchor is marked with `⫯` using the
+same Mathcastles font and marker styling. Both markers remain visible when they
+share a bucket, including when deployment and anchor are the same block. Their
+synced state reflects coverage of each exact block, independently of the whole
+bucket. Markers appear only for the selected collection; chain-wide views
+continues to show indexed block coverage without collection markers.
+
+Drill-down before deployment is blocked in the
 single-collection public view so public users cannot spend requests exploring
 irrelevant pre-deployment history.
 

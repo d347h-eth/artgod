@@ -240,6 +240,7 @@ does not download tools or use configured live services. The shared isolated-NAT
 helper and child-worker bundler retain disposable SQLite/JetStream stores,
 worker/broker logs and reports under `tmp/reorg-recovery-nats/`. Metadata range
 broker fixtures retain their private stores and logs under `tmp/metadata-range-nats/`.
+Bootstrap coverage-upgrade fixtures use `tmp/bootstrap-coverage-recovery-nats/`.
 
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
@@ -264,6 +265,16 @@ handler, worker admission, sync outbox, metadata SQLite adapter and JetStream. I
 verifies that a tail first delivered after rollback is ACKed without further URI
 reads, and that a replacement root refreshes the full range after old root/tail
 ACKs within the broker dedupe window. Token URI and HTTP responses are fixtures.
+
+`integration/bootstrap-coverage-recovery.test.ts` uses this same runner and
+isolated broker. It upgrades disposable databases with fully and partially
+acknowledged catch-up jobs through migration 067, reopens them, and resumes the
+retained steps through the startup reconciler, scheduler and backfill executor.
+It checks that old IDs remain deduplicated while fresh recovery deliveries
+restore coverage and allow collection-live completion. Real transfer decoding,
+the current-state gate and SQLite persistence prove ERC1155 deltas apply once,
+including when an old queued tail overlaps a recovery batch. Executor unit tests
+also cover bounded pending work, retry timing and uncertain publication.
 
 RPC chain responses are deterministic fixtures. These checks establish the local
 broker/database failure contracts; external-RPC smoke, native/package execution

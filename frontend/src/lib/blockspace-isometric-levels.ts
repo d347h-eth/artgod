@@ -4,6 +4,22 @@ import {
 } from '@artgod/shared/config/blockspace';
 import type { ApiBlockspaceGridCell, BlockspaceStateApiResponse } from '$lib/api-types';
 
+// Marker glyphs and classes are shared by the grid, page states and browser harness.
+export const BLOCKSPACE_BLOCK_MARKER = {
+	Deployment: {
+		glyph: '❀',
+		className: 'blockspace-isometric-marker-deployment',
+		syncedTileClassName: 'blockspace-isometric-tile-deployment-synced',
+		unsyncedTileClassName: 'blockspace-isometric-tile-deployment-unsynced'
+	},
+	BootstrapAnchor: {
+		glyph: '⫯',
+		className: 'blockspace-isometric-marker-anchor',
+		syncedTileClassName: 'blockspace-isometric-tile-anchor-synced',
+		unsyncedTileClassName: 'blockspace-isometric-tile-anchor-unsynced'
+	}
+} as const;
+
 // Visible blockspace levels represent the current URL path, not the full chain tree.
 export type BlockspaceVisibleLevel = {
 	key: string;
@@ -69,7 +85,9 @@ export function buildBlockspaceIsometricLevelRenderKey(level: BlockspaceVisibleL
 				cell.syncedBlockCount,
 				cell.state,
 				cell.collectionDeploymentBlock?.synced ? 'deployment-synced' : '',
-				cell.collectionDeploymentBlock?.blockNumber ?? ''
+				cell.collectionDeploymentBlock?.blockNumber ?? '',
+				cell.collectionBootstrapAnchorBlock?.synced ? 'anchor-synced' : '',
+				cell.collectionBootstrapAnchorBlock?.blockNumber ?? ''
 			].join(':')
 		)
 		.join(',');

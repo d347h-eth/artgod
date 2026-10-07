@@ -295,6 +295,9 @@ yarn test:terraforms:hypercastle
 # Run realized-price collection/token chart checks with synthetic sales.
 yarn test:prices:history
 
+# Run Blockspace anchor markers, collection switching and backfill selection.
+yarn test:blockspace
+
 # Start the local app before running attached smoke tests against live local data.
 yarn dev
 

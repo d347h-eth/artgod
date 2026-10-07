@@ -173,6 +173,15 @@ An interrupted earlier market-data recovery discards copied sales whose source
 rows were removed, before its activities-table swap; it cannot restore retired
 sale history.
 
+Migration `067_reset_collection_sale_coverage.sql` invalidates the collection
+coverage retained by 064 and clears saved gap-scan progress in the same
+transaction. Existing normalized fills and all other facts/current state remain.
+The collection-selected Blockspace map starts empty. Normal automatic gap repair
+restarts from HEAD through each eligible live collection's bootstrap anchor,
+inclusive; pre-anchor history still uses manual backfill. Canonical `blocks`
+remain, so chain-wide Blockspace coverage is unchanged. The migration ledger
+prevents later launches from clearing rebuilt coverage again.
+
 - `fill_executions`: immutable identity `(chain_id, kind, tx_hash, log_index)`,
   block provenance, protocol address, payment total and currency or an exclusion
   reason, and the full NFT quantity.

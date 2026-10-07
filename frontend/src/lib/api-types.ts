@@ -1082,7 +1082,7 @@ export type ApiBlockspaceCollectionOption = {
 	bootstrapLastSyncedBlock: number | null;
 };
 
-export type ApiBlockspaceGridCellDeploymentMarker = {
+export type ApiBlockspaceGridCellBlockMarker = {
 	blockNumber: number;
 	synced: boolean;
 };
@@ -1095,7 +1095,8 @@ export type ApiBlockspaceGridCell = {
 	syncedBlockCount: number;
 	state: ApiBlockspaceCoverageState;
 	canDrillDown: boolean;
-	collectionDeploymentBlock: ApiBlockspaceGridCellDeploymentMarker | null;
+	collectionDeploymentBlock: ApiBlockspaceGridCellBlockMarker | null;
+	collectionBootstrapAnchorBlock: ApiBlockspaceGridCellBlockMarker | null;
 };
 
 export type ApiBlockspaceBlockTimestamp = {

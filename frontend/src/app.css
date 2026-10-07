@@ -1249,7 +1249,8 @@ input[type='number']::-webkit-outer-spin-button {
 	pointer-events: none;
 }
 
-.blockspace-isometric-marker-deployment {
+.blockspace-isometric-marker-deployment,
+.blockspace-isometric-marker-anchor {
 	fill: var(--c-pink);
 }
 

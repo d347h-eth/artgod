@@ -579,6 +579,20 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 - the short backfill is collection-scoped
 - this range is intentionally post-anchor so it can safely advance current-state tables
 
+On restart, the backfill executor resumes the retained range instead of
+extending it to a newer head. If collection coverage is missing, it reuses the
+indexed gap query to enqueue one missing batch through the same bootstrap
+catch-up path. This also recovers active bootstraps after migration 067 clears
+coverage whose original acquisition jobs were already acknowledged.
+
+The step result retains the recovery range, delivery identity and retry time.
+The identity is written before publication and reused after an uncertain broker
+reply. An uncovered batch can receive a fresh identity after one minute, so an
+acknowledged delivery cannot indefinitely suppress reacquisition. Progress
+checks wait for the current batch or proceed to the next missing batch once it
+is covered. Collection-live still requires complete coverage of the original
+range; bootstrapping collections remain outside the live-only gap scanner.
+
 ### 8. Schedule OpenSea bootstrap
 
 After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job only when OpenSea integration is enabled and the collection has an explicit OpenSea slug.
