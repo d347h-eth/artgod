@@ -155,6 +155,13 @@ distribution, skip its symbol-stripping step for that local build:
 NO_STRIP=1 yarn build:desktop:linux-bundle
 ```
 
+`yarn check:linux-release-build` runs the maintained Linux prerequisites,
+debug no-bundle checks, and full AppImage/`.deb` build with staged and packaged
+runtime verification. The Ubuntu build-check workflow calls the same owner in
+three phases, preserving security checks before compilation and final artifact
+checks after packaging. Reports are retained under `tmp/linux-release-checks-*`.
+This command requires an installed project and Linux x64 build tools.
+
 Ubuntu 22 release-lane reproduction in Docker:
 
 ```sh
