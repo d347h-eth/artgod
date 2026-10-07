@@ -1,5 +1,5 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
-import { ERC1155_ABI, ERC721_ABI } from "../abi/index.js";
+import { ERC1155_ABI, ERC721_ABI, ERC721_EVENT_NAME } from "../abi/index.js";
 import {
     COLLECTION_STANDARD,
     type CollectionRecord,
@@ -23,7 +23,14 @@ import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
 import { ChainSyncConflict } from "../domain/chain-sync.js";
 import { decodeBlurFills } from "./fills/blur.js";
 import { decodeSeaportFills } from "./fills/seaport.js";
+import { decodeWyvernFills } from "./fills/wyvern.js";
 import type { DecodedFillEvent } from "./fills/types.js";
+import { decodeNftTransferLog, NFT_TRANSFER_EVENTS } from "./nft-transfers.js";
+export {
+    decodeErc721Transfer,
+    decodeErc1155TransferSingle,
+    decodeErc1155TransferBatch,
+} from "./nft-transfers.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import {
     decodeMetadataRefreshLog,
@@ -43,22 +50,6 @@ export type SyncRange = {
     toBlock: number;
 };
 
-// Protocol event names keep log filters and decoders aligned.
-const ERC721_EVENT_NAME = {
-    Transfer: "Transfer",
-    Approval: "Approval",
-    ApprovalForAll: "ApprovalForAll",
-} as const;
-
-const ERC1155_EVENT_NAME = {
-    TransferSingle: "TransferSingle",
-    TransferBatch: "TransferBatch",
-} as const;
-
-const [ERC721_TRANSFER_TOPIC] = encodeEventTopics({
-    abi: ERC721_ABI,
-    eventName: ERC721_EVENT_NAME.Transfer,
-}) as [Hex];
 const [ERC721_APPROVAL_TOPIC] = encodeEventTopics({
     abi: ERC721_ABI,
     eventName: ERC721_EVENT_NAME.Approval,
@@ -67,24 +58,8 @@ const [ERC721_APPROVAL_FOR_ALL_TOPIC] = encodeEventTopics({
     abi: ERC721_ABI,
     eventName: ERC721_EVENT_NAME.ApprovalForAll,
 }) as [Hex];
-const [ERC1155_TRANSFER_SINGLE_TOPIC] = encodeEventTopics({
-    abi: ERC1155_ABI,
-    eventName: ERC1155_EVENT_NAME.TransferSingle,
-}) as [Hex];
-const [ERC1155_TRANSFER_BATCH_TOPIC] = encodeEventTopics({
-    abi: ERC1155_ABI,
-    eventName: ERC1155_EVENT_NAME.TransferBatch,
-}) as [Hex];
-const ERC721_TRANSFER_EVENT = ERC721_ABI[0];
 const ERC721_APPROVAL_EVENT = ERC721_ABI[1];
 const ERC721_APPROVAL_FOR_ALL_EVENT = ERC721_ABI[2];
-const ERC1155_TRANSFER_SINGLE_EVENT = ERC1155_ABI[0];
-const ERC1155_TRANSFER_BATCH_EVENT = ERC1155_ABI[1];
-const TRANSFER_EVENTS = [
-    ERC721_TRANSFER_EVENT,
-    ERC1155_TRANSFER_SINGLE_EVENT,
-    ERC1155_TRANSFER_BATCH_EVENT,
-] as const;
 const NFT_APPROVAL_EVENTS = [
     ERC721_APPROVAL_EVENT,
     ERC721_APPROVAL_FOR_ALL_EVENT,
@@ -132,7 +107,7 @@ export async function syncRange(
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
         address: addresses.length === 1 ? addresses[0] : addresses,
-        events: TRANSFER_EVENTS,
+        events: NFT_TRANSFER_EVENTS,
     });
 
     // NFT approvals change sell-order executability without changing ownership.
@@ -160,7 +135,7 @@ export async function syncRange(
 
     const enhancedEvents: EnhancedEvent[] = [];
     for (const log of logs) {
-        enhancedEvents.push(...decodeTransferLog(log));
+        enhancedEvents.push(...decodeNftTransferLog(log));
     }
 
     const trackedContracts = new Set(
@@ -309,29 +284,6 @@ function isDecodedTokenNftApprovalLog(
 }
 
 /**
- * Route a log to the correct transfer decoder based on topic0.
- * TransferBatch expands into multiple EnhancedEvent entries.
- */
-function decodeTransferLog(log: RpcLog): EnhancedEvent[] {
-    const topic0 = log.topics[0];
-    if (!topic0) return [];
-
-    if (topic0 === ERC721_TRANSFER_TOPIC) {
-        return decodeErc721Transfer(log);
-    }
-
-    if (topic0 === ERC1155_TRANSFER_SINGLE_TOPIC) {
-        return decodeErc1155TransferSingle(log);
-    }
-
-    if (topic0 === ERC1155_TRANSFER_BATCH_TOPIC) {
-        return decodeErc1155TransferBatch(log);
-    }
-
-    return [];
-}
-
-/**
  * Route NFT approval logs to the matching approval decoder.
  */
 export function decodeNftApprovalLog(log: RpcLog): DecodedNftApprovalLog[] {
@@ -441,133 +393,6 @@ export function decodeErc1155ApprovalForAll(
         ...event,
         kind: COLLECTION_STANDARD.Erc1155,
     }));
-}
-
-/**
- * Decode a single ERC721 Transfer log into an EnhancedEvent.
- */
-export function decodeErc721Transfer(log: RpcLog): EnhancedEvent[] {
-    const topics = log.topics as [Hex, ...Hex[]];
-    if (topics[0] !== ERC721_TRANSFER_TOPIC) return [];
-    try {
-        const decoded = decodeEventLog({
-            abi: ERC721_ABI,
-            eventName: ERC721_EVENT_NAME.Transfer,
-            data: log.data,
-            topics,
-        });
-        const from = decoded.args.from as string;
-        const to = decoded.args.to as string;
-        const tokenId = decoded.args.tokenId as bigint;
-        return [
-            {
-                base: {
-                    contract: log.address,
-                    blockNumber: log.blockNumber,
-                    blockHash: log.blockHash,
-                    txHash: log.transactionHash,
-                    logIndex: log.logIndex,
-                    batchIndex: 0,
-                },
-                decoded: {
-                    standard: COLLECTION_STANDARD.Erc721,
-                    from: from,
-                    to: to,
-                    tokenId: tokenId.toString(),
-                    amount: "1",
-                },
-                kind: COLLECTION_STANDARD.Erc721,
-            },
-        ];
-    } catch {
-        return [];
-    }
-}
-
-/**
- * Decode a single ERC1155 TransferSingle log into an EnhancedEvent.
- */
-export function decodeErc1155TransferSingle(log: RpcLog): EnhancedEvent[] {
-    const topics = log.topics as [Hex, ...Hex[]];
-    if (topics[0] !== ERC1155_TRANSFER_SINGLE_TOPIC) return [];
-    try {
-        const decoded = decodeEventLog({
-            abi: ERC1155_ABI,
-            eventName: ERC1155_EVENT_NAME.TransferSingle,
-            data: log.data,
-            topics,
-        });
-        const from = decoded.args.from as string;
-        const to = decoded.args.to as string;
-        const tokenId = decoded.args.id as bigint;
-        const value = decoded.args.value as bigint;
-        return [
-            {
-                base: {
-                    contract: log.address,
-                    blockNumber: log.blockNumber,
-                    blockHash: log.blockHash,
-                    txHash: log.transactionHash,
-                    logIndex: log.logIndex,
-                    batchIndex: 0,
-                },
-                decoded: {
-                    standard: COLLECTION_STANDARD.Erc1155,
-                    from: from,
-                    to: to,
-                    tokenId: tokenId.toString(),
-                    amount: value.toString(),
-                },
-                kind: COLLECTION_STANDARD.Erc1155,
-            },
-        ];
-    } catch {
-        return [];
-    }
-}
-
-/**
- * Decode a single ERC1155 TransferBatch log into per-token EnhancedEvents.
- */
-export function decodeErc1155TransferBatch(log: RpcLog): EnhancedEvent[] {
-    const topics = log.topics as [Hex, ...Hex[]];
-    if (topics[0] !== ERC1155_TRANSFER_BATCH_TOPIC) return [];
-    try {
-        const decoded = decodeEventLog({
-            abi: ERC1155_ABI,
-            eventName: ERC1155_EVENT_NAME.TransferBatch,
-            data: log.data,
-            topics,
-        });
-        const from = decoded.args.from as string;
-        const to = decoded.args.to as string;
-        const ids = decoded.args.ids as bigint[];
-        const values = decoded.args.values as bigint[];
-        const out: EnhancedEvent[] = [];
-        for (let i = 0; i < ids.length; i += 1) {
-            out.push({
-                base: {
-                    contract: log.address,
-                    blockNumber: log.blockNumber,
-                    blockHash: log.blockHash,
-                    txHash: log.transactionHash,
-                    logIndex: log.logIndex,
-                    batchIndex: i,
-                },
-                decoded: {
-                    standard: COLLECTION_STANDARD.Erc1155,
-                    from: from,
-                    to: to,
-                    tokenId: ids[i]?.toString() ?? "0",
-                    amount: values[i]?.toString() ?? "0",
-                },
-                kind: COLLECTION_STANDARD.Erc1155,
-            });
-        }
-        return out;
-    } catch {
-        return [];
-    }
 }
 
 /**
@@ -682,6 +507,7 @@ function accumulateOnChainData(
         const fills = [
             ...decodeSeaportFills(tx, resolutionContext.trackedContracts),
             ...decodeBlurFills(tx, resolutionContext.trackedContracts),
+            ...decodeWyvernFills(tx, resolutionContext.trackedContracts),
         ];
         for (const fill of fills) {
             const resolved = resolveFillEvent(fill, resolutionContext);

@@ -16,8 +16,9 @@ therefore remain separate attributions. Independent purchases in one transaction
 are separate executions, not a transaction-wide bundle.
 
 Seaport item rows preserve its original offer/consideration items. Blur maps each
-successful exchange to its NFT item and gross monetary total. Fee/royalty
-breakdowns are not classified here, and uninterpreted event fields are not
+successful exchange to its NFT item and gross monetary total. Wyvern maps each
+successful order match to all of its concrete NFT items and gross payment.
+Fee/royalty breakdowns are not classified here, and uninterpreted event fields are not
 archived.
 
 `shared/market-data/fills.ts` owns payment classification and exact arithmetic.
@@ -64,6 +65,11 @@ Primary files:
 - `indexer/src/application/fills/seaport.ts`
 - `indexer/src/application/fills/seaport-shared.ts`
 - `indexer/src/application/fills/blur.ts`
+- `indexer/src/application/fills/wyvern.ts`
+- `indexer/src/application/fills/wyvern-calls.ts`
+- `indexer/src/application/fills/wyvern-abi.ts`
+- `indexer/src/application/fills/wyvern-packed.ts`
+- `indexer/src/application/nft-transfers.ts`
 - `indexer/src/application/fills/types.ts`
 - `indexer/tests/decode-fill-fixtures.test.ts`
 - `indexer/tests/fill-execution-upgrades.test.ts`
@@ -81,6 +87,8 @@ Fill decoding follows these principles:
 - Full transactions and receipts are fetched only for transactions that contain tracked NFT transfer events.
 - Seaport fills are decoded from receipt `OrderFulfilled` logs.
 - Blur V2 fills are decoded from receipt execution logs emitted by known exchange addresses.
+- Wyvern 2.2/2.3 matches require receipt execution logs and interpreted matched
+  calldata, because their logs omit payment currency and NFT items.
 - A persisted fill must be internally consistent:
     - one order id
     - one side
@@ -333,6 +341,42 @@ Fixture example:
 
 This transaction is protocol-valid even if it is a phishing/scam sale. The decoder should persist protocol truth; later product layers can flag suspicious context.
 
+## Wyvern Decoding
+
+Wyvern 2.2 and 2.3 use the same `atomicMatch_` and `OrdersMatched` signatures.
+`WYVERN_EXCHANGE_ADDRESSES` defines their recognized Ethereum emitters. The
+execution log supplies its identity, maker/taker, buy/sell order hashes and
+executed gross price; transaction value and seller net proceeds are not prices.
+
+The matched-order calldata supplies payment token, orderbook side and NFT call
+context. Apply the buy replacement pattern first, then replace the sell payload
+from that updated buy payload. Both final payloads must agree. Supported NFT
+calls include ERC721 transfers, ERC1155 single/batch transfers, the known
+MerkleValidator criteria calls and complete atomicizer bundles. Unknown bundle
+leaves reject the whole priced context rather than reducing its denominator.
+
+Each interpreted call must match its own successful execution log and concrete
+NFT transfer hops before that log. Both untracked and tracked NFT items remain
+in the execution; collection filtering affects only the attributed `fills` rows.
+Repeated independent router purchases retain separate execution log identities.
+Different candidate currencies or opaque competing call contexts remain
+unsupported rather than borrowing context from another attempted order.
+
+Known Gem trade payloads, Genie's Wyvern 2.2 batch adapter and ArgentModule
+relayed multicalls expose their nested order calls without traces. Genie's
+library selector uses the qualified struct name, while its argument encoding
+uses the ordinary tuple ABI. Only successful receipt matches become fills.
+
+The two supported packed helpers construct fixed native-ETH, single-ERC721
+sales. Their bytecode defines currency, side, recipient and packed NFT fields;
+no assumption is made from the absence of ERC20 transfers. Deployment bytecode
+and field evidence live with `indexer/tests/fixtures/fill-txs/wyvern/`.
+
+Protocol maker/taker values remain intact even when the taker is a router.
+The concrete NFT item's recipient supplies the buyer for activity and chart
+details through the shared participant mapping. ETH/WETH settlement addresses
+remain distinct in stored execution facts.
+
 ## Blur Decoding
 
 Blur V2 fills are decoded from all four receipt execution layouts emitted by
@@ -447,12 +491,22 @@ And an assertion in:
 - `shared/market-data/fills.test.ts` for classification and exact allocation
 - `indexer/tests/decode-argonauts-sales.test.ts`
 - `indexer/tests/decode-blur-receipts.test.ts` for routed receipt decoding
+- `indexer/tests/decode-wyvern-fills.test.ts` for legacy matched-call decoding
+- `indexer/tests/wyvern-sales-pipeline.test.ts` for Wyvern persistence and readers
 
 `indexer/tests/argonauts-sales-pipeline.test.ts` exercises sync, collection scope,
 SQLite execution/item persistence, activity projection and exact price-history
 observations for the Argonauts receipts. Repeated
 backfills must preserve one sale per canonical fill, including the matched
 Seaport transaction where OpenSea also reports a seller-to-self mirror row.
+
+The Wyvern pipeline fixtures cover both exchange versions, ETH/WETH, criteria,
+bundles, Gem, Genie, Argent and packed purchases. Expected unit prices
+come from the API comparison; settlement currencies and NFT participants come
+from matched calls and receipt transfer endpoints. The API can name a router
+as buyer or report WETH for a route that settles on Wyvern in native ETH.
+Repeated ingestion must preserve headers/items, exact unit prices and one
+activity per attribution.
 
 Fixture tests should cover:
 
@@ -477,3 +531,5 @@ Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new f
 - Partial order quantity progression and marketplace/royalty fee
   classification are not persisted beside raw fills.
 - Blur execution logs from unknown exchange emitters remain unsupported.
+- Wyvern calls through unknown wrappers, NFT targets, or packed formats remain
+  unsupported. Interpreted calls with ambiguous execution context are skipped.

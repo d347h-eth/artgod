@@ -1,7 +1,21 @@
+import { parseAbi } from "viem";
+
+// Protocol event names keep log filters and decoders aligned.
+export const ERC721_EVENT_NAME = {
+    Transfer: "Transfer",
+    Approval: "Approval",
+    ApprovalForAll: "ApprovalForAll",
+} as const;
+
+export const ERC1155_EVENT_NAME = {
+    TransferSingle: "TransferSingle",
+    TransferBatch: "TransferBatch",
+} as const;
+
 export const ERC721_ABI = [
     {
         type: "event",
-        name: "Transfer",
+        name: ERC721_EVENT_NAME.Transfer,
         inputs: [
             { indexed: true, name: "from", type: "address" },
             { indexed: true, name: "to", type: "address" },
@@ -11,7 +25,7 @@ export const ERC721_ABI = [
     },
     {
         type: "event",
-        name: "Approval",
+        name: ERC721_EVENT_NAME.Approval,
         inputs: [
             { indexed: true, name: "owner", type: "address" },
             { indexed: true, name: "approved", type: "address" },
@@ -21,7 +35,7 @@ export const ERC721_ABI = [
     },
     {
         type: "event",
-        name: "ApprovalForAll",
+        name: ERC721_EVENT_NAME.ApprovalForAll,
         inputs: [
             { indexed: true, name: "owner", type: "address" },
             { indexed: true, name: "operator", type: "address" },
@@ -58,7 +72,7 @@ export const ERC721_ENUMERABLE_ABI = [
 export const ERC1155_ABI = [
     {
         type: "event",
-        name: "TransferSingle",
+        name: ERC1155_EVENT_NAME.TransferSingle,
         inputs: [
             { indexed: true, name: "operator", type: "address" },
             { indexed: true, name: "from", type: "address" },
@@ -70,7 +84,7 @@ export const ERC1155_ABI = [
     },
     {
         type: "event",
-        name: "TransferBatch",
+        name: ERC1155_EVENT_NAME.TransferBatch,
         inputs: [
             { indexed: true, name: "operator", type: "address" },
             { indexed: true, name: "from", type: "address" },
@@ -156,3 +170,19 @@ export const ERC20_ABI = [
         stateMutability: "view",
     },
 ] as const;
+
+// NFT call ABIs are shared by receipt-aware protocol decoders.
+export const NFT_TRANSFER_FUNCTION_NAME = {
+    TransferFrom: "transferFrom",
+    SafeTransferFrom: "safeTransferFrom",
+    SafeBatchTransferFrom: "safeBatchTransferFrom",
+} as const;
+export const ERC721_TRANSFER_ABI = parseAbi([
+    `function ${NFT_TRANSFER_FUNCTION_NAME.TransferFrom}(address from, address to, uint256 tokenId)`,
+    `function ${NFT_TRANSFER_FUNCTION_NAME.SafeTransferFrom}(address from, address to, uint256 tokenId)`,
+    `function ${NFT_TRANSFER_FUNCTION_NAME.SafeTransferFrom}(address from, address to, uint256 tokenId, bytes data)`,
+]);
+export const ERC1155_TRANSFER_ABI = parseAbi([
+    `function ${NFT_TRANSFER_FUNCTION_NAME.SafeTransferFrom}(address from, address to, uint256 id, uint256 amount, bytes data)`,
+    `function ${NFT_TRANSFER_FUNCTION_NAME.SafeBatchTransferFrom}(address from, address to, uint256[] ids, uint256[] amounts, bytes data)`,
+]);

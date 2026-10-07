@@ -32,6 +32,7 @@ type FillRow = {
     order_side: string | null;
     maker: string | null;
     taker: string | null;
+    nft_recipient: string | null;
     tx_hash: string;
 };
 
@@ -73,7 +74,7 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
         // Indexed chronology reads each attributed item once. Header totals and
         // raw-item offsets already include untracked/cross-collection siblings.
         const query = db.prepare(
-            `SELECT f.id, f.block_timestamp, f.token_id, f.amount, f.execution_id, e.total_price, e.currency, e.nft_quantity, e.price_exclusion, i.unit_offset, f.tx_hash, f.order_side, f.maker, f.taker
+            `SELECT f.id, f.block_timestamp, f.token_id, f.amount, f.execution_id, e.total_price, e.currency, e.nft_quantity, e.price_exclusion, i.unit_offset, i.recipient AS nft_recipient, f.tx_hash, f.order_side, f.maker, f.taker
              FROM fills f
              JOIN fill_executions e ON e.id=f.execution_id
              JOIN fill_execution_items i ON i.execution_id=f.execution_id AND i.item_index=f.item_index
@@ -132,7 +133,12 @@ export class SqlitePriceHistoryRead implements PriceHistoryReadPort {
                 executionNftQuantity: row.nft_quantity,
                 currencyAddress: row.currency!,
                 currencySymbol: currencySymbol!,
-                ...realizedSaleExecution(row.order_side, row.maker, row.taker),
+                ...realizedSaleExecution(
+                    row.order_side,
+                    row.maker,
+                    row.taker,
+                    row.nft_recipient,
+                ),
                 txHash: row.tx_hash,
             };
         }

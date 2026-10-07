@@ -16,7 +16,10 @@ import {
 } from "@artgod/shared/types/price-history";
 
 import { ORDER_SIDE } from "@artgod/shared/market-data/orders";
-import { compareUnitPrices } from "@artgod/shared/market-data/fills";
+import {
+    compareUnitPrices,
+    resolveFillParticipants,
+} from "@artgod/shared/market-data/fills";
 
 export class PriceHistoryInputError extends Error {}
 
@@ -64,20 +67,17 @@ export function realizedSaleExecution(
     side: string | null,
     maker: string | null,
     taker: string | null,
+    nftRecipient: string | null,
 ): Pick<RealizedSale, "action" | "seller" | "buyer"> {
-    if (side === ORDER_SIDE.Sell)
-        return {
-            action: REALIZED_SALE_ACTION.TakeAsk,
-            seller: maker,
-            buyer: taker,
-        };
-    if (side === ORDER_SIDE.Buy)
-        return {
-            action: REALIZED_SALE_ACTION.TakeOffer,
-            seller: taker,
-            buyer: maker,
-        };
-    return { action: null, seller: null, buyer: null };
+    if (side !== ORDER_SIDE.Sell && side !== ORDER_SIDE.Buy)
+        return { action: null, seller: null, buyer: null };
+    return {
+        action:
+            side === ORDER_SIDE.Sell
+                ? REALIZED_SALE_ACTION.TakeAsk
+                : REALIZED_SALE_ACTION.TakeOffer,
+        ...resolveFillParticipants(side, maker, taker, nftRecipient),
+    };
 }
 
 /** One pass over classified, chronologically ordered NFT observations. Exact arithmetic

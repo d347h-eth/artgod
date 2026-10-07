@@ -90,6 +90,8 @@ Important behavior:
 - sales and transfers remain separate feed items
 - sales retain execution currency and fill timestamp; price is the conserved
   total attributed to that NFT item, with its quantity in `amount`
+- sales use the concrete NFT item's recipient as buyer while retaining the
+  protocol maker/taker identities, including purchases through routers
 - projection uses idempotent insert semantics via dedupe keys
 - historical backfill before the bootstrap anchor is still valid here because activities are a feed projection over append-only facts, not a current-state table
 

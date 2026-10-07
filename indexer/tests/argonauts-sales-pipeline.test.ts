@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { encodeEventTopics, zeroAddress } from "viem";
+import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
@@ -19,10 +19,14 @@ import { DOMAIN_SYNC_PROJECTION } from "../src/domain/domain-jobs.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
-import type { Hex, RpcBlock, RpcProviderPort } from "../src/ports/rpc.js";
+import type { Hex, RpcBlock } from "../src/ports/rpc.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
-import { readTxDump, toEnhancedTransaction } from "./helpers/tx-dumps.js";
+import {
+    createTxDumpRpc,
+    readTxDump,
+    toEnhancedTransaction,
+} from "./helpers/tx-dumps.js";
 
 const CONTRACT = "0x387c41b0b2f1128de44db1bcf8baad085f26392c";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -171,52 +175,7 @@ describe("Argonauts historical sale projection", () => {
                 timestamp: 1_700_000_000,
                 transactions: [hash as Hex],
             };
-            const unsupported = async (): Promise<never> => {
-                throw new Error(
-                    "Unexpected RPC read in fixture-backed sale sync",
-                );
-            };
-            const rpc: RpcProviderPort = {
-                getBlockNumber: async () => block.number,
-                getBlock: async () => block,
-                getTransaction: async () => ({
-                    ...tx.transaction,
-                    hash: hash as Hex,
-                    from: tx.transaction.from as Hex,
-                    to: tx.transaction.to as Hex | null,
-                }),
-                getTransactionReceipt: async () => ({
-                    transactionHash: hash as Hex,
-                    logs: tx.receiptLogs,
-                }),
-                getLogs: async (filter) => {
-                    const addresses =
-                        typeof filter.address === "string"
-                            ? [filter.address]
-                            : filter.address;
-                    const topics = filter.events?.map(
-                        (event) =>
-                            encodeEventTopics({
-                                abi: [event],
-                                eventName: event.name,
-                            })[0],
-                    );
-                    return tx.receiptLogs.filter(
-                        (log) =>
-                            log.blockNumber >= filter.fromBlock &&
-                            log.blockNumber <= filter.toBlock &&
-                            (!addresses ||
-                                addresses.some(
-                                    (address) =>
-                                        address.toLowerCase() ===
-                                        log.address.toLowerCase(),
-                                )) &&
-                            (!topics || topics.includes(log.topics[0])),
-                    );
-                },
-                readContract: unsupported,
-                getBalance: unsupported,
-            };
+            const rpc = createTxDumpRpc(tx, block);
             const registry = new SqliteCollectionRegistry();
             const collections = registry.listCollectionsForSync(1, "backfill");
             const storage = new SqliteStorage();

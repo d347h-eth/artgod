@@ -54,8 +54,8 @@ automatically when it starts.
 
 - Collections automatically fill missing history and keep all collection data up
   to date after app shutdown and relaunch.
-- Collection sale history captures more Seaport sales and sales made through
-  Blur routers.
+- Collection sale history captures older OpenSea sales, more Seaport sales, and
+  sales made through marketplace routers, with the correct NFT buyer.
 - Listings and bids update more reliably after sales, cancellations, and restarts.
 - Collection setup shows progress more often while finding NFTs.
 - Bidding authorization opens in a shorter, resizable window with visible Next
