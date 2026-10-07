@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+    cp,
     mkdtemp,
     mkdir,
     readFile,
@@ -13,7 +14,9 @@ import path from "node:path";
 import test from "node:test";
 import {
     DESKTOP_NODE_ARCHITECTURE,
+    DESKTOP_NODE_DIST_TARGET,
     MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+    SHARP_RUNTIME_PACKAGES_BY_NODE_TARGET,
 } from "./native-runtime-dependencies.mjs";
 
 import {
@@ -26,11 +29,16 @@ import {
     resolveMacOSCodeSigningEntitlements,
     verifyBundledNatsLoopbackStartup,
     verifyMacOSWalletRecipientIntegritySnapshots,
+    verifyMacOSAppBundleAtPath,
+    verifyMacOSDmgBundle,
     verifyNodeRuntimeEntitlements,
     verifyNodeRuntimeStartup,
     verifySecretPromptStartup,
 } from "./macos-code-signing.mjs";
-import { WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME } from "./wallet-recipient-integrity-snapshot.mjs";
+import {
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
+} from "./wallet-recipient-integrity-snapshot.mjs";
 
 const signingIdentity = "Developer ID Application: Test Maintainer (TEAMID)";
 const stagedNodePath = "/workspace/src-tauri/resources/runtime/node/node";
@@ -136,7 +144,7 @@ test("requires the Tauri executable with every bundled process entry point", () 
                 bundledAppPath,
                 requiredBundleMachOFiles.slice(1),
             ),
-        /Missing required signed executable.*Tauri app executable/,
+        /Missing required executable.*Tauri app executable/,
     );
 });
 
@@ -464,6 +472,279 @@ test("requires the mounted runtime to match both native-slice snapshots", async 
         await rm(temporaryDirectory, { force: true, recursive: true });
     }
 });
+
+test("unsigned app verification retains architecture, integrity and runtime proofs", async (t) => {
+    const fixture = await createBundleVerificationFixture(t);
+    await verifyMacOSAppBundleAtPath(fixture.appPath, {
+        ...fixture.options,
+        requireCodeSignatures: false,
+        walletRecipientIntegritySnapshots: fixture.snapshots,
+    });
+    assert.deepEqual(fixture.probes, [
+        "node",
+        "nats",
+        "prompt",
+        "dependencies",
+    ]);
+    assert.equal(fixture.commands.includes("codesign"), false);
+    assert.ok(fixture.commands.includes("lipo"));
+    assert.ok(fixture.commands.includes("otool"));
+});
+
+test("unsigned app verification refuses absent snapshots and altered packaged bytes", async (t) => {
+    const fixture = await createBundleVerificationFixture(t);
+    const options = { ...fixture.options, requireCodeSignatures: false };
+    await assert.rejects(
+        verifyMacOSAppBundleAtPath(fixture.appPath, options),
+        /requires both Rust integrity snapshots/,
+    );
+    await assert.rejects(
+        verifyMacOSAppBundleAtPath(fixture.appPath, {
+            ...options,
+            walletRecipientIntegritySnapshots: fixture.snapshots.slice(0, 1),
+        }),
+        /Missing wallet-recipient integrity snapshot/,
+    );
+    await writeFile(
+        path.join(fixture.runtimeRoot, "node", "node"),
+        "packaged mutation",
+    );
+    await assert.rejects(
+        verifyMacOSAppBundleAtPath(fixture.appPath, {
+            ...options,
+            walletRecipientIntegritySnapshots: fixture.snapshots,
+        }),
+        /does not match.*wallet-recipient integrity snapshot/,
+    );
+    assert.deepEqual(fixture.probes, []);
+});
+
+test("unsigned app verification rejects a missing universal executable slice", async (t) => {
+    const fixture = await createBundleVerificationFixture(t);
+    await assert.rejects(
+        verifyMacOSAppBundleAtPath(fixture.appPath, {
+            ...fixture.options,
+            requireCodeSignatures: false,
+            walletRecipientIntegritySnapshots: fixture.snapshots,
+            commandRunner(command, args, options) {
+                if (
+                    command === "lipo" &&
+                    args.at(-1).endsWith("artgod-desktop")
+                ) {
+                    return Promise.resolve({ stdout: "arm64" });
+                }
+                return fixture.options.commandRunner(command, args, options);
+            },
+        }),
+        /architecture coverage is incomplete/,
+    );
+    assert.deepEqual(fixture.probes, []);
+});
+
+test("release app verification defaults to signatures before executable probes", async (t) => {
+    const fixture = await createBundleVerificationFixture(t);
+    await assert.rejects(
+        verifyMacOSAppBundleAtPath(fixture.appPath, {
+            ...fixture.options,
+            walletRecipientIntegritySnapshots: fixture.snapshots,
+        }),
+        /Signature rejected/,
+    );
+    assert.ok(fixture.commands.includes("codesign"));
+    assert.deepEqual(fixture.probes, []);
+});
+
+test("unsigned DMG verification requires both saved Rust snapshots and detaches after failure", async (t) => {
+    const fixture = await createBundleVerificationFixture(t);
+    const mountCommands = [];
+    const cargoTargetRoot = path.join(fixture.rootDir, "cargo-target");
+    for (const {
+        snapshotPath,
+    } of resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths(
+        cargoTargetRoot,
+    )) {
+        await mkdir(path.dirname(snapshotPath), { recursive: true });
+        await writeFile(
+            snapshotPath,
+            JSON.stringify({
+                version: WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
+                ...fixture.snapshots[0].snapshot,
+            }),
+        );
+    }
+    const options = {
+        ...fixture.options,
+        inputPath: path.join(fixture.rootDir, "ArtGod.dmg"),
+        requireCodeSignatures: false,
+        temporaryDirectory: fixture.temporaryDirectory,
+        async commandRunner(command, args, commandOptions) {
+            if (command === "hdiutil") {
+                mountCommands.push(args[0]);
+                if (args[0] === "attach") {
+                    await cp(
+                        fixture.appPath,
+                        path.join(args.at(-1), path.basename(fixture.appPath)),
+                        { recursive: true },
+                    );
+                }
+                return { stdout: "" };
+            }
+            return fixture.options.commandRunner(command, args, commandOptions);
+        },
+    };
+    await assert.rejects(
+        verifyMacOSDmgBundle(options),
+        /requires the Cargo target root/,
+    );
+    assert.deepEqual(mountCommands, []);
+    await verifyMacOSDmgBundle({ ...options, cargoTargetRoot });
+    assert.deepEqual(mountCommands, ["attach", "detach"]);
+    assert.deepEqual(fixture.probes, [
+        "node",
+        "nats",
+        "prompt",
+        "dependencies",
+    ]);
+    assert.deepEqual(await readdir(fixture.temporaryDirectory), []);
+    fixture.probes.length = 0;
+    await writeFile(
+        path.join(fixture.runtimeRoot, "node", "node"),
+        "packaged mutation",
+    );
+    await assert.rejects(
+        verifyMacOSDmgBundle({ ...options, cargoTargetRoot }),
+        /does not match.*wallet-recipient integrity snapshot/,
+    );
+    assert.deepEqual(mountCommands, ["attach", "detach", "attach", "detach"]);
+    assert.deepEqual(fixture.probes, []);
+    assert.deepEqual(await readdir(fixture.temporaryDirectory), []);
+    const [missingSnapshot] =
+        resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths(
+            cargoTargetRoot,
+        );
+    await rm(missingSnapshot.snapshotPath);
+    await assert.rejects(
+        verifyMacOSDmgBundle({ ...options, cargoTargetRoot }),
+        /Unable to read wallet-recipient integrity snapshot/,
+    );
+    assert.equal(mountCommands.length, 4);
+});
+
+async function createBundleVerificationFixture(t) {
+    const tauriConfig = JSON.parse(
+        await readFile(
+            new URL("../../src-tauri/tauri.conf.json", import.meta.url),
+            "utf8",
+        ),
+    );
+    const rootDir = await mkdtemp(
+        path.join(os.tmpdir(), "artgod-macos-bundle-test-"),
+    );
+    t.after(() => rm(rootDir, { recursive: true, force: true }));
+    const appPath = path.join(rootDir, "ArtGod.app");
+    const runtimeRoot = path.join(
+        appPath,
+        "Contents",
+        "Resources",
+        "resources",
+        "runtime",
+    );
+    const snapshot = await writeWalletRecipientRuntimeFixture(runtimeRoot);
+    const machOPaths = [
+        "Contents/MacOS/artgod-desktop",
+        "Contents/MacOS/artgod-secret-prompt",
+        "Contents/Resources/resources/runtime/node/node",
+        "Contents/Resources/resources/runtime/nats/nats-server",
+        ...[
+            DESKTOP_NODE_DIST_TARGET.DarwinArm64,
+            DESKTOP_NODE_DIST_TARGET.DarwinX64,
+        ].flatMap((nodeTarget) =>
+            SHARP_RUNTIME_PACKAGES_BY_NODE_TARGET[nodeTarget].map(
+                (packageName) =>
+                    `Contents/Resources/resources/runtime/backend/node_modules/${packageName}/fixture.node`,
+            ),
+        ),
+    ];
+    for (const relativePath of machOPaths.filter(
+        (entry) => !entry.endsWith("node/node"),
+    )) {
+        const filePath = path.join(appPath, relativePath);
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, "Mach-O fixture");
+    }
+    const temporaryDirectory = path.join(rootDir, "mounts");
+    await mkdir(temporaryDirectory);
+    const commands = [];
+    const probes = [];
+    const options = {
+        logger() {},
+        async commandRunner(command, args) {
+            commands.push(command);
+            if (command === "file")
+                return {
+                    stdout: machOPaths.some((entry) => args[1].endsWith(entry))
+                        ? "Mach-O executable"
+                        : "ASCII text",
+                };
+            if (command === "lipo")
+                return {
+                    stdout: args.at(-1).includes("darwin-arm64/")
+                        ? "arm64"
+                        : args.at(-1).includes("darwin-x64/")
+                          ? "x86_64"
+                          : "arm64 x86_64",
+                };
+            if (command === "otool")
+                return {
+                    stdout: "cmd LC_BUILD_VERSION\nplatform 1\nminos 11.0\n",
+                };
+            if (command === "plutil")
+                return {
+                    stdout: JSON.stringify({
+                        [MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY]:
+                            tauriConfig.bundle.macOS.minimumSystemVersion,
+                    }),
+                };
+            if (command === "codesign") throw new Error("Signature rejected");
+            assert.ok(command.endsWith("/node/node"));
+            probes.push("node");
+            return { stdout: `${process.arch} v24.3.0` };
+        },
+        async natsVerifier({ natsBinaryPath }) {
+            assert.ok(natsBinaryPath.endsWith("/nats/nats-server"));
+            probes.push("nats");
+        },
+        async promptProcessRunner(command) {
+            assert.ok(command.endsWith("/Contents/MacOS/artgod-secret-prompt"));
+            probes.push("prompt");
+            return {
+                exitCode: 1,
+                signal: null,
+                stdoutProduced: false,
+                stderrProduced: false,
+            };
+        },
+        async dependencyVerifier({ resourcesRootDir, nodeBinaryPath }) {
+            assert.equal(
+                nodeBinaryPath,
+                path.join(resourcesRootDir, "node", "node"),
+            );
+            probes.push("dependencies");
+        },
+    };
+    return {
+        rootDir,
+        appPath,
+        runtimeRoot,
+        temporaryDirectory,
+        commands,
+        probes,
+        options,
+        snapshots: MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(
+            ({ rustTarget }) => ({ rustTarget, snapshot }),
+        ),
+    };
+}
 
 test("reuses the loopback listener proof for NATS inside the mounted app", async () => {
     const calls = [];

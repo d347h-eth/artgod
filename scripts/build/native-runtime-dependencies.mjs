@@ -1,3 +1,5 @@
+import desktopRuntimeInputs from "../../config/desktop-runtime-inputs.json" with { type: "json" };
+
 // Native packages left external so their package-local loaders can load reviewed native files.
 export const NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES = Object.freeze({
     BetterSqlite3: "better-sqlite3",
@@ -5,7 +7,7 @@ export const NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES = Object.freeze({
 });
 
 // Broker patch release staged into desktop builds and matching integration tests.
-export const DEFAULT_DESKTOP_NATS_VERSION = "2.10.18";
+export const DEFAULT_DESKTOP_NATS_VERSION = desktopRuntimeInputs.nats.version;
 
 // Transitive runtime packages required by the two external native packages.
 export const DESKTOP_RUNTIME_TRANSITIVE_PACKAGE_NAMES = Object.freeze({
@@ -74,6 +76,7 @@ export const DESKTOP_RUST_TARGET = Object.freeze({
 
 // Environment keys that carry desktop build-target selection across Tauri hooks.
 export const DESKTOP_BUILD_TARGET_ENV_KEYS = Object.freeze({
+    NatsVersion: "DESKTOP_NATS_VERSION",
     NodeDistributionTarget: "DESKTOP_NODE_DIST_TARGET",
     NatsDistributionTarget: "DESKTOP_NATS_DIST_TARGET",
     TauriTargetTriple: "TAURI_ENV_TARGET_TRIPLE",

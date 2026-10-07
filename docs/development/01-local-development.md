@@ -41,7 +41,7 @@ yarn build:desktop-runtime-resources
 yarn dev:desktop
 ```
 
-`yarn dev:desktop` runs `tauri dev --no-watch`, which does not run
+`yarn dev:desktop` runs the locked Tauri development owner with `--no-watch`, which does not run
 `beforeBuildCommand`, so
 `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist
 after a clean checkout or `yarn clean:build`. The debug sidecar is built by
@@ -109,7 +109,10 @@ yarn test:desktop:listener-boundaries
 ```
 
 Each Tauri build below independently runs the target-aware native SQLite
-preparation through `beforeBuildCommand`.
+preparation through `beforeBuildCommand`. Native compilation and runtime staging
+resolve package sources through the locked Yarn PnP installation and validate
+their package identity; they do not scan `.yarn/unplugged`. Run preparation
+through Yarn so its PnP API is available, including with a custom unplugged path.
 
 Linux x64 bundle:
 
@@ -130,14 +133,20 @@ and changed bytes fail preparation without selecting replacements.
 
 The same command supplies `LDAI_RUNTIME_FILE` to make the plugin's bundled
 `appimagetool` embed the verified runtime instead of fetching its `continuous`
-default. It copies the verified inputs to an isolated per-build cache under
-`tmp/`, disables Tauri's alternate local tool directory, and passes `--locked`
-to Cargo. Before the pinned output plugin creates the AppImage, the maintained
+default. It refreshes execution copies in Cargo's `target/.tauri` directory and
+selects Tauri's supported `bundle.useLocalToolsDir=true` option. Cargo metadata
+resolves that directory, including `CARGO_TARGET_DIR` or Cargo configuration;
+the caller's `XDG_CACHE_HOME` and Corepack cache remain unchanged. The command
+passes `--locked` to Cargo. Before the pinned output plugin creates the AppImage, the maintained
 adapter omits Wayland runtime libraries so they resolve from the target system
 alongside its Mesa/EGL drivers. The final bundle verifier rejects any bundled
 Wayland copies. The Ubuntu 22 release job and the Docker reproduction helper
 use this command too. Raw `yarn tauri build` bypasses these packaging controls.
 See [build input controls and remaining gaps](#build-input-controls-and-remaining-gaps).
+
+`yarn prepare:tauri-linux-tools` only verifies and prefetches the pinned inputs.
+Use `yarn build:desktop:linux-bundle` for packaging; it also refreshes execution
+copies, selects the embedded runtime and applies the final Wayland policy.
 
 If `linuxdeploy` fails while stripping `.relr.dyn` sections on a newer Linux
 distribution, skip its symbol-stripping step for that local build:
@@ -146,24 +155,96 @@ distribution, skip its symbol-stripping step for that local build:
 NO_STRIP=1 yarn build:desktop:linux-bundle
 ```
 
+`yarn check:linux-release-build` runs the maintained Linux prerequisites,
+debug no-bundle checks, and full AppImage/`.deb` build with staged and packaged
+runtime verification. The Ubuntu build-check workflow calls the same owner in
+three phases, preserving security checks before compilation and final artifact
+checks after packaging. Reports are retained under `tmp/linux-release-checks-*`.
+This command requires an installed project and Linux x64 build tools.
+It selects the Linux x64 Cargo target for tests and both build profiles, and
+resolves output paths through Cargo metadata. `CARGO_TARGET_DIR` and Cargo's
+`target-dir` configuration therefore apply to both packaging and verification.
+
 Ubuntu 22 release-lane reproduction in Docker:
 
 ```sh
-scripts/build/reproduce-linux-release-docker.sh
+scripts/build/reproduce-linux-release-docker.sh "$ARTGOD_REPRO_REVISION"
 ```
 
-The helper mirrors the GitHub Linux release lane: Ubuntu `22.04`, Node from
-`package.json`, Rust from `rust-toolchain.toml`, the Linux packaging
-dependencies from `.github/workflows/tauri-release.yml`, and the same Tauri
-gated AppImage/`.deb` build command. It restores ownership of generated build
-artifacts after the container exits.
+Set `ARTGOD_REPRO_REVISION` to the full 40-character SHA of a commit reachable
+in the public ArtGod repository. The revision must contain the dedicated
+`scripts/build/linux-release-reproduction/` recipe and job. The helper does not
+publish branches or accept a local checkout/archive as replacement input.
+
+The host needs Bash, Docker with Buildx, and ordinary file utilities. Docker
+fetches the recipe from that committed revision, builds a fresh Linux amd64
+Ubuntu 22 runner image, and starts a new job as its own `runner` account. That
+container uses Docker's `--init` for signal forwarding and orphan reaping,
+including the security tests that deliberately kill a child process's parent.
+The job performs its own Git checkout and verifies `HEAD`, acquires canonical Node
+through the shared reviewed archive owner, enables its Corepack, installs Rust
+from `rust-toolchain.toml`, and runs immutable Yarn installation. Project checks
+and packaging use `check:linux-release-build`, the same owner as Ubuntu CI.
+
+The dedicated recipe pins official Ubuntu and Node bootstrap image digests.
+Its publication evidence is linked in the Dockerfile; the source tests and job
+apply the shared minimum-age policy. Only the initial Node executable is copied
+from the bootstrap image. Compilation uses the verified canonical distribution,
+not the bootstrap image's Yarn or other files.
+
+There are no host checkout/Git, cache, native-library, credential, socket or
+display mounts, and no host ownership repair. Development/deployment Docker
+configuration is separate. A qualifying run executes image provisioning with
+`--no-cache` and starts with fresh project/tool caches. The selected Ubuntu
+userspace shares the host kernel; it does not reproduce the GitHub VM or its
+preinstalled image inventory. Moving apt repositories, rustup and Yarn bootstrap
+remain explicit build-input gaps below.
+
+Each invocation retains a new `tmp/linux-release-reproduction.*` directory with
+image-build and job logs, image identity, source/tool/package inventory, Cargo
+lock digests, check results and available AppImage/`.deb` files. Available files
+from a failed job are diagnostics, not qualified artifacts. `docker cp` gives
+exports to the invoking user. The helper collects a stopped job before removing
+only that container; failed collection retains it and prints its ID. It preserves
+the build's failure status and collects diagnostics after interruption. It never
+prunes Docker or deletes prior evidence.
+
+After a runner image has been produced, the maintained native boundary checks
+exercise orphan reaping, revision mismatch and internal source-fetch failure
+without host mounts:
+
+```sh
+ARTGOD_REPRO_TEST_RUNNER_IMAGE="$(cat "$ARTGOD_REPRO_RESULT_DIR/runner-image-id.txt")" \
+ARTGOD_REPRO_TEST_REVISION="$ARTGOD_REPRO_REVISION" \
+yarn test:desktop:linux-reproduction
+```
+
+`ARTGOD_REPRO_RESULT_DIR` selects that run's evidence directory. These Docker
+checks require both inputs and preserve failure evidence; the normal source
+suite does not start containers. Native checks complement the launcher fixtures
+and do not replace a full successful Ubuntu package build or actual GitHub CI.
 
 macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-yarn tauri build --ci --target universal-apple-darwin --bundles dmg
+yarn node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg
 ```
+
+The ordinary macOS build-check job preserves its host listener and secret-prompt
+containment checks, then runs the same universal packaging command with
+`--no-sign`. It verifies the mounted DMG with the existing verifier:
+
+```sh
+node ./scripts/build/macos-code-signing.mjs verify-unsigned-dmg src-tauri/target/universal-apple-darwin/release/bundle/dmg src-tauri/target
+```
+
+Unsigned verification requires both concrete Rust integrity snapshots. It checks
+universal architectures, both Sharp package pairs, deployment targets, packaged
+runtime bytes and host runtime operations. This lane adds both Rust release
+compilations and DMG packaging to PR checks; it uses no signing secrets. Signed
+release verification and execution on both native architectures remain release
+gates.
 
 After `yarn install --immutable`, that Tauri command is sufficient. Its
 target-aware `beforeBuildCommand` runs `yarn build:sqlite-native --if-needed`,
@@ -179,7 +260,7 @@ Windows x64 NSIS installer:
 
 ```powershell
 rustup target add x86_64-pc-windows-msvc
-yarn tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+yarn node ./scripts/build/build-tauri.mjs --ci --target x86_64-pc-windows-msvc --bundles nsis
 ```
 
 `yarn build:sqlite-native` is required after a fresh install for ordinary
@@ -388,12 +469,34 @@ yarn cargo:age-gate
 - `yarn cargo:update-aged` reads `src-tauri/Cargo.lock`, queries crates.io, and
   steers each locked crates.io package toward the newest non-yanked,
   Cargo-caret-compatible version that is at least the configured age.
-- `yarn cargo:age-gate` is read-only and fails when the final lockfile contains
-  package versions newer than the configured age without a policy exception.
+- `yarn cargo:age-gate` is read-only and checks every independent Cargo root in
+  `scripts/build/cargo-projects.mjs`: the desktop, native secret prompt and
+  standalone sensitive-process tests. Their lockfiles are tracked; a missing
+  lockfile fails admission. Shared crate versions are checked once.
 - `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
   exceptions for urgent security or release-readiness cases.
 - Use `--package <name>` or `--package <name@version>` to scope either command
   to one package while investigating an alert.
+- Use `--manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml` to
+  admit or promote that independent root. An explicit manifest or lockfile
+  selection derives its adjacent counterpart; mismatched roots are rejected.
+- Exact version requirements can prevent individual updates of coupled crates.
+  Use Cargo's supported multi-package update to unlock that group together and
+  pin its root to a reviewed eligible version. Run the age gate afterward:
+  Cargo can also reselect transitive versions that need an aged update.
+- The shared registry reader completes requests sequentially with a one-second
+  interval after each response, following the
+  [crates.io API access policy](https://crates.io/data-access#api).
+  A cold complete check takes several minutes; unavailable metadata fails the
+  check rather than weakening admission.
+- Maintained Cargo commands use `--locked`. Tauri entry points share
+  `scripts/build/build-tauri.mjs` for builds and development. It preserves Tauri
+  flags such as no-bundle `--debug` and appends `--locked` to Cargo arguments.
+  Development application arguments stay after their second `--` separator;
+  `yarn dev:desktop -- --features <feature> -- <app-args>` keeps those boundaries.
+  Run standalone invocations through `yarn node` to load the locked dependencies.
+  The Linux bundle
+  wrapper retains its additional pinned packaging-input controls.
 - CI runs `yarn install --immutable --mode=skip-build` before this alias for
   the same fresh-checkout package-script install-state reason.
 
@@ -427,25 +530,48 @@ mark these releases immutable; upstream deletion can still break availability.
 Preparation fails without fetching a replacement. Guaranteed retention would
 require a separately controlled archive of the reviewed bytes.
 
-The October 2026 source audit found these remaining gaps. They are open; the
-Linux packaging pins do not establish complete supply-chain lockdown.
+`config/desktop-runtime-inputs.json` owns reviewed Node/NATS archive hashes,
+sizes and publication evidence for every concrete desktop target. Node pins
+must match canonical `package.json` `engines.node`; NATS version changes
+require a manifest update and cannot bypass review through
+`DESKTOP_NATS_VERSION`. Admission enforces 30 days before inspecting caches.
+Every cached archive is rehashed; staging freshly extracts only the declared
+executable and recreates macOS universal assemblies. Extracted/assembled caches
+from earlier builds are ignored.
 
-| Surface                                                                            | Remaining gap                                                                                                                                                                                                                                                                        | Required control                                                                                                                                                        |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub runner environment in `.github/workflows/*.yml`                             | `ubuntu-latest`, `macos-latest`, and `windows-latest` move. Even a named OS runner image such as `ubuntu-22.04` receives image/tool updates outside ArtGod's age gate.                                                                                                               | A controlled, versioned runner image/tool inventory with reviewed promotion. An OS label alone is insufficient.                                                         |
-| Linux CI and `scripts/build/reproduce-linux-release-docker.sh`                     | `apt-get update` plus unversioned package installs consumes the current repositories and dependency closure.                                                                                                                                                                         | Reviewed repository snapshots and exact package/closure versions, including build and verification tools.                                                               |
-| Rust bootstrap                                                                     | The commit-pinned `dtolnay/rust-toolchain` Action conditionally executes current `sh.rustup.rs` or `win.rustup.rs` when rustup is absent. The Docker helper always pipes the current installer into `sh`. Existing runner rustup is inherited from the moving runner image.          | Pin and verify the installer/manager and full toolchain artifacts, with publication-age controls.                                                                       |
-| CI Node bootstrap                                                                  | The pinned `actions/setup-node` Action selects an exact Node version but its download/extraction path has no repository-owned binary digest or publication-age check.                                                                                                                | Pin the consumed Node distribution bytes and age, including cache and fallback paths.                                                                                   |
-| Docker development, deployment, and reproduction                                   | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose, `Dockerfile.deploy`, and `ubuntu:22.04` also lack image digests.                                                                                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
-| Desktop Node/NATS staging in `scripts/build/prepare-desktop-runtime-resources.mjs` | Versions are exact, but checksum lists are downloaded from upstream without repository-owned hashes or signature verification. An upstream binary and checksum list could change together. `DESKTOP_NATS_VERSION` can select another exact version without an age check.             | Repository-owned artifact/checksum pins or verified signatures, and age-gated version overrides.                                                                        |
-| Docker reproduction Node bootstrap                                                 | The Node archive URL selects an exact version, but the helper extracts it without checking a digest.                                                                                                                                                                                 | Reuse a verified, repository-pinned Node artifact owner.                                                                                                                |
-| Yarn/Corepack bootstrap in `package.json` and CI                                   | `yarn@4.12.0` pins the version, but `packageManager` has no repository-owned distribution hash. Corepack and other machine tools come from the host/runner environment.                                                                                                              | Pin distribution integrity and the tool-provisioning inputs alongside versions.                                                                                         |
-| Cargo callers                                                                      | Several CI `cargo test`/`cargo check` commands, macOS/raw Tauri builds, and `scripts/build/prepare-desktop-sidecars.mjs` omit `--locked`. Cargo can resolve again if a manifest and lockfile disagree.                                                                               | Require unchanged lockfiles for every independent Cargo entry point. The maintained Linux bundle command already passes `--locked`.                                     |
-| Packaging entry points                                                             | Raw `yarn tauri build` can bypass the maintained Linux packaging-input gate.                                                                                                                                                                                                         | Use `yarn build:desktop:linux-bundle` for the supported Linux bundle lane; further direct-entry enforcement remains open.                                               |
-| Upgrade timing beyond libraries                                                    | External Actions use full commit SHAs, but Action upgrades, runner tools, Node/NATS, container images, and OS packages have no shared enforced publication-age admission gate.                                                                                                       | Extend reviewed age-qualified promotion to each input owner. Keep existing exact-version security exceptions explicit.                                                  |
-| Source script age evidence                                                         | The packaging gate uses GitHub's committer timestamp for the two source scripts. That timestamp does not independently establish when the revision first became publicly available.                                                                                                  | Require trusted publication or first-observation evidence when promoting a new source revision; a commit timestamp alone is insufficient for complete timing assurance. |
-| Windows source bundles (official releases are deferred)                            | The pinned Tauri bundler's WebView bootstrapper/offline-installer paths use moving Microsoft redirect URLs and accept an existing cached installer without checking an ArtGod-owned digest. Its NSIS/plugin downloads have fixed versions but use SHA-1 and have no ArtGod age gate. | Pin and verify Windows packaging inputs and a fixed WebView runtime before qualifying that lane under the same policy.                                                  |
-| Browser test provisioning                                                          | The locked Playwright package selects browser revisions, but its browser-archive downloader checks response length and an installation marker without an ArtGod-owned archive digest. Browser binaries are separate from the Yarn-verified package.                                  | Pin browser archive integrity/publication evidence and control browser provisioning alongside the test framework.                                                       |
+For Node, reviewed publication evidence is the official release page and its
+checksum block, the release-index date, and each archive's HTTP modification
+timestamp. The gate conservatively uses the later of the release day's end and
+that timestamp. New downloads must match the release index and pinned archive
+metadata. For NATS, fixed GitHub asset IDs must retain their release membership,
+size and publication/upload timestamps. Sizes and SHA-256 pins remain mandatory
+even when upstream metadata matches. Both owners reuse the packaging helper's
+bounded download and atomic cache publication behavior; verified archives work
+offline. Docker reproduction uses the same Node acquisition owner.
+
+To promote either runtime, review the official checksum and publication
+evidence, update all six target records in the manifest, and update
+`engines.node` for Node. Run `yarn test:desktop:runtime-packaging` and the
+maintained platform bundle checks. This is repository-owned artifact admission;
+HTTPS publication metadata is not an independently archived first-publication
+record, and the build does not verify upstream checksum signatures.
+
+The October 2026 source audit found these remaining gaps. They are open; the
+packaging/runtime pins do not establish complete supply-chain lockdown.
+
+| Surface                                                        | Remaining gap                                                                                                                                                                                                                                                                        | Required control                                                                                                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub runner environment in `.github/workflows/*.yml`         | `ubuntu-latest`, `macos-latest`, and `windows-latest` move. Even a named OS runner image such as `ubuntu-22.04` receives image/tool updates outside ArtGod's age gate.                                                                                                               | A controlled, versioned runner image/tool inventory with reviewed promotion. An OS label alone is insufficient.                                                         |
+| Linux CI and `scripts/build/reproduce-linux-release-docker.sh` | `apt-get update` plus unversioned package installs consumes the current repositories and dependency closure.                                                                                                                                                                         | Reviewed repository snapshots and exact package/closure versions, including build and verification tools.                                                               |
+| Rust bootstrap                                                 | The commit-pinned `dtolnay/rust-toolchain` Action conditionally executes current `sh.rustup.rs` or `win.rustup.rs` when rustup is absent. The Docker helper always pipes the current installer into `sh`. Existing runner rustup is inherited from the moving runner image.          | Pin and verify the installer/manager and full toolchain artifacts, with publication-age controls.                                                                       |
+| CI Node bootstrap                                              | The pinned `actions/setup-node` Action selects an exact Node version but its download/extraction path has no repository-owned binary digest or publication-age check.                                                                                                                | Pin the consumed Node distribution bytes and age, including cache and fallback paths.                                                                                   |
+| Docker development and deployment                              | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose and `Dockerfile.deploy` also lack image digests. Dedicated release reproduction pins its reviewed Ubuntu/bootstrap image digests.                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
+| Yarn/Corepack bootstrap in `package.json` and CI               | `yarn@4.12.0` pins the version, but `packageManager` has no repository-owned distribution hash. Corepack and other machine tools come from the host/runner environment.                                                                                                              | Pin distribution integrity and the tool-provisioning inputs alongside versions.                                                                                         |
+| Packaging entry points                                         | Raw `yarn tauri build` can bypass the maintained Linux packaging-input gate.                                                                                                                                                                                                         | Use `yarn build:desktop:linux-bundle` for the supported Linux bundle lane; further direct-entry enforcement remains open.                                               |
+| Upgrade timing beyond libraries                                | External Actions use full commit SHAs, but Action upgrades, runner tools, container images, and OS packages have no shared enforced publication-age admission gate.                                                                                                                  | Extend reviewed age-qualified promotion to each input owner. Keep existing exact-version security exceptions explicit.                                                  |
+| Source script age evidence                                     | The packaging gate uses GitHub's committer timestamp for the two source scripts. That timestamp does not independently establish when the revision first became publicly available.                                                                                                  | Require trusted publication or first-observation evidence when promoting a new source revision; a commit timestamp alone is insufficient for complete timing assurance. |
+| Windows source bundles (official releases are deferred)        | The pinned Tauri bundler's WebView bootstrapper/offline-installer paths use moving Microsoft redirect URLs and accept an existing cached installer without checking an ArtGod-owned digest. Its NSIS/plugin downloads have fixed versions but use SHA-1 and have no ArtGod age gate. | Pin and verify Windows packaging inputs and a fixed WebView runtime before qualifying that lane under the same policy.                                                  |
+| Browser test provisioning                                      | The locked Playwright package selects browser revisions, but its browser-archive downloader checks response length and an installation marker without an ArtGod-owned archive digest. Browser binaries are separate from the Yarn-verified package.                                  | Pin browser archive integrity/publication evidence and control browser provisioning alongside the test framework.                                                       |
 
 All eight directly referenced Action commits and the attestation Action's two
 nested Action references were checked: they use full SHAs. The eight direct

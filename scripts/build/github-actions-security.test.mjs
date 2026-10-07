@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +9,20 @@ import {
     TAURI_LINUX_BUNDLER_TARGET,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
 import { ENV_DESKTOP_RELEASE_NOTES_PATH } from "./desktop-release-notes.mjs";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
+import {
+    LINUX_RELEASE_BUILD_CHECKS,
+    LINUX_RELEASE_BUILD_PHASE,
+    LINUX_RELEASE_BUILD_SCRIPT_NAME,
+} from "./verify-linux-release-build.mjs";
+import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
+import { TAURI_BUILD_SCRIPT_NAMES } from "./build-tauri.mjs";
+import { MACOS_CODE_SIGNING_MODE } from "./macos-code-signing.mjs";
+import {
+    DESKTOP_NODE_DIST_TARGET,
+    DESKTOP_RUST_TARGET,
+    MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+} from "./native-runtime-dependencies.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -17,9 +32,9 @@ const packageManifestPath = path.join(rootDir, "package.json");
 const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
 const webviewShellAclTestCommand =
-    "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --test webview_capability_security";
 const linuxRuntimeResourceLayoutTestCommand =
-    "cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout";
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --test linux_runtime_resource_layout";
 const sensitiveProcessTestCommand = "yarn test:desktop:sensitive-process";
 const sensitiveProcessBuildStepName = "Test sensitive process hardening";
 const sensitiveProcessReleaseStepName =
@@ -28,7 +43,7 @@ const sensitiveProcessGateScriptName = "test:desktop:sensitive-process";
 const sensitiveProcessGateCommands = [
     "yarn build:desktop-sidecars --profile release",
     "node ./scripts/build/node-sensitive-process.test.mjs",
-    "cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml",
+    "cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml --locked",
     "cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked",
     "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
     "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
@@ -82,7 +97,7 @@ const macosPromptContainmentJobName = "macos-prompt-containment-check";
 const macosUniversalSqliteBuildStepName =
     "Build universal macOS SQLite dependency";
 const macosUniversalSqliteBuildCommand =
-    "node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
+    "yarn node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
 const yarnArtifactCacheStepName = "Cache Yarn local artifacts";
 const macosRuntimeCachePaths = [
     ".yarn/cache",
@@ -112,8 +127,8 @@ const windowsContainmentTarget = "x86_64-pc-windows-msvc";
 const windowsSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
 const windowsContainmentCheckCommand =
-    "cargo check --manifest-path src-tauri/Cargo.toml --lib";
-const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
+    "cargo check --manifest-path src-tauri/Cargo.toml --locked --lib";
+const desktopNoBundleBuildScriptName = TAURI_BUILD_SCRIPT_NAMES.NoBundle;
 const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
 const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
 const stagedRuntimeVerificationStepName =
@@ -174,60 +189,57 @@ test("pins every external GitHub Action to a full commit SHA", async () => {
     }
 });
 
-test("uses the same gated Linux bundle command locally and in CI", async () => {
+test("CI consumes the ordered Linux verification owner", async () => {
     const workflow = await readFile(
-        path.join(workflowsDirectory, "tauri-release.yml"),
-        "utf8",
-    );
-    const buildJob = extractWorkflowJob(workflow, "build");
-    const buildStep = extractWorkflowStep(buildJob, "Build Linux Tauri bundle");
-    const reproductionScript = await readFile(
-        path.join(rootDir, "scripts/build/reproduce-linux-release-docker.sh"),
-        "utf8",
-    );
-    const bundleCommand = `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`;
-    const buildCheckWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
     );
-    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
-    const buildCheckStep = extractWorkflowStep(
-        buildCheckJob,
-        "Build Linux Tauri bundle",
-    );
-    const artifactVerificationStep = extractWorkflowStep(
-        buildCheckJob,
-        linuxBundledRuntimeVerificationStepName,
-    );
-    assert.match(buildCheckJob, /runs-on: ubuntu-22\.04/);
-    assert.equal(countOccurrences(buildCheckJob, bundleCommand), 1);
-    assertStepRunsCommand(buildCheckStep, bundleCommand);
-    assertStepIsRequired(buildCheckStep);
-    assertStepRunsCommand(
-        artifactVerificationStep,
-        `yarn check:linux-bundled-runtime "src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle"`,
-    );
-    assertStepIsRequired(artifactVerificationStep);
-    assertStepPrecedes(
-        buildCheckJob,
-        noBundleRuntimeVerificationStepName,
-        "Build Linux Tauri bundle",
-    );
-    assertStepPrecedes(
-        buildCheckJob,
-        "Build Linux Tauri bundle",
-        linuxBundledRuntimeVerificationStepName,
-    );
-    for (const source of [buildStep, buildCheckStep, reproductionScript]) {
-        assert.ok(source.includes(bundleCommand));
-        assert.ok(!source.includes("yarn tauri build"));
+    const job = extractWorkflowJob(workflow, "tauri-check");
+    assert.match(job, /runs-on: ubuntu-22\.04/);
+    let previous = "Install workspace dependencies";
+    for (const [stepName, phase] of [
+        [
+            "Test Linux desktop build prerequisites",
+            LINUX_RELEASE_BUILD_PHASE.Prerequisites,
+        ],
+        ["Verify Linux no-bundle build", LINUX_RELEASE_BUILD_PHASE.NoBundle],
+        ["Build and verify Linux bundles", LINUX_RELEASE_BUILD_PHASE.Bundle],
+    ]) {
+        assertRequiredCommandStepExactlyOnce(
+            job,
+            stepName,
+            `yarn ${LINUX_RELEASE_BUILD_SCRIPT_NAME} --phase ${phase}`,
+        );
+        assertStepPrecedes(job, previous, stepName);
+        previous = stepName;
     }
-    const packageManifest = JSON.parse(
-        await readFile(packageManifestPath, "utf8"),
+    const release = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    assert.ok(
+        extractWorkflowStep(
+            extractWorkflowJob(release, "build"),
+            "Build Linux Tauri bundle",
+        ).includes(`yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`),
+    );
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    assert.equal(
+        manifest.scripts[LINUX_RELEASE_BUILD_SCRIPT_NAME],
+        "node ./scripts/build/verify-linux-release-build.mjs",
     );
     assert.equal(
-        packageManifest.scripts[TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME],
+        manifest.scripts[TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME],
         "node ./scripts/build/prepare-tauri-linux-bundler-tools.mjs --build",
+    );
+    const bundle = LINUX_RELEASE_BUILD_CHECKS[LINUX_RELEASE_BUILD_PHASE.Bundle];
+    assert.deepEqual(
+        bundle.map((check) => check.args[0]),
+        [
+            TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME,
+            "check:desktop-runtime-resources",
+            "check:linux-bundled-runtime",
+        ],
     );
 });
 
@@ -506,6 +518,104 @@ test("cross-builds the universal SQLite binding before release tags", async () =
     assertStepIsRequired(sqliteBuildStep);
 });
 
+test("the macOS workflow launcher loads the real locked SQLite installation", async () => {
+    const source = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const step = extractWorkflowStep(
+        extractWorkflowJob(source, macosPromptContainmentJobName),
+        macosUniversalSqliteBuildStepName,
+    );
+    const tokens = step
+        .match(/^ {14}run: (.+)$/m)[1]
+        .trim()
+        .split(/\s+/);
+    tokens.pop(); // Substitute a read-only probe for native macOS compilation.
+    const probe = "./scripts/build/fixtures/resolve-installed-sqlite.mjs";
+    const launch =
+        tokens[0] === "yarn"
+            ? projectYarnCommand([...tokens.slice(1), probe])
+            : { command: process.execPath, args: [...tokens.slice(1), probe] };
+    const environment = {
+        ...process.env,
+        YARN_ENABLE_NETWORK: "0",
+        COREPACK_ENABLE_NETWORK: "0",
+    };
+    // The child must obtain its loader from the workflow invocation itself.
+    delete environment.NODE_OPTIONS;
+    delete environment.NODE_PATH;
+    const result = spawnSync(launch.command, launch.args, {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    const resolved = JSON.parse(result.stdout.trim());
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    const packageName = NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3;
+    assert.equal(resolved.name, packageName);
+    assert.equal(resolved.version, manifest.dependencies[packageName]);
+    assert.equal(resolved.pnp, true);
+
+    const withoutLoader = spawnSync(process.execPath, [probe], {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.notEqual(withoutLoader.status, 0);
+    assert.match(withoutLoader.stderr, /requires the locked Yarn PnP install/);
+});
+
+test("builds and verifies a secret-free universal DMG after macOS containment", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const macosJob = extractWorkflowJob(
+        workflow,
+        macosPromptContainmentJobName,
+    );
+    const buildStepName = "Build unsigned universal macOS DMG";
+    const verificationStepName = "Verify unsigned universal macOS DMG contents";
+    const buildStep = extractWorkflowStep(macosJob, buildStepName);
+    const verificationStep = extractWorkflowStep(
+        macosJob,
+        verificationStepName,
+    );
+    const rustStep = extractWorkflowStep(macosJob, "Setup Rust");
+    for (const { rustTarget } of MACOS_UNIVERSAL_NATIVE_ARCHITECTURES) {
+        assert.ok(rustStep.includes(rustTarget));
+    }
+    assertStepRunsCommand(
+        buildStep,
+        `yarn node ./scripts/build/build-tauri.mjs --ci --target ${DESKTOP_RUST_TARGET.DarwinUniversal} --bundles dmg --no-sign`,
+    );
+    assert.ok(
+        buildStep.includes(
+            `DESKTOP_NODE_DIST_TARGET: ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
+        ),
+    );
+    assert.ok(
+        buildStep.includes(
+            `DESKTOP_NATS_DIST_TARGET: ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
+        ),
+    );
+    assertStepRunsCommand(
+        verificationStep,
+        `node ./scripts/build/macos-code-signing.mjs ${MACOS_CODE_SIGNING_MODE.VerifyUnsignedDmg} "src-tauri/target/${DESKTOP_RUST_TARGET.DarwinUniversal}/release/bundle/dmg" "src-tauri/target"`,
+    );
+    assertStepIsRequired(buildStep);
+    assertStepIsRequired(verificationStep);
+    assertStepPrecedes(macosJob, macosPromptContainmentStepName, buildStepName);
+    assertStepPrecedes(macosJob, buildStepName, verificationStepName);
+    assert.doesNotMatch(
+        macosJob,
+        /secrets\.|environment: desktop-release-signing/,
+    );
+});
+
 test("binds and starts the final macOS runtime before notarization", async () => {
     const releaseWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-release.yml"),
@@ -546,66 +656,31 @@ test("checks synchronized project versions on ordinary desktop builds", async ()
 });
 
 test("tests reconciliation and final output around one no-bundle build", async () => {
-    const packageManifest = JSON.parse(
-        await readFile(packageManifestPath, "utf8"),
-    );
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
     assert.equal(
-        packageManifest.scripts?.[desktopNoBundleBuildScriptName],
-        "tauri build --no-bundle --ci",
+        manifest.scripts[desktopNoBundleBuildScriptName],
+        "node ./scripts/build/build-tauri.mjs --no-bundle --ci",
     );
-
-    const workflow = await readFile(
-        path.join(workflowsDirectory, "tauri-build-check.yml"),
-        "utf8",
-    );
-    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
-    const reconciliationStep = extractWorkflowStep(
-        tauriCheckJob,
-        tauriRuntimeOutputReconciliationStepName,
-    );
-    const buildStep = extractWorkflowStep(
-        tauriCheckJob,
-        tauriNoBundleBuildStepName,
-    );
-    const runtimeVerificationStep = extractWorkflowStep(
-        tauriCheckJob,
-        stagedRuntimeVerificationStepName,
-    );
-    const noBundleRuntimeVerificationStep = extractWorkflowStep(
-        tauriCheckJob,
-        noBundleRuntimeVerificationStepName,
-    );
-
-    assert.ok(
-        reconciliationStep.includes(
-            tauriRuntimeOutputReconciliationTestCommand,
-        ),
-    );
+    const checks =
+        LINUX_RELEASE_BUILD_CHECKS[LINUX_RELEASE_BUILD_PHASE.NoBundle];
     assert.equal(
-        countOccurrences(tauriCheckJob, desktopNoBundleBuildCommand),
+        checks.filter(
+            (check) => check.args[0] === desktopNoBundleBuildScriptName,
+        ).length,
         1,
     );
-    assertStepIsRequired(reconciliationStep);
-    assertStepIsRequired(buildStep);
-    assertStepRunsCommand(
-        runtimeVerificationStep,
-        stagedRuntimeVerificationCommand,
+    assert.equal(
+        checks[0].args.join(" "),
+        tauriRuntimeOutputReconciliationTestCommand.slice("cargo ".length),
     );
-    assertStepIsRequired(runtimeVerificationStep);
-    assertStepRunsCommand(
-        noBundleRuntimeVerificationStep,
-        noBundleRuntimeVerificationCommand,
-    );
-    assertStepIsRequired(noBundleRuntimeVerificationStep);
-    assertStepPrecedes(
-        tauriCheckJob,
-        tauriNoBundleBuildStepName,
-        stagedRuntimeVerificationStepName,
-    );
-    assertStepPrecedes(
-        tauriCheckJob,
-        stagedRuntimeVerificationStepName,
-        noBundleRuntimeVerificationStepName,
+    assert.deepEqual(
+        checks.slice(1).map((check) => check.args[0]),
+        [
+            desktopNoBundleBuildScriptName,
+            "check:desktop-runtime-resources",
+            "test:desktop:runtime-environment",
+            "check:desktop-no-bundle-runtime",
+        ],
     );
 });
 
@@ -624,19 +699,8 @@ test("gates desktop Admin observability removal in Tauri jobs", async () => {
         ),
     );
 
-    const buildCheckWorkflow = await readFile(
-        path.join(workflowsDirectory, "tauri-build-check.yml"),
-        "utf8",
-    );
-    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
-    const buildCheckStep = extractWorkflowStep(
-        buildCheckJob,
-        desktopAdminManifestStepName,
-    );
-    assertStepRunsCommand(buildCheckStep, desktopAdminManifestWorkflowCommand);
-    assertStepIsRequired(buildCheckStep);
-    assertStepPrecedes(
-        buildCheckJob,
+    assertLinuxPrerequisiteCommand(desktopAdminManifestWorkflowCommand);
+    assertLinuxPrerequisitePrecedes(
         desktopAdminManifestStepName,
         sensitiveProcessBuildStepName,
     );
@@ -719,79 +783,38 @@ test("verifies staged and final runtime bytes after release packaging", async ()
 });
 
 test("runs the resolved WebView shell ACL test in build and release lanes", async () => {
-    for (const workflowName of ["tauri-build-check.yml", "tauri-release.yml"]) {
-        const workflow = await readFile(
-            path.join(workflowsDirectory, workflowName),
-            "utf8",
-        );
-        assert.ok(
-            workflow.includes(webviewShellAclTestCommand),
-            `${workflowName} does not run the resolved WebView shell ACL test.`,
-        );
-    }
+    assertLinuxPrerequisiteCommand(webviewShellAclTestCommand);
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    assert.ok(workflow.includes(webviewShellAclTestCommand));
 });
 
 test("tests the Linux runtime resource layout in build and release lanes", async () => {
-    for (const workflowName of ["tauri-build-check.yml", "tauri-release.yml"]) {
-        const workflow = await readFile(
-            path.join(workflowsDirectory, workflowName),
-            "utf8",
-        );
-        assert.ok(
-            workflow.includes(linuxRuntimeResourceLayoutTestCommand),
-            `${workflowName} does not test the Linux runtime resource layout.`,
-        );
-    }
-});
-
-test("runs desktop parent containment in the ordinary Linux Tauri build job", async () => {
+    assertLinuxPrerequisiteCommand(linuxRuntimeResourceLayoutTestCommand);
     const workflow = await readFile(
-        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        path.join(workflowsDirectory, "tauri-release.yml"),
         "utf8",
     );
-    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
-    const containmentStep = extractWorkflowStep(
-        tauriCheckJob,
-        desktopParentContainmentBuildStepName,
-    );
+    assert.ok(workflow.includes(linuxRuntimeResourceLayoutTestCommand));
+});
 
+test("runs desktop parent containment in the ordinary Linux Tauri build job", () => {
+    assertLinuxPrerequisiteCommand(desktopParentContainmentTestCommand);
     assert.equal(
-        countOccurrences(workflow, desktopParentContainmentTestCommand),
-        1,
-    );
-    assert.doesNotMatch(tauriCheckJob, /^ {8}continue-on-error:/m);
-    assertStepRunsCommand(containmentStep, desktopParentContainmentTestCommand);
-    assertStepIsRequired(containmentStep);
-    assertStepPrecedes(
-        tauriCheckJob,
+        LINUX_RELEASE_BUILD_CHECKS[LINUX_RELEASE_BUILD_PHASE.Prerequisites].at(
+            -1,
+        ).label,
         desktopParentContainmentBuildStepName,
-        "Tauri no-bundle build check",
     );
 });
 
-test("runs sensitive-process hardening before the ordinary Tauri build", async () => {
-    const workflow = await readFile(
-        path.join(workflowsDirectory, "tauri-build-check.yml"),
-        "utf8",
-    );
-    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
-    const hardeningStep = extractWorkflowStep(
-        tauriCheckJob,
-        sensitiveProcessBuildStepName,
-    );
-
-    assert.equal(countOccurrences(workflow, sensitiveProcessTestCommand), 1);
-    assertStepRunsCommand(hardeningStep, sensitiveProcessTestCommand);
-    assertStepIsRequired(hardeningStep);
-    assertStepPrecedes(
-        tauriCheckJob,
+test("runs sensitive-process hardening before the ordinary Tauri build", () => {
+    assertLinuxPrerequisiteCommand(sensitiveProcessTestCommand);
+    assertLinuxPrerequisitePrecedes(
         sensitiveProcessBuildStepName,
         desktopParentContainmentBuildStepName,
-    );
-    assertStepPrecedes(
-        tauriCheckJob,
-        sensitiveProcessBuildStepName,
-        "Tauri no-bundle build check",
     );
 });
 
@@ -870,21 +893,10 @@ test("keeps desktop listener proofs in build, release, and reproducibility lanes
         previousCommandIndex = commandIndex;
     }
 
-    const buildCheckWorkflow = await readFile(
-        path.join(workflowsDirectory, "tauri-build-check.yml"),
-        "utf8",
-    );
-    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
-    const buildCheckStep = extractWorkflowStep(
-        buildCheckJob,
+    assertLinuxPrerequisiteCommand(desktopListenerBoundaryTestCommand);
+    assertLinuxPrerequisitePrecedes(
         desktopListenerBoundaryStepName,
-    );
-    assertStepRunsCommand(buildCheckStep, desktopListenerBoundaryTestCommand);
-    assertStepIsRequired(buildCheckStep);
-    assertStepPrecedes(
-        buildCheckJob,
-        desktopListenerBoundaryStepName,
-        tauriNoBundleBuildStepName,
+        sensitiveProcessBuildStepName,
     );
 
     const releaseWorkflow = await readFile(
@@ -949,31 +961,6 @@ test("keeps desktop listener proofs in build, release, and reproducibility lanes
         reproducibilityJob,
         stagedRuntimeVerificationStepName,
         "Compare unsigned build manifests",
-    );
-
-    const reproductionScript = await readFile(
-        path.join(
-            rootDir,
-            "scripts",
-            "build",
-            "reproduce-linux-release-docker.sh",
-        ),
-        "utf8",
-    );
-    assert.ok(
-        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) >= 0,
-    );
-    assert.ok(
-        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) <
-            reproductionScript.indexOf(
-                `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`,
-            ),
-    );
-    assert.ok(
-        reproductionScript.indexOf(stagedRuntimeVerificationCommand) >
-            reproductionScript.indexOf(
-                `yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}`,
-            ),
     );
 });
 
@@ -1192,6 +1179,26 @@ test("compiles the Windows sensitive-process hardening path", async () => {
 
     assert.match(windowsJob, /^ {8}runs-on: windows-latest$/m);
     assert.doesNotMatch(windowsJob, /^ {8}if:/m);
+    let previousStep = "Setup Node";
+    for (const [stepName, command] of [
+        ["Enable Corepack", "corepack enable"],
+        [
+            "Install workspace dependencies",
+            "yarn install --immutable --mode=skip-build",
+        ],
+        [
+            "Test Windows package-manager and Tauri launchers",
+            "yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/frontend-dev-process-tree.test.mjs ./scripts/build/build-tauri.test.mjs",
+        ],
+        ["Build trusted native SQLite dependency", "yarn build:sqlite-native"],
+        ["Build Windows userland frontend", "yarn build:userland"],
+    ]) {
+        const step = extractWorkflowStep(windowsJob, stepName);
+        assertStepRunsCommand(step, command);
+        assertStepIsRequired(step);
+        assertStepPrecedes(windowsJob, previousStep, stepName);
+        previousStep = stepName;
+    }
     assert.match(
         windowsJob,
         new RegExp(
@@ -1213,6 +1220,15 @@ test("compiles the Windows sensitive-process hardening path", async () => {
         "Check Windows sensitive-process hardening",
     );
     assert.doesNotMatch(windowsJob, /^ {8}continue-on-error:/m);
+});
+
+test("the maintained desktop development alias uses the shared locked owner", async () => {
+    const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
+    assert.equal(
+        manifest.scripts["dev:desktop"],
+        "node ./scripts/build/build-tauri.mjs dev --no-watch",
+    );
+    assert.ok(manifest.scripts["dev:composition"].endsWith("yarn dev:desktop"));
 });
 
 async function readWorkflows() {
@@ -1299,4 +1315,24 @@ function countOccurrences(source, value) {
 
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function assertLinuxPrerequisiteCommand(command) {
+    const checks =
+        LINUX_RELEASE_BUILD_CHECKS[LINUX_RELEASE_BUILD_PHASE.Prerequisites];
+    assert.equal(
+        checks.filter(
+            (check) => [check.command, ...check.args].join(" ") === command,
+        ).length,
+        1,
+        `Linux prerequisites must run ${command} exactly once.`,
+    );
+}
+
+function assertLinuxPrerequisitePrecedes(before, after) {
+    const labels = LINUX_RELEASE_BUILD_CHECKS[
+        LINUX_RELEASE_BUILD_PHASE.Prerequisites
+    ].map((check) => check.label);
+    assert.ok(labels.indexOf(before) >= 0);
+    assert.ok(labels.indexOf(after) > labels.indexOf(before));
 }

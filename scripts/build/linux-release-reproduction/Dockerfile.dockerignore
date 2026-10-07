@@ -1,0 +1,6 @@
+**
+!scripts/
+!scripts/build/
+!scripts/build/linux-release-reproduction/
+!scripts/build/linux-release-reproduction/**
+!scripts/build/secret-output-redaction.mjs

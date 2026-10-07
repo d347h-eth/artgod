@@ -25,6 +25,38 @@ import {
 
 const moduleRequire = createRequire(import.meta.url);
 
+// Resolve the installed locator through its declared issuer. Native compilation
+// and staging share this boundary rather than inspecting Yarn's physical layout.
+export async function resolveDesktopRuntimePackageSource({
+    packageName,
+    issuerPath,
+    pnpApi = loadPnpApi(),
+}) {
+    const sourceRoot = pnpApi.resolveToUnqualified(packageName, issuerPath);
+    if (typeof sourceRoot !== "string" || !path.isAbsolute(sourceRoot)) {
+        throw new Error(
+            `Yarn PnP did not resolve desktop runtime package ${packageName} from ${issuerPath}.`,
+        );
+    }
+    await assertDirectoryWithoutSymlink(
+        sourceRoot,
+        `Locked desktop runtime package ${packageName}`,
+    );
+    await assertRegularFileWithoutSymlink(
+        path.join(sourceRoot, "package.json"),
+        `Locked package ${packageName} manifest`,
+    );
+    const manifest = JSON.parse(
+        await readFile(path.join(sourceRoot, "package.json"), "utf8"),
+    );
+    if (manifest.name !== packageName) {
+        throw new Error(
+            `Locked package identity mismatch: expected ${packageName}, received ${manifest.name}.`,
+        );
+    }
+    return sourceRoot;
+}
+
 // Materializes only reviewed native package runtime files beside each artifact group.
 export async function stageDesktopRuntimeDependencies({
     rootDir,
@@ -59,19 +91,11 @@ export async function stageDesktopRuntimeDependencies({
                       await resolvePackageSource(issuer.packageName, runtime),
                       "package.json",
                   );
-            const sourceRoot = pnpApi.resolveToUnqualified(
+            const sourceRoot = await resolveDesktopRuntimePackageSource({
                 packageName,
                 issuerPath,
-            );
-            if (!sourceRoot) {
-                throw new Error(
-                    `Yarn PnP did not resolve desktop runtime package ${packageName} from ${issuerPath}.`,
-                );
-            }
-            await assertDirectoryWithoutSymlink(
-                sourceRoot,
-                `Locked desktop runtime package ${packageName}`,
-            );
+                pnpApi,
+            });
             packageSources.set(cacheKey, sourceRoot);
             return sourceRoot;
         } finally {
@@ -392,7 +416,7 @@ function loadPnpApi() {
         return moduleRequire("pnpapi");
     } catch (error) {
         throw new Error(
-            `Desktop runtime dependency staging requires the locked Yarn PnP install. Run this script through a Yarn project command. ${error}`,
+            `Desktop runtime package resolution requires the locked Yarn PnP install. Run this script through a Yarn project command. ${error}`,
         );
     }
 }

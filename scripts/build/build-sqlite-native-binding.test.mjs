@@ -21,6 +21,7 @@ import {
     DESKTOP_NODE_ARCHITECTURE,
     DESKTOP_NODE_DIST_TARGET,
     MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+    NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES,
 } from "./native-runtime-dependencies.mjs";
 
 test("universal macOS SQLite builds both slices before assembly", async (t) => {
@@ -30,6 +31,7 @@ test("universal macOS SQLite builds both slices before assembly", async (t) => {
 
     const bindingPath = await buildSqliteNativeBinding({
         rootDir: fixture.rootDir,
+        pnpApi: fixture.pnpApi,
         environment: {
             [DESKTOP_BUILD_TARGET_ENV_KEYS.NodeDistributionTarget]:
                 DESKTOP_NODE_DIST_TARGET.DarwinUniversal,
@@ -113,6 +115,7 @@ test("Tauri build hook reuses a compatible SQLite binding", async (t) => {
 
     const resolvedPath = await buildSqliteNativeBinding({
         rootDir: fixture.rootDir,
+        pnpApi: fixture.pnpApi,
         environment: {
             [DESKTOP_BUILD_TARGET_ENV_KEYS.NodeDistributionTarget]:
                 DESKTOP_NODE_DIST_TARGET.DarwinUniversal,
@@ -160,6 +163,7 @@ test("concrete desktop targets build one matching Node architecture", async (t) 
 
     const bindingPath = await buildSqliteNativeBinding({
         rootDir: fixture.rootDir,
+        pnpApi: fixture.pnpApi,
         environment: {
             [DESKTOP_BUILD_TARGET_ENV_KEYS.NodeDistributionTarget]:
                 DESKTOP_NODE_DIST_TARGET.LinuxX64,
@@ -191,6 +195,7 @@ test("if-needed reuse requires matching package and Node build metadata", async 
     let buildCount = 0;
     const baseOptions = {
         rootDir: fixture.rootDir,
+        pnpApi: fixture.pnpApi,
         environment: {
             [DESKTOP_BUILD_TARGET_ENV_KEYS.NodeDistributionTarget]:
                 DESKTOP_NODE_DIST_TARGET.LinuxX64,
@@ -231,21 +236,46 @@ async function createSqliteFixture(t) {
     const temporaryDirectory = path.join(rootDir, "temporary");
     const packageDir = path.join(
         rootDir,
-        ".yarn",
-        "unplugged",
-        "better-sqlite3-fixture",
-        "node_modules",
-        "better-sqlite3",
+        "custom-unplugged-location",
+        "locked-sqlite-locator",
     );
     await mkdir(packageDir, { recursive: true });
     await writeFile(
         path.join(packageDir, "package.json"),
-        `${JSON.stringify({ name: "better-sqlite3", version: "12.10.0" })}\n`,
+        `${JSON.stringify({ name: NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3, version: "12.10.0" })}\n`,
         "utf8",
     );
     await mkdir(temporaryDirectory, { recursive: true });
+    // Both look like valid scan candidates, but neither belongs to this issuer.
+    for (const candidate of ["better-sqlite3-old", "better-sqlite3-other"]) {
+        await writeFixtureFile(
+            path.join(
+                rootDir,
+                ".yarn",
+                "unplugged",
+                candidate,
+                "node_modules",
+                NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3,
+                "package.json",
+            ),
+            JSON.stringify({
+                name: NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3,
+                version: "1.0.0",
+            }),
+        );
+    }
+    const pnpApi = {
+        resolveToUnqualified(packageName, issuerPath) {
+            assert.equal(
+                packageName,
+                NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3,
+            );
+            assert.equal(issuerPath, path.join(rootDir, "package.json"));
+            return packageDir;
+        },
+    };
     t.after(() => rm(rootDir, { recursive: true, force: true }));
-    return { rootDir, packageDir, temporaryDirectory };
+    return { rootDir, packageDir, temporaryDirectory, pnpApi };
 }
 
 async function writeFixtureFile(filePath, contents) {

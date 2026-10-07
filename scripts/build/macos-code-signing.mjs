@@ -39,9 +39,12 @@ export const MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY = "LSMinimumSystemVersion";
 export const MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY =
     "LSMinimumSystemVersionByArchitecture";
 
-const MODE_SIGN_STAGED = "sign-staged";
-const MODE_VERIFY_APP = "verify-app";
-const MODE_VERIFY_DMG = "verify-dmg";
+export const MACOS_CODE_SIGNING_MODE = Object.freeze({
+    SignStaged: "sign-staged",
+    VerifyApp: "verify-app",
+    VerifyDmg: "verify-dmg",
+    VerifyUnsignedDmg: "verify-unsigned-dmg",
+});
 const appleSigningIdentityEnvKey = "APPLE_SIGNING_IDENTITY";
 const bundledNodeRelativeSuffix = "/runtime/node/node";
 const bundledNatsRelativeSuffix = "/runtime/nats/nats-server";
@@ -166,26 +169,35 @@ async function verifyMacOSAppBundle() {
     );
 }
 
-async function verifyMacOSDmgBundle() {
-    assertMacOSHost("Verifying macOS DMG app signatures");
-
-    const dmgPath = await resolveDmgBundlePath(
-        process.argv[3]
-            ? path.resolve(process.argv[3])
-            : defaultMacOSDmgBundleRoot,
-    );
-    const walletRecipientIntegritySnapshots = process.argv[4]
+// Both PR and release lanes inspect the actual mounted DMG through this owner.
+// Unsigned checks require both Rust snapshots; signature verification stays the
+// default and runs before any executable probe in release mode.
+export async function verifyMacOSDmgBundle({
+    inputPath = defaultMacOSDmgBundleRoot,
+    cargoTargetRoot,
+    requireCodeSignatures = true,
+    temporaryDirectory = resolveTemporaryDirectory(),
+    commandRunner = runCommand,
+    ...appVerificationOptions
+} = {}) {
+    if (!requireCodeSignatures && !cargoTargetRoot) {
+        throw new Error(
+            "Unsigned macOS DMG verification requires the Cargo target root for both Rust integrity snapshots.",
+        );
+    }
+    const dmgPath = await resolveDmgBundlePath(inputPath);
+    const walletRecipientIntegritySnapshots = cargoTargetRoot
         ? await readMacOSUniversalWalletRecipientIntegritySnapshots(
-              path.resolve(process.argv[4]),
+              cargoTargetRoot,
           )
         : undefined;
     const mountRoot = await mkdtemp(
-        path.join(resolveTemporaryDirectory(), "artgod-dmg-"),
+        path.join(temporaryDirectory, "artgod-dmg-"),
     );
 
     let attached = false;
     try {
-        await runCommand("hdiutil", [
+        await commandRunner("hdiutil", [
             "attach",
             dmgPath,
             "-readonly",
@@ -196,19 +208,33 @@ async function verifyMacOSDmgBundle() {
         attached = true;
 
         await verifyMacOSAppBundleAtPath(mountRoot, {
+            ...appVerificationOptions,
+            commandRunner,
+            requireCodeSignatures,
             walletRecipientIntegritySnapshots,
         });
     } finally {
         if (attached) {
-            await runCommand("hdiutil", ["detach", mountRoot]);
+            await commandRunner("hdiutil", ["detach", mountRoot]);
         }
         await rm(mountRoot, { force: true, recursive: true });
     }
 }
 
-async function verifyMacOSAppBundleAtPath(inputPath, options = {}) {
+export async function verifyMacOSAppBundleAtPath(inputPath, options = {}) {
+    const commandRunner = options.commandRunner ?? runCommand;
+    const logger = options.logger ?? console.log;
+    const requireCodeSignatures = options.requireCodeSignatures ?? true;
+    if (!requireCodeSignatures && !options.walletRecipientIntegritySnapshots) {
+        throw new Error(
+            "Unsigned macOS app verification requires both Rust integrity snapshots.",
+        );
+    }
     const appPath = await resolveAppBundlePath(inputPath);
-    const machOFiles = await collectSignableMachOFiles([appPath]);
+    const machOFiles = await collectSignableMachOFiles(
+        [appPath],
+        commandRunner,
+    );
     if (machOFiles.length === 0) {
         throw new Error(`No signable Mach-O binaries found inside ${appPath}`);
     }
@@ -221,34 +247,38 @@ async function verifyMacOSAppBundleAtPath(inputPath, options = {}) {
 
     const architectureCoverage = await verifyMacOSUniversalMachOFiles(
         machOFiles,
-        { commandRunner: runCommand },
+        { commandRunner },
     );
     const minimumSystemVersion = await readMacOSMinimumSystemVersion();
     const appInfo = await readPropertyList(
         path.join(appPath, "Contents", "Info.plist"),
-        runCommand,
+        commandRunner,
     );
     assertMacOSBundleMinimumSystemVersion(appInfo, minimumSystemVersion);
     const deploymentTargetCoverage = await verifyMacOSDeploymentTargets(
         machOFiles,
         minimumSystemVersion,
-        { commandRunner: runCommand },
+        { commandRunner },
     );
 
-    for (const filePath of sortNestedFirst(machOFiles)) {
-        await verifyCodeSignature(filePath);
-        if (filePath === nodeRuntimePath) {
-            await verifyNodeRuntimeEntitlements(filePath);
+    if (requireCodeSignatures) {
+        for (const filePath of sortNestedFirst(machOFiles)) {
+            await verifyCodeSignature(filePath, commandRunner);
+            if (filePath === nodeRuntimePath) {
+                await verifyNodeRuntimeEntitlements(filePath, {
+                    commandRunner,
+                });
+            }
         }
-    }
 
-    await runCommand("codesign", [
-        "--verify",
-        "--deep",
-        "--strict",
-        "--verbose=2",
-        appPath,
-    ]);
+        await commandRunner("codesign", [
+            "--verify",
+            "--deep",
+            "--strict",
+            "--verbose=2",
+            appPath,
+        ]);
+    }
 
     if (options.walletRecipientIntegritySnapshots) {
         await verifyMacOSWalletRecipientIntegritySnapshots(
@@ -256,16 +286,24 @@ async function verifyMacOSAppBundleAtPath(inputPath, options = {}) {
             runtimeRoot,
         );
     }
-    await verifyNodeRuntimeStartup(nodeRuntimePath);
-    await verifyBundledNatsLoopbackStartup(natsRuntimePath);
-    await verifySecretPromptStartup(secretPromptPath);
-    await verifyStagedDesktopRuntimeDependencies({
+    await verifyNodeRuntimeStartup(nodeRuntimePath, { commandRunner, logger });
+    await verifyBundledNatsLoopbackStartup(natsRuntimePath, {
+        natsVerifier: options.natsVerifier,
+        logger,
+    });
+    await verifySecretPromptStartup(secretPromptPath, {
+        processRunner: options.promptProcessRunner,
+        logger,
+    });
+    const dependencyVerifier =
+        options.dependencyVerifier ?? verifyStagedDesktopRuntimeDependencies;
+    await dependencyVerifier({
         resourcesRootDir: runtimeRoot,
         nodeBinaryPath: nodeRuntimePath,
     });
 
-    console.log(
-        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and final Node, NATS, secret-prompt, SQLite, and Sharp runtime entry points inside ${path.relative(rootDir, appPath)}.`,
+    logger(
+        `Verified ${machOFiles.length} ${requireCodeSignatures ? "signed " : ""}Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and final Node, NATS, secret-prompt, SQLite, and Sharp runtime entry points inside ${path.relative(rootDir, appPath)}.`,
     );
 }
 
@@ -458,7 +496,10 @@ function assertMacOSHost(action) {
     }
 }
 
-async function collectSignableMachOFiles(rootPaths) {
+async function collectSignableMachOFiles(
+    rootPaths,
+    commandRunner = runCommand,
+) {
     const files = [];
     for (const rootPath of rootPaths) {
         files.push(...(await collectFiles(rootPath)));
@@ -466,7 +507,7 @@ async function collectSignableMachOFiles(rootPaths) {
 
     const machOFiles = [];
     for (const filePath of files) {
-        const { stdout } = await runCommand("file", ["-b", filePath], {
+        const { stdout } = await commandRunner("file", ["-b", filePath], {
             capture: true,
         });
         if (isSignableMachO(stdout)) {
@@ -569,7 +610,7 @@ export function assertRequiredBundleExecutables(appPath, machOFiles) {
         const match = relativePaths.find(required.matches);
         if (!match) {
             throw new Error(
-                `Missing required signed executable in macOS app bundle: ${required.label}`,
+                `Missing required executable in macOS app bundle: ${required.label}`,
             );
         }
     }
@@ -752,8 +793,8 @@ function resolveSecretPromptRuntime(machOFiles) {
     return candidates[0];
 }
 
-async function verifyCodeSignature(filePath) {
-    await runCommand("codesign", [
+async function verifyCodeSignature(filePath, commandRunner = runCommand) {
+    await commandRunner("codesign", [
         "--verify",
         "--strict",
         "--verbose=2",
@@ -867,20 +908,34 @@ async function runSilentProcess(command, args, { timeoutMilliseconds }) {
 
 async function main() {
     const mode = process.argv[2];
-    if (mode === MODE_SIGN_STAGED) {
+    if (mode === MACOS_CODE_SIGNING_MODE.SignStaged) {
         await signStagedMacOSBinaries();
         return;
     }
-    if (mode === MODE_VERIFY_APP) {
+    if (mode === MACOS_CODE_SIGNING_MODE.VerifyApp) {
         await verifyMacOSAppBundle();
         return;
     }
-    if (mode === MODE_VERIFY_DMG) {
-        await verifyMacOSDmgBundle();
+    if (
+        [
+            MACOS_CODE_SIGNING_MODE.VerifyDmg,
+            MACOS_CODE_SIGNING_MODE.VerifyUnsignedDmg,
+        ].includes(mode)
+    ) {
+        assertMacOSHost("Verifying macOS DMG contents");
+        await verifyMacOSDmgBundle({
+            inputPath: process.argv[3]
+                ? path.resolve(process.argv[3])
+                : defaultMacOSDmgBundleRoot,
+            cargoTargetRoot: process.argv[4]
+                ? path.resolve(process.argv[4])
+                : undefined,
+            requireCodeSignatures: mode === MACOS_CODE_SIGNING_MODE.VerifyDmg,
+        });
         return;
     }
     throw new Error(
-        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root] [cargo-target-root-for-release-snapshots]`,
+        `Usage: node scripts/build/macos-code-signing.mjs ${Object.values(MACOS_CODE_SIGNING_MODE).join("|")} [app-or-bundle-root|dmg-or-bundle-root] [cargo-target-root-for-release-snapshots]`,
     );
 }
 

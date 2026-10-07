@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
     chmod,
     copyFile,
@@ -9,17 +8,26 @@ import {
     realpath,
     rename,
     rm,
-    stat,
     writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-    DEFAULT_MINIMUM_AGE_DAYS,
-    calculateCutoffDate,
-} from "../security/dependency-age-policy.mjs";
+    GITHUB_METADATA_MEDIA_TYPE,
+    GITHUB_RELEASE_ASSET_URL_PATTERN,
+    assertInputPublicationTimestamp as assertUtcTimestamp,
+    assertPinnedInputAge,
+    assertPinnedInputBytesContract,
+    materializePinnedInput,
+    verifyGithubReleaseInputProvenance,
+} from "./pinned-build-inputs.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
+import {
+    buildLockedTauri,
+    TAURI_BUILD_SCRIPT_NAMES,
+    TAURI_CLI_PACKAGE_NAME,
+} from "./build-tauri.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -35,22 +43,14 @@ const rootPackageJsonPath = path.join(rootDir, "package.json");
 const PINNED_TOOLS_SCHEMA_VERSION = 2;
 export const TAURI_LINUX_BUNDLER_TARGET = "x86_64-unknown-linux-gnu";
 export const TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME =
-    "build:desktop:linux-bundle";
-const TAURI_CLI_PACKAGE_NAME = "@tauri-apps/cli";
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+    TAURI_BUILD_SCRIPT_NAMES.LinuxBundle;
 const GIT_REVISION_PATTERN = /^[a-f0-9]{40}$/;
-const GITHUB_RELEASE_ASSET_URL_PATTERN =
-    /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/[\w.-]+\/releases\/assets\/[1-9][0-9]*$/;
 const GITHUB_RAW_CONTENT_ORIGIN = "https://raw.githubusercontent.com";
-const BINARY_DOWNLOAD_MEDIA_TYPE = "application/octet-stream";
-const GITHUB_METADATA_MEDIA_TYPE = "application/vnd.github+json";
 const RELEASE_TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const MOVING_RELEASE_TAG_PATTERN =
     /^(continuous|latest|nightly|rolling|dev|master|main|head)$/i;
-const UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const EXECUTABLE_FILE_MODE = 0o755;
 const TOOLS_DIRECTORY_MODE = 0o700;
-const DOWNLOAD_FILE_MODE = 0o600;
 const DOWNLOAD_UMASK = 0o077;
 const TAURI_TOOLS_CACHE_DIRECTORY_NAME = "tauri";
 export const TAURI_LOCAL_TOOLS_DIRECTORY_NAME = ".tauri";
@@ -91,7 +91,7 @@ async function main() {
     }
     await preparePinnedTauriLinuxBundlerTools();
     console.log(
-        `For Tauri builds, set ${TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY}=${path.join(resolveTauriToolsCacheDirectory(), TAURI_LINUX_APPIMAGE_RUNTIME_FILE_NAME)}.`,
+        `Verified Linux bundler inputs are cached. Build with yarn ${TAURI_LINUX_BUNDLE_BUILD_SCRIPT_NAME}.`,
     );
 }
 
@@ -112,11 +112,8 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
         localToolsDirectory,
     });
     const runBuild = options.runBuild ?? runRedactedCommand;
-    await runBuild(
-        "yarn",
+    await buildLockedTauri(
         [
-            "tauri",
-            "build",
             "--ci",
             "--target",
             TAURI_LINUX_BUNDLER_TARGET,
@@ -124,12 +121,11 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
             "appimage,deb",
             "--config",
             JSON.stringify({ bundle: { useLocalToolsDir: true } }),
-            "--",
-            "--locked",
         ],
         {
             cwd: rootDir,
-            env: {
+            runCommand: runBuild,
+            environment: {
                 ...environment,
                 [TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY]: path.join(
                     localToolsDirectory,
@@ -144,14 +140,24 @@ export async function buildPinnedTauriLinuxBundle(options = {}) {
 // Match the pinned Tauri CLI's local-tools resolution through Cargo metadata,
 // including CARGO_TARGET_DIR and Cargo configuration. Do not guess src-tauri/target
 // or redirect unrelated caches to select the packaging tools.
-export async function resolveTauriLocalToolsDirectory({
+export async function resolveTauriLocalToolsDirectory(options = {}) {
+    return path.join(
+        await resolveTauriCargoTargetDirectory(options),
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+    );
+}
+
+// Packaging tools and output verification must follow the same Cargo metadata
+// result, including target-dir configuration and CARGO_TARGET_DIR overrides.
+export async function resolveTauriCargoTargetDirectory({
     environment = process.env,
     runCommand = runRedactedCommand,
+    projectRoot = rootDir,
 } = {}) {
     const result = await runCommand(
         "cargo",
         ["metadata", "--no-deps", "--format-version", "1", "--locked"],
-        { cwd: path.join(rootDir, "src-tauri"), env: environment },
+        { cwd: path.join(projectRoot, "src-tauri"), env: environment },
     );
     const metadata = JSON.parse(result.stdout);
     if (
@@ -159,13 +165,10 @@ export async function resolveTauriLocalToolsDirectory({
         !path.isAbsolute(metadata.target_directory)
     ) {
         throw new Error(
-            "Cargo metadata must provide an absolute target_directory for Tauri's local tools.",
+            "Cargo metadata must provide an absolute target_directory for Tauri builds.",
         );
     }
-    return path.join(
-        metadata.target_directory,
-        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
-    );
+    return metadata.target_directory;
 }
 
 // Tauri mutates linuxdeploy's ELF header. Refresh only our execution copies and
@@ -311,27 +314,10 @@ export function validatePinnedToolsManifest(
     if (!Array.isArray(manifest.tools)) {
         throw new Error("Pinned Tauri Linux tool manifest has no tools array.");
     }
-    if (
-        !Number.isSafeInteger(manifest.minimumAgeDays) ||
-        manifest.minimumAgeDays < DEFAULT_MINIMUM_AGE_DAYS
-    ) {
-        throw new Error(
-            `Pinned Tauri Linux tools require a minimum age of at least ${DEFAULT_MINIMUM_AGE_DAYS} days.`,
-        );
-    }
-    const cutoffDate = calculateCutoffDate(now, manifest.minimumAgeDays);
-    if (!Number.isFinite(cutoffDate.getTime())) {
-        throw new Error("Pinned Tauri Linux tools have an invalid age cutoff.");
-    }
-
     const toolsByFileName = new Map();
     for (const tool of manifest.tools) {
         validatePinnedToolRecord(tool);
-        if (new Date(tool.publishedAt) > cutoffDate) {
-            throw new Error(
-                `Pinned Tauri Linux tool ${tool.fileName} was published ${tool.publishedAt}; the ${manifest.minimumAgeDays}-day age gate requires publication on or before ${cutoffDate.toISOString()}.`,
-            );
-        }
+        assertPinnedInputAge(tool, manifest.minimumAgeDays, now);
         if (toolsByFileName.has(tool.fileName)) {
             throw new Error(
                 `Duplicate pinned Tauri Linux tool ${tool.fileName}.`,
@@ -364,42 +350,25 @@ async function materializePinnedTool({
     temporaryDirectory,
     fetchImplementation,
 }) {
-    const destinationPath = path.join(cacheDirectory, tool.fileName);
-    if (await fileMatchesPinnedTool(destinationPath, tool)) {
-        await chmod(destinationPath, EXECUTABLE_FILE_MODE);
-        return;
-    }
-
-    // Check the selected release/commit as well as its bytes. An asset ID alone
-    // does not prove that an upload belongs to a retained, age-qualified release.
-    await verifyPinnedToolProvenance(tool, fetchImplementation);
-    // Asset APIs otherwise return JSON metadata; public binary downloads need no token.
-    const response = await fetchImplementation(tool.url, {
-        headers: { Accept: BINARY_DOWNLOAD_MEDIA_TYPE },
+    await materializePinnedInput({
+        input: tool,
+        destinationPath: path.join(cacheDirectory, tool.fileName),
+        temporaryDirectory,
+        verifyProvenance: verifyPinnedToolProvenance,
+        fetchImplementation,
+        mode: EXECUTABLE_FILE_MODE,
     });
-    if (!response.ok) {
-        throw new Error(
-            `Failed to download pinned Tauri Linux tool ${tool.fileName}: HTTP ${response.status} ${response.statusText}.`,
-        );
-    }
-
-    const content = Buffer.from(await response.arrayBuffer());
-    assertPinnedToolBytes(tool, content);
-    const temporaryPath = path.join(temporaryDirectory, tool.fileName);
-    await writeFile(temporaryPath, content, { mode: DOWNLOAD_FILE_MODE });
-    await chmod(temporaryPath, EXECUTABLE_FILE_MODE);
-    await rename(temporaryPath, destinationPath);
 }
 
 async function verifyPinnedToolProvenance(tool, fetchImplementation) {
+    if (!tool.fileName.endsWith(".sh")) {
+        await verifyGithubReleaseInputProvenance(tool, fetchImplementation);
+        return;
+    }
     const url = new URL(tool.url);
     const pathParts = url.pathname.split("/");
-    const repository = tool.fileName.endsWith(".sh")
-        ? `${pathParts[1]}/${pathParts[2]}`
-        : `${pathParts[2]}/${pathParts[3]}`;
-    const metadataUrl = tool.fileName.endsWith(".sh")
-        ? `https://api.github.com/repos/${repository}/commits/${tool.sourceRevision}`
-        : `https://api.github.com/repos/${repository}/releases/tags/${tool.releaseTag}`;
+    const repository = `${pathParts[1]}/${pathParts[2]}`;
+    const metadataUrl = `https://api.github.com/repos/${repository}/commits/${tool.sourceRevision}`;
     const response = await fetchImplementation(metadataUrl, {
         headers: { Accept: GITHUB_METADATA_MEDIA_TYPE },
     });
@@ -409,39 +378,10 @@ async function verifyPinnedToolProvenance(tool, fetchImplementation) {
         );
     }
     const metadata = await response.json();
-    let publishedAt;
-    if (tool.fileName.endsWith(".sh")) {
-        if (metadata.sha !== tool.sourceRevision) {
-            throw new Error(`Pinned tool ${tool.fileName} commit mismatch.`);
-        }
-        publishedAt = metadata.commit?.committer?.date;
-    } else {
-        const assetId = Number(pathParts.at(-1));
-        const asset = metadata.assets?.find((asset) => asset.id === assetId);
-        if (
-            metadata.tag_name !== tool.releaseTag ||
-            metadata.draft !== false ||
-            !asset ||
-            asset.name !== tool.assetName ||
-            asset.size !== tool.sizeBytes ||
-            (tool.sourceRevision &&
-                metadata.target_commitish !== tool.sourceRevision) ||
-            (asset.digest && asset.digest !== `sha256:${tool.sha256}`)
-        ) {
-            throw new Error(
-                `Pinned tool ${tool.fileName} release asset metadata mismatch.`,
-            );
-        }
-        // An old tag can receive new uploads. Use the latest publication/upload
-        // timestamp, never the tag name or source commit's age as a substitute.
-        const dates = [
-            metadata.published_at,
-            asset.created_at,
-            asset.updated_at,
-        ];
-        dates.forEach((value) => assertUtcTimestamp(value, tool.fileName));
-        publishedAt = dates.sort().at(-1);
+    if (metadata.sha !== tool.sourceRevision) {
+        throw new Error(`Pinned tool ${tool.fileName} commit mismatch.`);
     }
+    const publishedAt = metadata.commit?.committer?.date;
     assertUtcTimestamp(publishedAt, tool.fileName);
     if (publishedAt !== tool.publishedAt) {
         throw new Error(
@@ -450,46 +390,8 @@ async function verifyPinnedToolProvenance(tool, fetchImplementation) {
     }
 }
 
-async function fileMatchesPinnedTool(filePath, tool) {
-    try {
-        const fileStat = await stat(filePath);
-        if (!fileStat.isFile() || fileStat.size !== tool.sizeBytes) {
-            return false;
-        }
-        const content = await readFile(filePath);
-        return sha256(content) === tool.sha256;
-    } catch (error) {
-        if (error?.code === "ENOENT") {
-            return false;
-        }
-        throw error;
-    }
-}
-
-function assertPinnedToolBytes(tool, content) {
-    if (content.length !== tool.sizeBytes) {
-        throw new Error(
-            `Pinned Tauri Linux tool ${tool.fileName} size mismatch. Expected ${tool.sizeBytes}, received ${content.length}.`,
-        );
-    }
-    const actualSha256 = sha256(content);
-    if (actualSha256 !== tool.sha256) {
-        throw new Error(
-            `Pinned Tauri Linux tool ${tool.fileName} SHA-256 mismatch. Expected ${tool.sha256}, received ${actualSha256}.`,
-        );
-    }
-}
-
 function validatePinnedToolRecord(tool) {
-    if (!tool || typeof tool !== "object") {
-        throw new Error("Pinned Tauri Linux tool entry must be an object.");
-    }
-    if (
-        typeof tool.fileName !== "string" ||
-        path.basename(tool.fileName) !== tool.fileName
-    ) {
-        throw new Error("Pinned Tauri Linux tool has an invalid file name.");
-    }
+    assertPinnedInputBytesContract(tool);
     if (
         typeof tool.url !== "string" ||
         new URL(tool.url).protocol !== "https:"
@@ -529,30 +431,6 @@ function validatePinnedToolRecord(tool) {
                 `Pinned tool ${tool.fileName} has an invalid asset name.`,
             );
         }
-    }
-    if (!Number.isSafeInteger(tool.sizeBytes) || tool.sizeBytes <= 0) {
-        throw new Error(
-            `Pinned Tauri Linux tool ${tool.fileName} has an invalid size.`,
-        );
-    }
-    if (!SHA256_PATTERN.test(tool.sha256)) {
-        throw new Error(
-            `Pinned Tauri Linux tool ${tool.fileName} has an invalid SHA-256.`,
-        );
-    }
-}
-
-function assertUtcTimestamp(value, fileName) {
-    const timestamp = new Date(value);
-    if (
-        typeof value !== "string" ||
-        !UTC_TIMESTAMP_PATTERN.test(value) ||
-        Number.isNaN(timestamp.getTime()) ||
-        timestamp.toISOString().replace(".000Z", "Z") !== value
-    ) {
-        throw new Error(
-            `Pinned tool ${fileName} has an invalid publication timestamp.`,
-        );
     }
 }
 
@@ -596,10 +474,6 @@ async function readConfiguredTauriCliVersion(packageJsonPath) {
         );
     }
     return version.trim();
-}
-
-function sha256(content) {
-    return createHash("sha256").update(content).digest("hex");
 }
 
 const isMainModule =

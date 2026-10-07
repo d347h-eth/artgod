@@ -88,7 +88,13 @@ Workflow policy:
 - `.github/workflows/tauri-build-check.yml` uses no secrets and runs on pull
   requests, pushes to `main`, and manual dispatch. Its required macOS job runs
   the real universal `better-sqlite3` cross-build and `lipo` verification before
-  any release tag.
+  any release tag. After host listener and prompt containment checks, it builds
+  a complete universal DMG with `--no-sign` and runs `verify-unsigned-dmg`
+  against the mounted app and both concrete Rust integrity snapshots. This
+  checks packaging, native architecture coverage, deployment targets and host
+  runtime operations. It adds both Rust release compilations to the PR lane;
+  signing/notarization and runtime probes on both native architectures remain
+  release gates.
 - Build, release, and reproducibility lanes run
   `yarn test:desktop:listener-boundaries` before packaging. After staging, they
   run `yarn check:desktop-runtime-resources`. The first gate executes exact Rust

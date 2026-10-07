@@ -3,6 +3,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DESKTOP_CARGO_PROJECTS } from "./cargo-projects.mjs";
 import {
     DESKTOP_RUST_TARGET,
     MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
@@ -14,10 +15,8 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 const srcTauriDir = path.join(rootDir, "src-tauri");
 const helperManifestPath = path.join(
-    srcTauriDir,
-    "sidecars",
-    "artgod-secret-prompt",
-    "Cargo.toml",
+    rootDir,
+    DESKTOP_CARGO_PROJECTS.SecretPrompt.manifestPath,
 );
 const targetDir = path.join(srcTauriDir, "target", "sidecars");
 const binariesDir = path.join(srcTauriDir, "binaries");
@@ -98,7 +97,9 @@ async function resolveTargetSpec() {
     });
     const target = stdout.trim();
     if (!target) {
-        throw new Error("Failed to determine Rust target triple for secret prompt sidecar");
+        throw new Error(
+            "Failed to determine Rust target triple for secret prompt sidecar",
+        );
     }
     return {
         requestedTarget: target,
@@ -110,6 +111,7 @@ async function resolveTargetSpec() {
 async function buildSidecarTarget(targetTriple, profile, helperBinaryName) {
     const cargoArgs = [
         "build",
+        "--locked",
         "--manifest-path",
         helperManifestPath,
         "--target-dir",
@@ -133,8 +135,15 @@ async function buildSidecarTarget(targetTriple, profile, helperBinaryName) {
     return builtBinaryPath;
 }
 
-async function stageBuiltSidecar(targetTriple, builtBinaryPath, binaryExtension) {
-    const stagedBinaryPath = resolveStagedBinaryPath(targetTriple, binaryExtension);
+async function stageBuiltSidecar(
+    targetTriple,
+    builtBinaryPath,
+    binaryExtension,
+) {
+    const stagedBinaryPath = resolveStagedBinaryPath(
+        targetTriple,
+        binaryExtension,
+    );
     await copyFile(builtBinaryPath, stagedBinaryPath);
     if (!targetTriple.includes("windows")) {
         await chmod(stagedBinaryPath, 0o755);
@@ -142,8 +151,15 @@ async function stageBuiltSidecar(targetTriple, builtBinaryPath, binaryExtension)
     return stagedBinaryPath;
 }
 
-async function stageUniversalSidecar(targetTriple, builtBinaryPaths, binaryExtension) {
-    const stagedBinaryPath = resolveStagedBinaryPath(targetTriple, binaryExtension);
+async function stageUniversalSidecar(
+    targetTriple,
+    builtBinaryPaths,
+    binaryExtension,
+) {
+    const stagedBinaryPath = resolveStagedBinaryPath(
+        targetTriple,
+        binaryExtension,
+    );
     await runCommand(
         "lipo",
         ["-create", ...builtBinaryPaths, "-output", stagedBinaryPath],

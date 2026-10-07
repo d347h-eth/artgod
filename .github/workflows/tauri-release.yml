@@ -179,11 +179,11 @@ jobs:
 
             - name: Test release Admin WebView shell ACL
               if: runner.os == 'Linux'
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --test webview_capability_security
 
             - name: Test Linux runtime resource layout
               if: runner.os == 'Linux'
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout
+              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --test linux_runtime_resource_layout
 
             - name: Test release desktop parent containment
               run: yarn test:desktop:parent-containment
@@ -254,7 +254,7 @@ jobs:
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-              run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+              run: yarn node ./scripts/build/build-tauri.mjs --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
             - name: Remove temporary macOS signing credentials
               if: ${{ runner.os == 'macOS' && always() }}

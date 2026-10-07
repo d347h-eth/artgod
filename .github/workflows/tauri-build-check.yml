@@ -75,63 +75,14 @@ jobs:
             - name: Install workspace dependencies
               run: yarn install --immutable
 
-            - name: Build trusted native SQLite dependency
-              run: yarn build:sqlite-native
+            - name: Test Linux desktop build prerequisites
+              run: yarn check:linux-release-build --phase prerequisites
 
-            - name: Test bidding strategy coverage
-              run: yarn test:bidding:strategy
+            - name: Verify Linux no-bundle build
+              run: yarn check:linux-release-build --phase no-bundle
 
-            - name: Check desktop runtime registry consistency
-              run: yarn check:runtime-registry
-
-            - name: Test desktop release security
-              run: yarn test:desktop:release
-
-            - name: Test desktop Admin manifest
-              run: yarn test:desktop:admin-manifest
-
-            - name: Test desktop listener boundaries
-              run: yarn test:desktop:listener-boundaries
-
-            - name: Test sensitive process hardening
-              run: yarn test:desktop:sensitive-process
-
-            - name: Test Admin WebView shell ACL
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
-
-            - name: Test Linux runtime resource layout
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout
-
-            - name: Test desktop parent containment
-              run: yarn test:desktop:parent-containment
-
-            - name: Test Tauri runtime output reconciliation
-              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --test tauri_runtime_output_reconciliation
-
-            - name: Tauri no-bundle build check
-              env:
-                  DESKTOP_NODE_DIST_TARGET: linux-x64
-                  DESKTOP_NATS_DIST_TARGET: linux-x64
-              run: yarn build:desktop:no-bundle --debug
-
-            - name: Verify staged desktop runtime resources
-              run: yarn check:desktop-runtime-resources
-
-            - name: Test desktop runtime loader isolation
-              run: yarn test:desktop:runtime-environment
-
-            - name: Verify no-bundle desktop runtime output
-              run: yarn check:desktop-no-bundle-runtime
-
-            - name: Build Linux Tauri bundle
-              env:
-                  DESKTOP_NODE_DIST_TARGET: linux-x64
-                  DESKTOP_NATS_DIST_TARGET: linux-x64
-                  APPIMAGE_EXTRACT_AND_RUN: "1"
-              run: yarn build:desktop:linux-bundle
-
-            - name: Verify Linux bundled runtime integrity
-              run: yarn check:linux-bundled-runtime "src-tauri/target/x86_64-unknown-linux-gnu/release/bundle"
+            - name: Build and verify Linux bundles
+              run: yarn check:linux-release-build --phase bundle
 
     macos-prompt-containment-check:
         runs-on: macos-latest
@@ -166,12 +117,13 @@ jobs:
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:
                   toolchain: 1.93.1
+                  targets: aarch64-apple-darwin,x86_64-apple-darwin
 
             - name: Install workspace dependencies
               run: yarn install --immutable --mode=skip-build
 
             - name: Build universal macOS SQLite dependency
-              run: node ./scripts/build/verify-macos-universal-sqlite-build.mjs
+              run: yarn node ./scripts/build/verify-macos-universal-sqlite-build.mjs
 
             - name: Fetch macOS root Cargo dependencies
               run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
@@ -197,6 +149,15 @@ jobs:
             - name: Test secret prompt parent containment
               run: yarn test:desktop:secret-prompt-parent-containment
 
+            - name: Build unsigned universal macOS DMG
+              env:
+                  DESKTOP_NODE_DIST_TARGET: darwin-universal
+                  DESKTOP_NATS_DIST_TARGET: darwin-universal
+              run: yarn node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg --no-sign
+
+            - name: Verify unsigned universal macOS DMG contents
+              run: node ./scripts/build/macos-code-signing.mjs verify-unsigned-dmg "src-tauri/target/universal-apple-darwin/release/bundle/dmg" "src-tauri/target"
+
     windows-containment-check:
         runs-on: windows-latest
         env:
@@ -213,14 +174,29 @@ jobs:
               with:
                   node-version-file: package.json
 
+            - name: Enable Corepack
+              run: corepack enable
+
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:
                   toolchain: 1.93.1
                   targets: ${{ env.CARGO_BUILD_TARGET }}
 
+            - name: Install workspace dependencies
+              run: yarn install --immutable --mode=skip-build
+
+            - name: Test Windows package-manager and Tauri launchers
+              run: yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/frontend-dev-process-tree.test.mjs ./scripts/build/build-tauri.test.mjs
+
+            - name: Build trusted native SQLite dependency
+              run: yarn build:sqlite-native
+
+            - name: Build Windows userland frontend
+              run: yarn build:userland
+
             - name: Prepare Windows secret prompt sidecar
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug
 
             - name: Check Windows sensitive-process hardening
-              run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+              run: cargo check --manifest-path src-tauri/Cargo.toml --locked --lib

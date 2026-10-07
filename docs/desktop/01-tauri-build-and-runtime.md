@@ -132,6 +132,7 @@ yarn build:userland
 yarn build:admin
 yarn build:desktop
 yarn build:desktop:no-bundle
+yarn check:linux-release-build
 yarn build:runtime
 yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
@@ -359,16 +360,26 @@ Responsibilities:
 - stages runtime resources for Tauri bundling under `src-tauri/resources/runtime`
 - downloads/verifies the Node distribution for the target platform and stages bundled Node under `src-tauri/resources/runtime/node`
   : source of truth for Node version is `package.json` `engines.node`
+  : `config/desktop-runtime-inputs.json` pins archive hashes, sizes and
+  publication evidence for all six concrete targets; admission requires 30 days
   : an explicit distribution target must agree with any active Tauri/Cargo
   target context; absent either, resolution uses the other and then falls back
   to the build host
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
-  : downloaded archives are cached in `.cache/desktop-node-runtime`
+  : downloaded archives are cached in `.cache/desktop-node-runtime` and
+  rehashed on every use; each build extracts a fresh declared executable
 - downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
-  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.18`)
+  : source of truth for NATS version is `config/desktop-runtime-inputs.json`;
+  `DESKTOP_NATS_VERSION` may only confirm that reviewed version
   : download target uses the same target resolution as Node
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
-  : downloaded archives are cached in `.cache/desktop-nats-runtime`
+  : downloaded archives are cached in `.cache/desktop-nats-runtime` and
+  rehashed on every use; universal assemblies are rebuilt from fresh slices
+- delegates archive admission/acquisition and executable materialization to
+  `scripts/build/desktop-runtime-inputs.mjs`, which shares byte/cache and
+  GitHub asset verification with the Tauri packaging input owner
+- never reads the legacy extracted/assembled executable caches; staging,
+  smoke checks, macOS signing and Rust integrity snapshots retain their order
 - copies:
     - `backend/dist-desktop/*`
     - `backend/node_modules/*`
@@ -379,7 +390,9 @@ Responsibilities:
     - `trading/node_modules/*`
     - `node/node` or `node/node.exe`
     - `nats/nats-server` or `nats/nats-server.exe`
-- resolves locked package sources through build-time PnP, then copies only the explicit runtime file allowlist into package-local `node_modules`
+- resolves locked package sources through build-time PnP using the same validated
+  package-resolution boundary as native SQLite compilation, then copies only
+  the explicit runtime file allowlist into package-local `node_modules`
 - gives backend/indexer the SQLite and Sharp closures while keeping Sharp/libvips unresolvable from the key-bearing trading runtime
 - stages the fat universal SQLite binding and both official macOS Sharp/libvips package pairs when the resolved target is `universal-apple-darwin`
 - rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files
@@ -392,6 +405,11 @@ Responsibilities:
 ### `scripts/build/prepare-desktop-sidecars.mjs`
 
 Responsibilities:
+
+- consumes the tracked prompt lockfile with Cargo `--locked`; default age
+  admission covers it and the standalone sensitive-process test lockfile
+- selects the prompt manifest through the independent Cargo-root inventory in
+  `scripts/build/cargo-projects.mjs`
 
 - builds the native secret-prompt sidecar crate for the active target triple
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
@@ -428,6 +446,11 @@ Responsibilities:
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, and verifies the contained `.app` signatures
+- exposes `verify-unsigned-dmg` for the secret-free PR build; the same mounted-app
+  owner verifies required process entry points, universal/native-package
+  architecture coverage, deployment targets and runtime operations, while
+  requiring both concrete Rust integrity snapshots; signature verification
+  remains the default for `verify-app` and `verify-dmg`
 - before notarization, requires the mounted `runtime/node` and `runtime/trading` closure to match the build-time snapshots beside both concrete Rust executables that Tauri merged into the universal app
 - starts Node far enough to initialize V8, reuses the numeric-IPv4-loopback NATS readiness probe against the mounted binary, and starts the native prompt through its silent stdin-owner-loss path before any prompt UI can open
 - executes the mounted SQLite and Sharp smoke operations; finalized-DMG jobs repeat every startup/operation proof on arm64 and x64 runners
@@ -437,6 +460,8 @@ Responsibilities:
 Responsibilities:
 
 - owns the complete Tauri Linux x64 AppImage tool cache contract
+- without `--build`, only verifies/prefetches inputs and directs developers to
+  `yarn build:desktop:linux-bundle` for the complete packaging contract
 - requires the manifest CLI version to match the project-pinned Tauri CLI
 - downloads binary uploads by their fixed GitHub release asset IDs rather than
   resolving moving release tags; script URLs select their declared source commits
@@ -1158,9 +1183,11 @@ Build-check trigger policy:
 
 - The build check runs the no-write project version contract before package
   installation, so version drift fails on pull requests and `main`.
-- Its Linux job uses Ubuntu 22.04, matching release packaging. After the debug
-  no-bundle gates, it runs `yarn build:desktop:linux-bundle` through Corepack's
-  Yarn shim and verifies the final AppImage and `.deb` runtime integrity. A
+- Its Linux job uses Ubuntu 22.04, matching release packaging. The shared
+  `check:linux-release-build` owner runs prerequisites, debug no-bundle checks,
+  then the full `build:desktop:linux-bundle` lane and final AppImage/`.deb`
+  integrity checks. Dedicated isolated Docker reproduction uses the same owner;
+  environment provisioning is separate from local/deployment Docker setup. A
   no-bundle build alone does not exercise the packaging-tool cache or plugins.
 - Its required macOS job runs the real universal `better-sqlite3` node-gyp and
   `lipo` path, so both slices are proven before a release tag.

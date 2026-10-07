@@ -13,8 +13,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
     compareRuntimeTrees,
+    listLinuxBundleFiles,
     verifyLinuxBundledRuntime,
 } from "./verify-linux-bundled-runtime.mjs";
 import {
@@ -24,6 +26,26 @@ import {
 } from "./wallet-recipient-integrity-snapshot.mjs";
 
 const productName = "ArtGod";
+
+test("artifact discovery retains partial package files and excludes links and build trees", async () => {
+    const temporaryRoot = fileURLToPath(new URL("../../tmp/", import.meta.url));
+    await mkdir(temporaryRoot, { recursive: true });
+    const bundleRoot = await mkdtemp(
+        path.join(temporaryRoot, "linux-package-discovery-"),
+    );
+    await mkdir(path.join(bundleRoot, "appimage"));
+    const appImage = path.join(bundleRoot, "appimage", "partial.AppImage");
+    await writeFile(appImage, "partial package");
+    await writeFile(
+        path.join(bundleRoot, "appimage", "build.log"),
+        "diagnostic",
+    );
+    await symlink(appImage, path.join(bundleRoot, "linked.AppImage"));
+    assert.deepEqual(await listLinuxBundleFiles(bundleRoot), [appImage]);
+    const deb = path.join(bundleRoot, "package.deb");
+    await writeFile(deb, "package");
+    assert.deepEqual(await listLinuxBundleFiles(bundleRoot), [appImage, deb]);
+});
 
 test("accepts an exact regular-file runtime copy", async () => {
     await withRuntimeTrees(async ({ expectedRoot, actualRoot }) => {

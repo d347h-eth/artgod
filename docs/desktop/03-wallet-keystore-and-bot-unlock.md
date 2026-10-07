@@ -999,7 +999,7 @@ policy, collection-scope, and passphrase previews at the default and minimum
 sizes under `tmp/secret-prompt-rendering/`:
 
 ```sh
-cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml
+cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked
 ```
 
 These headless previews cover content, control geometry, and input transitions.
