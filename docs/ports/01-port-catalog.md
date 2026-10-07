@@ -21,10 +21,16 @@ supported, but desktop wildcard, hostname, IPv6, LAN, and public bind addresses
 are rejected. Rust also forces the optional bidding metrics host to numeric
 IPv4 loopback and does not expose that host in Admin. `42701` is a
 development/Admin Vite port, not the installed userland origin. The installed
-desktop does not start the `42723` NATS monitor. Backend/indexer metrics and all
-APM/profile implementations remain compile-time no-ops; the bidding Prometheus
-endpoint is the only desktop exporter exception. Compose and deploy binding
+desktop does not start the `42723` NATS monitor. In the production profile,
+backend/indexer metrics and all APM/profile implementations remain compile-time
+no-ops; the bidding Prometheus endpoint is its only exporter exception.
+Compose and deploy binding
 requirements remain separate.
+
+The opt-in [local desktop build](../desktop/01-tauri-build-and-runtime.md#local-desktop-build-contract)
+also includes the existing backend/indexer metrics endpoints on `42740`–`42752`
+when enabled. Rust forces their hosts to `127.0.0.1`. Its existing trace and
+profile exporters use the configured Tempo and Pyroscope URLs.
 
 ## App Layer
 
