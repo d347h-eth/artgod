@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { localDesktopPaths } from "./local-desktop-contract.mjs";
 import { fileURLToPath } from "node:url";
+import { DESKTOP_CARGO_PROJECTS } from "./cargo-projects.mjs";
 import {
     DESKTOP_RUST_TARGET,
     MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
@@ -13,12 +14,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
-const srcTauriDir = path.join(rootDir, "src-tauri");
 const helperManifestPath = path.join(
-    srcTauriDir,
-    "sidecars",
-    "artgod-secret-prompt",
-    "Cargo.toml",
+    rootDir,
+    DESKTOP_CARGO_PROJECTS.SecretPrompt.manifestPath,
 );
 const { cargo, sidecars: binariesDir } = localDesktopPaths(rootDir);
 const targetDir = path.join(cargo, "sidecars");
@@ -113,6 +111,7 @@ async function resolveTargetSpec() {
 async function buildSidecarTarget(targetTriple, profile, helperBinaryName) {
     const cargoArgs = [
         "build",
+        "--locked",
         "--manifest-path",
         helperManifestPath,
         "--target-dir",
