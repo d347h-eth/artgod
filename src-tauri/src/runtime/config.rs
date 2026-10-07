@@ -828,8 +828,12 @@ mod tests {
         let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
         let candidates = build_runtime_resources_dir_candidates(None, Some(exe_dir), "ArtGod");
 
-        assert!(candidates.contains(&Path::new("/tmp/.mount_ArtGod/usr/share/ArtGod")
-            .join(super::super::resource_contract::BUNDLED_RUNTIME_RELATIVE_PATH)));
+        assert!(
+            candidates.contains(
+                &Path::new("/tmp/.mount_ArtGod/usr/share/ArtGod")
+                    .join(super::super::resource_contract::BUNDLED_RUNTIME_RELATIVE_PATH)
+            )
+        );
     }
 
     #[test]

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { runLocalBuildCommand, yarnCommand } from "./local-desktop-command.mjs";
+import { projectRoot } from "./local-desktop-contract.mjs";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
+import { runRedactedCommand } from "./secret-output-redaction.mjs";
 
 // This hook belongs exclusively to the opt-in local desktop target.
 for (const args of [
@@ -15,5 +17,9 @@ for (const args of [
         "release",
     ],
 ]) {
-    await runLocalBuildCommand(yarnCommand, args);
+    const invocation = projectYarnCommand(args);
+    await runRedactedCommand(invocation.command, invocation.args, {
+        cwd: projectRoot,
+        stream: true,
+    });
 }

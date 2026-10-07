@@ -4,6 +4,8 @@
 
 pub const LOCAL_DESKTOP_FEATURE: &str = "desktop-local-observability";
 pub const LOCAL_RUNTIME_RELATIVE_PATH: &str = "resources/runtime-local";
+pub const LOCAL_LINUX_APPIMAGE_RUNTIME_PATH: &str = "/usr/share/ArtGod/resources/runtime-local";
+pub const LOCAL_LINUX_DEB_RUNTIME_PATH: &str = "/usr/lib/ArtGod/resources/runtime-local";
 
 pub const LOCAL_PROFILE_MARKER_NAME: &str = ".artgod-runtime-build-profile.json";
 
@@ -42,7 +44,14 @@ pub fn validate_build_inputs() -> Result<(), String> {
     if std::env::var("PROFILE").as_deref() != Ok("release") && resources == &serde_json::json!([]) {
         return Ok(());
     }
-    if resources != &serde_json::json!([LOCAL_RUNTIME_RELATIVE_PATH]) {
+    let linux_files = &override_config["bundle"]["linux"];
+    let has_local_linux_resources = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+        && resources == &serde_json::json!([])
+        && linux_files["appimage"]["files"][LOCAL_LINUX_APPIMAGE_RUNTIME_PATH]
+            == LOCAL_RUNTIME_RELATIVE_PATH
+        && linux_files["deb"]["files"][LOCAL_LINUX_DEB_RUNTIME_PATH] == LOCAL_RUNTIME_RELATIVE_PATH;
+    if resources != &serde_json::json!([LOCAL_RUNTIME_RELATIVE_PATH]) && !has_local_linux_resources
+    {
         return Err(
             "Local desktop Cargo feature and Tauri resource selection do not match".to_owned(),
         );

@@ -28,8 +28,9 @@ pub(crate) const WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION: u64 = 1;
 pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = "runtime";
 
 #[cfg(feature = "desktop-local-observability")]
-pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str =
-    local::LOCAL_RUNTIME_RELATIVE_PATH.split_at("resources/".len()).1;
+pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = local::LOCAL_RUNTIME_RELATIVE_PATH
+    .split_at("resources/".len())
+    .1;
 
 /// Directory name Tauri preserves when bundling `src-tauri/resources`.
 pub(crate) const TAURI_BUNDLED_RESOURCES_DIR_NAME: &str = "resources";

@@ -5,12 +5,14 @@ import test from "node:test";
 import {
     localDesktopBuildInvocation,
     localTauriConfig,
+    buildLocalDesktop,
 } from "./local-desktop-command.mjs";
 import {
     LOCAL_DESKTOP_FEATURE,
     LOCAL_PROFILE,
     LOCAL_PROFILE_MARKER,
     LOCAL_RUNTIME_RELATIVE_PATH,
+    LOCAL_LINUX_RUNTIME_PATHS,
     localDesktopPaths,
     projectRoot,
     validateLocalRuntimeMetafile,
@@ -25,6 +27,7 @@ import {
     RUNTIME_BUILD_PROFILE,
     runtimeBuildProfileMarkerSource,
 } from "./runtime-build-profile.mjs";
+import { buildLockedTauri } from "./build-tauri.mjs";
 
 test("local CLI pairs native capability, hook, resources and separate output", async () => {
     const production = JSON.parse(
@@ -45,7 +48,10 @@ test("local CLI pairs native capability, hook, resources and separate output", a
         invocation.args[invocation.args.indexOf("--config") + 1],
     );
     assert.deepEqual(overlay, localTauriConfig());
-    assert.deepEqual(overlay.bundle.resources, [LOCAL_RUNTIME_RELATIVE_PATH]);
+    assert.deepEqual(
+        overlay.bundle.resources,
+        process.platform === "linux" ? [] : [LOCAL_RUNTIME_RELATIVE_PATH],
+    );
     assert.notEqual(
         overlay.build.beforeBuildCommand,
         production.build.beforeBuildCommand,
@@ -79,6 +85,110 @@ test("local CLI pairs native capability, hook, resources and separate output", a
     ]) {
         assert.throws(() => localDesktopBuildInvocation(args));
     }
+});
+
+test("local builds keep Cargo locked and isolate Windows launcher selection", async () => {
+    for (const platform of ["linux", "win32"]) {
+        await buildLocalDesktop([], {
+            platform,
+            environment: {},
+            buildTauri: (args, options) =>
+                buildLockedTauri(args, {
+                    ...options,
+                    platform,
+                    resolveCliEntrypoint: () => "installed-tauri.js",
+                    async runCommand(command, commandArgs, { env }) {
+                        assert.equal(
+                            command,
+                            platform === "win32" ? process.execPath : "yarn",
+                        );
+                        assert.deepEqual(commandArgs.slice(-2), [
+                            "--",
+                            "--locked",
+                        ]);
+                        assert.ok(commandArgs.includes(LOCAL_DESKTOP_FEATURE));
+                        assert.equal(
+                            env.CARGO_TARGET_DIR,
+                            localDesktopPaths().cargo,
+                        );
+                    },
+                }),
+        });
+    }
+});
+
+test("Linux packaging replaces inherited production mappings with local destinations", async () => {
+    const production = JSON.parse(
+        await readFile(
+            new URL("../../src-tauri/tauri.linux.conf.json", import.meta.url),
+        ),
+    );
+    const overlay = localTauriConfig("linux");
+    assert.deepEqual(overlay.bundle.resources, []);
+    for (const [format, destination] of Object.entries(
+        LOCAL_LINUX_RUNTIME_PATHS,
+    )) {
+        const files = overlay.bundle.linux[format].files;
+        assert.equal(files[destination], LOCAL_RUNTIME_RELATIVE_PATH);
+        for (const inherited of Object.keys(
+            production.bundle.linux[format].files,
+        )) {
+            assert.equal(files[inherited], null);
+        }
+    }
+    assert.deepEqual(localTauriConfig("darwin").bundle.resources, [
+        LOCAL_RUNTIME_RELATIVE_PATH,
+    ]);
+});
+
+test("local AppImage packaging admits pinned tools in the isolated Cargo output", async () => {
+    const calls = [];
+    await buildLocalDesktop(["--bundle", "--bundles", "appimage,deb"], {
+        platform: "linux",
+        environment: {},
+        async prepareLinuxTools({ cacheDirectory }) {
+            calls.push("prepare");
+            assert.ok(path.isAbsolute(cacheDirectory));
+        },
+        async resolveLinuxTools({ environment }) {
+            calls.push("resolve");
+            assert.equal(
+                environment.CARGO_TARGET_DIR,
+                localDesktopPaths().cargo,
+            );
+            return path.join(localDesktopPaths().cargo, ".tauri");
+        },
+        async stageLinuxTools({ cacheDirectory, localToolsDirectory }) {
+            calls.push("stage");
+            assert.ok(path.isAbsolute(cacheDirectory));
+            assert.equal(
+                localToolsDirectory,
+                path.join(localDesktopPaths().cargo, ".tauri"),
+            );
+        },
+        async buildTauri(args, { environment }) {
+            calls.push("build");
+            const overlay = JSON.parse(args[args.indexOf("--config") + 1]);
+            assert.equal(overlay.bundle.useLocalToolsDir, true);
+            assert.equal(
+                environment.LDAI_RUNTIME_FILE,
+                path.join(
+                    localDesktopPaths().cargo,
+                    ".tauri",
+                    "runtime-x86_64",
+                ),
+            );
+        },
+    });
+    assert.deepEqual(calls, ["prepare", "resolve", "stage", "build"]);
+    await buildLocalDesktop(["--bundle", "--bundles", "deb"], {
+        platform: "linux",
+        environment: {},
+        prepareLinuxTools() {
+            assert.fail("Deb packaging does not invoke AppImage tools");
+        },
+        async buildTauri() {},
+    });
 });
 
 test("stagers reject the other target before copying any dependency", async () => {

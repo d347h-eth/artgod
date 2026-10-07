@@ -5,6 +5,7 @@ import {
     copyReviewedPackageFiles,
     assertNoForbiddenDesktopRuntimePaths,
     validateExactRegularFileTree,
+    resolveDesktopRuntimePackageSource,
 } from "./desktop-runtime-dependency-staging.mjs";
 import {
     DESKTOP_RUNTIME_DEPENDENCY_ROOTS,
@@ -94,13 +95,20 @@ export async function stageLocalDesktopDependencies({
         await mkdir(destination, { recursive: true });
         const expected = new Set();
         const nativeSources = new Map();
-        const resolveNative = (name) => {
+        const resolveNative = async (name) => {
             if (nativeSources.has(name)) return nativeSources.get(name);
             const issuer = getDesktopRuntimePackageSourceIssuer(name, runtime);
             const from = issuer.workspaceRelativePath
                 ? path.join(rootDir, issuer.workspaceRelativePath)
-                : path.join(resolveNative(issuer.packageName), "package.json");
-            const source = pnpApi.resolveToUnqualified(name, from);
+                : path.join(
+                      await resolveNative(issuer.packageName),
+                      "package.json",
+                  );
+            const source = await resolveDesktopRuntimePackageSource({
+                packageName: name,
+                issuerPath: from,
+                pnpApi,
+            });
             nativeSources.set(name, source);
             return source;
         };
@@ -119,7 +127,7 @@ export async function stageLocalDesktopDependencies({
         )) {
             await copyPackage(
                 name,
-                resolveNative(name),
+                await resolveNative(name),
                 getDesktopRuntimePackageFileSelection(name),
             );
         }
@@ -130,7 +138,11 @@ export async function stageLocalDesktopDependencies({
                     throw new Error(
                         `Unreviewed local profiler dependency: ${name}`,
                     );
-                const source = pnpApi.resolveToUnqualified(name, issuer);
+                const source = await resolveDesktopRuntimePackageSource({
+                    packageName: name,
+                    issuerPath: issuer,
+                    pnpApi,
+                });
                 if (sources.has(name)) {
                     if (sources.get(name) !== source)
                         throw new Error(

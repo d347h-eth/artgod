@@ -13,7 +13,7 @@ const nativeContract = readFileSync(
 );
 function nativeConstant(name) {
     const match = nativeContract.match(
-        new RegExp(`pub const ${name}: &str = "([^"]+)";`),
+        new RegExp(`pub const ${name}: &str =\\s*"([^"]+)";`),
     );
     if (!match)
         throw new Error(`Missing local desktop native contract: ${name}`);
@@ -23,6 +23,10 @@ export const LOCAL_DESKTOP_FEATURE = nativeConstant("LOCAL_DESKTOP_FEATURE");
 export const LOCAL_RUNTIME_RELATIVE_PATH = nativeConstant(
     "LOCAL_RUNTIME_RELATIVE_PATH",
 );
+export const LOCAL_LINUX_RUNTIME_PATHS = Object.freeze({
+    appimage: nativeConstant("LOCAL_LINUX_APPIMAGE_RUNTIME_PATH"),
+    deb: nativeConstant("LOCAL_LINUX_DEB_RUNTIME_PATH"),
+});
 export const LOCAL_ARTIFACT_DIRECTORY = "dist-desktop-local";
 export const LOCAL_CARGO_DIRECTORY = "src-tauri/target-local";
 export const LOCAL_SIDECAR_DIRECTORY = "src-tauri/binaries-local";

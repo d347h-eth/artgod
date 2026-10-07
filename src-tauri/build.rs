@@ -15,8 +15,7 @@ const LINUX_TARGET_OS: &str = "linux";
 
 fn main() {
     #[cfg(feature = "desktop-local-observability")]
-    resource_contract::local::validate_build_inputs()
-        .expect("invalid local desktop build inputs");
+    resource_contract::local::validate_build_inputs().expect("invalid local desktop build inputs");
     let cargo_output_dir =
         PathBuf::from(env::var(CARGO_OUTPUT_DIR_ENV_KEY).expect("Cargo OUT_DIR is unavailable"));
     let profile_output_dir = tauri_runtime_output::profile_output_dir(&cargo_output_dir)
