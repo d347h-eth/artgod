@@ -52,7 +52,6 @@ import { BootstrapLiveRunCompletionReconciler } from "../application/bootstrap-l
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
-    parseBootstrapBackfillDelegatedRange,
     type BootstrapBackfillCheckResult,
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillScheduleResult,
@@ -103,12 +102,6 @@ import {
 import { type JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    SYNC_JOB_KIND,
-    type BackfillSyncPayload,
-} from "../domain/sync-jobs.js";
 import { COLLECTION_STANDARD } from "../domain/collections.js";
 import {
     OPENSEA_JOB_ID_SCOPE,
@@ -119,6 +112,7 @@ import { OPENSEA_BOOTSTRAP_STEP_SEQUENCE } from "../application/bootstrap-opense
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
+import { publishBootstrapBackfillRange } from "../infra/bootstrap/backfill-range-publisher.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
@@ -162,6 +156,7 @@ import {
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
@@ -303,6 +298,7 @@ async function main() {
             bootstrapRuns,
             bootstrapSteps,
             createBootstrapBackfillQueuePort(queue),
+            new SqliteSyncGapStore(),
         );
         const bootstrapCollectionLiveExecutor =
             new BootstrapCollectionLiveExecutor(
@@ -683,14 +679,7 @@ function createBootstrapBackfillQueuePort(
 ): BootstrapBackfillQueuePort {
     return {
         scheduleBackfillRange: async (input) => {
-            await scheduleBackfillRange(
-                queue,
-                input.chainId,
-                input.collectionId,
-                input.fromBlock,
-                input.toBlock,
-                input.batchSize,
-            );
+            await publishBootstrapBackfillRange(queue, input);
         },
         scheduleBackfillCheck: async (input) => {
             await scheduleBackfillCheck(queue, input);
@@ -1296,7 +1285,6 @@ async function processBootstrapMainClaimedStep(
         return processBootstrapBackfillStep({
             backfillExecutor: input.bootstrapBackfillExecutor,
             payload: buildOwnershipProcessPayload(anchoredRun),
-            step: input.step,
             backfillCheckPayload: input.backfillCheckPayload ?? null,
             backfillBatchSize: input.backfillBatchSize,
             openSeaIntegration: input.openSeaIntegration,
@@ -2611,34 +2599,32 @@ async function processSingleOwnershipTask(
 async function processBootstrapBackfillStep(input: {
     backfillExecutor: BootstrapBackfillExecutor;
     payload: BootstrapOwnershipProcessPayload;
-    step: BootstrapStepRecord;
     backfillCheckPayload: BootstrapBackfillCheckPayload | null;
     backfillBatchSize: number;
     openSeaIntegration: OpenSeaIntegrationStatus;
     traceId: string;
     sourceJobId: string;
 }): Promise<BootstrapClaimedStepProcessorResult> {
-    const delegatedRange = input.backfillCheckPayload
-        ? null
-        : parseBootstrapBackfillDelegatedRange(input.step.resultJson);
-    if (input.backfillCheckPayload || delegatedRange) {
-        const checkPayload = input.backfillCheckPayload ?? {
-            ...input.payload,
-            fromBlock:
-                delegatedRange?.fromBlock ?? input.payload.anchorBlock + 1,
-            toBlock: delegatedRange?.toBlock ?? input.payload.anchorBlock,
-        };
-        const result = await input.backfillExecutor.checkProgress({
-            chainId: checkPayload.chainId,
-            runId: checkPayload.runId,
-            collectionId: checkPayload.collectionId,
-            address: checkPayload.address,
-            fromBlock: checkPayload.fromBlock,
-            toBlock: checkPayload.toBlock,
+    const result = await input.backfillExecutor.executeStep(
+        {
+            chainId: input.payload.chainId,
+            runId: input.payload.runId,
+            collectionId: input.payload.collectionId,
+            address: input.payload.address,
+            anchorBlock: input.payload.anchorBlock,
+            backfillBatchSize: input.backfillBatchSize,
+            openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
+        },
+        input.backfillCheckPayload ?? undefined,
+    );
+    if ("expected" in result) {
+        logBootstrapBackfillCheckResult(result, {
+            ...input.payload,
+            fromBlock: result.fromBlock,
+            toBlock: result.toBlock,
         });
-        logBootstrapBackfillCheckResult(result, checkPayload);
         logBootstrapTemporaryDataCleanup(result.cleanup);
         if (
             result.outcome ===
@@ -2651,17 +2637,6 @@ async function processBootstrapBackfillStep(input: {
         return terminalStepResult();
     }
 
-    const result = await input.backfillExecutor.scheduleAfterSnapshot({
-        chainId: input.payload.chainId,
-        runId: input.payload.runId,
-        collectionId: input.payload.collectionId,
-        address: input.payload.address,
-        anchorBlock: input.payload.anchorBlock,
-        backfillBatchSize: input.backfillBatchSize,
-        openSeaIntegration: input.openSeaIntegration,
-        traceId: input.traceId,
-        sourceJobId: input.sourceJobId,
-    });
     logBootstrapBackfillScheduleResult(result, input.payload);
     logBootstrapTemporaryDataCleanup(result.cleanup);
     if (result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued) {
@@ -2871,38 +2846,6 @@ async function scheduleImageCacheProcess(
         collectionId: payload.collectionId,
     };
     await queue.publish(QUEUE_NAMES.CollectionBootstrapImageCache, job);
-}
-
-async function scheduleBackfillRange(
-    queue: QueuePort,
-    chainId: number,
-    collectionId: number,
-    fromBlock: number,
-    toBlock: number,
-    batchSize: number,
-): Promise<void> {
-    const size = Math.max(1, batchSize);
-    for (let start = fromBlock; start <= toBlock; start += size) {
-        const end = Math.min(toBlock, start + size - 1);
-        const job: JobEnvelope<BackfillSyncPayload> = {
-            // Deterministic id keeps this scheduling idempotent.
-            jobId: `sync:bootstrap:${chainId}:${collectionId}:${start}-${end}`,
-            kind: SYNC_JOB_KIND.BackfillRange,
-            queue: QUEUE_NAMES.BackfillSync,
-            payload: {
-                fromBlock: start,
-                toBlock: end,
-                source: BACKFILL_SOURCE.BootstrapCatchup,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId,
-        };
-        await queue.publish(QUEUE_NAMES.BackfillSync, job);
-    }
 }
 
 async function scheduleBackfillCheck(

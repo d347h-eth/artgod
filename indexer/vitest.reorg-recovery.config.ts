@@ -5,6 +5,7 @@ export default defineConfig({
         include: [
             "integration/reorg-recovery.test.ts",
             "integration/metadata-range-refresh.test.ts",
+            "integration/bootstrap-coverage-recovery.test.ts",
         ],
         fileParallelism: false,
         testTimeout: 30_000,

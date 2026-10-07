@@ -15,6 +15,9 @@ import type {
     RpcProviderPort,
     RpcContractRead,
     RpcLogFilter,
+    RpcLog,
+    RpcTransaction,
+    RpcTransactionReceipt,
 } from "../../src/ports/rpc.js";
 import type { ChainBlockReference } from "../../src/domain/chain-sync.js";
 import type { QueuePort } from "../../src/ports/queue.js";
@@ -59,6 +62,9 @@ export class RecoveryRpc implements RpcProviderPort {
 
     ownerReads: ChainBlockReference[] = [];
     logReads = 0;
+    logs: RpcLog[] = [];
+    transactions = new Map<string, RpcTransaction>();
+    receipts = new Map<string, RpcTransactionReceipt>();
     beforeOwnerRead?: () => Promise<void>;
     beforeBlockRead?: (number: number) => Promise<void>;
     beforeLogs?: (filter: RpcLogFilter) => Promise<void>;
@@ -72,7 +78,15 @@ export class RecoveryRpc implements RpcProviderPort {
     async getLogs(filter: RpcLogFilter) {
         this.logReads++;
         await this.beforeLogs?.(filter);
-        return [];
+        return this.logs.filter(
+            (log) =>
+                log.blockNumber >= filter.fromBlock &&
+                log.blockNumber <= filter.toBlock &&
+                (!filter.address ||
+                    (Array.isArray(filter.address)
+                        ? filter.address.includes(log.address)
+                        : filter.address === log.address)),
+        );
     }
     async readContractAtBlock<T>(
         input: RpcContractRead & { block: ChainBlockReference },
@@ -93,10 +107,14 @@ export class RecoveryRpc implements RpcProviderPort {
     async readContract<T>(): Promise<T> {
         throw new Error("Unexpected numeric contract read");
     }
-    async getTransaction(): Promise<never> {
+    async getTransaction(hash: string): Promise<RpcTransaction> {
+        const transaction = this.transactions.get(hash);
+        if (transaction) return transaction;
         throw new Error("Unexpected transaction read");
     }
-    async getTransactionReceipt(): Promise<never> {
+    async getTransactionReceipt(hash: string): Promise<RpcTransactionReceipt> {
+        const receipt = this.receipts.get(hash);
+        if (receipt) return receipt;
         throw new Error("Unexpected receipt read");
     }
     async getBalance(): Promise<never> {

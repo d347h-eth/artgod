@@ -22,7 +22,6 @@ import { BootstrapEnumerationExecutor } from "../src/application/bootstrap-enume
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
-    parseBootstrapBackfillDelegatedRange,
     type BootstrapBackfillQueuePort,
 } from "../src/application/bootstrap-backfill-executor.js";
 import {
@@ -48,6 +47,7 @@ import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
+import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import type { Hex, RpcBlock } from "../src/ports/rpc.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -156,6 +156,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests),
+            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -363,6 +364,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests),
+            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -561,6 +563,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests, backfillRanges),
+            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -628,33 +631,17 @@ describe("bootstrap pipeline lifecycle", () => {
                         if (run.anchorBlock === null) {
                             throw new Error("Missing anchor for backfill");
                         }
-                        const delegatedRange =
-                            parseBootstrapBackfillDelegatedRange(
-                                step.resultJson,
-                            );
-                        const result = delegatedRange
-                            ? await backfillExecutor.checkProgress({
-                                  chainId: run.chainId,
-                                  runId: run.runId,
-                                  collectionId: run.collectionId,
-                                  address: run.requestAddress,
-                                  fromBlock: delegatedRange.fromBlock,
-                                  toBlock: delegatedRange.toBlock,
-                                  traceId,
-                                  sourceJobId: "scheduler-job-2",
-                              })
-                            : await backfillExecutor.scheduleAfterSnapshot({
-                                  chainId: run.chainId,
-                                  runId: run.runId,
-                                  collectionId: run.collectionId,
-                                  address: run.requestAddress,
-                                  anchorBlock: run.anchorBlock,
-                                  backfillBatchSize: 10,
-                                  openSeaIntegration:
-                                      disabledOpenSeaIntegration(),
-                                  traceId,
-                                  sourceJobId: "scheduler-job-2",
-                              });
+                        const result = await backfillExecutor.executeStep({
+                            chainId: run.chainId,
+                            runId: run.runId,
+                            collectionId: run.collectionId,
+                            address: run.requestAddress,
+                            anchorBlock: run.anchorBlock,
+                            backfillBatchSize: 10,
+                            openSeaIntegration: disabledOpenSeaIntegration(),
+                            traceId,
+                            sourceJobId: "scheduler-job-2",
+                        });
                         return result.outcome ===
                             BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued ||
                             result.outcome ===
