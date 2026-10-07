@@ -86,11 +86,29 @@ their reviewed file selections. Packaged runtimes use ordinary Node package
 resolution without workspace PnP hooks. The production stager still rejects
 local profile markers.
 
+The local entry point uses the shared locked Tauri launcher, and its prompt
+build consumes the tracked Cargo lockfile with `--locked`. Runtime acquisition
+uses `desktop-runtime-inputs.mjs` to verify the pinned Node/NATS archives and
+extract fresh executables. Package sources use the same validated locked PnP
+resolver as native compilation. Local artifact selection and dependency staging
+remain separate from the production profile.
+
+On Linux, the local overlay replaces inherited production resource mappings:
+AppImage resources go under `/usr/share/ArtGod/resources/runtime-local`, and
+`.deb` resources under `/usr/lib/ArtGod/resources/runtime-local`. Rust also
+copies the selected tree beside the non-bundled executable. Local AppImage
+selection prepares the reviewed packaging tools in the local Cargo output and
+supplies the pinned AppImage runtime through the existing tool owner.
+
 `yarn check:desktop:local` compares staged and adjacent runtime bytes and modes,
 checks the release integrity snapshot, and executes native imports with the
 packaged Node. Its optional arguments are a release output directory followed
 by an extracted bundle runtime directory. The exporter smoke additionally
-checks the existing adapters against temporary loopback receivers.
+checks the existing adapters against temporary loopback receivers. With
+`--compose`, it forwards that probe traffic to the repository's collectors and
+queries Prometheus, Tempo and Pyroscope for stored signals from each enabled
+process. It reserves the manifest's backend metrics port before use and fails
+if another process owns it.
 
 `yarn build:desktop:local:bundle --bundles <formats>` uses the same local path
 for host-supported bundles. These commands do not invoke the production signing

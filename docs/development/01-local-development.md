@@ -325,9 +325,21 @@ yarn workspace @artgod/frontend test:config:observability
 
 The exporter smoke uses the packaged Node and dependencies with temporary
 loopback receivers. It checks disabled/enabled behavior and a fresh process
-restart. Native supervisor operation against your saved data and signal
-delivery into Grafana remain separate runtime checks. Linux x64 no-bundle and
-`.deb` resource verification have been exercised; other hosts need native QA.
+restart. To verify stored signals with the existing Compose collectors, keep
+the default backend metrics port free and run:
+
+```sh
+yarn test:desktop:local:exporters --compose src-tauri/target-local/release/resources/runtime-local
+```
+
+This check queries Prometheus for scraped metrics, Tempo for the probe trace,
+and Pyroscope for nonempty wall profile samples from each enabled process.
+Probe traffic uses `artgod.local-build-test`; no application database or wallet
+is opened. Collector endpoints come from the settings manifest and Grafana
+datasource files. Native supervisor operation against your saved data and
+rendered Grafana inspection remain separate runtime checks. Linux x64
+no-bundle, `.deb` resources and Compose delivery have been exercised;
+AppImage and other hosts need native QA.
 
 See [the local build contract](../desktop/01-tauri-build-and-runtime.md#local-desktop-build-contract)
 and [local settings selection](../desktop/04-settings-manifest-process.md#local-desktop-selection).

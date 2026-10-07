@@ -23,11 +23,15 @@ For installed desktop builds:
   bidding runtime. The bot logs an actionable warning and continues without
   metrics for that process.
 
-The desktop exception is deliberately narrow. Backend and indexer metrics, and
-all desktop tracing and profiling exporters, remain disabled in desktop
+The production desktop exception is narrow. Backend and indexer metrics, and
+all tracing and profiling exporters, remain disabled in production desktop
 artifacts. Only the trading metrics facade may reach the reviewed Prometheus
 runtime; the desktop build rejects bypasses into the full metrics barrel or APM
 implementations.
+
+The [local desktop build](../desktop/01-tauri-build-and-runtime.md#local-desktop-build-contract)
+includes existing backend/indexer exporters separately. Bidding metrics follow
+the same enable, port and loopback rules described here.
 
 Local and deploy runtime profiles still use the typed env settings
 `TRADING_METRICS_ENABLED`, `TRADING_METRICS_HOST`, and
