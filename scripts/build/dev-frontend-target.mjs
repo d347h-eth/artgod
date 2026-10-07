@@ -5,6 +5,7 @@ import { constants as osConstants } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { projectYarnCommand } from "./project-yarn-command.mjs";
+import { signalFrontendDevProcessTree } from "./frontend-dev-process-tree.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -170,7 +171,7 @@ function requestChildShutdown(signal, reason = null) {
         console.error(reason);
     }
 
-    // The wrapper owns each dev child process group, including Yarn, Vite, and esbuild.
+    // Stop the owned Yarn, Vite and esbuild tree on either supported platform.
     signalChildProcessTree(signal);
     forceKillTimer = setTimeout(() => {
         signalChildProcessTree(forceKillSignal);
@@ -187,11 +188,7 @@ function signalChildProcessTree(signal) {
     }
 
     try {
-        if (terminatesProcessGroups) {
-            process.kill(-activeChild.pid, signal);
-        } else {
-            activeChild.kill(signal);
-        }
+        signalFrontendDevProcessTree(activeChild.pid, signal);
     } catch (error) {
         if (!isMissingProcessError(error)) {
             console.error(
