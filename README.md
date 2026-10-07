@@ -69,7 +69,7 @@ Desktop development from a clean checkout:
 ```sh
 yarn install --immutable
 yarn build:sqlite-native
-yarn dev:composition
+yarn dev:composition:observability
 ```
 
 The SQLite build step compiles the trusted local native binding while keeping

@@ -58,6 +58,18 @@ The desktop shell does not replace backend/indexer/trading logic. It orchestrate
 
 ## Local Desktop Build Contract
 
+`yarn dev:composition:observability` selects the local capability for a real
+Tauri debug composition. It prepares the userland frontend, full runtime
+closure and debug prompt, then uses the managed Admin dev server and locked
+Cargo launcher. Output is under `src-tauri/target-local/debug`. It uses the same
+app-data as the production desktop. The existing enable flags are configured
+through native Admin.
+
+`yarn dev:composition:pruned` and `yarn dev:desktop:pruned` explicitly select
+the production runtime policy for debug testing. The older unqualified names
+delegate to those commands. Production build, bundle and release commands keep
+their existing behavior.
+
 `yarn build:desktop:local` selects the non-default Cargo feature
 `desktop-local-observability` and a local Tauri configuration overlay together.
 It replaces the before-build hook with `prepare-local-desktop.mjs`, builds the
@@ -103,7 +115,11 @@ supplies the pinned AppImage runtime through the existing tool owner.
 `yarn check:desktop:local` compares staged and adjacent runtime bytes and modes,
 checks the release integrity snapshot, and executes native imports with the
 packaged Node. Its optional arguments are a release output directory followed
-by an extracted bundle runtime directory. The exporter smoke additionally
+by an extracted bundle runtime directory. `--debug` selects the debug output
+and omits release-only integrity hashes; file bytes, modes and native imports
+are still checked. `yarn check:desktop:local:dev-build` compiles the real Tauri
+development composition through a build-only Cargo runner without launching
+the native app. The exporter smoke additionally
 checks the existing adapters against temporary loopback receivers. With
 `--compose`, it forwards that probe traffic to the repository's collectors and
 queries Prometheus, Tempo and Pyroscope for stored signals from each enabled
