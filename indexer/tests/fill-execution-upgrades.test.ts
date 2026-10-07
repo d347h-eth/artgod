@@ -10,7 +10,10 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
-import { MigrationRunner } from "@artgod/shared/migrations";
+import {
+    MigrationRunner,
+    createMigrationRunner,
+} from "@artgod/shared/migrations";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
 import { ACTIVITY_KIND, ACTIVITY_SOURCE_KIND } from "@artgod/shared/types";
 import {
@@ -20,6 +23,7 @@ import {
 } from "@artgod/shared/market-data/fills";
 import { PRICE_HISTORY_CURRENCY_SYMBOL } from "@artgod/shared/types/price-history";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
+import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
 import {
     BACKFILL_EXECUTION_MODE,
     BackfillExecutionGate,
@@ -42,6 +46,7 @@ import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
+import { SqliteSyncRangeCommit } from "../src/infra/storage/sqlite-sync-range-commit.js";
 import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
 import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 import { SqlitePriceHistoryRead } from "../../backend/src/infra/collections/sqlite-price-history-read.js";
@@ -216,16 +221,23 @@ describe("fill execution schema adoption", () => {
                 postAnchor,
                 missingTransfer,
             });
-            const balances = db
-                .prepare(
-                    "SELECT * FROM nft_balances ORDER BY collection_id, token_id, owner",
-                )
-                .all();
+            const balances = balanceOwnershipState();
             const transfersBefore = count("nft_transfer_events");
             await installUpgrade();
             await runner.runMigrations();
+            // Runtime backfill starts after every current migration, not at the
+            // isolated fill-adoption boundary used by the migration-only cases.
+            await createMigrationRunner().runMigrations();
             const storage = new SqliteStorage();
             const registry = new SqliteCollectionRegistry();
+            const outbox = new SqliteQueueOutbox();
+            const commit = new SqliteSyncRangeCommit({
+                storage,
+                outbox,
+                gaps: new SqliteSyncGapStore(),
+                recoveries: new SqliteReorgRecoveries(storage),
+                collections: registry,
+            });
             const gate = new BackfillExecutionGate();
             const admission = vi.spyOn(gate, "run");
             const rpc = bundleRpc(tx);
@@ -240,20 +252,14 @@ describe("fill execution schema adoption", () => {
             });
             const handler = createBackfillSyncHandler({
                 chainId: 1,
-                batchSize: 1,
                 workerCount: 2,
                 wethAddress: zeroAddress,
                 rpc,
                 storage,
+                commit,
                 collectionsPort: registry,
                 extensions: { getInstall: () => null },
-                queue: { publish },
                 bidderIndex: { isActive: () => false, shouldEmit: () => false },
-                gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(
-                    storage,
-                    new SqliteQueueOutbox(),
-                ),
                 gate,
             });
             const [job] = buildManualHistoricalBackfillJobs({
@@ -265,6 +271,9 @@ describe("fill execution schema adoption", () => {
                 nonce: "upgrade-replay",
             });
             await handler(job!);
+            expect(publish).not.toHaveBeenCalled();
+            expect(saleCount()).toBe(0);
+            await drainQueueOutbox(outbox, { publish });
             expect(admission.mock.calls[0][0]).toBe(
                 postAnchor
                     ? BACKFILL_EXECUTION_MODE.SerializedCurrentState
@@ -280,13 +289,7 @@ describe("fill execution schema adoption", () => {
             expect(count("nft_transfer_events")).toBe(
                 transfersBefore + (missingTransfer ? 1 : 0),
             );
-            expect(
-                db
-                    .prepare(
-                        "SELECT * FROM nft_balances ORDER BY collection_id, token_id, owner",
-                    )
-                    .all(),
-            ).toEqual(balances);
+            expect(balanceOwnershipState()).toEqual(balances);
             const reader = new SqlitePriceHistoryRead([
                 {
                     address: zeroAddress,
@@ -319,6 +322,7 @@ describe("fill execution schema adoption", () => {
                 .prepare("SELECT * FROM activities WHERE kind=? ORDER BY id")
                 .all(ACTIVITY_KIND.Sale);
             await handler(job!);
+            await drainQueueOutbox(outbox, { publish });
             expect(count("fills")).toBe(2);
             expect(count("fill_executions")).toBe(1);
             expect(
@@ -328,16 +332,10 @@ describe("fill execution schema adoption", () => {
                     )
                     .all(ACTIVITY_KIND.Sale),
             ).toEqual(recreated);
-            expect(
-                db
-                    .prepare(
-                        "SELECT * FROM nft_balances ORDER BY collection_id, token_id, owner",
-                    )
-                    .all(),
-            ).toEqual(balances);
+            expect(balanceOwnershipState()).toEqual(balances);
             // A later launch must never repeat the destructive adoption step.
             setDbPath(databasePath);
-            await runner.runMigrations();
+            await createMigrationRunner().runMigrations();
             expect(count("fills")).toBe(2);
             expect(saleCount()).toBe(2);
             expect(db.raw.pragma("foreign_key_check")).toEqual([]);
@@ -626,6 +624,17 @@ function count(table: string): number {
             count: number;
         }
     ).count;
+}
+// Discovering an older transfer may refresh the projection's local updated_at.
+// Ownership, quantity and every retained chain-provenance field must stay intact.
+function balanceOwnershipState() {
+    return db
+        .prepare(
+            "SELECT chain_id, collection_id, contract_address, token_id, owner, amount, " +
+                "last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index " +
+                "FROM nft_balances ORDER BY collection_id, token_id, owner",
+        )
+        .all();
 }
 function saleCount(): number {
     return (
