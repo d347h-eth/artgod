@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { initRuntimeApm } from "../../shared/observability/apm.js";
 import { initRuntimeMetrics } from "../../shared/observability/metrics/index.js";
+import { LOCAL_DESKTOP_PROBE } from "./local-desktop-observability-probe-contract.mjs";
 
 const [collector, port, enabledArgument] = process.argv.slice(2);
 if (!collector || !port || !["true", "false"].includes(enabledArgument ?? "")) {
@@ -10,20 +11,20 @@ if (!collector || !port || !["true", "false"].includes(enabledArgument ?? "")) {
     );
 }
 const enabled = enabledArgument === "true";
-const worker = "backend-api";
+const { worker, chainId, serviceNamespace, spanName } = LOCAL_DESKTOP_PROBE;
 const metrics = await initRuntimeMetrics({
     enabled,
     host: "127.0.0.1",
     port: Number(port),
     worker,
-    chainId: 1,
+    chainId,
     prefix: "artgod_backend_",
 });
 const apm = await initRuntimeApm({
     enabled,
     worker,
-    chainId: 1,
-    serviceNamespace: "artgod.local-build-test",
+    chainId,
+    serviceNamespace,
     traces: { enabled: true, otlpHttpUrl: `${collector}/v1/traces` },
     profiles: { enabled: true, pyroscopeUrl: collector },
     spanProfiles: { enabled: true },
@@ -34,13 +35,13 @@ try {
         assert.equal(response.status, 200);
         const body = await response.text();
         assert.match(body, /process_cpu_user_seconds_total/);
-        assert.match(body, /worker="backend-api"/);
+        assert.ok(body.includes(`worker="${worker}"`));
     } else {
         await assert.rejects(fetch(`http://127.0.0.1:${port}/metrics`));
     }
     await apm.apm.withSpan(
-        "local.desktop.packaging.smoke",
-        { worker, chain_id: 1 },
+        spanName,
+        { worker, chain_id: chainId },
         async () => {
             // Leave enough time for the existing profiler's normal upload interval.
             const until = Date.now() + (enabled ? 15_000 : 500);

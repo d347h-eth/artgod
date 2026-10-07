@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { build } from "esbuild";
@@ -9,9 +9,23 @@ import { localDesktopPaths, projectRoot } from "./local-desktop-contract.mjs";
 import { localRuntimeBuildOptions } from "./local-desktop-runtime-options.mjs";
 import { assertLocalRuntimeProfiles } from "./local-desktop-dependencies.mjs";
 import { verifyLocalDesktopObservabilityDependencies } from "./verify-local-desktop-observability.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+    parseManifest,
+    resolveDefaultForTarget,
+} from "../config/generate-env-example.mjs";
+import { LOCAL_DESKTOP_PROBE } from "./local-desktop-observability-probe-contract.mjs";
 
-const resources = process.argv[2]
-    ? path.resolve(process.argv[2])
+const args = process.argv.slice(2);
+const useCompose = args[0] === "--compose";
+if (useCompose) args.shift();
+if (args.length > 1 || args.some((arg) => arg.startsWith("--")))
+    throw new Error(
+        "Usage: test-local-desktop-observability.mjs [--compose] [runtime-directory]",
+    );
+const compose = useCompose ? await readComposeEndpoints() : null;
+const resources = args[0]
+    ? path.resolve(args[0])
     : localDesktopPaths().resources;
 await assertLocalRuntimeProfiles(resources);
 const nodeBinaryPath = path.join(
@@ -47,23 +61,55 @@ const received = [];
 const collector = createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
-    received.push({
+    const entry = {
         path: request.url,
         bytes: Buffer.concat(chunks).length,
         type: request.headers["content-type"],
-    });
-    response.setHeader("Content-Type", "application/json");
-    response.end("{}");
+    };
+    received.push(entry);
+    if (compose) {
+        try {
+            const target = new URL(
+                request.url,
+                request.url.startsWith("/v1/traces")
+                    ? compose.otlp
+                    : compose.pyroscope,
+            );
+            // Forward only probe payload metadata needed by the existing exporters.
+            const headers = Object.fromEntries(
+                ["content-type", "content-encoding"].flatMap((key) =>
+                    request.headers[key] ? [[key, request.headers[key]]] : [],
+                ),
+            );
+            const forwarded = await fetch(target, {
+                method: request.method,
+                headers,
+                body: Buffer.concat(chunks),
+                signal: AbortSignal.timeout(10_000),
+            });
+            entry.status = forwarded.status;
+            response.writeHead(forwarded.status);
+            response.end(await forwarded.text());
+        } catch {
+            entry.status = 502;
+            response.writeHead(502);
+            response.end("Probe collector forwarding failed");
+        }
+    } else {
+        response.setHeader("Content-Type", "application/json");
+        response.end("{}");
+    }
 });
 await listen(collector);
 const collectorUrl = `http://127.0.0.1:${collector.address().port}`;
 const reservation = createServer();
-await listen(reservation);
+await listen(reservation, compose?.metricsPort ?? 0);
 const metricsPort = reservation.address().port;
 await close(reservation);
 try {
     // New child per run matches the native supervisor's stop/restart lifecycle.
     for (const enabled of [false, true, true]) {
+        const startedAt = Date.now();
         received.length = 0;
         await runProbe(enabled);
         if (enabled) {
@@ -73,6 +119,15 @@ try {
                 ),
                 "existing OTLP exporter must deliver spans",
             );
+            if (compose) {
+                assert.ok(
+                    received.every(
+                        (entry) => entry.status >= 200 && entry.status < 300,
+                    ),
+                    "Compose must accept every exporter payload",
+                );
+                await verifyComposeSignals(compose, startedAt);
+            }
             assert.ok(
                 received.some(
                     (entry) =>
@@ -142,11 +197,151 @@ function runProbe(enabled) {
         });
     });
 }
-function listen(server) {
+function listen(server, port = 0) {
     return new Promise((resolve, reject) => {
         server.once("error", reject);
-        server.listen(0, "127.0.0.1", resolve);
+        server.listen(port, "127.0.0.1", resolve);
     });
+}
+
+async function readComposeEndpoints() {
+    const manifest = parseManifest(
+        await readFile(
+            new URL("../../config/settings.manifest.toml", import.meta.url),
+            "utf8",
+        ),
+    );
+    const settingDefault = (key) => {
+        const setting = manifest.settings.find((entry) => entry.key === key);
+        if (!setting) throw new Error(`Missing Compose probe setting: ${key}`);
+        return resolveDefaultForTarget(setting, "local");
+    };
+    const datasourceUrl = async (name) => {
+        const source = await readFile(
+            new URL(
+                `../../observability/grafana/provisioning/datasources/${name}.yaml`,
+                import.meta.url,
+            ),
+            "utf8",
+        );
+        const urls = [...source.matchAll(/^\s+url:\s+(http\S+)\s*$/gm)];
+        if (urls.length !== 1)
+            throw new Error(
+                `Expected one ${name} datasource URL in the repository Compose config`,
+            );
+        return urls[0][1];
+    };
+    const endpoints = {
+        otlp: settingDefault("OBSERVABILITY_OTLP_HTTP_URL"),
+        pyroscope: settingDefault("OBSERVABILITY_PYROSCOPE_URL"),
+        metricsPort: Number(settingDefault("BACKEND_METRICS_PORT")),
+        prometheus: await datasourceUrl("prometheus"),
+        tempo: await datasourceUrl("tempo"),
+    };
+    for (const key of ["otlp", "pyroscope", "prometheus", "tempo"]) {
+        const url = new URL(endpoints[key]);
+        if (
+            url.protocol !== "http:" ||
+            url.hostname !== "127.0.0.1" ||
+            url.username ||
+            url.password
+        )
+            throw new Error(
+                `Compose probe requires a numeric loopback ${key} endpoint`,
+            );
+    }
+    if (
+        !Number.isInteger(endpoints.metricsPort) ||
+        endpoints.metricsPort < 1 ||
+        endpoints.metricsPort > 65535
+    )
+        throw new Error(
+            "Compose probe requires a valid backend metrics TCP port",
+        );
+    return endpoints;
+}
+
+async function verifyComposeSignals(endpoints, startedAt) {
+    const serviceName = `${LOCAL_DESKTOP_PROBE.serviceNamespace}.${LOCAL_DESKTOP_PROBE.worker}`;
+    // Query the stores, so an HTTP ingest acknowledgement alone cannot pass.
+    // API contracts: grafana.com/docs/tempo/latest/api_docs/ and
+    // github.com/grafana/pyroscope/blob/main/api/querier/v1/querier.proto.
+    const metricsQuery = new URL("/api/v1/query", endpoints.prometheus);
+    const traceQuery = new URL("/api/search", endpoints.tempo);
+    traceQuery.searchParams.set("tags", `service.name=${serviceName}`);
+    traceQuery.searchParams.set("start", String(Math.floor(startedAt / 1000)));
+    const deadline = Date.now() + 45_000;
+    let lastError;
+    do {
+        try {
+            const getJson = async (url, options = {}) => {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: AbortSignal.timeout(5_000),
+                });
+                assert.ok(
+                    response.ok,
+                    `Collector query failed with HTTP ${response.status}`,
+                );
+                return response.json();
+            };
+            const windowSeconds = Math.max(
+                1,
+                Math.ceil((Date.now() - startedAt) / 1000),
+            );
+            metricsQuery.searchParams.set(
+                "query",
+                `max_over_time(process_cpu_user_seconds_total{worker="${LOCAL_DESKTOP_PROBE.worker}"}[${windowSeconds}s])`,
+            );
+            const metrics = await getJson(metricsQuery);
+            assert.equal(metrics.status, "success");
+            assert.ok(
+                metrics.data.result.some((entry) => Number(entry.value[1]) > 0),
+                "Prometheus must scrape the probe's process metrics",
+            );
+            traceQuery.searchParams.set(
+                "end",
+                String(Math.ceil(Date.now() / 1000)),
+            );
+            const traces = await getJson(traceQuery);
+            assert.ok(
+                traces.traces?.some(
+                    (trace) =>
+                        trace.rootServiceName === serviceName &&
+                        trace.rootTraceName === LOCAL_DESKTOP_PROBE.spanName,
+                ),
+                "Tempo must return the exported probe trace",
+            );
+            const profiles = await getJson(
+                new URL(
+                    "/querier.v1.QuerierService/SelectMergeStacktraces",
+                    endpoints.pyroscope,
+                ),
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        profileTypeID: LOCAL_DESKTOP_PROBE.profileType,
+                        labelSelector: `{service_name="${serviceName}"}`,
+                        start: startedAt,
+                        end: Date.now(),
+                    }),
+                },
+            );
+            assert.ok(
+                Number(profiles.flamegraph?.total) > 0,
+                "Pyroscope must return nonempty profile samples",
+            );
+            console.log(
+                "Compose returned scraped process metrics, the probe trace and nonempty wall profile samples.",
+            );
+            return;
+        } catch (error) {
+            lastError = error;
+            await delay(2_000);
+        }
+    } while (Date.now() < deadline);
+    throw lastError;
 }
 function close(server) {
     return new Promise((resolve, reject) =>
