@@ -313,7 +313,9 @@ function harness(overrides: Partial<SyncGapSchedulerOptions> = {}) {
         advance(ms: number) {
             now += ms;
         },
-        due: () => store.listDue({ chainId: 1, now, limit: 100 }),
+        due: () =>
+            store.listDuePage({ chainId: 1, now, limit: 100, after: null })
+                .repairs,
         finish(repair: SyncGapRepairTarget) {
             cover(repair.collectionId, repair.fromBlock, repair.toBlock);
             expect(

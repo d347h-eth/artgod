@@ -249,7 +249,12 @@ describe("direct automatic sync execution", () => {
         const s = services(),
             f = transferFixture();
         retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDue({ chainId: 1, now, limit: 1 })[0];
+        const repair = s.gaps.listDuePage({
+            chainId: 1,
+            now,
+            limit: 1,
+            after: null,
+        }).repairs[0];
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents.push(
             f.transfer(102, 1, F.Owner, F.OrphanOwner),
@@ -343,7 +348,12 @@ describe("direct automatic sync execution", () => {
         const s = services(),
             f = transferFixture();
         retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDue({ chainId: 1, now, limit: 1 })[0];
+        const repair = s.gaps.listDuePage({
+            chainId: 1,
+            now,
+            limit: 1,
+            after: null,
+        }).repairs[0];
         expect(() =>
             s.commit.commitSyncRange({
                 result: {
@@ -443,5 +453,96 @@ describe("direct automatic sync execution", () => {
             fromBlock: 106,
             toBlock: 107,
         });
+    });
+    it.each([false, true])(
+        "passes one above-head page per poll and reaches eligible history (restart=%s)",
+        async (restart) => {
+            const rpc = new RecoveryRpc(200),
+                s = services(rpc),
+                head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(107);
+            const blocked = Array.from({ length: 16 }, (_, index) => {
+                const id = insertCollection({
+                    chainId: 1,
+                    slug: `above-head-${index}`,
+                    address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
+                    anchorBlock: 100,
+                });
+                retain(s, id, 108, 110);
+                return id;
+            });
+            const eligible = insertCollection({
+                chainId: 1,
+                slug: "eligible-after-page",
+                address: F.Owner,
+                anchorBlock: 100,
+            });
+            retain(s, eligible, 101, 102);
+            let executor = s.executor;
+            await executor.runDue();
+            expect(rpc.logReads).toBe(0);
+            if (restart) {
+                executor = services(rpc).executor;
+                await executor.runDue();
+                expect(rpc.logReads).toBe(0);
+            }
+            await executor.runDue();
+            expect(s.gaps.getProgress(1, eligible)?.pending).toBeNull();
+            expect(
+                s.storage.countCollectionSyncedBlocksInRange(
+                    1,
+                    eligible,
+                    101,
+                    102,
+                ),
+            ).toBe(2);
+            expect(head).toHaveBeenCalledTimes(restart ? 3 : 2);
+            for (const id of blocked)
+                expect(s.gaps.getProgress(1, id)?.pending).toEqual({
+                    repairId: `repair:${id}`,
+                    fromBlock: 108,
+                    toBlock: 110,
+                    retryAt: now,
+                });
+        },
+    );
+
+    it("seeks a bounded retry-ordered page through a larger retained backlog", () => {
+        const s = services();
+        const ids: number[] = [];
+        db.writeTransaction(() => {
+            for (let index = 0; index < 4096; index++) {
+                const id = insertCollection({
+                    chainId: 1,
+                    slug: `pending-${index}`,
+                    address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
+                    anchorBlock: 100,
+                });
+                retain(s, id, 108, 110);
+                ids.push(id);
+            }
+        })();
+        const page = s.gaps.listDuePage({
+            chainId: 1,
+            now,
+            limit: 16,
+            after: { retryAt: now, collectionId: ids[4079] },
+        });
+        expect(page.repairs.map((repair) => repair.collectionId)).toEqual(
+            ids.slice(4080),
+        );
+        expect(page.cursor).toEqual({ retryAt: now, collectionId: ids[4095] });
+        expect(
+            s.gaps.listDuePage({
+                chainId: 1,
+                now,
+                limit: 16,
+                after: page.cursor,
+            }).repairs,
+        ).toEqual([]);
+        expect(
+            s.gaps
+                .listDuePage({ chainId: 1, now, limit: 16, after: null })
+                .repairs.map((repair) => repair.collectionId),
+        ).toEqual(ids.slice(0, 16));
     });
 });

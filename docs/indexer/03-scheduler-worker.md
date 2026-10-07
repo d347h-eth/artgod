@@ -92,6 +92,11 @@ worker's `AutomaticSyncExecutor` reads due intent directly, running at most one
 range per startup/poll pass (default 12 seconds). It selects the oldest due
 collection, shares its common suffix with other due collections having the same
 upper bound, and caps membership at 16 and range size at `BACKFILL_BATCH_SIZE`.
+Due intent is read in indexed pages of at most 16. If a page is entirely above
+the RPC head, the next poll seeks after it; no intent is changed or dropped.
+Ordinary acquisition starts again at the oldest due page. Restart resets this
+in-memory paging cursor, so reaching later eligible work may take several polls.
+No poll removes the SQL limit or allocates an unbounded list of candidates.
 For A pending 101–110 and B pending 110 alone, block 110 is shared and A retains
 101–109. Different upper bounds remain separate. Identical gaps share headers,
 logs and transaction/receipt reads; covered peers stay outside older remainders.

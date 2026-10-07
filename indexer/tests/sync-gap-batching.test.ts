@@ -598,7 +598,8 @@ function harness(batchSize = 10) {
         now: () => now,
         batches: () =>
             planSyncGapRepairBatches(
-                store.listDue({ chainId: 1, now, limit: 16 }),
+                store.listDuePage({ chainId: 1, now, limit: 16, after: null })
+                    .repairs,
                 batchSize,
             ),
     };
@@ -621,12 +622,17 @@ async function run(
                   recordRepairProgress: h.store.recordRepairProgress.bind(
                       h.store,
                   ),
-                  listDue: (
-                      input: Parameters<SqliteSyncGapStore["listDue"]>[0],
-                  ) =>
-                      h.store
-                          .listDue(input)
-                          .filter((r) => r.collectionId === onlyCollection),
+                  listDuePage: (
+                      input: Parameters<SqliteSyncGapStore["listDuePage"]>[0],
+                  ) => {
+                      const page = h.store.listDuePage(input);
+                      return {
+                          ...page,
+                          repairs: page.repairs.filter(
+                              (r) => r.collectionId === onlyCollection,
+                          ),
+                      };
+                  },
               };
     const executor = new AutomaticSyncExecutor({
         chainId: 1,

@@ -187,7 +187,12 @@ describe("isolated broker and process reorg recovery", () => {
         });
         await scheduler.scan(F.Head);
         const batch = planSyncGapRepairBatches(
-            gaps.listDue({ chainId: 1, now: Date.now(), limit: 16 }),
+            gaps.listDuePage({
+                chainId: 1,
+                now: Date.now(),
+                limit: 16,
+                after: null,
+            }).repairs,
             F.BatchSize,
         )[0];
         await services.executor.runDue();
@@ -407,7 +412,12 @@ describe("isolated broker and process reorg recovery", () => {
         gaps: SqliteSyncGapStore,
     ): JobEnvelope<BackfillSyncPayload> {
         const batch = planSyncGapRepairBatches(
-            gaps.listDue({ chainId: 1, now: Date.now(), limit: 16 }),
+            gaps.listDuePage({
+                chainId: 1,
+                now: Date.now(),
+                limit: 16,
+                after: null,
+            }).repairs,
             F.BatchSize,
         )[0];
         return {

@@ -132,6 +132,9 @@ collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
   writes use repair ID, anchor and exact pending bounds. A partial batch retains
   its older range with the same repair ID; publication failure cannot rewind it.
 - A changed bootstrap anchor replaces the previous sweep and repair intent.
+- Migration `066_sync_gap_due_paging.sql` indexes pending intent by chain, retry
+  time and collection ID. Automatic polls seek through bounded pages when an
+  earlier page is entirely above the observed head; paging does not alter intent.
 
 ### `transactions`
 

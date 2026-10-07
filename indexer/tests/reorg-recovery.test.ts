@@ -333,7 +333,12 @@ describe("durable production reorg recovery", () => {
         async function repairNext(expected: number[]) {
             await scheduler.scan(F.Orphan);
             const batch = planSyncGapRepairBatches(
-                gaps.listDue({ chainId: F.ChainId, now, limit: 16 }),
+                gaps.listDuePage({
+                    chainId: F.ChainId,
+                    now,
+                    limit: 16,
+                    after: null,
+                }).repairs,
                 F.BatchSize,
             )[0];
             expect([batch.fromBlock, batch.toBlock]).toEqual(expected);
@@ -535,7 +540,8 @@ describe("durable production reorg recovery", () => {
         for (let i = 0; i < 3; i++) {
             await scheduler.scan(F.Head);
             const batch = planSyncGapRepairBatches(
-                gaps.listDue({ chainId: 1, now, limit: 16 }),
+                gaps.listDuePage({ chainId: 1, now, limit: 16, after: null })
+                    .repairs,
                 F.BatchSize,
             )[0];
             repaired.push([batch.fromBlock, batch.toBlock]);

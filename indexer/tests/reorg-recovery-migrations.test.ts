@@ -42,6 +42,7 @@ const FEATURE_MIGRATIONS = new Set([
     "063_chain_reorg_recoveries.sql",
     "064_required_sync_followups.sql",
     "065_direct_automatic_sync.sql",
+    "066_sync_gap_due_paging.sql",
 ]);
 const MAIN_MIGRATION = "062_trait_competition_presets.sql";
 
@@ -59,6 +60,7 @@ describe("integrated reorg recovery migration upgrades", () => {
         const additions = [
             "064_required_sync_followups.sql",
             "065_direct_automatic_sync.sql",
+            "066_sync_gap_due_paging.sql",
         ];
         for (const file of filenames.filter(
             (file) => !additions.includes(file),

@@ -5,6 +5,8 @@ import type {
     SyncGapRange,
     SyncGapProgress,
     SyncGapRepairTarget,
+    SyncGapRepairCursor,
+    SyncGapRepairPage,
 } from "../domain/sync-gap-repair.js";
 export type {
     SyncGapRange,
@@ -31,11 +33,14 @@ export interface SyncGapCollectionsPort {
 
 export interface SyncGapStorePort {
     getProgress(chainId: number, collectionId: number): SyncGapProgress | null;
-    listDue(input: {
+    // Read at most limit due members in retry/collection order. A non-null cursor
+    // seeks after a previously skipped page without OFFSET or an unbounded list.
+    listDuePage(input: {
         chainId: number;
         now: number;
         limit: number;
-    }): SyncGapRepairTarget[];
+        after: SyncGapRepairCursor | null;
+    }): SyncGapRepairPage;
     saveProgress(
         chainId: number,
         collectionId: number,

@@ -3,6 +3,7 @@ import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
     type SyncGapRepairBatch,
+    type SyncGapRepairCursor,
 } from "../domain/sync-gap-repair.js";
 import {
     REORG_RECOVERY_PHASE,
@@ -71,6 +72,7 @@ type AutomaticSyncInput = Omit<
 // no broker message, delivery generation or publication reply owns progression.
 export class AutomaticSyncExecutor {
     private active: Promise<void> | null = null;
+    private gapCursor: SyncGapRepairCursor | null = null;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -104,16 +106,26 @@ export class AutomaticSyncExecutor {
             await this.runReorgResync();
             return;
         }
-        const repairs = this.input.gaps.listDue({
+        const page = this.input.gaps.listDuePage({
             chainId: this.input.chainId,
             now: this.now(),
             limit: SYNC_GAP_POLICY.CollectionsPerPass,
+            after: this.gapCursor,
         });
-        if (!repairs.length) return;
+        if (!page.repairs.length) {
+            this.gapCursor = null;
+            return;
+        }
         // No additional head polling when idle. The scanner retains only observed
         // history; a fresh head prevents acquisition above a subsequently shorter chain.
         const head = await this.input.rpc.getBlockNumber();
-        const eligible = repairs.filter((repair) => repair.toBlock <= head);
+        const eligible = page.repairs.filter(
+            (repair) => repair.toBlock <= head,
+        );
+        // Keep one bounded SQL page per poll. Only an entirely above-head page
+        // moves the cursor; normal acquisition starts with the oldest due work.
+        // Restart begins the same bounded sweep again without changing intent.
+        this.gapCursor = eligible.length ? null : page.cursor;
         const oldest = eligible[0];
         const batch =
             oldest &&
