@@ -13,6 +13,8 @@ export const REORG_FIXTURE_ROLE = {
 export const REORG_FIXTURE_PHASE = {
     Ready: "ready",
     RpcHeld: "rpc_held",
+    AcquisitionHeld: "acquisition_held",
+    AmbiguousPublication: "ambiguous_publication",
     FanoutHeld: "fanout_held",
     Checked: "checked",
     Resynced: "resynced",
@@ -45,6 +47,7 @@ export type ReorgFixtureConfig = {
     publish: boolean;
     resume: boolean;
     holdOwner?: boolean;
+    holdAcquisition?: boolean;
     ownerDelayMs?: number;
     dropAckOnce?: boolean;
     sqliteBusyTimeoutMs?: number;
@@ -58,5 +61,6 @@ export type ReorgFixtureReport = {
     elapsedMs?: number;
     revision?: number;
     ownerReads?: number;
+    logReads?: number;
     rssBytes?: number;
 };

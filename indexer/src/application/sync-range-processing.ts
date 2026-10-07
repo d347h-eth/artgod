@@ -1,3 +1,8 @@
+import {
+    SYNC_FOLLOW_UP_KIND,
+    eventSyncFollowUp,
+    type SyncFollowUp,
+} from "../domain/sync-follow-ups.js";
 import { syncRange, type SyncRange } from "./sync.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
@@ -8,7 +13,7 @@ import { decodeWethMakerInfos, WETH_EVENT_FILTERS } from "./ft/weth.js";
 import { shouldFetchWethMakerLogs } from "./backfill-order-maintenance.js";
 import {
     canAnyCollectionProjectCurrentStateAt,
-    publishOrderUpdateJobs,
+    buildOrderUpdateFollowUps,
 } from "./order-update-fanout.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
@@ -25,15 +30,16 @@ import type { OnChainData } from "../domain/onchain.js";
 import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { Hex, RpcBlock, RpcProviderPort } from "../ports/rpc.js";
-import type { StoragePort } from "../ports/storage.js";
-import type { QueuePort } from "../ports/queue.js";
+import type { StoragePort, SyncRangeResult } from "../ports/storage.js";
+import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
+import type { SyncWorkCompletion } from "../domain/sync-work.js";
 import type {
     CollectionRegistryPort,
     CollectionScopeResolverPort,
 } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 
-export async function processRange(input: {
+export async function acquireSyncRange(input: {
     rpc: RpcProviderPort;
     storage: StoragePort;
     collectionScopeResolver: CollectionScopeResolverPort;
@@ -44,7 +50,7 @@ export async function processRange(input: {
     bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">;
     wethAddress: string;
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
-}): Promise<{ data: OnChainData; blocks: RpcBlock[] }> {
+}): Promise<SyncRangeResult> {
     const {
         rpc,
         storage,
@@ -81,8 +87,37 @@ export async function processRange(input: {
         orderMaintenancePolicy,
     );
     const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
-    storage.persistSyncResult({ checkpoint, blocks, data, collections });
-    return { data, blocks };
+    return { checkpoint, blocks, data, collections };
+}
+
+export type SyncRangeInput = Parameters<typeof acquireSyncRange>[0];
+
+// Production sync acquisition ends at durable retention, independent of broker
+// availability. The outbox owns publication; it never repeats remote acquisition.
+export async function processSyncRange(
+    input: SyncRangeInput & {
+        commit: SyncRangeCommitPort;
+        sources: readonly DomainSyncSource[];
+        mode: DomainSyncMode;
+        completion: SyncWorkCompletion;
+    },
+): Promise<SyncRangeResult> {
+    const result = await acquireSyncRange(input);
+    const followUps = buildSyncFollowUps(
+        input.chainId,
+        input.collections,
+        input.range,
+        input.sources,
+        input.mode,
+        result.data,
+        input.orderMaintenancePolicy,
+    );
+    input.commit.commitSyncRange({
+        result,
+        followUps,
+        completion: input.completion,
+    });
+    return result;
 }
 
 export function domainSyncSource(
@@ -96,8 +131,7 @@ export function domainSyncSource(
     };
 }
 
-export async function publishDomainJobs(
-    queue: Pick<QueuePort, "publish">,
+export function buildSyncFollowUps(
     chainId: number,
     collections: CollectionRecord[],
     range: SyncRange,
@@ -105,7 +139,8 @@ export async function publishDomainJobs(
     mode: DomainSyncMode,
     data: OnChainData,
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
+): SyncFollowUp[] {
+    const followUps: SyncFollowUp[] = [];
     const collectionIds = new Set(
         collections.map((collection) => collection.id),
     );
@@ -159,7 +194,7 @@ export async function publishDomainJobs(
             collectionId: source.collectionId,
         };
 
-        await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
+        followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: activityJob });
 
         // Skip current-state fanout for fully pre-anchor ranges.
         if (!hasAnyCurrentStateProjection(targetCollections, range)) {
@@ -186,26 +221,29 @@ export async function publishDomainJobs(
             chainId,
             collectionId: source.collectionId,
         };
-        await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
-        await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
+        followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: ordersJob });
+        followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: metadataJob });
     }
-    if (!hasAnyCurrentStateProjection(collections, range)) return;
+    if (!hasAnyCurrentStateProjection(collections, range)) return followUps;
     const currentStateData = filterCurrentStateOnChainData(collections, data);
 
-    // Only post-anchor events may drive current-state side effects.
-    await publishOrderUpdateJobs(
-        queue,
-        chainId,
-        collections,
-        currentStateData,
-        orderMaintenancePolicy,
+    // Retain every post-anchor event hint, including hints absent from raw facts.
+    followUps.push(
+        ...buildOrderUpdateFollowUps(
+            chainId,
+            collections,
+            currentStateData,
+            orderMaintenancePolicy,
+        ),
     );
-    await publishMetadataRefreshJobs(
-        queue,
-        chainId,
-        collections,
-        currentStateData,
+    followUps.push(
+        ...buildMetadataRefreshFollowUps(
+            chainId,
+            collections,
+            currentStateData,
+        ),
     );
+    return followUps;
 }
 
 export function resolveBackfillCollections(
@@ -267,12 +305,12 @@ function resolveCollectionExtensionWatchSpecs(
 }
 
 // Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).
-async function publishMetadataRefreshJobs(
-    queue: Pick<QueuePort, "publish">,
+function buildMetadataRefreshFollowUps(
     chainId: number,
     collections: CollectionRecord[],
     data: OnChainData,
-): Promise<void> {
+): SyncFollowUp[] {
+    const followUps: SyncFollowUp[] = [];
     const seen = new Set<string>();
     for (const refresh of data.collectionScoped.metadataRefreshEvents) {
         const collection = collections.find(
@@ -304,7 +342,7 @@ async function publishMetadataRefreshJobs(
             chainId,
             collectionId,
         };
-        await queue.publish(QUEUE_NAMES.MetadataRefresh, job);
+        followUps.push(eventSyncFollowUp(job, refresh));
     }
 
     const seenRanges = new Set<string>();
@@ -339,8 +377,9 @@ async function publishMetadataRefreshJobs(
             chainId,
             collectionId: refresh.collectionId,
         };
-        await queue.publish(QUEUE_NAMES.MetadataRefresh, rangeJob);
+        followUps.push(eventSyncFollowUp(rangeJob, refresh));
     }
+    return followUps;
 }
 
 async function appendWethMakerInfos(

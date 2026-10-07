@@ -25,7 +25,7 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
     - Schedules realtime block sync and block-check (reorg) jobs.
-    - Continuously scans live collections for missing coverage from head through their bootstrap anchor and schedules bounded repairs.
+    - Continuously scans live collections for missing coverage from head through their bootstrap anchor and retains bounded repair intent in SQLite.
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
@@ -40,17 +40,19 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Sync worker runtime (`indexer/src/runtime/sync-worker.ts`)
     - Consumes realtime/backfill sync jobs.
     - Fetches logs, decodes transfers/fills/cancels/counters, persists blocks/transfers/balances.
-    - Fan-outs domain sync jobs and targeted order update jobs.
+    - Executes retained automatic gap/reorg ranges in one bounded serial loop.
+    - Atomically retains domain and order follow-ups with data and acquisition progress.
 
 - Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
     - Consumes block-check jobs.
     - Retains known mismatches and retries ancestor proof at startup and periodically.
-    - Atomically rolls back orphaned blocks and retains bounded resync/outbox work.
-    - Redrives unfinished ranges until sync persistence and required fanout complete.
+    - Atomically rolls back orphaned blocks and retains bounded canonical resync.
+    - The sync runtime executes those ranges directly; the domain runtime publishes required follow-ups.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.
     - Persists canonical orders, metadata, and activities.
+    - Publishes retained sync follow-ups without reacquiring RPC data.
     - Commits per-order validation demand with canonical changes, then drains it
       through bounded validation batches.
     - Services broad-maker and token scans through saved cursors and durable
@@ -135,9 +137,9 @@ These assumptions are relied on by the implementation and should be preserved in
 3. Sync worker consumes sync jobs:
     - fetches blocks/logs/transactions/receipts
     - decodes transfers, fills, cancels, and maker triggers
-    - writes blocks/transfers/fills/balances
-    - publishes domain sync jobs and targeted order update jobs
-4. Domain worker consumes domain jobs and targeted order jobs:
+    - atomically writes blocks/transfers/fills/balances and required follow-up intent
+    - executes retained gap and reorg ranges in the same acquisition pipeline
+4. Domain worker publishes retained sync follow-ups and consumes domain/order jobs:
     - orders domain persists canonical orders and updates `fillability_status`
     - metadata domain fetches and stores token metadata
     - activity domain writes activity rows

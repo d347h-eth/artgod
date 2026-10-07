@@ -1,3 +1,4 @@
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { db } from "@artgod/shared/database";
 import type {
     SyncGapProgress,
@@ -15,6 +16,12 @@ type ProgressRow = {
     retry_at: number | null;
 };
 
+const DUE_REPAIRS_QUERY =
+    "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock, s.retry_at AS retryAt " +
+    "FROM collection_sync_gap_scans s JOIN collections c ON c.collection_id = s.collection_id AND c.chain_id = s.chain_id " +
+    "WHERE s.chain_id = @chainId AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block AND s.pending_job_id IS NOT NULL AND s.retry_at <= @now ";
+const DUE_REPAIRS_ORDER = "ORDER BY s.retry_at, s.collection_id LIMIT @limit";
+
 export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectProgress = db.prepare<[number, number]>(
         "SELECT anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at " +
@@ -29,6 +36,12 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectCoverage = db.prepare<[number, number, number, number]>(
         "SELECT block_number FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number DESC",
+    );
+    private selectDue = db.prepare(DUE_REPAIRS_QUERY + DUE_REPAIRS_ORDER);
+    private selectDueAfter = db.prepare(
+        DUE_REPAIRS_QUERY +
+            "AND (s.retry_at, s.collection_id) > (@afterRetryAt, @afterCollectionId) " +
+            DUE_REPAIRS_ORDER,
     );
     private updateRetry = db.prepare(
         "UPDATE collection_sync_gap_scans SET retry_at = @retryAt " +
@@ -58,6 +71,35 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
                           toBlock: row.pending_to_block!,
                           retryAt: row.retry_at!,
                       },
+        };
+    }
+
+    listDuePage(
+        input: Parameters<SyncGapStorePort["listDuePage"]>[0],
+    ): ReturnType<SyncGapStorePort["listDuePage"]> {
+        const bindings = {
+            chainId: input.chainId,
+            now: input.now,
+            limit: input.limit,
+            status: COLLECTION_STATUS.Live,
+        };
+        const rows = (
+            input.after
+                ? this.selectDueAfter.all({
+                      ...bindings,
+                      afterRetryAt: input.after.retryAt,
+                      afterCollectionId: input.after.collectionId,
+                  })
+                : this.selectDue.all(bindings)
+        ) as (SyncGapRepairTarget & {
+            retryAt: number;
+        })[];
+        const last = rows.at(-1);
+        return {
+            repairs: rows.map(({ retryAt: _retryAt, ...repair }) => repair),
+            cursor: last
+                ? { retryAt: last.retryAt, collectionId: last.collectionId }
+                : null,
         };
     }
 
@@ -125,14 +167,16 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         repair,
         remaining,
         retryAt,
-    }: Parameters<SyncGapStorePort["recordRepairProgress"]>[0]): void {
-        this.advanceRepair.run({
-            chainId,
-            ...repair,
-            nextId: remaining ? repair.repairId : null,
-            nextFrom: remaining?.fromBlock ?? null,
-            nextTo: remaining?.toBlock ?? null,
-            retryAt: remaining ? retryAt : null,
-        });
+    }: Parameters<SyncGapStorePort["recordRepairProgress"]>[0]): boolean {
+        return (
+            this.advanceRepair.run({
+                chainId,
+                ...repair,
+                nextId: remaining ? repair.repairId : null,
+                nextFrom: remaining?.fromBlock ?? null,
+                nextTo: remaining?.toBlock ?? null,
+                retryAt: remaining ? retryAt : null,
+            }).changes === 1
+        );
     }
 }

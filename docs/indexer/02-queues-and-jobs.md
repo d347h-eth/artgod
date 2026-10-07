@@ -46,6 +46,7 @@ type JobEnvelope<TPayload> = {
   traceId?: string;
   collectionId?: number;
   chainId: number;
+  onchainBlock?: { chainId: number; blockNumber: number; blockHash: string };
 }
 ```
 
@@ -54,6 +55,9 @@ Key details:
 - `jobId` is required and used for dedupe.
 - `attempt` is updated by the queue adapter from delivery count.
 - `scheduledAt` allows scheduling in the future by re-nacking with a delay.
+- `onchainBlock` identifies event-specific sync hints. Domain-worker checks the
+  stored canonical hash before handler admission; a late orphan hint is ACKed
+  without processing. Range projection jobs reread persisted facts instead.
 
 ## Queue Port (Interface)
 
@@ -208,34 +212,29 @@ The sync worker decodes backfill source, range, policy and member/recovery shape
 before choosing a lane or selecting collections. Explicit `repairs` belong only
 to `gap_repair`; managed recovery identity belongs only to `reorg_recovery`.
 Unknown sources and inconsistent combinations are rejected without acquisition
-or fanout. Supported manual/bootstrap global and scoped jobs, managed reorg jobs
-and retained legacy scoped gap deliveries keep their existing routing.
+or fanout. Manual/bootstrap jobs keep global and collection-scoped routing.
+Automatic `gap_repair` and `reorg_recovery` shapes remain decodable for upgrade
+compatibility, but the handler ACKs them without acquisition or completion.
+SQLite owns their unfinished intent; no new automatic range is published.
 
-Automatic gap jobs carry explicit collection/repair members from
-`collection_sync_gap_scans`; their envelope has no collection ID. The scheduler
-groups intents with the same upper block into a bounded common pending suffix.
-Every participant needs that entire suffix; older remainders stay retained.
-Batch transport IDs are deterministic from sorted membership and bounds, while
-each collection retains its independent repair ID across partial progress and
-restart. A new repair gets a new identity even when a later sweep finds the same
-range missing again.
-Completion follows shared persistence and required downstream fanout; stale
-members become no-ops. Older collection-scoped jobs without `repairs` can still
-finish their exact retained intent. See
-[gap repair scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair).
+The sync runtime reads `collection_sync_gap_scans` and `chain_reorg_recoveries`
+directly. Its one bounded serial executor shares a common pending gap suffix,
+prioritizes ready canonical resync and revalidates the retained members/range.
+The acquisition transaction writes data, required downstream outbox envelopes
+and matching progress together. See [gap scheduling](03-scheduler-worker.md#perpetual-collection-gap-repair)
+and [resync](06-reorg-handling.md#resync-after-rollback).
 
-Managed reorg resync is chain-wide and uses `current_state`. Its logical identity
-is the recovery ID, chain revision and exact range; its `jobId` additionally
-includes a delivery generation. The recovery owner redrives unfinished work with
-a new transport ID after five minutes, including sent/terminal outbox rows,
-ACKed deliveries and DLQ exhaustion. A broker dedupe hit or publication ACK is
-never completion. The sync worker completes only after persistence and required
-fanout, then atomically retains the next bounded range. See
-[resync after rollback](06-reorg-handling.md#resync-after-rollback).
+Required sync follow-ups use `retry_policy = required` and stable IDs qualified
+by the chain revision. The outbox publisher retries them indefinitely with
+capped backoff. A lost broker reply retries the same identity without remote
+acquisition. Accepted sync follow-ups are removed; ordinary workflows keep their
+bounded retry policy and sent receipts. Event-specific rows retain originating
+block identity and are removed by rollback; DB range projections remain pending
+because they reread canonical facts, including unfinished pre-fork work.
 
 A new mismatch whose initial SQLite retention fails uses `JobDeferred`, keeping
 the original check retryable beyond the ordinary DLQ budget. After retention,
-SQLite owns retry independently of broker delivery. Reorg and backfill workers
+SQLite owns retry independently of broker delivery. Queued reorg checks and manual/bootstrap backfills
 renew long-running leases through the existing `touch` mechanism; duplicate
 delivery remains fenced by recovery/revision/token identity.
 

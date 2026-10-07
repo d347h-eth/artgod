@@ -1,22 +1,16 @@
 import { db } from "@artgod/shared/database";
-import {
-    RecoverChainReorg,
-    executeReorgResync,
-} from "../../src/application/reorg-recovery.js";
+import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
+import { AutomaticSyncExecutor } from "../../src/application/automatic-sync-executor.js";
+import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
+import { drainQueueOutbox } from "../../src/application/queue-outbox/drainer.js";
+import { SqliteSyncGapStore } from "../../src/infra/storage/sqlite-sync-gaps.js";
+import { SqliteSyncRangeCommit } from "../../src/infra/storage/sqlite-sync-range-commit.js";
 import {
-    domainSyncSource,
-    processRange,
-    publishDomainJobs,
-} from "../../src/application/sync-range-processing.js";
-import { REORG_RECOVERY_PHASE } from "../../src/domain/reorg-recovery.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    type BackfillSyncPayload,
-} from "../../src/domain/sync-jobs.js";
-import type { DomainSyncSource } from "../../src/domain/domain-jobs.js";
-import type { JobEnvelope } from "../../src/domain/jobs.js";
-import type { CollectionRecord } from "../../src/domain/collections.js";
+    REORG_RECOVERY_PHASE,
+    isCurrentReorgRange,
+    type ReorgResyncRange,
+} from "../../src/domain/reorg-recovery.js";
 import type {
     RpcProviderPort,
     RpcContractRead,
@@ -116,8 +110,31 @@ export function reorgRecoveryServices(
 ) {
     const storage = new SqliteStorage();
     const outbox = new SqliteQueueOutbox();
-    const recoveries = new SqliteReorgRecoveries(storage, outbox);
+    const recoveries = new SqliteReorgRecoveries(storage);
+    const gaps = new SqliteSyncGapStore();
     const registry = new SqliteCollectionRegistry();
+    const commit = new SqliteSyncRangeCommit({
+        storage,
+        outbox,
+        gaps,
+        recoveries,
+        collections: registry,
+    });
+    const executor = new AutomaticSyncExecutor({
+        rpc,
+        storage,
+        commit,
+        gaps,
+        recoveries,
+        collectionsPort: registry,
+        collectionExtensions: { getInstall: () => null },
+        chainId: REORG_FIXTURE.ChainId,
+        bidderIndex: { isActive: () => false, shouldEmit: () => false },
+        wethAddress: REORG_FIXTURE.Weth,
+        batchSize: REORG_FIXTURE.BatchSize,
+        gate: new BackfillExecutionGate(),
+        ...options,
+    });
     const recovery = new RecoverChainReorg(
         rpc,
         storage,
@@ -130,61 +147,31 @@ export function reorgRecoveryServices(
             ...options,
         },
     );
-    const syncAndPublish = async (
-        job: JobEnvelope<BackfillSyncPayload>,
-        queue: QueuePort,
-        admission?: {
-            collections: CollectionRecord[];
-            sources: DomainSyncSource[];
-        },
-    ) => {
-        const collections =
-            admission?.collections ??
-            registry.listCollectionsForSync(job.chainId, "backfill");
-        if (!collections.length)
-            throw new Error("No admitted fixture collection");
-        const range = {
-            fromBlock: job.payload.fromBlock,
-            toBlock: job.payload.toBlock,
-        };
-        const { data } = await processRange({
-            rpc,
-            storage,
-            collectionScopeResolver: registry,
-            collectionExtensions: { getInstall: () => null },
-            chainId: job.chainId,
-            collections,
-            range,
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
-            wethAddress: REORG_FIXTURE.Weth,
-            orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-        });
-        await publishDomainJobs(
-            queue,
-            job.chainId,
-            collections,
-            range,
-            admission?.sources ?? [domainSyncSource(job)],
-            "backfill",
-            data,
-            job.payload.orderMaintenancePolicy,
-        );
-    };
     return {
         storage,
         outbox,
+        gaps,
+        commit,
+        executor,
         recoveries,
         registry,
         recovery,
-        syncAndPublish,
-        execute: (job: JobEnvelope<BackfillSyncPayload>, queue: QueuePort) =>
-            executeReorgResync(
-                job,
-                recoveries,
-                { batchSize: REORG_FIXTURE.BatchSize, ...options },
-                () => syncAndPublish(job, queue),
-            ),
+        acquireRecoveryRange: async (range: ReorgResyncRange) => {
+            if (
+                !isCurrentReorgRange(
+                    recoveries.getRecovery(range.chainId),
+                    range,
+                )
+            )
+                return false;
+            await executor.runDue();
+            return !isCurrentReorgRange(
+                recoveries.getRecovery(range.chainId),
+                range,
+            );
+        },
+        publishRetained: (queue: QueuePort) =>
+            drainQueueOutbox(outbox, queue, { retryBaseDelayMs: 0 }),
     };
 }
 
@@ -213,17 +200,28 @@ export function seedRecoveryHistory(includeAncestor = true) {
     return fixture;
 }
 
-export function pendingRecoveryJob() {
-    const state = db
-        .prepare("SELECT phase FROM chain_reorg_recoveries")
-        .get() as { phase: string } | undefined;
-    if (state?.phase !== REORG_RECOVERY_PHASE.Resync)
-        throw new Error("No resync continuation");
+export function pendingRecoveryRange(): ReorgResyncRange {
     const row = db
         .prepare(
-            "SELECT job_json FROM queue_outbox ORDER BY outbox_id DESC LIMIT 1",
+            "SELECT chain_id, recovery_id, revision, phase, range_from, range_to FROM chain_reorg_recoveries",
         )
-        .get() as { job_json: string } | undefined;
-    if (!row) throw new Error("Missing durable continuation publication");
-    return JSON.parse(row.job_json) as JobEnvelope<BackfillSyncPayload>;
+        .get() as
+        | {
+              chain_id: number;
+              recovery_id: string;
+              revision: number;
+              phase: string;
+              range_from: number;
+              range_to: number;
+          }
+        | undefined;
+    if (row?.phase !== REORG_RECOVERY_PHASE.Resync)
+        throw new Error("No pending resync range");
+    return {
+        chainId: row.chain_id,
+        recoveryId: row.recovery_id,
+        revision: row.revision,
+        fromBlock: row.range_from,
+        toBlock: row.range_to,
+    };
 }

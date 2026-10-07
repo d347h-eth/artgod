@@ -11,23 +11,26 @@ import {
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { orderUpdateQueue } from "../domain/order-processing.js";
 import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
-import type { QueuePort } from "../ports/queue.js";
+import {
+    eventSyncFollowUp,
+    type SyncFollowUp,
+} from "../domain/sync-follow-ups.js";
 import { allowsGlobalMakerRevalidation } from "./backfill-order-maintenance.js";
 
 // Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.
-export async function publishOrderUpdateJobs(
-    queue: Pick<QueuePort, "publish">,
+export function buildOrderUpdateFollowUps(
     chainId: number,
     collections: CollectionRecord[],
     data: OnChainData,
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
-): Promise<void> {
+): SyncFollowUp[] {
+    const followUps: SyncFollowUp[] = [];
     for (const makerTrigger of data.collectionScoped.makerTriggers) {
         const maker = makerTrigger.maker.toLowerCase();
         const job = isTokenScopedMakerTrigger(makerTrigger)
             ? buildTokenScopedMakerJob(chainId, maker, makerTrigger)
             : buildCollectionScopedMakerJob(chainId, maker, makerTrigger);
-        await queue.publish(job.queue, job);
+        followUps.push(eventSyncFollowUp(job, makerTrigger));
     }
 
     if (allowsGlobalMakerRevalidation(orderMaintenancePolicy)) {
@@ -59,18 +62,19 @@ export async function publishOrderUpdateJobs(
                 scheduledAt: Date.now(),
                 chainId,
             };
-            await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
+            followUps.push(eventSyncFollowUp(job, makerTrigger));
         }
     }
 
     for (const fill of data.collectionScoped.fillEvents) {
         if (!fill.orderId) continue;
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            fill.orderId,
-            ORDER_UPDATE_REASON.Fill,
-            fill,
+        followUps.push(
+            buildOrderUpdateById(
+                chainId,
+                fill.orderId,
+                ORDER_UPDATE_REASON.Fill,
+                fill,
+            ),
         );
     }
 
@@ -84,25 +88,28 @@ export async function publishOrderUpdateJobs(
         ) {
             continue;
         }
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            cancel.orderId,
-            ORDER_UPDATE_REASON.Cancel,
-            cancel,
+        followUps.push(
+            buildOrderUpdateById(
+                chainId,
+                cancel.orderId,
+                ORDER_UPDATE_REASON.Cancel,
+                cancel,
+            ),
         );
     }
 
     for (const order of data.collectionScoped.orderInfos) {
         if (!order.orderId) continue;
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            order.orderId,
-            ORDER_UPDATE_REASON.Validation,
-            order,
+        followUps.push(
+            buildOrderUpdateById(
+                chainId,
+                order.orderId,
+                ORDER_UPDATE_REASON.Validation,
+                order,
+            ),
         );
     }
+    return followUps;
 }
 
 function buildTokenScopedMakerJob(
@@ -178,8 +185,7 @@ export function canAnyCollectionProjectCurrentStateAt(
     );
 }
 
-async function publishOrderUpdateById(
-    queue: Pick<QueuePort, "publish">,
+function buildOrderUpdateById(
     chainId: number,
     orderId: string,
     reason: string,
@@ -189,7 +195,7 @@ async function publishOrderUpdateById(
         txHash: string;
         logIndex: number;
     },
-): Promise<void> {
+): SyncFollowUp {
     const job: JobEnvelope<OrderUpdateByIdPayload> = {
         jobId: `orders:update:id:${chainId}:${orderId}:${attribution.blockNumber}:${attribution.logIndex}`,
         kind: ORDER_JOB_KIND.UpdateById,
@@ -207,5 +213,5 @@ async function publishOrderUpdateById(
         scheduledAt: Date.now(),
         chainId,
     };
-    await queue.publish(job.queue, job);
+    return eventSyncFollowUp(job, attribution);
 }

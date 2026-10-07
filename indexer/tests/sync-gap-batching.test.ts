@@ -4,30 +4,17 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { encodeEventTopics } from "viem";
 import { ERC721_ABI } from "../src/abi/index.js";
-import {
-    SyncGapScheduler,
-    executeSyncGapRepair,
-} from "../src/application/sync-gap-scheduler.js";
-import {
-    processRange,
-    publishDomainJobs,
-} from "../src/application/sync-range-processing.js";
+import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
+import { acquireSyncRange } from "../src/application/sync-range-processing.js";
 import {
     planSyncGapRepairBatches,
     remainingSyncGapRepairRange,
 } from "../src/domain/sync-gap-repair.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
-import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
-import {
-    MAKER_TRIGGER_SCOPE,
-    ORDER_JOB_KIND,
-} from "../src/domain/order-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    type GapRepairSyncPayload,
     type SyncGapRepairTarget,
 } from "../src/domain/sync-jobs.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../src/ports/rpc.js";
@@ -52,7 +39,12 @@ const CONTRACTS = [
 const SELLER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const BUYER = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const TX = `0x${"ab".repeat(32)}` as Hex;
-type RepairJob = JobEnvelope<GapRepairSyncPayload>;
+import { AutomaticSyncExecutor } from "../src/application/automatic-sync-executor.js";
+import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
+import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
+import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
+import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
+import { SqliteSyncRangeCommit } from "../src/infra/storage/sqlite-sync-range-commit.js";
 
 describe("shared collection gap acquisition", () => {
     loadTestEnv();
@@ -62,54 +54,45 @@ describe("shared collection gap acquisition", () => {
     });
     beforeEach(() =>
         db.exec(
-            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
+            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox; DELETE FROM chain_reorg_recoveries;",
         ),
     );
 
-    it("fetches one range and one shared receipt, writes separate coverage and owners, and scopes fanout", async () => {
-        const h = harness();
-        const first = seed(0),
+    it("acquires one range and shared receipt, retains separate coverage, owners and scoped follow-ups", async () => {
+        const h = harness(),
+            first = seed(0),
             second = seed(1),
             unrelated = seed(2);
         cover(first, 100, 100);
         cover(second, 100, 100);
         cover(unrelated, 100, 110);
         await h.scheduler.scan(110);
-        expect(h.jobs).toHaveLength(1);
-        const job = h.jobs[0];
-        expect(job.collectionId).toBeUndefined();
-        expect(
-            job.payload.repairs!.map((target) => target.collectionId),
-        ).toEqual([first, second]);
+        const batch = h.batches()[0];
+        expect(batch.repairs.map((r) => r.collectionId)).toEqual([
+            first,
+            second,
+        ]);
         const logs = CONTRACTS.slice(0, 2).map(
             (address, logIndex): RpcLog => ({
+                ...transferLog(logIndex, 105, 1n),
                 address,
-                data: "0x",
-                topics: encodeEventTopics({
-                    abi: ERC721_ABI,
-                    eventName: "Transfer",
-                    args: { from: SELLER, to: BUYER, tokenId: 1n },
-                }) as Hex[],
-                blockNumber: 105,
-                blockHash: block(105).hash,
                 transactionHash: TX,
                 logIndex,
             }),
         );
-        const rpc = testRpc(logs);
-        const published: JobEnvelope[] = [];
-        await run(h, job, rpc, async (domainJob) => {
-            published.push(domainJob);
+        const rpc = testRpc(logs),
+            published: JobEnvelope[] = [];
+        await run(h, rpc, async (job) => {
+            published.push(job);
         });
-        expect(rpc.getBlock).toHaveBeenCalledTimes(11);
-        expect(rpc.getBlock.mock.calls.map(([number]) => number)).toEqual([
+        expect(rpc.getBlock.mock.calls.map(([n]) => n)).toEqual([
             101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 110,
         ]);
         expect(rpc.getLogs).toHaveBeenCalledTimes(4);
         expect(rpc.getLogs.mock.calls[0][0].address).toEqual(
             CONTRACTS.slice(0, 2),
         );
-        expect(rpc.getTransaction).toHaveBeenCalledTimes(1);
+        expect(rpc.getTransaction).toHaveBeenCalledOnce();
         expect(rpc.getTransactionReceipt).toHaveBeenCalledExactlyOnceWith(TX, {
             fresh: true,
         });
@@ -130,66 +113,50 @@ describe("shared collection gap acquisition", () => {
                         ].includes(j.kind as never),
                 ),
             ).toHaveLength(3);
+            const source = `${batch.repairs.find((r) => r.collectionId === id)!.repairId}:range:101-110`;
+            expect(
+                published
+                    .filter(
+                        (j) =>
+                            j.collectionId === id &&
+                            [
+                                DOMAIN_JOB_KIND.ActivitySync,
+                                DOMAIN_JOB_KIND.OrdersSync,
+                                DOMAIN_JOB_KIND.MetadataSync,
+                            ].includes(j.kind as never),
+                    )
+                    .every(
+                        (j) =>
+                            (j.payload as { sourceJobId: string })
+                                .sourceJobId === source,
+                    ),
+            ).toBe(true);
         }
         expect(published.some((j) => j.collectionId === unrelated)).toBe(false);
-        expect(
-            published.some(
-                (j) =>
-                    j.kind === DOMAIN_JOB_KIND.ActivitySync &&
-                    j.collectionId === undefined,
-            ),
-        ).toBe(false);
-        for (const domainJob of published.filter((candidate) =>
-            [
-                DOMAIN_JOB_KIND.ActivitySync,
-                DOMAIN_JOB_KIND.OrdersSync,
-                DOMAIN_JOB_KIND.MetadataSync,
-            ].includes(candidate.kind as never),
-        ))
-            expect(
-                (domainJob.payload as { sourceJobId: string }).sourceJobId,
-            ).toBe(job.jobId);
-        expect(
-            published.filter(
-                (j) =>
-                    j.kind === ORDER_JOB_KIND.UpdateByMaker &&
-                    (j.payload as { scope: string }).scope ===
-                        MAKER_TRIGGER_SCOPE.Global,
-            ),
-        ).toHaveLength(1);
-        expect(await run(h, job, rpc)).toBe(false);
+        await run(h, rpc);
         expect(rpc.getBlock).toHaveBeenCalledTimes(11);
     });
 
-    it("keeps a member at its anchor facts-only inside a shared current-state range", async () => {
-        const h = harness();
-        const first = seed(0),
+    it("keeps a collection at its anchor facts-only inside the shared range", async () => {
+        const h = harness(),
+            first = seed(0),
             atAnchor = seed(1);
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block = 110 WHERE collection_id = ?",
         ).run(atAnchor);
         await h.scheduler.scan(110);
-        expect(h.jobs).toHaveLength(1);
         const published: JobEnvelope[] = [];
-        await run(h, h.jobs[0], testRpc(), async (job) => {
+        await run(h, testRpc(), async (job) => {
             published.push(job);
         });
         expect(
             published
-                .filter((job) => job.collectionId === atAnchor)
-                .map((job) => job.kind),
+                .filter((j) => j.collectionId === atAnchor)
+                .map((j) => j.kind),
         ).toEqual([DOMAIN_JOB_KIND.ActivitySync]);
-        expect(
-            published.filter(
-                (job) =>
-                    job.collectionId === first &&
-                    [
-                        DOMAIN_JOB_KIND.ActivitySync,
-                        DOMAIN_JOB_KIND.OrdersSync,
-                        DOMAIN_JOB_KIND.MetadataSync,
-                    ].includes(job.kind as never),
-            ),
-        ).toHaveLength(3);
+        expect(published.filter((j) => j.collectionId === first)).toHaveLength(
+            3,
+        );
         expect(coverage(first)).toBe(1);
         expect(coverage(atAnchor)).toBe(1);
         expect(h.store.getProgress(1, first)?.pending).toMatchObject({
@@ -199,55 +166,44 @@ describe("shared collection gap acquisition", () => {
         expect(h.store.getProgress(1, atAnchor)?.pending).toBeNull();
     });
 
-    it("shares only the common pending suffix and retains the older unfinished range", async () => {
-        const h = harness(10);
-        const older = seed(0),
+    it("shares only the common suffix and retains the older unfinished intent", async () => {
+        const h = harness(),
+            older = seed(0),
             newer = seed(1);
         cover(older, 100, 105);
         cover(newer, 100, 114);
         await h.scheduler.scan(115);
-        const first = h.jobs[0];
-        expect([first.payload.fromBlock, first.payload.toBlock]).toEqual([
-            115, 115,
-        ]);
-        expect(first.payload.repairs).toHaveLength(2);
-        const oldTarget = first.payload.repairs!.find(
-            (target) => target.collectionId === older,
-        )!;
-        await run(h, first, testRpc());
+        const batch = h.batches()[0],
+            old = batch.repairs.find((r) => r.collectionId === older)!;
+        expect([batch.fromBlock, batch.toBlock]).toEqual([115, 115]);
+        await run(h, testRpc());
         expect(h.store.getProgress(1, newer)?.pending).toBeNull();
         expect(h.store.getProgress(1, older)?.pending).toMatchObject({
-            repairId: oldTarget.repairId,
+            repairId: old.repairId,
             fromBlock: 106,
             toBlock: 114,
             retryAt: 1000,
         });
-        // Publication responses and duplicate commits from the old range cannot
-        // overwrite the remaining range, even though its repair identity survived.
-        h.store.deferRetry(1, oldTarget, 999999);
-        h.store.recordRepairProgress({
-            chainId: 1,
-            repair: oldTarget,
-            remaining: null,
-            retryAt: 0,
-        });
-        expect(h.store.getProgress(1, older)?.pending?.toBlock).toBe(114);
+        h.store.deferRetry(1, old, 999999);
+        expect(
+            h.store.recordRepairProgress({
+                chainId: 1,
+                repair: old,
+                remaining: null,
+                retryAt: 0,
+            }),
+        ).toBe(false);
         expect(h.store.getProgress(1, older)?.pending?.retryAt).toBe(1000);
-        expect(await run(h, first, testRpc())).toBe(false);
         h.restart();
         await h.scheduler.scan(115);
-        const next = h.jobs[1];
-        expect([next.payload.fromBlock, next.payload.toBlock]).toEqual([
-            106, 114,
-        ]);
-        expect(next.jobId).not.toBe(first.jobId);
-        await run(h, next, testRpc());
+        expect(h.batches()[0]).toMatchObject({ fromBlock: 106, toBlock: 114 });
+        await run(h, testRpc());
         expect(h.store.getProgress(1, older)?.pending).toBeNull();
         expect(coverage(older)).toBe(16);
         expect(coverage(newer)).toBe(16);
     });
 
-    it("avoids reacquiring a busy covered peer while completing unequal gaps", async () => {
+    it("avoids rereading covered busy peers for unequal gaps with fewer logical RPC calls", async () => {
         const costs: Record<
             string,
             {
@@ -255,14 +211,15 @@ describe("shared collection gap acquisition", () => {
                 logs: number;
                 transactions: number;
                 receipts: number;
+                heads: number;
             }
         > = {};
         for (const mode of ["separate", "shared"]) {
             db.exec(
-                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions;",
+                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox;",
             );
-            const h = harness();
-            const first = seed(0),
+            const h = harness(),
+                first = seed(0),
                 busy = seed(1);
             cover(first, 100, 100);
             cover(busy, 100, 100);
@@ -271,10 +228,9 @@ describe("shared collection gap acquisition", () => {
             );
             logs.push(transferLog(0, 110, 10n));
             const rpc = testRpc(logs);
-            const storage = new SqliteStorage();
-            await processRange({
+            const covered = await acquireSyncRange({
                 rpc,
-                storage,
+                storage: h.storage,
                 collectionScopeResolver: h.registry,
                 collectionExtensions: { getInstall: () => null },
                 chainId: 1,
@@ -285,64 +241,38 @@ describe("shared collection gap acquisition", () => {
                 orderMaintenancePolicy:
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             });
+            h.storage.persistSyncResult(covered);
             rpc.getBlock.mockClear();
             rpc.getLogs.mockClear();
             rpc.getTransaction.mockClear();
             rpc.getTransactionReceipt.mockClear();
+            rpc.getBlockNumber.mockClear();
             await h.scheduler.scan(110);
-            const firstBatch = h.jobs[0];
-            expect([
-                firstBatch.payload.fromBlock,
-                firstBatch.payload.toBlock,
-            ]).toEqual([110, 110]);
             const published: JobEnvelope[] = [];
             if (mode === "shared") {
-                await run(h, firstBatch, rpc, async (job) => {
+                await run(h, rpc, async (job) => {
                     published.push(job);
                 });
                 expect(h.store.getProgress(1, busy)?.pending).toBeNull();
-                expect(h.store.getProgress(1, first)?.pending).toMatchObject({
-                    fromBlock: 101,
-                    toBlock: 109,
-                });
                 h.restart();
                 await h.scheduler.scan(110);
-                const remainder = h.jobs[1];
-                expect(
-                    remainder.payload.repairs!.map(
-                        (repair) => repair.collectionId,
-                    ),
-                ).toEqual([first]);
-                await run(h, remainder, rpc, async (job) => {
+                await run(h, rpc, async (job) => {
                     published.push(job);
                 });
                 expect(
                     published
                         .filter(
-                            (job) =>
-                                job.kind === DOMAIN_JOB_KIND.ActivitySync &&
-                                job.collectionId === busy,
+                            (j) =>
+                                j.kind === DOMAIN_JOB_KIND.ActivitySync &&
+                                j.collectionId === busy,
                         )
-                        .map((job) => job.payload),
+                        .map((j) => j.payload),
                 ).toEqual([
                     expect.objectContaining({ fromBlock: 110, toBlock: 110 }),
                 ]);
             } else {
-                for (const target of firstBatch.payload.repairs!)
-                    await run(
-                        h,
-                        {
-                            ...firstBatch,
-                            jobId: `${firstBatch.jobId}:${target.collectionId}`,
-                            payload: {
-                                ...firstBatch.payload,
-                                fromBlock: target.fromBlock,
-                                toBlock: target.toBlock,
-                                repairs: [target],
-                            },
-                        },
-                        rpc,
-                    );
+                for (const id of [first, busy])
+                    await run(h, rpc, async () => {}, id);
             }
             for (const id of [first, busy]) {
                 expect(h.store.getProgress(1, id)?.pending).toBeNull();
@@ -369,81 +299,70 @@ describe("shared collection gap acquisition", () => {
                 logs: rpc.getLogs.mock.calls.length,
                 transactions: rpc.getTransaction.mock.calls.length,
                 receipts: rpc.getTransactionReceipt.mock.calls.length,
+                heads: rpc.getBlockNumber.mock.calls.length,
             };
         }
         expect(costs).toEqual({
-            separate: { headers: 13, logs: 8, transactions: 1, receipts: 1 },
-            shared: { headers: 12, logs: 8, transactions: 1, receipts: 1 },
+            separate: {
+                headers: 13,
+                logs: 8,
+                transactions: 1,
+                receipts: 1,
+                heads: 2,
+            },
+            shared: {
+                headers: 12,
+                logs: 8,
+                transactions: 1,
+                receipts: 1,
+                heads: 2,
+            },
         });
     });
 
-    it("finishes a previously queued widened batch using its original member intents", async () => {
-        const h = harness();
-        const first = seed(0),
-            second = seed(1);
-        cover(first, 100, 100);
-        cover(second, 100, 109);
-        await h.scheduler.scan(110);
-        const current = h.jobs[0];
-        const retained = {
-            ...current,
-            jobId: `${current.jobId}:retained`,
-            payload: { ...current.payload, fromBlock: 101 },
-        };
-        expect(await run(h, retained, testRpc())).toBe(true);
-        expect(h.store.getProgress(1, first)?.pending).toBeNull();
-        expect(h.store.getProgress(1, second)?.pending).toBeNull();
-        expect(coverage(first)).toBe(11);
-        expect(coverage(second)).toBe(11);
-    });
-
-    it("keeps the whole batch pending after partial fanout, then retries the same identities after restart", async () => {
-        const h = harness();
-        const first = seed(0),
+    it("completes acquisition despite partial publication, retaining the same follow-ups without repeating RPC", async () => {
+        const h = harness(),
+            first = seed(0),
             second = seed(1);
         await h.scheduler.scan(110);
-        const job = h.jobs[0];
-        const failed = vi.fn(async (domainJob: JobEnvelope) => {
+        const rpc = testRpc();
+        const failed = vi.fn(async (j: JobEnvelope) => {
             if (
-                domainJob.collectionId === second &&
-                domainJob.kind === DOMAIN_JOB_KIND.OrdersSync
+                j.collectionId === second &&
+                j.kind === DOMAIN_JOB_KIND.OrdersSync
             )
                 throw new Error("fanout unavailable");
         });
-        await expect(run(h, job, testRpc(), failed)).rejects.toThrow(
-            "fanout unavailable",
-        );
+        await run(h, rpc, failed);
         for (const id of [first, second]) {
             expect(coverage(id)).toBe(10);
-            expect(h.store.getProgress(1, id)?.pending).not.toBeNull();
+            expect(h.store.getProgress(1, id)?.pending).toBeNull();
         }
+        const oldCalls = rpc.getBlock.mock.calls.length;
+        const failedJob = failed.mock.calls.find(
+            ([j]) =>
+                j.collectionId === second &&
+                j.kind === DOMAIN_JOB_KIND.OrdersSync,
+        )![0];
         h.restart();
-        h.advance();
-        await h.scheduler.scan(110);
-        expect(h.jobs[1]).toMatchObject({
-            jobId: job.jobId,
-            payload: job.payload,
+        const accepted: JobEnvelope[] = [];
+        await run(h, rpc, async (j) => {
+            accepted.push(j);
         });
-        const successful = vi.fn(async (_job: JobEnvelope) => {});
-        await run(h, h.jobs[1], testRpc(), successful);
-        expect(successful.mock.calls.slice(0, 3).map(([j]) => j.jobId)).toEqual(
-            failed.mock.calls.slice(0, 3).map(([j]) => j.jobId),
-        );
-        expect(h.store.getProgress(1, first)?.pending).toBeNull();
-        expect(h.store.getProgress(1, second)?.pending).toBeNull();
+        expect(accepted.map((j) => j.jobId)).toEqual([failedJob.jobId]);
+        expect(rpc.getBlock).toHaveBeenCalledTimes(oldCalls);
     });
 
     it.each(["pause", "anchor", "purge", "complete"])(
-        "excludes a %s member at execution and leaves other members repairable",
+        "excludes a %s member before acquisition",
         async (change) => {
-            const h = harness();
-            const first = seed(0),
+            const h = harness(),
+                first = seed(0),
                 second = seed(1);
             await h.scheduler.scan(110);
-            const job = h.jobs[0];
-            const target = job.payload.repairs!.find(
-                (repair) => repair.collectionId === second,
-            )!;
+            const target = h
+                .batches()[0]
+                .repairs.find((r) => r.collectionId === second)!;
             if (change === "pause")
                 db.prepare(
                     "UPDATE collections SET status = ? WHERE collection_id = ?",
@@ -463,62 +382,36 @@ describe("shared collection gap acquisition", () => {
                     remaining: null,
                     retryAt: 0,
                 });
-            const rpc = testRpc();
-            const fanout = vi.fn(async (_job: JobEnvelope) => {});
-            await run(h, job, rpc, fanout);
+            const rpc = testRpc(),
+                published: JobEnvelope[] = [];
+            await run(h, rpc, async (j) => {
+                published.push(j);
+            });
             expect(rpc.getLogs.mock.calls[0][0].address).toBe(CONTRACTS[0]);
             expect(coverage(first)).toBe(10);
             expect(coverage(second)).toBe(0);
-            expect(
-                fanout.mock.calls.some(([j]) => j.collectionId === second),
-            ).toBe(false);
+            expect(published.some((j) => j.collectionId === second)).toBe(
+                false,
+            );
         },
     );
 
-    it("consumes retained single-collection deliveries from the previous runtime", async () => {
-        const h = harness();
-        const id = seed(0);
-        await h.scheduler.scan(110);
-        const batch = h.jobs[0],
-            target = batch.payload.repairs![0];
-        const legacy = {
-            ...batch,
-            jobId: target.repairId,
-            collectionId: id,
-            payload: { ...batch.payload, repairs: undefined },
-        };
-        expect(await run(h, legacy, testRpc())).toBe(true);
-        expect(h.store.getProgress(1, id)?.pending).toBeNull();
-    });
-
-    it("does not lose either repair on RPC failure and rejects ambiguous batch membership", async () => {
-        const h = harness();
-        const first = seed(0),
+    it("retains both intents and no partial facts on RPC failure", async () => {
+        const h = harness(),
+            first = seed(0),
             second = seed(1);
         await h.scheduler.scan(110);
-        const job = h.jobs[0],
-            rpc = testRpc();
+        const rpc = testRpc();
         rpc.getBlock.mockRejectedValueOnce(new Error("RPC unavailable"));
-        await expect(run(h, job, rpc)).rejects.toThrow("RPC unavailable");
+        await run(h, rpc);
         expect(coverage(first)).toBe(0);
         expect(coverage(second)).toBe(0);
-        for (const malformed of [
-            { ...job, collectionId: first },
-            {
-                ...job,
-                payload: {
-                    ...job.payload,
-                    repairs: [job.payload.repairs![0], job.payload.repairs![0]],
-                },
-            },
-            {
-                ...job,
-                payload: { ...job.payload, toBlock: job.payload.toBlock - 1 },
-            },
-        ])
-            expect(await run(h, malformed, testRpc())).toBe(false);
-        expect(h.store.getProgress(1, first)?.pending).not.toBeNull();
-        expect(h.store.getProgress(1, second)?.pending).not.toBeNull();
+        expect(h.batches()).toEqual([]);
+        h.advance();
+        expect(h.batches()[0].repairs).toHaveLength(2);
+        await run(h, rpc);
+        expect(coverage(first)).toBe(10);
+        expect(coverage(second)).toBe(10);
     });
 });
 
@@ -669,25 +562,32 @@ describe("bounded gap batch planning", () => {
 
 function harness(batchSize = 10) {
     const registry = new SqliteCollectionRegistry(),
-        store = new SqliteSyncGapStore();
-    const jobs: RepairJob[] = [];
-    const queue = {
-        publish: vi.fn<QueuePort["publish"]>(async (_queue, job) => {
-            jobs.push(job as RepairJob);
-        }),
-    };
+        store = new SqliteSyncGapStore(),
+        storage = new SqliteStorage(),
+        outbox = new SqliteQueueOutbox(),
+        recoveries = new SqliteReorgRecoveries(storage);
+    const commit = new SqliteSyncRangeCommit({
+        storage,
+        outbox,
+        gaps: store,
+        recoveries,
+        collections: registry,
+    });
     let now = 1000;
     const create = () =>
-        new SyncGapScheduler(registry, store, queue, {
+        new SyncGapScheduler(registry, store, {
             chainId: 1,
             batchSize,
             now: () => now,
-            retryDelayMs: 100,
         });
     return {
         registry,
         store,
-        jobs,
+        storage,
+        outbox,
+        recoveries,
+        commit,
+        batchSize,
         scheduler: create(),
         restart() {
             this.scheduler = create();
@@ -696,65 +596,71 @@ function harness(batchSize = 10) {
             now += 100;
         },
         now: () => now,
+        batches: () =>
+            planSyncGapRepairBatches(
+                store.listDuePage({ chainId: 1, now, limit: 16, after: null })
+                    .repairs,
+                batchSize,
+            ),
     };
 }
-
 async function run(
     h: ReturnType<typeof harness>,
-    job: RepairJob,
     rpc: ReturnType<typeof testRpc>,
     publish: (job: JobEnvelope) => Promise<void> = async () => {},
+    onlyCollection?: number,
 ) {
-    return executeSyncGapRepair(
-        job,
-        h.registry,
-        h.store,
-        async (collections, sources) => {
-            const range = {
-                fromBlock: job.payload.fromBlock,
-                toBlock: job.payload.toBlock,
-            };
-            const { data } = await processRange({
-                rpc,
-                storage: new SqliteStorage(),
-                collectionScopeResolver: h.registry,
-                collectionExtensions: { getInstall: () => null },
-                chainId: 1,
-                collections,
-                range,
-                bidderIndex: { isActive: () => false, shouldEmit: () => false },
-                wethAddress: CONTRACTS[0],
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            });
-            data.global.makerTriggers.push({
-                maker: SELLER,
-                reason: GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
-                blockNumber: job.payload.toBlock,
-                blockHash: block(job.payload.toBlock).hash,
-                txHash: TX,
-                logIndex: 10,
-            });
-            await publishDomainJobs(
-                {
-                    publish: async (_queue, domainJob) => publish(domainJob),
-                },
-                1,
-                collections,
-                range,
-                sources,
-                "backfill",
-                data,
-                job.payload.orderMaintenancePolicy,
-            );
-        },
-        h.now,
+    const gaps =
+        onlyCollection === undefined
+            ? h.store
+            : {
+                  ...h.store,
+                  getProgress: h.store.getProgress.bind(h.store),
+                  saveProgress: h.store.saveProgress.bind(h.store),
+                  findGap: h.store.findGap.bind(h.store),
+                  deferRetry: h.store.deferRetry.bind(h.store),
+                  recordRepairProgress: h.store.recordRepairProgress.bind(
+                      h.store,
+                  ),
+                  listDuePage: (
+                      input: Parameters<SqliteSyncGapStore["listDuePage"]>[0],
+                  ) => {
+                      const page = h.store.listDuePage(input);
+                      return {
+                          ...page,
+                          repairs: page.repairs.filter(
+                              (r) => r.collectionId === onlyCollection,
+                          ),
+                      };
+                  },
+              };
+    const executor = new AutomaticSyncExecutor({
+        chainId: 1,
+        rpc,
+        storage: h.storage,
+        commit: h.commit,
+        collectionsPort: h.registry,
+        collectionExtensions: { getInstall: () => null },
+        gaps,
+        recoveries: h.recoveries,
+        gate: new BackfillExecutionGate(),
+        batchSize: h.batchSize,
+        now: h.now,
+        retryDelayMs: 100,
+        bidderIndex: { isActive: () => false, shouldEmit: () => false },
+        wethAddress: CONTRACTS[0],
+    });
+    await executor.runDue();
+    await drainQueueOutbox(
+        h.outbox,
+        { publish: async (_queue, job) => publish(job) } as QueuePort,
+        { retryBaseDelayMs: 0 },
     );
 }
 
 function testRpc(logs: RpcLog[] = []) {
     return {
-        getBlockNumber: async () => 115,
+        getBlockNumber: vi.fn(async () => 115),
         getBlock: vi.fn(async (number: number) => block(number)),
         getLogs: vi.fn<RpcProviderPort["getLogs"]>(async (filter) => {
             if (

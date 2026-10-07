@@ -12,9 +12,7 @@ import {
     type MetadataStatsRecomputePayload,
     type MetadataStatsRecomputeReason,
 } from "../../domain/domain-jobs.js";
-import type {
-    CollectionExtensionRefreshArtifactsPayload,
-} from "../../domain/collection-extension-jobs.js";
+import type { CollectionExtensionRefreshArtifactsPayload } from "../../domain/collection-extension-jobs.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import type { CollectionExtensionInstallPort } from "../../ports/collection-extensions.js";
 
@@ -53,7 +51,7 @@ export interface MetadataRefreshFollowupStoragePort {
 // MetadataRefreshFollowupInput describes one successful metadata-write batch.
 export type MetadataRefreshFollowupInput = {
     followups: MetadataRefreshFollowupStoragePort;
-    collectionExtensions: CollectionExtensionInstallPort;
+    collectionExtensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     chainId: number;
     updatedTokens: readonly MetadataUpdatedToken[];
     runScope: MetadataRefreshRunIdScope;

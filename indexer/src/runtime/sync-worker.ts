@@ -6,13 +6,18 @@ import { BackfillExecutionGate } from "../application/backfill-execution.js";
 import type { SyncRange } from "../application/sync.js";
 import {
     domainSyncSource,
-    processRange,
-    publishDomainJobs,
+    processSyncRange,
 } from "../application/sync-range-processing.js";
 import {
     createBackfillSyncHandler,
     SYNC_WORKER_LOG_COMPONENT,
 } from "../application/backfill-sync-handler.js";
+import {
+    AutomaticSyncExecutor,
+    startAutomaticSyncLoop,
+} from "../application/automatic-sync-executor.js";
+import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
+import { SqliteSyncRangeCommit } from "../infra/storage/sqlite-sync-range-commit.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
 import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -23,10 +28,7 @@ import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     SYNC_JOB_KIND,
 } from "../domain/sync-jobs.js";
-import type {
-    BackfillOrderMaintenancePolicy,
-    RealtimeSyncPayload,
-} from "../domain/sync-jobs.js";
+import type { RealtimeSyncPayload } from "../domain/sync-jobs.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -100,11 +102,16 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const syncGapStore = new SqliteSyncGapStore();
-        const reorgRecoveries = new SqliteReorgRecoveries(
-            storage,
-            new SqliteQueueOutbox(),
-        );
+        const reorgRecoveries = new SqliteReorgRecoveries(storage);
+        const outbox = new SqliteQueueOutbox();
         const collectionRegistry = new SqliteCollectionRegistry();
+        const commit = new SqliteSyncRangeCommit({
+            storage,
+            outbox,
+            gaps: syncGapStore,
+            recoveries: reorgRecoveries,
+            collections: collectionRegistry,
+        });
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
         );
@@ -171,9 +178,13 @@ async function main() {
                     fromBlock: job.payload.blockNumber,
                     toBlock: job.payload.blockNumber,
                 };
-                const { data, blocks } = await processRange({
+                const { data, blocks } = await processSyncRange({
                     rpc: primaryRpc,
                     storage,
+                    commit,
+                    sources: [domainSyncSource(job)],
+                    mode: "realtime",
+                    completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
                     collectionScopeResolver: collectionRegistry,
                     collectionExtensions,
                     chainId: config.chainId,
@@ -184,16 +195,6 @@ async function main() {
                     orderMaintenancePolicy:
                         BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 });
-                await publishDomainJobs(
-                    queue,
-                    config.chainId,
-                    collections,
-                    range,
-                    [domainSyncSource(job)],
-                    "realtime",
-                    data,
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-                );
                 logger.info("Sync block processed", {
                     component: SYNC_WORKER_LOG_COMPONENT,
                     action: "syncBlock",
@@ -227,23 +228,37 @@ async function main() {
             },
             createBackfillSyncHandler({
                 chainId: config.chainId,
-                batchSize: config.sync.backfillBatchSize,
                 workerCount: config.sync.backfillWorkerCount,
                 wethAddress: config.tokens.wethAddress,
                 rpc: backfillRpc,
                 storage,
+                commit,
                 collectionsPort: collectionRegistry,
                 extensions: collectionExtensions,
-                queue,
                 bidderIndex,
-                gaps: syncGapStore,
-                recoveries: reorgRecoveries,
                 gate: backfillExecutionGate,
             }),
             {
                 apm: runtimeApm.apm,
                 spanName: "worker.backfillSync.consume",
             },
+        );
+
+        const stopAutomaticSync = startAutomaticSyncLoop(
+            new AutomaticSyncExecutor({
+                chainId: config.chainId,
+                rpc: backfillRpc,
+                storage,
+                commit,
+                collectionsPort: collectionRegistry,
+                collectionExtensions,
+                bidderIndex,
+                wethAddress: config.tokens.wethAddress,
+                gaps: syncGapStore,
+                recoveries: reorgRecoveries,
+                gate: backfillExecutionGate,
+                batchSize: config.sync.backfillBatchSize,
+            }),
         );
 
         logger.info("Sync worker ready", {
@@ -258,8 +273,11 @@ async function main() {
                 action: "shutdown",
             });
             clearInterval(bidderRefreshTimer);
-            await stopRealtime();
-            await stopBackfill();
+            await Promise.all([
+                stopAutomaticSync(),
+                stopRealtime(),
+                stopBackfill(),
+            ]);
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();

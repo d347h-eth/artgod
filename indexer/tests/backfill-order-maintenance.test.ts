@@ -1,5 +1,6 @@
+import { OPENSEA_STREAM_INGESTION_STATUS } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
-import { publishOrderUpdateJobs } from "../src/application/order-update-fanout.js";
+import { buildOrderUpdateFollowUps } from "../src/application/order-update-fanout.js";
 import {
     allowsGlobalMakerRevalidation,
     shouldFetchWethMakerLogs,
@@ -17,13 +18,8 @@ import {
     ORDER_JOB_KIND,
     type OrderUpdateByMakerPayload,
 } from "../src/domain/order-jobs.js";
-import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
-import type {
-    QueueMessage,
-    QueuePort,
-    SubscribeOptions,
-} from "../src/ports/queue.js";
 
 describe("backfill order maintenance", () => {
     it("does not fetch WETH maker logs for manual historical policy", () => {
@@ -78,7 +74,6 @@ describe("backfill order maintenance", () => {
     });
 
     it("skips global maker fanout while keeping token-scoped maker triggers", async () => {
-        const queue = new RecordingQueue();
         const data = emptyOnChainData();
         data.collectionScoped.makerTriggers.push({
             collectionId: 7,
@@ -119,16 +114,15 @@ describe("backfill order maintenance", () => {
             ),
         );
 
-        await publishOrderUpdateJobs(
-            queue,
+        const jobs = buildOrderUpdateFollowUps(
             1,
             [collectionWithAnchor(100)],
             data,
             BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-        );
+        ).map((followUp) => followUp.job);
 
-        const makerPayloads = orderUpdateByMakerPayloads(queue);
-        expect(queue.published.map(({ queue }) => queue)).toEqual([
+        const makerPayloads = orderUpdateByMakerPayloads(jobs);
+        expect(jobs.map((job) => job.queue)).toEqual([
             QUEUE_NAMES.OrdersUpdateByToken,
             QUEUE_NAMES.OrdersUpdateByMaker,
         ]);
@@ -147,7 +141,6 @@ describe("backfill order maintenance", () => {
     });
 
     it("keeps global maker fanout for current-state repair policy", async () => {
-        const queue = new RecordingQueue();
         const data = emptyOnChainData();
         data.global.makerTriggers.push(
             globalTrigger(
@@ -157,15 +150,14 @@ describe("backfill order maintenance", () => {
             ),
         );
 
-        await publishOrderUpdateJobs(
-            queue,
+        const jobs = buildOrderUpdateFollowUps(
             1,
             [collectionWithAnchor(100)],
             data,
             BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-        );
+        ).map((followUp) => followUp.job);
 
-        expect(orderUpdateByMakerPayloads(queue)).toEqual([
+        expect(orderUpdateByMakerPayloads(jobs)).toEqual([
             expect.objectContaining({
                 scope: MAKER_TRIGGER_SCOPE.Global,
                 reason: GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
@@ -185,7 +177,6 @@ describe("backfill order maintenance", () => {
             ),
         ).toBe(false);
 
-        const currentStateQueue = new RecordingQueue();
         const currentStateData = emptyOnChainData();
         currentStateData.global.makerTriggers.push(
             globalTrigger(
@@ -194,15 +185,13 @@ describe("backfill order maintenance", () => {
                 5,
             ),
         );
-        await publishOrderUpdateJobs(
-            currentStateQueue,
+        const currentStateJobs = buildOrderUpdateFollowUps(
             1,
             [collectionWithAnchor(100)],
             currentStateData,
             BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-        );
+        ).map((followUp) => followUp.job);
 
-        const manualQueue = new RecordingQueue();
         const manualData = emptyOnChainData();
         manualData.global.makerTriggers.push(
             globalTrigger(
@@ -211,62 +200,34 @@ describe("backfill order maintenance", () => {
                 5,
             ),
         );
-        await publishOrderUpdateJobs(
-            manualQueue,
+        const manualJobs = buildOrderUpdateFollowUps(
             1,
             [collectionWithAnchor(100)],
             manualData,
             BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-        );
+        ).map((followUp) => followUp.job);
 
-        expect(orderUpdateByMakerPayloads(currentStateQueue)).toEqual([
+        expect(orderUpdateByMakerPayloads(currentStateJobs)).toEqual([
             expect.objectContaining({
                 scope: MAKER_TRIGGER_SCOPE.Global,
                 reason: GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
             }),
         ]);
-        expect(orderUpdateByMakerPayloads(manualQueue)).toEqual([]);
+        expect(orderUpdateByMakerPayloads(manualJobs)).toEqual([]);
     });
 });
 
-class RecordingQueue implements QueuePort {
-    readonly published: Array<{
-        queue: QueueName;
-        message: JobEnvelope<unknown>;
-    }> = [];
-
-    async publish<TPayload>(
-        queue: QueueName,
-        message: JobEnvelope<TPayload>,
-    ): Promise<void> {
-        this.published.push({
-            queue,
-            message: message as JobEnvelope<unknown>,
-        });
-    }
-
-    async subscribe<TPayload>(
-        _queue: QueueName,
-        _handler: (message: QueueMessage<TPayload>) => Promise<void>,
-        _options: SubscribeOptions,
-    ): Promise<() => Promise<void>> {
-        throw new Error("RecordingQueue does not support subscribe");
-    }
-
-    async close(): Promise<void> {}
-}
-
 function orderUpdateByMakerPayloads(
-    queue: RecordingQueue,
+    jobs: JobEnvelope[],
 ): OrderUpdateByMakerPayload[] {
-    return queue.published
+    return jobs
         .filter(
-            (entry) =>
-                (entry.queue === QUEUE_NAMES.OrdersUpdateByMaker ||
-                    entry.queue === QUEUE_NAMES.OrdersUpdateByToken) &&
-                entry.message.kind === ORDER_JOB_KIND.UpdateByMaker,
+            (job) =>
+                (job.queue === QUEUE_NAMES.OrdersUpdateByMaker ||
+                    job.queue === QUEUE_NAMES.OrdersUpdateByToken) &&
+                job.kind === ORDER_JOB_KIND.UpdateByMaker,
         )
-        .map((entry) => entry.message.payload as OrderUpdateByMakerPayload);
+        .map((job) => job.payload as OrderUpdateByMakerPayload);
 }
 
 function globalTrigger(
@@ -324,6 +285,7 @@ function collectionWithAnchor(anchorBlock: number): CollectionRecord {
         bootstrapLastSyncedBlock: null,
         openseaSlug: null,
         openseaStatus: null,
+        openseaStreamIngestionStatus: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
         openseaReadyAt: null,
         openseaSnapshotStartedAt: null,
         openseaSnapshotCompletedAt: null,

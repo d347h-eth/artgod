@@ -88,6 +88,9 @@ export type MetadataRefreshRangePayload = {
     fromTokenId: string;
     toTokenId: string;
     cursorTokenId: string;
+    // Continuations retain the root publication ID, including its chain revision.
+    // Initial and legacy jobs seed this from their envelope jobId.
+    rootJobId?: string;
     reason: string;
     source?: string | null;
 };

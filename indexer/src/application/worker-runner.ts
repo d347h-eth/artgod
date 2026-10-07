@@ -29,6 +29,7 @@ export type WorkerOptions = {
 export type WorkerRuntimeHooks = {
     apm?: ApmPort;
     spanName?: string;
+    admission?: { isCurrent(job: JobEnvelope): boolean };
 };
 
 export async function runWorker<TPayload>(
@@ -72,7 +73,11 @@ export async function runWorker<TPayload>(
                     }
 
                     try {
-                        await handler(message.data, message.origin);
+                        if (
+                            !runtimeHooks?.admission ||
+                            runtimeHooks.admission.isCurrent(message.data)
+                        )
+                            await handler(message.data, message.origin);
                         await message.ack();
                     } catch (err) {
                         if (err instanceof UnsupportedJob) {

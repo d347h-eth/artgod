@@ -58,16 +58,17 @@ fences still protect against duplicate delivery.
 - `awaiting_ancestor` holds the lowest known mismatched height and retry
   eligibility. Later checks coalesce; an earlier mismatch supersedes stale proof.
 - `resync` holds one bounded required range, a captured target head, the committed
-  revision and a delivery generation. Coverage or queue acceptance does not
-  complete this phase.
+  revision. A transaction committing its data and required downstream publication
+  intent advances this phase; coverage or broker acceptance alone does not.
 
-The reorg runtime resumes due work at startup and polls every 12 seconds,
-independently of scheduler head updates. Failed proof and unfinished resync retry
+The reorg runtime resumes due proof at startup and polls every 12 seconds. The
+sync runtime executes retained resync through its automatic executor, also at
+startup and every 12 seconds, independently of head changes. Failed acquisition and proof retry
 after five minutes. Proof errors remain visible in logs and persisted `last_error`;
 no ancestor guess or hot retry loop is used. Missing-header gap repair can make
 later proof succeed even when HEAD stays unchanged.
 
-A newer mismatch during resync carries the earliest unfinished fanout block into
+A newer mismatch during resync carries the earliest unacquired resync block into
 its replacement workflow. Stale proof cannot commit over a newer recovery or
 chain revision. A changed revision rearms proof while preserving that unfinished
 range rather than retrying a permanently stale checkpoint.
@@ -117,8 +118,8 @@ One SQLite transaction validates that the recovery and rollback plan are still
 current and that the complete local proof window is unchanged, including newly
 filled holes and parent metadata. It writes the fork ownership checkpoints (including absent tokens), removes
 orphaned facts and coverage, advances the chain sync revision, retains resync
-progress and enqueues its first range in `queue_outbox`. Failure retaining that
-continuation rolls back every part of the transaction. RPC remains outside the
+progress. Failure retaining the resync state rolls back every part of the
+transaction. RPC remains outside the
 writer. A sync worker captures the chain
 revision before fetching RPC data; work fetched before a committed rollback is
 rejected when it tries to persist. An affected token added while RPC reads are in
@@ -138,38 +139,42 @@ Rollback captures the current head and starts resync over:
 rollbackFrom -> currentHead
 ```
 
-The workflow retains one range capped by `BACKFILL_BATCH_SIZE`. The existing
-domain-worker outbox drainer publishes it to `events-sync-backfill`, and the sync
-worker uses the normal range persistence and downstream fanout pipeline. The
-matching recovery/range advances only after both succeed, atomically retaining
-the next range and its outbox job. It clears after the last required range;
-downstream publication is established, not completion by those domain consumers.
+The workflow retains one range capped by `BACKFILL_BATCH_SIZE`. The sync worker's
+`AutomaticSyncExecutor` reads it directly, reloads live and bootstrapping
+collections through the existing backfill selection after entering the
+current-state gate, and uses the shared sync pipeline. Selection does not require
+a bootstrap anchor; current-state projection remains anchor-gated. An empty
+eligible set leaves recovery pending.
+
+One transaction revalidates recovery ID, revision and exact range; persists
+canonical data/coverage/balances; retains every required follow-up in the outbox;
+and advances the next bounded range or clears recovery. Failure in any part
+leaves the previous range intact. A crash before commit retries acquisition;
+a crash afterward retries publications from the outbox without another RPC read.
+No automatic range publication, broker lease, delivery generation or continuation
+message is needed. Old queued `reorg_recovery` hints are ACKed without acquisition.
+
+The domain worker retries required publications indefinitely with capped backoff
+and stable, revision-qualified IDs. Acquisition completion means publication
+intent is durable; it does not mean the broker or domain consumers have finished.
+Rollback drops orphan event-specific intent, and domain consumers reject already
+published event hints whose originating block hash is no longer stored. Pending
+range follow-ups survive rollback because they reread canonical persisted facts;
+this also preserves unfinished pre-fork projection when a newer mismatch occurs.
+Event-triggered metadata range continuations retain that block identity and the
+revision-qualified root publication ID through every cursor. Replacement tails
+therefore remain distinct from tails already accepted for an orphaned root.
 
 A head behind the verified fork defers rollback. If the head is exactly the fork
-and no interrupted earlier range remains, the atomic rollback completes recovery
-without inventing a resync range.
+and no interrupted earlier acquisition remains, rollback completes recovery
+without inventing a range. A newer mismatch or revision change rearms bounded
+proof and preserves the earliest unacquired range.
 
-`reorg_recovery` jobs explicitly carry `{ recoveryId, revision }`, are chain-wide
-and select `current_state`. Stale, legacy unowned, collection-scoped or incorrectly
-configured reorg jobs cannot complete a workflow. Eligible collections are
-reloaded inside the current-state gate. An empty eligible set leaves resync
-pending. Already admitted work retains existing lifecycle behavior; full
-pause/shutdown/purge coordination remains deferred.
-
-If no completion arrives within five minutes, recovery replaces its retained
-outbox publication with a fresh delivery generation for the same logical range.
-This also redrives `failed_terminal`, sent-but-unfinished, ACKed and DLQ deliveries.
-Transport IDs change to avoid broker deduplication swallowing required work;
-recovery ID, revision and range remain its completion identity. An older delivery
-may complete the same current range; a completed or superseded range is a no-op.
-Unfinished broker messages can coexist, while retained business/outbox work stays
-bounded to one range per chain.
-
-Normal composition requires the reorg worker (continuation owner), domain worker
-(outbox publisher) and sync worker (range and fanout completion). Restart after
-rollback resumes resync without repeating the committed rollback. Realtime work
-remains outside the backfill gate; transaction-time revision checks reject its
-pre-rollback RPC result.
+Normal composition requires the reorg worker for proof/rollback, sync worker for
+acquisition, and domain worker for outbox publication. Restart does not repeat a
+committed rollback. Realtime remains outside the backfill gate; transaction-time
+revision checks reject pre-rollback RPC results. Full pause/shutdown/purge
+coordination for already admitted work remains deferred.
 
 ## Safety Rules
 
@@ -184,7 +189,7 @@ pre-rollback RPC result.
 Block-check cadence is scheduler-owned. Checks are not yet persisted beside the
 block write or separated into delayed short-, medium-, and long-horizon tiers.
 Any future change must retain ordered fork discovery, bounded rollback depth,
-and idempotent resync through the existing backfill queue.
+and idempotent resync through the retained automatic executor.
 
 ### Deferred Ownership Workload Scaling
 

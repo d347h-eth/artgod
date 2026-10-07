@@ -12,21 +12,22 @@ import {
 import { logger } from "@artgod/shared/utils";
 import {
     isImageCachePolicyActive,
-    shouldRefreshImageCacheOnMetadata,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
 import {
     TOKEN_IMAGE_CACHE_JOB_KIND,
-    TOKEN_IMAGE_CACHE_REFRESH_REASON,
     buildTokenImageCacheRefreshCollectionJobId,
-    buildTokenImageCacheRefreshTokenJobId,
     type TokenImageCacheRefreshCollectionPayload,
     type TokenImageCacheRefreshTokenPayload,
 } from "@artgod/shared/media/token-image-cache-jobs";
 import { loadConfig } from "../config/index.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
+import { CanonicalSyncJobAdmission } from "../application/canonical-sync-job-admission.js";
+import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
 import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
+import { createMetadataRefreshRangeHandler } from "../application/metadata/refresh-range.js";
+import { publishMetadataImageRefreshes } from "../application/metadata/image-refresh.js";
 import { startQueueOutboxDrainer } from "../application/queue-outbox/drainer.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
@@ -89,8 +90,6 @@ import { SqliteOrderValidationDemand } from "../infra/orders/sqlite-order-valida
 import { RevalidateMakerOrders } from "../application/orders/revalidate-maker.js";
 import { startMakerRevalidationRecovery } from "../application/orders/recover-maker-revalidations.js";
 import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
-import type { MetadataUpdatedToken } from "../domain/metadata.js";
-import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import {
@@ -234,6 +233,9 @@ async function main() {
             config.debugPayloads,
         );
         const queueOutbox = new SqliteQueueOutbox();
+        const syncJobAdmission = new CanonicalSyncJobAdmission(
+            new SqliteStorage(),
+        );
         const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
             queueOutbox,
         );
@@ -272,6 +274,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.ordersDomain.consume",
             },
         );
@@ -316,6 +319,7 @@ async function main() {
                     },
                     {
                         apm: runtimeApm.apm,
+                        admission: syncJobAdmission,
                         spanName:
                             queueName === QUEUE_NAMES.OrdersUpdateByMaker
                                 ? "worker.ordersUpdateByMaker.consume"
@@ -365,6 +369,7 @@ async function main() {
                     }),
                     {
                         apm: runtimeApm.apm,
+                        admission: syncJobAdmission,
                         spanName:
                             queueName === QUEUE_NAMES.OrdersUpdateById
                                 ? "worker.ordersUpdateById.consume"
@@ -397,6 +402,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.ordersUpsert.consume",
             },
         );
@@ -433,10 +439,19 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataDomain.consume",
             },
         );
 
+        const handleMetadataRefreshRange = createMetadataRefreshRangeHandler({
+            queue,
+            metadata: metadataDomain,
+            followups: metadataRefreshFollowups,
+            extensions: collectionExtensions,
+            imagePolicy: imageCachePolicyResolver,
+            chunkSize: config.metadata.refreshRangeChunkSize,
+        });
         const stopMetadataRefresh = await runWorker(
             queue,
             {
@@ -470,33 +485,26 @@ async function main() {
                             traceId: job.traceId ?? job.jobId,
                             source: payload.source,
                         });
-                        await publishTokenImageCacheRefreshJobs(
+                        await publishMetadataImageRefreshes({
                             queue,
-                            imageCachePolicyResolver,
-                            job.chainId,
-                            [updated],
-                            job.traceId ?? job.jobId,
-                            payload.source,
-                        );
+                            policy: imageCachePolicyResolver,
+                            chainId: job.chainId,
+                            updatedTokens: [updated],
+                            traceId: job.traceId ?? job.jobId,
+                            source: payload.source,
+                        });
                     }
                     return;
                 }
                 if (job.kind === DOMAIN_JOB_KIND.MetadataRefreshRange) {
-                    await handleMetadataRefreshRangeJob(
-                        queue,
-                        metadataDomain,
-                        metadataRefreshFollowups,
-                        collectionExtensions,
-                        imageCachePolicyResolver,
-                        job.payload as MetadataRefreshRangePayload,
-                        config.metadata.refreshRangeChunkSize,
-                        job.traceId ?? job.jobId,
-                        job.jobId,
+                    await handleMetadataRefreshRange(
+                        job as JobEnvelope<MetadataRefreshRangePayload>,
                     );
                 }
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataRefresh.consume",
             },
         );
@@ -516,6 +524,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.metadataStats.consume",
             },
         );
@@ -559,6 +568,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.tokenImageCache.consume",
             },
         );
@@ -578,6 +588,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.activityDomain.consume",
             },
         );
@@ -596,6 +607,7 @@ async function main() {
             },
             {
                 apm: runtimeApm.apm,
+                admission: syncJobAdmission,
                 spanName: "worker.activityUpsert.consume",
             },
         );
@@ -714,145 +726,6 @@ function deriveMetadataStatsReason(
     return METADATA_STATS_RECOMPUTE_REASON.MetadataSync;
 }
 
-async function handleMetadataRefreshRangeJob(
-    queue: QueuePort,
-    metadataDomain: SqliteMetadataDomain,
-    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
-    collectionExtensions: CollectionExtensionInstallPort,
-    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
-    payload: MetadataRefreshRangePayload,
-    chunkSize: number,
-    traceId: string,
-    sourceJobId: string,
-): Promise<void> {
-    const { tokenIds, nextCursorTokenId } = chunkTokenIdRange(
-        payload.fromTokenId,
-        payload.toTokenId,
-        payload.cursorTokenId,
-        chunkSize,
-    );
-
-    const updatedTokens: MetadataUpdatedToken[] = [];
-    for (const tokenId of tokenIds) {
-        const updated = await metadataDomain.handleMetadataRefresh({
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            tokenId,
-            metadataUrl: null,
-            reason: payload.reason,
-            source: payload.source,
-        });
-        if (updated) {
-            updatedTokens.push(updated);
-        }
-    }
-    if (updatedTokens.length > 0) {
-        enqueueMetadataRefreshFollowups({
-            followups: metadataRefreshFollowups,
-            collectionExtensions,
-            chainId: payload.chainId,
-            updatedTokens,
-            runScope: METADATA_REFRESH_RUN_ID_SCOPE.MetadataRefreshRange,
-            artifactReason: payload.reason,
-            statsReason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
-            sourceJobId,
-            traceId,
-            source: payload.source,
-        });
-        await publishTokenImageCacheRefreshJobs(
-            queue,
-            imageCachePolicyResolver,
-            payload.chainId,
-            updatedTokens,
-            traceId,
-            payload.source,
-        );
-    }
-
-    logger.debug("Metadata refresh range chunk processed", {
-        component: "IndexerDomainWorker",
-        action: "handleMetadataRefreshRange",
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
-        fromTokenId: payload.fromTokenId,
-        toTokenId: payload.toTokenId,
-        cursorTokenId: payload.cursorTokenId,
-        processed: tokenIds.length,
-        nextCursorTokenId,
-    });
-
-    if (!nextCursorTokenId) {
-        return;
-    }
-
-    const nextPayload: MetadataRefreshRangePayload = {
-        ...payload,
-        cursorTokenId: nextCursorTokenId,
-    };
-    const nextJob: JobEnvelope<MetadataRefreshRangePayload> = {
-        jobId: `metadata:refresh-range:${payload.chainId}:${payload.collectionId}:${payload.fromTokenId}:${payload.toTokenId}:${nextCursorTokenId}`,
-        kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
-        queue: QUEUE_NAMES.MetadataRefresh,
-        payload: nextPayload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId: payload.chainId,
-        traceId,
-    };
-    await queue.publish(QUEUE_NAMES.MetadataRefresh, nextJob);
-}
-
-function chunkTokenIdRange(
-    fromTokenId: string,
-    toTokenId: string,
-    cursorTokenId: string,
-    chunkSize: number,
-): {
-    tokenIds: string[];
-    nextCursorTokenId: string | null;
-} {
-    if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
-        throw new Error(`Invalid metadata refresh chunk size: ${chunkSize}`);
-    }
-
-    const from = BigInt(fromTokenId);
-    const to = BigInt(toTokenId);
-    const cursor = BigInt(cursorTokenId);
-    if (from > to) {
-        throw new Error(
-            `Invalid metadata refresh range: fromTokenId (${fromTokenId}) > toTokenId (${toTokenId})`,
-        );
-    }
-    if (cursor < from || cursor > to + 1n) {
-        throw new Error(
-            `Invalid metadata refresh cursor ${cursorTokenId} for range [${fromTokenId}, ${toTokenId}]`,
-        );
-    }
-    if (cursor === to + 1n) {
-        return {
-            tokenIds: [],
-            nextCursorTokenId: null,
-        };
-    }
-
-    const chunkEnd = minBigInt(to, cursor + BigInt(chunkSize) - 1n);
-    const tokenIds: string[] = [];
-    for (let tokenId = cursor; tokenId <= chunkEnd; tokenId += 1n) {
-        tokenIds.push(tokenId.toString());
-    }
-    const nextCursorTokenId =
-        chunkEnd >= to ? null : (chunkEnd + 1n).toString();
-
-    return {
-        tokenIds,
-        nextCursorTokenId,
-    };
-}
-
-function minBigInt(a: bigint, b: bigint): bigint {
-    return a < b ? a : b;
-}
-
 function toDomainContext(
     job: JobEnvelope<DomainSyncPayload>,
 ): DomainSyncContext {
@@ -866,58 +739,6 @@ function toDomainContext(
         sourceJobId: job.payload.sourceJobId,
         sourceKind: job.payload.sourceKind,
     };
-}
-
-async function publishTokenImageCacheRefreshJobs(
-    queue: QueuePort,
-    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
-    chainId: number,
-    updatedTokens: MetadataUpdatedToken[],
-    traceId: string,
-    source?: string | null,
-): Promise<void> {
-    const policyByCollectionId = new Map<number, ImageCachePolicyConfig>();
-
-    for (const updated of updatedTokens) {
-        const sourceImageUrl = updated.image?.trim() ?? "";
-        if (!sourceImageUrl) {
-            continue;
-        }
-        let policy = policyByCollectionId.get(updated.collectionId);
-        if (!policy) {
-            policy = imageCachePolicyResolver.getImageCachePolicyConfig({
-                chainId,
-                collectionId: updated.collectionId,
-            });
-            policyByCollectionId.set(updated.collectionId, policy);
-        }
-        if (!shouldRefreshImageCacheOnMetadata(policy)) {
-            continue;
-        }
-
-        const payload: TokenImageCacheRefreshTokenPayload = {
-            chainId,
-            collectionId: updated.collectionId,
-            tokenId: updated.tokenId,
-            sourceImageUrl,
-            requestedMaxDimension: policy.maxDimension,
-            imageCacheMode: policy.imageCacheMode,
-            reason: TOKEN_IMAGE_CACHE_REFRESH_REASON.MetadataRefresh,
-            source: source ?? null,
-        };
-        const job: JobEnvelope<TokenImageCacheRefreshTokenPayload> = {
-            jobId: buildTokenImageCacheRefreshTokenJobId(payload),
-            kind: TOKEN_IMAGE_CACHE_JOB_KIND.RefreshToken,
-            queue: QUEUE_NAMES.TokenImageCache,
-            payload,
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: updated.collectionId,
-            traceId,
-        };
-        await queue.publish(QUEUE_NAMES.TokenImageCache, job);
-    }
 }
 
 async function handleTokenImageCacheRefreshJob(

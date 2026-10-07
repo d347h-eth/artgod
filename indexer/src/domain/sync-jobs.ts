@@ -39,13 +39,8 @@ export type ReorgResyncPayload = BackfillRangePayload & {
 
 // A batch carries the retained intent for each member, independently of its
 // broker identity. Bounds fence deliveries after a partially completed repair.
-export type SyncGapRepairTarget = {
-    collectionId: number;
-    repairId: string;
-    anchorBlock: number;
-    fromBlock: number;
-    toBlock: number;
-};
+export type { SyncGapRepairTarget } from "./sync-gap-repair.js";
+import type { SyncGapRepairTarget } from "./sync-gap-repair.js";
 
 export type GapRepairSyncPayload = BackfillRangePayload & {
     source: typeof BACKFILL_SOURCE.GapRepair;

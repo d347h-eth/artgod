@@ -17,7 +17,6 @@ import {
 } from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
-import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import {
     RecoverChainReorg,
     startReorgRecoveryLoop,
@@ -72,7 +71,7 @@ async function main() {
         const recovery = new RecoverChainReorg(
             rpc,
             storage,
-            new SqliteReorgRecoveries(storage, new SqliteQueueOutbox()),
+            new SqliteReorgRecoveries(storage),
             rollback,
             {
                 chainId: config.chainId,

@@ -9,18 +9,11 @@ import {
     REORG_RECOVERY_POLICY,
     REORG_RECOVERY_LOG_COMPONENT,
     beginReorgResync,
-    isCurrentReorgRange,
     type AwaitingReorgAncestor,
     type ReorgRecoveryState,
     type ReorgResync,
     type ReorgResyncRange,
 } from "../domain/reorg-recovery.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    type BackfillSyncPayload,
-} from "../domain/sync-jobs.js";
-import type { JobEnvelope } from "../domain/jobs.js";
 import { JobDeferred } from "../domain/job-deferred.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
@@ -61,7 +54,7 @@ export interface ReorgRecoveryStore {
         error: string | null;
     }): void;
     // Atomically revalidate recovery, ancestor evidence and rollback, remove
-    // orphan state, advance revision, retain resync and enqueue its first range.
+    // orphan state, advance revision and retain canonical resync progress.
     // next=null explicitly completes recovery when no canonical range remains.
     commitRollbackAndResync(input: {
         expected: AwaitingReorgAncestor;
@@ -69,20 +62,18 @@ export interface ReorgRecoveryStore {
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
         next: ReorgResync | null;
-        now: number;
     }): void;
-    redriveResync(input: {
-        expected: ReorgResync;
+    // Delay one failed acquisition without creating another broker delivery.
+    deferResync(input: {
+        range: ReorgResyncRange;
         retryAt: number;
-        now: number;
+        error: string;
     }): void;
-    // Complete only after persistence AND required downstream publication. Advance
-    // the range and its outbox continuation in one transaction; stale jobs do nothing.
+    // Advance only in the transaction retaining data and every required follow-up.
     completeResyncRange(input: {
         range: ReorgResyncRange;
         batchSize: number;
         retryAt: number;
-        now: number;
     }): boolean;
 }
 
@@ -195,14 +186,9 @@ export class RecoverChainReorg {
             });
             return;
         }
-        if (recovery.phase === REORG_RECOVERY_PHASE.Resync) {
-            this.recoveries.redriveResync({
-                expected: recovery,
-                now: this.now(),
-                retryAt: this.now() + this.retryDelayMs,
-            });
-            return;
-        }
+        // The sync runtime owns canonical range execution. Proof polling only
+        // retains/revalidates the journal; it never publishes a range continuation.
+        if (recovery.phase === REORG_RECOVERY_PHASE.Resync) return;
         try {
             const proof = await findCommonAncestor({
                 rpc: this.rpc,
@@ -237,14 +223,13 @@ export class RecoverChainReorg {
                 rollbackFrom: prepared.plan.fromBlock,
                 head,
                 batchSize: this.options.batchSize,
-                retryAt: this.now() + this.retryDelayMs,
+                retryAt: this.now(),
             });
             this.recoveries.commitRollbackAndResync({
                 expected: recovery,
                 proof,
                 ...prepared,
                 next,
-                now: this.now(),
             });
         } catch (error) {
             // The durable workflow owns retry. If persisting retry fails, reject
@@ -287,39 +272,4 @@ export function startReorgRecoveryLoop(
         clearInterval(timer);
         await active;
     };
-}
-
-// Source and recovery identity are explicit queue contracts. A stale/legacy
-// reorg hint cannot perform unowned work or complete a newer logical range.
-export async function executeReorgResync(
-    job: JobEnvelope<BackfillSyncPayload>,
-    store: Pick<ReorgRecoveryStore, "getRecovery" | "completeResyncRange">,
-    policy: { batchSize: number; retryDelayMs?: number; now?: () => number },
-    syncAndPublish: () => Promise<void>,
-): Promise<boolean> {
-    if (
-        job.payload.source !== BACKFILL_SOURCE.ReorgRecovery ||
-        !job.payload.recovery ||
-        job.collectionId !== undefined ||
-        job.payload.orderMaintenancePolicy !==
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState
-    )
-        return false;
-    const range: ReorgResyncRange = {
-        ...job.payload.recovery,
-        chainId: job.chainId,
-        fromBlock: job.payload.fromBlock,
-        toBlock: job.payload.toBlock,
-    };
-    if (!isCurrentReorgRange(store.getRecovery(job.chainId), range))
-        return false;
-    await syncAndPublish();
-    const now = (policy.now ?? Date.now)();
-    return store.completeResyncRange({
-        range,
-        batchSize: policy.batchSize,
-        now,
-        retryAt:
-            now + (policy.retryDelayMs ?? REORG_RECOVERY_POLICY.RetryDelayMs),
-    });
 }

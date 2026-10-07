@@ -4,6 +4,8 @@ import type { QueueName } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
 import {
     QUEUE_OUTBOX_STATUS,
+    QUEUE_OUTBOX_RETRY_POLICY,
+    type QueueOutboxRetryPolicy,
     type QueueOutboxStatus,
 } from "../../domain/queue-outbox.js";
 import {
@@ -27,12 +29,16 @@ export type QueueOutboxDrainRecord = {
     queueName: QueueName;
     jobJson: string;
     attempts: number;
+    retryPolicy: QueueOutboxRetryPolicy;
 };
 
 // QueueOutboxDrainPort is the application boundary for persisted publications.
 export interface QueueOutboxDrainPort {
     listDue(nowMs: number, limit: number): QueueOutboxDrainRecord[];
     markSent(outboxId: number, publication?: QueuePublication): void;
+    // Required sync follow-ups need retention until broker acceptance, not a
+    // permanent delivery receipt. Other workflows retain their sent receipts.
+    removePublishedSyncFollowUp(outboxId: number): void;
     markFailed(input: {
         outboxId: number;
         attempts: number;
@@ -42,7 +48,7 @@ export interface QueueOutboxDrainPort {
     }): void;
 }
 
-// QueueOutboxDrainerOptions tunes polling and bounded publish retries.
+// QueueOutboxDrainerOptions tunes polling and publication retry limits/delays.
 export type QueueOutboxDrainerOptions = {
     pollMs?: number;
     limit?: number;
@@ -54,7 +60,8 @@ export type QueueOutboxDrainerOptions = {
     };
 };
 
-// Queue outbox defaults bound broker retries without losing persisted jobs.
+// Ordinary jobs have bounded attempts; required sync intent keeps retrying with
+// the same capped delays until the broker accepts it.
 export const QUEUE_OUTBOX_DRAINER_DEFAULTS = {
     PollMs: 1_000,
     Limit: 100,
@@ -74,7 +81,7 @@ const QUEUE_OUTBOX_DRAINER_LOG_ACTION = {
 // Starts the background queue-outbox publisher owned by the domain worker.
 export function startQueueOutboxDrainer(
     outbox: QueueOutboxDrainPort,
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     options: QueueOutboxDrainerOptions = {},
 ): () => Promise<void> {
     const pollMs = options.pollMs ?? QUEUE_OUTBOX_DRAINER_DEFAULTS.PollMs;
@@ -125,7 +132,7 @@ export function startQueueOutboxDrainer(
 // Publishes every due outbox row and advances durable delivery state.
 export async function drainQueueOutbox(
     outbox: QueueOutboxDrainPort,
-    queue: QueuePort,
+    queue: Pick<QueuePort, "publish">,
     options: QueueOutboxDrainerOptions = {},
 ): Promise<number> {
     const hooks = options.observability;
@@ -152,10 +159,18 @@ export async function drainQueueOutbox(
                                 row.queueName,
                                 job,
                             );
-                            outbox.markSent(
-                                row.outboxId,
-                                publication ?? undefined,
-                            );
+                            if (
+                                row.retryPolicy ===
+                                QUEUE_OUTBOX_RETRY_POLICY.Required
+                            )
+                                outbox.removePublishedSyncFollowUp(
+                                    row.outboxId,
+                                );
+                            else
+                                outbox.markSent(
+                                    row.outboxId,
+                                    publication ?? undefined,
+                                );
                         },
                     );
                     published += 1;
@@ -167,9 +182,11 @@ export async function drainQueueOutbox(
                     );
                 } catch (error) {
                     const terminal =
+                        row.retryPolicy !==
+                            QUEUE_OUTBOX_RETRY_POLICY.Required &&
                         attempts >=
-                        (options.maxAttempts ??
-                            QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
+                            (options.maxAttempts ??
+                                QUEUE_OUTBOX_DRAINER_DEFAULTS.MaxAttempts);
                     outbox.markFailed({
                         outboxId: row.outboxId,
                         attempts,

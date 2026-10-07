@@ -5,13 +5,20 @@ import { setTimeout as delay } from "node:timers/promises";
 import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { startReorgRecoveryLoop } from "../../src/application/reorg-recovery.js";
+import { startAutomaticSyncLoop } from "../../src/application/automatic-sync-executor.js";
+import { createBackfillSyncHandler } from "../../src/application/backfill-sync-handler.js";
+import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drainer.js";
 import { runWorker } from "../../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { BackfillSyncPayload } from "../../src/domain/sync-jobs.js";
 import type { BlockCheckPayload } from "../../src/domain/reorg-jobs.js";
-import type { QueuePort } from "../../src/ports/queue.js";
+import type {
+    QueuePort,
+    QueueMessage,
+    SubscribeOptions,
+} from "../../src/ports/queue.js";
 import { NatsJetStreamQueue } from "../../src/infra/queue/nats.js";
 import {
     RecoveryRpc,
@@ -58,6 +65,14 @@ if (config.role === ROLE.Writer) {
 const rpc = new RecoveryRpc();
 const releaseRpc = Promise.withResolvers<void>();
 let ownerHeld = false;
+let acquisitionHeld = false;
+rpc.beforeLogs = async () => {
+    if (config.holdAcquisition && !acquisitionHeld) {
+        acquisitionHeld = true;
+        report({ phase: PHASE.AcquisitionHeld });
+        await releaseRpc.promise;
+    }
+};
 rpc.beforeOwnerRead = async () => {
     if (config.ownerDelayMs) await delay(config.ownerDelayMs);
     if (config.holdOwner && !ownerHeld) {
@@ -92,14 +107,19 @@ const queue: QueuePort = {
             await new Promise<void>(() => {});
         }
         const result = await transport.publish(name, job);
-        if (name === QUEUE_NAMES.BackfillSync && ambiguous) {
+        if (name === QUEUE_NAMES.MetadataDomain && ambiguous) {
             ambiguous = false;
+            report({ phase: PHASE.AmbiguousPublication, jobId: job.jobId });
             throw new Error("Fixture accepted publication with lost reply");
         }
         return result;
     },
-    subscribe(name, handler, options) {
-        return transport.subscribe(
+    subscribe<TPayload>(
+        name: Parameters<QueuePort["subscribe"]>[0],
+        handler: (message: QueueMessage<TPayload>) => Promise<void>,
+        options: SubscribeOptions,
+    ) {
+        return transport.subscribe<TPayload>(
             name,
             (message) =>
                 handler({
@@ -193,23 +213,60 @@ if (config.role === ROLE.All || config.role === ROLE.Resync)
                 retryDelayMs: 20,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<BackfillSyncPayload>) => {
-                const completed = await services.execute(job, queue);
-                report({
-                    phase: PHASE.Resynced,
-                    completed,
-                    jobId: job.jobId,
-                    attempt: job.attempt,
-                });
-            },
+            createBackfillSyncHandler({
+                chainId: REORG_FIXTURE.ChainId,
+                workerCount: 1,
+                wethAddress: REORG_FIXTURE.Weth,
+                rpc,
+                storage: services.storage,
+                commit: services.commit,
+                collectionsPort: services.registry,
+                extensions: { getInstall: () => null },
+                bidderIndex: { isActive: () => false, shouldEmit: () => false },
+                gate: new BackfillExecutionGate(),
+            }),
         ),
     );
+if (config.role === ROLE.All || config.role === ROLE.Resync) {
+    const runDue = services.executor.runDue.bind(services.executor);
+    stops.push(
+        startAutomaticSyncLoop(
+            {
+                runDue: async () => {
+                    const before = services.recoveries.getRecovery(
+                        REORG_FIXTURE.ChainId,
+                    );
+                    await runDue();
+                    const after = services.recoveries.getRecovery(
+                        REORG_FIXTURE.ChainId,
+                    );
+                    if (
+                        before &&
+                        JSON.stringify(before) !== JSON.stringify(after)
+                    )
+                        report({
+                            phase: PHASE.Resynced,
+                            completed:
+                                before.phase !== after?.phase ||
+                                ("fromBlock" in before &&
+                                    (!after ||
+                                        !("fromBlock" in after) ||
+                                        before.fromBlock !== after.fromBlock)),
+                            logReads: rpc.logReads,
+                        });
+                },
+            },
+            20,
+        ),
+    );
+}
 if (config.resume) stops.push(startReorgRecoveryLoop(services.recovery, 20));
 if (config.publish)
     stops.push(
         startQueueOutboxDrainer(services.outbox, queue, {
             pollMs: 20,
             maxAttempts: 1,
+            retryBaseDelayMs: 20,
         }),
     );
 process.on("message", (message) => {
@@ -217,7 +274,7 @@ process.on("message", (message) => {
     if (message === COMMAND.Check) void check(REORG_FIXTURE.Orphan);
     if (message === COMMAND.Stop)
         void (async () => {
-            for (const stop of stops) await stop();
+            await Promise.all(stops.map((stop) => stop()));
             await queue.close();
             db.raw.close();
             process.exit(0);
