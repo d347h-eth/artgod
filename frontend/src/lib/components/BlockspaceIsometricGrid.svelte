@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import type { ApiBlockspaceGridCell } from '$lib/api-types';
 	import {
+		BLOCKSPACE_BLOCK_MARKER,
 		buildBlockspaceIsometricSlots,
 		resolveBlockspaceIsometricDimension,
 		type BlockspaceIsometricAnchorLayout,
@@ -56,7 +57,7 @@
 	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
 	const ISOMETRIC_MARKER_FONT_SCALE = 1.8;
 	const ISOMETRIC_MARKER_MIN_FONT_SIZE = 13;
-	const ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE = 0.7;
+	const ISOMETRIC_BLOCK_MARKER_LIFT_SCALE = 0.7;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
@@ -144,6 +145,7 @@
 			glyph: string;
 			className: string;
 			liftScale: number;
+			horizontalOffset: number;
 		}> = [];
 		let sourceCorners: IsometricSideCorners | null = null;
 		for (const slot of buildBlockspaceIsometricSlots(level.state.grid)) {
@@ -186,9 +188,20 @@
 				markers.push({
 					column: slot.column,
 					row: slot.row,
-					glyph: '❀',
-					className: 'blockspace-isometric-marker-deployment',
-					liftScale: ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE
+					glyph: BLOCKSPACE_BLOCK_MARKER.Deployment.glyph,
+					className: BLOCKSPACE_BLOCK_MARKER.Deployment.className,
+					liftScale: ISOMETRIC_BLOCK_MARKER_LIFT_SCALE,
+					horizontalOffset: slot.cell.collectionBootstrapAnchorBlock ? -0.5 : 0
+				});
+			}
+			if (slot.cell.collectionBootstrapAnchorBlock) {
+				markers.push({
+					column: slot.column,
+					row: slot.row,
+					glyph: BLOCKSPACE_BLOCK_MARKER.BootstrapAnchor.glyph,
+					className: BLOCKSPACE_BLOCK_MARKER.BootstrapAnchor.className,
+					liftScale: ISOMETRIC_BLOCK_MARKER_LIFT_SCALE,
+					horizontalOffset: slot.cell.collectionDeploymentBlock ? 0.5 : 0
 				});
 			}
 		}
@@ -200,7 +213,8 @@
 				marker.row,
 				marker.glyph,
 				marker.className,
-				marker.liftScale
+				marker.liftScale,
+				marker.horizontalOffset
 			);
 		}
 		return sourceCorners;
@@ -254,18 +268,22 @@
 		row: number,
 		glyph: string,
 		className: string,
-		liftScale: number
+		liftScale: number,
+		horizontalOffset: number
 	): void {
 		const marker = document.createElementNS(SVG_NAMESPACE, 'text');
 		const center = projectIsometricPoint(layout, column + 0.5, row + 0.5);
 		marker.textContent = glyph;
-		marker.setAttribute('x', String(center.x));
+		const fontSize = Math.max(
+			ISOMETRIC_MARKER_MIN_FONT_SIZE,
+			layout.scale * ISOMETRIC_MARKER_FONT_SCALE
+		);
+		// Both block markers share a bucket at coarse levels (and may share a block).
+		// Separate their glyphs while keeping each centered when it is alone.
+		marker.setAttribute('x', String(center.x + horizontalOffset * fontSize));
 		marker.setAttribute('y', String(center.y - layout.scale * liftScale));
 		marker.setAttribute('class', `blockspace-isometric-marker ${className}`);
-		marker.setAttribute(
-			'font-size',
-			String(Math.max(ISOMETRIC_MARKER_MIN_FONT_SIZE, layout.scale * ISOMETRIC_MARKER_FONT_SCALE))
-		);
+		marker.setAttribute('font-size', String(fontSize));
 		marker.setAttribute('text-anchor', 'middle');
 		marker.setAttribute('dominant-baseline', 'central');
 		marker.setAttribute('aria-hidden', 'true');

@@ -194,5 +194,6 @@ function collectionContext(collectionId: number) {
         collectionId,
         slug: PUBLIC_BLOCKSPACE_FIXTURE_SLUG,
         deploymentBlock: 10,
+        bootstrapAnchorBlock: 10,
     };
 }

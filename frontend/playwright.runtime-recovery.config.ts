@@ -6,7 +6,12 @@ const artifactRun = new Date().toISOString().replaceAll(':', '-');
 const baseURL = 'http://127.0.0.1:42707';
 export default defineConfig({
 	testDir: './e2e',
-	testMatch: ['runtime-recovery.spec.ts', 'listing-history.spec.ts', 'price-history.spec.ts'],
+	testMatch: [
+		'runtime-recovery.spec.ts',
+		'listing-history.spec.ts',
+		'price-history.spec.ts',
+		'blockspace.spec.ts'
+	],
 	outputDir: `../tmp/runtime-recovery-playwright/${artifactRun}`,
 	timeout: 45_000,
 	expect: { timeout: 10_000 },

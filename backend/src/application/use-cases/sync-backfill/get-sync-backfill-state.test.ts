@@ -222,6 +222,118 @@ describe("GetSyncBackfillStateUseCase", () => {
         });
     });
 
+    it.each([false, true])(
+        "marks the selected collection anchor using its own coverage, synced=%s",
+        async (synced) => {
+            const useCase = new GetSyncBackfillStateUseCase(
+                1,
+                chainResolver(),
+                readPort({
+                    anyBlocks: new Set([0, 1, 2, 3]),
+                    collectionBlocks: new Map([
+                        [7, new Set(synced ? [2, 3] : [2])],
+                    ]),
+                    deploymentBlock: 2,
+                    bootstrapAnchorBlock: 3,
+                    headBlock: 3,
+                }),
+                rpcPort(3),
+            );
+            const output = await useCase.getState({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+            });
+            expect(output.grid[3]?.collectionBootstrapAnchorBlock).toEqual({
+                blockNumber: 3,
+                synced,
+            });
+            expect(output.grid[2]?.collectionDeploymentBlock).toEqual({
+                blockNumber: 2,
+                synced: true,
+            });
+            expect(output.grid[2]?.collectionBootstrapAnchorBlock).toBeNull();
+            const aggregate = await useCase.getState({
+                chainRef: "ethereum",
+                collectionRef: "any",
+            });
+            expect(
+                aggregate.grid.every(
+                    (cell) =>
+                        cell.collectionDeploymentBlock === null &&
+                        cell.collectionBootstrapAnchorBlock === null,
+                ),
+            ).toBe(true);
+        },
+    );
+
+    it("keeps both markers in a coarse bucket and resolves each block independently", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 50, 100, 2047]),
+                collectionBlocks: new Map([[7, new Set([50])]]),
+                deploymentBlock: 50,
+                bootstrapAnchorBlock: 100,
+                headBlock: 2047,
+            }),
+            rpcPort(2047),
+        );
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            pageStartBlock: 0,
+            bucketSize: 1024,
+        });
+        expect(output.grid[0]).toMatchObject({
+            state: "partial",
+            collectionDeploymentBlock: { blockNumber: 50, synced: true },
+            collectionBootstrapAnchorBlock: { blockNumber: 100, synced: false },
+        });
+        expect(output.grid[1]?.collectionBootstrapAnchorBlock).toBeNull();
+    });
+
+    it("keeps coincident markers and omits an anchor that is absent or outside the page", async () => {
+        for (const anchor of [null, 50, 100]) {
+            const useCase = new GetSyncBackfillStateUseCase(
+                1,
+                chainResolver(),
+                readPort({
+                    anyBlocks: new Set([50, 100]),
+                    collectionBlocks: new Map([[7, new Set([50])]]),
+                    deploymentBlock: 50,
+                    bootstrapAnchorBlock: anchor,
+                    headBlock: 2047,
+                }),
+                rpcPort(2047),
+            );
+            const output = await useCase.getState({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                pageStartBlock: 0,
+                bucketSize: 1,
+            });
+            expect(output.grid[50]?.collectionDeploymentBlock).toEqual({
+                blockNumber: 50,
+                synced: true,
+            });
+            expect(output.grid[50]?.collectionBootstrapAnchorBlock).toEqual(
+                anchor === 50 ? { blockNumber: 50, synced: true } : null,
+            );
+            const otherPage = await useCase.getState({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                pageStartBlock: 1024,
+                bucketSize: 1,
+            });
+            expect(
+                otherPage.grid.every(
+                    (cell) => cell.collectionBootstrapAnchorBlock === null,
+                ),
+            ).toBe(true);
+        }
+    });
+
     it("does not drill into collection buckets that end before deployment", async () => {
         const useCase = new GetSyncBackfillStateUseCase(
             1,
@@ -510,6 +622,7 @@ function readPort(input: {
     anyBlocks: Set<number>;
     collectionBlocks?: Map<number, Set<number>>;
     deploymentBlock?: number | null;
+    bootstrapAnchorBlock?: number | null;
     headBlock: number;
     blockTimestamps?: Map<number, number>;
 }): SyncBackfillReadPort {
@@ -521,7 +634,10 @@ function readPort(input: {
             address: "0x1111111111111111111111111111111111111111",
             status: COLLECTION_STATUS.Live,
             deploymentBlock: input.deploymentBlock ?? null,
-            bootstrapAnchorBlock: 1,
+            bootstrapAnchorBlock:
+                input.bootstrapAnchorBlock === undefined
+                    ? 1
+                    : input.bootstrapAnchorBlock,
             bootstrapLastSyncedBlock: null,
         },
     ];

@@ -34,7 +34,7 @@ export type SyncBackfillCollectionOption = {
     bootstrapLastSyncedBlock: number | null;
 };
 
-export type SyncBackfillGridCellDeploymentMarker = {
+export type SyncBackfillGridCellBlockMarker = {
     blockNumber: number;
     synced: boolean;
 };
@@ -47,7 +47,8 @@ export type SyncBackfillGridCell = {
     syncedBlockCount: number;
     state: SyncBackfillCoverageState;
     canDrillDown: boolean;
-    collectionDeploymentBlock: SyncBackfillGridCellDeploymentMarker | null;
+    collectionDeploymentBlock: SyncBackfillGridCellBlockMarker | null;
+    collectionBootstrapAnchorBlock: SyncBackfillGridCellBlockMarker | null;
 };
 
 // Identifies where a visible page endpoint timestamp was resolved.
@@ -137,6 +138,7 @@ export type SyncBackfillCoverageContext =
           collectionId: number;
           slug: string;
           deploymentBlock: number | null;
+          bootstrapAnchorBlock: number | null;
       };
 
 export type SyncBackfillCoverageRange = {
@@ -268,11 +270,11 @@ export class GetSyncBackfillStateUseCase {
                     buckets,
                 ),
         );
-        const deploymentMarker = this.apm.withSyncSpan(
-            "backend.sync_backfill.state.deployment_marker",
+        const markers = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.collection_markers",
             pageAttributes,
             () =>
-                resolveCollectionDeploymentMarker(
+                resolveCollectionBlockMarkers(
                     chain.publicChainId,
                     context,
                     page,
@@ -284,7 +286,7 @@ export class GetSyncBackfillStateUseCase {
                 index,
                 count,
                 page.bucketSize,
-                deploymentMarker,
+                markers,
                 resolveDrillDownFloorBlock(context),
             ),
         );
@@ -627,6 +629,7 @@ function resolveCoverageContext(
         collectionId: collection.collectionId,
         slug: collection.slug,
         deploymentBlock: collection.deploymentBlock,
+        bootstrapAnchorBlock: collection.bootstrapAnchorBlock,
     };
 }
 
@@ -758,7 +761,7 @@ function mapGridCell(
     index: number,
     count: SyncBackfillCoverageCount,
     bucketSize: number,
-    deploymentMarker: SyncBackfillGridCellDeploymentMarker | null,
+    markers: CollectionBlockMarkers,
     drillDownFloorBlock: number | null,
 ): SyncBackfillGridCell {
     const blockCount = countBlocks(count);
@@ -773,12 +776,11 @@ function mapGridCell(
             bucketSize > 1 &&
             blockCount > 0 &&
             !rangeEndsBeforeBlock(count, drillDownFloorBlock),
-        collectionDeploymentBlock: rangeContainsBlock(
+        collectionDeploymentBlock: markerInRange(count, markers.deployment),
+        collectionBootstrapAnchorBlock: markerInRange(
             count,
-            deploymentMarker?.blockNumber ?? null,
-        )
-            ? deploymentMarker
-            : null,
+            markers.bootstrapAnchor,
+        ),
     };
 }
 
@@ -788,33 +790,49 @@ function resolveDrillDownFloorBlock(
     return context.kind === "collection" ? context.deploymentBlock : null;
 }
 
-function resolveCollectionDeploymentMarker(
+type CollectionBlockMarkers = {
+    deployment: SyncBackfillGridCellBlockMarker | null;
+    bootstrapAnchor: SyncBackfillGridCellBlockMarker | null;
+};
+
+function markerInRange(
+    range: SyncBackfillCoverageRange,
+    marker: SyncBackfillGridCellBlockMarker | null,
+): SyncBackfillGridCellBlockMarker | null {
+    return rangeContainsBlock(range, marker?.blockNumber ?? null)
+        ? marker
+        : null;
+}
+
+function resolveCollectionBlockMarkers(
     chainId: number,
     context: SyncBackfillCoverageContext,
     page: SyncBackfillCoverageRange,
-    syncBackfillReadPort: Pick<
-        SyncBackfillReadPort,
-        "countSyncedBlocksInRange"
-    >,
-): SyncBackfillGridCellDeploymentMarker | null {
-    if (context.kind !== "collection" || context.deploymentBlock === null) {
-        return null;
-    }
-    if (!rangeContainsBlock(page, context.deploymentBlock)) {
-        return null;
-    }
-    const deploymentRange = {
-        fromBlock: context.deploymentBlock,
-        toBlock: context.deploymentBlock,
+    readPort: Pick<SyncBackfillReadPort, "countSyncedBlocksInRange">,
+): CollectionBlockMarkers {
+    if (context.kind !== "collection")
+        return { deployment: null, bootstrapAnchor: null };
+    const resolveMarker = (
+        blockNumber: number | null,
+    ): SyncBackfillGridCellBlockMarker | null => {
+        if (blockNumber === null || !rangeContainsBlock(page, blockNumber))
+            return null;
+        return {
+            blockNumber,
+            synced:
+                readPort.countSyncedBlocksInRange(chainId, context, {
+                    fromBlock: blockNumber,
+                    toBlock: blockNumber,
+                }) > 0,
+        };
     };
+    const deployment = resolveMarker(context.deploymentBlock);
     return {
-        blockNumber: context.deploymentBlock,
-        synced:
-            syncBackfillReadPort.countSyncedBlocksInRange(
-                chainId,
-                context,
-                deploymentRange,
-            ) > 0,
+        deployment,
+        bootstrapAnchor:
+            context.bootstrapAnchorBlock === context.deploymentBlock
+                ? deployment
+                : resolveMarker(context.bootstrapAnchorBlock),
     };
 }
 

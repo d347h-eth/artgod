@@ -25,6 +25,19 @@ describe('blockspace isometric levels', () => {
 		expect(slots[24].cell).toBeNull();
 	});
 
+	it('redraws when anchor presence, position or coverage changes within a fixed bucket', () => {
+		const level = buildLevel([buildCell(0)]);
+		const initial = buildBlockspaceIsometricLevelRenderKey(level);
+		level.state.grid[0].collectionBootstrapAnchorBlock = { blockNumber: 0, synced: false };
+		const marked = buildBlockspaceIsometricLevelRenderKey(level);
+		expect(marked).not.toBe(initial);
+		level.state.grid[0].collectionBootstrapAnchorBlock.synced = true;
+		const synced = buildBlockspaceIsometricLevelRenderKey(level);
+		expect(synced).not.toBe(marked);
+		level.state.grid[0].collectionBootstrapAnchorBlock.blockNumber = 1;
+		expect(buildBlockspaceIsometricLevelRenderKey(level)).not.toBe(synced);
+	});
+
 	it('changes the render key when live coverage changes inside a fixed range', () => {
 		const level = buildLevel([buildCell(0), buildCell(1)]);
 		const initialKey = buildBlockspaceIsometricLevelRenderKey(level);
@@ -48,7 +61,8 @@ function buildCell(index: number): ApiBlockspaceGridCell {
 		syncedBlockCount: 0,
 		state: 'empty',
 		canDrillDown: false,
-		collectionDeploymentBlock: null
+		collectionDeploymentBlock: null,
+		collectionBootstrapAnchorBlock: null
 	};
 }
 

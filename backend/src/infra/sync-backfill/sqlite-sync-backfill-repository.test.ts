@@ -86,6 +86,7 @@ describe("SqliteSyncBackfillRepository", () => {
                 collectionId,
                 slug: SYNC_BACKFILL_FIXTURE_SLUG,
                 deploymentBlock: null,
+                bootstrapAnchorBlock: 10,
             },
             [
                 { fromBlock: 0, toBlock: 3 },

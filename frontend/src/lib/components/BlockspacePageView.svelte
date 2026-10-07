@@ -21,7 +21,10 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import BlockspaceSummary from '$lib/components/BlockspaceSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
-	import { buildBlockspaceIsometricLevelRenderKey } from '$lib/blockspace-isometric-levels';
+	import {
+		BLOCKSPACE_BLOCK_MARKER,
+		buildBlockspaceIsometricLevelRenderKey
+	} from '$lib/blockspace-isometric-levels';
 	import type {
 		BlockspaceIsometricAnchorLayout,
 		BlockspaceIsometricPoint,
@@ -780,12 +783,19 @@
 		if (cell.collectionDeploymentBlock) {
 			classes.push(
 				cell.collectionDeploymentBlock.synced
-					? 'blockspace-isometric-tile-deployment-synced'
-					: 'blockspace-isometric-tile-deployment-unsynced'
+					? BLOCKSPACE_BLOCK_MARKER.Deployment.syncedTileClassName
+					: BLOCKSPACE_BLOCK_MARKER.Deployment.unsyncedTileClassName
 			);
 		}
 		if (isSelectionCell(level.key, cell)) {
 			classes.push('blockspace-isometric-tile-selected');
+		}
+		if (cell.collectionBootstrapAnchorBlock) {
+			classes.push(
+				cell.collectionBootstrapAnchorBlock.synced
+					? BLOCKSPACE_BLOCK_MARKER.BootstrapAnchor.syncedTileClassName
+					: BLOCKSPACE_BLOCK_MARKER.BootstrapAnchor.unsyncedTileClassName
+			);
 		}
 		if (!backfillSelectionMode && isActiveBucketCell(level.key, cell)) {
 			classes.push('blockspace-isometric-tile-active');
@@ -804,8 +814,13 @@
 					cell.collectionDeploymentBlock.synced ? 'synced' : 'not synced'
 				}`
 			: '';
+		const anchor = cell.collectionBootstrapAnchorBlock
+			? `, anchor block ${formatBlockspaceInteger(cell.collectionBootstrapAnchorBlock.blockNumber)} ${
+				cell.collectionBootstrapAnchorBlock.synced ? 'synced' : 'not synced'
+			}`
+			: '';
 		const action = resolveCellActionLabel(cell);
-		return `${range}: ${formatBlockspaceInteger(cell.syncedBlockCount)}/${formatBlockspaceInteger(cell.blockCount)} synced${duration}${marker}${action}`;
+		return `${range}: ${formatBlockspaceInteger(cell.syncedBlockCount)}/${formatBlockspaceInteger(cell.blockCount)} synced${duration}${marker}${anchor}${action}`;
 	}
 
 	function formatRange(fromBlock: number, toBlock: number, blockCount: number): string {
