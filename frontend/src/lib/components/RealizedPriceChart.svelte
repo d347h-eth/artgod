@@ -321,7 +321,7 @@
 	<div class="price-toolbar">
 		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button facet-reset-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
 		<label>bucket <select class="bootstrap-control-select" aria-label="Time bucket" value={bucket} disabled={allowedBuckets.length === 1} onchange={(event) => setQuery(PRICE_CHART_QUERY.Bucket, event.currentTarget.value)}>
-			{#each allowedBuckets as value}<option value={value}>{value}</option>{/each}
+			{#each allowedBuckets as value}<option value={value}>{value === PRICE_HISTORY_BUCKET.Day ? '1D' : value}</option>{/each}
 		</select></label>
 		<label>range <select class="bootstrap-control-select" aria-label="History range" value={range} onchange={(event) => setQuery(PRICE_CHART_QUERY.Range, event.currentTarget.value)}>
 			{#each Object.values(PRICE_HISTORY_RANGE) as value}<option value={value}>{value}</option>{/each}

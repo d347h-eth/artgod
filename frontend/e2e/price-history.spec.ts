@@ -2,7 +2,8 @@ import { test, expect, type Page, type TestInfo } from 'playwright/test';
 import {
 	PRICE_HISTORY_BUCKET,
 	PRICE_HISTORY_RANGE,
-	type PriceHistoryBucket
+	type PriceHistoryBucket,
+	type PriceHistoryRange
 } from '@artgod/shared/types/price-history';
 import { COLLECTION_CHART_TOKEN_QUERY } from '../src/lib/price-chart/routing';
 import { PRICE_CHART_QUERY, saleActionColor } from '../src/lib/price-chart/model';
@@ -11,7 +12,9 @@ import {
 	priceHistoryFixture,
 	priceHistoryPrecisionFixture,
 	priceHistoryOutlierFixture,
+	priceHistoryFitFixture,
 	priceHistoryZeroFixture,
+	priceHistoryFlatFixture,
 	priceHistoryBundleFixture
 } from './price-history-fixtures';
 import { TEST_IDS } from '../src/lib/test-ids';
@@ -267,6 +270,142 @@ async function zoomPriceIn(page: Page) {
 	await page.mouse.move(x, Math.max(axis.y + 25, startY / 2), { steps: 8 });
 	await page.mouse.up();
 	await page.mouse.move(2, 2);
+}
+
+async function expectPeriodFit(page: Page, firstDay: number) {
+	// Checking the first returned sale distinguishes a full period from a
+	// narrow window that merely has dots near both edges.
+	await expect.poll(() => salePoint(page, false)).not.toBeNull();
+	const point = (await salePoint(page, false))!;
+	const { main } = await pricePaneBounds(page);
+	expect(point.x - main.x).toBeLessThan(main.width * 0.15);
+	await page.mouse.move(point.x, point.y);
+	await expect(page.locator(`.sale-row[data-sale-id^="${firstDay}-"]`).first()).toBeVisible();
+	await page.mouse.move(2, 2);
+	const last = (await salePoint(page))!;
+	expect(last.x - main.x).toBeGreaterThan(main.width * 0.8);
+}
+
+test('load, refresh and fit frame the selected period and typical sales while higher sales remain accessible', async ({
+	page
+}, info) => {
+	if (info.project.name.includes('768')) await page.setViewportSize({ width: 2247, height: 1115 });
+	await recordCanvasText(page);
+	await page.route(PRICE_HISTORY_E2E.apiPattern, (route) => {
+		const query = new URL(route.request().url()).searchParams;
+		return route.fulfill({
+			json: priceHistoryFitFixture(
+				query.get(PRICE_HISTORY_QUERY.Bucket) as PriceHistoryBucket,
+				query.get(PRICE_HISTORY_QUERY.Range) as PriceHistoryRange
+			)
+		});
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await expect(page.getByRole('combobox', { name: 'Time bucket' })).toContainText('1D');
+	await expect
+		.poll(async () => {
+			const range = await visiblePriceRange(page);
+			return range.from + range.span;
+		})
+		.toBeLessThan(3);
+	const fitted = await visiblePriceRange(page);
+	await expectPeriodFit(page, 0);
+	const arrow = page.getByRole('button', { name: 'Show higher sales', exact: true });
+	await expect(arrow).toBeVisible();
+	await surface(page, info, 'typical-sales-default', false);
+	await arrow.click();
+	await expect(arrow).toHaveCount(0);
+	await expect
+		.poll(async () => {
+			const range = await visiblePriceRange(page);
+			return range.from + range.span;
+		})
+		.toBeGreaterThan(50);
+	await surface(page, info, 'all-sale-prices', false);
+	await chart(page).getByRole('button', { name: 'fit', exact: true }).click();
+	await expect(arrow).toBeVisible();
+	await expect
+		.poll(async () => Math.abs((await visiblePriceRange(page)).span - fitted.span))
+		.toBeLessThan(fitted.span * 0.01);
+	await expectPeriodFit(page, 0);
+	const { main } = await pricePaneBounds(page);
+	await page.mouse.move(main.x + main.width / 2, main.y + main.height / 2);
+	await page.mouse.wheel(0, -600);
+	await zoomPriceIn(page);
+	await chart(page).getByRole('button', { name: 'refresh', exact: true }).click();
+	await loaded(page);
+	await expect
+		.poll(async () => Math.abs((await visiblePriceRange(page)).span - fitted.span))
+		.toBeLessThan(fitted.span * 0.01);
+	await expectPeriodFit(page, 0);
+	await page
+		.getByRole('combobox', { name: 'History range' })
+		.selectOption(PRICE_HISTORY_RANGE.Month);
+	await loaded(page);
+	await expect
+		.poll(async () => {
+			const range = await visiblePriceRange(page);
+			return range.from + range.span;
+		})
+		.toBeLessThan(1);
+	await expectPeriodFit(page, 12);
+	await page
+		.getByRole('combobox', { name: 'Time bucket' })
+		.selectOption(PRICE_HISTORY_BUCKET.FourHours);
+	await loaded(page);
+	await expectPeriodFit(page, 12);
+	await surface(page, info, 'recent-sales-four-hour-buckets', false);
+	await page.getByRole('combobox', { name: 'History range' }).selectOption(PRICE_HISTORY_RANGE.All);
+	await loaded(page);
+	await expect(page.getByRole('combobox', { name: 'Time bucket' })).toHaveValue(
+		PRICE_HISTORY_BUCKET.Day
+	);
+	await expectPeriodFit(page, 0);
+});
+
+for (const { name, wei, count } of [
+	{ name: 'one sale', wei: '1500000000000000000', count: 1 },
+	{ name: 'flat prices', wei: '1500000000000000000', count: 3 },
+	{ name: 'all zero prices', wei: '0', count: 3 }
+]) {
+	test(`a short history of ${name} fits the plot without a collapsed price scale`, async ({
+		page
+	}, info) => {
+		if (info.project.name.includes('768'))
+			await page.setViewportSize({ width: 1280, height: 1024 });
+		const errors: string[] = [];
+		page.on('pageerror', (error) => errors.push(error.message));
+		await recordCanvasText(page);
+		await page.route(PRICE_HISTORY_E2E.apiPattern, (route) =>
+			route.fulfill({ json: priceHistoryFlatFixture(wei, count) })
+		);
+		await page.goto(PRICE_HISTORY_E2E.path);
+		await loaded(page);
+		await expect(rows(page)).toHaveCount(count);
+		// Flat prices need a readable range, not identical rounded tick labels.
+		await expect
+			.poll(async () => (await visiblePriceRange(page)).span)
+			.toBeGreaterThan(wei === '0' ? 0.0005 : 0.1);
+		await expect.poll(() => salePoint(page, false)).not.toBeNull();
+		const first = (await salePoint(page, false))!;
+		const last = (await salePoint(page))!;
+		const { main } = await pricePaneBounds(page);
+		const firstPosition = (first.x - main.x) / main.width;
+		const lastPosition = (last.x - main.x) / main.width;
+		if (count === 1) {
+			expect(firstPosition).toBeGreaterThan(0.45);
+			expect(firstPosition).toBeLessThan(0.55);
+		} else {
+			expect(firstPosition).toBeLessThan(0.25);
+			expect(lastPosition).toBeGreaterThan(0.75);
+		}
+		await expect(page.getByRole('button', { name: 'Show higher sales', exact: true })).toHaveCount(
+			0
+		);
+		await surface(page, info, `short-history-${count}-${wei}`, false);
+		expect(errors).toEqual([]);
+	});
 }
 
 test('dedicated dots page follows Transfers in Asset Events and fills the viewport with indicator controls hidden', async ({
@@ -788,6 +927,8 @@ test('one small arrow reveals higher sales using the same scale reset as the pri
 	await loaded(page);
 	await expect.poll(() => salePoint(page)).not.toBeNull();
 	const arrow = page.getByRole('button', { name: 'Show higher sales', exact: true });
+	await expect(arrow).toBeVisible();
+	await arrow.click();
 	await expect(arrow).toHaveCount(0);
 	await zoomPriceIn(page);
 	await expect(arrow).toBeVisible();
