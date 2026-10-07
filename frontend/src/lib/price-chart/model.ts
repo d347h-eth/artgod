@@ -99,6 +99,17 @@ export function ethValue(wei: string): number {
 export function unitPriceValue(price: ExactUnitPrice): number {
 	return ethValue(price.numeratorWei) / Number(price.denominator);
 }
+
+/** Fit the observed sale distribution, not bucket highs or NFT quantities. The
+ * nearest-rank percentile retains at least 95% of observations and all sales in
+ * samples smaller than 20. Sorting one price per sale is bounded by the API's
+ * observation limit; it never reorders or removes the authoritative sales. */
+export function salePriceRange(sales: readonly Pick<RealizedSale, 'unitPrice'>[]) {
+	if (!sales.length) return null;
+	const prices = sales.map((sale) => unitPriceValue(sale.unitPrice)).sort((a, b) => a - b);
+	return { from: prices[0], to: prices[Math.ceil(prices.length * 0.95) - 1] };
+}
+
 export function unitPriceText(price: ExactUnitPrice): string {
 	const numerator = BigInt(price.numeratorWei),
 		denominator = BigInt(price.denominator);

@@ -15,6 +15,17 @@ shortcuts, and content inset. The plot and sales sidebar stay inside the same
 page margins as the header; the viewport-height calculation keeps the panel's
 bottom margin. Help and fullscreen token previews own keyboard input while open.
 
+Initial load, refresh, range/bucket changes, and `fit` frame the entire loaded UTC
+bucket period, including gaps between sales, with a small margin at each time edge.
+The price range starts at the lowest sale and ends at the nearest-rank 95th
+percentile of individual sale unit prices, with the library's usual padding.
+This includes at least 95% of observations; samples smaller than 20 retain all
+prices. NFT quantities and bucket highs do not weight the percentile. Every sale
+remains available in the chart and sidebar. The daily bucket displays as `1D`;
+its API and URL value remains `1d`.
+Equal fitted prices receive a small range around their value so the four-decimal
+axis labels remain readable, including when all prices are zero.
+
 ## Trait filtering
 
 The chart reuses the collection token browser's trait sidebar, top-action layout,
@@ -167,8 +178,12 @@ coordinates, and indicator inputs retain their existing precision. Native price
 scaling and panning may extend below zero so continuous dragging and zooming stay
 unrestricted. Wheel-up over the price labels contracts the price range; wheel-down
 expands it. The price-axis adapter forwards the inverted wheel gesture to the
-native handler; time-axis navigation, price dragging, double-click reset, and
-the volume pane keep their library behavior.
+native handler. Price-axis double-click and the upward arrow restore full automatic
+price scaling for the current horizontal window; `fit` returns both axes to the
+loaded period and typical sale distribution. Manual navigation remains available,
+and resizing after a completed fit preserves the user's navigation. Time fitting
+waits until the loading workspace is visible and the axes have been measured.
+The volume pane keeps its library behavior.
 
 The retained indicator implementation supports the following, with only volume
 enabled while its settings are hidden:
@@ -262,6 +277,7 @@ Relevant checks:
 The maintained Playwright harness mounts production views with synthetic fills.
 It covers navigation, shared page gutters and header actions, help/preview
 shortcut ownership, media-state preservation, hidden indicator controls,
+default/refresh/fit framing across ranges and buckets, sparse/flat/zero prices,
 continuous pan/zoom through zero, inverted price-axis wheel gestures,
 pin/unpin, original currencies,
 explorer/owner/token links, compact price formatting and alignment, uninterrupted

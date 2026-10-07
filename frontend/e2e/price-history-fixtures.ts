@@ -2,6 +2,7 @@ import { buildRealizedPriceHistory } from '../../backend/src/domain/realized-pri
 import {
 	PRICE_HISTORY_BUCKET,
 	PRICE_HISTORY_RANGE,
+	PRICE_HISTORY_RANGE_DAYS,
 	PRICE_HISTORY_CURRENCY_SYMBOL,
 	REALIZED_SALE_ACTION,
 	type PriceHistoryBucket,
@@ -156,6 +157,36 @@ export function priceHistoryOutlierFixture() {
 	);
 }
 
+/** A young collection with a lower recent distribution and a few premium sales
+ * each day. Range and bucket changes must fit only the returned observations. */
+export function priceHistoryFitFixture(
+	bucket: PriceHistoryBucket,
+	range: PriceHistoryRequest['range']
+) {
+	const seed = priceHistoryFixture().sales[0];
+	const start = Date.UTC(2026, 7, 26) / 1000;
+	const days = 42;
+	const rangeDays = PRICE_HISTORY_RANGE_DAYS[range];
+	const fills: PricedFill[] = [];
+	for (let day = Math.max(0, days - (rangeDays ?? days)); day < days; day++) {
+		for (let i = 0; i < 40; i++) {
+			const milliEth =
+				i === 39 ? (10 + day) * 1000 : day < 12 ? 1000 + (i % 19) * 50 : 200 + (i % 19) * 25;
+			const id = `${day}-${i}`;
+			fills.push({
+				...seed,
+				...pricedSaleFixture((BigInt(milliEth) * 10n ** 15n).toString(), id),
+				id,
+				timestamp: start + day * 86400 + (i + 1) * 1800,
+				action: i % 2 ? REALIZED_SALE_ACTION.TakeOffer : REALIZED_SALE_ACTION.TakeAsk,
+				blockNumber: day * 40 + i,
+				logIndex: i
+			});
+		}
+	}
+	return fixtureHistory(fills, { bucket, range }, start + days * 86400);
+}
+
 export function priceHistoryZeroFixture() {
 	const history = priceHistoryFixture();
 	return fixtureHistory(
@@ -163,6 +194,24 @@ export function priceHistoryZeroFixture() {
 			...sale,
 			timestamp: history.from + i * 86400,
 			...pricedSaleFixture((BigInt(i) * 10n ** 18n).toString(), String(i)),
+			action: REALIZED_SALE_ACTION.TakeAsk,
+			blockNumber: i,
+			logIndex: i
+		})),
+		{ bucket: PRICE_HISTORY_BUCKET.Day, range: PRICE_HISTORY_RANGE.All },
+		history.to
+	);
+}
+
+export function priceHistoryFlatFixture(priceWei: string, count: number) {
+	const history = priceHistoryFixture();
+	const seed = history.sales[0];
+	return fixtureHistory(
+		Array.from({ length: count }, (_, i) => ({
+			...seed,
+			...pricedSaleFixture(priceWei, String(i)),
+			id: 'flat-' + i,
+			timestamp: history.from + i * 86400 + 43200,
 			action: REALIZED_SALE_ACTION.TakeAsk,
 			blockNumber: i,
 			logIndex: i

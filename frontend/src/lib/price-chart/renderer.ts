@@ -7,7 +7,11 @@ import {
 	type Styles,
 	type Coordinate
 } from 'klinecharts';
-import type { PriceHistory, RealizedSale } from '@artgod/shared/types/price-history';
+import {
+	PRICE_HISTORY_LIMITS,
+	type PriceHistory,
+	type RealizedSale
+} from '@artgod/shared/types/price-history';
 import { CANDLE_PANE, PRICE_PRECISION, createPriceAxis } from './price-axis';
 import {
 	PRICE_INDICATOR,
@@ -16,6 +20,7 @@ import {
 	saleVolumeTooltip,
 	saleActionColor,
 	unitPriceValue,
+	salePriceRange,
 	withSaleGaps,
 	standardMacd,
 	type SaleBar,
@@ -25,6 +30,7 @@ import {
 const PRICE_LAYER = 'artgod-realized-sales';
 const NO_AREA_VALUE = 'artgod_no_area_value';
 const HIT_SIZE = 12;
+const TIME_PADDING = 16;
 type Hit = Coordinate & { sale: RealizedSale };
 type Palette = {
 	bg: string;
@@ -197,7 +203,12 @@ export function createPriceChart(
 		timezone: 'UTC',
 		locale: 'en-US',
 		styles: chartStyles(colors),
-		hotkey: { enabled: false }
+		hotkey: { enabled: false },
+		// A full loaded period can need fractional pixels per bucket on narrow
+		// screens, or more than the default 50px for a very short history.
+		layout: {
+			barSpaceLimit: { min: 1 / PRICE_HISTORY_LIMITS.buckets, max: Number.MAX_SAFE_INTEGER }
+		}
 	});
 	if (!chart) throw new Error('Chart initialization failed');
 	const drawing: PriceDrawing = {
@@ -207,11 +218,11 @@ export function createPriceChart(
 		hits: new Map(),
 		onSalesAboveView
 	};
-	let currentHistory: PriceHistory | null = null;
+	let currentPriceRange: ReturnType<typeof salePriceRange> = null;
 	const active = new Map<string, { id: string; kind: PriceIndicator['kind'] }>();
 	chart.setSymbol({ ticker: 'ETH', pricePrecision: PRICE_PRECISION, volumePrecision: 0 });
 	chart.setPeriod({ type: 'day', span: 1 });
-	chart.setOffsetRightDistance(20);
+	chart.setOffsetRightDistance(TIME_PADDING);
 	// KLineChart deep-clones extendData objects. A callback preserves ownership
 	// of the hit-test Map without relying on undocumented store internals.
 	const priceId = chart.createIndicator(
@@ -219,13 +230,41 @@ export function createPriceChart(
 		true
 	)!;
 	const priceAxis = createPriceAxis(chart, element);
-	const observer = new ResizeObserver(() => chart.resize());
+	let fitPending = false;
+	let fitFrame = 0;
+	const scheduleTimeFit = () => {
+		cancelAnimationFrame(fitFrame);
+		fitFrame = requestAnimationFrame(() => {
+			const size = chart.getSize(CANDLE_PANE, 'main');
+			const count = chart.getDataList().length;
+			if (!fitPending || !size || !count || !element.clientWidth || size.width <= 2 * TIME_PADDING)
+				return;
+			chart.setBarSpace((size.width - 2 * TIME_PADDING) / count);
+			chart.setOffsetRightDistance(TIME_PADDING);
+			chart.scrollToRealTime();
+			fitPending = false;
+		});
+	};
+	const fit = () => {
+		if (!currentPriceRange) return;
+		priceAxis.fit(currentPriceRange);
+		fitPending = true;
+		// Axis labels affect the plot width. Fit after the library has measured
+		// them; the observer retries if loading still hides the workspace.
+		scheduleTimeFit();
+	};
+	const observer = new ResizeObserver(() => {
+		chart.resize();
+		if (fitPending) scheduleTimeFit();
+	});
 	observer.observe(element);
 
 	return {
 		setHistory(history: PriceHistory) {
+			fitPending = false;
+			cancelAnimationFrame(fitFrame);
 			priceAxis.reset();
-			currentHistory = history;
+			currentPriceRange = salePriceRange(history.sales);
 			drawing.seconds = history.bucketSeconds;
 			drawing.hits.clear();
 			const bars = saleBars(history);
@@ -237,7 +276,10 @@ export function createPriceChart(
 						: { type: 'day', span: 1 }
 			);
 			chart.setDataLoader({
-				getBars: ({ type, callback }) => callback(type === 'init' ? bars : [], false)
+				getBars: ({ type, callback }) => {
+					callback(type === 'init' ? bars : [], false);
+					if (type === 'init') fit();
+				}
 			});
 		},
 		setSelection(sales: RealizedSale[]) {
@@ -318,14 +360,7 @@ export function createPriceChart(
 				chart.overrideIndicator({ name: setting.kind, id: found.id, calcParams: setting.params });
 			});
 		},
-		fit() {
-			const size = chart.getSize(CANDLE_PANE, 'main');
-			if (!size || !currentHistory) return;
-			chart.setBarSpace(
-				Math.max(1, Math.min(40, (size.width - 30) / Math.max(1, chart.getDataList().length)))
-			);
-			chart.scrollToRealTime();
-		},
+		fit,
 		resetPriceScale() {
 			priceAxis.reset();
 		},
@@ -347,6 +382,7 @@ export function createPriceChart(
 		},
 		dispose() {
 			observer.disconnect();
+			cancelAnimationFrame(fitFrame);
 			priceAxis.dispose();
 			dispose(chart);
 		}
