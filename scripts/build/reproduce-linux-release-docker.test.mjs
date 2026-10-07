@@ -110,6 +110,7 @@ test("ordinary and linked launchers use only remote committed input and export b
                 ),
             );
         const create = calls.find((args) => args[0] === "create");
+        assert.ok(create.includes("--init"));
         assert.equal(create.at(-1), `sha256:${"a".repeat(64)}`);
         assert.ok(
             calls.findIndex((args) => args[0] === "cp") <

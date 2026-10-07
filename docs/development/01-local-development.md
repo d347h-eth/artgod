@@ -176,7 +176,9 @@ publish branches or accept a local checkout/archive as replacement input.
 The host needs Bash, Docker with Buildx, and ordinary file utilities. Docker
 fetches the recipe from that committed revision, builds a fresh Linux amd64
 Ubuntu 22 runner image, and starts a new job as its own `runner` account. That
-job performs its own Git checkout and verifies `HEAD`, acquires canonical Node
+container uses Docker's `--init` for signal forwarding and orphan reaping,
+including the security tests that deliberately kill a child process's parent.
+The job performs its own Git checkout and verifies `HEAD`, acquires canonical Node
 through the shared reviewed archive owner, enables its Corepack, installs Rust
 from `rust-toolchain.toml`, and runs immutable Yarn installation. Project checks
 and packaging use `check:linux-release-build`, the same owner as Ubuntu CI.
@@ -205,7 +207,8 @@ the build's failure status and collects diagnostics after interruption. It never
 prunes Docker or deletes prior evidence.
 
 After a runner image has been produced, the maintained native boundary checks
-exercise revision mismatch and internal source-fetch failure without host mounts:
+exercise orphan reaping, revision mismatch and internal source-fetch failure
+without host mounts:
 
 ```sh
 ARTGOD_REPRO_TEST_RUNNER_IMAGE="$(cat "$ARTGOD_REPRO_RESULT_DIR/runner-image-id.txt")" \
@@ -559,7 +562,7 @@ packaging/runtime pins do not establish complete supply-chain lockdown.
 | Linux CI and `scripts/build/reproduce-linux-release-docker.sh` | `apt-get update` plus unversioned package installs consumes the current repositories and dependency closure.                                                                                                                                                                         | Reviewed repository snapshots and exact package/closure versions, including build and verification tools.                                                               |
 | Rust bootstrap                                                 | The commit-pinned `dtolnay/rust-toolchain` Action conditionally executes current `sh.rustup.rs` or `win.rustup.rs` when rustup is absent. The Docker helper always pipes the current installer into `sh`. Existing runner rustup is inherited from the moving runner image.          | Pin and verify the installer/manager and full toolchain artifacts, with publication-age controls.                                                                       |
 | CI Node bootstrap                                              | The pinned `actions/setup-node` Action selects an exact Node version but its download/extraction path has no repository-owned binary digest or publication-age check.                                                                                                                | Pin the consumed Node distribution bytes and age, including cache and fallback paths.                                                                                   |
-| Docker development and deployment                             | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose and `Dockerfile.deploy` also lack image digests. Dedicated release reproduction pins its reviewed Ubuntu/bootstrap image digests.                                                                                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
+| Docker development and deployment                              | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose and `Dockerfile.deploy` also lack image digests. Dedicated release reproduction pins its reviewed Ubuntu/bootstrap image digests.                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
 | Yarn/Corepack bootstrap in `package.json` and CI               | `yarn@4.12.0` pins the version, but `packageManager` has no repository-owned distribution hash. Corepack and other machine tools come from the host/runner environment.                                                                                                              | Pin distribution integrity and the tool-provisioning inputs alongside versions.                                                                                         |
 | Packaging entry points                                         | Raw `yarn tauri build` can bypass the maintained Linux packaging-input gate.                                                                                                                                                                                                         | Use `yarn build:desktop:linux-bundle` for the supported Linux bundle lane; further direct-entry enforcement remains open.                                               |
 | Upgrade timing beyond libraries                                | External Actions use full commit SHAs, but Action upgrades, runner tools, container images, and OS packages have no shared enforced publication-age admission gate.                                                                                                                  | Extend reviewed age-qualified promotion to each input owner. Keep existing exact-version security exceptions explicit.                                                  |

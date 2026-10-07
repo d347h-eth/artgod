@@ -75,7 +75,9 @@ set -e
 runner_image="$(cat "$run_dir/runner-image-id.txt")"
 [[ "$runner_image" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Invalid runner image ID" >&2; exit 125; }
 
-docker create --platform linux/amd64 \
+# The containment gates deliberately orphan children after hard parent death.
+# Docker's init supplies normal signal forwarding and orphan reaping as PID 1.
+docker create --platform linux/amd64 --init \
     --cidfile "$run_dir/container-id.txt" \
     --env "ARTGOD_REPRO_REPOSITORY=$repository_url" \
     --env "ARTGOD_REPRO_REVISION=$revision" \
