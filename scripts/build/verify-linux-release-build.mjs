@@ -14,6 +14,7 @@ import { DESKTOP_CARGO_PROJECTS } from "./cargo-projects.mjs";
 
 const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 export const LINUX_RELEASE_BUILD_SCRIPT_NAME = "check:linux-release-build";
+export const LINUX_RELEASE_BUNDLE_DIRECTORY = `src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle`;
 export const LINUX_RELEASE_BUILD_PHASE = Object.freeze({
     Prerequisites: "prerequisites",
     NoBundle: "no-bundle",
@@ -106,7 +107,7 @@ export const LINUX_RELEASE_BUILD_CHECKS = Object.freeze({
         yarn(
             "Verify Linux bundled runtime integrity",
             "check:linux-bundled-runtime",
-            `src-tauri/target/${TAURI_LINUX_BUNDLER_TARGET}/release/bundle`,
+            LINUX_RELEASE_BUNDLE_DIRECTORY,
         ),
     ]),
 });

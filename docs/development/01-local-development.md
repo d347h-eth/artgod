@@ -165,24 +165,58 @@ This command requires an installed project and Linux x64 build tools.
 Ubuntu 22 release-lane reproduction in Docker:
 
 ```sh
-scripts/build/reproduce-linux-release-docker.sh
+scripts/build/reproduce-linux-release-docker.sh "$ARTGOD_REPRO_REVISION"
 ```
 
-The helper mirrors the GitHub Linux release lane: Ubuntu `22.04`, Node from
-`package.json`, Rust from `rust-toolchain.toml`, the Linux packaging
-dependencies from `.github/workflows/tauri-release.yml`, and the same Tauri
-gated AppImage/`.deb` build command. It restores ownership of generated build
-artifacts after the container exits. It requires the normal project Node setup
-on the host: the shared runtime input owner verifies the pinned Linux Node
-archive before mounting it read-only for container bootstrap.
+Set `ARTGOD_REPRO_REVISION` to the full 40-character SHA of a commit reachable
+in the public ArtGod repository. The revision must contain the dedicated
+`scripts/build/linux-release-reproduction/` recipe and job. The helper does not
+publish branches or accept a local checkout/archive as replacement input.
 
-The container provisions tools as root, then compiles as a container-local user
-matching the host checkout owner. Git metadata is mounted read-only at its
-resolved path so linked worktrees retain their committed revision. The helper
-keeps Git ownership checks active and does not change host Git configuration.
-Its generated-artifact ownership set includes frontend and desktop-runtime
-outputs, and is applied before compilation and on exit so older root-based
-reproduction runs do not leave unwritable build inputs.
+The host needs Bash, Docker with Buildx, and ordinary file utilities. Docker
+fetches the recipe from that committed revision, builds a fresh Linux amd64
+Ubuntu 22 runner image, and starts a new job as its own `runner` account. That
+job performs its own Git checkout and verifies `HEAD`, acquires canonical Node
+through the shared reviewed archive owner, enables its Corepack, installs Rust
+from `rust-toolchain.toml`, and runs immutable Yarn installation. Project checks
+and packaging use `check:linux-release-build`, the same owner as Ubuntu CI.
+
+The dedicated recipe pins official Ubuntu and Node bootstrap image digests.
+Its publication evidence is linked in the Dockerfile; the source tests and job
+apply the shared minimum-age policy. Only the initial Node executable is copied
+from the bootstrap image. Compilation uses the verified canonical distribution,
+not the bootstrap image's Yarn or other files.
+
+There are no host checkout/Git, cache, native-library, credential, socket or
+display mounts, and no host ownership repair. Development/deployment Docker
+configuration is separate. A qualifying run executes image provisioning with
+`--no-cache` and starts with fresh project/tool caches. The selected Ubuntu
+userspace shares the host kernel; it does not reproduce the GitHub VM or its
+preinstalled image inventory. Moving apt repositories, rustup and Yarn bootstrap
+remain explicit build-input gaps below.
+
+Each invocation retains a new `tmp/linux-release-reproduction.*` directory with
+image-build and job logs, image identity, source/tool/package inventory, Cargo
+lock digests, check results and available AppImage/`.deb` files. Available files
+from a failed job are diagnostics, not qualified artifacts. `docker cp` gives
+exports to the invoking user. The helper collects a stopped job before removing
+only that container; failed collection retains it and prints its ID. It preserves
+the build's failure status and collects diagnostics after interruption. It never
+prunes Docker or deletes prior evidence.
+
+After a runner image has been produced, the maintained native boundary checks
+exercise revision mismatch and internal source-fetch failure without host mounts:
+
+```sh
+ARTGOD_REPRO_TEST_RUNNER_IMAGE="$(cat "$ARTGOD_REPRO_RESULT_DIR/runner-image-id.txt")" \
+ARTGOD_REPRO_TEST_REVISION="$ARTGOD_REPRO_REVISION" \
+yarn test:desktop:linux-reproduction
+```
+
+`ARTGOD_REPRO_RESULT_DIR` selects that run's evidence directory. These Docker
+checks require both inputs and preserve failure evidence; the normal source
+suite does not start containers. Native checks complement the launcher fixtures
+and do not replace a full successful Ubuntu package build or actual GitHub CI.
 
 macOS Universal 2 app in a DMG:
 
@@ -525,7 +559,7 @@ packaging/runtime pins do not establish complete supply-chain lockdown.
 | Linux CI and `scripts/build/reproduce-linux-release-docker.sh` | `apt-get update` plus unversioned package installs consumes the current repositories and dependency closure.                                                                                                                                                                         | Reviewed repository snapshots and exact package/closure versions, including build and verification tools.                                                               |
 | Rust bootstrap                                                 | The commit-pinned `dtolnay/rust-toolchain` Action conditionally executes current `sh.rustup.rs` or `win.rustup.rs` when rustup is absent. The Docker helper always pipes the current installer into `sh`. Existing runner rustup is inherited from the moving runner image.          | Pin and verify the installer/manager and full toolchain artifacts, with publication-age controls.                                                                       |
 | CI Node bootstrap                                              | The pinned `actions/setup-node` Action selects an exact Node version but its download/extraction path has no repository-owned binary digest or publication-age check.                                                                                                                | Pin the consumed Node distribution bytes and age, including cache and fallback paths.                                                                                   |
-| Docker development, deployment, and reproduction               | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose, `Dockerfile.deploy`, and `ubuntu:22.04` also lack image digests.                                                                                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
+| Docker development and deployment                             | Compose uses `latest` and minor tags such as `nats:2.10` and `caddy:2.10`. Exact-looking tags in Compose and `Dockerfile.deploy` also lack image digests. Dedicated release reproduction pins its reviewed Ubuntu/bootstrap image digests.                                                                                                           | Approved image digests, publication evidence, and controlled age-qualified updates.                                                                                     |
 | Yarn/Corepack bootstrap in `package.json` and CI               | `yarn@4.12.0` pins the version, but `packageManager` has no repository-owned distribution hash. Corepack and other machine tools come from the host/runner environment.                                                                                                              | Pin distribution integrity and the tool-provisioning inputs alongside versions.                                                                                         |
 | Packaging entry points                                         | Raw `yarn tauri build` can bypass the maintained Linux packaging-input gate.                                                                                                                                                                                                         | Use `yarn build:desktop:linux-bundle` for the supported Linux bundle lane; further direct-entry enforcement remains open.                                               |
 | Upgrade timing beyond libraries                                | External Actions use full commit SHAs, but Action upgrades, runner tools, container images, and OS packages have no shared enforced publication-age admission gate.                                                                                                                  | Extend reviewed age-qualified promotion to each input owner. Keep existing exact-version security exceptions explicit.                                                  |

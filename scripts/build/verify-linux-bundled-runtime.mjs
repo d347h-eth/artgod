@@ -16,6 +16,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const rootDir = path.resolve(path.dirname(scriptPath), "../..");
 const appImageExtension = ".AppImage";
 const debExtension = ".deb";
+const linuxBundleExtensions = [appImageExtension, debExtension];
 const appImageExtractedDirectoryName = "squashfs-root";
 const linuxSharedResourcesDirectoryName = "share";
 const linuxPrivateResourcesDirectoryName = "lib";
@@ -182,9 +183,9 @@ export async function compareRuntimeTrees(expectedRoot, actualRoot) {
 }
 
 async function resolveSingleBundle(bundleRoot, extension) {
-    const matches = [];
-    await collectBundleFiles(bundleRoot, extension, matches);
-    matches.sort((a, b) => a.localeCompare(b));
+    const matches = (await listLinuxBundleFiles(bundleRoot)).filter(
+        (filePath) => filePath.endsWith(extension),
+    );
     if (matches.length !== 1) {
         throw new Error(
             `Expected exactly one ${extension} bundle under ${bundleRoot}, found ${matches.length}.`,
@@ -193,13 +194,26 @@ async function resolveSingleBundle(bundleRoot, extension) {
     return matches[0];
 }
 
-async function collectBundleFiles(directoryPath, extension, matches) {
+// Discovery also serves failed-build artifact collection. It returns only real
+// package files; verification separately requires one of each declared format.
+export async function listLinuxBundleFiles(bundleRoot) {
+    const matches = [];
+    await collectBundleFiles(bundleRoot, matches);
+    return matches.sort((a, b) => a.localeCompare(b));
+}
+
+async function collectBundleFiles(directoryPath, matches) {
     const entries = await readdir(directoryPath, { withFileTypes: true });
     for (const entry of entries) {
         const entryPath = path.join(directoryPath, entry.name);
         if (entry.isDirectory()) {
-            await collectBundleFiles(entryPath, extension, matches);
-        } else if (entry.isFile() && entry.name.endsWith(extension)) {
+            await collectBundleFiles(entryPath, matches);
+        } else if (
+            entry.isFile() &&
+            linuxBundleExtensions.some((extension) =>
+                entry.name.endsWith(extension),
+            )
+        ) {
             matches.push(entryPath);
         }
     }

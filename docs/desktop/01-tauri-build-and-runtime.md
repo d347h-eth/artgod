@@ -132,6 +132,7 @@ yarn build:userland
 yarn build:admin
 yarn build:desktop
 yarn build:desktop:no-bundle
+yarn check:linux-release-build
 yarn build:runtime
 yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
@@ -1182,9 +1183,11 @@ Build-check trigger policy:
 
 - The build check runs the no-write project version contract before package
   installation, so version drift fails on pull requests and `main`.
-- Its Linux job uses Ubuntu 22.04, matching release packaging. After the debug
-  no-bundle gates, it runs `yarn build:desktop:linux-bundle` through Corepack's
-  Yarn shim and verifies the final AppImage and `.deb` runtime integrity. A
+- Its Linux job uses Ubuntu 22.04, matching release packaging. The shared
+  `check:linux-release-build` owner runs prerequisites, debug no-bundle checks,
+  then the full `build:desktop:linux-bundle` lane and final AppImage/`.deb`
+  integrity checks. Dedicated isolated Docker reproduction uses the same owner;
+  environment provisioning is separate from local/deployment Docker setup. A
   no-bundle build alone does not exercise the packaging-tool cache or plugins.
 - Its required macOS job runs the real universal `better-sqlite3` node-gyp and
   `lipo` path, so both slices are proven before a release tag.
