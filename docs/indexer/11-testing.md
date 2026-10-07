@@ -184,7 +184,8 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   and the actual collection purge adapter. A merged-schema upgrade retains old
   ranges/cursors, removes delivery state and only obsolete automatic publications.
 - `tests/automatic-sync-executor.test.ts` covers one bounded range per pass,
-  zero idle head reads, oldest-due/failure fairness, gate admission reloading,
+  zero idle head reads, oldest-due/failure fairness, bounded indexed paging past
+  sixteen above-head intents at a stationary head and after restart, gate admission reloading,
   coalescing and shutdown draining, lifecycle changes during acquisition, dense
   completion headers, and rollback of data/follow-ups when single/shared-member
   or reorg progress writes fail.
@@ -192,6 +193,10 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   hints across reopen, required retry beyond ordinary limits, lost publication
   replies without RPC, stable IDs, accepted-row cleanup, orphan publication
   deletion and consumer admission, and unchanged bounded receipt behavior.
+- `tests/metadata-refresh-range.test.ts` uses the production application handler
+  and SQLite adapters to cover fixed root/origin/scope through several cursors,
+  duplicate publication identity, orphan admission, ordinary/legacy envelopes,
+  invalid scope/cursor rejection and large token IDs.
 - `tests/sync-result-canonical.test.ts` verifies atomic rejection of orphaned
   facts and hints across every sync output group, mismatched receipts, missing
   headers, conflicting stored/duplicate headers and mixed parent chains. It also
@@ -233,7 +238,8 @@ Set `REORG_RECOVERY_TEST_NATS_BINARY` to an existing staged pinned binary if it 
 provisioned outside this worktree. Missing inputs fail explicitly; the harness
 does not download tools or use configured live services. The shared isolated-NATS
 helper and child-worker bundler retain disposable SQLite/JetStream stores,
-worker/broker logs and reports under `tmp/reorg-recovery-nats/`.
+worker/broker logs and reports under `tmp/reorg-recovery-nats/`. Metadata range
+broker fixtures retain their private stores and logs under `tmp/metadata-range-nats/`.
 
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
@@ -252,6 +258,12 @@ outbox, SQLite and range/fanout implementations across:
 - forced check redelivery and a lost obsolete automatic-hint ACK;
 - a competing SQLite writer requiring bounded transaction retries, and stale
   proof from one process after another commits rollback.
+
+`integration/metadata-range-refresh.test.ts` runs the production metadata range
+handler, worker admission, sync outbox, metadata SQLite adapter and JetStream. It
+verifies that a tail first delivered after rollback is ACKed without further URI
+reads, and that a replacement root refreshes the full range after old root/tail
+ACKs within the broker dedupe window. Token URI and HTTP responses are fixtures.
 
 RPC chain responses are deterministic fixtures. These checks establish the local
 broker/database failure contracts; external-RPC smoke, native/package execution

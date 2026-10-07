@@ -181,6 +181,13 @@ Also caches conduit channel lists used to ensure the Seaport exchange is an open
 
 These ports keep metadata resolution and HTTP fetching swappable.
 
+`application/metadata/refresh-range.ts` owns one range chunk and its follow-ups,
+using narrow metadata, queue, extension-install and image-policy contracts. Runtime
+composition passes the full domain envelope. `domain/metadata-refresh-range.ts`
+owns token-range chunking and continuation identity/context, so every cursor
+preserves the root publication and optional event origin. Single-token and range
+refreshes reuse `application/metadata/image-refresh.ts` for image publications.
+
 ## Collection Extension Ports
 
 - Interface: `indexer/src/ports/collection-extensions.ts`

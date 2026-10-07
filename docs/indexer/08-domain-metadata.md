@@ -4,6 +4,8 @@ The metadata domain resolves token URIs and fetches token metadata for assets ob
 
 Primary files:
 
+- `indexer/src/application/metadata/refresh-range.ts`
+- `indexer/src/domain/metadata-refresh-range.ts`
 - `indexer/src/infra/domain/metadata.ts`
 - `indexer/src/infra/metadata/viem-token-uri.ts`
 - `indexer/src/infra/metadata/http-fetcher.ts`
@@ -41,10 +43,21 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 - **On-chain triggers**: the sync pipeline decodes ERC‑4906 `MetadataUpdate` / `BatchMetadataUpdate` logs via the trigger registry in `indexer/src/application/metadata/refresh-triggers.ts`.
 - `MetadataUpdate` publishes token-level refresh jobs.
 - `BatchMetadataUpdate` publishes collection-scoped range refresh jobs (`domain.metadata.refresh-range`) with a queue cursor.
-- The domain worker processes range jobs in chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueues the next cursor until complete.
+- The domain worker uses the application range handler to process chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueue the next cursor until complete.
 - **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `collectionId + tokenId`.
 
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. `collectionId` is the authoritative job anchor; contract address is derived from the collection row only when the metadata domain needs onchain reads such as `tokenURI(...)`.
+
+Every range continuation retains the root publication ID in `rootJobId`, the
+collection scope and any originating `onchainBlock`. Its publication ID is the
+fixed root ID plus the next cursor, rather than a nested sequence of parent IDs.
+On-chain roots are revision-qualified by the sync outbox, so a replacement event
+has distinct continuation IDs inside the broker dedupe window. Worker admission
+rejects newly delivered orphan continuations before URI reads. Ordinary ranges
+carry no invented event origin; initial and legacy envelopes without `rootJobId`
+seed it from their own job ID. Context already absent from a pre-upgrade queued
+continuation cannot be reconstructed. This fences new deliveries, without
+cancelling a chunk that was already admitted before rollback.
 
 Collection extensions already participate in this path in v1, but through sync-worker enrichment rather than through the core ERC-4906 trigger registry:
 

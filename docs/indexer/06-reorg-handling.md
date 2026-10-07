@@ -140,9 +140,11 @@ rollbackFrom -> currentHead
 ```
 
 The workflow retains one range capped by `BACKFILL_BATCH_SIZE`. The sync worker's
-`AutomaticSyncExecutor` reads it directly, reloads live and anchored bootstrapping
-collections after entering the current-state gate, and uses the shared sync
-pipeline. An empty eligible set leaves recovery pending.
+`AutomaticSyncExecutor` reads it directly, reloads live and bootstrapping
+collections through the existing backfill selection after entering the
+current-state gate, and uses the shared sync pipeline. Selection does not require
+a bootstrap anchor; current-state projection remains anchor-gated. An empty
+eligible set leaves recovery pending.
 
 One transaction revalidates recovery ID, revision and exact range; persists
 canonical data/coverage/balances; retains every required follow-up in the outbox;
@@ -159,6 +161,9 @@ Rollback drops orphan event-specific intent, and domain consumers reject already
 published event hints whose originating block hash is no longer stored. Pending
 range follow-ups survive rollback because they reread canonical persisted facts;
 this also preserves unfinished pre-fork projection when a newer mismatch occurs.
+Event-triggered metadata range continuations retain that block identity and the
+revision-qualified root publication ID through every cursor. Replacement tails
+therefore remain distinct from tails already accepted for an orphaned root.
 
 A head behind the verified fork defers rollback. If the head is exactly the fork
 and no interrupted earlier acquisition remains, rollback completes recovery
