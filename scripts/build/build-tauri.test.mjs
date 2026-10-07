@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { buildLockedTauri } from "./build-tauri.mjs";
+import { projectYarnCommand } from "./project-yarn-command.mjs";
+
+const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 
 test("caller debug and target flags stay before Cargo lock enforcement", async () => {
     const environment = { XDG_CACHE_HOME: "/build/cache" };
@@ -89,5 +94,36 @@ test("Windows stops before launch when its installed CLI cannot resolve", async 
             },
         }),
         /Missing project CLI install/,
+    );
+});
+
+test("Yarn Node resolves and launches the real pinned CLI through Windows dispatch", () => {
+    const probe = "./scripts/build/fixtures/launch-installed-tauri.mjs";
+    const { command, args } = projectYarnCommand(["node", probe]);
+    const environment = {
+        ...process.env,
+        YARN_ENABLE_NETWORK: "0",
+        COREPACK_ENABLE_NETWORK: "0",
+    };
+    delete environment.NODE_OPTIONS;
+    delete environment.NODE_PATH;
+    const result = spawnSync(command, args, {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Usage:.*build/);
+    assert.match(result.stdout, /--bundles/);
+    const plain = spawnSync(process.execPath, [probe], {
+        cwd: rootDir,
+        env: environment,
+        encoding: "utf8",
+    });
+    assert.notEqual(plain.status, 0);
+    assert.match(
+        plain.stderr,
+        /Cannot find module '@tauri-apps\/cli\/tauri.js'/,
     );
 });

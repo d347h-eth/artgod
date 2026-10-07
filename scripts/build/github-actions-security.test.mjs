@@ -1300,6 +1300,26 @@ test("compiles the Windows sensitive-process hardening path", async () => {
 
     assert.match(windowsJob, /^ {8}runs-on: windows-latest$/m);
     assert.doesNotMatch(windowsJob, /^ {8}if:/m);
+    let previousStep = "Setup Node";
+    for (const [stepName, command] of [
+        ["Enable Corepack", "corepack enable"],
+        [
+            "Install workspace dependencies",
+            "yarn install --immutable --mode=skip-build",
+        ],
+        [
+            "Test Windows package-manager and Tauri launchers",
+            "yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/build-tauri.test.mjs",
+        ],
+        ["Build trusted native SQLite dependency", "yarn build:sqlite-native"],
+        ["Build Windows userland frontend", "yarn build:userland"],
+    ]) {
+        const step = extractWorkflowStep(windowsJob, stepName);
+        assertStepRunsCommand(step, command);
+        assertStepIsRequired(step);
+        assertStepPrecedes(windowsJob, previousStep, stepName);
+        previousStep = stepName;
+    }
     assert.match(
         windowsJob,
         new RegExp(

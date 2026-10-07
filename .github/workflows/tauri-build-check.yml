@@ -223,6 +223,21 @@ jobs:
               with:
                   node-version-file: package.json
 
+            - name: Enable Corepack
+              run: corepack enable
+
+            - name: Install workspace dependencies
+              run: yarn install --immutable --mode=skip-build
+
+            - name: Test Windows package-manager and Tauri launchers
+              run: yarn node --test ./scripts/build/project-yarn-command.test.mjs ./scripts/build/build-tauri.test.mjs
+
+            - name: Build trusted native SQLite dependency
+              run: yarn build:sqlite-native
+
+            - name: Build Windows userland frontend
+              run: yarn build:userland
+
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:

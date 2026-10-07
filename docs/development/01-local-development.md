@@ -181,7 +181,7 @@ macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg
+yarn node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg
 ```
 
 The ordinary macOS build-check job preserves its host listener and secret-prompt
@@ -213,7 +213,7 @@ Windows x64 NSIS installer:
 
 ```powershell
 rustup target add x86_64-pc-windows-msvc
-node ./scripts/build/build-tauri.mjs --ci --target x86_64-pc-windows-msvc --bundles nsis
+yarn node ./scripts/build/build-tauri.mjs --ci --target x86_64-pc-windows-msvc --bundles nsis
 ```
 
 `yarn build:sqlite-native` is required after a fresh install for ordinary
