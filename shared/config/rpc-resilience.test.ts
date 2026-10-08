@@ -18,7 +18,7 @@ describe("HTTP RPC response-size configuration", () => {
         },
     );
 
-    it.each([1, 524_288, 20_971_520])(
+    it.each([1, 524_288, 20_971_520, Number.MAX_SAFE_INTEGER])(
         "accepts a positive byte limit of %i",
         (limit) => {
             expect(
@@ -28,12 +28,22 @@ describe("HTTP RPC response-size configuration", () => {
         },
     );
 
-    it.each(["0", "-1", "1.5", "false", "NaN", "Infinity"])(
-        "rejects an invalid byte limit of %s",
-        (value) => {
-            expect(() =>
-                parseRpcEndpointResilienceConfig({ [limitKey]: value }),
-            ).toThrow(`Invalid ${limitKey}`);
-        },
-    );
+    it.each([
+        "0",
+        "-1",
+        "1.5",
+        "false",
+        "NaN",
+        "Infinity",
+        "9007199254740992",
+        "9007199254740993",
+        "1e7",
+        "0x100000",
+        "01",
+        "+1",
+    ])("rejects an invalid byte limit of %s", (value) => {
+        expect(() =>
+            parseRpcEndpointResilienceConfig({ [limitKey]: value }),
+        ).toThrow(`Invalid ${limitKey}`);
+    });
 });

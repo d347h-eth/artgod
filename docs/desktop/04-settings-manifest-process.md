@@ -80,6 +80,12 @@ Optional fields:
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.
 
+Admin positive-integer validation and the shared runtime `parsePositiveInteger`
+parser use the same decimal safe-integer rule. Values must be greater than zero
+and at most `Number.MAX_SAFE_INTEGER`, without exponent, hexadecimal, sign, or
+leading-zero notation. Surrounding whitespace is trimmed; an absent or blank
+runtime override uses its validated default.
+
 For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
 Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`,

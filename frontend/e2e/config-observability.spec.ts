@@ -36,7 +36,20 @@ test('Advanced RPC response limit validates byte counts and saves an override', 
 	await attachSurface(page, testInfo, 'rpc-default');
 
 	const save = page.getByRole('button', { name: 'save' });
-	for (const value of ['0', '-1', '1.5', 'false']) {
+	await limit.fill(String(Number.MAX_SAFE_INTEGER));
+	await expect(limit).toHaveAttribute('aria-invalid', 'false');
+	await expect(save).toBeEnabled();
+	for (const value of [
+		'0',
+		'-1',
+		'1.5',
+		'false',
+		'1e7',
+		'0x100000',
+		'01',
+		'9007199254740992',
+		'9007199254740993'
+	]) {
 		await limit.fill(value);
 		await expect(limit).toHaveAttribute('aria-invalid', 'true');
 		await expect(save).toBeDisabled();
