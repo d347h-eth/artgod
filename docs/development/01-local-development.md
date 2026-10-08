@@ -371,8 +371,10 @@ yarn test:desktop:local:exporters --compose src-tauri/target-local/release/resou
 This check queries Prometheus for scraped metrics, Tempo for the probe trace,
 and Pyroscope for nonempty wall profile samples from each enabled process.
 Probe traffic uses `artgod.local-build-test`; no application database or wallet
-is opened. Collector endpoints come from the settings manifest and Grafana
-datasource files. Native supervisor operation against your saved data and
+is opened. Each child has a unique verification worker/service identity, so
+store queries cannot reuse samples from an earlier probe. Collector endpoints
+come from the settings manifest and Grafana datasource files. Native supervisor
+operation against your saved data and
 rendered Grafana inspection remain separate runtime checks. Linux x64
 no-bundle, `.deb` resources and Compose delivery have been exercised;
 AppImage and other hosts need native QA.

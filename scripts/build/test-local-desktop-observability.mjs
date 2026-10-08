@@ -9,12 +9,12 @@ import { localDesktopPaths, projectRoot } from "./local-desktop-contract.mjs";
 import { localRuntimeBuildOptions } from "./local-desktop-runtime-options.mjs";
 import { assertLocalRuntimeProfiles } from "./local-desktop-dependencies.mjs";
 import { verifyLocalDesktopObservabilityDependencies } from "./verify-local-desktop-observability.mjs";
-import { setTimeout as delay } from "node:timers/promises";
 import {
     parseManifest,
     resolveDefaultForTarget,
 } from "../config/generate-env-example.mjs";
-import { LOCAL_DESKTOP_PROBE } from "./local-desktop-observability-probe-contract.mjs";
+import { createLocalDesktopProbe } from "./local-desktop-observability-probe-contract.mjs";
+import { verifyComposeSignals } from "./local-desktop-observability-signals.mjs";
 
 const args = process.argv.slice(2);
 const useCompose = args[0] === "--compose";
@@ -109,9 +109,10 @@ await close(reservation);
 try {
     // New child per run matches the native supervisor's stop/restart lifecycle.
     for (const enabled of [false, true, true]) {
+        const probe = createLocalDesktopProbe();
         const startedAt = Date.now();
         received.length = 0;
-        await runProbe(enabled);
+        await runProbe(enabled, probe);
         if (enabled) {
             assert.ok(
                 received.some(
@@ -126,7 +127,7 @@ try {
                     ),
                     "Compose must accept every exporter payload",
                 );
-                await verifyComposeSignals(compose, startedAt);
+                await verifyComposeSignals(compose, probe, startedAt);
             }
             assert.ok(
                 received.some(
@@ -147,7 +148,7 @@ try {
     await close(collector);
 }
 
-function runProbe(enabled) {
+function runProbe(enabled, probe) {
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
     delete env.NODE_PATH;
@@ -159,6 +160,7 @@ function runProbe(enabled) {
                 collectorUrl,
                 String(metricsPort),
                 String(enabled),
+                probe.runId,
             ],
             {
                 cwd: fixture,
@@ -261,88 +263,6 @@ async function readComposeEndpoints() {
     return endpoints;
 }
 
-async function verifyComposeSignals(endpoints, startedAt) {
-    const serviceName = `${LOCAL_DESKTOP_PROBE.serviceNamespace}.${LOCAL_DESKTOP_PROBE.worker}`;
-    // Query the stores, so an HTTP ingest acknowledgement alone cannot pass.
-    // API contracts: grafana.com/docs/tempo/latest/api_docs/ and
-    // github.com/grafana/pyroscope/blob/main/api/querier/v1/querier.proto.
-    const metricsQuery = new URL("/api/v1/query", endpoints.prometheus);
-    const traceQuery = new URL("/api/search", endpoints.tempo);
-    traceQuery.searchParams.set("tags", `service.name=${serviceName}`);
-    traceQuery.searchParams.set("start", String(Math.floor(startedAt / 1000)));
-    const deadline = Date.now() + 45_000;
-    let lastError;
-    do {
-        try {
-            const getJson = async (url, options = {}) => {
-                const response = await fetch(url, {
-                    ...options,
-                    signal: AbortSignal.timeout(5_000),
-                });
-                assert.ok(
-                    response.ok,
-                    `Collector query failed with HTTP ${response.status}`,
-                );
-                return response.json();
-            };
-            const windowSeconds = Math.max(
-                1,
-                Math.ceil((Date.now() - startedAt) / 1000),
-            );
-            metricsQuery.searchParams.set(
-                "query",
-                `max_over_time(process_cpu_user_seconds_total{worker="${LOCAL_DESKTOP_PROBE.worker}"}[${windowSeconds}s])`,
-            );
-            const metrics = await getJson(metricsQuery);
-            assert.equal(metrics.status, "success");
-            assert.ok(
-                metrics.data.result.some((entry) => Number(entry.value[1]) > 0),
-                "Prometheus must scrape the probe's process metrics",
-            );
-            traceQuery.searchParams.set(
-                "end",
-                String(Math.ceil(Date.now() / 1000)),
-            );
-            const traces = await getJson(traceQuery);
-            assert.ok(
-                traces.traces?.some(
-                    (trace) =>
-                        trace.rootServiceName === serviceName &&
-                        trace.rootTraceName === LOCAL_DESKTOP_PROBE.spanName,
-                ),
-                "Tempo must return the exported probe trace",
-            );
-            const profiles = await getJson(
-                new URL(
-                    "/querier.v1.QuerierService/SelectMergeStacktraces",
-                    endpoints.pyroscope,
-                ),
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        profileTypeID: LOCAL_DESKTOP_PROBE.profileType,
-                        labelSelector: `{service_name="${serviceName}"}`,
-                        start: startedAt,
-                        end: Date.now(),
-                    }),
-                },
-            );
-            assert.ok(
-                Number(profiles.flamegraph?.total) > 0,
-                "Pyroscope must return nonempty profile samples",
-            );
-            console.log(
-                "Compose returned scraped process metrics, the probe trace and nonempty wall profile samples.",
-            );
-            return;
-        } catch (error) {
-            lastError = error;
-            await delay(2_000);
-        }
-    } while (Date.now() < deadline);
-    throw lastError;
-}
 function close(server) {
     return new Promise((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
