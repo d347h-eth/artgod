@@ -189,7 +189,12 @@ limits parsed from the immutable mandate it will enforce. Backend bid-book reads
 bind those rows to the same fresh session. This projection is diagnostic input
 for Userland only; SQLite never grants signing authority.
 Backend bid-book reads also use the heartbeat to decide whether the bot snapshot projection can be treated as live.
-Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
+Active-order evidence restored from a prior bot process is rendered as `verifying`
+when the current boot can verify it. Without current collection authorization,
+that saved evidence is `unconfirmed`; it does not assert that the bid is still
+active in OpenSea. An explicit cancellation command on the existing job performs
+the normal order lookup and cancellation, producing `canceling`, `cancel failed`,
+or `cancelled` evidence without enabling background bidding work.
 
 ## Current Runtime Mode
 
@@ -407,7 +412,7 @@ Backend source selection:
 - private Userland reads resolve current collection authorization only from rows bound to the same fresh runtime session; public reads return no local authorization detail
 - `ownMakerAddress` reports only the known passive market identity used to recognize and filter observed marketplace rows; it is not the owner identity of a local declared job and does not gate own-job visibility
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
-- prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
+- prior-process active-order evidence keeps an own row visible with strategy badges hidden; it is `verifying` when current authorization permits verification, or `unconfirmed` when that boot cannot verify the collection
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
 - when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
 - an explicit cancellation fact exclusively owns lifecycle presentation for its exact job and order; runtime evidence for that pair stays excluded even after the completed-cancellation confirmation is no longer displayed
@@ -442,7 +447,8 @@ Bid-book row materialization:
 - the frontend renders an identityless own intent as plain `You`; maker links, address titles, and maker highlighting appear only after the row is an observed market bid with an address
 - queued, waiting, authorization-required, authorization-unavailable, or paused own-intent rows without active-order evidence use a floor-ceiling price range because no single market order price exists yet
 - enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when the runtime session or matched authorization fields are incomplete
-- verifying, replacing, canceling, cancel failed, and cancelled own-intent rows backed by active-order evidence use the real active order id and exact current price
+- unconfirmed, verifying, replacing, canceling, cancel failed, and cancelled own-intent rows backed by active-order evidence use the real active order id and saved exact price
+- token cards, bid-book rows, and bidding panels preserve the saved-order or cancellation phase even when an edited declaration also requires authorization
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 - bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data
 

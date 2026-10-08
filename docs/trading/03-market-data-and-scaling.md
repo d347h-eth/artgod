@@ -126,7 +126,8 @@ one.
 
 Unauthorized collections also remain outside token-price warmup, stream watches,
 hot refresh and recurring scans. Existing tracked order identity, price and
-expiration remain visible through backend bid-book overlays without warmup.
+expiration remain visible through backend bid-book overlays without warmup,
+marked `unconfirmed` until current order evidence is available.
 Explicit cancellation uses that durable order evidence, including its original
 revision after spec edits. Its recovery reads are the only marketplace work for
 an unauthorized collection; they cannot place or replace an offer.
