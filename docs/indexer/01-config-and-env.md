@@ -49,12 +49,21 @@ The indexer reads these variables from the root `.env`:
 - `REORG_DEPTH` (default: 32)
 - `BACKFILL_BATCH_SIZE` (default: 10)
     - Caps automatic collection gap repairs as well as explicit backfill chunks.
+    - Controls logical job size, not response bytes. RPC log acquisition can
+      subdivide an existing job without changing its retained range or progress.
     - Perpetual repair is enabled by default for live, anchored collections;
       bounded scan and retry policy is described in [scheduler behavior](03-scheduler-worker.md#perpetual-collection-gap-repair).
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
 - `LOG_CHUNK_SIZE` (default: 2000)
+    - Maximum block span per RPC log request. On viem's response-size limit,
+      the provider halves the failed span and retries from the same block.
+      It keeps the smaller cap for subsequent calls during its lifetime;
+      other provider instances learn independently and restart resets the cap.
+    - Size-limit failures produce an error log recommending a lower
+      `BACKFILL_BATCH_SIZE` or `LOG_CHUNK_SIZE`. Saved settings are not rewritten.
+      A single oversized block fails explicitly because it cannot be subdivided.
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` (default: 60000)

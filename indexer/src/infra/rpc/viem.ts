@@ -7,7 +7,11 @@ import {
     http,
     type Abi,
 } from "viem";
-import { isRpcDeterministicContractError } from "@artgod/shared/evm/rpc-errors";
+import {
+    getRpcResponseBodySizeLimit,
+    isRpcDeterministicContractError,
+    RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+} from "@artgod/shared/evm/rpc-errors";
 import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
@@ -23,6 +27,7 @@ import {
     VIEM_TRANSPORT_RETRY_DISABLED,
 } from "@artgod/shared/evm/rpc-resilience";
 import type { Metrics } from "@artgod/shared/observability/metrics";
+import { logger } from "@artgod/shared/utils/logger";
 import {
     RPC_OBSERVABILITY_WORKSPACE,
     RPC_PROTOCOL,
@@ -41,7 +46,10 @@ import type {
 import { RPC_CONTRACT_BATCH_MAX_CALLS } from "../../ports/rpc.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_LOG_ACTION,
     INDEXER_RPC_LOG_COMPONENT,
+    INDEXER_RPC_LOG_MESSAGE,
+    INDEXER_RPC_METHOD,
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "./observability.js";
 
@@ -77,8 +85,15 @@ export class ViemRpcProvider implements RpcProviderPort {
     private endpointSelector: WeightedEndpointSelector<ViemRpcEndpoint>;
     private rpcObservability: RpcObservability;
     private rpcComponent: string;
+    // A learned cap applies to subsequent and concurrent calls on this provider,
+    // including retained jobs whose original block ranges cannot be rescheduled.
+    private effectiveLogChunkSize: number;
 
     constructor(private config: ViemRpcConfig) {
+        this.effectiveLogChunkSize = Math.max(
+            1,
+            Math.floor(config.logChunkSize),
+        );
         const endpoints = resolveRpcEndpoints(config);
         this.rpcComponent =
             config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.DefaultHttp;
@@ -206,23 +221,64 @@ export class ViemRpcProvider implements RpcProviderPort {
         if (filter.fromBlock > filter.toBlock) return [];
 
         const logs: RpcLog[] = [];
-        const chunkSize = Math.max(1, this.config.logChunkSize);
-        for (
-            let start = filter.fromBlock;
-            start <= filter.toBlock;
-            start += chunkSize
-        ) {
-            const end = Math.min(filter.toBlock, start + chunkSize - 1);
+        let start = filter.fromBlock;
+        while (start <= filter.toBlock) {
+            const end = Math.min(
+                filter.toBlock,
+                start + this.effectiveLogChunkSize - 1,
+            );
             const params = {
                 address: filter.address as any,
                 events: filter.events as any,
                 fromBlock: BigInt(start),
                 toBlock: BigInt(end),
             };
-            const chunk = await this.executeRpc("getLogs", (client) =>
-                client.getLogs(params as any),
-            );
-            logs.push(...chunk.map(mapLog));
+            try {
+                const chunk = await this.executeRpc(
+                    INDEXER_RPC_METHOD.GetLogs,
+                    (client) => client.getLogs(params as any),
+                );
+                logs.push(...chunk.map(mapLog));
+                // Advance only after the exact interval succeeds, even when
+                // another call reduced the shared cap while this one awaited RPC.
+                start = end + 1;
+            } catch (error) {
+                const sizeLimit = getRpcResponseBodySizeLimit(error);
+                if (!sizeLimit) throw error;
+
+                const requestedBlockCount = end - start + 1;
+                const previousChunkSize = this.effectiveLogChunkSize;
+                // Concurrent failures can only lower the cap. Retrying the same
+                // cursor with half the failed span bounds recovery at one block.
+                this.effectiveLogChunkSize = Math.min(
+                    previousChunkSize,
+                    Math.max(1, Math.floor(requestedBlockCount / 2)),
+                );
+                logger.error(
+                    requestedBlockCount > 1
+                        ? INDEXER_RPC_LOG_MESSAGE.LogRangeReduced
+                        : INDEXER_RPC_LOG_MESSAGE.SingleBlockResponseTooLarge,
+                    {
+                        component: INDEXER_RPC_LOG_COMPONENT.Http,
+                        workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
+                        rpcComponent: this.rpcComponent,
+                        protocol: RPC_PROTOCOL.Http,
+                        method: INDEXER_RPC_METHOD.GetLogs,
+                        action: INDEXER_RPC_LOG_ACTION.LogResponseSizeLimitExceeded,
+                        errorClass:
+                            RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+                        fromBlock: start,
+                        toBlock: end,
+                        requestedBlockCount,
+                        configuredChunkSize: this.config.logChunkSize,
+                        previousChunkSize,
+                        effectiveChunkSize: this.effectiveLogChunkSize,
+                        maxResponseBodySize: sizeLimit.maxSize,
+                        responseBodySize: sizeLimit.size,
+                    },
+                );
+                if (requestedBlockCount === 1) throw error;
+            }
         }
         return logs;
     }

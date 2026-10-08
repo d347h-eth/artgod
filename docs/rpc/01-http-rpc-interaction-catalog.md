@@ -191,6 +191,15 @@ The policy is configured through `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`,
 `RPC_RATE_LIMIT_*`, and `RPC_CIRCUIT_BREAKER_*`. The timeout is per HTTP
 request attempt; the retry policy still bounds the total number of attempts.
 
+Log acquisition also adapts request windows to viem's response-byte limit.
+`getLogs` halves an oversized window, retries the uncovered interval, and keeps
+the smaller block cap for all calls on that provider instance until restart.
+This is separate from job scheduling and endpoint retries; already retained
+large jobs recover without rewriting their range or saved configuration. The
+adapter emits an error log with the byte sizes and reduced cap. A single-block
+oversized response remains an explicit failure. See
+[log fetching](../indexer/04-sync-pipeline.md#log-fetching-and-decoding).
+
 ### Scheduler Worker
 
 - Runtime: `indexer/src/runtime/scheduler-worker.ts`.

@@ -63,6 +63,23 @@ pending. These checks do not establish full lifecycle cancellation.
 
 ## Log Fetching and Decoding
 
+`ViemRpcProvider` separates a sync job's logical range from its RPC request
+windows. Requests initially use at most `LOG_CHUNK_SIZE` blocks. If viem rejects
+a response with `ResponseBodyTooLargeError`, the adapter halves the failed
+window and retries from its first block. Completed windows are kept, and the
+cursor advances only after a window succeeds, preserving complete ordered logs
+without skipped or repeated intervals. This also protects retained backfills
+created under a larger `BACKFILL_BATCH_SIZE`.
+
+The learned cap can only decrease during that provider instance's lifetime and
+is shared by its concurrent and later calls. Primary and dedicated backfill
+providers learn independently; no saved setting, durable job, or other process
+is rewritten. A restart starts with the configured cap again. An error log
+records the failed range, byte limit, response size and new cap, and recommends
+reducing `BACKFILL_BATCH_SIZE` or `LOG_CHUNK_SIZE`. If one block still exceeds the
+limit, acquisition rejects explicitly. Other transport failures retain the
+normal endpoint retry policy.
+
 The sync logic lives in `indexer/src/application/sync.ts`:
 
 - Uses viem `getLogs()` with `events` filtering across transfer events, ERC-4906 metadata refresh logs, Seaport logs, and collection-extension watch specs.
