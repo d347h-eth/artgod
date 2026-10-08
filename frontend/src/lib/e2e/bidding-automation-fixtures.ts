@@ -114,6 +114,10 @@ export const BIDDING_E2E_SCENARIO = {
 	IncompatibleTierDelta: 'incompatible_tier_delta',
 	CancellationPhases: 'cancellation_phases',
 	AuthorizationRequired: 'authorization_required',
+	UnconfirmedBid: 'unconfirmed_bid',
+	UnconfirmedBidCanceling: 'unconfirmed_bid_canceling',
+	UnconfirmedBidCancelFailed: 'unconfirmed_bid_cancel_failed',
+	UnconfirmedBidCancelled: 'unconfirmed_bid_cancelled',
 	FirstRunIntent: 'first_run_intent',
 	OwnBidStates: 'own_bid_states',
 	OwnBidStatesUpdated: 'own_bid_states_updated',
@@ -124,6 +128,35 @@ export const BIDDING_E2E_SCENARIO = {
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+// One saved order persists across the unauthorized-job cancellation journey.
+export const BIDDING_E2E_UNCONFIRMED_BID = {
+	JobId: 'job-token-101',
+	TokenId: '101',
+	OrderId: '0xtoken-101-own',
+	PriceEth: '0.710'
+} as const;
+
+const UNCONFIRMED_BID_PHASE_BY_SCENARIO = {
+	[BIDDING_E2E_SCENARIO.UnconfirmedBid]: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed,
+	[BIDDING_E2E_SCENARIO.UnconfirmedBidCanceling]: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+	[BIDDING_E2E_SCENARIO.UnconfirmedBidCancelFailed]:
+		TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
+	[BIDDING_E2E_SCENARIO.UnconfirmedBidCancelled]: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
+} as const;
+
+function unconfirmedBidPhase(scenario: BiddingE2eScenario | null) {
+	return scenario && scenario in UNCONFIRMED_BID_PHASE_BY_SCENARIO
+		? UNCONFIRMED_BID_PHASE_BY_SCENARIO[scenario as keyof typeof UNCONFIRMED_BID_PHASE_BY_SCENARIO]
+		: null;
+}
+
+function unconfirmedBidJobStatus(scenario: BiddingE2eScenario | null): ApiBiddingJob['status'] {
+	const phase = unconfirmedBidPhase(scenario);
+	return phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed
+		? TRADING_JOB_STATUS.Enabled
+		: TRADING_JOB_STATUS.Paused;
+}
 
 // Opponent identities shared by state-selection fixtures and rendered assertions.
 export const BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS = {
@@ -880,10 +913,12 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		priceTiers: biddingE2ePriceTiersForScenario(scenario),
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:
-			JOBS.find(
-				(job) =>
-					job.target.type === TRADING_JOB_TARGET_KIND.Token && job.target.tokenId === tokenRef
-			) ?? null,
+			unconfirmedBidPhase(scenario) && tokenRef === BIDDING_E2E_UNCONFIRMED_BID.TokenId
+				? { ...JOBS[0], revision: 3, status: unconfirmedBidJobStatus(scenario) }
+				: (JOBS.find(
+						(job) =>
+							job.target.type === TRADING_JOB_TARGET_KIND.Token && job.target.tokenId === tokenRef
+					) ?? null),
 		tokenBiddingBidBook: buildTokenDetailBidBook(tokenRef, scenario),
 		showMuted: parseShowMutedBidBook(searchParams),
 		backPath: COLLECTION_BASE_PATH,
@@ -1065,6 +1100,34 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	const savedOrderPhase = unconfirmedBidPhase(scenario);
+	if (savedOrderPhase) {
+		const savedOrder = bidRow({
+			orderId: BIDDING_E2E_UNCONFIRMED_BID.OrderId,
+			jobId: BIDDING_E2E_UNCONFIRMED_BID.JobId,
+			tokenId: BIDDING_E2E_UNCONFIRMED_BID.TokenId,
+			scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+			priceEth: BIDDING_E2E_UNCONFIRMED_BID.PriceEth,
+			phase: savedOrderPhase,
+			status: unconfirmedBidJobStatus(scenario),
+			placedAt: FIXTURE_NOW,
+			validUntil: 1_900_000_000
+		});
+		return savedOrderPhase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed
+			? [
+					bidRow({
+						orderId: 'intent-edited-token-101',
+						jobId: BIDDING_E2E_UNCONFIRMED_BID.JobId,
+						tokenId: BIDDING_E2E_UNCONFIRMED_BID.TokenId,
+						scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+						priceEth: JOBS[0].config.floorEth,
+						ceilingEth: JOBS[0].config.ceilingEth,
+						phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired
+					}),
+					savedOrder
+				]
+			: [savedOrder];
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.OwnBidStatesOnlyPaused) {
 		return [TRADING_BIDDING_BID_SCOPE_KIND.Token, TRADING_BIDDING_BID_SCOPE_KIND.Trait].flatMap(
 			(scopeKind) =>
@@ -1393,13 +1456,26 @@ function buildTokenDetailBidBook(
 	};
 }
 
-// Models an active snapshot feed whose running bot cannot place bids for this collection.
+// Models feed and boot authorization separately, including saved-order evidence.
 function biddingRuntimeForScenario(scenario: BiddingE2eScenario | null): Pick<
 	ApiBiddingBidBook,
 	'biddingBotStatus' | 'biddingAuthorization' | 'ownMakerAddress'
 > & {
 	source: ApiBiddingBidBook['state']['source'];
 } {
+	if (unconfirmedBidPhase(scenario)) {
+		return {
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: {
+				status: TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+				maxUnitBidWei: null,
+				maxUnitBidEth: null,
+				maxQuantity: null
+			},
+			ownMakerAddress: OWN_ADDRESS
+		};
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.FirstRunIntent) {
 		return {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,

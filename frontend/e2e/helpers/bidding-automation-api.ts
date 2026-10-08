@@ -57,7 +57,8 @@ export type BiddingAutomationApiMock = {
 };
 
 const BIDDING_E2E_API_PATH_SUFFIX = {
-	BatchTokenLookup: '/bidding/jobs/tokens/lookup'
+	BatchTokenLookup: '/bidding/jobs/tokens/lookup',
+	TokenJob: '/bidding/job'
 } as const;
 
 // Captures bidding write calls while returning deterministic API responses to the real UI.
@@ -77,6 +78,7 @@ export async function installBiddingAutomationApiMock(
 		(reapplyFixture?.jobs ?? []).map((job) => [job.jobId, job])
 	);
 	const competitionSelections = new Map<string, string | null>();
+	const tokenJobs = new Map<string, ApiBiddingJob>();
 	function findReapplyJob(targetTraits: unknown, quantity = 1): ApiBiddingJob | undefined {
 		if (!Array.isArray(targetTraits)) return undefined;
 		const signature = JSON.stringify(normalizeTradingTraitCriteria(targetTraits));
@@ -217,6 +219,22 @@ export async function installBiddingAutomationApiMock(
 			});
 			return;
 		}
+		const tokenJobId = tokenIdFromTokenJobPath(url.pathname);
+		if (request.method() === 'GET' && tokenJobId) {
+			const searchParams = biddingFixtureSearchParams(url, request, activeScenario);
+			const data = buildBiddingE2eTokenDetailData(tokenJobId, searchParams);
+			// Token detail refreshes its job alongside the bid book. Reads must not
+			// be captured as writes or discard the spec saved by the previous action.
+			await route.fulfill({
+				json: {
+					chain: data.chain,
+					collection: data.collection,
+					tokenId: tokenJobId,
+					job: tokenJobs.get(tokenJobId) ?? data.tokenBiddingJob
+				}
+			});
+			return;
+		}
 
 		if (request.method() === 'GET' && url.pathname.endsWith('/reapply-preview')) {
 			await route.fulfill({
@@ -323,6 +341,16 @@ export async function installBiddingAutomationApiMock(
 			body,
 			bidBookScenarioOverride ?? activeScenario
 		) as { job?: ApiBiddingJob };
+		if (tokenJobId && response.job) {
+			const previous =
+				tokenJobs.get(tokenJobId) ??
+				buildBiddingE2eTokenDetailData(
+					tokenJobId,
+					biddingFixtureSearchParams(url, request, activeScenario)
+				).tokenBiddingJob;
+			response.job = { ...response.job, revision: (previous?.revision ?? 0) + 1 };
+			tokenJobs.set(tokenJobId, response.job);
+		}
 		if (response.job && url.pathname.endsWith('/bidding/jobs/traits')) {
 			const existing = findReapplyJob(
 				mutationTargetTraits(body),
@@ -483,7 +511,10 @@ function mutationResponse(path: string, body: unknown, scenario: string | null):
 		};
 	}
 
-	if (path.includes('/bidding/jobs/') && path.endsWith('/bidding/job') === false) {
+	if (
+		path.includes('/bidding/jobs/') &&
+		path.endsWith(BIDDING_E2E_API_PATH_SUFFIX.TokenJob) === false
+	) {
 		return {
 			chain: BIDDING_E2E_CHAIN,
 			collection: BIDDING_E2E_COLLECTION,
@@ -709,6 +740,7 @@ function mutationTargetTraits(body: unknown): { type: string; value: string }[] 
 }
 
 function tokenIdFromTokenJobPath(path: string): string | null {
+	if (!path.endsWith(BIDDING_E2E_API_PATH_SUFFIX.TokenJob)) return null;
 	const parts = path.split('/').filter(Boolean);
 	const biddingIndex = parts.indexOf('bidding');
 	return biddingIndex > 0 ? (parts[biddingIndex - 1] ?? null) : null;

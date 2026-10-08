@@ -14,6 +14,7 @@ import {
 } from '@artgod/shared/types';
 import {
 	biddingBidBookOwnStates,
+	isBiddingBidBookOrderLifecyclePhase,
 	type BiddingBidBookOwnStateSignals
 } from '@artgod/shared/trading/bid-book-own-state';
 import type { BidBookFilterTab } from '$lib/bid-book-view-models';
@@ -34,6 +35,7 @@ const OWN_JOB_INTENT_PHASE_LABELS = {
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued]: 'queued',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot]: 'waiting for bidding bot',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying]: 'verifying',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed]: 'unconfirmed',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing]: 'replacing'
 } as const;
 
@@ -123,23 +125,31 @@ export function ownBiddingJobStateBadges(
 		job.status === TRADING_JOB_STATUS.Enabled && bidBook?.biddingAuthorization
 			? resolveTradingBiddingAuthorizationJobPhase(bidBook.biddingAuthorization.status)
 			: null;
-	if (authorizationPhase) {
-		return [ownJobIntentPhaseBadge(authorizationPhase)];
-	}
-
 	const marketBid = bidBook?.bids.find(
-		(bid) => bid.maker.isOwn && bid.ownStatus?.job?.jobId === job.jobId
+		(bid) => !authorizationPhase && bid.maker.isOwn && bid.ownStatus?.job?.jobId === job.jobId
 	);
 	if (marketBid) {
 		return ownBidStatusBadges(marketBid);
 	}
 
-	const ownIntentBid = bidBook?.bids.find(
+	const ownIntentBids = bidBook?.bids.filter(
 		(bid) =>
 			bid.maker.isOwn &&
 			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent &&
 			bid.materialization.jobId === job.jobId
 	);
+	// A saved order or its cancellation belongs to the existing job, even when
+	// an edited declaration sorts ahead of it or needs new boot authorization.
+	const trackedOrderBid = ownIntentBids?.find((bid) =>
+		isBiddingBidBookOrderLifecyclePhase(bid.materialization.phase)
+	);
+	if (trackedOrderBid) {
+		return ownBidStatusBadges(trackedOrderBid);
+	}
+	if (authorizationPhase) {
+		return [ownJobIntentPhaseBadge(authorizationPhase)];
+	}
+	const ownIntentBid = ownIntentBids?.[0];
 	if (ownIntentBid) {
 		return ownBidStatusBadges(ownIntentBid);
 	}

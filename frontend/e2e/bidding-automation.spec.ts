@@ -55,6 +55,7 @@ import {
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 import {
 	BIDDING_E2E_FIRST_RUN_INTENT,
+	BIDDING_E2E_UNCONFIRMED_BID,
 	BIDDING_E2E_FACETS,
 	BIDDING_E2E_HOLDER_ADDRESS,
 	BIDDING_E2E_COMPETITION_PRESETS,
@@ -479,9 +480,10 @@ test.describe('bidding automation fixture harness', () => {
 			);
 			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
 			await expect(tabs.locator('a, .secondary-tab-active')).toHaveText([
-				'active [11]',
+				'active [12]',
 				'waiting for bot [1]',
 				'verifying [1]',
+				'unconfirmed [1]',
 				'queued [1]',
 				'authorization required [1]',
 				'authorization unavailable [1]',
@@ -507,7 +509,7 @@ test.describe('bidding automation fixture harness', () => {
 			if (scope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 				await page.getByRole('link', { name: 'load next', exact: true }).click();
 				await expect(tokenCard(page, '104')).toBeVisible();
-				await expect(tabs).toContainText('active [11]');
+				await expect(tabs).toContainText('active [12]');
 				expect(
 					new URL(page.url()).searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted)
 				).toBe('true');
@@ -521,7 +523,7 @@ test.describe('bidding automation fixture harness', () => {
 					new RegExp(`${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${state}`)
 				);
 				await expect(tabs.locator('[aria-current="true"]')).toBeVisible();
-				await expect(tabs).toContainText('active [11]');
+				await expect(tabs).toContainText('active [12]');
 				if (state === COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active) {
 					await expect(
 						page.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused))
@@ -535,7 +537,7 @@ test.describe('bidding automation fixture harness', () => {
 				}
 				const matchingRows =
 					state === COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
-						? '11'
+						? '12'
 						: state === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
 							? '3'
 							: '1';
@@ -561,7 +563,7 @@ test.describe('bidding automation fixture harness', () => {
 			expect(new URL(page.url()).searchParams.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
 				COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
 			);
-			await expect(tabs).toContainText('active [11]');
+			await expect(tabs).toContainText('active [12]');
 		});
 
 		test(`refreshes ${scope} state counts and allows choosing another state after no matches`, async ({
@@ -597,8 +599,8 @@ test.describe('bidding automation fixture harness', () => {
 				}),
 				contentType: 'image/png'
 			});
-			await tabs.getByRole('link', { name: 'active [11]', exact: true }).click();
-			await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [11]');
+			await tabs.getByRole('link', { name: 'active [12]', exact: true }).click();
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [12]');
 			await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
 			await expect(page.locator('.bid-book-empty')).toHaveCount(0);
 		});
@@ -652,7 +654,7 @@ test.describe('bidding automation fixture harness', () => {
 			await expect(
 				page.locator(ownStatusSelector(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning))
 			).toHaveCount(0);
-			await expect(tabs).toContainText('active [11]');
+			await expect(tabs).toContainText('active [12]');
 			await testInfo.attach(`own-state-${scope}-with-opponents.png`, {
 				body: await page.screenshot({
 					path: testInfo.outputPath(`own-state-${scope}-with-opponents.png`),
@@ -669,7 +671,7 @@ test.describe('bidding automation fixture harness', () => {
 				COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
 			);
 			await expectOpponentContext(false);
-			await expect(tabs).toContainText('active [11]');
+			await expect(tabs).toContainText('active [12]');
 			await page.screenshot({
 				path: testInfo.outputPath(`own-state-${scope}-own-only.png`),
 				fullPage: true
@@ -695,7 +697,7 @@ test.describe('bidding automation fixture harness', () => {
 				`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${scope}&${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}&${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState}=${COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.OwnBidStates}`
 			);
 			const tabs = page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState });
-			await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [11]');
+			await expect(tabs.locator('[aria-current="true"]')).toHaveText('active [12]');
 			const selectedUrl = page.url();
 			api.setBidBookScenario(BIDDING_E2E_SCENARIO.OwnBidStatesPaused);
 			await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
@@ -2485,6 +2487,76 @@ test.describe('bidding automation fixture harness', () => {
 				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
 				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed))
 		).toContainText('cancel failed');
+	});
+
+	test('keeps an unauthorized saved bid unconfirmed and follows its explicit cancellation', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await page.clock.install();
+		const scenarioQuery = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.UnconfirmedBid}`;
+		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token&${scenarioQuery}`);
+		const card = tokenCard(page, BIDDING_E2E_UNCONFIRMED_BID.TokenId);
+		await expect(
+			card.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed))
+		).toHaveText('unconfirmed');
+		await expect(card).toContainText('0.72 WETH');
+		await page.screenshot({
+			path: testInfo.outputPath('saved-bid-card-unconfirmed.png'),
+			fullPage: true
+		});
+
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}/${BIDDING_E2E_UNCONFIRMED_BID.TokenId}?${scenarioQuery}`
+		);
+		await page.getByRole('button', { name: 'bid on token' }).click();
+		const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+		const state = (phase: TradingBiddingBidBookOwnState) => panel.locator(ownStatusSelector(phase));
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed)).toHaveText(
+			'unconfirmed'
+		);
+		await expect(panel.getByTestId(TEST_IDS.BiddingPanelPause)).toBeEnabled();
+		await expect(panel.getByTestId(TEST_IDS.BiddingPanelArchive)).toBeEnabled();
+		await page.screenshot({
+			path: testInfo.outputPath('saved-bid-panel-unconfirmed.png'),
+			fullPage: true
+		});
+
+		// Specs remain editable without boot authorization; the saved order stays distinct.
+		await page.locator('#bidding-automation-floor').fill('0.705');
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		expect((await api.nextMutation()).body).toMatchObject({
+			status: TRADING_JOB_STATUS.Enabled,
+			floorEth: '0.705'
+		});
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed)).toHaveText(
+			'unconfirmed'
+		);
+
+		api.setBidBookScenario(BIDDING_E2E_SCENARIO.UnconfirmedBidCanceling);
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelPause);
+		const cancellation = await api.nextMutation();
+		expect(cancellation.path).toContain(`/${BIDDING_E2E_UNCONFIRMED_BID.TokenId}/bidding/job`);
+		expect(cancellation.body).toMatchObject({ status: TRADING_JOB_STATUS.Paused });
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling)).toHaveText('canceling');
+		await page.screenshot({ path: testInfo.outputPath('saved-bid-canceling.png'), fullPage: true });
+
+		api.setBidBookScenario(BIDDING_E2E_SCENARIO.UnconfirmedBidCancelFailed);
+		await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed)).toHaveText(
+			'cancel failed'
+		);
+		await page.screenshot({
+			path: testInfo.outputPath('saved-bid-cancel-failed.png'),
+			fullPage: true
+		});
+
+		api.setBidBookScenario(BIDDING_E2E_SCENARIO.UnconfirmedBidCancelled);
+		await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled)).toHaveText('cancelled');
+		await expect(state(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed)).toHaveCount(0);
+		await page.screenshot({ path: testInfo.outputPath('saved-bid-cancelled.png'), fullPage: true });
 	});
 
 	test('keeps invalid job delta text focused and blocks saving until corrected', async ({

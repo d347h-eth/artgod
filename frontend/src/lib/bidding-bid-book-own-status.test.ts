@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER as FILTER,
+	TRADING_BIDDING_AUTHORIZATION_STATUS as AUTHORIZATION,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE as PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND as MATERIALIZATION,
 	TRADING_BIDDING_BID_BOOK_OWN_STATE as STATE,
@@ -8,7 +9,57 @@ import {
 	TRADING_JOB_STATUS as STATUS
 } from '@artgod/shared/types';
 import { countBiddingBidBookOwnStates } from '@artgod/shared/trading/bid-book-own-state';
-import { ownBidStateFilterTabs } from './bidding-bid-book-own-status';
+import { ownBidStateFilterTabs, ownBiddingJobStateBadges } from './bidding-bid-book-own-status';
+import {
+	BIDDING_E2E_SCENARIO,
+	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	BIDDING_E2E_UNCONFIRMED_BID,
+	buildBiddingE2eTokenDetailData
+} from './e2e/bidding-automation-fixtures';
+
+describe('saved order and cancellation states in the job panel', () => {
+	it.each(Object.values(AUTHORIZATION).filter((status) => status !== AUTHORIZATION.Included))(
+		'keeps a saved order unconfirmed with %s authorization after a spec edit',
+		(status) => {
+			const data = buildBiddingE2eTokenDetailData(
+				BIDDING_E2E_UNCONFIRMED_BID.TokenId,
+				new URLSearchParams({
+					[BIDDING_E2E_SCENARIO_QUERY_PARAM]: BIDDING_E2E_SCENARIO.UnconfirmedBid
+				})
+			);
+			const bidBook = data.tokenBiddingBidBook!;
+			bidBook.biddingAuthorization!.status = status;
+			expect(data.tokenBiddingJob?.runtime).toBeNull();
+			expect(bidBook.bids[0].materialization.phase).toBe(PHASE.AuthorizationRequired);
+			expect(ownBiddingJobStateBadges(data.tokenBiddingJob, bidBook)).toEqual([
+				{ kind: PHASE.Unconfirmed, label: 'unconfirmed' }
+			]);
+			bidBook.bids.reverse();
+			expect(ownBiddingJobStateBadges(data.tokenBiddingJob, bidBook)[0].kind).toBe(
+				PHASE.Unconfirmed
+			);
+		}
+	);
+
+	it.each([
+		{ scenario: BIDDING_E2E_SCENARIO.UnconfirmedBidCanceling, phase: PHASE.Canceling },
+		{ scenario: BIDDING_E2E_SCENARIO.UnconfirmedBidCancelFailed, phase: PHASE.CancelFailed },
+		{ scenario: BIDDING_E2E_SCENARIO.UnconfirmedBidCancelled, phase: PHASE.Cancelled }
+	])(
+		'keeps the existing job cancellation phase $phase without authorization',
+		({ scenario, phase }) => {
+			const data = buildBiddingE2eTokenDetailData(
+				BIDDING_E2E_UNCONFIRMED_BID.TokenId,
+				new URLSearchParams({ [BIDDING_E2E_SCENARIO_QUERY_PARAM]: scenario })
+			);
+			// An enabled job must not replace explicit cancellation evidence with an auth message.
+			const job = { ...data.tokenBiddingJob!, status: STATUS.Enabled };
+			expect(
+				ownBiddingJobStateBadges(job, data.tokenBiddingBidBook).map((badge) => badge.kind)
+			).toContain(phase);
+		}
+	);
+});
 
 describe('own bid state tabs', () => {
 	it('shows every matching category including pause during cancellation and unknown market state', () => {
