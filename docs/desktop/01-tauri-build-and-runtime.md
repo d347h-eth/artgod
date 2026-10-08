@@ -91,6 +91,10 @@ production profile markers. Entrypoint names and the supervisor stay the same.
 Release-mode wallet-recipient integrity hashes cover the selected local
 Node/trading closure.
 
+Debug compilation validates the same resource selection and profile markers as
+release compilation. Native tests of the local feature also require the paired
+local overlay and staged profiles; an empty resource list alone is insufficient.
+
 OpenTelemetry and Prometheus code are bundled by esbuild. Dynamically loaded
 Pyroscope and its locked dependencies are staged beside backend and indexer,
 with pprof prebuilds for the target and bundled Node ABI. SQLite/Sharp retain
