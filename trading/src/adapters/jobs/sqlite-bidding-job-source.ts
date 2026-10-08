@@ -21,6 +21,7 @@ import {
     type TraitSelector,
     type TraitTarget,
 } from "../../domain/market/strategy/job.js";
+import { BiddingMandate } from "../../domain/bidding-mandate.js";
 
 type BiddingJobRow = BiddingCompetitionPresetRow & {
     job_id: string;
@@ -51,6 +52,7 @@ type BiddingJobRow = BiddingCompetitionPresetRow & {
 };
 
 export class SqliteBiddingJobSource implements BiddingJobSource {
+    private readonly chainId: number;
     private readonly selectEnabledJobs: BetterSqlite3NamedStatement<{
         botKind: typeof TRADING_BOT_KIND.Bidding;
         chainId: number;
@@ -62,7 +64,8 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         jobId: string;
     }>;
 
-    constructor(private readonly chainId: number) {
+    constructor(private readonly biddingMandate: BiddingMandate) {
+        this.chainId = biddingMandate.chainId;
         const selectFields =
             "SELECT j.job_id, j.status, j.revision, c.collection_id, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
             "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, " +
@@ -104,15 +107,21 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
     }
 
     async loadEnabledJobs(): Promise<BidderJob[]> {
-        // Read the authoritative enabled bidding job set from the ArtGod SQLite store.
-        const rows = this.selectEnabledJobs.all({
+        const rows = this.selectEnabledJobs.iterate({
             botKind: TRADING_BOT_KIND.Bidding,
             chainId: this.chainId,
             status: TRADING_JOB_STATUS.Enabled,
-        }) as BiddingJobRow[];
+        });
 
-        // Map persisted job declarations into the stable bidder domain shape without hydrating runtime state yet.
-        return rows.map((row) => this.mapJobRow(row, true));
+        // Exclude unauthorized identities before decoding their specs or admitting any market work.
+        const jobs: BidderJob[] = [];
+        for (const value of rows) {
+            const row = value as BiddingJobRow;
+            if (this.isCollectionAuthorized(row)) {
+                jobs.push(this.mapJobRow(row, true));
+            }
+        }
+        return jobs;
     }
 
     async loadJobById(jobId: string): Promise<BiddingJobSourceRecord | null> {
@@ -126,24 +135,38 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
     }
 
     async loadEnabledJobById(jobId: string): Promise<BidderJob | null> {
-        const record = await this.loadJobById(jobId);
-        return record?.status === TRADING_JOB_STATUS.Enabled
-            ? record.job
+        const row = this.selectJobById.get({
+            botKind: TRADING_BOT_KIND.Bidding,
+            chainId: this.chainId,
+            jobId,
+        }) as BiddingJobRow | undefined;
+        return row?.status === TRADING_JOB_STATUS.Enabled &&
+            this.isCollectionAuthorized(row)
+            ? this.mapJobRow(row, true)
             : null;
+    }
+
+    private isCollectionAuthorized(row: BiddingJobRow): boolean {
+        return this.biddingMandate.authorizesCollection({
+            collectionId: row.collection_id,
+            collectionAddress: row.collection_address,
+            collectionSlug: row.collection_opensea_slug,
+        });
     }
 
     private mapJobRecord(row: BiddingJobRow): BiddingJobSourceRecord {
         return {
-            job: this.mapJobRow(row, row.status === TRADING_JOB_STATUS.Enabled),
+            // Cancellation must still resolve tracked orders when marketplace identity is unavailable.
+            job: this.mapJobRow(row, false),
             status: row.status,
             revision: row.revision,
+            activeOrderJobRevision: row.active_order_id
+                ? row.runtime_job_revision
+                : null,
         };
     }
 
-    private mapJobRow(
-        row: BiddingJobRow,
-        requireOpenSeaIdentity: boolean,
-    ): BidderJob {
+    private mapJobRow(row: BiddingJobRow, forBidding: boolean): BidderJob {
         const floor = this.parseWei(row.floor_wei, "floor_wei", row.job_id);
         const ceiling = this.parseWei(
             row.ceiling_wei,
@@ -176,7 +199,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
                 row.collection_address,
                 `collection_address for jobId=${row.job_id}`,
             ),
-            collectionSlug: requireOpenSeaIdentity
+            collectionSlug: forBidding
                 ? this.parseNonEmptyString(
                       row.collection_opensea_slug,
                       `collection_opensea_slug for jobId=${row.job_id}`,
@@ -213,7 +236,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
                       }
                     : {}),
             },
-            state: this.mapRuntimeState(row),
+            state: this.mapRuntimeState(row, forBidding),
         };
     }
 
@@ -231,10 +254,14 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         return normalized ? normalized : null;
     }
 
-    private mapRuntimeState(row: BiddingJobRow): BidderJob["state"] {
+    private mapRuntimeState(
+        row: BiddingJobRow,
+        requireCurrentRevision: boolean,
+    ): BidderJob["state"] {
         if (
             !row.runtime_updated_at ||
-            row.runtime_job_revision !== row.revision
+            (requireCurrentRevision &&
+                row.runtime_job_revision !== row.revision)
         ) {
             return {};
         }

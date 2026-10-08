@@ -130,11 +130,17 @@ class ThrowAfterFirstClaimCommandRepository extends FakeCommandRepository {
 class FakeJobSource implements BiddingJobSource {
     constructor(
         private readonly records: Map<string, BiddingJobSourceRecord>,
+        private readonly authorizedJobIds?: ReadonlySet<string>,
     ) {}
 
     async loadEnabledJobs(): Promise<BidderJob[]> {
         return Array.from(this.records.values())
-            .filter((record) => record.status === TRADING_JOB_STATUS.Enabled)
+            .filter(
+                (record) =>
+                    record.status === TRADING_JOB_STATUS.Enabled &&
+                    (!this.authorizedJobIds ||
+                        this.authorizedJobIds.has(record.job.id)),
+            )
             .map((record) => record.job);
     }
 
@@ -144,7 +150,8 @@ class FakeJobSource implements BiddingJobSource {
 
     async loadEnabledJobById(jobId: string): Promise<BidderJob | null> {
         const record = this.records.get(jobId);
-        return record?.status === TRADING_JOB_STATUS.Enabled
+        return record?.status === TRADING_JOB_STATUS.Enabled &&
+            (!this.authorizedJobIds || this.authorizedJobIds.has(jobId))
             ? record.job
             : null;
     }
@@ -160,12 +167,14 @@ class FakeBiddingService implements BiddingService {
     }
 
     cancelled: string[] = [];
+    cancellationRevisions: number[] = [];
     placeError: Error | null = null;
     orderLookupResult: BiddingOrderRecoveryResult = {
         status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
     };
     activeOffersError: Error | null = null;
     activeOfferReads = 0;
+    placements = 0;
 
     constructor(private readonly offers: Order[] = []) {}
 
@@ -191,6 +200,7 @@ class FakeBiddingService implements BiddingService {
         placedAt: string;
         expirationTime?: number;
     }> {
+        this.placements++;
         if (this.placeError) {
             throw this.placeError;
         }
@@ -201,8 +211,9 @@ class FakeBiddingService implements BiddingService {
         };
     }
 
-    async cancelOffer(_job: BidderJob, order: Order): Promise<void> {
+    async cancelOffer(job: BidderJob, order: Order): Promise<void> {
         this.cancelled.push(order.id);
+        this.cancellationRevisions.push(job.revision);
     }
 
     async cancelRecoveredOrder(order: Order): Promise<void> {
@@ -218,10 +229,152 @@ function makeRecord(
         job,
         status,
         revision: job.revision,
+        activeOrderJobRevision: job.state.activeOrderId ? job.revision : null,
     };
 }
 
 describe("BiddingJobCommandReconciler", () => {
+    it.each([
+        TRADING_JOB_COMMAND_KIND.JobCreated,
+        TRADING_JOB_COMMAND_KIND.JobUpdated,
+    ])(
+        "completes unauthorized %s commands without market work or blocking later authorized commands",
+        async (commandKind) => {
+            const skippedJob = makeJob("unauthorized-job");
+            const authorizedJob = makeJob("authorized-job");
+            const records = new Map([
+                [
+                    skippedJob.id,
+                    makeRecord(skippedJob, TRADING_JOB_STATUS.Enabled),
+                ],
+                [
+                    authorizedJob.id,
+                    makeRecord(authorizedJob, TRADING_JOB_STATUS.Enabled),
+                ],
+            ]);
+            const repository = new FakeCommandRepository([
+                makeCommand(1, skippedJob.id, commandKind),
+                makeCommand(
+                    2,
+                    authorizedJob.id,
+                    TRADING_JOB_COMMAND_KIND.JobUpdated,
+                ),
+            ]);
+            const source = new FakeJobSource(
+                records,
+                new Set([authorizedJob.id]),
+            );
+            const service = new FakeBiddingService();
+            const bidder = new Bidder(service, makerAddress, 60_000, {
+                dryRun: true,
+            });
+            // A stale in-memory declaration must be removed rather than left scanning.
+            bidder.addJob(skippedJob);
+            const prepared: string[] = [];
+            const watched: string[][] = [];
+            const reconciler = new BiddingJobCommandReconciler(
+                repository,
+                source,
+                bidder,
+                {
+                    prepareEnabledJob: async (job) => {
+                        prepared.push(job.id);
+                    },
+                    reconcileEnabledJobs: async (jobs) => {
+                        watched.push(jobs.map((job) => job.id));
+                    },
+                },
+                { batchSize: 10, claimTimeoutMs: 300_000, maxAttempts: 3 },
+            );
+
+            assert.equal(
+                await reconciler.processPendingCommands(
+                    BIDDING_COMMAND_TRIGGER.Startup,
+                ),
+                2,
+            );
+            assert.deepEqual(repository.completed, [1, 2]);
+            assert.deepEqual(repository.retryFailures, []);
+            assert.deepEqual(repository.terminalFailures, []);
+            assert.deepEqual(prepared, [authorizedJob.id]);
+            assert.deepEqual(watched, [[authorizedJob.id], [authorizedJob.id]]);
+            assert.equal(service.activeOfferReads, 1);
+            assert.equal(service.placements, 0);
+            assert.deepEqual(service.cancelled, []);
+            assert.equal(bidder.getJob(skippedJob.id), undefined);
+            assert.equal(
+                records.get(skippedJob.id)?.status,
+                TRADING_JOB_STATUS.Enabled,
+            );
+        },
+    );
+
+    it("allows only explicit cancellation for an unauthorized enabled job and never schedules it", async () => {
+        const job = makeJob("unauthorized-cancel");
+        job.revision = 2;
+        job.state.activeOrderId = "0xactive";
+        const repository = new FakeCommandRepository([
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
+            makeCommand(2, job.id, TRADING_JOB_COMMAND_KIND.CancelActiveOffer),
+            makeCommand(3, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
+        ]);
+        const source = new FakeJobSource(
+            new Map([
+                [
+                    job.id,
+                    {
+                        ...makeRecord(job, TRADING_JOB_STATUS.Enabled),
+                        activeOrderJobRevision: 1,
+                    },
+                ],
+            ]),
+            new Set(),
+        );
+        const service = new FakeBiddingService([
+            {
+                id: "0xactive",
+                maker: makerAddress,
+                price: 100000000000000000n,
+                protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
+                offerScope: "item",
+            },
+        ]);
+        const bidder = new Bidder(service, makerAddress, 60_000);
+        const watched: string[][] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => {
+                    throw new Error(
+                        "Unauthorized command must not prepare market work",
+                    );
+                },
+                reconcileEnabledJobs: async (jobs) => {
+                    watched.push(jobs.map((item) => item.id));
+                },
+            },
+            { batchSize: 10, claimTimeoutMs: 300_000, maxAttempts: 3 },
+        );
+
+        assert.equal(
+            await reconciler.processPendingCommands(
+                BIDDING_COMMAND_TRIGGER.Poll,
+            ),
+            3,
+        );
+        await bidder.scanOnce();
+        assert.deepEqual(repository.completed, [1, 2, 3]);
+        assert.deepEqual(repository.retryFailures, []);
+        assert.deepEqual(service.cancelled, ["0xactive"]);
+        assert.deepEqual(service.cancellationRevisions, [1]);
+        assert.equal(service.activeOfferReads, 1);
+        assert.equal(service.placements, 0);
+        assert.deepEqual(watched, [[], [], []]);
+        assert.equal(bidder.getJob(job.id), undefined);
+    });
+
     it.each([
         {
             fail: false,
