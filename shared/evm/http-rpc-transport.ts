@@ -17,13 +17,14 @@ export function createHttpRpcTransport(
         timeout: requestTimeoutMs,
         maxResponseBodySize: maxResponseBodySizeBytes,
         retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
-        onFetchResponse: async (response) => {
+        onFetchResponse: (response) => {
             const declaredSize = Number(response.headers.get("Content-Length"));
             // viem 2.54.6 rejects this header before reading or cancelling its body.
             // Use its response hook to release it; viem still owns the typed size
-            // error and streamed-byte limit. Cleanup failure must not mask that error.
+            // error and streamed-byte limit. The hook runs outside viem's fetch
+            // timeout, so cleanup must not delay or mask the size error.
             if (declaredSize > maxResponseBodySizeBytes) {
-                await response.body?.cancel().catch(() => undefined);
+                void response.body?.cancel().catch(() => undefined);
             }
         },
     });

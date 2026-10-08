@@ -365,9 +365,9 @@ Backend RPC, indexer RPC, and token URI resolution share
 `shared/evm/http-rpc-transport.ts`. It uses viem's public `onFetchResponse` hook
 to cancel an unread body when `Content-Length` exceeds the configured limit.
 Viem 2.54.6 otherwise rejects that header without releasing the body. Viem still
-raises its typed size error and enforces the streamed-byte limit. Cancellation
-failure does not replace the size error, preserving retry and endpoint-health
-classification.
+raises its typed size error and enforces the streamed-byte limit. The hook starts
+cancellation without waiting for completion, so stalled or failed cleanup cannot
+delay or replace the size error, preserving retry and endpoint-health classification.
 
 Covered today:
 

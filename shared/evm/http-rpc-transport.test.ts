@@ -62,6 +62,7 @@ async function withRpcServer(
 
 describe("HTTP RPC response cleanup", () => {
     afterEach(() => {
+        vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
@@ -103,6 +104,31 @@ describe("HTTP RPC response cleanup", () => {
             size: responseLimit + 1,
         });
         expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns the size error while cancellation never settles", async () => {
+        vi.useFakeTimers();
+        const cancel = vi.fn(() => new Promise<void>(() => undefined));
+        const response = unreadResponse(responseLimit + 1, cancel);
+        const fetchMock = vi.fn(async () => response);
+        vi.stubGlobal("fetch", fetchMock);
+        const onError = vi.fn();
+
+        void client().getChainId().catch(onError);
+        // Flush the request's promise chain without advancing the timeout.
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(getRpcResponseBodySizeLimit(onError.mock.calls[0]?.[0])).toEqual(
+            {
+                maxSize: responseLimit,
+                size: responseLimit + 1,
+            },
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(response.bodyUsed).toBe(true);
+        expect(response.body?.locked).toBe(false);
     });
 
     it("uses the transport's captured limit for cleanup", async () => {
