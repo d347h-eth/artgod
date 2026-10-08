@@ -8,6 +8,54 @@ const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const OPENSEA_SLUG = "shared-contract-collection";
 
 describe("BiddingMandate", () => {
+    it("admits only the exact boot-authorized collection identity", () => {
+        const mandate = createMandate();
+        const job = createCollectionJob();
+
+        expect(mandate.authorizesCollection(job)).toBe(true);
+        expect(
+            mandate.authorizesCollection({
+                ...job,
+                collectionAddress: ` ${COLLECTION_ADDRESS.toUpperCase()} `,
+                collectionSlug: ` ${OPENSEA_SLUG.toUpperCase()} `,
+            }),
+        ).toBe(true);
+        for (const identity of [
+            { ...job, collectionId: COLLECTION_ID + 1 },
+            {
+                ...job,
+                collectionAddress: "0x2222222222222222222222222222222222222222",
+            },
+            { ...job, collectionSlug: "other-opensea-collection" },
+            { ...job, collectionSlug: null },
+            { ...job, collectionSlug: "" },
+        ]) {
+            expect(mandate.authorizesCollection(identity)).toBe(false);
+            if (identity.collectionSlug !== null) {
+                expect(() =>
+                    mandate.assertOfferAuthorized(
+                        {
+                            ...job,
+                            ...identity,
+                            collectionSlug: identity.collectionSlug,
+                        },
+                        20n,
+                    ),
+                ).toThrow();
+            }
+        }
+    });
+
+    it("keeps collection admission separate from final offer caps", () => {
+        const job = createCollectionJob();
+        job.target = { type: BIDDER_TARGET_TYPE.Collection, quantity: 3 };
+
+        expect(createMandate().authorizesCollection(job)).toBe(true);
+        expect(() => createMandate().assertOfferAuthorized(job, 30n)).toThrow(
+            "quantity 3 exceeds cap 2",
+        );
+    });
+
     it("authorizes only the exact collection identity within quantity and unit caps", () => {
         const mandate = createMandate();
         const job = createCollectionJob();
@@ -154,10 +202,7 @@ describe("BiddingMandate", () => {
         ],
     ])("rejects %s", (_label, startPolicy) => {
         expect(() =>
-            BiddingMandate.parse(
-                { ...serializedMandate(), startPolicy },
-                1,
-            ),
+            BiddingMandate.parse({ ...serializedMandate(), startPolicy }, 1),
         ).toThrow();
     });
 });
