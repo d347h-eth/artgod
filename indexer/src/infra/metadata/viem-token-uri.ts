@@ -89,8 +89,7 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata;
         const createClient =
             config.createClient ??
-            ((url) =>
-                createTokenUriViemClient(url, resilience.requestTimeoutMs));
+            ((url) => createTokenUriViemClient(url, resilience));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -227,11 +226,12 @@ function expandErc1155Uri(uri: string, tokenId: string): string {
 
 function createTokenUriViemClient(
     url: string,
-    requestTimeoutMs: number,
+    resilience: RpcEndpointResilienceConfig,
 ): TokenUriRpcClient {
     return createPublicClient({
         transport: http(url, {
-            timeout: requestTimeoutMs,
+            timeout: resilience.requestTimeoutMs,
+            maxResponseBodySize: resilience.maxResponseBodySizeBytes,
             retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
         }),
     });

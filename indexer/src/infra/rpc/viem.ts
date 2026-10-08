@@ -103,7 +103,7 @@ export class ViemRpcProvider implements RpcProviderPort {
         const resilience = config.resilience ?? DEFAULT_RESILIENCE;
         const createClient =
             config.createClient ??
-            ((url) => createViemRpcClient(url, resilience.requestTimeoutMs));
+            ((url) => createViemRpcClient(url, resilience));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -441,11 +441,12 @@ function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
 
 function createViemRpcClient(
     url: string,
-    requestTimeoutMs: number,
+    resilience: RpcEndpointResilienceConfig,
 ): ViemPublicClient {
     return createPublicClient({
         transport: http(url, {
-            timeout: requestTimeoutMs,
+            timeout: resilience.requestTimeoutMs,
+            maxResponseBodySize: resilience.maxResponseBodySizeBytes,
             retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
         }),
     });

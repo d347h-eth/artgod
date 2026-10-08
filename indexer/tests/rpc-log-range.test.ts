@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BaseError, ResponseBodyTooLargeError } from "viem";
+import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { logger } from "@artgod/shared/utils/logger";
 import {
     INDEXER_RPC_LOG_ACTION,
@@ -13,9 +14,11 @@ import {
 const TEST_RPC_URL = "https://rpc.example";
 const TEST_ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const TEST_HASH = `0x${"ab".repeat(32)}`;
-const TEST_RESPONSE_LIMIT_BYTES = 10_485_760;
+const TEST_RESPONSE_LIMIT_BYTES =
+    getDefaultRpcEndpointResilienceConfig().maxResponseBodySizeBytes;
 const TEST_RETRY_POLICY = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 };
 const TEST_RESILIENCE = {
+    ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: 5_000,
     rateLimiter: { requestsPerSecond: 0, burst: 1 },
     circuitBreaker: {
@@ -81,87 +84,95 @@ describe("RPC log response-size recovery", () => {
         vi.unstubAllGlobals();
     });
 
-    it("recovers from the real viem HTTP size guard and reuses the smaller cap for later ranges", async () => {
-        const requests: number[][] = [];
-        vi.stubGlobal(
-            "fetch",
-            vi.fn(async (_url, init) => {
-                const body = JSON.parse(init.body);
-                const { fromBlock, toBlock } = body.params[0];
-                const from = Number(fromBlock);
-                const to = Number(toBlock);
-                requests.push([from, to]);
-                if (to - from + 1 > 2) {
-                    // Trigger viem's actual Content-Length rejection without
-                    // allocating a large body or replacing its error handling.
-                    return new Response("", {
-                        headers: {
-                            "Content-Length": String(
-                                TEST_RESPONSE_LIMIT_BYTES + 1,
+    it.each([
+        TEST_RESPONSE_LIMIT_BYTES,
+        524_288,
+        TEST_RESPONSE_LIMIT_BYTES * 2,
+    ])(
+        "recovers at the configured %i-byte viem limit and reuses the smaller cap",
+        async (maxResponseBodySizeBytes) => {
+            const requests: number[][] = [];
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(async (_url, init) => {
+                    const body = JSON.parse(init.body);
+                    const { fromBlock, toBlock } = body.params[0];
+                    const from = Number(fromBlock);
+                    const to = Number(toBlock);
+                    requests.push([from, to]);
+                    if (to - from + 1 > 2) {
+                        // Trigger viem's actual Content-Length rejection without
+                        // allocating a large body or replacing its error handling.
+                        return new Response("", {
+                            headers: {
+                                "Content-Length": String(
+                                    maxResponseBodySizeBytes + 1,
+                                ),
+                            },
+                        });
+                    }
+                    return new Response(
+                        JSON.stringify({
+                            jsonrpc: "2.0",
+                            id: body.id,
+                            result: Array.from(
+                                { length: to - from + 1 },
+                                (_, i) => rawLog(from + i),
                             ),
-                        },
-                    });
-                }
-                return new Response(
-                    JSON.stringify({
-                        jsonrpc: "2.0",
-                        id: body.id,
-                        result: Array.from({ length: to - from + 1 }, (_, i) =>
-                            rawLog(from + i),
-                        ),
-                    }),
-                    { headers: { "Content-Type": "application/json" } },
-                );
-            }),
-        );
-        const provider = new ViemRpcProvider({
-            endpoints: [{ url: TEST_RPC_URL, weight: 1 }],
-            logChunkSize: 100,
-            retryPolicy: TEST_RETRY_POLICY,
-            resilience: TEST_RESILIENCE,
-        });
+                        }),
+                        { headers: { "Content-Type": "application/json" } },
+                    );
+                }),
+            );
+            const provider = new ViemRpcProvider({
+                endpoints: [{ url: TEST_RPC_URL, weight: 1 }],
+                logChunkSize: 100,
+                retryPolicy: TEST_RETRY_POLICY,
+                resilience: { ...TEST_RESILIENCE, maxResponseBodySizeBytes },
+            });
 
-        const logs = await provider.getLogs({
-            address: TEST_ADDRESS,
-            fromBlock: 1,
-            toBlock: 10,
-        });
-        expect(logs.map(({ blockNumber }) => blockNumber)).toEqual([
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-        ]);
-        expect(requests).toEqual([
-            [1, 10],
-            [1, 5],
-            [1, 2],
-            [3, 4],
-            [5, 6],
-            [7, 8],
-            [9, 10],
-        ]);
-        expect(logger.error).toHaveBeenCalledWith(
-            INDEXER_RPC_LOG_MESSAGE.LogRangeReduced,
-            expect.objectContaining({
-                action: INDEXER_RPC_LOG_ACTION.LogResponseSizeLimitExceeded,
-                requestedBlockCount: 5,
-                effectiveChunkSize: 2,
-                maxResponseBodySize: TEST_RESPONSE_LIMIT_BYTES,
-                responseBodySize: TEST_RESPONSE_LIMIT_BYTES + 1,
-            }),
-        );
+            const logs = await provider.getLogs({
+                address: TEST_ADDRESS,
+                fromBlock: 1,
+                toBlock: 10,
+            });
+            expect(logs.map(({ blockNumber }) => blockNumber)).toEqual([
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            ]);
+            expect(requests).toEqual([
+                [1, 10],
+                [1, 5],
+                [1, 2],
+                [3, 4],
+                [5, 6],
+                [7, 8],
+                [9, 10],
+            ]);
+            expect(logger.error).toHaveBeenCalledWith(
+                INDEXER_RPC_LOG_MESSAGE.LogRangeReduced,
+                expect.objectContaining({
+                    action: INDEXER_RPC_LOG_ACTION.LogResponseSizeLimitExceeded,
+                    requestedBlockCount: 5,
+                    effectiveChunkSize: 2,
+                    maxResponseBodySize: maxResponseBodySizeBytes,
+                    responseBodySize: maxResponseBodySizeBytes + 1,
+                }),
+            );
 
-        const laterLogs = await provider.getLogs({
-            fromBlock: 11,
-            toBlock: 15,
-        });
-        expect(laterLogs.map(({ blockNumber }) => blockNumber)).toEqual([
-            11, 12, 13, 14, 15,
-        ]);
-        expect(requests.slice(7)).toEqual([
-            [11, 12],
-            [13, 14],
-            [15, 15],
-        ]);
-    });
+            const laterLogs = await provider.getLogs({
+                fromBlock: 11,
+                toBlock: 15,
+            });
+            expect(laterLogs.map(({ blockNumber }) => blockNumber)).toEqual([
+                11, 12, 13, 14, 15,
+            ]);
+            expect(requests.slice(7)).toEqual([
+                [11, 12],
+                [13, 14],
+                [15, 15],
+            ]);
+        },
+    );
 
     it("keeps completed chunks when an odd tail needs repeated subdivision", async () => {
         const requests: number[][] = [];

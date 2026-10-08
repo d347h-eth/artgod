@@ -43,6 +43,11 @@ The indexer reads these variables from the root `.env`:
     - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
 - `RPC_WS_URL_LIST` (optional)
     - Optional JSON array of weighted WebSocket RPC endpoints used by the scheduler as a single-active new-head listener with fallback.
+- `RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES` (default: 10485760, or 10 MiB)
+    - Positive byte limit for viem HTTP RPC responses in backend and indexer,
+      including backfill and token URI reads. Desktop Admin exposes it under
+      Advanced → Chain and RPC; saved changes apply after runtime restart.
+    - Log-range recovery uses this configured limit when subdividing requests.
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)

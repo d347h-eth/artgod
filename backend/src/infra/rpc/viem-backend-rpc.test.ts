@@ -1,10 +1,14 @@
 import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilience";
+import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { NOOP_APM } from "@artgod/shared/observability/apm";
 import { RPC_OBSERVABILITY_LOG_MESSAGE } from "@artgod/shared/observability/rpc";
 import { BOOTSTRAP_TEST_OBSERVATION } from "@artgod/shared/testing/bootstrap-probe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
-import { JSON_RPC_ERROR_CODE } from "@artgod/shared/evm/rpc-errors";
+import {
+    getRpcResponseBodySizeLimit,
+    JSON_RPC_ERROR_CODE,
+} from "@artgod/shared/evm/rpc-errors";
 import {
     BACKEND_RPC_LOG_FIELD,
     type BackendRpcClientFactory,
@@ -61,6 +65,7 @@ function rpcResponse(payload: {
 }
 
 const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
+    ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: TEST_REQUEST_TIMEOUT_MS,
     rateLimiter: {
         requestsPerSecond: 0,
@@ -77,6 +82,64 @@ describe("ViemBackendRpcClient", () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it.each([
+        { name: "lower", largerLimit: false },
+        { name: "higher", largerLimit: true },
+    ])("honors a $name HTTP RPC response limit", async ({ largerLimit }) => {
+        const defaultLimit =
+            getDefaultRpcEndpointResilienceConfig().maxResponseBodySizeBytes;
+        const maxResponseBodySizeBytes = largerLimit
+            ? defaultLimit * 2
+            : 524_288;
+        const responseSize =
+            (largerLimit ? defaultLimit : maxResponseBodySizeBytes) + 1;
+        const fetchMock = vi.fn(
+            // A declared size exercises viem's guard without allocating a large body.
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        jsonrpc: "2.0",
+                        id: 1,
+                        result: "0x7b",
+                    }),
+                    {
+                        headers: {
+                            "content-type": "application/json",
+                            "content-length": String(responseSize),
+                        },
+                    },
+                ),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const client = new ViemBackendRpcClient(
+            [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            NOOP_APM,
+            undefined,
+            {
+                retryPolicy: TEST_RETRY_POLICY,
+                resilience: {
+                    ...DISABLED_RATE_LIMIT_RESILIENCE,
+                    maxResponseBodySizeBytes,
+                },
+            },
+        );
+
+        if (largerLimit) {
+            await expect(client.getCurrentBlockNumber()).resolves.toBe(
+                TEST_BLOCK_NUMBER,
+            );
+        } else {
+            const error = await client
+                .getCurrentBlockNumber()
+                .catch((error: unknown) => error);
+            expect(getRpcResponseBodySizeLimit(error)).toEqual({
+                maxSize: maxResponseBodySizeBytes,
+                size: responseSize,
+            });
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("retries failed reads through the next weighted endpoint", async () => {

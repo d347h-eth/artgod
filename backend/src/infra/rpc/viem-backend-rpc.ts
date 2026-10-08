@@ -110,8 +110,7 @@ export class ViemBackendRpcClient {
         const resilience = options.resilience ?? DEFAULT_RESILIENCE;
         const createClient =
             options.createClient ??
-            ((url) =>
-                createBackendViemClient(url, resilience.requestTimeoutMs));
+            ((url) => createBackendViemClient(url, resilience));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -450,11 +449,12 @@ function backendRpcMethodLabel(spanName: string): string {
 
 function createBackendViemClient(
     url: string,
-    requestTimeoutMs: number,
+    resilience: RpcEndpointResilienceConfig,
 ): BackendViemClient {
     return createPublicClient({
         transport: http(url, {
-            timeout: requestTimeoutMs,
+            timeout: resilience.requestTimeoutMs,
+            maxResponseBodySize: resilience.maxResponseBodySizeBytes,
             retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
         }),
     });

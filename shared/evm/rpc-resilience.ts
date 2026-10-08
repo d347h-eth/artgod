@@ -23,6 +23,8 @@ export type RpcCircuitBreakerConfig = {
 // Groups the per-endpoint resilience controls used by JSON-RPC adapters.
 export type RpcEndpointResilienceConfig = {
     requestTimeoutMs: number;
+    // Byte cap for adapters using viem's HTTP response reader.
+    maxResponseBodySizeBytes: number;
     rateLimiter: RpcRateLimiterConfig;
     circuitBreaker: RpcCircuitBreakerConfig;
 };

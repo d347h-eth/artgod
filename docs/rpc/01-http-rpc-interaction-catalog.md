@@ -356,6 +356,11 @@ JSON-RPC requests themselves:
 
 ## Retry and Circuit-Breaker Audit
 
+The backend and indexer viem HTTP adapters use
+`RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES` to cap each response. The manifest default
+is `10485760` bytes (10 MiB). Desktop Admin exposes this positive byte limit in
+Advanced → Chain and RPC; saved changes apply after the affected processes restart.
+
 Covered today:
 
 - All indexer runtime lanes that use `ViemRpcProvider` have adapter retry,

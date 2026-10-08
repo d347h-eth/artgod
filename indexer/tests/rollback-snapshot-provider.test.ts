@@ -8,6 +8,7 @@ import {
     vi,
 } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     ERC721_OWNERSHIP_ABI,
@@ -135,6 +136,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
             logChunkSize: 10,
             retryPolicy: { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0 },
             resilience: {
+                ...getDefaultRpcEndpointResilienceConfig(),
                 requestTimeoutMs: 1000,
                 rateLimiter: { requestsPerSecond: 0, burst: 1 },
                 circuitBreaker: {
