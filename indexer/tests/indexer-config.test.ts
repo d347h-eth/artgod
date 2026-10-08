@@ -8,6 +8,7 @@ import { DEBUG_PAYLOAD_PERSISTENCE_ENV_KEY } from "@artgod/shared/config/debug-p
 import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
+    RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
 import {
     getDefaultHttpFetchResilienceConfig,
@@ -33,6 +34,15 @@ const REQUIRED_ENV = {
 };
 
 describe("Indexer config", () => {
+    it("loads the configured HTTP RPC response byte limit", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            [RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes]: "20971520",
+        });
+
+        expect(config.rpc.resilience.maxResponseBodySizeBytes).toBe(20_971_520);
+    });
+
     it("normalizes canonical address config to lowercase", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,

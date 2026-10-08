@@ -83,6 +83,17 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					view: 'basic'
 				},
 				{
+					key: 'RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES',
+					label: 'rpc http response limit (bytes)',
+					inputKind: 'text',
+					secret: false,
+					options: [],
+					help: 'Maximum response size for backend and indexer HTTP RPC reads. Default: 10 MiB.',
+					requiredForLaunch: false,
+					validation: 'positive_integer',
+					view: 'advanced'
+				},
+				{
 					key: 'RPC_RETRY_MAX_ATTEMPTS',
 					label: 'rpc retry max attempts',
 					inputKind: 'text',
@@ -1430,6 +1441,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 		RPC_BACKFILL_URL_LIST: '',
 		RPC_WS_URL_LIST: '',
 		RPC_HTTP_REQUEST_TIMEOUT_MS: '10000',
+		RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES: '10485760',
 		RPC_RETRY_MAX_ATTEMPTS: '10',
 		RPC_RETRY_BASE_DELAY_MS: '500',
 		RPC_RETRY_MAX_DELAY_MS: '10000',

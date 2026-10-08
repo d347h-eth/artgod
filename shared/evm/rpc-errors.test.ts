@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { BaseError, ResponseBodyTooLargeError } from "viem";
 import {
     classifiedRpcErrorClassName,
+    getRpcResponseBodySizeLimit,
     isRpcDeterministicContractError,
     isRpcProviderHeadLagError,
     isRpcProviderStateUnavailableError,
@@ -16,6 +18,7 @@ import {
     RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME,
     RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES,
     RPC_PROVIDER_ZERO_DATA_ERROR_TEXT,
+    RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
     RpcProviderHeadLagError,
     shouldPenalizeRpcEndpointFailure,
     shouldRetryRpcError,
@@ -27,10 +30,53 @@ const TEST_INVALID_PARAMS_MESSAGE = "invalid params";
 const TEST_TIMEOUT_ERROR_CLASS = "TimeoutError";
 const TEST_TIMEOUT_MESSAGE = "request timed out";
 const TEST_CONTRACT_READ_FAILURE_MESSAGE = "contract read failed";
+const TEST_RESPONSE_LIMIT_BYTES = 1024;
 const TEST_HISTORICAL_STATE_HASH =
     "93464b2e97c8769fdac473ec89de5b5b624be67595f76deff24a09b876253381";
 
 describe("RPC error classification", () => {
+    it("recognizes wrapped viem response-size limits without retrying or penalizing the endpoint", () => {
+        const limit = {
+            maxSize: TEST_RESPONSE_LIMIT_BYTES,
+            size: TEST_RESPONSE_LIMIT_BYTES + 1,
+        };
+        const error = new BaseError("RPC read failed", {
+            cause: new ResponseBodyTooLargeError(limit),
+        });
+
+        expect(getRpcResponseBodySizeLimit(error)).toEqual(limit);
+        expect(classifiedRpcErrorClassName(error)).toBe(
+            RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+        );
+        for (const policy of [undefined, { retryZeroData: false }]) {
+            expect(shouldRetryRpcError(error, policy)).toBe(false);
+            expect(shouldPenalizeRpcEndpointFailure(error, policy)).toBe(false);
+        }
+    });
+
+    it.each([
+        { maxSize: undefined, size: TEST_RESPONSE_LIMIT_BYTES + 1 },
+        { maxSize: TEST_RESPONSE_LIMIT_BYTES, size: undefined },
+        { maxSize: "1024", size: TEST_RESPONSE_LIMIT_BYTES + 1 },
+        { maxSize: NaN, size: TEST_RESPONSE_LIMIT_BYTES + 1 },
+        { maxSize: TEST_RESPONSE_LIMIT_BYTES, size: Infinity },
+        { maxSize: -1, size: TEST_RESPONSE_LIMIT_BYTES + 1 },
+        { maxSize: TEST_RESPONSE_LIMIT_BYTES, size: TEST_RESPONSE_LIMIT_BYTES },
+    ])("requires valid byte-limit metadata (%j)", (limit) => {
+        const error = Object.assign(new Error("RPC read failed"), {
+            name: RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+            ...limit,
+        });
+        expect(getRpcResponseBodySizeLimit(error)).toBeUndefined();
+        expect(shouldRetryRpcError(error)).toBe(true);
+    });
+
+    it("does not infer an SDK byte limit from error text", () => {
+        const error = new Error("HTTP response body exceeded the size limit.");
+        expect(getRpcResponseBodySizeLimit(error)).toBeUndefined();
+        expect(shouldRetryRpcError(error)).toBe(true);
+    });
+
     it("detects viem provider head-lag errors from nested JSON-RPC data", () => {
         const error = buildViemInvalidParamsError(
             RPC_PROVIDER_HEAD_LAG_ERROR_DATA.FromBlockGreaterThanLatestBlock,

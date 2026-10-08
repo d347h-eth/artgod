@@ -9,6 +9,7 @@ import {
 } from '@artgod/shared/config/block-explorer';
 import { TCP_PORT_RANGE, isTcpPort } from '@artgod/shared/config/tcp-port';
 import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
+import { isPositiveInteger } from '@artgod/shared/utils/env';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: SETTINGS_VALIDATION_RULE.Url,
@@ -194,11 +195,4 @@ function isSupportedUrl(value: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-function isPositiveInteger(value: string): boolean {
-	if (!/^[1-9]\d*$/.test(value)) {
-		return false;
-	}
-	return Number.isSafeInteger(Number(value));
 }

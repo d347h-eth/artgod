@@ -54,6 +54,7 @@
         "./evm/transactions": "./evm/transactions.ts",
         "./evm/proxy-detection": "./evm/proxy-detection.ts",
         "./evm/rpc-errors": "./evm/rpc-errors.ts",
+        "./evm/http-rpc-transport": "./evm/http-rpc-transport.ts",
         "./evm/erc721-ownership": "./evm/erc721-ownership.ts",
         "./evm/rpc-execution": "./evm/rpc-execution.ts",
         "./evm/rpc-resilience": "./evm/rpc-resilience.ts",

@@ -35,11 +35,24 @@ export const INDEXER_RPC_LOG_COMPONENT = {
     WebSocket: "IndexerWebSocketRpc",
 } as const;
 
-// Method labels used by metadata and WebSocket RPC observers.
+// Method labels used by HTTP, metadata and WebSocket RPC observers.
 export const INDEXER_RPC_METHOD = {
+    GetLogs: "getLogs",
     WatchBlockNumber: "watchBlockNumber",
     TokenUri: "tokenURI",
     Erc1155Uri: "uri",
+} as const;
+
+// Log-range recovery belongs to the HTTP adapter, outside endpoint retries.
+export const INDEXER_RPC_LOG_ACTION = {
+    LogResponseSizeLimitExceeded: "log_response_size_limit_exceeded",
+} as const;
+
+export const INDEXER_RPC_LOG_MESSAGE = {
+    LogRangeReduced:
+        "RPC log response exceeded the size limit; reduced runtime log chunk size. Reduce BACKFILL_BATCH_SIZE or LOG_CHUNK_SIZE.",
+    SingleBlockResponseTooLarge:
+        "RPC log response exceeded the size limit for a single block; the block range cannot be reduced further.",
 } as const;
 
 // Metadata resolver metric names emitted around token URI RPC reads.

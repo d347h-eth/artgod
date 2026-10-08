@@ -1,5 +1,6 @@
 import {
     getSettingDefaultNumber,
+    SETTINGS_KEY,
     type SettingsDefaultKey,
 } from "./generated-settings-defaults.js";
 import { parseNumber, parsePositiveInteger } from "../utils/env.js";
@@ -11,6 +12,8 @@ import type {
 // Env keys that define shared HTTP JSON-RPC retry and per-endpoint resilience policy.
 export const RPC_RESILIENCE_ENV_KEY = {
     HttpRequestTimeoutMs: "RPC_HTTP_REQUEST_TIMEOUT_MS",
+    HttpMaxResponseBodySizeBytes:
+        SETTINGS_KEY.RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES,
     RetryMaxAttempts: "RPC_RETRY_MAX_ATTEMPTS",
     RetryBaseDelayMs: "RPC_RETRY_BASE_DELAY_MS",
     RetryMaxDelayMs: "RPC_RETRY_MAX_DELAY_MS",
@@ -51,6 +54,13 @@ export function parseRpcEndpointResilienceConfig(
 ): RpcEndpointResilienceConfig {
     return {
         requestTimeoutMs: parseRpcHttpRequestTimeoutMs(env),
+        maxResponseBodySizeBytes: parsePositiveInteger(
+            env[RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes],
+            RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes,
+            getSettingDefaultNumber(
+                RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes,
+            ),
+        ),
         rateLimiter: {
             requestsPerSecond: parseNumber(
                 env[RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond],

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ResponseBodyTooLargeError } from "viem";
 import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
@@ -102,6 +103,67 @@ class CapturingMetrics implements Metrics {
 }
 
 describe("executeObservedRpcEndpointCall", () => {
+    it("leaves the endpoint available after a local response-size rejection", async () => {
+        const metrics = new CapturingMetrics();
+        const observer = createTestRpcObservability(metrics);
+        const circuitBreaker = new CircuitBreaker(
+            TEST_CIRCUIT_BREAKER_CONFIG,
+            () => 0,
+        );
+        const selector = createTestSelector([
+            { url: TEST_RPC_ENDPOINT_A_URL, circuitBreaker },
+        ]);
+        const error = new ResponseBodyTooLargeError({
+            maxSize: 1024,
+            size: 1025,
+        });
+        let attempts = 0;
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                retryPolicy: TEST_RETRY_POLICY,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => {
+                    attempts += 1;
+                    throw error;
+                },
+            }),
+        ).rejects.toBe(error);
+
+        expect(attempts).toBe(1);
+        expect(selector.snapshot()[0]?.effectiveWeight).toBe(1);
+        expect(
+            metrics.increments.some(
+                ({ name }) =>
+                    name === RPC_OBSERVABILITY_METRIC.RetryAttempt ||
+                    name === RPC_OBSERVABILITY_METRIC.CircuitOpen,
+            ),
+        ).toBe(false);
+        expect(metrics.increments).toContainEqual({
+            name: RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+            value: 1,
+            labels: {
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_A_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class: RPC_OBSERVABILITY_ERROR_CLASS.ResponseBodyTooLarge,
+            },
+        });
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => TEST_RPC_RESULT,
+            }),
+        ).resolves.toBe(TEST_RPC_RESULT);
+    });
+
     it("records failed attempts, retry scheduling, and final call success", async () => {
         const metrics = new CapturingMetrics();
         const observer = createTestRpcObservability(metrics);

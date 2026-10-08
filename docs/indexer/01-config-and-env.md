@@ -43,18 +43,32 @@ The indexer reads these variables from the root `.env`:
     - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
 - `RPC_WS_URL_LIST` (optional)
     - Optional JSON array of weighted WebSocket RPC endpoints used by the scheduler as a single-active new-head listener with fallback.
+- `RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES` (default: 10485760, or 10 MiB)
+    - Positive byte limit for viem HTTP RPC responses in backend and indexer,
+      including backfill and token URI reads. Desktop Admin exposes it under
+      Advanced → Chain and RPC; saved changes apply after runtime restart.
+    - Log-range recovery uses this configured limit when subdividing requests.
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 32)
 - `BACKFILL_BATCH_SIZE` (default: 10)
     - Caps automatic collection gap repairs as well as explicit backfill chunks.
+    - Controls logical job size, not response bytes. RPC log acquisition can
+      subdivide an existing job without changing its retained range or progress.
     - Perpetual repair is enabled by default for live, anchored collections;
       bounded scan and retry policy is described in [scheduler behavior](03-scheduler-worker.md#perpetual-collection-gap-repair).
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
 - `LOG_CHUNK_SIZE` (default: 2000)
+    - Maximum block span per RPC log request. On viem's response-size limit,
+      the provider halves the failed span and retries from the same block.
+      It keeps the smaller cap for subsequent calls during its lifetime;
+      other provider instances learn independently and restart resets the cap.
+    - Size-limit failures produce an error log recommending a lower
+      `BACKFILL_BATCH_SIZE` or `LOG_CHUNK_SIZE`. Saved settings are not rewritten.
+      A single oversized block fails explicitly because it cannot be subdivided.
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` (default: 60000)

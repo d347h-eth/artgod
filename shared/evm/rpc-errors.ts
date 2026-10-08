@@ -15,6 +15,10 @@ export const RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME =
 export const RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME =
     "RpcProviderStateUnavailableError";
 
+// Viem's typed rejection of an HTTP response above its configured byte limit.
+export const RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME =
+    "ResponseBodyTooLargeError";
+
 // JSON-RPC error codes used for shared provider-error classification.
 export const JSON_RPC_ERROR_CODE = {
     InvalidParams: -32602,
@@ -119,6 +123,41 @@ export function isRpcProviderStateUnavailableError(error: unknown): boolean {
     return false;
 }
 
+export type RpcResponseBodySizeLimit = {
+    maxSize: number;
+    size: number;
+};
+
+// Read SDK byte-limit metadata through wrappers without matching error prose.
+// Callers can shrink the request; repeating it cannot make the body smaller.
+export function getRpcResponseBodySizeLimit(
+    error: unknown,
+): RpcResponseBodySizeLimit | undefined {
+    for (const candidate of walkRpcErrorChain(error)) {
+        if (
+            rpcErrorClassName(candidate) !==
+            RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME
+        ) {
+            continue;
+        }
+        const { maxSize, size } = candidate as {
+            maxSize?: unknown;
+            size?: unknown;
+        };
+        if (
+            typeof maxSize === "number" &&
+            Number.isFinite(maxSize) &&
+            maxSize >= 0 &&
+            typeof size === "number" &&
+            Number.isFinite(size) &&
+            size > maxSize
+        ) {
+            return { maxSize, size };
+        }
+    }
+    return undefined;
+}
+
 // Detects contract-call failures that retrying another endpoint cannot fix.
 export function isRpcDeterministicContractError(error: unknown): boolean {
     // Viem can wrap an internal JSON-RPC state error as a contract revert.
@@ -144,6 +183,9 @@ export function isRpcDeterministicContractError(error: unknown): boolean {
 export function classifiedRpcErrorClassName(
     error: unknown,
 ): string | undefined {
+    if (getRpcResponseBodySizeLimit(error)) {
+        return RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME;
+    }
     if (isRpcProviderHeadLagError(error)) {
         return RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME;
     }
@@ -159,18 +201,20 @@ export function classifiedRpcErrorClassName(
     return undefined;
 }
 
-// Deterministic contract failures should surface immediately to callers.
+// Contract and response-size failures surface immediately so callers can change
+// the request instead of retrying an input that will fail again.
 export function shouldRetryRpcError(
     error: unknown,
     policy?: RpcErrorPolicy,
 ): boolean {
     return (
+        !getRpcResponseBodySizeLimit(error) &&
         !isRpcDeterministicContractError(error) &&
         !(policy?.retryZeroData === false && isRpcProviderZeroDataError(error))
     );
 }
 
-// Head-lag and deterministic contract failures are not endpoint breakage.
+// Head-lag, response-size and deterministic contract failures are not endpoint breakage.
 // Optional zero-data reads also avoid demoting or opening circuits on healthy
 // nodes. Required zero-data and unavailable-state responses retain failover.
 export function shouldPenalizeRpcEndpointFailure(

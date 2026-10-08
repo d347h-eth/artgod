@@ -5,10 +5,74 @@ import { SETTINGS_KEY } from '@artgod/shared/config/generated-settings-defaults'
 import {
 	ADMIN_CONFIG_OBSERVABILITY_FIELD,
 	ADMIN_CONFIG_OBSERVABILITY_TEST_ID,
+	ADMIN_CONFIG_RPC_QUERY,
 	LOCAL_DESKTOP_OBSERVABILITY_QUERY,
 	createAdminConfigObservabilityFixture
 } from '../src/lib/e2e/admin-config-observability-fixtures';
 import { CONFIG_OBSERVABILITY_HARNESS } from './config-observability-harness.mjs';
+import { validateAdminConfigField } from '../src/lib/admin/configuration/validation';
+
+test('Advanced RPC response limit validates byte counts and saves an override', async ({
+	page
+}, testInfo) => {
+	const key = SETTINGS_KEY.RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES;
+	const rpcGroup = createAdminConfigObservabilityFixture(false, true).groups.find((group) =>
+		group.fields.some((field) => field.key === key)
+	);
+	const metadata = rpcGroup?.fields.find((field) => field.key === key);
+	if (!metadata || !rpcGroup)
+		throw new Error('RPC response limit is missing from the Admin schema');
+	await page.goto(`${CONFIG_OBSERVABILITY_HARNESS.routePath}?${ADMIN_CONFIG_RPC_QUERY}`, {
+		waitUntil: 'networkidle'
+	});
+	const limit = page.getByLabel(metadata.label);
+	await expect(limit).toHaveCount(0);
+	await page.getByRole('button', { name: 'advanced' }).click();
+	await expect(limit).toHaveValue(getSettingDefault(key));
+	await expect(
+		page.getByText('Saved changes apply after the affected ArtGod process restarts.')
+	).toBeVisible();
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'rpc-default');
+
+	const save = page.getByRole('button', { name: 'save' });
+	await limit.fill(String(Number.MAX_SAFE_INTEGER));
+	await expect(limit).toHaveAttribute('aria-invalid', 'false');
+	await expect(save).toBeEnabled();
+	for (const value of [
+		'0',
+		'-1',
+		'1.5',
+		'false',
+		'1e7',
+		'0x100000',
+		'01',
+		'9007199254740992',
+		'9007199254740993'
+	]) {
+		await limit.fill(value);
+		await expect(limit).toHaveAttribute('aria-invalid', 'true');
+		await expect(save).toBeDisabled();
+	}
+	const issue = validateAdminConfigField(metadata, await limit.inputValue());
+	if (!issue) throw new Error('Invalid response size must produce a validation issue');
+	await page.getByRole('button', { name: 'Warning details' }).hover();
+	await expect(page.getByRole('tooltip').filter({ hasText: issue.message })).toBeVisible();
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'rpc-invalid');
+	await page.mouse.move(1, 1);
+	const configuredLimit = String(Number(getSettingDefault(key)) * 2);
+	await limit.fill(configuredLimit);
+	await expect(limit).toHaveAttribute('aria-invalid', 'false');
+	await expect(save).toBeEnabled();
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'rpc-configured');
+	await save.click();
+	const payload = JSON.parse(
+		(await page.getByTestId(ADMIN_CONFIG_OBSERVABILITY_TEST_ID.SavedConfig).textContent()) ?? ''
+	);
+	expect(payload.values[key]).toBe(configuredLimit);
+});
 
 test('local desktop exposes existing metrics and APM controls and saves their values', async ({
 	page

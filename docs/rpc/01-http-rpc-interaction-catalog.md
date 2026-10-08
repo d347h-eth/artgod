@@ -47,6 +47,12 @@ call outcome metrics, endpoint weight updates, retry scheduling, rate-limit
 waits, and circuit-open events. Adapter-local code owns only the RPC operation,
 domain mapping, and any integration-specific wrappers such as APM spans.
 
+Viem's typed `ResponseBodyTooLargeError` is a local response-byte limit, not
+endpoint breakage. Shared classification reads its `maxSize` and `size` through
+SDK wrappers. The harness records the failure but does not retry the unchanged
+request, demote the endpoint, or count it toward opening the circuit. The caller
+must reduce the request or surface the limit.
+
 ## Runtime Summary
 
 | Workspace | Runtime / Process                  | Use Case                                                               | Adapter                                                        | Config Lane                               | Component Label                                                                      | Adapter Retry | Circuit Breaker | Rate Limit | Current Behavior                                                                                                                                                                                                                                                                                                                                             |
@@ -184,6 +190,15 @@ It has the strongest HTTP JSON-RPC resilience coverage in the project:
 The policy is configured through `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`,
 `RPC_RATE_LIMIT_*`, and `RPC_CIRCUIT_BREAKER_*`. The timeout is per HTTP
 request attempt; the retry policy still bounds the total number of attempts.
+
+Log acquisition also adapts request windows to viem's response-byte limit.
+`getLogs` halves an oversized window, retries the uncovered interval, and keeps
+the smaller block cap for all calls on that provider instance until restart.
+This is separate from job scheduling and endpoint retries; already retained
+large jobs recover without rewriting their range or saved configuration. The
+adapter emits an error log with the byte sizes and reduced cap. A single-block
+oversized response remains an explicit failure. See
+[log fetching](../indexer/04-sync-pipeline.md#log-fetching-and-decoding).
 
 ### Scheduler Worker
 
@@ -340,6 +355,19 @@ JSON-RPC requests themselves:
 - Docs and OpenAPI definitions.
 
 ## Retry and Circuit-Breaker Audit
+
+The backend and indexer viem HTTP adapters use
+`RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES` to cap each response. The manifest default
+is `10485760` bytes (10 MiB). Desktop Admin exposes this positive byte limit in
+Advanced → Chain and RPC; saved changes apply after the affected processes restart.
+
+Backend RPC, indexer RPC, and token URI resolution share
+`shared/evm/http-rpc-transport.ts`. It uses viem's public `onFetchResponse` hook
+to cancel an unread body when `Content-Length` exceeds the configured limit.
+Viem 2.54.6 otherwise rejects that header without releasing the body. Viem still
+raises its typed size error and enforces the streamed-byte limit. The hook starts
+cancellation without waiting for completion, so stalled or failed cleanup cannot
+delay or replace the size error, preserving retry and endpoint-health classification.
 
 Covered today:
 

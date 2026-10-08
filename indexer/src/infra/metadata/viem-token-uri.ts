@@ -1,4 +1,4 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient } from "viem";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import {
@@ -6,12 +6,12 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import { createHttpRpcTransport } from "@artgod/shared/evm/http-rpc-transport";
 import {
     CircuitBreaker,
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
-    VIEM_TRANSPORT_RETRY_DISABLED,
 } from "@artgod/shared/evm/rpc-resilience";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
@@ -89,8 +89,7 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata;
         const createClient =
             config.createClient ??
-            ((url) =>
-                createTokenUriViemClient(url, resilience.requestTimeoutMs));
+            ((url) => createTokenUriViemClient(url, resilience));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -227,12 +226,9 @@ function expandErc1155Uri(uri: string, tokenId: string): string {
 
 function createTokenUriViemClient(
     url: string,
-    requestTimeoutMs: number,
+    resilience: RpcEndpointResilienceConfig,
 ): TokenUriRpcClient {
     return createPublicClient({
-        transport: http(url, {
-            timeout: requestTimeoutMs,
-            retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
-        }),
+        transport: createHttpRpcTransport(url, resilience),
     });
 }

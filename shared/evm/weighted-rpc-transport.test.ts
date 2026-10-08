@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPublicClient } from "viem";
+import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
     RPC_OBSERVABILITY_METRIC,
@@ -35,6 +36,7 @@ const TEST_RPC_RETRY_POLICY = {
     maxDelayMs: 0,
 };
 const TEST_RPC_RESILIENCE = {
+    ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
     rateLimiter: {
         requestsPerSecond: 0,

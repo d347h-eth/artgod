@@ -15,6 +15,11 @@ import {
 } from '@artgod/shared/config/block-explorer';
 import { TCP_PORT_RANGE } from '@artgod/shared/config/tcp-port';
 import {
+	parseRpcEndpointResilienceConfig,
+	RPC_RESILIENCE_ENV_KEY
+} from '@artgod/shared/config/rpc-resilience';
+import { getSettingDefaultNumber } from '@artgod/shared/config/generated-settings-defaults';
+import {
 	ADMIN_CONFIG_VALIDATION_RULES,
 	formatLaunchConfigIssueSummary,
 	resolveAdminConfigValidationIssues,
@@ -273,6 +278,42 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.message)).toEqual([
 			'DESKTOP_LOG_RETENTION_HOURS must be a positive whole number.'
 		]);
+	});
+
+	it.each([
+		'',
+		' ',
+		'1',
+		'10485760',
+		' 25 ',
+		String(Number.MAX_SAFE_INTEGER),
+		'9007199254740992',
+		'9007199254740993',
+		'1e7',
+		'0x100000',
+		'01',
+		'+1',
+		'1.0',
+		'0',
+		'-1'
+	])('agrees with runtime response-limit validation for %j', (value) => {
+		const key = RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes;
+		const field: AdminConfigField = {
+			...DESKTOP_LOG_RETENTION_HOURS_FIELD,
+			key,
+			label: 'rpc http response limit (bytes)',
+			view: 'advanced'
+		};
+		const issues = resolveAdminConfigValidationIssues(config({ [key]: value }, [field]), {
+			[key]: value
+		});
+		if (issues.length > 0) {
+			expect(() => parseRpcEndpointResilienceConfig({ [key]: value })).toThrow(`Invalid ${key}`);
+		} else {
+			expect(parseRpcEndpointResilienceConfig({ [key]: value }).maxResponseBodySizeBytes).toBe(
+				value.trim() ? Number(value) : getSettingDefaultNumber(key)
+			);
+		}
 	});
 
 	it('validates the operating-system TCP port range', () => {

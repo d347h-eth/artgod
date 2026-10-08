@@ -76,6 +76,7 @@ describe("loadBackendConfig", () => {
             [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
                 TEST_RPC_REQUEST_TIMEOUT_MS,
             ),
+            [RPC_RESILIENCE_ENV_KEY.HttpMaxResponseBodySizeBytes]: "20971520",
             [RPC_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "3",
             [RPC_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "50",
             [RPC_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "500",
@@ -95,6 +96,7 @@ describe("loadBackendConfig", () => {
             },
             resilience: {
                 requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
+                maxResponseBodySizeBytes: 20_971_520,
                 rateLimiter: {
                     requestsPerSecond: 0,
                     burst: 25,

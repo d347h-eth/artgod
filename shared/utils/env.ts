@@ -67,14 +67,27 @@ export function parseBoolean(
     throw new Error(`Invalid ${name}: ${value}`);
 }
 
+// Shares the Admin decimal safe-integer contract with runtime configuration.
+export function isPositiveInteger(value: string | number): boolean {
+    if (typeof value === "string" && !/^[1-9]\d*$/.test(value.trim())) {
+        return false;
+    }
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed > 0;
+}
+
 export function parsePositiveInteger(
     value: string | undefined,
     name: string,
     defaultValue?: number,
 ): number {
-    const parsed = parseNumber(value, name, defaultValue);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    const normalized = value?.trim();
+    const candidate = normalized || defaultValue;
+    if (candidate === undefined) {
+        throw new Error(`Missing ${name}`);
+    }
+    if (!isPositiveInteger(candidate)) {
         throw new Error(`Invalid ${name}: ${value}`);
     }
-    return parsed;
+    return Number(candidate);
 }
