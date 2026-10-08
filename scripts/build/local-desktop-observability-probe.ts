@@ -2,16 +2,22 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { initRuntimeApm } from "../../shared/observability/apm.js";
 import { initRuntimeMetrics } from "../../shared/observability/metrics/index.js";
-import { LOCAL_DESKTOP_PROBE } from "./local-desktop-observability-probe-contract.mjs";
+import { createLocalDesktopProbe } from "./local-desktop-observability-probe-contract.mjs";
 
-const [collector, port, enabledArgument] = process.argv.slice(2);
-if (!collector || !port || !["true", "false"].includes(enabledArgument ?? "")) {
+const [collector, port, enabledArgument, runId] = process.argv.slice(2);
+if (
+    !collector ||
+    !port ||
+    !runId ||
+    !["true", "false"].includes(enabledArgument ?? "")
+) {
     throw new Error(
-        "Collector URL, metrics port and explicit enabled flag are required.",
+        "Collector URL, metrics port, explicit enabled flag and probe identity are required.",
     );
 }
 const enabled = enabledArgument === "true";
-const { worker, chainId, serviceNamespace, spanName } = LOCAL_DESKTOP_PROBE;
+const { worker, chainId, serviceNamespace, spanName } =
+    createLocalDesktopProbe(runId);
 const metrics = await initRuntimeMetrics({
     enabled,
     host: "127.0.0.1",
