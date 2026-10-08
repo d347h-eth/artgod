@@ -28,24 +28,42 @@ yarn install --immutable
 # Build the trusted native SQLite dependency; package scripts stay disabled globally.
 yarn build:sqlite-native
 
-# Build userland UI, runtime artifacts, desktop runtime resources, then start Tauri dev.
-yarn dev:composition
+# Prepare the full instrumented runtime and start the debug desktop composition.
+yarn dev:composition:observability
 ```
 
-`yarn dev:composition` is the clean-checkout desktop dev path. It runs:
+`yarn dev:composition:observability` prepares the userland UI, full runtime
+artifacts, local dependencies and debug sidecar, then starts locked Tauri
+development with the managed Admin frontend server. It uses
+`src-tauri/target-local/debug` and the same application data as other desktop
+builds. Enable the existing exporters in Admin as described in
+[Local Desktop With Observability](#local-desktop-with-observability).
+
+To test the pruned production runtime in a debug desktop composition, run:
+
+```sh
+yarn dev:composition:pruned
+```
+
+That command runs:
 
 ```sh
 yarn build:userland
 yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
-yarn dev:desktop
+yarn dev:desktop:pruned
 ```
 
-`yarn dev:desktop` runs the locked Tauri development owner with `--no-watch`, which does not run
+`yarn dev:desktop:pruned` runs the locked Tauri development owner with `--no-watch`, which does not run
 `beforeBuildCommand`, so
 `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist
 after a clean checkout or `yarn clean:build`. The debug sidecar is built by
 `beforeDevCommand` before the admin frontend dev server starts.
+
+The older `dev:composition` and `dev:desktop` names delegate to these explicit
+pruned commands for compatibility. `yarn dev` remains the separate web/indexer
+development composition. Both desktop dev paths use `--no-watch`: Admin has
+frontend reload, while Rust and runtime changes require restarting the command.
 
 Desktop no-bundle build from a clean checkout:
 
@@ -277,6 +295,93 @@ installers are expected to be unsigned unless the builder provides their own
 code-signing setup. The official release pipeline remains documented in
 `docs/desktop/06-release-signing-runbook.md`.
 
+## Local Desktop With Observability
+
+Start the debug desktop composition with the existing backend/indexer metrics,
+tracing, profiling and bidding metrics dependencies:
+
+```sh
+yarn dev:composition:observability
+```
+
+For an optimized, non-bundled executable using the same observability capability:
+
+```sh
+yarn build:desktop:local
+yarn check:desktop:local
+```
+
+The default is an optimized, non-bundled executable at
+`src-tauri/target-local/release/artgod-desktop` (`.exe` on Windows). Stop the
+other desktop instance before launching it. It uses the same app identity,
+settings, databases, wallets, and logs as the ordinary desktop app.
+
+In native Config, select **advanced** and enable `BACKEND_METRICS_ENABLED`,
+`INDEXER_METRICS_ENABLED`, `BACKEND_APM_ENABLED`, `INDEXER_APM_ENABLED` and
+`TRADING_METRICS_ENABLED`. Save and restart the affected processes. All five
+enable flags remain false by default. Keep tracing and profiling enabled,
+and leave workspace-specific exporter URL overrides blank to inherit the
+shared URLs. Shared exporter URLs default to Tempo at
+`http://127.0.0.1:42732/v1/traces` and Pyroscope at `http://127.0.0.1:42733`.
+Metrics use the existing scrape ports `42740`–`42753` and bind to `127.0.0.1`.
+Metrics appear for processes that are running; bidding metrics start with the
+operator-started bidding runtime.
+
+Run `yarn observability:up` from the checkout that owns your existing Compose
+project. The desktop build does not start collectors. Alloy's `tmp/logs` mount
+in that checkout must resolve to the desktop app-data logs; a new worktree
+does not inherit another checkout's log symlink.
+
+Optional local bundling uses the same path. On Linux:
+
+```sh
+yarn build:desktop:local:bundle --bundles deb
+```
+
+Bundles appear under `src-tauri/target-local/release/bundle`. Existing production,
+signing, and GitHub release commands retain their current behavior. Host/target
+selection uses the existing native mappings; staging fails if the locked
+profiler lacks a matching native prebuild.
+
+Focused checks:
+
+```sh
+yarn test:desktop:local
+yarn check:desktop:local:dev-build
+yarn check:desktop:local --debug
+yarn test:desktop:local:exporters
+yarn config:check:desktop-local
+yarn workspace @artgod/frontend test:config:observability
+```
+
+The dev-build check uses Tauri's real preparation and Cargo invocation with a
+build-only runner; it does not launch the native app against shared data.
+`check:desktop:local --debug` verifies adjacent debug resources and imports.
+Release checks additionally verify the embedded wallet-recipient hashes.
+
+The exporter smoke uses the packaged Node and dependencies with temporary
+loopback receivers. It checks disabled/enabled behavior and a fresh process
+restart. To verify stored signals with the existing Compose collectors, keep
+the default backend metrics port free and run:
+
+```sh
+yarn test:desktop:local:exporters --compose src-tauri/target-local/release/resources/runtime-local
+```
+
+This check queries Prometheus for scraped metrics, Tempo for the probe trace,
+and Pyroscope for nonempty wall profile samples from each enabled process.
+Probe traffic uses `artgod.local-build-test`; no application database or wallet
+is opened. Each child has a unique verification worker/service identity, so
+store queries cannot reuse samples from an earlier probe. Collector endpoints
+come from the settings manifest and Grafana datasource files. Native supervisor
+operation against your saved data and
+rendered Grafana inspection remain separate runtime checks. Linux x64
+no-bundle, `.deb` resources and Compose delivery have been exercised;
+AppImage and other hosts need native QA.
+
+See [the local build contract](../desktop/01-tauri-build-and-runtime.md#local-desktop-build-contract)
+and [local settings selection](../desktop/04-settings-manifest-process.md#local-desktop-selection).
+
 ## Bidding And Extension UI Tests
 
 ```sh
@@ -496,7 +601,7 @@ yarn cargo:age-gate
   `scripts/build/build-tauri.mjs` for builds and development. It preserves Tauri
   flags such as no-bundle `--debug` and appends `--locked` to Cargo arguments.
   Development application arguments stay after their second `--` separator;
-  `yarn dev:desktop -- --features <feature> -- <app-args>` keeps those boundaries.
+  `yarn dev:desktop:pruned -- --features <feature> -- <app-args>` keeps those boundaries.
   Run standalone invocations through `yarn node` to load the locked dependencies.
   The Linux bundle
   wrapper retains its additional pinned packaging-input controls.
@@ -826,10 +931,13 @@ yarn dlx @yarnpkg/sdks vscode
 yarn dev
 
 # Build staged desktop resources and start the desktop dev shell.
-yarn dev:composition
+yarn dev:composition:observability
 
 # Build the release-like no-bundle desktop executable for local QA.
 yarn build:desktop:no-bundle
+
+# Build the separate local desktop with existing metrics/APM available.
+yarn build:desktop:local
 
 # Verify installed desktop listener config/argv and the staged NATS socket.
 yarn test:desktop:listener-boundaries

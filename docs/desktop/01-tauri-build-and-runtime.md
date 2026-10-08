@@ -10,6 +10,10 @@ This document describes the current desktop pipeline end-to-end:
 
 It is the canonical technical reference for desktop composition in this repository.
 
+The production pipeline described here keeps its release dependency policy.
+The opt-in [local desktop build](#local-desktop-build-contract) has separate
+artifacts and resources for testing the existing observability integrations.
+
 Project versioning is documented in `docs/development/01-local-development.md`.
 For desktop releases, keep the shipped tag aligned with the root `package.json`
 version (`v<root-version>`) and run `yarn sync:version` plus
@@ -51,6 +55,86 @@ The desktop build/runtime pipeline is designed to:
 - make release builds reproducible in public CI
 
 The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
+
+## Local Desktop Build Contract
+
+`yarn dev:composition:observability` selects the local capability for a real
+Tauri debug composition. It prepares the userland frontend, full runtime
+closure and debug prompt, then uses the managed Admin dev server and locked
+Cargo launcher. Output is under `src-tauri/target-local/debug`. It uses the same
+app-data as the production desktop. The existing enable flags are configured
+through native Admin.
+
+`yarn dev:composition:pruned` and `yarn dev:desktop:pruned` explicitly select
+the production runtime policy for debug testing. The older unqualified names
+delegate to those commands. Production build, bundle and release commands keep
+their existing behavior.
+
+`yarn build:desktop:local` selects the non-default Cargo feature
+`desktop-local-observability` and a local Tauri configuration overlay together.
+It replaces the before-build hook with `prepare-local-desktop.mjs`, builds the
+normal Admin/Userland frontends, and uses dedicated local runtime, dependency,
+resource, and sidecar scripts. The application identifier stays
+`network.artgod.desktop`.
+
+| Output                  | Local location                                  |
+| ----------------------- | ----------------------------------------------- |
+| Full runtime JavaScript | `dist-desktop-local/{backend,indexer,trading}`  |
+| Staged runtime          | `src-tauri/resources/runtime-local`             |
+| Native prompt staging   | `src-tauri/binaries-local`                      |
+| Cargo output            | `src-tauri/target-local`                        |
+| Default executable      | `src-tauri/target-local/release/artgod-desktop` |
+
+The native resource contract owns the local profile identity and resource path;
+the local JavaScript tools read it. Native build and startup reject missing or
+production profile markers. Entrypoint names and the supervisor stay the same.
+Release-mode wallet-recipient integrity hashes cover the selected local
+Node/trading closure.
+
+Debug compilation validates the same resource selection and profile markers as
+release compilation. Native tests of the local feature also require the paired
+local overlay and staged profiles; an empty resource list alone is insufficient.
+
+OpenTelemetry and Prometheus code are bundled by esbuild. Dynamically loaded
+Pyroscope and its locked dependencies are staged beside backend and indexer,
+with pprof prebuilds for the target and bundled Node ABI. SQLite/Sharp retain
+their reviewed file selections. Packaged runtimes use ordinary Node package
+resolution without workspace PnP hooks. The production stager still rejects
+local profile markers.
+
+The local entry point uses the shared locked Tauri launcher, and its prompt
+build consumes the tracked Cargo lockfile with `--locked`. Runtime acquisition
+uses `desktop-runtime-inputs.mjs` to verify the pinned Node/NATS archives and
+extract fresh executables. Package sources use the same validated locked PnP
+resolver as native compilation. Local artifact selection and dependency staging
+remain separate from the production profile.
+
+On Linux, the local overlay replaces inherited production resource mappings:
+AppImage resources go under `/usr/share/ArtGod/resources/runtime-local`, and
+`.deb` resources under `/usr/lib/ArtGod/resources/runtime-local`. Rust also
+copies the selected tree beside the non-bundled executable. Local AppImage
+selection prepares the reviewed packaging tools in the local Cargo output and
+supplies the pinned AppImage runtime through the existing tool owner.
+
+`yarn check:desktop:local` compares staged and adjacent runtime bytes and modes,
+checks the release integrity snapshot, and executes native imports with the
+packaged Node. Its optional arguments are a release output directory followed
+by an extracted bundle runtime directory. `--debug` selects the debug output
+and omits release-only integrity hashes; file bytes, modes and native imports
+are still checked. `yarn check:desktop:local:dev-build` compiles the real Tauri
+development composition through a build-only Cargo runner without launching
+the native app. The exporter smoke additionally
+checks the existing adapters against temporary loopback receivers. With
+`--compose`, it forwards that probe traffic to the repository's collectors and
+queries Prometheus, Tempo and Pyroscope for stored signals from each enabled
+process. It reserves the manifest's backend metrics port before use and fails
+if another process owns it.
+
+`yarn build:desktop:local:bundle --bundles <formats>` uses the same local path
+for host-supported bundles. These commands do not invoke the production signing
+scripts or GitHub release flow. Normal desktop commands and
+`src-tauri/tauri.conf.json` remain unchanged. For settings and collector setup,
+see [local development](../development/01-local-development.md#local-desktop-with-observability).
 
 ## macOS Universal 2 Contract
 
@@ -716,9 +800,11 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `NATS_URL` (must use `nats://127.0.0.1:<port>`; `localhost`, IPv6, and non-loopback hosts are rejected)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
-- backend/indexer metrics and every APM/profile setting remain local/deploy-only
-  and are not rendered into desktop Admin. Desktop Admin renders only the
+- production desktop excludes backend/indexer metrics and APM/profile settings
+  from Admin. Production Admin renders only the
   trading metrics enable/port settings; the host stays native-owned loopback.
+  The local desktop feature also admits the existing backend/indexer exporter
+  settings, as described in the local build contract above.
   See `docs/trading/03-bidding-runtime-observability.md` for the operator path.
 
 Desktop-first default path behavior:

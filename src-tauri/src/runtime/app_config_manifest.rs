@@ -2,6 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
 
+#[cfg(feature = "desktop-local-observability")]
+#[path = "app_config_local_observability.rs"]
+pub(super) mod local_observability;
+
 const SETTINGS_MANIFEST_VERSION: u8 = 1;
 const SETTINGS_MANIFEST: &str = include_str!("../../../config/settings.manifest.toml");
 const SETTINGS_VALIDATION_RULES: &str =
@@ -91,6 +95,8 @@ pub fn load_app_config_manifest() -> Result<AppConfigManifestModel, String> {
     let validation_rules: HashMap<String, String> = serde_json::from_str(SETTINGS_VALIDATION_RULES)
         .map_err(|error| format!("Failed to parse settings validation rules: {error}"))?;
     let supported_validation_rules = validation_rules.into_values().collect::<HashSet<_>>();
+    #[cfg(feature = "desktop-local-observability")]
+    let document = local_observability::extend_manifest(document)?;
     build_manifest_model(document, &supported_validation_rules)
 }
 
@@ -344,12 +350,14 @@ mod tests {
         let observability_group_ids = ["backend-observability", "indexer-observability"];
 
         for group_id in observability_group_ids {
-            assert!(!model.groups.iter().any(|group| group.id == group_id));
-            assert!(
-                !model
+            let local = cfg!(feature = "desktop-local-observability");
+            assert_eq!(model.groups.iter().any(|group| group.id == group_id), local);
+            assert_eq!(
+                model
                     .settings
                     .iter()
-                    .any(|setting| setting.group == group_id)
+                    .any(|setting| setting.group == group_id),
+                local
             );
         }
 

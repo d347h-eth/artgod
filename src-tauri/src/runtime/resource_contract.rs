@@ -2,7 +2,15 @@
 #![allow(dead_code)]
 
 /// Runtime resource path used by both Tauri source staging and copied build output.
+#[cfg(not(feature = "desktop-local-observability"))]
 pub(crate) const BUNDLED_RUNTIME_RELATIVE_PATH: &str = "resources/runtime";
+
+#[cfg(feature = "desktop-local-observability")]
+#[path = "local_build_contract.rs"]
+pub(crate) mod local;
+
+#[cfg(feature = "desktop-local-observability")]
+pub(crate) const BUNDLED_RUNTIME_RELATIVE_PATH: &str = local::LOCAL_RUNTIME_RELATIVE_PATH;
 
 /// Generated Rust source that embeds release runtime file hashes.
 pub(crate) const GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME: &str =
@@ -16,7 +24,13 @@ pub(crate) const WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME: &str =
 pub(crate) const WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION: u64 = 1;
 
 /// Resource subdirectory bundled by Tauri for local runtime artifacts.
+#[cfg(not(feature = "desktop-local-observability"))]
 pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = "runtime";
+
+#[cfg(feature = "desktop-local-observability")]
+pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = local::LOCAL_RUNTIME_RELATIVE_PATH
+    .split_at("resources/".len())
+    .1;
 
 /// Directory name Tauri preserves when bundling `src-tauri/resources`.
 pub(crate) const TAURI_BUNDLED_RESOURCES_DIR_NAME: &str = "resources";

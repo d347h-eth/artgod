@@ -1225,10 +1225,15 @@ test("compiles the Windows sensitive-process hardening path", async () => {
 test("the maintained desktop development alias uses the shared locked owner", async () => {
     const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
     assert.equal(
-        manifest.scripts["dev:desktop"],
+        manifest.scripts["dev:desktop:pruned"],
         "node ./scripts/build/build-tauri.mjs dev --no-watch",
     );
-    assert.ok(manifest.scripts["dev:composition"].endsWith("yarn dev:desktop"));
+    assert.equal(manifest.scripts["dev:desktop"], "yarn dev:desktop:pruned");
+    assert.ok(
+        manifest.scripts["dev:composition:pruned"].endsWith(
+            "yarn dev:desktop:pruned",
+        ),
+    );
 });
 
 async function readWorkflows() {

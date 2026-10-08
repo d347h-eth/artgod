@@ -329,8 +329,12 @@ test("routes desktop builds through the release-pruned runtime profile", async (
         "node ./scripts/build/build-runtime-artifacts.mjs --profile desktop",
     );
     assert.match(
-        rootPackageManifest.scripts["dev:composition"],
+        rootPackageManifest.scripts["dev:composition:pruned"],
         /yarn build:desktop-runtime/,
+    );
+    assert.equal(
+        rootPackageManifest.scripts["dev:composition"],
+        "yarn dev:composition:pruned",
     );
     assert.match(
         tauriConfig.build.beforeBuildCommand,

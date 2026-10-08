@@ -109,6 +109,8 @@ impl DesktopRuntimeConfig {
         let http_fetch_resilience = HttpFetchResilienceConfig::from_process_env(&process_env)?;
 
         let runtime_dir = resolve_runtime_resources_dir(app)?;
+        #[cfg(feature = "desktop-local-observability")]
+        super::resource_contract::local::validate_runtime_profiles(&runtime_dir)?;
         let node_bin = resolve_bundled_runtime_file(
             &runtime_dir,
             NODE_BINARY_RELATIVE_PATH,
@@ -259,6 +261,11 @@ impl DesktopRuntimeConfig {
 
 /// Overrides persisted process config with the native-owned metrics listener boundary.
 fn enforce_desktop_metrics_loopback(process_env: &mut HashMap<String, String>) {
+    #[cfg(feature = "desktop-local-observability")]
+    super::app_config_manifest::local_observability::enforce_metrics_loopback(
+        process_env,
+        DESKTOP_IPV4_LOOPBACK_HOST,
+    );
     process_env.insert(
         TRADING_METRICS_HOST_ENV_KEY.to_owned(),
         DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
@@ -809,9 +816,10 @@ mod tests {
         let candidates =
             build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir), "ArtGod");
 
-        assert!(candidates.contains(&resource_dir.join("resources/runtime")));
-        assert!(candidates.contains(&resource_dir.join("runtime")));
-        assert!(candidates.contains(&exe_dir.join("resources/runtime")));
+        let relative_path = super::super::resource_contract::BUNDLED_RUNTIME_RELATIVE_PATH;
+        assert!(candidates.contains(&resource_dir.join(relative_path)));
+        assert!(candidates.contains(&resource_dir.join(BUNDLED_RUNTIME_DIR_NAME)));
+        assert!(candidates.contains(&exe_dir.join(relative_path)));
     }
 
     #[cfg(target_os = "linux")]
@@ -820,9 +828,12 @@ mod tests {
         let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
         let candidates = build_runtime_resources_dir_candidates(None, Some(exe_dir), "ArtGod");
 
-        assert!(candidates.contains(&PathBuf::from(
-            "/tmp/.mount_ArtGod/usr/share/ArtGod/resources/runtime"
-        )));
+        assert!(
+            candidates.contains(
+                &Path::new("/tmp/.mount_ArtGod/usr/share/ArtGod")
+                    .join(super::super::resource_contract::BUNDLED_RUNTIME_RELATIVE_PATH)
+            )
+        );
     }
 
     #[test]
