@@ -1,14 +1,16 @@
 import fs from "node:fs/promises";
-import {
-    decodeErc1155TransferBatch,
-    decodeErc1155TransferSingle,
-    decodeErc721Transfer,
-} from "../../src/application/sync.js";
+import { encodeEventTopics } from "viem";
+import { decodeNftTransferLog } from "../../src/application/nft-transfers.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
 } from "../../src/domain/onchain.js";
-import type { Hex, RpcLog } from "../../src/ports/rpc.js";
+import type {
+    Hex,
+    RpcBlock,
+    RpcLog,
+    RpcProviderPort,
+} from "../../src/ports/rpc.js";
 import { resolveFixturePath } from "./fixture-paths.js";
 
 export type TxDumpLog = {
@@ -67,11 +69,7 @@ function extractTransferEvents(dump: TxDump): EnhancedEvent[] {
     const events: EnhancedEvent[] = [];
     for (const log of logs) {
         const rpcLog = toRpcLog(log);
-        events.push(
-            ...decodeErc721Transfer(rpcLog),
-            ...decodeErc1155TransferSingle(rpcLog),
-            ...decodeErc1155TransferBatch(rpcLog),
-        );
+        events.push(...decodeNftTransferLog(rpcLog));
     }
     return events;
 }
@@ -90,5 +88,57 @@ function toRpcLog(log: TxDumpLog): RpcLog {
         blockHash: log.blockHash,
         transactionHash: log.transactionHash,
         logIndex: log.logIndex,
+    };
+}
+
+/** Serve public receipt fixtures through the production sync port. An
+ * unexpected read fails instead of consulting a configured live endpoint. */
+export function createTxDumpRpc(
+    tx: EnhancedTransaction,
+    block: RpcBlock,
+): RpcProviderPort {
+    const unsupported = async (): Promise<never> => {
+        throw new Error("Unexpected RPC read in fixture-backed sale sync");
+    };
+    return {
+        getBlockNumber: async () => block.number,
+        getBlock: async () => block,
+        getTransaction: async () => ({
+            ...tx.transaction,
+            hash: tx.txHash as Hex,
+            from: tx.transaction.from as Hex,
+            to: tx.transaction.to as Hex | null,
+        }),
+        getTransactionReceipt: async () => ({
+            transactionHash: tx.txHash as Hex,
+            logs: tx.receiptLogs,
+        }),
+        getLogs: async (filter) => {
+            const addresses =
+                typeof filter.address === "string"
+                    ? [filter.address]
+                    : filter.address;
+            const topics = filter.events?.map(
+                (event) =>
+                    encodeEventTopics({
+                        abi: [event],
+                        eventName: event.name,
+                    })[0],
+            );
+            return tx.receiptLogs.filter(
+                (log) =>
+                    log.blockNumber >= filter.fromBlock &&
+                    log.blockNumber <= filter.toBlock &&
+                    (!addresses ||
+                        addresses.some(
+                            (address) =>
+                                address.toLowerCase() ===
+                                log.address.toLowerCase(),
+                        )) &&
+                    (!topics || topics.includes(log.topics[0])),
+            );
+        },
+        readContract: unsupported,
+        getBalance: unsupported,
     };
 }

@@ -1,5 +1,11 @@
+import { ORDER_SIDE, type OrderSide } from "./orders.js";
+
 // Protocol identity and execution currency shared by decoding and fill readers.
-export const FILL_KIND = { Seaport: "seaport", BlurV2: "blur-v2" } as const;
+export const FILL_KIND = {
+    Seaport: "seaport",
+    BlurV2: "blur-v2",
+    Wyvern: "wyvern",
+} as const;
 export const BLUR_BETH_ADDRESS = "0x0000000000a39bb272e79075ade125fd351887ac";
 
 export const FILL_ITEM_SIDE = {
@@ -29,6 +35,21 @@ export type FillExecution = {
     protocolAddress: string;
     items: readonly FillExecutionItem[];
 };
+
+/** A concrete NFT recipient remains the buyer when the protocol taker is a
+ * router. Keep protocol identities intact and preserve the existing side-based
+ * fallback for facts without an item recipient. */
+export function resolveFillParticipants(
+    side: OrderSide | null,
+    maker: string | null,
+    taker: string | null,
+    nftRecipient: string | null,
+): { seller: string | null; buyer: string | null } {
+    return {
+        seller: side === ORDER_SIDE.Buy ? taker : maker,
+        buyer: nftRecipient ?? (side === ORDER_SIDE.Buy ? maker : taker),
+    };
+}
 export const FILL_PRICE_EXCLUSION = {
     Swap: "nft-swap",
     MixedPayment: "mixed-payment",

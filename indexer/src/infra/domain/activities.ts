@@ -1,6 +1,7 @@
 import { db } from "@artgod/shared/database";
 import {
     allocateFillPayment,
+    resolveFillParticipants,
     type FillPriceExclusion,
 } from "@artgod/shared/market-data/fills";
 import {
@@ -40,7 +41,7 @@ type TransferRow = {
 
 function fillActivitySelect(): string {
     return `SELECT f.collection_id, f.kind AS fill_kind, f.order_id, f.order_side, f.maker, f.taker, f.contract_address AS contract, f.token_id, f.amount,
-        e.total_price, e.currency, e.price_exclusion, e.nft_quantity, i.unit_offset, f.execution_id, f.item_index,
+        e.total_price, e.currency, e.price_exclusion, e.nft_quantity, i.unit_offset, i.recipient AS nft_recipient, f.execution_id, f.item_index,
         f.block_number, f.block_timestamp, f.tx_hash, f.log_index
         FROM fills f JOIN fill_executions e ON e.id=f.execution_id
         JOIN fill_execution_items i ON i.execution_id=f.execution_id AND i.item_index=f.item_index`;
@@ -60,6 +61,7 @@ type FillRow = {
     price_exclusion: FillPriceExclusion | null;
     nft_quantity: string;
     unit_offset: string;
+    nft_recipient: string | null;
     execution_id: string;
     item_index: number;
     currency: string | null;
@@ -492,11 +494,13 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             const maker = normalizeAddress(row.maker);
             const taker = normalizeAddress(row.taker);
             const side = normalizeSide(row.order_side);
-            const { fromAddress, toAddress } = resolveSaleParticipants(
-                side,
-                maker,
-                taker,
-            );
+            const { seller: fromAddress, buyer: toAddress } =
+                resolveFillParticipants(
+                    side,
+                    maker,
+                    taker,
+                    normalizeAddress(row.nft_recipient),
+                );
             const allocation =
                 row.price_exclusion === null
                     ? allocateFillPayment(
@@ -720,27 +724,4 @@ function normalizeSide(
 
 function toStoredActivityOpenFlag(state: ActivityProjectionState): number {
     return state === ACTIVITY_PROJECTION_STATE.Open ? 1 : 0;
-}
-
-function resolveSaleParticipants(
-    side: "buy" | "sell" | null,
-    maker: string | null,
-    taker: string | null,
-): { fromAddress: string | null; toAddress: string | null } {
-    if (side === "sell") {
-        return {
-            fromAddress: maker,
-            toAddress: taker,
-        };
-    }
-    if (side === "buy") {
-        return {
-            fromAddress: taker,
-            toAddress: maker,
-        };
-    }
-    return {
-        fromAddress: maker,
-        toAddress: taker,
-    };
 }
