@@ -5,6 +5,7 @@ import {
     RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
     RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME,
     RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME,
+    RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
 } from "../evm/rpc-errors.js";
 import type { Metrics } from "./metrics/types.js";
 
@@ -104,6 +105,7 @@ export const RPC_OBSERVABILITY_ERROR_CLASS = {
     ProviderHeadLag: RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
     ProviderStateUnavailable: RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME,
     ProviderZeroData: RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME,
+    ResponseBodyTooLarge: RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
     RequestTimeout: "RpcRequestTimeoutError",
 } as const;
 

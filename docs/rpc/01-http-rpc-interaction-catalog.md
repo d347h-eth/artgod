@@ -47,6 +47,12 @@ call outcome metrics, endpoint weight updates, retry scheduling, rate-limit
 waits, and circuit-open events. Adapter-local code owns only the RPC operation,
 domain mapping, and any integration-specific wrappers such as APM spans.
 
+Viem's typed `ResponseBodyTooLargeError` is a local response-byte limit, not
+endpoint breakage. Shared classification reads its `maxSize` and `size` through
+SDK wrappers. The harness records the failure but does not retry the unchanged
+request, demote the endpoint, or count it toward opening the circuit. The caller
+must reduce the request or surface the limit.
+
 ## Runtime Summary
 
 | Workspace | Runtime / Process                  | Use Case                                                               | Adapter                                                        | Config Lane                               | Component Label                                                                      | Adapter Retry | Circuit Breaker | Rate Limit | Current Behavior                                                                                                                                                                                                                                                                                                                                             |
