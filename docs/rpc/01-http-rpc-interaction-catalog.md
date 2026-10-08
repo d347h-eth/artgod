@@ -361,6 +361,14 @@ The backend and indexer viem HTTP adapters use
 is `10485760` bytes (10 MiB). Desktop Admin exposes this positive byte limit in
 Advanced → Chain and RPC; saved changes apply after the affected processes restart.
 
+Backend RPC, indexer RPC, and token URI resolution share
+`shared/evm/http-rpc-transport.ts`. It uses viem's public `onFetchResponse` hook
+to cancel an unread body when `Content-Length` exceeds the configured limit.
+Viem 2.54.6 otherwise rejects that header without releasing the body. Viem still
+raises its typed size error and enforces the streamed-byte limit. Cancellation
+failure does not replace the size error, preserving retry and endpoint-health
+classification.
+
 Covered today:
 
 - All indexer runtime lanes that use `ViemRpcProvider` have adapter retry,

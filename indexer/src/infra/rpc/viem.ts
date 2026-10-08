@@ -4,7 +4,6 @@ import {
     decodeFunctionResult,
     encodeFunctionData,
     getContractError,
-    http,
     type Abi,
 } from "viem";
 import {
@@ -19,6 +18,7 @@ import {
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import { createHttpRpcTransport } from "@artgod/shared/evm/http-rpc-transport";
 import {
     CircuitBreaker,
     type RpcEndpointResilienceConfig,
@@ -444,11 +444,7 @@ function createViemRpcClient(
     resilience: RpcEndpointResilienceConfig,
 ): ViemPublicClient {
     return createPublicClient({
-        transport: http(url, {
-            timeout: resilience.requestTimeoutMs,
-            maxResponseBodySize: resilience.maxResponseBodySizeBytes,
-            retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
-        }),
+        transport: createHttpRpcTransport(url, resilience),
     });
 }
 

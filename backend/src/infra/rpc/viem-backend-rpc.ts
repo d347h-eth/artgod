@@ -1,4 +1,4 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient } from "viem";
 import { getEnsAddress } from "viem/actions";
 import { normalize } from "viem/ens";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
@@ -8,13 +8,13 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import { createHttpRpcTransport } from "@artgod/shared/evm/http-rpc-transport";
 import type { RpcErrorPolicy } from "@artgod/shared/evm/rpc-errors";
 import {
     CircuitBreaker,
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
-    VIEM_TRANSPORT_RETRY_DISABLED,
 } from "@artgod/shared/evm/rpc-resilience";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { Metrics } from "@artgod/shared/observability/metrics";
@@ -452,10 +452,6 @@ function createBackendViemClient(
     resilience: RpcEndpointResilienceConfig,
 ): BackendViemClient {
     return createPublicClient({
-        transport: http(url, {
-            timeout: resilience.requestTimeoutMs,
-            maxResponseBodySize: resilience.maxResponseBodySizeBytes,
-            retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
-        }),
+        transport: createHttpRpcTransport(url, resilience),
     });
 }
