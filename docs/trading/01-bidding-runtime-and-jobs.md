@@ -54,6 +54,11 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 - Loopback bidding mutations are untrusted job proposals. A live bidding process may place offers only inside the native collection identity and caps granted for that process start.
 - Mandate collection identity is the exact ArtGod `collectionId` plus its canonical contract address and OpenSea slug. Contract address alone is insufficient for shared-contract collections.
+- Only enabled jobs whose collection identity matches the immutable boot mandate
+  enter bidding work. Unauthorized collections receive no snapshot bootstrap,
+  token-price warmup, stream subscriptions, snapshot polling, hot refresh,
+  strategy scans, or create/update execution. Explicit tracked-offer cancellation
+  and recovery of previously requested cancellations remain available.
 - Offer placement enforces mandate identity, per-offer quantity, per-NFT price,
   WETH allowance, WETH-approval fee caps, pending-nonce behavior, and trait-offer
   trust at the restricted wallet boundary. Exact-token membership in the
@@ -164,12 +169,12 @@ Startup order:
    bidding setting to agree exactly with the mandate before runtime composition;
    the mandate remains the authority after that drift check
 3. mark previously tracked active offers as unverified for enabled bidding jobs
-4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
+4. load only boot-authorized enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
 5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, native mandate policy, transaction policy, and logging adapters
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. reconcile the pinned OpenSea conduit WETH allowance up or down to the exact
    mandate cap, including revocation when the cap is `0`
-8. bootstrap authoritative collection-offer snapshots and current prices
+8. bootstrap authoritative collection-offer snapshots and current prices for admitted jobs
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
 11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
@@ -195,6 +200,8 @@ Command reconciliation:
 
 - claims ordered command rows one at a time
 - reloads the authoritative job declaration before mutating in-memory bidder state
+- skips create/update commands outside the current mandate before market
+  preparation and completes their command rows without retrying
 - replays committed startup commands before OpenSea stream subscriptions and
   steady-state snapshot polling start
 - updates watched snapshot collections and direct stream subscriptions after
@@ -338,7 +345,7 @@ After each command wake-up or recovery scan, it reloads enabled jobs before muta
 
 Command effects:
 
-- `job_created` / `job_updated`: add or replace the in-memory job and run an immediate refresh when safe
+- `job_created` / `job_updated`: add or replace an authorized enabled job and run an immediate refresh when safe; otherwise skip and complete the command without marketplace work
 - `job_paused` / `job_archived`: remove the job from scheduling and request active-offer cancellation
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
 - `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
@@ -348,11 +355,17 @@ Command effects:
 - failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
 - dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order absent, but it never places a live offer or emits a cancellation signature; an active remote order remains unresolved
 
+Skipping a command leaves its saved declaration unchanged. At a later authorized
+boot, startup loads the latest enabled spec without depending on replay of the
+already completed command. Cancellation reads retain the tracked order and the
+revision that placed it even after later spec edits; current strategy state still
+requires a matching declaration revision.
+
 Reconciliation also updates watched collections:
 
-- enabled token and collection jobs define which collection snapshots should
+- authorized enabled token and collection jobs define which collection snapshots should
   poll; competitive-trait-only collections do not use the broad snapshot lane
-- enabled jobs define which OpenSea stream subscriptions should be active
+- authorized enabled jobs define which OpenSea stream subscriptions should be active
 - snapshot polling stops when no enabled snapshot-backed job remains, and the
   stream subscription stops when no enabled job remains for the collection
 
@@ -376,7 +389,7 @@ Projection tables:
 Bot snapshot projection:
 
 - runs inside the bidding runtime as a fire-and-forget sidecar after collection-offer snapshot refreshes
-- only projects collections with enabled bidding jobs
+- only projects collections with authorized enabled snapshot-backed bidding jobs
 - coalesces concurrent notifications per collection
 - throttles projection by `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
 - treats bot snapshots as usable only while the bot has a fresh running heartbeat and `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS` is fresh

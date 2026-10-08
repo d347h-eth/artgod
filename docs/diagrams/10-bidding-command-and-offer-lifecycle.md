@@ -33,7 +33,10 @@ sequenceDiagram
     Bot->>DB: Claim next ordered command
     Bot->>DB: Reload authoritative job revision
 
-    alt Enabled create or update
+    alt Unauthorized create or update
+        Bot->>Bot: Skip all market preparation and bidding work
+        Note over Bot,DB: Saved spec remains available to a later authorized boot
+    else Authorized enabled create or update
         Bot->>Snap: Load or refresh usable collection market view
         Snap->>OS: Paginated REST snapshot as needed
         OS-->>Snap: Current offers
@@ -66,10 +69,10 @@ sequenceDiagram
     Bot->>DB: Complete or reschedule command row
 
     par Steady-state recovery
-        Bot->>Snap: Poll snapshot-backed collections with adaptive cadence
+        Bot->>Snap: Poll authorized snapshot-backed collections with adaptive cadence
     and Event-driven pressure
         OS-->>Bot: Stream event wake-up hint
-        Bot->>Bot: Coalesce by collection and scope
+        Bot->>Bot: Coalesce authorized job events by collection and scope
         Bot->>Snap: Refresh collection snapshot when event criteria require it
     and Snapshot projection
         Snap-->>Read: Notify after a successful snapshot refresh
@@ -87,6 +90,9 @@ bot does not itself cancel existing OpenSea orders or revoke WETH allowance.
 Pause/archive and cancellation are separate durable commands; cancellation
 can retry after the job has already left live scheduling. A cancellation
 command with no tracked active order completes without a marketplace call.
+Create/update commands outside the boot mandate complete without bidding work
+or retries. Saved order identity and price remain visible in Userland without
+token-price warmup; later spec edits do not discard that cancellation evidence.
 
 See [bidding runtime and jobs](../trading/01-bidding-runtime-and-jobs.md) and
 [automation capabilities](../trading/02-bidding-automation-capabilities.md).

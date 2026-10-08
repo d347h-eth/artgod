@@ -1132,6 +1132,11 @@ The bot entrypoint must:
 - keep lifecycle event payloads limited to non-secret runtime metadata
 - write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
 - load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
+- admit only enabled jobs matching the immutable mandate before snapshots,
+  token-price warmup, stream watches, scans or create/update execution; skipped
+  command rows complete without retries and their declarations remain stored
+- retain tracked active-order evidence for display and explicit cancellation,
+  including orders from an older spec revision, without scheduling unauthorized jobs
 - carry `collectionId` on every runtime job and require an OpenSea slug for every enabled placement job
 - enforce the mandate's chain, collection ID, contract, OpenSea slug, WETH cap, and fixed quantity again at the final restricted OpenSea signing boundary for every offer revision
 - keep offchain cancellation outside the placement mandate; unauthenticated loopback pause/archive mutations can therefore cancel tracked offers as an accepted local-alpha availability risk

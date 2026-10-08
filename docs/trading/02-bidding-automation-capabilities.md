@@ -14,6 +14,10 @@ contract in `docs/ui/01-interaction-guidelines.md`.
 - `orders` fallback data is passive bid-book display only and never feeds bidder competitiveness or placement decisions.
 - Public single-collection mode may expose read-only offers and token bid books, but it must not expose bidding jobs, price tiers, presets for extra targets, or write controls.
 - Amounts shown in UI/API fields use Ether units; persisted EVM-facing amount columns use wei strings.
+- Userland can create or edit valid job specs without current collection
+  authorization and still emits the normal durable commands. The current bot
+  skips those create/update commands and all bidding work until a boot authorizes
+  that collection. Explicit cancellation remains available for tracked bids.
 
 ## Public-Alpha Control Boundary
 

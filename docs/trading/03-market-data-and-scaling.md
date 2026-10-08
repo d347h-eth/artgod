@@ -3,7 +3,7 @@
 The bidding bot needs a current market view without turning every active job or
 stream event into a fresh collection-wide OpenSea crawl. The current design
 keeps one authoritative in-memory offer snapshot per snapshot-backed collection
-(a collection with an enabled token or collection job) and separates that
+(a boot-authorized collection with an enabled token or collection job) and separates that
 decision input from display projections.
 
 ## Authority Model
@@ -100,7 +100,7 @@ poll to hit OpenSea.
 
 ## Startup and Command Behavior
 
-Startup builds one snapshot for every collection with an enabled token or
+Startup builds one snapshot for every authorized collection with an enabled token or
 collection job before steady-state placement begins. Competitive-trait-only
 collections are watched for stream events but are not part of this broad
 snapshot lane. The runtime then replays committed commands while stream
@@ -109,6 +109,9 @@ events racing with recovery of declared intent.
 
 For a later command:
 
+- collection identity must match the immutable boot mandate before any market
+  preparation; unauthorized create/update commands complete as skipped work
+  while their saved specs remain available to a later authorized boot;
 - the runtime applies the new declaration in memory;
 - if a usable collection snapshot exists, the command reuses it and requests a
   background refresh when stale;
@@ -120,6 +123,13 @@ For a later command:
 Commands are serialized by the durable outbox and receive command-priority
 OpenSea scheduling. An earlier retrying command cannot be leapfrogged by a later
 one.
+
+Unauthorized collections also remain outside token-price warmup, stream watches,
+hot refresh and recurring scans. Existing tracked order identity, price and
+expiration remain visible through backend bid-book overlays without warmup.
+Explicit cancellation uses that durable order evidence, including its original
+revision after spec edits. Its recovery reads are the only marketplace work for
+an unauthorized collection; they cannot place or replace an offer.
 
 ## Stream and Hot-Refresh Pressure
 
