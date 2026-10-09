@@ -10,6 +10,7 @@ import type {
     ORDER_VALIDATION_DEMAND_OUTCOME,
 } from "../domain/order-validation-demand.js";
 import type { OrderValidationResult } from "../domain/orders.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 
 /** Current-state eligibility and revision-guarded effects, inside the owning writer snapshot. */
 export interface OrderValidationProjectionPort {
@@ -41,6 +42,7 @@ export interface OrderValidationDemandPort {
         chainId: number,
         owner: string,
         now: number,
+        workClass?: SyncWorkClass,
     ): OrderValidationClaimBatch;
     renew(claim: ClaimedOrderValidation, now: number): boolean;
     /** Commits order effects and captured-generation coverage together. New demand survives. */

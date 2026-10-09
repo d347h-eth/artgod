@@ -1,9 +1,10 @@
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import type { ReorgResyncRange } from "./reorg-recovery.js";
 import type { SyncGapRepairBatch } from "./sync-gap-repair.js";
 
 export const SYNC_WORK_COMPLETION = {
     Unmanaged: "unmanaged",
-    GapRepair: "gap_repair",
+    GapRepair: SYNC_WORK_CLASS.GapRepair,
     ReorgResync: "reorg_resync",
 } as const;
 
@@ -22,3 +23,10 @@ export type SyncWorkCompletion =
           batchSize: number;
           retryAt: number;
       };
+
+// Background retries survive quota deferrals; broker delivery counts are not
+// evidence of actual failures. Pace failed descendants like retained gap ranges.
+export const AUTOMATIC_GAP_WORK_POLICY = {
+    RetryDelayMs: 5 * 60_000,
+    LeaseRenewMaxMs: 10_000,
+} as const;

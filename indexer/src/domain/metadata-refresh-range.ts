@@ -24,6 +24,7 @@ export function buildMetadataRangeContinuation(input: {
         chainId: job.chainId,
         collectionId: job.payload.collectionId,
         traceId: job.traceId ?? job.jobId,
+        ...(job.workClass === undefined ? {} : { workClass: job.workClass }),
         ...(job.onchainBlock === undefined
             ? {}
             : { onchainBlock: job.onchainBlock }),

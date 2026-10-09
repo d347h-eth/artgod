@@ -1,3 +1,5 @@
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import {
     afterEach,
     beforeAll,
@@ -470,12 +472,89 @@ describe("durable ordinary validation demand", () => {
         expect(await work.processor.executeBatch()).toBeUndefined();
     });
 
+    it("retains background classification on disk and promotes pending demand for main work", () => {
+        let work = workflow();
+        work.store.admit(
+            { ...request, workClass: SYNC_WORK_CLASS.GapRepair },
+            now,
+        );
+        setDbPath(dbPath);
+        work = workflow();
+        expect(
+            work.store.get(request.chainId, request.orderId)?.workClass,
+        ).toBe(SYNC_WORK_CLASS.GapRepair);
+        expect(
+            work.store.claimBatch(request.chainId, "main", now).claims,
+        ).toHaveLength(0);
+        work.store.admit({ ...request, workClass: SYNC_WORK_CLASS.Main }, now);
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            workClass: SYNC_WORK_CLASS.Main,
+            generation: 2,
+        });
+        expect(
+            work.store.claimBatch(
+                request.chainId,
+                "gap",
+                now,
+                SYNC_WORK_CLASS.GapRepair,
+            ).claims,
+        ).toHaveLength(0);
+        expect(
+            work.store.claimBatch(request.chainId, "main", now).claims,
+        ).toHaveLength(1);
+    });
+
+    it("starts new background demand after a completed main request without preserving its old priority", async () => {
+        const work = workflow();
+        work.store.admit(request, now);
+        await work.processor.executeBatch();
+        work.store.admit(
+            {
+                ...request,
+                requiredAt: now + 1,
+                workClass: SYNC_WORK_CLASS.GapRepair,
+            },
+            now + 1,
+        );
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: true,
+            workClass: SYNC_WORK_CLASS.GapRepair,
+        });
+    });
+
+    it("releases deferred quota waits without recording a validation failure or losing demand", async () => {
+        const work = workflow();
+        work.store.admit(
+            { ...request, workClass: SYNC_WORK_CLASS.GapRepair },
+            now,
+        );
+        vi.spyOn(work.rpc, "getBlockNumber").mockRejectedValue(
+            new Error("snapshot wrapper", { cause: new RpcBudgetDeferred() }),
+        );
+        const report = await work.processor.executeBatch(
+            undefined,
+            SYNC_WORK_CLASS.GapRepair,
+        );
+        expect(report).toMatchObject({ released: 1, retried: 0, applied: 0 });
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: true,
+            failures: 0,
+            leaseOwner: null,
+        });
+    });
+
     it("uses the chain/due index without a temporary sort for bounded polling", () => {
         const details = db
             .prepare(
-                "EXPLAIN QUERY PLAN SELECT order_id FROM order_validation_demand WHERE chain_id=? AND pending=1 AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
+                "EXPLAIN QUERY PLAN SELECT order_id FROM order_validation_demand WHERE chain_id=? AND pending=1 AND work_class=? AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
             )
-            .all(request.chainId, now, now, POLICY.batchOrders) as Array<{
+            .all(
+                request.chainId,
+                SYNC_WORK_CLASS.Main,
+                now,
+                now,
+                POLICY.batchOrders,
+            ) as Array<{
             detail: string;
         }>;
         expect(details.map((row) => row.detail).join(" ")).toContain(

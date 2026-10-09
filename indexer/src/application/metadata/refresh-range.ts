@@ -71,6 +71,7 @@ export function createMetadataRefreshRangeHandler(input: {
                 artifactReason: payload.reason,
                 statsReason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
                 sourceJobId: job.jobId,
+                workClass: job.workClass,
                 traceId,
                 source: payload.source,
             });
@@ -79,6 +80,7 @@ export function createMetadataRefreshRangeHandler(input: {
                 policy: input.imagePolicy,
                 chainId: payload.chainId,
                 updatedTokens,
+                workClass: job.workClass,
                 traceId,
                 source: payload.source,
             });

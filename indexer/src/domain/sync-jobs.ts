@@ -1,3 +1,4 @@
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 export {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,

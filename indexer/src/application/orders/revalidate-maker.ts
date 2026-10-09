@@ -1,4 +1,6 @@
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
+import { makerWorkClass } from "../../domain/maker-revalidation.js";
 import { logger } from "@artgod/shared/utils";
 import { JobDeferred } from "../../domain/job-deferred.js";
 import { UnsupportedJob } from "../../domain/unsupported-job.js";
@@ -159,20 +161,27 @@ export class RevalidateMakerOrders {
                     "Maker execution lost its lease",
                 );
             const claimed = run;
-            run = await this.deps.admission.run(() =>
-                observeProcessing(
-                    hooks,
-                    OPERATION.MakerStep,
-                    {
-                        chainId: claimed.chainId,
-                        runId: claimed.runId,
-                        step: claimed.step,
-                    },
-                    () => this.step(claimed, now),
-                ),
+            run = await this.deps.admission.run(
+                () =>
+                    observeProcessing(
+                        hooks,
+                        OPERATION.MakerStep,
+                        {
+                            chainId: claimed.chainId,
+                            runId: claimed.runId,
+                            step: claimed.step,
+                        },
+                        () => this.step(claimed, now),
+                    ),
+                undefined,
+                makerWorkClass(claimed),
             );
         } catch (error) {
-            store.release(run, now(), error);
+            store.release(
+                run,
+                now(),
+                getRpcBudgetDeferral(error) ? undefined : error,
+            );
             logger.warn(LOG.Retry, {
                 component: LOG.Component,
                 runId: run.runId,
@@ -222,6 +231,7 @@ export class RevalidateMakerOrders {
                       this.deps.createSnapshot({
                           chainId: run.chainId,
                           minimumBlock: run.payload.blockNumber ?? null,
+                          workClass: makerWorkClass(run),
                           candidates: candidates
                               .filter((candidate) => candidate.currentAtTrigger)
                               .map((candidate) => candidate.order),

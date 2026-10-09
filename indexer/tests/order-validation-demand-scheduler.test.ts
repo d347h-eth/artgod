@@ -1,3 +1,7 @@
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
 import {
@@ -62,32 +66,48 @@ describe("continuous fair demand scheduling", () => {
         const reporter = { record: vi.fn(), flush: vi.fn() };
         stop = startOrderValidationDemand({ executeBatch }, reporter);
         await vi.advanceTimersByTimeAsync(20);
-        expect(executeBatch).toHaveBeenCalledTimes(8);
+        expect(executeBatch).toHaveBeenCalledTimes(9);
         expect(
             reporter.record.mock.calls.filter(([report]) => report),
         ).toHaveLength(6);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs - 30);
-        expect(executeBatch).toHaveBeenCalledTimes(8);
+        expect(executeBatch).toHaveBeenCalledTimes(9);
         await vi.advanceTimersByTimeAsync(30);
-        expect(executeBatch).toHaveBeenCalledTimes(10);
+        expect(executeBatch).toHaveBeenCalledTimes(12);
         await stop();
         expect(reporter.flush).toHaveBeenCalledOnce();
         expect(vi.getTimerCount()).toBe(0);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 2);
-        expect(executeBatch).toHaveBeenCalledTimes(10);
+        expect(executeBatch).toHaveBeenCalledTimes(12);
     });
 
     it("holds at most two executions and waits for active work during stop", async () => {
         const gate = deferred();
-        const executeBatch = vi.fn(async () => {
-            await gate.promise;
-            return progressed;
-        });
+        const admission = new FairOrderValidationAdmission(2);
+        let active = 0,
+            maximum = 0;
+        const executeBatch = vi.fn(
+            (
+                signal?: AbortSignal,
+                workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
+            ) =>
+                admission.run(
+                    async () => {
+                        maximum = Math.max(maximum, ++active);
+                        await gate.promise;
+                        active--;
+                        return progressed;
+                    },
+                    signal,
+                    workClass,
+                ),
+        );
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 3);
         expect(executeBatch).toHaveBeenCalledTimes(
-            ORDER_PROCESSING_POLICY.concurrentValidations,
+            ORDER_PROCESSING_POLICY.concurrentValidations + 1,
         );
+        expect(maximum).toBe(ORDER_PROCESSING_POLICY.concurrentValidations);
         let stopped = false;
         const stopping = stop().then(() => {
             stopped = true;
@@ -106,10 +126,10 @@ describe("continuous fair demand scheduling", () => {
             .mockResolvedValue(undefined);
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(POLICY.pollMs - 1);
-        expect(executeBatch).toHaveBeenCalledTimes(2);
+        expect(executeBatch).toHaveBeenCalledTimes(3);
         expect(logger.warn).toHaveBeenCalledTimes(1);
         await vi.advanceTimersByTimeAsync(1);
-        expect(executeBatch).toHaveBeenCalledTimes(4);
+        expect(executeBatch).toHaveBeenCalledTimes(6);
     });
 
     it("services waiting maker and token work before demand takes another batch", async () => {
@@ -117,14 +137,22 @@ describe("continuous fair demand scheduling", () => {
         const gate = deferred();
         const events: string[] = [];
         let count = 0;
-        const executeBatch = vi.fn((signal?: AbortSignal) =>
-            admission.run(async () => {
-                count++;
-                if (count > 2) return undefined;
-                events.push("demand");
-                await gate.promise;
-                return progressed;
-            }, signal),
+        const executeBatch = vi.fn(
+            (
+                signal?: AbortSignal,
+                workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
+            ) =>
+                admission.run(
+                    async () => {
+                        count++;
+                        if (count > 2) return undefined;
+                        events.push("demand");
+                        await gate.promise;
+                        return progressed;
+                    },
+                    signal,
+                    workClass,
+                ),
         );
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(0);
@@ -138,7 +166,7 @@ describe("continuous fair demand scheduling", () => {
         await Promise.all([maker, token]);
         expect(events).toEqual(["demand", "demand", "maker", "token"]);
         await vi.advanceTimersByTimeAsync(10);
-        expect(executeBatch).toHaveBeenCalledTimes(4);
+        expect(executeBatch).toHaveBeenCalledTimes(5);
     });
 
     it("cancels queued demand on stop before claiming or creating snapshots", async () => {

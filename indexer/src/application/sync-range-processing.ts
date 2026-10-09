@@ -5,6 +5,8 @@ import {
 } from "../domain/sync-follow-ups.js";
 import { syncRange, type SyncRange } from "./sync.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 import { resolveIndexerCollectionExtension } from "./collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
@@ -111,7 +113,16 @@ export async function processSyncRange(
         input.mode,
         result.data,
         input.orderMaintenancePolicy,
-    );
+    ).map((followUp) => ({
+        ...followUp,
+        job: {
+            ...followUp.job,
+            workClass:
+                input.completion.kind === SYNC_WORK_COMPLETION.GapRepair
+                    ? SYNC_WORK_CLASS.GapRepair
+                    : SYNC_WORK_CLASS.Main,
+        },
+    }));
     input.commit.commitSyncRange({
         result,
         followUps,

@@ -1,5 +1,6 @@
 import type { QueueName } from "./queues.js";
 import type { ChainBlockReference } from "./chain-sync.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 
 /** Opaque stream incarnation plus delivery position, without SDK/driver types. */
 export type QueueDeliveryOrigin = {
@@ -26,6 +27,8 @@ export type JobEnvelope<TPayload = unknown> = {
     traceId?: string;
     collectionId?: number;
     chainId: number;
+    // Optional solely for old persisted envelopes, which decode as main work.
+    workClass?: SyncWorkClass;
     // Event-specific sync hints must still refer to the retained canonical block
     // at consumer admission, including when publication races with rollback.
     onchainBlock?: ChainBlockReference;

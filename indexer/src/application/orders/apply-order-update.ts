@@ -1,4 +1,8 @@
 import type { OrderUpdateByIdPayload } from "../../domain/order-jobs.js";
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { orderUpdateQueue } from "../../domain/order-processing.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
@@ -22,6 +26,7 @@ export class ApplyOrderUpdate {
     async execute(
         payload: OrderUpdateByIdPayload,
         requiredAt: number,
+        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): Promise<void> {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
@@ -31,6 +36,7 @@ export class ApplyOrderUpdate {
                 orderId: payload.orderId,
                 requiredAt,
                 minimumBlock: payload.blockNumber ?? null,
+                workClass,
             });
         } else
             await observeProcessing(
