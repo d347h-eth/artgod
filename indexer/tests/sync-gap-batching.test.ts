@@ -1,3 +1,4 @@
+import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -176,7 +177,7 @@ describe("shared collection gap acquisition", () => {
         const batch = h.batches()[0],
             old = batch.repairs.find((r) => r.collectionId === older)!;
         expect([batch.fromBlock, batch.toBlock]).toEqual([115, 115]);
-        await run(h, testRpc());
+        await run(h, testRpc([], 115));
         expect(h.store.getProgress(1, newer)?.pending).toBeNull();
         expect(h.store.getProgress(1, older)?.pending).toMatchObject({
             repairId: old.repairId,
@@ -197,7 +198,7 @@ describe("shared collection gap acquisition", () => {
         h.restart();
         await h.scheduler.scan(115);
         expect(h.batches()[0]).toMatchObject({ fromBlock: 106, toBlock: 114 });
-        await run(h, testRpc());
+        await run(h, testRpc([], 115));
         expect(h.store.getProgress(1, older)?.pending).toBeNull();
         expect(coverage(older)).toBe(16);
         expect(coverage(newer)).toBe(16);
@@ -324,6 +325,8 @@ describe("shared collection gap acquisition", () => {
         const h = harness(),
             first = seed(0),
             second = seed(1);
+        cover(first, 100, 100);
+        cover(second, 100, 100);
         await h.scheduler.scan(110);
         const rpc = testRpc();
         const failed = vi.fn(async (j: JobEnvelope) => {
@@ -335,7 +338,7 @@ describe("shared collection gap acquisition", () => {
         });
         await run(h, rpc, failed);
         for (const id of [first, second]) {
-            expect(coverage(id)).toBe(10);
+            expect(coverage(id)).toBe(11);
             expect(h.store.getProgress(1, id)?.pending).toBeNull();
         }
         const oldCalls = rpc.getBlock.mock.calls.length;
@@ -369,7 +372,7 @@ describe("shared collection gap acquisition", () => {
                 ).run(COLLECTION_STATUS.Paused, second);
             if (change === "anchor")
                 db.prepare(
-                    "UPDATE collections SET bootstrap_anchor_block = 105 WHERE collection_id = ?",
+                    "UPDATE collections SET bootstrap_anchor_block = 111 WHERE collection_id = ?",
                 ).run(second);
             if (change === "purge")
                 db.prepare(
@@ -395,6 +398,33 @@ describe("shared collection gap acquisition", () => {
             );
         },
     );
+
+    it("replaces a stale anchor intent before fetching the newly eligible range", async () => {
+        const h = harness(),
+            first = seed(0),
+            second = seed(1);
+        await h.scheduler.scan(110);
+        const staleRepair = h.store.getProgress(1, second)!.pending!.repairId;
+        db.prepare(
+            "UPDATE collections SET bootstrap_anchor_block = 105 WHERE collection_id = ?",
+        ).run(second);
+        const rpc = testRpc(),
+            published: JobEnvelope[] = [];
+        await run(h, rpc, async (j) => {
+            published.push(j);
+        });
+        expect(rpc.getBlock.mock.calls.map(([number]) => number)).toEqual([
+            105, 106, 107, 108, 109, 110, 110,
+        ]);
+        expect(coverage(first)).toBe(6);
+        expect(coverage(second)).toBe(6);
+        expect(h.store.getProgress(1, second)?.pending).toBeNull();
+        const secondJobs = published.filter((j) => j.collectionId === second);
+        expect(secondJobs.length).toBeGreaterThan(0);
+        expect(secondJobs.every((j) => !j.jobId.includes(staleRepair))).toBe(
+            true,
+        );
+    });
 
     it("retains both intents and no partial facts on RPC failure", async () => {
         const h = harness(),
@@ -648,7 +678,9 @@ async function run(
         collectionsPort: h.registry,
         collectionExtensions: { getInstall: () => null },
         gaps,
-        headGapRecheck: h.scheduler,
+        gapWorkEnabled: true,
+        workScope: new RpcWorkScope(),
+        gapScheduler: h.scheduler,
         recoveries: h.recoveries,
         gate: new BackfillExecutionGate(),
         batchSize: h.batchSize,
@@ -665,9 +697,9 @@ async function run(
     );
 }
 
-function testRpc(logs: RpcLog[] = []) {
+function testRpc(logs: RpcLog[] = [], head = 110) {
     return {
-        getBlockNumber: vi.fn(async () => 115),
+        getBlockNumber: vi.fn(async () => head),
         getBlock: vi.fn(async (number: number) => block(number)),
         getLogs: vi.fn<RpcProviderPort["getLogs"]>(async (filter) => {
             if (

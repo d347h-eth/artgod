@@ -718,13 +718,14 @@ describe("durable production reorg recovery", () => {
     });
 
     it("keeps required publication retryable beyond the ordinary budget after recovery completion", async () => {
+        const ranges = vi.spyOn(rpc, "getLogs");
         seedRecoveryHistory();
         await services.recovery.checkBlock(F.Orphan);
         while (services.recoveries.getRecovery(1))
             expect(
                 await services.acquireRecoveryRange(pendingRecoveryRange()),
             ).toBe(true);
-        const reads = rpc.logReads;
+        const completedCalls = ranges.mock.calls.length;
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
         for (let i = 0; i < 7; i++)
             await drainQueueOutbox(services.outbox, queue, {
@@ -745,7 +746,13 @@ describe("durable production reorg recovery", () => {
         queue.failureQueue = undefined;
         await services.publishRetained(queue);
         await services.executor.runDue();
-        expect(rpc.logReads).toBe(reads);
+        // Automatic discovery may repair unrelated older holes; publication
+        // recovery must never repeat the completed resync range.
+        expect(
+            ranges.mock.calls
+                .slice(completedCalls)
+                .every(([filter]) => filter.toBlock <= F.Fork),
+        ).toBe(true);
         expect(services.recoveries.getRecovery(1)).toBeNull();
     });
 

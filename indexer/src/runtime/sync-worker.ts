@@ -1,3 +1,4 @@
+import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -74,6 +75,9 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: false,
+        });
         const cache = new InMemoryCache({
             maxEntries: config.cache.maxEntries,
             ttlMs: config.cache.ttlMs,
@@ -88,6 +92,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.PrimaryHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const backfillRpc = config.rpc.backfillEndpoints
             ? new ViemRpcProvider({
@@ -99,6 +104,7 @@ async function main() {
                   endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.BackfillHttp,
                   retryPolicy: config.rpc.retryPolicy,
                   resilience: config.rpc.resilience,
+                  requestBudget: rpcAllocation.requestBudget,
               })
             : primaryRpc;
         const storage = new SqliteStorage();
@@ -212,6 +218,7 @@ async function main() {
                 });
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.realtimeSync.consume",
             },
@@ -240,6 +247,7 @@ async function main() {
                 gate: backfillExecutionGate,
             }),
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.backfillSync.consume",
             },
@@ -256,7 +264,9 @@ async function main() {
                 bidderIndex,
                 wethAddress: config.tokens.wethAddress,
                 gaps: syncGapStore,
-                headGapRecheck: new SyncGapScheduler(
+                gapWorkEnabled: config.rpc.gapAllocation.requestsPerSecond > 0,
+                workScope: rpcAllocation.workScope,
+                gapScheduler: new SyncGapScheduler(
                     collectionRegistry,
                     syncGapStore,
                     {
@@ -277,6 +287,7 @@ async function main() {
         });
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             logger.info("Sync worker shutting down", {
                 component: SYNC_WORKER_LOG_COMPONENT,
                 action: "shutdown",
@@ -289,6 +300,7 @@ async function main() {
             ]);
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

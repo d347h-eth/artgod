@@ -1,3 +1,4 @@
+import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -248,7 +249,9 @@ describe("direct automatic sync execution", () => {
             storage: s.storage,
             commit: s.commit,
             gaps: s.gaps,
-            headGapRecheck: scanner(s),
+            gapWorkEnabled: true,
+            workScope: new RpcWorkScope(),
+            gapScheduler: scanner(s),
             recoveries: s.recoveries,
             collectionsPort: s.registry,
             collectionExtensions: { getInstall: () => null },
@@ -333,6 +336,8 @@ describe("direct automatic sync execution", () => {
                 address: F.OrphanOwner,
                 anchorBlock: 100,
             });
+        cover(first, 100, 200, [105, 106]);
+        cover(second, 100, 200, [101, 102]);
         retain(s, first, 105, 106);
         retain(s, second, 101, 102);
         vi.spyOn(rpc, "getLogs").mockRejectedValueOnce(
@@ -401,7 +406,9 @@ describe("direct automatic sync execution", () => {
             storage: s.storage,
             commit: s.commit,
             gaps: s.gaps,
-            headGapRecheck: scanner(s),
+            gapWorkEnabled: true,
+            workScope: new RpcWorkScope(),
+            gapScheduler: scanner(s),
             recoveries: s.recoveries,
             collectionsPort: s.registry,
             collectionExtensions: { getInstall: () => null },
@@ -514,7 +521,9 @@ describe("direct automatic sync execution", () => {
             storage: s.storage,
             commit: s.commit,
             gaps: s.gaps,
-            headGapRecheck: scanner(s),
+            gapWorkEnabled: true,
+            workScope: new RpcWorkScope(),
+            gapScheduler: scanner(s),
             recoveries: s.recoveries,
             collectionsPort: s.registry,
             collectionExtensions: { getInstall: () => null },
@@ -757,6 +766,7 @@ describe("direct automatic sync execution", () => {
                     address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
                     anchorBlock: 100,
                 });
+                cover(id, 100, 110, [108, 109, 110]);
                 retain(s, id, 108, 110);
                 return id;
             });
@@ -766,6 +776,7 @@ describe("direct automatic sync execution", () => {
                 address: F.Owner,
                 anchorBlock: 100,
             });
+            cover(eligible, 100, 110, [101, 102]);
             retain(s, eligible, 101, 102);
             let executor = s.executor;
             await executor.runDue();

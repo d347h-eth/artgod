@@ -3,7 +3,7 @@ import { startSchedulerWorker } from "../src/application/scheduler-worker.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import type { QueuePort } from "../src/ports/queue.js";
 
-describe("scheduler coverage loop", () => {
+describe("realtime scheduler loop", () => {
     let stop: (() => Promise<void>) | undefined;
     beforeEach(() => vi.useFakeTimers());
     afterEach(async () => {
@@ -12,45 +12,46 @@ describe("scheduler coverage loop", () => {
         vi.useRealTimers();
     });
 
-    it("scans on startup and every HTTP poll even when the head does not change", async () => {
+    it("polls realtime heads without publishing duplicate work at an unchanged head", async () => {
         const h = harness();
         stop = await h.start();
-        expect(h.scan).toHaveBeenCalledExactlyOnceWith(100);
+        expect(h.getHead).toHaveBeenCalledTimes(1);
         expect(h.publishedBlocks()).toEqual([98, 99, 100]);
         await vi.advanceTimersByTimeAsync(30);
-        expect(h.scan).toHaveBeenCalledTimes(4);
+        expect(h.getHead).toHaveBeenCalledTimes(4);
         expect(h.publishedBlocks()).toEqual([98, 99, 100]);
         h.head(102);
         await vi.advanceTimersByTimeAsync(10);
-        expect(h.scan).toHaveBeenLastCalledWith(102);
+        expect(h.getHead).toHaveBeenCalledTimes(5);
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101, 102]);
         await stop();
         await vi.advanceTimersByTimeAsync(100);
-        expect(h.scan).toHaveBeenCalledTimes(5);
+        expect(h.getHead).toHaveBeenCalledTimes(5);
     });
 
-    it("keeps realtime scheduling alive after a gap scan failure", async () => {
+    it("recovers realtime scheduling after a head read failure", async () => {
         const h = harness();
-        h.scan.mockRejectedValueOnce(new Error("database unavailable"));
         stop = await h.start();
+        h.getHead.mockRejectedValueOnce(new Error("RPC unavailable"));
         h.head(101);
         await vi.advanceTimersByTimeAsync(10);
+        await vi.advanceTimersByTimeAsync(10);
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101]);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 
-    it("prevents overlapping polls and waits for active gap publication on shutdown", async () => {
+    it("prevents overlapping head polls and waits for an active read on shutdown", async () => {
         const h = harness();
         stop = await h.start();
         let release!: () => void;
-        h.scan.mockImplementationOnce(
+        h.getHead.mockImplementationOnce(
             () =>
-                new Promise<void>((resolve) => {
-                    release = resolve;
+                new Promise<number>((resolve) => {
+                    release = () => resolve(100);
                 }),
         );
         await vi.advanceTimersByTimeAsync(50);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(2);
         let stopped = false;
         const shutdown = stop().then(() => {
             stopped = true;
@@ -60,7 +61,7 @@ describe("scheduler coverage loop", () => {
         release();
         await shutdown;
         await vi.advanceTimersByTimeAsync(50);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(2);
     });
 
     it("serializes concurrent WS and polling heads without duplicate realtime ranges", async () => {
@@ -105,16 +106,16 @@ describe("scheduler coverage loop", () => {
         );
         expect(checks.at(-1)?.[1].payload).toEqual({ blockNumber: 99 });
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101]);
-        expect(h.scan).toHaveBeenLastCalledWith(101);
+        expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 });
 
 function harness() {
     let head = 100;
-    const scan = vi.fn(async (_head: number) => {});
+    const getHead = vi.fn(async () => head);
     const publish = vi.fn<QueuePort["publish"]>(async () => {});
     return {
-        scan,
+        getHead,
         publish,
         head(value: number) {
             head = value;
@@ -123,10 +124,9 @@ function harness() {
             start(onHead: (head: number) => void): Promise<() => Promise<void>>;
         }) {
             return startSchedulerWorker(
-                { getBlockNumber: async () => head },
+                { getBlockNumber: getHead },
                 { publish },
                 { chainId: 1, sync: { reorgDepth: 3 } },
-                { scan },
                 { pollIntervalMs: 10, headSource },
             );
         },
