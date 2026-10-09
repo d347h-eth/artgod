@@ -8,6 +8,7 @@ import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import { realtimeWindowStart } from "../domain/chain-sync.js";
 import {
     REORG_JOB_KIND,
     type BlockCheckPayload,
@@ -151,7 +152,7 @@ export async function startSchedulerWorker(
             },
             async () => {
                 const head = await rpc.getBlockNumber();
-                const start = getRealtimeWindowStart(head, reorgDepth);
+                const start = realtimeWindowStart(head, reorgDepth);
                 await scheduleRealtimeRange(queue, config.chainId, start, head);
                 lastScheduled = head;
             },
@@ -196,7 +197,10 @@ export async function startSchedulerWorker(
         await scheduleRealtimeRange(
             queue,
             config.chainId,
-            lastScheduled + 1,
+            Math.max(
+                lastScheduled + 1,
+                realtimeWindowStart(headNumber, reorgDepth),
+            ),
             headNumber,
         );
         lastScheduled = headNumber;
@@ -261,11 +265,6 @@ async function scheduleBlockCheck(
         chainId,
     };
     await queue.publish(QUEUE_NAMES.BlockCheck, job);
-}
-
-function getRealtimeWindowStart(head: number, depth: number): number {
-    // Avoid scheduling from very low blocks on bootstrap; clamp to head if depth exceeds chain height.
-    return head < depth ? head : head - depth + 1;
 }
 
 function getReorgCheckBlock(head: number, depth: number): number {

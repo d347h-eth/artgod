@@ -6,7 +6,10 @@ import type {
     SyncGapStorePort,
     SyncGapHeadCheckPosition,
 } from "../../application/sync-gap-scheduler.js";
-import type { SyncGapRepairTarget } from "../../domain/sync-jobs.js";
+import type {
+    SyncGapRepairTarget,
+    SyncGapRepairCandidate,
+} from "../../domain/sync-gap-repair.js";
 
 type ProgressRow = {
     anchor_block: number;
@@ -79,6 +82,7 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectNewest = db.prepare(
         "SELECT s.pending_to_block AS toBlock " +
             PENDING_REPAIRS_QUERY +
+            "AND s.pending_to_block <= @upperBound " +
             "ORDER BY s.pending_to_block DESC LIMIT 1",
     );
     private selectDueAtNewest = db.prepare(
@@ -123,14 +127,16 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         chainId,
         now,
         limit,
+        upperBound,
     }: Parameters<
         SyncGapStorePort["listDueRepairsAtNewestPendingHeight"]
     >[0]): SyncGapRepairTarget[] {
         return db.raw.transaction(() => {
             const bindings = { chainId, status: COLLECTION_STATUS.Live };
-            const newest = this.selectNewest.get(bindings) as
-                | { toBlock: number }
-                | undefined;
+            const newest = this.selectNewest.get({
+                ...bindings,
+                upperBound,
+            }) as { toBlock: number } | undefined;
             // Find newest intent before retry filtering. A newer failed range
             // must not hand scarce RPC capacity back to older missing history.
             return newest
@@ -313,6 +319,52 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         retryAt: number,
     ): void {
         this.updateRetry.run({ chainId, ...repair, retryAt });
+    }
+
+    reconcileRepairCoverage({
+        chainId,
+        repair,
+        batchSize,
+        now,
+    }: Parameters<
+        SyncGapStorePort["reconcileRepairCoverage"]
+    >[0]): SyncGapRepairCandidate | null {
+        return db.writeTransaction(() => {
+            const progress = this.getProgress(chainId, repair.collectionId);
+            if (
+                progress?.anchorBlock !== repair.anchorBlock ||
+                progress.pending?.repairId !== repair.repairId ||
+                progress.pending.fromBlock !== repair.fromBlock ||
+                progress.pending.toBlock !== repair.toBlock
+            )
+                return null;
+            const window = {
+                fromBlock: Math.max(
+                    repair.fromBlock,
+                    repair.toBlock - batchSize + 1,
+                ),
+                toBlock: repair.toBlock,
+            };
+            const missing = this.findGap(
+                chainId,
+                repair.collectionId,
+                window,
+                batchSize,
+            );
+            const toBlock = missing?.toBlock ?? window.fromBlock - 1;
+            if (toBlock !== repair.toBlock) {
+                this.recordRepairProgress({
+                    chainId,
+                    repair,
+                    retryAt: now,
+                    remaining:
+                        toBlock >= repair.fromBlock
+                            ? { fromBlock: repair.fromBlock, toBlock }
+                            : null,
+                });
+            }
+            return missing ? { repair: { ...repair, toBlock }, missing } : null;
+        })();
     }
 
     recordRepairProgress({

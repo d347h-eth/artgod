@@ -17,6 +17,18 @@ export type SyncBlockHeader = {
     timestamp: number;
 };
 
+/** Recent blocks belong to realtime; automatic missing history ends immediately below. */
+export function automaticGapUpperBound(
+    head: number,
+    reorgDepth: number,
+): number {
+    return Math.max(0, head - reorgDepth);
+}
+
+export function realtimeWindowStart(head: number, reorgDepth: number): number {
+    return Math.max(1, head - reorgDepth + 1);
+}
+
 export class ChainSyncConflict extends Error {
     constructor(message: string) {
         super(message);

@@ -787,6 +787,7 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         gate,
     });
     const executor = new AutomaticSyncExecutor({
+        reorgDepth: 1,
         chainId: 1,
         batchSize: 2,
         wethAddress: zeroAddress,
@@ -836,7 +837,7 @@ function bundleRpc(
         throw new Error("Unexpected RPC call in stored-history replay");
     };
     return {
-        getBlockNumber: async () => headBlock,
+        getBlockNumber: async () => headBlock + 1,
         getBlock: async (number) => {
             expect(number).toBeGreaterThanOrEqual(tx.blockNumber - 1);
             expect(number).toBeLessThanOrEqual(headBlock);

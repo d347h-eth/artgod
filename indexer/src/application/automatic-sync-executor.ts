@@ -4,6 +4,7 @@ import {
     type SyncWorkClass,
 } from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
+import { automaticGapUpperBound } from "../domain/chain-sync.js";
 import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
@@ -74,6 +75,7 @@ type AutomaticSyncInput = Omit<
     recoveries: Pick<ReorgRecoveryStore, "getRecovery" | "deferResync">;
     gate: Pick<BackfillExecutionGate, "run">;
     batchSize: number;
+    reorgDepth: number;
     retryDelayMs?: number;
     now?: () => number;
 };
@@ -83,6 +85,7 @@ type AutomaticSyncInput = Omit<
 export class AutomaticSyncExecutor {
     private active: Promise<boolean> | null = null;
     private discoveryHead: { block: number; readAt: number } | null = null;
+    private discoveryRevision: number | null = null;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -93,6 +96,8 @@ export class AutomaticSyncExecutor {
         if (
             !Number.isSafeInteger(input.batchSize) ||
             input.batchSize < 1 ||
+            !Number.isSafeInteger(input.reorgDepth) ||
+            input.reorgDepth < 1 ||
             !Number.isSafeInteger(this.retryDelayMs) ||
             this.retryDelayMs < 1
         )
@@ -141,31 +146,63 @@ export class AutomaticSyncExecutor {
                     let head = freshHead
                         ? await this.readHead()
                         : this.discoveryHead!.block;
-                    this.input.gapScheduler.recheckFromHead(head);
-                    const moreToScan = await this.input.gapScheduler.scan(head);
-                    let pending = this.dueGaps();
+                    const revision = this.input.storage.captureSyncCheckpoint(
+                        this.input.chainId,
+                    ).revision;
+                    if (
+                        this.discoveryRevision !== null &&
+                        revision !== this.discoveryRevision
+                    )
+                        this.input.gapScheduler.resetDiscovery();
+                    this.discoveryRevision = revision;
+                    let upperBound = automaticGapUpperBound(
+                        head,
+                        this.input.reorgDepth,
+                    );
+                    this.input.gapScheduler.recheckFromHead(upperBound);
+                    const moreToScan =
+                        await this.input.gapScheduler.scan(upperBound);
+                    let pending = this.dueGaps(upperBound);
                     if (pending.length && !freshHead) {
                         head = await this.readHead();
-                        this.input.gapScheduler.recheckFromHead(head);
-                        pending = this.dueGaps();
+                        upperBound = automaticGapUpperBound(
+                            head,
+                            this.input.reorgDepth,
+                        );
+                        this.input.gapScheduler.recheckFromHead(upperBound);
+                        pending = this.dueGaps(upperBound);
                     }
-                    // Keep the newest retained height even during backoff or RPC lag.
+                    // Coverage may have been committed since discovery or while waiting
+                    // for the gate. Inspect only the next bounded window before RPC.
+                    const candidates = pending.flatMap((repair) => {
+                        const candidate =
+                            this.input.gaps.reconcileRepairCoverage({
+                                chainId: this.input.chainId,
+                                repair,
+                                batchSize: this.input.batchSize,
+                                now: this.now(),
+                            });
+                        return candidate ? [candidate] : [];
+                    });
                     const batch = planSyncGapRepairBatches(
-                        pending.filter((repair) => repair.toBlock <= head),
+                        candidates,
                         this.input.batchSize,
                     )[0];
-                    return batch ? this.runGapRepair(batch) : moreToScan;
+                    return batch
+                        ? this.runGapRepair(batch)
+                        : pending.length > 0 || moreToScan;
                 },
                 SYNC_WORK_CLASS.GapRepair,
             ),
         );
     }
 
-    private dueGaps() {
+    private dueGaps(upperBound: number) {
         return this.input.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: this.input.chainId,
             now: this.now(),
             limit: SYNC_GAP_POLICY.CollectionsPerPass,
+            upperBound,
         });
     }
 

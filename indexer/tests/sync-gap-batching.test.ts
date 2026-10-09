@@ -473,12 +473,20 @@ describe("bounded gap batch planning", () => {
                         for (let pass = 0; pending.length; pass++) {
                             expect(pass).toBeLessThan(4);
                             const batches = planSyncGapRepairBatches(
-                                pending,
+                                pending.map((repair) => ({
+                                    repair,
+                                    missing: repair,
+                                })),
                                 cap,
                             );
                             expect(
                                 planSyncGapRepairBatches(
-                                    [...pending].reverse(),
+                                    [...pending]
+                                        .reverse()
+                                        .map((repair) => ({
+                                            repair,
+                                            missing: repair,
+                                        })),
                                     cap,
                                 ),
                             ).toEqual(batches);
@@ -563,7 +571,7 @@ describe("bounded gap batch planning", () => {
                 target(3, 100, 109),
                 target(4, 120, 122),
                 target(5, 103, 109),
-            ],
+            ].map((repair) => ({ repair, missing: repair })),
             10,
         );
         expect(
@@ -628,11 +636,14 @@ function harness(batchSize = 10) {
         now: () => now,
         batches: () =>
             planSyncGapRepairBatches(
-                store.listDueRepairsAtNewestPendingHeight({
-                    chainId: 1,
-                    now,
-                    limit: 16,
-                }),
+                store
+                    .listDueRepairsAtNewestPendingHeight({
+                        upperBound: Number.MAX_SAFE_INTEGER,
+                        chainId: 1,
+                        now,
+                        limit: 16,
+                    })
+                    .map((repair) => ({ repair, missing: repair })),
                 batchSize,
             ),
     };
@@ -649,6 +660,9 @@ async function run(
             : {
                   ...h.store,
                   getProgress: h.store.getProgress.bind(h.store),
+                  reconcileRepairCoverage: h.store.reconcileRepairCoverage.bind(
+                      h.store,
+                  ),
                   saveProgress: h.store.saveProgress.bind(h.store),
                   findGap: h.store.findGap.bind(h.store),
                   findNewestGap: h.store.findNewestGap.bind(h.store),
@@ -671,6 +685,7 @@ async function run(
                   },
               };
     const executor = new AutomaticSyncExecutor({
+        reorgDepth: 1,
         chainId: 1,
         rpc,
         storage: h.storage,
@@ -699,7 +714,8 @@ async function run(
 
 function testRpc(logs: RpcLog[] = [], head = 110) {
     return {
-        getBlockNumber: vi.fn(async () => head),
+        // One-block realtime tail sits above the history exercised by this fixture.
+        getBlockNumber: vi.fn(async () => head + 1),
         getBlock: vi.fn(async (number: number) => block(number)),
         getLogs: vi.fn<RpcProviderPort["getLogs"]>(async (filter) => {
             if (

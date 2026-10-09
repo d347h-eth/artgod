@@ -141,6 +141,7 @@ export function reorgRecoveryServices(
         collections: registry,
     });
     const executor = new AutomaticSyncExecutor({
+        reorgDepth: 1,
         rpc,
         storage,
         commit,
