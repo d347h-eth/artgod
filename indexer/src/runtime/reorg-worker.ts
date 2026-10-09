@@ -3,14 +3,6 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
-import { runWorker } from "../application/worker-runner.js";
-import type { JobEnvelope } from "../domain/jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
-import {
-    REORG_JOB_KIND,
-    type BlockCheckPayload,
-} from "../domain/reorg-jobs.js";
-import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
@@ -22,7 +14,7 @@ import {
     RecoverChainReorg,
     startReorgRecoveryLoop,
 } from "../application/reorg-recovery.js";
-import { REORG_RECOVERY_POLICY } from "../domain/reorg-recovery.js";
+import { SqliteCanonicalChecks } from "../infra/storage/sqlite-canonical-checks.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import { RollbackChainRange } from "../application/reorg-rollback.js";
@@ -50,10 +42,6 @@ async function main() {
         });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
-        const queue = await NatsJetStreamQueue.connect({
-            natsUrl: config.queue.natsUrl,
-            streamPrefix: config.queue.streamPrefix,
-        });
         const rpcAllocation = await connectIndexerRpcBudget(config, {
             owner: false,
         });
@@ -68,6 +56,7 @@ async function main() {
             requestBudget: rpcAllocation.requestBudget,
         });
         const storage = new SqliteStorage();
+        const checks = new SqliteCanonicalChecks();
         const rollback = new RollbackChainRange(
             storage,
             new RpcRollbackOwnershipSnapshot(rpc),
@@ -76,8 +65,9 @@ async function main() {
         const recovery = new RecoverChainReorg(
             rpc,
             storage,
-            new SqliteReorgRecoveries(storage),
+            new SqliteReorgRecoveries(storage, checks),
             rollback,
+            checks,
             {
                 chainId: config.chainId,
                 reorgDepth: config.sync.reorgDepth,
@@ -85,27 +75,6 @@ async function main() {
             },
         );
         const stopRecoveryLoop = startReorgRecoveryLoop(recovery);
-        const stop = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.BlockCheck,
-                consumerName: `reorg-check-${config.chainId}`,
-                maxInFlight: 1,
-                extendLeaseMs: REORG_RECOVERY_POLICY.LeaseExtensionMs,
-                maxAttempts: 5,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<BlockCheckPayload>) => {
-                if (job.kind !== REORG_JOB_KIND.BlockCheck) return;
-                if (job.chainId !== config.chainId) return;
-                await recovery.checkBlock(job.payload.blockNumber);
-            },
-            {
-                workScope: rpcAllocation.workScope,
-                apm: runtimeApm.apm,
-                spanName: "worker.reorgCheck.consume",
-            },
-        );
 
         logger.info("Reorg worker ready", {
             component: "IndexerReorgWorker",
@@ -118,12 +87,10 @@ async function main() {
                 component: "IndexerReorgWorker",
                 action: "shutdown",
             });
-            await stop();
             await stopRecoveryLoop();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await rpcAllocation.budget.close();
-            await queue.close();
             process.exit(0);
         };
 

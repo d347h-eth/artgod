@@ -1,5 +1,4 @@
 export const REORG_FIXTURE_CONSUMER = {
-    Reorg: "reorg-recovery-fixture",
     Resync: "resync-recovery-fixture",
 } as const;
 export const REORG_FIXTURE_ROLE = {
@@ -58,6 +57,7 @@ export type ReorgFixtureReport = {
     jobId?: string;
     attempt?: number;
     completed?: boolean;
+    pending?: boolean;
     elapsedMs?: number;
     revision?: number;
     ownerReads?: number;

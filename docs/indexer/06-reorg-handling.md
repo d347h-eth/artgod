@@ -1,8 +1,8 @@
 # Reorg Handling
 
-The reorg worker verifies recently persisted blocks and retains known mismatches
-until ancestor proof, atomic rollback and canonical resync resolve them. Queue
-delivery is a wakeup; SQLite owns unfinished recovery after mismatch retention.
+The reorg worker verifies pending stored block hashes and retains known mismatches
+until ancestor proof, atomic rollback and canonical resync resolve them. SQLite
+owns unfinished checks from the block commit onward, including across downtime.
 
 Primary file:
 
@@ -10,7 +10,9 @@ Primary file:
 
 Supporting files:
 
-- `indexer/src/domain/reorg-jobs.ts`
+- `indexer/src/domain/canonical-check.ts`
+- `indexer/src/ports/canonical-checks.ts`
+- `indexer/src/infra/storage/sqlite-canonical-checks.ts`
 - `indexer/src/application/reorg-fork.ts`
 - `indexer/src/application/reorg-rollback.ts`
 - `indexer/src/application/reorg-recovery.ts`
@@ -19,37 +21,33 @@ Supporting files:
 - `indexer/src/infra/ownership/rpc-rollback-snapshot.ts`
 - `indexer/src/infra/storage/sqlite.ts`
 
-## Block-Check Jobs
+## Pending Hash Checks
 
-Block-check jobs are published by the scheduler-worker after a block is at least `reorgDepth` behind the current head. Each job contains:
+Every sync range records the observed RPC HEAD before fetching blocks. Saving a
+block newer than `HEAD - REORG_DEPTH + 1` sets `blocks.canonical_check_pending`
+inside the same transaction as its facts, coverage and required follow-ups.
+Already mature historical imports need no delayed check. Repeated imports of the
+same hash preserve an unfinished check and never rearm a completed one.
 
-```
-{ blockNumber: number }
-```
+The existing depth convention is unchanged: block N becomes eligible when HEAD
+reaches `N + REORG_DEPTH - 1`. This delays only verification; realtime data is
+fetched and saved immediately. Pending rows remain eligible after they age beyond
+today's realtime window. The scheduler neither schedules nor tracks these checks;
+there is no hash-check queue, message or broker consumer.
 
-These jobs are consumed by the reorg worker on the `block-check` queue.
+For each eligible row, the reorg worker:
 
-## Block Check Flow
+1. Captures the stored chain, height, hash and chain revision.
+2. Fetches the canonical header freshly, bypassing the block cache.
+3. On a match, clears the pending flag conditionally on that identity and revision.
+4. On a mismatch, retains recovery and clears the pending flag in one transaction.
+5. Attempts ancestor verification and rollback through the existing recovery flow.
 
-When a block-check job is received:
-
-1. Validate `blockNumber` is positive.
-2. Load the stored block hash from the database.
-3. Fetch the canonical block from RPC, bypassing the block cache.
-4. If hashes match, the block is confirmed.
-5. If hashes differ, persist a recovery identity with the observed hashes,
-   checked height and captured chain revision before relinquishing the delivery.
-6. Attempt due ancestor proof and rollback. An unavailable proof remains pending.
-
-Any failure before confirmation or durable mismatch retention uses `JobDeferred`
-to keep the original check retryable beyond the ordinary worker DLQ budget. This
-includes checkpoint/header reads, fresh RPC acquisition, wrong-height responses
-and the retention transaction: no durable business owner exists yet. Broker
-delivery counts still advance during deferral, so later pre-handoff errors must
-remain deferred too. Once retained, recovery failures can be acknowledged or
-dead-lettered without forgetting the pending workflow. The reorg consumer renews its broker
-lease every 10 seconds through `runWorker`; identity, revision and token-scope
-fences still protect against duplicate delivery.
+RPC, wrong-height responses, checkpoint/header reads and retention failures leave
+the check pending. `canonical_check_retry_at` supplies durable backoff with no
+delivery-count limit or DLQ. A failed check does not prevent another eligible row
+from being checked. Rollback deletes checks with their orphaned block rows;
+replacement recent blocks retain their own checks when saved.
 
 ## Durable Recovery Lifecycle
 
@@ -61,10 +59,12 @@ fences still protect against duplicate delivery.
   revision. A transaction committing its data and required downstream publication
   intent advances this phase; coverage or broker acceptance alone does not.
 
-The reorg runtime resumes due proof at startup and polls every 12 seconds. The
-sync runtime executes retained resync through its automatic executor, also at
-startup and every 12 seconds, independently of head changes. Failed acquisition and proof retry
-after five minutes. Proof errors remain visible in logs and persisted `last_error`;
+The reorg runtime resumes due recovery before reading pending checks. It drains
+eligible checks one at a time, yielding between them, and polls every 12 seconds
+when idle or waiting. The sync runtime executes retained resync continuously
+through its automatic executor, independently of head changes. Failed checks,
+acquisition and proof retry after five minutes. Proof errors remain visible in
+logs and persisted `last_error`;
 no ancestor guess or hot retry loop is used. Missing-header gap repair can make
 later proof succeed even when HEAD stays unchanged.
 
@@ -186,10 +186,10 @@ coordination for already admitted work remains deferred.
 
 ## Current Limits and Future Direction
 
-Block-check cadence is scheduler-owned. Checks are not yet persisted beside the
-block write or separated into delayed short-, medium-, and long-horizon tiers.
-Any future change must retain ordered fork discovery, bounded rollback depth,
-and idempotent resync through the retained automatic executor.
+Pending checks provide one delayed verification for blocks saved before maturity.
+There are no medium- or long-horizon rechecks of completed blocks. A reorg deeper
+than the configured confirmation depth remains outside this guarantee. Any future
+tiers must preserve bounded ancestor search and idempotent retained resync.
 
 ### Deferred Ownership Workload Scaling
 
@@ -203,6 +203,6 @@ is deferred under the existing `BKL-037` ownership-scaling item in the
 Measure affected-token count, RPC latency, rate-limit pressure, and memory before
 choosing bounded read batches or a worker pool. Any future scaling must preserve
 one exact fork identity, absence/error classification, plan/revision fencing,
-and an atomic checkpoint/rollback commit without RPC inside the writer. Broker
-lease renewal and idempotent redelivery are correctness requirements independent
-of throughput; their recovery fixes are not deferred by this performance work.
+and an atomic checkpoint/rollback commit without RPC inside the writer. Durable
+check/recovery ownership and conditional commits are correctness requirements
+independent of throughput.

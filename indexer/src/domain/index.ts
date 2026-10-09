@@ -10,6 +10,5 @@ export * from "./order-jobs.js";
 export * from "./offchain-jobs.js";
 export * from "./onchain.js";
 export * from "./queues.js";
-export * from "./reorg-jobs.js";
 export * from "./retry.js";
 export * from "./sync-jobs.js";

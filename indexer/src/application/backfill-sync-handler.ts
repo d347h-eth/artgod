@@ -36,6 +36,7 @@ export function createBackfillSyncHandler(input: {
     workerCount: number;
     wethAddress: string;
     rpc: RpcProviderPort;
+    reorgDepth: number;
     storage: StoragePort;
     commit: SyncRangeCommitPort;
     collectionsPort: Pick<
@@ -83,6 +84,7 @@ export function createBackfillSyncHandler(input: {
                 collectionScopeResolver: input.collectionsPort,
                 collectionExtensions: input.extensions,
                 chainId: input.chainId,
+                reorgDepth: input.reorgDepth,
                 collections,
                 range,
                 bidderIndex: input.bidderIndex,

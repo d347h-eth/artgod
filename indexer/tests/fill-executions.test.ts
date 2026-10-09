@@ -1,3 +1,4 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, beforeEach, expect, it } from "vitest";
 import {
     decodeAbiParameters,
@@ -163,6 +164,7 @@ function persist(fills: FillEvent[]) {
     const data = emptyOnChainData();
     data.collectionScoped.fillEvents = fills;
     storage.persistSyncResult({
+        canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
         checkpoint: storage.captureSyncCheckpoint(1),
         blocks: [syncBlockFixture(1)],
         data,

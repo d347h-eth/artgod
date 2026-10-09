@@ -8,7 +8,6 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 
 - `events-sync-realtime`
 - `events-sync-backfill`
-- `block-check`
 - `collection-bootstrap`
 - `collection-bootstrap-image-cache`
 - `opensea-bootstrap`
@@ -242,14 +241,11 @@ bounded retry policy and sent receipts. Event-specific rows retain originating
 block identity and are removed by rollback; DB range projections remain pending
 because they reread canonical facts, including unfinished pre-fork work.
 
-A new mismatch whose initial SQLite retention fails uses `JobDeferred`, keeping
-the original check retryable beyond the ordinary DLQ budget. After retention,
-SQLite owns retry independently of broker delivery. Queued reorg checks and manual/bootstrap backfills
-renew long-running leases through the existing `touch` mechanism; duplicate
-delivery remains fenced by recovery/revision/token identity.
-
-- Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
-    - `reorg.block-check`
+Recent stored blocks retain hash checks in SQLite; the reorg worker reads them
+directly. A failed header read or mismatch-retention transaction leaves the
+check pending with durable backoff. Recovery handoff consumes it atomically,
+without a check queue or DLQ. Manual/bootstrap backfills still renew long-running
+broker leases through `touch`.
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
     - `domain.orders.sync`

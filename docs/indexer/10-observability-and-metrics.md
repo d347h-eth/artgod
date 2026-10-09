@@ -633,7 +633,6 @@ Metadata fetch/resolve:
 Scheduler-worker spans in `indexer/src/application/scheduler-worker.ts`:
 
 - `scheduler-worker.bootstrap.realtime`
-- `scheduler-worker.bootstrap.blockChecks`
 - `scheduler-worker.head.poll`
 - `scheduler-worker.head.ws`
 

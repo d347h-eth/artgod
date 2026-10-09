@@ -183,8 +183,12 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   newer mismatch, concurrent token scope and pre-rollback realtime results. A
   two-token mixed-fork fixture proves that a repaired matching header cannot hide
   an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
-  Initial journal deferrals followed by RPC, wrong-height, checkpoint or header
-  read failures cannot ACK/DLQ the only check owner after retry-budget exhaustion.
+  Initial journal failures followed by RPC, wrong-height, checkpoint or header
+  read failures cannot consume the pending DB check.
+- `tests/pending-canonical-checks.test.ts` covers atomic recent-block retention,
+  unchanged maturity thresholds, duplicate imports, fresh-hash/revision fences,
+  downtime beyond the realtime tail, durable retries and atomic recovery handoff.
+  It also verifies prompt draining and shutdown of the serial check loop.
 - `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
   against independently coherent disagreeing providers. Owners and recognized
   absence must come from the exact canonical hash; unsupported/unavailable/
@@ -199,7 +203,7 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   zero idle head reads, newest-height priority across collections, retry and
   above-head waits, ready peers at the same height, bounded indexed selection
   past thousands of older rows, finishing a running range before HEAD checks,
-  and reselecting after waiting for the current-state gate,
+  and reselecting after waiting for the current-state gate or trimming a covered suffix,
   newer-hole processing past 16 no-pending anchors above HEAD with default retry
   timing and repeated scheduler/worker passes,
   coalescing and shutdown draining, lifecycle changes during acquisition, dense
@@ -225,10 +229,15 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
 - `tests/continuous-gap-loop.test.ts` verifies immediate bounded continuation,
   idle/error backoff, nonoverlapping passes and graceful stop without idle delay.
 - `tests/rpc-work-allocation.test.ts` verifies durable work classes, async scope
-  isolation, deferred snapshot/final verification attribution, reserved validation
-  capacity, main priority between backfill ranges and separate queue capacity.
-  Demand/maker SQLite tests cover priority promotion, completed-state reset,
-  retained continuation/publication class and quota deferral without failure count.
+  isolation, deferred snapshot/final verification attribution, current-validation
+  main admission, main priority between backfill ranges and separate queue capacity.
+  Maker SQLite tests cover retained continuation/publication class and quota
+  deferral without failure count.
+- `tests/historical-order-validation.test.ts` covers saved full-validation reuse
+  across ordinary, maker and token paths, distinct event/observation requirements,
+  rollback fencing and background hint admission followed by main validation.
+  The real allocation scheduler and validation implementation complete strict
+  snapshots with two competing streams at default, low and zero background rates.
 - `shared/evm/rpc-budget.test.ts` verifies shared per-endpoint rates, main use of
   idle allowance, bounded background concurrency, cancellation, expiry, paused
   work and endpoint identity privacy. RPC execution tests verify per-attempt
@@ -273,18 +282,18 @@ RPC allocation fixtures use `tmp/rpc-allocation-nats/`.
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
 
-- initial retention failure beyond ordinary broker retry limits, including a
-  later RPC outage after five failed journal writes and healthy eventual recovery;
+- pending DB checks surviving repeated journal failures, including a later RPC
+  outage after five failed writes and healthy eventual recovery;
 - worker death after rollback, during RPC, after acquisition before publication,
   and during partial publication;
 - broker restart over the retained private JetStream store;
 - accepted publication with a lost reply and stable identity inside NATS's
   dedupe window;
 - required publication beyond ordinary retry limits, without DLQ or reacquisition;
-- lease renewal with ownership slower than the acknowledgment deadline;
+- durable recovery ownership through slow ownership reads without a check queue;
 - a 401-token serial rollback snapshot with controlled per-read latency, recording
   completion time and process RSS while keeping one bounded resync continuation;
-- forced check redelivery and a lost obsolete automatic-hint ACK;
+- restart after a committed check handoff and a lost obsolete automatic-hint ACK;
 - a competing SQLite writer requiring bounded transaction retries, and stale
   proof from one process after another commits rollback.
 

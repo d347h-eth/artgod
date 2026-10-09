@@ -184,8 +184,14 @@ export class AutomaticSyncExecutor {
                             });
                         return candidate ? [candidate] : [];
                     });
+                    // Removing a covered suffix can reveal newer work beyond this
+                    // bounded page. Reconsider global priority before fetching.
+                    const newestReady = this.dueGaps(upperBound)[0]?.toBlock;
                     const batch = planSyncGapRepairBatches(
-                        candidates,
+                        candidates.filter(
+                            (candidate) =>
+                                candidate.repair.toBlock === newestReady,
+                        ),
                         this.input.batchSize,
                     )[0];
                     return batch
@@ -348,6 +354,7 @@ export class AutomaticSyncExecutor {
             commit: this.input.commit,
             collectionExtensions: this.input.collectionExtensions,
             chainId: this.input.chainId,
+            reorgDepth: this.input.reorgDepth,
             bidderIndex: this.input.bidderIndex,
             wethAddress: this.input.wethAddress,
             collectionScopeResolver: this.input.collectionsPort,

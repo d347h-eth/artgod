@@ -1,6 +1,9 @@
 # Scheduler-Worker Runtime
 
-The scheduler-worker translates chain head updates into sync and reorg jobs while the sync worker discovers and repairs missing collection coverage. It is the only component allowed to publish realtime sync jobs.
+The scheduler-worker translates chain head updates into realtime sync jobs while
+the sync worker discovers and repairs missing collection coverage. It is the only
+component allowed to publish realtime sync jobs. Reorg checks belong to the
+stored blocks and the reorg worker.
 
 Implementation:
 
@@ -21,8 +24,7 @@ Implementation:
 
 1. Fetch current head via `rpc.getBlockNumber()`.
 2. Schedule realtime sync jobs for the recent reorg window only.
-3. Schedule the initial block-check job for reorg validation.
-4. Set `lastScheduled` and `lastChecked` based on the head.
+3. Set `lastScheduled` based on the head.
 
 This ensures the scheduler-worker never publishes from an uninitialized head.
 
@@ -38,20 +40,12 @@ Important invariant:
 - The realtime window is always relative to the latest head.
 - Automatic gap repairs run separately from the realtime window and use each live collection's anchor as their lower bound.
 
-## Reorg Block Checks
+## Reorg Checks
 
-Block-check jobs are scheduled after blocks become old enough to be safe from shallow reorgs.
-
-- `reorgDepth` determines the delay.
-- The scheduler-worker increments `lastChecked` and schedules `block-check` jobs in order.
-
-If scheduling would fall below block 1, the scheduler-worker logs a warning and skips the check.
-
-`lastChecked` tracks scheduled checks, not completed recovery. The reorg worker
-retains a detected mismatch separately and resumes due proof at startup
-and periodically; the sync worker executes retained resync ranges, including at stationary HEAD. Collection gap sweeps can fill
-missing ancestor headers; covered orphan blocks still require that retained
-[reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
+The scheduler has no hash-check cursor or queue. Saving recent blocks atomically
+retains their delayed checks in SQLite. The reorg worker drains eligible rows
+even after downtime moves them outside the realtime tail, then retains and
+resolves any mismatch. See [pending hash checks](06-reorg-handling.md#pending-hash-checks).
 
 ## Head Sources
 
@@ -83,14 +77,17 @@ participate. Newly live collections join automatically; prepared, bootstrapping,
 paused, disabled, and unanchored collections are excluded.
 
 For each collection, the scanner reads at most a 10,000-block window of
-`collection_sync_blocks`, walking backward from the observed head to
+`collection_sync_blocks`, walking backward from `HEAD - REORG_DEPTH` to
 `bootstrap_anchor_block`, inclusive. It streams the indexed coverage rows and
 selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
 `blocks` rows and `bootstrap_last_synced_block` are not coverage evidence. A
 persisted cursor keeps ordinary polling and restarts from resetting the backward
-scan; after the anchor it starts another scan from the current head.
+scan. Reaching the anchor marks that collection complete for the current cycle.
+A complete cycle waits until its next 30-minute recheck instead of restarting
+completed collections while another collection finishes. Changed anchors, new
+live collections and rollback start their required discovery again.
 
-Every 30 minutes of wall-clock time, the sync worker checks for newer holes
+Every 30 minutes of wall-clock time, the sync worker checks up to `HEAD - REORG_DEPTH` for newer holes
 above each collection's pending range, or above its cursor when no range is
 pending. `last_head_check_at` persists this timing, so downtime counts and overdue
 checks run after restart. Previously unchecked rows are due immediately. A

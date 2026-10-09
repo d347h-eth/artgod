@@ -1,3 +1,5 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
+import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -76,6 +78,7 @@ describe("atomic sync follow-up retention", () => {
             logIndex: 2,
         });
         const result: SyncRangeResult = {
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: f.storage.captureSyncCheckpoint(1),
             blocks: [101, 102, 103].map(block),
             data,
@@ -101,7 +104,10 @@ describe("atomic sync follow-up retention", () => {
                 storage: f.storage,
                 outbox,
                 gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(f.storage),
+                recoveries: new SqliteReorgRecoveries(
+                    f.storage,
+                    new SqliteCanonicalChecks(),
+                ),
                 collections: new SqliteCollectionRegistry(),
             }),
         };
@@ -186,13 +192,17 @@ describe("atomic sync follow-up retention", () => {
         const headers = vi.spyOn(rpc, "getBlock");
         const outbox = new SqliteQueueOutbox();
         await processSyncRange({
+            reorgDepth: 3,
             rpc,
             storage: f.storage,
             commit: new SqliteSyncRangeCommit({
                 storage: f.storage,
                 outbox,
                 gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(f.storage),
+                recoveries: new SqliteReorgRecoveries(
+                    f.storage,
+                    new SqliteCanonicalChecks(),
+                ),
                 collections: new SqliteCollectionRegistry(),
             }),
             collectionScopeResolver: new SqliteCollectionRegistry(),

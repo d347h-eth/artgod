@@ -63,6 +63,9 @@ const RESET = "067_reset_collection_sale_coverage.sql";
 const AUTOMATIC_SYNC_SCHEMA = new Set([
     "068_recent_gap_checks.sql",
     "069_newest_gap_priority.sql",
+    "070_sync_work_allocation.sql",
+    "071_order_validation_chain_revision.sql",
+    "072_pending_canonical_checks.sql",
 ]);
 const CONTRACT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -162,6 +165,7 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
             const delivered: JobEnvelope<BackfillSyncPayload>[] = [];
             const startAcquisition = async () => {
                 const handler = createBackfillSyncHandler({
+                    reorgDepth: 3,
                     chainId: 1,
                     workerCount: 1,
                     wethAddress: zeroAddress,

@@ -5,7 +5,6 @@ import { OPENSEA_QUEUE_NAME } from "@artgod/shared/offchain/opensea-jobs";
 export const QUEUE_NAMES = {
     RealtimeSync: "events-sync-realtime",
     BackfillSync: "events-sync-backfill",
-    BlockCheck: "block-check",
     CollectionBootstrap: BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
     CollectionBootstrapImageCache:
         BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,

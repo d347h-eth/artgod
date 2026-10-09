@@ -1,3 +1,4 @@
+import { SqliteCanonicalChecks } from "../infra/storage/sqlite-canonical-checks.js";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
@@ -109,7 +110,10 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const syncGapStore = new SqliteSyncGapStore();
-        const reorgRecoveries = new SqliteReorgRecoveries(storage);
+        const reorgRecoveries = new SqliteReorgRecoveries(
+            storage,
+            new SqliteCanonicalChecks(),
+        );
         const outbox = new SqliteQueueOutbox();
         const collectionRegistry = new SqliteCollectionRegistry();
         const commit = new SqliteSyncRangeCommit({
@@ -187,6 +191,7 @@ async function main() {
                 };
                 const { data, blocks } = await processSyncRange({
                     rpc: primaryRpc,
+                    reorgDepth: config.sync.reorgDepth,
                     storage,
                     commit,
                     sources: [domainSyncSource(job)],
@@ -239,6 +244,7 @@ async function main() {
                 workerCount: config.sync.backfillWorkerCount,
                 wethAddress: config.tokens.wethAddress,
                 rpc: backfillRpc,
+                reorgDepth: config.sync.reorgDepth,
                 storage,
                 commit,
                 collectionsPort: collectionRegistry,

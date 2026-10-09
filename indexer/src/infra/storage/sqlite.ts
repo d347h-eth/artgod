@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
-import { captureChainSyncCheckpoint, assertChainSyncCheckpoint, advanceChainSyncRevision } from "./sqlite-chain-revisions.js";
+import {
+    captureChainSyncCheckpoint,
+    assertChainSyncCheckpoint,
+    advanceChainSyncRevision,
+} from "./sqlite-chain-revisions.js";
 import { isDeepStrictEqual } from "node:util";
 import {
     fillExecutionIdentity,
@@ -18,6 +22,12 @@ import {
 } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
+import type { SyncRangeResult } from "../../ports/storage.js";
+import {
+    assertCanonicalCheckPolicy,
+    needsDelayedCanonicalCheck,
+    type CanonicalCheckPolicy,
+} from "../../domain/canonical-check.js";
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
@@ -127,8 +137,10 @@ export class SqliteStorage
             "WHERE c.chain_id = @chainId AND c.standard = @standard AND c.bootstrap_anchor_block IS NOT NULL " +
             "ORDER BY c.collection_id, t.token_id",
     );
-    private insertBlock = db.prepare<[number, number, string, string, number]>(
-        "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp) VALUES (?, ?, ?, ?, ?) " +
+    private insertBlock = db.prepare<
+        [number, number, string, string, number, number]
+    >(
+        "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp, canonical_check_pending) VALUES (?, ?, ?, ?, ?, ?) " +
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
             "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
     );
@@ -358,15 +370,12 @@ export class SqliteStorage
 
     persistSyncResult({
         checkpoint,
+        canonicalCheck,
         blocks,
         data,
         collections,
-    }: {
-        checkpoint: ChainSyncCheckpoint;
-        blocks: readonly SyncBlockHeader[];
-        data: OnChainData;
-        collections: CollectionRecord[];
-    }): void {
+    }: SyncRangeResult): void {
+        assertCanonicalCheckPolicy(canonicalCheck);
         const chainId = checkpoint.chainId;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(checkpoint);
@@ -383,7 +392,7 @@ export class SqliteStorage
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
             );
-            this.persistBlocks(chainId, blocks);
+            this.persistBlocks(chainId, blocks, canonicalCheck);
             this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
@@ -621,14 +630,18 @@ export class SqliteStorage
             ).run(chainId, fromBlock);
             // Retain the verified fork header even when its transfer facts were
             // missing, so later reorg checks can invalidate this checkpoint.
-            this.persistBlocks(chainId, [
-                {
-                    number: snapshot.block.blockNumber,
-                    hash: snapshot.block.blockHash,
-                    parentHash: snapshot.block.parentHash,
-                    timestamp: snapshot.block.blockTimestamp,
-                },
-            ]);
+            this.persistBlocks(
+                chainId,
+                [
+                    {
+                        number: snapshot.block.blockNumber,
+                        hash: snapshot.block.blockHash,
+                        parentHash: snapshot.block.parentHash,
+                        timestamp: snapshot.block.blockTimestamp,
+                    },
+                ],
+                null,
+            );
             advanceChainSyncRevision(chainId);
         });
         run();
@@ -637,6 +650,7 @@ export class SqliteStorage
     private persistBlocks(
         chainId: number,
         blocks: readonly SyncBlockHeader[],
+        canonicalCheck: CanonicalCheckPolicy | null,
     ): void {
         // Store block metadata for reorg checks and future gap detection.
         for (const block of blocks) {
@@ -646,6 +660,10 @@ export class SqliteStorage
                 block.hash,
                 block.parentHash,
                 block.timestamp,
+                canonicalCheck &&
+                    needsDelayedCanonicalCheck(block.number, canonicalCheck)
+                    ? 1
+                    : 0,
             );
         }
     }

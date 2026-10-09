@@ -1,3 +1,4 @@
+import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -29,7 +30,10 @@ import {
     selectBalanceOwners,
     transferFixture,
 } from "./helpers/ownership-fixture.js";
-import { syncBlockFixture } from "./helpers/chain-fixture.js";
+import {
+    syncBlockFixture,
+    FINALIZED_SYNC_CHECK_POLICY,
+} from "./helpers/chain-fixture.js";
 import {
     RecoveryRpc,
     reorgRecoveryServices,
@@ -329,7 +333,7 @@ describe("direct automatic sync execution", () => {
                 200,
             ),
         ).toBe(2);
-        expect(head).toHaveBeenCalledOnce();
+        expect(head).toHaveBeenCalledTimes(2);
     });
 
     it("does no RPC polling when idle and executes at most one bounded range per pass", async () => {
@@ -362,7 +366,7 @@ describe("direct automatic sync execution", () => {
         expect(s.gaps.getProgress(1, first)?.pending).not.toBeNull();
         await s.executor.runDue();
         expect(s.gaps.getProgress(1, first)?.pending).toBeNull();
-        expect(head).toHaveBeenCalledTimes(2);
+        expect(head).toHaveBeenCalledTimes(4);
     });
 
     it("holds older history while the newest batch awaits retry", async () => {
@@ -612,6 +616,7 @@ describe("direct automatic sync execution", () => {
             f.transfer(102, 1, F.Owner, F.OrphanOwner),
         );
         const result = {
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: s.storage.captureSyncCheckpoint(1),
             blocks: [101, 102].map(syncBlockFixture),
             data,
@@ -729,7 +734,9 @@ describe("direct automatic sync execution", () => {
     it("prioritizes retained resync and atomically rolls back acquisition if continuation storage fails", async () => {
         const s = services(new RecoveryRpc());
         const f = seedRecoveryHistory();
-        await s.recovery.checkBlock(F.Orphan);
+        await s.recovery.checkBlock(
+            retainCanonicalCheckFixture(s.storage, F.Orphan),
+        );
         const range = pendingRecoveryRange();
         retain(s, f.collectionId, 101, 102);
         db.exec(
@@ -755,7 +762,9 @@ describe("direct automatic sync execution", () => {
         const rpc = new RecoveryRpc(),
             s = services(rpc),
             f = seedRecoveryHistory();
-        await s.recovery.checkBlock(F.Orphan);
+        await s.recovery.checkBlock(
+            retainCanonicalCheckFixture(s.storage, F.Orphan),
+        );
         const old = pendingRecoveryRange();
         const original = rpc.getBlock.bind(rpc);
         let newer = false;
@@ -764,7 +773,9 @@ describe("direct automatic sync execution", () => {
         rpc.beforeLogs = async () => {
             if (newer) return;
             newer = true;
-            await s.recovery.checkBlock(104);
+            await s.recovery.checkBlock(
+                retainCanonicalCheckFixture(s.storage, 104),
+            );
         };
         await s.executor.runDue();
         expect(s.recoveries.getRecovery(1)).toMatchObject({
@@ -839,6 +850,110 @@ describe("direct automatic sync execution", () => {
             fromBlock: 108,
             toBlock: 108,
         });
+    });
+
+    it("uses the configured 32-block boundary and includes the anchor only when mature", async () => {
+        const rpc = new RecoveryRpc(200, 131);
+        const head = vi.spyOn(rpc, "getBlockNumber");
+        const s = reorgRecoveryServices(rpc, {
+            now: () => now,
+            reorgDepth: 32,
+        });
+        const id = insertCollection({
+            chainId: 1,
+            slug: "anchor-at-tail-boundary",
+            address: F.Owner,
+            anchorBlock: 100,
+        });
+        const logs = vi.spyOn(rpc, "getLogs");
+        expect(await s.executor.runDue()).toBe(false);
+        expect(s.gaps.getProgress(1, id)).toBeNull();
+        expect(logs).not.toHaveBeenCalled();
+        now += AUTOMATIC_SYNC_POLICY.PollMs;
+        head.mockResolvedValue(132);
+        expect(await s.executor.runDue()).toBe(true);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(1, id, 100, 100),
+        ).toBe(1);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(1, id, 101, 132),
+        ).toBe(0);
+        expect(s.checks.hasPending(1, now)).toBe(false);
+    });
+
+    it.each([0, 10, 31, 32])(
+        "does no historical fetching before a positive history boundary at HEAD=%s",
+        async (head) => {
+            const rpc = new RecoveryRpc(200, head);
+            const s = reorgRecoveryServices(rpc, {
+                now: () => now,
+                reorgDepth: 32,
+            });
+            insertCollection({
+                chainId: 1,
+                slug: "young-chain",
+                address: F.Owner,
+                anchorBlock: 1,
+            });
+            const logs = vi.spyOn(rpc, "getLogs");
+            expect(await s.executor.runDue()).toBe(false);
+            expect(logs).not.toHaveBeenCalled();
+        },
+    );
+
+    it("reconsiders global priority after trimming a full page of covered suffixes", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc);
+        const logs = vi.spyOn(rpc, "getLogs");
+        const older: number[] = [];
+        for (
+            let index = 0;
+            index < SYNC_GAP_POLICY.CollectionsPerPass + 1;
+            index++
+        ) {
+            const id = insertCollection({
+                chainId: 1,
+                slug: `covered-suffix-${index}`,
+                address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
+                anchorBlock: 100,
+            });
+            const last = index === SYNC_GAP_POLICY.CollectionsPerPass;
+            cover(id, 100, 106, [last ? 106 : 105]);
+            retain(s, id, last ? 106 : 105, 106);
+            if (!last) older.push(id);
+        }
+        await s.executor.runDue();
+        expect(logs).not.toHaveBeenCalled();
+        expect(
+            older.every(
+                (id) => s.gaps.getProgress(1, id)?.pending?.toBlock === 105,
+            ),
+        ).toBe(true);
+        await s.executor.runDue();
+        expect(logs).toHaveBeenCalled();
+        expect(
+            logs.mock.calls.every(
+                ([filter]) =>
+                    filter.fromBlock === 106 && filter.toBlock === 106,
+            ),
+        ).toBe(true);
+        expect(
+            older.every(
+                (id) => s.gaps.getProgress(1, id)?.pending?.toBlock === 105,
+            ),
+        ).toBe(true);
+        logs.mockClear();
+        await s.executor.runDue();
+        expect(logs).toHaveBeenCalled();
+        expect(
+            logs.mock.calls.every(
+                ([filter]) =>
+                    filter.fromBlock === 105 && filter.toBlock === 105,
+            ),
+        ).toBe(true);
+        expect(older.every((id) => !s.gaps.getProgress(1, id)?.pending)).toBe(
+            true,
+        );
     });
 
     it("finds the globally newest range beyond the first 16 older rows and keeps membership bounded", () => {

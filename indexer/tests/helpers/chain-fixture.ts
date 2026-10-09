@@ -9,3 +9,9 @@ export function syncBlockFixture(number: number): RpcBlock {
         transactions: [],
     };
 }
+
+// Ordinary storage fixtures represent already-confirmed canonical history.
+export const FINALIZED_SYNC_CHECK_POLICY = {
+    observedHeadBlock: Number.MAX_SAFE_INTEGER,
+    reorgDepth: 32,
+};

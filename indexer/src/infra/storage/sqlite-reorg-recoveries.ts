@@ -9,6 +9,7 @@ import {
 } from "../../domain/reorg-recovery.js";
 import type { ReorgRecoveryStore } from "../../application/reorg-recovery.js";
 import type { SqliteStorage } from "./sqlite.js";
+import type { CanonicalChecksPort } from "../../ports/canonical-checks.js";
 
 type RecoveryRow = {
     chain_id: number;
@@ -28,7 +29,10 @@ type RecoveryRow = {
 // One adapter owns the atomic rollback and retained resync progress. Pure
 // recovery transitions live in the domain; SQL and nested adapter writes stay here.
 export class SqliteReorgRecoveries implements ReorgRecoveryStore {
-    constructor(private readonly storage: SqliteStorage) {}
+    constructor(
+        private readonly storage: SqliteStorage,
+        private readonly checks: CanonicalChecksPort,
+    ) {}
 
     getRecovery(chainId: number): ReorgRecoveryState | null {
         const row = db
@@ -82,6 +86,17 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
             if (next !== current) {
                 this.save(next);
             }
+            if (
+                !this.checks.complete({
+                    checkpoint: input.checkpoint,
+                    chainId: input.checkpoint.chainId,
+                    blockNumber: input.checkedBlock,
+                    blockHash: input.storedHash,
+                })
+            )
+                throw new ChainSyncConflict(
+                    "Mismatch check no longer describes pending verification",
+                );
             return next;
         })();
     }

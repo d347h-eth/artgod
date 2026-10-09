@@ -1,3 +1,4 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import {
     insertCollection,
     loadCollection,
@@ -92,6 +93,7 @@ describe("ownership balance persistence", () => {
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(chainId),
             blocks: [
                 {
@@ -356,12 +358,14 @@ describe("ownership balance persistence", () => {
         ];
 
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(chainId),
             blocks: blocks,
             data: emptyOnChainData(),
             collections: [collection],
         });
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(chainId),
             blocks: blocks,
             data: emptyOnChainData(),
@@ -441,6 +445,7 @@ describe("ownership balance persistence", () => {
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(chainId),
             blocks: [
                 {
@@ -530,6 +535,7 @@ describe("ownership balance persistence", () => {
         const storage = new SqliteStorage();
         const collection = loadCollection(chainId, collectionId);
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(chainId),
             blocks: [
                 {
