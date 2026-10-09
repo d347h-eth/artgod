@@ -38,8 +38,9 @@ The sync worker runs two queue consumers and one automatic executor:
    collections. Manual/bootstrap backfills keep configurable concurrency, with
    pre-anchor facts-only ranges parallel and current-state ranges serialized.
 2. `AutomaticSyncExecutor` executes at most one bounded range per pass. Ready
-   reorg resync takes priority; otherwise it shares the oldest due gap's common
-   suffix. Failed acquisition defers the retained range/member identities.
+   reorg resync takes priority; otherwise it shares the newest pending height's
+   ready common suffix. That height keeps priority during retry backoff or when
+   it exceeds the RPC head. Older automatic history waits.
 3. All three paths use `processSyncRange()`: acquire logs, extension watch facts,
    policy-enabled WETH hints, transactions/receipts and fresh canonical headers;
    build required follow-ups; commit the complete result through
@@ -52,9 +53,13 @@ The sync worker runs two queue consumers and one automatic executor:
 
 Automatic and queued backfills use `RPC_BACKFILL_URL_LIST` when configured;
 realtime uses `RPC_URL_LIST`. The automatic loop starts immediately, then polls
-every 12 seconds, coalesces overlapping passes, does no head read while idle,
-and drains admitted work before runtime dependencies close. Its current-state
-gate is shared with queued backfills; realtime remains outside that gate.
+every 12 seconds and coalesces overlapping passes. It reads HEAD only when a
+range is ready or a collection's persisted 30-minute HEAD check is due. Those
+checks can replace older pending ranges before any block data is fetched, inside
+the shared current-state gate. Selection is repeated after waiting for that
+gate. The loop drains admitted work before runtime dependencies close; realtime
+remains outside the gate. `BACKFILL_WORKER_COUNT` applies to queued backfills,
+while automatic gaps still use one shared range at a time.
 
 Acquisition completion establishes persisted data and publication intent.
 Publication acceptance and downstream consumer completion are separate states.

@@ -83,20 +83,45 @@ For each collection, the scanner reads at most a 10,000-block window of
 `bootstrap_anchor_block`, inclusive. It streams the indexed coverage rows and
 selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
 `blocks` rows and `bootstrap_last_synced_block` are not coverage evidence. A
-persisted cursor prevents newer heads or scheduler restarts from resetting the
-backward sweep; after the anchor it starts another sweep from the current head.
+persisted cursor keeps ordinary polling and restarts from resetting the backward
+scan; after the anchor it starts another scan from the current head.
+
+Every 30 minutes of wall-clock time, the sync worker checks for newer holes
+above each collection's pending range, or above its cursor when no range is
+pending. `last_head_check_at` persists this timing, so downtime counts and overdue
+checks run after restart. Previously unchecked rows are due immediately. A
+normal scan starting at HEAD also records this time; continuing older history
+does not postpone it. Each check pass handles at most 16 due collections.
+
+HEAD checks use indexed coverage counts and binary subdivision to find the
+newest missing block across the full newer span, then stream at most one
+repair-sized suffix to find its contiguous boundary. All those reads share one
+SQLite read snapshot. They create no additional coverage table and make no
+per-block RPC calls. The ordinary backward scan keeps its 10,000-block bound.
+
+If no newer hole exists, only the check time changes. The existing cursor,
+pending identity, bounds and retry time stay intact. If a newer hole exists, it
+replaces the pending range and moves the cursor just below that range. Older
+holes remain absent from coverage and will be rediscovered by backward scanning.
+Checks and replacement run inside the shared backfill gate, between attempts to
+fetch and save blocks. A running attempt finishes first; work waiting for the
+gate is selected again when it can start. Slow RPC or another current-state
+backfill can delay a due check; 30 minutes defines eligibility, not a deadline.
+Conditional progress saves prevent stale reads in the separate scheduler
+process from overwriting a newer worker decision.
 
 The scheduler saves the next scan position and one repair intent per collection
 in `collection_sync_gap_scans`. It publishes no automatic range job. The sync
 worker's `AutomaticSyncExecutor` reads due intent directly, running at most one
-range per startup/poll pass (default 12 seconds). It selects the oldest due
-collection, shares its common suffix with other due collections having the same
-upper bound, and caps membership at 16 and range size at `BACKFILL_BATCH_SIZE`.
-Due intent is read in indexed pages of at most 16. If a page is entirely above
-the RPC head, the next poll seeks after it; no intent is changed or dropped.
-Ordinary acquisition starts again at the oldest due page. Restart resets this
-in-memory paging cursor, so reaching later eligible work may take several polls.
-No poll removes the SQL limit or allocates an unbounded list of candidates.
+range per startup/poll pass (default 12 seconds). It finds the globally highest
+pending upper bound across live collections, then reads at most 16 ready members
+at that height. Their common suffix is shared and the range is capped by
+`BACKFILL_BATCH_SIZE`. Retry eligibility is applied after finding the highest
+pending height: if that height is waiting for retry or exceeds the RPC head,
+older history waits. Other ready members at that same height may still run.
+Both selection and HEAD-check scheduling use ordered indexes with SQL limits;
+there is no unbounded candidate list or worker paging cursor.
+`BACKFILL_WORKER_COUNT` controls queued backfills, not this serial automatic loop.
 For A pending 101–110 and B pending 110 alone, block 110 is shared and A retains
 101–109. Different upper bounds remain separate. Identical gaps share headers,
 logs and transaction/receipt reads; covered peers stay outside older remainders.
@@ -112,16 +137,16 @@ repair ID with its older contiguous remainder.
 Acquisition completion clears or advances repair intent. Domain-worker drains
 the required follow-ups from `queue_outbox` separately; publication failures
 retry there without reacquiring RPC data. Failed acquisition defers its exact
-members for five minutes, leaving other collections eligible. Old queued gap
+members for five minutes, retaining newest-height priority. Old queued gap
 hints are acknowledged without acquisition; upgrade retains their SQLite intent.
 
 Scan limits belong to `SYNC_GAP_POLICY`, executor timing to
 `AUTOMATIC_SYNC_POLICY`; the runtime uses the existing typed
-`BACKFILL_BATCH_SIZE` setting for repair size. A failing collection does not stop
-other batches. A persistent failure in one batch holds its members' sweeps until
-repair succeeds. Reorg coverage deletions and new holes behind a
-cursor are discovered on a subsequent sweep. Shutdown drains active scheduling
-and scan work before closing the queue.
+`BACKFILL_BATCH_SIZE` setting for repair size. A persistent failure at the newest
+height holds older automatic ranges until it succeeds or newer work replaces
+it. Reorg coverage deletions and new holes above a cursor are discovered by the
+periodic HEAD check; holes below it are found by backward scanning. Shutdown
+drains active scheduling and scan work before closing the queue.
 
 Coverage establishes successful onchain range ingestion. It does not prove that
 an RPC provider returned every expected log, or that downstream domain workers
