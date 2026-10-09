@@ -4,6 +4,7 @@ import type {
     SyncGapProgress,
     SyncGapRange,
     SyncGapStorePort,
+    SyncGapHeadCheckPosition,
 } from "../../application/sync-gap-scheduler.js";
 import type { SyncGapRepairTarget } from "../../domain/sync-jobs.js";
 
@@ -27,7 +28,8 @@ const LIVE_GAP_PROGRESS_QUERY =
 const PENDING_REPAIRS_QUERY =
     LIVE_GAP_PROGRESS_QUERY + "AND s.pending_job_id IS NOT NULL ";
 const HEAD_RECHECK_QUERY =
-    "SELECT s.collection_id AS collectionId " + LIVE_GAP_PROGRESS_QUERY;
+    "SELECT s.collection_id AS collectionId, s.last_head_check_at AS lastHeadCheckAt " +
+    LIVE_GAP_PROGRESS_QUERY;
 
 export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectProgress = db.prepare<[number, number]>(
@@ -55,13 +57,24 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         "SELECT COUNT(*) AS count FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ?",
     );
-    private selectUncheckedHead = db.prepare(
+    private probeUncheckedHead = db.prepare(
         HEAD_RECHECK_QUERY +
-            "AND s.last_head_check_at IS NULL ORDER BY s.collection_id LIMIT @limit",
+            "AND s.last_head_check_at IS NULL ORDER BY s.collection_id LIMIT 1",
     );
-    private selectDueHead = db.prepare(
+    private probeDueHead = db.prepare(
         HEAD_RECHECK_QUERY +
-            "AND s.last_head_check_at <= @checkedBefore ORDER BY s.last_head_check_at, s.collection_id LIMIT @limit",
+            "AND s.last_head_check_at <= @checkedBefore ORDER BY s.last_head_check_at, s.collection_id LIMIT 1",
+    );
+    private selectUncheckedHeadAfter = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.anchor_block <= @headBlock AND s.last_head_check_at IS NULL " +
+            "AND s.collection_id > @afterCollectionId ORDER BY s.collection_id LIMIT @limit",
+    );
+    private selectDueHeadAfter = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.anchor_block <= @headBlock AND s.last_head_check_at <= @checkedBefore " +
+            "AND (s.last_head_check_at, s.collection_id) > (@afterHeadCheckAt, @afterCollectionId) " +
+            "ORDER BY s.last_head_check_at, s.collection_id LIMIT @limit",
     );
     private selectNewest = db.prepare(
         "SELECT s.pending_to_block AS toBlock " +
@@ -164,28 +177,57 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         return result.changes === 1;
     }
 
-    listHeadRecheckCollectionIds({
+    hasHeadRechecksDue({
         chainId,
         checkedBefore,
+    }: Parameters<SyncGapStorePort["hasHeadRechecksDue"]>[0]): boolean {
+        const bindings = { chainId, status: COLLECTION_STATUS.Live };
+        return !!(
+            this.probeUncheckedHead.get(bindings) ??
+            this.probeDueHead.get({ ...bindings, checkedBefore })
+        );
+    }
+
+    listHeadRechecksAfter({
+        chainId,
+        checkedBefore,
+        headBlock,
         limit,
+        after,
     }: Parameters<
-        SyncGapStorePort["listHeadRecheckCollectionIds"]
-    >[0]): number[] {
-        const bindings = { chainId, status: COLLECTION_STATUS.Live, limit };
-        // Separate NULL and elapsed checks keep both reads indexed and bounded;
-        // fresh rows need no HEAD polling, and downtime counts toward the interval.
-        const unchecked = this.selectUncheckedHead.all(bindings) as {
-            collectionId: number;
-        }[];
-        const due =
-            unchecked.length < limit
-                ? (this.selectDueHead.all({
-                      ...bindings,
-                      checkedBefore,
-                      limit: limit - unchecked.length,
-                  }) as { collectionId: number }[])
-                : [];
-        return [...unchecked, ...due].map((row) => row.collectionId);
+        SyncGapStorePort["listHeadRechecksAfter"]
+    >[0]): SyncGapHeadCheckPosition[] {
+        return db.raw.transaction(() => {
+            const bindings = {
+                chainId,
+                status: COLLECTION_STATUS.Live,
+                headBlock,
+                limit,
+            };
+            const unchecked =
+                after === null || after.lastHeadCheckAt === null
+                    ? (this.selectUncheckedHeadAfter.all({
+                          ...bindings,
+                          afterCollectionId: after?.collectionId ?? 0,
+                      }) as SyncGapHeadCheckPosition[])
+                    : [];
+            // NULL times form the first partition. Nonnegative persisted check
+            // times make (-1, 0) the starting position of the checked partition.
+            const due =
+                unchecked.length < limit
+                    ? (this.selectDueHeadAfter.all({
+                          ...bindings,
+                          checkedBefore,
+                          afterHeadCheckAt: after?.lastHeadCheckAt ?? -1,
+                          afterCollectionId:
+                              after !== null && after.lastHeadCheckAt !== null
+                                  ? after.collectionId
+                                  : 0,
+                          limit: limit - unchecked.length,
+                      }) as SyncGapHeadCheckPosition[])
+                    : [];
+            return [...unchecked, ...due];
+        })();
     }
 
     findNewestGap(

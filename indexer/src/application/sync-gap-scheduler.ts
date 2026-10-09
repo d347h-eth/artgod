@@ -34,6 +34,13 @@ export interface SyncGapCollectionsPort {
     ): CollectionRecord[];
 }
 
+// A position in the indexed order: never-checked rows first, then check time
+// and collection ID. This is traversal state, not evidence a check succeeded.
+export type SyncGapHeadCheckPosition = {
+    collectionId: number;
+    lastHeadCheckAt: number | null;
+};
+
 export interface SyncGapStorePort {
     getProgress(chainId: number, collectionId: number): SyncGapProgress | null;
     // Read at most limit due members at the globally highest pending upper
@@ -51,11 +58,21 @@ export interface SyncGapStorePort {
         expected: SyncGapProgress | null;
         progress: SyncGapProgress;
     }): boolean;
-    listHeadRecheckCollectionIds(input: {
+    // Probe due timing before reading RPC HEAD. Window eligibility is applied
+    // by listHeadRechecksAfter once that fresh head is available.
+    hasHeadRechecksDue(input: {
         chainId: number;
         checkedBefore: number;
+    }): boolean;
+    // Seek past an attempted page in check-time/collection order. Apply live
+    // anchor-to-HEAD eligibility before LIMIT; no OFFSET or unbounded ID list.
+    listHeadRechecksAfter(input: {
+        chainId: number;
+        checkedBefore: number;
+        headBlock: number;
         limit: number;
-    }): number[];
+        after: SyncGapHeadCheckPosition | null;
+    }): SyncGapHeadCheckPosition[];
     // Returns the highest missing contiguous range, capped to batchSize, from
     // collection coverage only. Implementations must bound reads to window.
     findGap(
@@ -107,12 +124,18 @@ export type SyncGapSchedulerOptions = {
     now?: () => number;
 };
 
+type HeadCheckTraversal = {
+    checkedBefore: number;
+    after: SyncGapHeadCheckPosition | null;
+};
+
 // Each pass visits a bounded page of collections. Each collection retains one
 // outstanding repair, so slow workers cannot admit the whole missing history.
 export class SyncGapScheduler
     implements SyncGapDetectorPort, SyncGapHeadRecheckPort
 {
     private afterCollectionId = 0;
+    private headCheckTraversal: HeadCheckTraversal | null = null;
     private active: Promise<void> | null = null;
     private readonly windowSize: number;
     private readonly pageSize: number;
@@ -146,15 +169,32 @@ export class SyncGapScheduler
     }
 
     hasHeadRechecksDue(): boolean {
-        return this.headRecheckCollectionIds(1).length > 0;
+        return this.store.hasHeadRechecksDue({
+            chainId: this.options.chainId,
+            checkedBefore: this.now() - this.headRecheckIntervalMs,
+        });
     }
 
     recheckFromHead(headBlock: number): boolean {
         if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const checkedBefore = this.now() - this.headRecheckIntervalMs;
+        let traversal = this.headCheckTraversal ?? {
+            checkedBefore,
+            after: null,
+        };
+        let checks = this.headRechecksAfter(headBlock, traversal);
+        if (!checks.length && traversal.after !== null) {
+            traversal = { checkedBefore, after: null };
+            checks = this.headRechecksAfter(headBlock, traversal);
+        }
+        // Advance even when every check fails or is skipped after selection.
+        // Keep the cutoff fixed until the end so successful rows becoming due
+        // again cannot prevent wrapping back to earlier unperformed checks.
+        this.headCheckTraversal = checks.length
+            ? { ...traversal, after: checks.at(-1)! }
+            : null;
         let replaced = false;
-        for (const collectionId of this.headRecheckCollectionIds(
-            this.pageSize,
-        )) {
+        for (const { collectionId } of checks) {
             try {
                 const collection = this.collections.getCollection(
                     this.options.chainId,
@@ -177,11 +217,15 @@ export class SyncGapScheduler
         return replaced;
     }
 
-    private headRecheckCollectionIds(limit: number): number[] {
-        return this.store.listHeadRecheckCollectionIds({
+    private headRechecksAfter(
+        headBlock: number,
+        traversal: HeadCheckTraversal,
+    ): SyncGapHeadCheckPosition[] {
+        return this.store.listHeadRechecksAfter({
             chainId: this.options.chainId,
-            checkedBefore: this.now() - this.headRecheckIntervalMs,
-            limit,
+            headBlock,
+            limit: this.pageSize,
+            ...traversal,
         });
     }
 

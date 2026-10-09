@@ -146,6 +146,10 @@ collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
   then selects at most 16 due members there. A newer retry or above-head range
   holds older work. Ordered intent scans look up collection eligibility without
   sorting the full live set, including after SQLite `ANALYZE`.
+- HEAD-check pages seek through the existing check-time index, applying fresh
+  HEAD/anchor eligibility before the member limit. A process-local position and
+  fixed due-time cutoff let later collections pass a failed/skipped page; neither
+  is stored in this table. Unperformed checks keep their original timestamps.
 
 ### `transactions`
 

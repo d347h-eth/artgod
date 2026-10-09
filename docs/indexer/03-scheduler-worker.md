@@ -93,6 +93,15 @@ checks run after restart. Previously unchecked rows are due immediately. A
 normal scan starting at HEAD also records this time; continuing older history
 does not postpone it. Each check pass handles at most 16 due collections.
 
+The fresh RPC HEAD filters out anchors above HEAD before those 16 rows are
+selected. HEAD-check passes advance through indexed check-time/collection order
+even when a whole page fails or is skipped after selection. They wrap after
+reaching the end, with a fixed due-time cutoff during each traversal so rows
+becoming due again cannot prevent that wrap. This position is process-local and
+resets on restart; it does not change the persisted backward cursor or mark
+unperformed checks fresh. Failed and skipped checks retain their timestamps and
+can be retried without blocking later collections.
+
 HEAD checks use indexed coverage counts and binary subdivision to find the
 newest missing block across the full newer span, then stream at most one
 repair-sized suffix to find its contiguous boundary. All those reads share one
@@ -120,7 +129,8 @@ at that height. Their common suffix is shared and the range is capped by
 pending height: if that height is waiting for retry or exceeds the RPC head,
 older history waits. Other ready members at that same height may still run.
 Both selection and HEAD-check scheduling use ordered indexes with SQL limits;
-there is no unbounded candidate list or worker paging cursor.
+there is no unbounded candidate list. Automatic range selection has no paging
+cursor; the HEAD checker alone advances its process-local check position.
 `BACKFILL_WORKER_COUNT` controls queued backfills, not this serial automatic loop.
 For A pending 101–110 and B pending 110 alone, block 110 is shared and A retains
 101–109. Different upper bounds remain separate. Identical gaps share headers,

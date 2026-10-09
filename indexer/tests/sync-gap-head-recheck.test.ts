@@ -248,6 +248,155 @@ describe("wall-clock HEAD gap checks", () => {
         expect(h.store.getProgress(1, ids.at(-1)!)?.lastHeadCheckAt).toBe(now);
     });
 
+    it.each([null, 0])(
+        "checks later collections before LIMIT when 16 anchors exceed HEAD (check time=%s)",
+        (lastHeadCheckAt) => {
+            const h = harness();
+            const blocked = Array.from(
+                { length: SYNC_GAP_POLICY.CollectionsPerPass },
+                seed,
+            );
+            for (const id of blocked) {
+                db.prepare(
+                    "UPDATE collections SET bootstrap_anchor_block=300 WHERE collection_id=?",
+                ).run(id);
+                retain(h.store, id, {
+                    anchorBlock: 300,
+                    cursorBlock: null,
+                    pending: null,
+                    lastHeadCheckAt,
+                });
+                cover(id, 300, 300);
+            }
+            const target = seed();
+            retain(h.store, target, { lastHeadCheckAt });
+            cover(target, 103, 200, [199, 200]);
+            const scanner = h.scanner();
+            expect(scanner.recheckFromHead(200)).toBe(true);
+            expect(h.store.getProgress(1, target)).toMatchObject({
+                cursorBlock: 198,
+                lastHeadCheckAt: now,
+                pending: { fromBlock: 199, toBlock: 200 },
+            });
+            for (const id of blocked)
+                expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(
+                    lastHeadCheckAt,
+                );
+            const restarted = h.scanner();
+            expect(restarted.recheckFromHead(200)).toBe(false);
+            now += 1000;
+            expect(restarted.recheckFromHead(300)).toBe(false);
+            for (const id of blocked)
+                expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(now);
+        },
+    );
+
+    it.each([
+        [null, null],
+        [null, 0],
+        [0, 0],
+    ])(
+        "advances past a full page of persistent failures without marking it checked (%s -> %s)",
+        (failedCheckTime, targetCheckTime) => {
+            const h = harness();
+            const blocked = Array.from(
+                { length: SYNC_GAP_POLICY.CollectionsPerPass },
+                seed,
+            );
+            for (const id of blocked)
+                retain(h.store, id, { lastHeadCheckAt: failedCheckTime });
+            const target = seed();
+            retain(h.store, target, { lastHeadCheckAt: targetCheckTime });
+            cover(target, 103, 200, [199, 200]);
+            const original = h.store.findNewestGap.bind(h.store);
+            const lookup = vi
+                .spyOn(h.store, "findNewestGap")
+                .mockImplementation((chainId, id, window, cap) => {
+                    if (blocked.includes(id))
+                        throw new Error("persistent coverage read failure");
+                    return original(chainId, id, window, cap);
+                });
+            const scanner = h.scanner();
+            expect(scanner.recheckFromHead(200)).toBe(false);
+            expect(lookup).toHaveBeenCalledTimes(
+                SYNC_GAP_POLICY.CollectionsPerPass,
+            );
+            expect(scanner.recheckFromHead(200)).toBe(true);
+            expect(h.store.getProgress(1, target)).toMatchObject({
+                lastHeadCheckAt: now,
+                pending: { fromBlock: 199, toBlock: 200 },
+            });
+            for (const id of blocked)
+                expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(
+                    failedCheckTime,
+                );
+            expect(scanner.recheckFromHead(200)).toBe(false);
+            expect(lookup).toHaveBeenCalledTimes(
+                2 * SYNC_GAP_POLICY.CollectionsPerPass + 1,
+            );
+        },
+    );
+
+    it("advances past a page skipped after selection and resets traversal on restart", () => {
+        const h = harness();
+        const blocked = Array.from(
+            { length: SYNC_GAP_POLICY.CollectionsPerPass },
+            seed,
+        );
+        for (const id of blocked)
+            retain(h.store, id, { lastHeadCheckAt: null });
+        const target = seed();
+        retain(h.store, target, { lastHeadCheckAt: null });
+        const original = h.registry.getCollection.bind(h.registry);
+        const get = vi
+            .spyOn(h.registry, "getCollection")
+            .mockImplementation((chainId, id) =>
+                blocked.includes(id) ? null : original(chainId, id),
+            );
+        const scanner = h.scanner();
+        expect(scanner.recheckFromHead(200)).toBe(false);
+        expect(get).toHaveBeenCalledTimes(SYNC_GAP_POLICY.CollectionsPerPass);
+        expect(scanner.recheckFromHead(200)).toBe(true);
+        expect(h.store.getProgress(1, target)?.lastHeadCheckAt).toBe(now);
+        for (const id of blocked)
+            expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBeNull();
+        get.mockRestore();
+        expect(h.scanner().recheckFromHead(200)).toBe(true);
+        for (const id of blocked)
+            expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(now);
+    });
+
+    it("finishes a due traversal even when successful rows become due again during it", () => {
+        const h = harness();
+        const failed = seed(),
+            first = seed(),
+            second = seed();
+        retain(h.store, failed, { lastHeadCheckAt: null });
+        for (const id of [first, second])
+            retain(h.store, id, { lastHeadCheckAt: 0 });
+        const original = h.store.findNewestGap.bind(h.store);
+        const visited: number[] = [];
+        vi.spyOn(h.store, "findNewestGap").mockImplementation(
+            (chainId, id, window, cap) => {
+                visited.push(id);
+                if (id === failed) throw new Error("persistent read failure");
+                return original(chainId, id, window, cap);
+            },
+        );
+        const scanner = new SyncGapScheduler(h.registry, h.store, {
+            chainId: 1,
+            batchSize: 2,
+            collectionsPerPass: 1,
+            now: () => now,
+        });
+        for (let pass = 0; pass < 4; pass++) {
+            scanner.recheckFromHead(200);
+            now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        }
+        expect(visited).toEqual([failed, first, second, failed]);
+        expect(h.store.getProgress(1, failed)?.lastHeadCheckAt).toBeNull();
+    });
+
     it("rejects stale cross-process saves after a competing cursor or check update", () => {
         const h = harness(),
             id = seed();

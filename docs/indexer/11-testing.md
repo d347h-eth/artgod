@@ -142,13 +142,15 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
 - `tests/sync-gap-head-recheck.test.ts` covers the exact 30-minute boundary,
   downtime and restart, preserving old progress when no newer hole exists,
   replacing it when one does, regressed heads, retained older holes, failed
-  checks, bounded membership, stale cross-process saves, all small coverage
-  shapes and a consistent WAL read snapshot with a competing connection.
+  checks, bounded membership, complete skipped/failed pages, traversal wrap and
+  restart, HEAD catch-up, stale cross-process saves, all small coverage shapes and
+  a consistent WAL read snapshot with a competing connection.
 - `tests/sync-gap-query-cost.test.ts` seeds 50,000 pending collections and 400,000
   coverage blocks. It checks the global newest selection, SQL limits and ordered
-  query plans after `ANALYZE`, including idle HEAD-check scheduling. It records
-  warm local timings in `tmp/recent-gap-query-cost.json`; these are not a cold
-  disk or fully covered 26-million-block qualification.
+  query plans after `ANALYZE`, including idle HEAD-check probes and direct seeks
+  to later HEAD-check pages. It records warm local timings in
+  `tmp/recent-gap-query-cost.json`; these are not a cold disk or fully covered
+  26-million-block qualification.
 - `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
   WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
   shutdown draining.
@@ -198,6 +200,8 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   above-head waits, ready peers at the same height, bounded indexed selection
   past thousands of older rows, finishing a running range before HEAD checks,
   and reselecting after waiting for the current-state gate,
+  newer-hole processing past 16 no-pending anchors above HEAD with default retry
+  timing and repeated scheduler/worker passes,
   coalescing and shutdown draining, lifecycle changes during acquisition, dense
   completion headers, and rollback of data/follow-ups when single/shared-member
   or reorg progress writes fail.

@@ -76,13 +76,23 @@ it("uses ordered indexes and bounded reads even when the newest row follows 49,9
             .listDueRepairsAtNewestPendingHeight(input)
             .map((repair) => repair.collectionId),
     ).toEqual([newestId]);
+    const idleCheck = {
+        chainId: 1,
+        checkedBefore: NOW - SYNC_GAP_POLICY.HeadRecheckIntervalMs,
+    };
+    expect(store.hasHeadRechecksDue(idleCheck)).toBe(false);
+    const headCheck = {
+        chainId: 1,
+        checkedBefore: NOW,
+        headBlock: NEWEST_BLOCK,
+        limit: input.limit,
+        after: { collectionId: newestId - 16, lastHeadCheckAt: NOW },
+    };
     expect(
-        store.listHeadRecheckCollectionIds({
-            chainId: 1,
-            checkedBefore: NOW - SYNC_GAP_POLICY.HeadRecheckIntervalMs,
-            limit: input.limit,
-        }),
-    ).toEqual([]);
+        store
+            .listHeadRechecksAfter(headCheck)
+            .map((check) => check.collectionId),
+    ).toEqual(Array.from({ length: 16 }, (_, n) => newestId - 15 + n));
     for (const sql of queries.filter((sql) =>
         sql.includes("FROM collection_sync_gap_scans s"),
     )) {
@@ -94,6 +104,10 @@ it("uses ordered indexes and bounded reads even when the newest row follows 49,9
         if (sql.includes("@now")) bindings.now = NOW;
         if (sql.includes("@limit")) bindings.limit = input.limit;
         if (sql.includes("@checkedBefore")) bindings.checkedBefore = NOW;
+        if (sql.includes("@headBlock")) bindings.headBlock = NEWEST_BLOCK;
+        if (sql.includes("@afterHeadCheckAt")) bindings.afterHeadCheckAt = NOW;
+        if (sql.includes("@afterCollectionId"))
+            bindings.afterCollectionId = headCheck.after.collectionId;
         const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(bindings) as {
             detail: string;
         }[];
@@ -101,6 +115,7 @@ it("uses ordered indexes and bounded reads even when the newest row follows 49,9
             plan.some((row) =>
                 row.detail.includes("collection_sync_gap_scans_"),
             ),
+            JSON.stringify({ sql, plan }),
         ).toBe(true);
         expect(
             plan.some((row) => row.detail.includes("TEMP B-TREE")),
@@ -113,13 +128,8 @@ it("uses ordered indexes and bounded reads even when the newest row follows 49,9
         newestSelectionMs: measure(() =>
             store.listDueRepairsAtNewestPendingHeight(input),
         ),
-        idleHeadCheckMs: measure(() =>
-            store.listHeadRecheckCollectionIds({
-                chainId: 1,
-                checkedBefore: NOW - SYNC_GAP_POLICY.HeadRecheckIntervalMs,
-                limit: input.limit,
-            }),
-        ),
+        idleHeadCheckMs: measure(() => store.hasHeadRechecksDue(idleCheck)),
+        headCheckSeekMs: measure(() => store.listHeadRechecksAfter(headCheck)),
     };
     await writeReport();
 });

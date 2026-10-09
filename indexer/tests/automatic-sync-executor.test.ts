@@ -4,6 +4,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import {
     AutomaticSyncExecutor,
+    AUTOMATIC_SYNC_POLICY,
     startAutomaticSyncLoop,
 } from "../src/application/automatic-sync-executor.js";
 import {
@@ -98,6 +99,84 @@ describe("direct automatic sync execution", () => {
                 if (!skip.has(n)) insert.run(collectionId, n);
         })();
     }
+
+    it.each([null, 0])(
+        "fills newer holes despite 16 no-pending anchors above RPC HEAD (check time=%s)",
+        async (lastHeadCheckAt) => {
+            now = 2 * SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+            const rpc = new RecoveryRpc(300);
+            vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+            const s = reorgRecoveryServices(rpc, { now: () => now });
+            const blocked = Array.from(
+                { length: SYNC_GAP_POLICY.CollectionsPerPass },
+                (_, n) =>
+                    insertCollection({
+                        chainId: 1,
+                        slug: `anchor-above-head-${n}`,
+                        address: F.Owner,
+                        anchorBlock: 300,
+                    }),
+            );
+            for (const id of blocked)
+                expect(
+                    s.gaps.saveProgress({
+                        chainId: 1,
+                        collectionId: id,
+                        expected: null,
+                        progress: {
+                            anchorBlock: 300,
+                            cursorBlock: null,
+                            pending: null,
+                            lastHeadCheckAt,
+                        },
+                    }),
+                ).toBe(true);
+            const f = transferFixture();
+            retain(s, f.collectionId, 101, 102);
+            const expected = s.gaps.getProgress(1, f.collectionId)!;
+            expect(
+                s.gaps.saveProgress({
+                    chainId: 1,
+                    collectionId: f.collectionId,
+                    expected,
+                    progress: {
+                        ...expected,
+                        lastHeadCheckAt,
+                        pending: {
+                            ...expected.pending!,
+                            retryAt: now + AUTOMATIC_SYNC_POLICY.RetryDelayMs,
+                        },
+                    },
+                }),
+            ).toBe(true);
+            cover(f.collectionId, 103, 200, [199, 200]);
+            const detector = scanner(s);
+            const checkedAt = now;
+            for (let pass = 0; pass < 6; pass++) {
+                await detector.scan(200);
+                await s.executor.runDue();
+                expect(
+                    s.storage.countCollectionSyncedBlocksInRange(
+                        1,
+                        f.collectionId,
+                        199,
+                        200,
+                    ),
+                ).toBe(2);
+                expect(
+                    s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt,
+                ).toBeGreaterThanOrEqual(checkedAt);
+                for (const id of blocked)
+                    expect(s.gaps.getProgress(1, id)).toEqual({
+                        anchorBlock: 300,
+                        cursorBlock: null,
+                        pending: null,
+                        lastHeadCheckAt,
+                    });
+                now += AUTOMATIC_SYNC_POLICY.PollMs;
+            }
+        },
+    );
 
     it("finishes the running range before checking HEAD and replacing older progress", async () => {
         const rpc = new RecoveryRpc(200),

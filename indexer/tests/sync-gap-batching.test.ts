@@ -622,8 +622,10 @@ async function run(
                   saveProgress: h.store.saveProgress.bind(h.store),
                   findGap: h.store.findGap.bind(h.store),
                   findNewestGap: h.store.findNewestGap.bind(h.store),
-                  listHeadRecheckCollectionIds:
-                      h.store.listHeadRecheckCollectionIds.bind(h.store),
+                  hasHeadRechecksDue: h.store.hasHeadRechecksDue.bind(h.store),
+                  listHeadRechecksAfter: h.store.listHeadRechecksAfter.bind(
+                      h.store,
+                  ),
                   deferRetry: h.store.deferRetry.bind(h.store),
                   recordRepairProgress: h.store.recordRepairProgress.bind(
                       h.store,
