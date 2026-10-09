@@ -2427,6 +2427,61 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 	});
 
+	test('keeps an unauthorized token job archived after modification and refresh', async ({
+		page
+	}, testInfo) => {
+		const api = await installBiddingAutomationApiMock(page);
+		await page.clock.install();
+		const scenarioQuery = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.UnconfirmedBid}`;
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}/${BIDDING_E2E_UNCONFIRMED_BID.TokenId}?${scenarioQuery}`
+		);
+		await page.getByRole('button', { name: 'bid on token' }).click();
+		const panel = page.getByTestId(TEST_IDS.BiddingPanel);
+		await page.locator('#bidding-automation-floor').fill('0.705');
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelModify);
+		const modification = await api.nextMutation();
+		expect(modification.body).toMatchObject({
+			status: TRADING_JOB_STATUS.Enabled,
+			floorEth: '0.705'
+		});
+
+		await confirmPanelAction(page, TEST_IDS.BiddingPanelArchive);
+		expect(await api.nextMutation()).toMatchObject({
+			method: 'DELETE',
+			path: `/api/${BIDDING_E2E_CHAIN.slug}/${BIDDING_E2E_COLLECTION.slug}/bidding/jobs/${BIDDING_E2E_UNCONFIRMED_BID.JobId}`
+		});
+
+		// Exercise the production refresh: an archive must not restore the last saved spec.
+		const refreshedJob = page.waitForResponse(
+			(response) =>
+				response.request().method() === 'GET' &&
+				new URL(response.url()).pathname === modification.path
+		);
+		await page.clock.fastForward(DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs);
+		expect((await (await refreshedJob).json()).job).toBeNull();
+		await expect(panel).not.toContainText(BIDDING_E2E_UNCONFIRMED_BID.JobId);
+		await expect(panel.getByTestId(TEST_IDS.BiddingPanelArchive)).toBeDisabled();
+		await expect(panel.getByTestId(TEST_IDS.BiddingPanelPause)).toBeDisabled();
+		await page.screenshot({
+			path: testInfo.outputPath('saved-job-archived-after-refresh.png'),
+			fullPage: true
+		});
+
+		// Archiving this job must leave another token's saved job available.
+		const otherTokenJobPath = `/api/${BIDDING_E2E_CHAIN.slug}/${BIDDING_E2E_COLLECTION.slug}/102/bidding/job`;
+		const otherJob = await page.evaluate(async (path) => {
+			const response = await fetch(path);
+			return response.json();
+		}, otherTokenJobPath);
+		expect(otherJob.job).toMatchObject({
+			status: TRADING_JOB_STATUS.Enabled,
+			target: { type: TRADING_JOB_TARGET_KIND.Token, tokenId: '102' }
+		});
+		expect(api.mutations).toHaveLength(0);
+	});
+
 	test('shows an active bot feed and the collection authorization block independently', async ({
 		page
 	}, testInfo) => {

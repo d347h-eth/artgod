@@ -79,6 +79,14 @@ export async function installBiddingAutomationApiMock(
 	);
 	const competitionSelections = new Map<string, string | null>();
 	const tokenJobs = new Map<string, ApiBiddingJob>();
+	const archivedJobIds = new Set<string>();
+	function currentJobForRead(fixtureJob: ApiBiddingJob | null): ApiBiddingJob | null {
+		const job =
+			fixtureJob?.target.type === TRADING_JOB_TARGET_KIND.Token
+				? (tokenJobs.get(fixtureJob.target.tokenId) ?? fixtureJob)
+				: fixtureJob;
+		return job && archivedJobIds.has(job.jobId) ? null : job;
+	}
 	function findReapplyJob(targetTraits: unknown, quantity = 1): ApiBiddingJob | undefined {
 		if (!Array.isArray(targetTraits)) return undefined;
 		const signature = JSON.stringify(normalizeTradingTraitCriteria(targetTraits));
@@ -176,7 +184,7 @@ export async function installBiddingAutomationApiMock(
 				body: JSON.stringify({
 					chain: BIDDING_E2E_CHAIN,
 					collection: BIDDING_E2E_COLLECTION,
-					job: override ?? findBiddingE2eJobForTarget(body)
+					job: currentJobForRead(override ?? findBiddingE2eJobForTarget(body))
 				})
 			});
 			return;
@@ -223,14 +231,15 @@ export async function installBiddingAutomationApiMock(
 		if (request.method() === 'GET' && tokenJobId) {
 			const searchParams = biddingFixtureSearchParams(url, request, activeScenario);
 			const data = buildBiddingE2eTokenDetailData(tokenJobId, searchParams);
+			const job = tokenJobs.get(tokenJobId) ?? data.tokenBiddingJob;
 			// Token detail refreshes its job alongside the bid book. Reads must not
-			// be captured as writes or discard the spec saved by the previous action.
+			// be captured as writes, discard a saved spec, or restore an archived job.
 			await route.fulfill({
 				json: {
 					chain: data.chain,
 					collection: data.collection,
 					tokenId: tokenJobId,
-					job: tokenJobs.get(tokenJobId) ?? data.tokenBiddingJob
+					job: currentJobForRead(job)
 				}
 			});
 			return;
@@ -350,6 +359,13 @@ export async function installBiddingAutomationApiMock(
 				).tokenBiddingJob;
 			response.job = { ...response.job, revision: (previous?.revision ?? 0) + 1 };
 			tokenJobs.set(tokenJobId, response.job);
+		}
+		if (response.job?.status === TRADING_JOB_STATUS.Archived) {
+			// Panels archive by job id, so retain the archive independently of token-path writes.
+			archivedJobIds.add(response.job.jobId);
+		} else if (tokenJobId && response.job) {
+			// A later explicit create/save supersedes the archive in this deterministic fixture.
+			archivedJobIds.delete(response.job.jobId);
 		}
 		if (response.job && url.pathname.endsWith('/bidding/jobs/traits')) {
 			const existing = findReapplyJob(
