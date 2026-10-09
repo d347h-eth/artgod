@@ -12,6 +12,10 @@ import {
     resolveTradingBotLifecycleStatus,
 } from "@artgod/shared/trading/runtime-state";
 import {
+    isBiddingBidBookCancellationPhase,
+    resolveBiddingBidBookOrderPhase,
+} from "@artgod/shared/trading/bid-book-own-state";
+import {
     DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
 } from "@artgod/shared/config/bidding";
@@ -173,6 +177,7 @@ type BiddingJobSignal = {
     activeOrder: BiddingJobRuntimeSignal | null;
     runtime: BiddingJobRuntimeSignal | null;
     runtimeHeartbeatLive: boolean;
+    authorizationPhase?: (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
     phaseOverride?: (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
 };
 
@@ -1255,13 +1260,13 @@ function applyBiddingAuthorizationPhase(
     job: BiddingJobSignal,
     authorization: TradingBiddingAuthorization | null,
 ): BiddingJobSignal {
-    if (!authorization || job.status !== TRADING_JOB_STATUS.Enabled) {
+    if (!authorization) {
         return job;
     }
-    const phaseOverride = resolveTradingBiddingAuthorizationJobPhase(
+    const authorizationPhase = resolveTradingBiddingAuthorizationJobPhase(
         authorization.status,
     );
-    return phaseOverride ? { ...job, phaseOverride } : job;
+    return authorizationPhase ? { ...job, authorizationPhase } : job;
 }
 
 function baseCollectionSpanAttributes(params: {
@@ -1781,7 +1786,7 @@ function isStaleOwnJobMarketRow(
     if (
         matchingJobs.some(
             (job) =>
-                isCancellationPhase(job.phaseOverride) &&
+                isBiddingBidBookCancellationPhase(job.phaseOverride) &&
                 hasRenderableActiveOrderEvidence(job) &&
                 activeOrderEvidenceMatchesBid(job, bid),
         )
@@ -1846,7 +1851,7 @@ function resolveOwnJobOverlayRows(
 function shouldCreateActiveOrderLifecycleOverlay(
     job: BiddingJobSignal,
 ): boolean {
-    if (isCancellationPhase(job.phaseOverride)) {
+    if (isBiddingBidBookCancellationPhase(job.phaseOverride)) {
         return hasRenderableActiveOrderEvidence(job);
     }
 
@@ -1858,7 +1863,7 @@ function shouldCreateCurrentJobIntentOverlay(
     bids: PersistedBiddingBidBookRow[],
     source: TradingBiddingBidBookSource,
 ): boolean {
-    if (isCancellationPhase(job.phaseOverride)) {
+    if (isBiddingBidBookCancellationPhase(job.phaseOverride)) {
         return false;
     }
     if (job.status === TRADING_JOB_STATUS.Archived) {
@@ -1983,13 +1988,19 @@ function resolveCurrentJobIntentPhase(
     if (job.phaseOverride) {
         return job.phaseOverride;
     }
-    if (activeRuntime && !isActiveOrderVerified(job, activeRuntime)) {
-        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying;
+    if (activeRuntime) {
+        return resolveBiddingBidBookOrderPhase({
+            verified: isActiveOrderVerified(job, activeRuntime),
+            verificationExpected: isOrderVerificationExpected(job),
+            verifiedPhase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+        });
     }
     if (job.status === TRADING_JOB_STATUS.Paused) {
         return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused;
     }
-    return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
+    return (
+        job.authorizationPhase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+    );
 }
 
 function resolveActiveOrderLifecyclePhase(
@@ -1999,20 +2010,15 @@ function resolveActiveOrderLifecyclePhase(
     if (job.phaseOverride) {
         return job.phaseOverride;
     }
-    if (!isActiveOrderVerified(job, activeOrder)) {
-        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying;
-    }
-    return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing;
+    return resolveBiddingBidBookOrderPhase({
+        verified: isActiveOrderVerified(job, activeOrder),
+        verificationExpected: isOrderVerificationExpected(job),
+        verifiedPhase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing,
+    });
 }
 
-function isCancellationPhase(
-    phase: BiddingJobSignal["phaseOverride"] | null | undefined,
-): boolean {
-    return (
-        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling ||
-        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed ||
-        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
-    );
+function isOrderVerificationExpected(job: BiddingJobSignal): boolean {
+    return job.status === TRADING_JOB_STATUS.Enabled && !job.authorizationPhase;
 }
 
 function resolveJobBidScope(job: BiddingJobSignal): {
@@ -2065,7 +2071,7 @@ function attachOwnBidRuntimeSignals(
         if (
             bid.materialization.kind ===
                 TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent &&
-            isCancellationPhase(bid.materialization.phase)
+            isBiddingBidBookCancellationPhase(bid.materialization.phase)
         ) {
             return {
                 ...bid,
@@ -2189,6 +2195,7 @@ function isActiveOrderVerified(
 ): boolean {
     return Boolean(
         job.runtimeHeartbeatLive &&
+        !job.authorizationPhase &&
         runtime?.activeOrderId &&
         runtime.activeOrderVerifiedAt,
     );

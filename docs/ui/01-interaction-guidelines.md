@@ -685,7 +685,8 @@ General rules:
 - prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
-- own-bid badges cover waiting for bot, authorization availability, queued, paused, verifying, replacing, canceling, cancel failed, cancelled, winning, draw, losing, hit ceiling, at floor, and unknown; unknown means no current lifecycle or bot-decision evidence is available
+- own-bid badges cover waiting for bot, authorization availability, queued, paused, unconfirmed, verifying, replacing, canceling, cancel failed, cancelled, winning, draw, losing, hit ceiling, at floor, and unknown; unknown means no current lifecycle or bot-decision evidence is available
+- saved order evidence is `unconfirmed` when this boot cannot verify the collection; preserve that phase in cards, rows, and the job panel, including after spec edits, until explicit cancellation supplies its normal lifecycle evidence
 - `winning`, `draw`, and `losing` must come from fresh bot runtime decision feedback, never from frontend/backend price inference
 - stale active orders must remain visible with lifecycle badges until backend cancellation evidence confirms they can disappear
 

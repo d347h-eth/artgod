@@ -432,10 +432,11 @@ export const TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND = {
 export type TradingBiddingBidBookRowMaterializationKind =
     (typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND)[keyof typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND];
 
-// Names user-facing own-intent states before a real market bid row is visible.
+// Names local job intent and tracked-order lifecycle states in own bid books.
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
     WaitingForBot: "waiting_for_bot",
     Verifying: "verifying",
+    Unconfirmed: "unconfirmed",
     Queued: "queued",
     Paused: "paused",
     AuthorizationRequired: "authorization_required",

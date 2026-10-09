@@ -4336,6 +4336,7 @@ components:
                     active,
                     waiting_for_bot,
                     verifying,
+                    unconfirmed,
                     queued,
                     paused,
                     authorization_required,
@@ -4368,6 +4369,7 @@ components:
                             active,
                             waiting_for_bot,
                             verifying,
+                            unconfirmed,
                             queued,
                             paused,
                             authorization_required,
@@ -4393,6 +4395,9 @@ components:
                             type: integer
                             minimum: 0
                         verifying:
+                            type: integer
+                            minimum: 0
+                        unconfirmed:
                             type: integer
                             minimum: 0
                         queued:
@@ -4481,6 +4486,7 @@ components:
                     authorization_unavailable,
                     paused,
                     verifying,
+                    unconfirmed,
                     replacing,
                     canceling,
                     cancel_failed,

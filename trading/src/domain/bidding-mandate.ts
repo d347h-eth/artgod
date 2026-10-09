@@ -9,6 +9,12 @@ const EVM_ADDRESS_PATTERN = /^0x[a-f0-9]{40}$/;
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(0|[1-9][0-9]*)$/;
 
+// Collection admission requires the same canonical identity as the signing boundary.
+export type BiddingCollectionIdentity = Pick<
+    BidderJob,
+    "collectionId" | "collectionAddress"
+> & { collectionSlug: string | null };
+
 type BiddingCollectionAuthority = {
     collectionId: number;
     contractAddress: string;
@@ -144,8 +150,7 @@ export class BiddingStartPolicy {
             wethApproval: {
                 minPriorityFeePerGasWei:
                     this.wethApproval.minPriorityFeePerGasWei.toString(),
-                maxFeePerGasWei:
-                    this.wethApproval.maxFeePerGasWei.toString(),
+                maxFeePerGasWei: this.wethApproval.maxFeePerGasWei.toString(),
                 maxTotalGasFeeWei:
                     this.wethApproval.maxTotalGasFeeWei.toString(),
                 pendingNoncePolicy: this.wethApproval.pendingNoncePolicy,
@@ -219,27 +224,43 @@ export class BiddingMandate {
         return new BiddingMandate(chainId, startPolicy, collections);
     }
 
-    // Rejects a proposed final offer when its identity, quantity, or unit price exceeds the mandate.
-    public assertOfferAuthorized(job: BidderJob, totalAmountWei: bigint): void {
-        const authority = this.collectionsById.get(job.collectionId);
+    // Missing or changed marketplace identity excludes all bidding work for this process.
+    public authorizesCollection(
+        collection: BiddingCollectionIdentity,
+    ): boolean {
+        return this.collectionAuthorizationError(collection) === undefined;
+    }
+
+    private collectionAuthorizationError(
+        collection: BiddingCollectionIdentity,
+    ): string | undefined {
+        const authority = this.collectionsById.get(collection.collectionId);
         if (!authority) {
-            throw new BiddingMandateViolationError(
-                `collection ${job.collectionId} is not authorized`,
-            );
+            return `collection ${collection.collectionId} is not authorized`;
         }
         if (
-            normalizeAddress(job.collectionAddress) !==
+            collection.collectionAddress.trim().toLowerCase() !==
             authority.contractAddress
         ) {
-            throw new BiddingMandateViolationError(
-                `collection ${job.collectionId} contract does not match`,
-            );
+            return `collection ${collection.collectionId} contract does not match`;
         }
-        if (normalizeSlug(job.collectionSlug) !== authority.openseaSlug) {
-            throw new BiddingMandateViolationError(
-                `collection ${job.collectionId} OpenSea slug does not match`,
-            );
+        if (
+            collection.collectionSlug?.trim().toLowerCase() !==
+            authority.openseaSlug
+        ) {
+            return `collection ${collection.collectionId} OpenSea slug does not match`;
         }
+        return undefined;
+    }
+
+    // Rejects a proposed final offer when its identity, quantity, or unit price exceeds the mandate.
+    public assertOfferAuthorized(job: BidderJob, totalAmountWei: bigint): void {
+        const identityError = this.collectionAuthorizationError(job);
+        if (identityError) {
+            throw new BiddingMandateViolationError(identityError);
+        }
+        // The shared identity check proves that this collection has an authority entry.
+        const authority = this.collectionsById.get(job.collectionId)!;
 
         const quantity = resolveOfferQuantity(job);
         if (quantity > authority.maxQuantity) {
@@ -375,9 +396,7 @@ function requireCanonicalUint(
     }
     const parsed = BigInt(value);
     if (parsed > maxUint256) {
-        throw new BiddingMandateViolationError(
-            `${label} exceeds uint256`,
-        );
+        throw new BiddingMandateViolationError(`${label} exceeds uint256`);
     }
     return parsed;
 }

@@ -440,8 +440,8 @@ export async function startBiddingRuntime(
     biddingJobRuntimeState.invalidateEnabledActiveOrderVerification({
         chainId: params.config.chainId,
     });
-    const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
-    // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
+    const biddingJobSource = new SqliteBiddingJobSource(params.biddingMandate);
+    // The immutable boot mandate limits every startup and command admission to authorized collections.
     log.info("loadJobs", "Loading bidding jobs from SQLite", {
         dbPath: params.config.dbPath,
         chainId: params.config.chainId,
@@ -702,7 +702,7 @@ export async function startBiddingRuntime(
         observability,
     );
 
-    // Register all configured jobs before bootstrapping snapshot state or current prices.
+    // Only admitted jobs participate in snapshots, price warmup, stream watches and scans.
     jobs.forEach((job) => bidder.addJob(job));
 
     const commandRepository = new SqliteBiddingJobCommandRepository();

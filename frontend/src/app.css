@@ -2690,7 +2690,8 @@ th {
 	color: var(--c-bg);
 }
 
-.bid-book-own-status-unknown {
+.bid-book-own-status-unknown,
+.bid-book-own-status-unconfirmed {
 	background: var(--c-sand);
 	color: var(--c-bg);
 }

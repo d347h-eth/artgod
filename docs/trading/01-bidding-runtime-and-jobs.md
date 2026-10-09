@@ -54,6 +54,11 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 - Loopback bidding mutations are untrusted job proposals. A live bidding process may place offers only inside the native collection identity and caps granted for that process start.
 - Mandate collection identity is the exact ArtGod `collectionId` plus its canonical contract address and OpenSea slug. Contract address alone is insufficient for shared-contract collections.
+- Only enabled jobs whose collection identity matches the immutable boot mandate
+  enter bidding work. Unauthorized collections receive no snapshot bootstrap,
+  token-price warmup, stream subscriptions, snapshot polling, hot refresh,
+  strategy scans, or create/update execution. Explicit tracked-offer cancellation
+  and recovery of previously requested cancellations remain available.
 - Offer placement enforces mandate identity, per-offer quantity, per-NFT price,
   WETH allowance, WETH-approval fee caps, pending-nonce behavior, and trait-offer
   trust at the restricted wallet boundary. Exact-token membership in the
@@ -164,12 +169,12 @@ Startup order:
    bidding setting to agree exactly with the mandate before runtime composition;
    the mandate remains the authority after that drift check
 3. mark previously tracked active offers as unverified for enabled bidding jobs
-4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
+4. load only boot-authorized enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
 5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, native mandate policy, transaction policy, and logging adapters
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. reconcile the pinned OpenSea conduit WETH allowance up or down to the exact
    mandate cap, including revocation when the cap is `0`
-8. bootstrap authoritative collection-offer snapshots and current prices
+8. bootstrap authoritative collection-offer snapshots and current prices for admitted jobs
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
 11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
@@ -184,7 +189,12 @@ limits parsed from the immutable mandate it will enforce. Backend bid-book reads
 bind those rows to the same fresh session. This projection is diagnostic input
 for Userland only; SQLite never grants signing authority.
 Backend bid-book reads also use the heartbeat to decide whether the bot snapshot projection can be treated as live.
-Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
+Active-order evidence restored from a prior bot process is rendered as `verifying`
+when the current boot can verify it. Without current collection authorization,
+that saved evidence is `unconfirmed`; it does not assert that the bid is still
+active in OpenSea. An explicit cancellation command on the existing job performs
+the normal order lookup and cancellation, producing `canceling`, `cancel failed`,
+or `cancelled` evidence without enabling background bidding work.
 
 ## Current Runtime Mode
 
@@ -195,6 +205,8 @@ Command reconciliation:
 
 - claims ordered command rows one at a time
 - reloads the authoritative job declaration before mutating in-memory bidder state
+- skips create/update commands outside the current mandate before market
+  preparation and completes their command rows without retrying
 - replays committed startup commands before OpenSea stream subscriptions and
   steady-state snapshot polling start
 - updates watched snapshot collections and direct stream subscriptions after
@@ -338,7 +350,7 @@ After each command wake-up or recovery scan, it reloads enabled jobs before muta
 
 Command effects:
 
-- `job_created` / `job_updated`: add or replace the in-memory job and run an immediate refresh when safe
+- `job_created` / `job_updated`: add or replace an authorized enabled job and run an immediate refresh when safe; otherwise skip and complete the command without marketplace work
 - `job_paused` / `job_archived`: remove the job from scheduling and request active-offer cancellation
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
 - `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
@@ -348,11 +360,17 @@ Command effects:
 - failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
 - dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order absent, but it never places a live offer or emits a cancellation signature; an active remote order remains unresolved
 
+Skipping a command leaves its saved declaration unchanged. At a later authorized
+boot, startup loads the latest enabled spec without depending on replay of the
+already completed command. Cancellation reads retain the tracked order and the
+revision that placed it even after later spec edits; current strategy state still
+requires a matching declaration revision.
+
 Reconciliation also updates watched collections:
 
-- enabled token and collection jobs define which collection snapshots should
+- authorized enabled token and collection jobs define which collection snapshots should
   poll; competitive-trait-only collections do not use the broad snapshot lane
-- enabled jobs define which OpenSea stream subscriptions should be active
+- authorized enabled jobs define which OpenSea stream subscriptions should be active
 - snapshot polling stops when no enabled snapshot-backed job remains, and the
   stream subscription stops when no enabled job remains for the collection
 
@@ -376,7 +394,7 @@ Projection tables:
 Bot snapshot projection:
 
 - runs inside the bidding runtime as a fire-and-forget sidecar after collection-offer snapshot refreshes
-- only projects collections with enabled bidding jobs
+- only projects collections with authorized enabled snapshot-backed bidding jobs
 - coalesces concurrent notifications per collection
 - throttles projection by `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
 - treats bot snapshots as usable only while the bot has a fresh running heartbeat and `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS` is fresh
@@ -394,7 +412,7 @@ Backend source selection:
 - private Userland reads resolve current collection authorization only from rows bound to the same fresh runtime session; public reads return no local authorization detail
 - `ownMakerAddress` reports only the known passive market identity used to recognize and filter observed marketplace rows; it is not the owner identity of a local declared job and does not gate own-job visibility
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
-- prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
+- prior-process active-order evidence keeps an own row visible with strategy badges hidden; it is `verifying` when current authorization permits verification, or `unconfirmed` when that boot cannot verify the collection
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
 - when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
 - an explicit cancellation fact exclusively owns lifecycle presentation for its exact job and order; runtime evidence for that pair stays excluded even after the completed-cancellation confirmation is no longer displayed
@@ -429,7 +447,8 @@ Bid-book row materialization:
 - the frontend renders an identityless own intent as plain `You`; maker links, address titles, and maker highlighting appear only after the row is an observed market bid with an address
 - queued, waiting, authorization-required, authorization-unavailable, or paused own-intent rows without active-order evidence use a floor-ceiling price range because no single market order price exists yet
 - enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when the runtime session or matched authorization fields are incomplete
-- verifying, replacing, canceling, cancel failed, and cancelled own-intent rows backed by active-order evidence use the real active order id and exact current price
+- unconfirmed, verifying, replacing, canceling, cancel failed, and cancelled own-intent rows backed by active-order evidence use the real active order id and saved exact price
+- token cards, bid-book rows, and bidding panels preserve the saved-order or cancellation phase even when an edited declaration also requires authorization
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 - bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data
 

@@ -18,6 +18,44 @@ import {
 } from "../types/trading.js";
 import { ReadModelBadRequestError } from "../read-models/errors.js";
 
+// Saved order evidence survives a boot without authorization. Verification is
+// pending only when the current runtime can actually perform it.
+export function resolveBiddingBidBookOrderPhase(input: {
+    verified: boolean;
+    verificationExpected: boolean;
+    verifiedPhase:
+        | typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+        | typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing;
+}): TradingBiddingBidBookOwnJobPhase {
+    if (input.verified) return input.verifiedPhase;
+    return input.verificationExpected
+        ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying
+        : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed;
+}
+
+export function isBiddingBidBookCancellationPhase(
+    phase: TradingBiddingBidBookOwnJobPhase | null | undefined,
+): boolean {
+    return (
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
+    );
+}
+
+// These phases describe a tracked order rather than a declaration awaiting
+// execution. Panels must retain them when an edited job also has an intent row.
+export function isBiddingBidBookOrderLifecyclePhase(
+    phase: TradingBiddingBidBookOwnJobPhase | null | undefined,
+): boolean {
+    return (
+        isBiddingBidBookCancellationPhase(phase) ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing
+    );
+}
+
 // Own-state selection belongs to the token and trait bid-book views, which expose
 // the selected filter and its reset control. Keep URL building and API validation aligned.
 export function bidScopeSupportsOwnStateFilter(

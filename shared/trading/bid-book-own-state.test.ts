@@ -18,6 +18,7 @@ import {
     bidMatchesOwnStateFilter,
     countBiddingBidBookOwnStates,
     filterBiddingBidBookRowsByOwnState,
+    resolveBiddingBidBookOrderPhase,
     type BiddingBidBookOwnStateSignals,
 } from "./bid-book-own-state.js";
 
@@ -32,6 +33,33 @@ const market: BiddingBidBookOwnStateSignals = {
 };
 
 describe("own bid-book states", () => {
+    it.each([PHASE.Queued, PHASE.Replacing])(
+        "keeps unconfirmed saved orders distinct from pending verification before %s",
+        (verifiedPhase) => {
+            expect(
+                resolveBiddingBidBookOrderPhase({
+                    verified: false,
+                    verificationExpected: false,
+                    verifiedPhase,
+                }),
+            ).toBe(PHASE.Unconfirmed);
+            expect(
+                resolveBiddingBidBookOrderPhase({
+                    verified: false,
+                    verificationExpected: true,
+                    verifiedPhase,
+                }),
+            ).toBe(PHASE.Verifying);
+            expect(
+                resolveBiddingBidBookOrderPhase({
+                    verified: true,
+                    verificationExpected: true,
+                    verifiedPhase,
+                }),
+            ).toBe(verifiedPhase);
+        },
+    );
+
     it.each([SCOPE.Token, SCOPE.Traits])(
         "allows own-state selection in %s scope",
         (scope) => {

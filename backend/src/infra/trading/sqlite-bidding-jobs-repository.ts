@@ -115,6 +115,12 @@ type PersistedNonTokenBiddingJobRecord = Exclude<
     PersistedTokenBiddingJobRecord
 >;
 
+// Cancellation retains the revision that placed an order after the declaration is edited.
+type TrackedActiveBiddingOrder = {
+    jobRevision: number;
+    runtime: PersistedBiddingJobRuntimeState & { activeOrderId: string };
+};
+
 const BIDDING_JOB_SELECT =
     "SELECT j.job_id, j.bot_kind, j.chain_id, j.collection_id, " +
     "c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
@@ -909,10 +915,13 @@ export class SqliteBiddingJobsRepository
             return null;
         }
 
-        const cancellationPayload =
-            this.biddingJobCancellationCommandPayload(existing);
+        const activeOrder = this.loadTrackedActiveOrder(existing);
+        const cancellationPayload = this.biddingJobCancellationCommandPayload(
+            existing,
+            activeOrder,
+        );
         this.archiveTradingJobById.run({ jobId: existing.jobId });
-        this.recordCancellationRequest(existing);
+        this.recordCancellationRequest(existing, activeOrder);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
@@ -980,13 +989,17 @@ export class SqliteBiddingJobsRepository
                 : TRADING_JOB_COMMAND_KIND.JobUpdated;
         const commands: TradingJobCommandRecord[] = [];
         if (job.status === TRADING_JOB_STATUS.Paused) {
-            this.recordCancellationRequest(existing);
+            const activeOrder = this.loadTrackedActiveOrder(existing);
+            this.recordCancellationRequest(existing, activeOrder);
             commands.push(
                 this.insertCommandRecord(
                     job.jobId,
                     TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                     job.revision,
-                    this.biddingJobCancellationCommandPayload(existing),
+                    this.biddingJobCancellationCommandPayload(
+                        existing,
+                        activeOrder,
+                    ),
                 ),
             );
         }
@@ -1091,11 +1104,32 @@ export class SqliteBiddingJobsRepository
         };
     }
 
-    private recordCancellationRequest(job: PersistedBiddingJobRecord): void {
-        const runtime = job.runtime;
-        if (!runtime?.activeOrderId) {
+    private loadTrackedActiveOrder(
+        job: PersistedBiddingJobRecord,
+    ): TrackedActiveBiddingOrder | null {
+        const row = this.selectJobById.get({
+            botKind: TRADING_BOT_KIND.Bidding,
+            jobId: job.jobId,
+        }) as BiddingJobRow | undefined;
+        if (!row?.active_order_id) return null;
+        // Strategy/API state still requires the current spec revision; exact-order cancellation does not.
+        const runtime = this.mapRuntimeState(row, false);
+        return runtime
+            ? {
+                  jobRevision: row.runtime_job_revision ?? job.revision,
+                  runtime: { ...runtime, activeOrderId: row.active_order_id },
+              }
+            : null;
+    }
+
+    private recordCancellationRequest(
+        job: PersistedBiddingJobRecord,
+        activeOrder: TrackedActiveBiddingOrder | null,
+    ): void {
+        if (!activeOrder) {
             return;
         }
+        const { runtime } = activeOrder;
 
         const maker = this.selectKnownBiddingMaker.get({
             chainId: job.chainId,
@@ -1111,7 +1145,7 @@ export class SqliteBiddingJobsRepository
         this.insertCancellationRequest.run({
             orderId: runtime.activeOrderId,
             jobId: job.jobId,
-            jobRevision: job.revision,
+            jobRevision: activeOrder.jobRevision,
             makerAddress,
             priceWei: runtime.currentPriceWei,
             protocolAddress: runtime.activeProtocolAddress,
@@ -1182,27 +1216,22 @@ export class SqliteBiddingJobsRepository
 
     private biddingJobCancellationCommandPayload(
         job: PersistedBiddingJobRecord,
+        activeOrder: TrackedActiveBiddingOrder | null,
     ): Record<string, unknown> {
-        return {
-            ...this.biddingJobCommandPayload(job),
-            ...this.biddingJobRuntimeCommandPayload(job),
-        };
-    }
-
-    private biddingJobRuntimeCommandPayload(
-        job: PersistedBiddingJobRecord,
-    ): Record<string, unknown> {
-        if (!job.runtime?.activeOrderId) {
-            return {};
+        const payload = this.biddingJobCommandPayload(job);
+        if (!activeOrder) {
+            return payload;
         }
+        const { runtime } = activeOrder;
 
         return {
-            activeOrderJobRevision: job.revision,
-            activeOrderId: job.runtime.activeOrderId,
-            activeProtocolAddress: job.runtime.activeProtocolAddress,
-            activeOrderPlacedAt: job.runtime.activeOrderPlacedAt,
-            currentPriceWei: job.runtime.currentPriceWei,
-            activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
+            ...payload,
+            activeOrderJobRevision: activeOrder.jobRevision,
+            activeOrderId: runtime.activeOrderId,
+            activeProtocolAddress: runtime.activeProtocolAddress,
+            activeOrderPlacedAt: runtime.activeOrderPlacedAt,
+            currentPriceWei: runtime.currentPriceWei,
+            activeExpirationTimeMs: runtime.activeExpirationTimeMs,
         };
     }
 
@@ -1387,10 +1416,12 @@ export class SqliteBiddingJobsRepository
 
     private mapRuntimeState(
         row: BiddingJobRow,
+        requireCurrentRevision = true,
     ): PersistedBiddingJobRuntimeState | null {
         if (
             !row.runtime_updated_at ||
-            row.runtime_job_revision !== row.revision
+            (requireCurrentRevision &&
+                row.runtime_job_revision !== row.revision)
         ) {
             return null;
         }

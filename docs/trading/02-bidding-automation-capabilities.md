@@ -14,6 +14,10 @@ contract in `docs/ui/01-interaction-guidelines.md`.
 - `orders` fallback data is passive bid-book display only and never feeds bidder competitiveness or placement decisions.
 - Public single-collection mode may expose read-only offers and token bid books, but it must not expose bidding jobs, price tiers, presets for extra targets, or write controls.
 - Amounts shown in UI/API fields use Ether units; persisted EVM-facing amount columns use wei strings.
+- Userland can create or edit valid job specs without current collection
+  authorization and still emits the normal durable commands. The current bot
+  skips those create/update commands and all bidding work until a boot authorizes
+  that collection. Explicit cancellation remains available for tracked bids.
 
 ## Public-Alpha Control Boundary
 
@@ -338,7 +342,8 @@ Own-bid display:
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
 - Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, `paused`, or `verifying` phase.
 - `authorization required` replaces an enabled job's indefinite `queued` state when the current process omits the collection or its approved identity is stale. The bidding panel directs the user to stop and start the bot in Admin and include or review the collection in the new bidding authorization.
-- Own active-order lifecycle rows can appear as `own_job_intent` rows with `verifying`, `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
+- Own active-order lifecycle rows can appear as `own_job_intent` rows with `unconfirmed`, `verifying`, `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
+- Saved order evidence is `unconfirmed` when this boot cannot verify the collection. The job remains editable, and its explicit pause/archive action follows the normal cancellation flow. Cancellation evidence takes precedence over authorization messages in the panel.
 - Own-intent rows without active-order evidence use range pricing; runtime/cancellation-backed rows use exact order pricing.
 - Own-intent rows carry no marketplace maker address and render plain `You`; maker navigation, address titles, and maker highlighting remain available only for observed market rows.
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.

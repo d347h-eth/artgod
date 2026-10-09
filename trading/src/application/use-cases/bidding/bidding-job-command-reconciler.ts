@@ -133,6 +133,7 @@ const log = createBiddingComponentLogger(
 
 const BIDDING_COMMAND_RECONCILER_LOG_ACTION = {
     EnabledJobAlreadySatisfied: "enabledJobAlreadySatisfied",
+    UnschedulableJobSkipped: "unschedulableJobSkipped",
     CommandStarted: "commandStarted",
     CommandProgress: "commandProgress",
     CancellationTerminalFailureRecordFailed:
@@ -470,54 +471,39 @@ export class BiddingJobCommandReconciler {
         command: BiddingJobCommand,
         onStrategyStarted: (startedAtMs: number) => void,
     ): Promise<void> {
-        // Reload the authoritative job declaration from SQLite before mutating live bidder state.
-        const record = await this.jobSource.loadJobById(command.jobId);
-        if (!record) {
-            this.bidder.removeJob(command.jobId);
-            log.warn(
-                "commandMissingJob",
-                "Bidding job command references a missing job",
-                commandLogFields(command),
-            );
-            return;
-        }
-
-        if (record.status !== TRADING_JOB_STATUS.Enabled) {
+        // Admission precedes snapshots, streams, order recovery and strategy execution.
+        const job = await this.jobSource.loadEnabledJobById(command.jobId);
+        if (!job) {
             this.bidder.removeJob(command.jobId);
             log.info(
-                "nonEnabledJobRemoved",
-                "Removed non-enabled bidding job from scheduling",
-                {
-                    ...commandLogFields(command),
-                    status: record.status,
-                },
+                BIDDING_COMMAND_RECONCILER_LOG_ACTION.UnschedulableJobSkipped,
+                "Skipped bidding job command without an enabled authorized declaration",
+                commandLogFields(command),
             );
+            // Complete the command without retries. A later authorized boot loads the latest saved spec.
             return;
         }
 
-        if (this.completeAlreadySatisfiedJobCommand(command, record.job)) {
+        if (this.completeAlreadySatisfiedJobCommand(command, job)) {
             return;
         }
 
         await observeBiddingWork(
             this.observability,
             BIDDING_WORK_STAGE.JobPreparation,
-            () => this.jobPreparationPort.prepareEnabledJob(record.job),
+            () => this.jobPreparationPort.prepareEnabledJob(job),
         );
-        this.bidder.addJob(record.job);
-        if (this.completeAlreadySatisfiedJobCommand(command, record.job)) {
+        this.bidder.addJob(job);
+        if (this.completeAlreadySatisfiedJobCommand(command, job)) {
             return;
         }
 
         log.info("enabledJobApplied", "Applied enabled bidding job", {
             ...commandLogFields(command),
-            revision: record.revision,
+            revision: job.revision,
         });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
-        await this.bidder.refreshJobForCommand(
-            record.job.id,
-            onStrategyStarted,
-        );
+        await this.bidder.refreshJobForCommand(job.id, onStrategyStarted);
     }
 
     private completeAlreadySatisfiedJobCommand(
@@ -587,9 +573,13 @@ export class BiddingJobCommandReconciler {
         }
 
         const originalRevision = job.revision;
-        const activeOrderJobRevision = parseOptionalPayloadNumber(
-            command.payload.activeOrderJobRevision,
-        );
+        const activeOrderJobRevision =
+            parseOptionalPayloadNumber(
+                command.payload.activeOrderJobRevision,
+            ) ??
+            (record?.job.state.activeOrderId === job.state.activeOrderId
+                ? (record?.activeOrderJobRevision ?? undefined)
+                : undefined);
         if (activeOrderJobRevision !== undefined) {
             job.revision = activeOrderJobRevision;
         }

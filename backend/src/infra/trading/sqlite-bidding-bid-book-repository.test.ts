@@ -29,6 +29,7 @@ import {
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
+    TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     type TradingBotRuntimeState,
 } from "@artgod/shared/types";
@@ -985,6 +986,160 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
+    it.each(
+        [false, true].flatMap((editSpec) =>
+            [TRADING_JOB_STATUS.Paused, TRADING_JOB_STATUS.Archived].flatMap(
+                (status) =>
+                    [null, ACTIVE_ORDER_VERIFIED_AT].map((verifiedAt) => ({
+                        editSpec,
+                        status,
+                        verifiedAt,
+                    })),
+            ),
+        ),
+    )(
+        "keeps an unauthorized tracked token bid unconfirmed and cancellable through $status after spec edit=$editSpec with previous verification=$verifiedAt",
+        ({ editSpec, status, verifiedAt }) => {
+            const jobs = new SqliteBiddingJobsRepository();
+            const activeOrderId = "tracked-unauthorized-order";
+            const input = {
+                chainId: 1,
+                collectionId,
+                tokenId: "1",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorWei: "100",
+                ceilingWei: "200",
+                deltaWei: "1",
+            };
+            const created = jobs.upsertTokenJob(input);
+            assert.deepEqual(
+                created.commands.map((command) => command.commandKind),
+                [TRADING_JOB_COMMAND_KIND.JobCreated],
+            );
+            // A fresh boot clears verification, but retains durable active-order evidence.
+            seedBiddingBotRuntimeState(TRADING_BOT_RUNTIME_STATE.Running);
+            seedJobRuntimeState({
+                jobId: created.job.jobId,
+                currentPriceWei: "150",
+                activeOrderId,
+                activeOrderVerifiedAt: verifiedAt,
+                bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            });
+            if (editSpec) {
+                const updated = jobs.upsertTokenJob({
+                    ...input,
+                    floorWei: "120",
+                });
+                assert.deepEqual(
+                    updated.commands.map((command) => command.commandKind),
+                    [TRADING_JOB_COMMAND_KIND.JobUpdated],
+                );
+                assert.equal(updated.job.runtime, null);
+            }
+
+            const book = new SqliteBiddingBidBookRepository().listTokenBidBook({
+                chainId: 1,
+                collectionId,
+                tokenId: "1",
+                tokenTraits: [],
+                includeOwnJobContext: true,
+            });
+            assert.equal(
+                book.biddingAuthorization?.status,
+                TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+            );
+            const tracked = book.bids.find(
+                (bid) => bid.orderId === activeOrderId,
+            );
+            assert.ok(tracked);
+            assert.equal(tracked.isOwn, true);
+            assert.deepEqual(tracked.price, exactBidBookRowPrice("150"));
+            assert.equal(tracked.validUntil, 1_900_000_000);
+            assert.equal(tracked.materialization.jobId, created.job.jobId);
+            assert.equal(
+                tracked.materialization.phase,
+                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed,
+            );
+            assert.equal(tracked.ownStatus, null);
+            if (editSpec) {
+                assert.equal(
+                    book.bids.find(
+                        (bid) => bid.isOwn && bid.orderId !== activeOrderId,
+                    )?.materialization.phase,
+                    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired,
+                );
+            }
+
+            // Userland's explicit archive/pause path must still carry the old order into cancellation.
+            const result =
+                status === TRADING_JOB_STATUS.Archived
+                    ? jobs.archiveTokenJob({
+                          chainId: 1,
+                          collectionId,
+                          tokenId: "1",
+                      })
+                    : jobs.upsertTokenJob({ ...input, status });
+            assert.deepEqual(
+                result?.commands.map((command) => command.commandKind),
+                [
+                    TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                    status === TRADING_JOB_STATUS.Archived
+                        ? TRADING_JOB_COMMAND_KIND.JobArchived
+                        : TRADING_JOB_COMMAND_KIND.JobPaused,
+                ],
+            );
+            const cancellation = result?.commands.find(
+                (command) =>
+                    command.commandKind ===
+                    TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            );
+            assert.equal(cancellation?.payload.activeOrderId, activeOrderId);
+            assert.equal(cancellation?.payload.activeOrderJobRevision, 1);
+            assert.deepEqual(
+                db
+                    .prepare(
+                        "SELECT job_revision, price_wei, completed_at FROM trading_bidding_order_cancellations WHERE order_id = ?",
+                    )
+                    .get(activeOrderId),
+                { job_revision: 1, price_wei: "150", completed_at: null },
+            );
+            const cancellationPhase = () =>
+                new SqliteBiddingBidBookRepository()
+                    .listTokenBidBook({
+                        chainId: 1,
+                        collectionId,
+                        tokenId: "1",
+                        tokenTraits: [],
+                        includeOwnJobContext: true,
+                    })
+                    .bids.find((bid) => bid.orderId === activeOrderId)
+                    ?.materialization.phase;
+            assert.equal(
+                cancellationPhase(),
+                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+            );
+            db.prepare(
+                "UPDATE trading_bidding_order_cancellations SET cancellation_error = ? WHERE order_id = ?",
+            ).run("fixture cancellation failure", activeOrderId);
+            assert.equal(
+                cancellationPhase(),
+                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
+            );
+            db.prepare(
+                "UPDATE trading_bidding_order_cancellations SET cancellation_error = NULL, completed_at = ?, updated_at = ? WHERE order_id = ?",
+            ).run(
+                new Date().toISOString(),
+                new Date().toISOString(),
+                activeOrderId,
+            );
+            assert.equal(
+                cancellationPhase(),
+                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled,
+            );
+        },
+    );
+
     it("renders startup-unverified active order evidence without runtime strategy badges", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
@@ -1041,7 +1196,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
-    it("renders active job intent as waiting when the bot heartbeat is stale", () => {
+    it("renders saved active orders as unconfirmed when the bot heartbeat is stale", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
         db.prepare(
@@ -1097,7 +1252,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             [
                 {
                     orderId: "own-indexed-order",
-                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
+                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Unconfirmed,
                     ownStatus: null,
                 },
             ],

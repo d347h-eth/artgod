@@ -6,6 +6,7 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { EVM_PENDING_NONCE_POLICY } from "@artgod/shared/evm/transactions";
 import {
     COLLECTION_STANDARD,
     COLLECTION_STATUS,
@@ -15,6 +16,18 @@ import {
 } from "@artgod/shared/types";
 import { SqliteBiddingJobSource } from "./sqlite-bidding-job-source.js";
 import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
+import { BiddingMandate } from "../../domain/bidding-mandate.js";
+import { MarketEvent, Scope, Type } from "../../domain/market/event.js";
+import { Bidder } from "../../application/use-cases/bidding/bidder.js";
+import {
+    BIDDING_ORDER_RECOVERY_STATUS,
+    type BiddingService,
+} from "../../application/use-cases/bidding/bidding-service.js";
+import {
+    collectSnapshotBackedCollectionSlugs,
+    collectTokenWarmCandidateCount,
+    collectWatchedCollectionSlugs,
+} from "../../runtime/bidding-runtime.js";
 
 // Job source tests verify market-slug mapping with a private fixture collection.
 const JOB_SOURCE_COLLECTION_SLUG = "job-source-fixture";
@@ -116,6 +129,44 @@ function seedJob(params: {
     });
 }
 
+function createMandate(collectionIds: number[]): BiddingMandate {
+    return BiddingMandate.parse(
+        {
+            chainId: 1,
+            startPolicy: {
+                wethAllowanceCapWei: "1000000000000000000",
+                trustOpenSeaSignedZoneTraitOffers: true,
+                wethApproval: {
+                    minPriorityFeePerGasWei: "1",
+                    maxFeePerGasWei: "10",
+                    maxTotalGasFeeWei: "1000",
+                    pendingNoncePolicy: EVM_PENDING_NONCE_POLICY.Fail,
+                },
+            },
+            collections: collectionIds.map((collectionId) => {
+                const row = db
+                    .prepare(
+                        "SELECT slug, address, opensea_slug FROM collections WHERE collection_id = ?",
+                    )
+                    .get(collectionId) as {
+                    slug: string;
+                    address: string;
+                    opensea_slug: string;
+                };
+                return {
+                    collectionId,
+                    artgodSlug: row.slug,
+                    contractAddress: row.address,
+                    openseaSlug: row.opensea_slug,
+                    maxUnitBidWei: "1000000000000000000",
+                    maxQuantity: 2,
+                };
+            }),
+        },
+        1,
+    );
+}
+
 describe("SqliteBiddingJobSource", () => {
     let marketCollectionId = 0;
     let grailsCollectionId = 0;
@@ -198,7 +249,9 @@ describe("SqliteBiddingJobSource", () => {
         db.prepare(
             "UPDATE trading_bidding_job_specs SET competition_preset_version_id = ? WHERE job_id = ?",
         ).run("source-v1", "job-collection");
-        const source = new SqliteBiddingJobSource(1);
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId, grailsCollectionId]),
+        );
         const jobs = await source.loadEnabledJobs();
         const jobsById = new Map(jobs.map((job) => [job.id, job]));
 
@@ -269,7 +322,7 @@ describe("SqliteBiddingJobSource", () => {
         });
     });
 
-    it("rejects an enabled job whose collection lacks an OpenSea slug", async () => {
+    it("skips an unmandated enabled job without decoding its missing OpenSea identity", async () => {
         const collectionId = seedCollection({
             slug: "missing-opensea-identity",
             address: "0x3333333333333333333333333333333333333333",
@@ -283,10 +336,223 @@ describe("SqliteBiddingJobSource", () => {
             tokenId: "1",
         });
 
-        const source = new SqliteBiddingJobSource(1);
-        await assert.rejects(
-            source.loadEnabledJobs(),
-            /collection_opensea_slug/,
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId]),
+        );
+        assert.deepEqual(await source.loadEnabledJobs(), []);
+        assert.equal(
+            await source.loadEnabledJobById("job-without-opensea-slug"),
+            null,
+        );
+        assert.equal(
+            (await source.loadJobById("job-without-opensea-slug"))?.job
+                .collectionSlug,
+            "missing-opensea-identity",
+        );
+    });
+
+    it("excludes every unauthorized target from startup, warmup, scans and hot refresh", async () => {
+        seedJob({
+            jobId: "authorized-token",
+            collectionId: marketCollectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: "1",
+        });
+        for (const [jobId, targetKind, traits] of [
+            ["unauthorized-token", TRADING_JOB_TARGET_KIND.Token, []],
+            ["unauthorized-collection", TRADING_JOB_TARGET_KIND.Collection, []],
+            [
+                "unauthorized-traits",
+                TRADING_JOB_TARGET_KIND.Collection,
+                [{ type: "Biome", value: "Flow" }],
+            ],
+            [
+                "unauthorized-competitive",
+                TRADING_JOB_TARGET_KIND.CompetitiveTrait,
+                [{ type: "Biome", value: "Flow" }],
+            ],
+        ] as const) {
+            seedJob({
+                jobId,
+                collectionId: grailsCollectionId,
+                status: TRADING_JOB_STATUS.Enabled,
+                targetKind,
+                tokenId:
+                    targetKind === TRADING_JOB_TARGET_KIND.Token ? "1" : null,
+                quantity: 1,
+                targetTraitsJson: JSON.stringify(traits),
+                competitorTraitsJson: JSON.stringify(traits),
+            });
+        }
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId]),
+        );
+        const jobs = await source.loadEnabledJobs();
+        assert.deepEqual(
+            jobs.map((job) => job.id),
+            ["authorized-token"],
+        );
+        assert.deepEqual(collectWatchedCollectionSlugs(jobs), [
+            JOB_SOURCE_MARKET_SLUG,
+        ]);
+        assert.deepEqual(collectSnapshotBackedCollectionSlugs(jobs), [
+            JOB_SOURCE_MARKET_SLUG,
+        ]);
+        assert.equal(collectTokenWarmCandidateCount(jobs), 1);
+
+        const reads: string[] = [];
+        const warmups: string[] = [];
+        const service: BiddingService = {
+            roundOfferPriceDown: (amount) => amount,
+            roundOfferPriceUp: (amount) => amount,
+            getActiveOffers: async (job) => {
+                reads.push(job.id);
+                return [];
+            },
+            getActiveTokenOfferByMaker: async (job) => {
+                warmups.push(job.id);
+                return null;
+            },
+            getOrder: async () => ({
+                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+            }),
+            placeOffer: async () => {
+                throw new Error("Unexpected placement");
+            },
+            cancelOffer: async () => {
+                throw new Error("Unexpected cancellation");
+            },
+            cancelRecoveredOrder: async () => {
+                throw new Error("Unexpected cancellation");
+            },
+        };
+        const bidder = new Bidder(
+            service,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            60_000,
+            { dryRun: true },
+        );
+        jobs.forEach((job) => bidder.addJob(job));
+        await bidder.bootstrapCurrentPrices();
+        await bidder.scanOnce();
+        await bidder.scanOnce();
+        const event = new MarketEvent(
+            new Date().toISOString(),
+            Type.ItemReceivedBid,
+            "0xcompetitor",
+            GRAILS_MARKET_SLUG,
+            "1",
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            1,
+            "WETH",
+            18,
+            Scope.Item,
+        );
+        event.setTotalPrice(110000000000000000n);
+        await bidder.refreshMatchingJobs(event);
+        assert.deepEqual(warmups, ["authorized-token"]);
+        assert.deepEqual(reads, ["authorized-token", "authorized-token"]);
+    });
+
+    it("checks the ArtGod collection id when another collection adopts the reviewed marketplace identity", async () => {
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId]),
+        );
+        // Marketplace slugs are unique in SQLite; move this identity to a different ArtGod id.
+        db.prepare(
+            "UPDATE collections SET opensea_slug = NULL WHERE collection_id = ?",
+        ).run(marketCollectionId);
+        db.prepare(
+            "UPDATE collections SET address = ?, opensea_slug = ? WHERE collection_id = ?",
+        ).run(
+            "0x1111111111111111111111111111111111111111",
+            JOB_SOURCE_MARKET_SLUG,
+            grailsCollectionId,
+        );
+        seedJob({
+            jobId: "other-shared-contract-job",
+            collectionId: grailsCollectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: "1",
+        });
+        // Malformed unauthorized specs must not delay or fail authorized startup/commands.
+        db.prepare(
+            "UPDATE trading_bidding_job_specs SET floor_wei = ? WHERE job_id = ?",
+        ).run("invalid", "other-shared-contract-job");
+        assert.deepEqual(await source.loadEnabledJobs(), []);
+        assert.equal(
+            await source.loadEnabledJobById("other-shared-contract-job"),
+            null,
+        );
+    });
+
+    it.each([
+        ["address", "0x3333333333333333333333333333333333333333"],
+        ["opensea_slug", "different-marketplace-identity"],
+        ["opensea_slug", null],
+    ])(
+        "stops admission when the reviewed %s changes to %s",
+        async (field, value) => {
+            seedJob({
+                jobId: "identity-drift",
+                collectionId: marketCollectionId,
+                status: TRADING_JOB_STATUS.Enabled,
+                targetKind: TRADING_JOB_TARGET_KIND.Token,
+                tokenId: "1",
+            });
+            const source = new SqliteBiddingJobSource(
+                createMandate([marketCollectionId]),
+            );
+            assert.equal((await source.loadEnabledJobs()).length, 1);
+            db.prepare(
+                `UPDATE collections SET ${field} = ? WHERE collection_id = ?`,
+            ).run(value, marketCollectionId);
+            assert.deepEqual(await source.loadEnabledJobs(), []);
+            assert.equal(
+                await source.loadEnabledJobById("identity-drift"),
+                null,
+            );
+            assert.equal(
+                (await source.loadJobById("identity-drift"))?.job.id,
+                "identity-drift",
+            );
+        },
+    );
+
+    it("loads the latest saved spec at the next authorized boot without requiring the skipped command", async () => {
+        seedJob({
+            jobId: "later-authorized",
+            collectionId: grailsCollectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: "1",
+        });
+        const currentSource = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId]),
+        );
+        assert.deepEqual(await currentSource.loadEnabledJobs(), []);
+        db.prepare("UPDATE trading_jobs SET revision = 2 WHERE job_id = ?").run(
+            "later-authorized",
+        );
+        db.prepare(
+            "UPDATE trading_bidding_job_specs SET floor_wei = ? WHERE job_id = ?",
+        ).run("150000000000000000", "later-authorized");
+        assert.equal(
+            await currentSource.loadEnabledJobById("later-authorized"),
+            null,
+        );
+
+        const nextSource = new SqliteBiddingJobSource(
+            createMandate([grailsCollectionId]),
+        );
+        const [job] = await nextSource.loadEnabledJobs();
+        assert.equal(job?.revision, 2);
+        assert.equal(job?.config.floor, 150000000000000000n);
+        assert.equal(
+            (await nextSource.loadJobById("later-authorized"))?.status,
+            TRADING_JOB_STATUS.Enabled,
         );
     });
 
@@ -334,7 +600,9 @@ describe("SqliteBiddingJobSource", () => {
             activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
         });
 
-        const source = new SqliteBiddingJobSource(1);
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId, grailsCollectionId]),
+        );
         const jobs = await source.loadEnabledJobs();
 
         assert.equal(jobs.length, 1);
@@ -376,10 +644,18 @@ describe("SqliteBiddingJobSource", () => {
             activeOrderId: "0xold-order",
         });
 
-        const source = new SqliteBiddingJobSource(1);
+        const source = new SqliteBiddingJobSource(
+            createMandate([marketCollectionId, grailsCollectionId]),
+        );
         const job = (await source.loadEnabledJobs())[0];
 
         assert.equal(job?.revision, 2);
         assert.deepEqual(job?.state, {});
+        const cancellationRecord = await source.loadJobById("job-enabled");
+        assert.equal(
+            cancellationRecord?.job.state.activeOrderId,
+            "0xold-order",
+        );
+        assert.equal(cancellationRecord?.activeOrderJobRevision, 1);
     });
 });
