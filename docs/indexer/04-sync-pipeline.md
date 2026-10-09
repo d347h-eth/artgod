@@ -52,14 +52,78 @@ The sync worker runs two queue consumers and one automatic executor:
    or lost reply retries stable identities without repeating remote acquisition.
 
 Automatic and queued backfills use `RPC_BACKFILL_URL_LIST` when configured;
-realtime uses `RPC_URL_LIST`. The automatic loop starts immediately, then polls
-every 12 seconds and coalesces overlapping passes. It reads HEAD only when a
-range is ready or a collection's persisted 30-minute HEAD check is due. Those
-checks can replace older pending ranges before any block data is fetched, inside
-the shared current-state gate. Selection is repeated after waiting for that
-gate. The loop drains admitted work before runtime dependencies close; realtime
-remains outside the gate. `BACKFILL_WORKER_COUNT` applies to queued backfills,
-while automatic gaps still use one shared range at a time.
+realtime uses `RPC_URL_LIST`. Automatic repair starts immediately and continues
+after each successful batch or local discovery page with older history still
+to check. It waits 12 seconds only when idle, paused or blocked. Discovery runs
+beside repair in the sync worker and does not depend on a scheduler tick.
+
+A local-only discovery page may reuse HEAD for at most 12 seconds. Every batch
+that fetches block data reads fresh HEAD before selection. Persisted 30-minute
+checks can replace older pending ranges inside the shared current-state gate.
+A running range finishes first; queued manual/recovery work gets the gate before
+another automatic gap pass. Selection is repeated after waiting for that gate.
+The loop drains admitted work before dependencies close; realtime stays outside
+the gate. `BACKFILL_WORKER_COUNT` applies to queued manual/bootstrap backfills.
+Automatic gaps still use one shared range at a time.
+
+### RPC allocation
+
+`main` covers realtime, manual backfills, bootstrap, reorg recovery and their
+downstream work. Only automatic collection-gap repairs and their descendants
+use `gap_repair`. The class is explicit in queued envelopes, maker continuations,
+and persisted order-validation demand. Legacy messages without a class retain
+main behavior. Pending coalesced main demand promotes background demand; after
+completion a new background request uses the background class again.
+
+The sole HEAD scheduler per chain owns an allocation scheduler over the existing
+local NATS connection. All six RPC-bearing pipeline runtimes acquire a permit
+for each actual network attempt, including retries. Cached results consume none.
+The existing `RPC_RATE_LIMIT_REQUESTS_PER_SECOND` and `RPC_RATE_LIMIT_BURST`
+limit total pipeline traffic per endpoint across processes and pools. Endpoint
+identity is an opaque hash of the normalized URL; credentials never enter
+budget messages. Backend/trading retain their existing separate RPC policies.
+
+`GAP_FILL_RPC_REQUESTS_PER_SECOND` limits background traffic per endpoint
+(default 0.5, burst one), and `GAP_FILL_RPC_MAX_IN_FLIGHT` limits concurrent
+background attempts across all pipeline workers/endpoints (default one).
+Main uses remaining capacity and may borrow the background allowance when
+unused. Background cannot borrow extra main capacity. A zero gap rate pauses
+automatic discovery/repair and defers queued background RPC work; recovery and
+manual work remain main. These are startup settings; saved changes require restart.
+
+Downstream queues use separate durable main/background slots for the same
+handlers, so waiting background work cannot occupy a main slot. Background
+deliveries renew their broker lease and retain quota waits without DLQ exhaustion.
+Actual failed background descendants retry after five minutes and do not use
+broker delivery counts to terminalize extension tasks; manual/bootstrap retry
+limits retain their existing behavior.
+Order validation keeps one of its two permits available for main, allowing main
+to use both when background is idle. Snapshot freshness, fork verification and
+revision/generation fences apply to both classes.
+
+Budget messages are transient request/reply, outside the durable jobs stream.
+Transport waiters and attempt leases are bounded; a caller can rejoin quota
+admission while preserving its selected request and earlier reads. This permits
+slow configured rates without restarting the whole range. Pausing or shutdown
+still releases ownership. Crashed callers lose their permits after
+the configured HTTP timeout plus five seconds. A new owner waits that long before
+granting background work, fencing attempts from the previous owner. Main startup
+uses the established per-client limiter only when NATS reports no budget owner;
+background never bypasses its allocation. This assumes the normal composition's
+single HEAD scheduler per chain, not replicated independent budget owners.
+The owner performs asynchronous head scheduling; SQL history scans stay in the
+sync worker so they cannot block admission for other pipeline processes.
+
+#### Deferred automatic allocation
+
+A future controller belongs in that budget owner, underneath the manual ceilings.
+Use main backlog age, local quota wait, provider response time excluding that wait,
+timeouts/rejections and achieved throughput. Reduce background quickly under main
+pressure and increase it slowly with hysteresis; do not add persisted gap state
+or weaken snapshot/canonical checks. Endpoint attempt timing excludes quota wait
+for allocated pipeline calls; wait is reported separately. Purpose-separated
+measurements and live free-public-RPC qualification remain required before
+enabling automatic adjustment.
 
 Acquisition completion establishes persisted data and publication intent.
 Publication acceptance and downstream consumer completion are separate states.
@@ -171,7 +235,7 @@ The `Terraformed` log also emits an extension event fact. The Terraforms extensi
 
 ## Gap Check
 
-The scheduler performs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
+The sync worker performs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
 on startup and every HTTP head poll. It repeatedly walks collection-specific
 coverage from head through each live collection's bootstrap anchor, including
 holes behind bootstrap's last-synced block. The former global predecessor check

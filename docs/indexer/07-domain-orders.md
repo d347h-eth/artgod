@@ -735,3 +735,24 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
   forms still need a deterministic parsing/repair policy.
 - Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
   `Deposit` and `Withdrawal` triggers are not decoded separately yet.
+
+## Main and automatic-gap validation allocation
+
+Ordinary demand retains `work_class` in `order_validation_demand`; bounded
+claims select one class through the due index. Two main executors and one gap
+executor share two validation permits. At most one background validator runs,
+leaving a slot for main; main may use both when background is idle. RPC
+snapshot creation, reads and final verification use the retained class even
+after the originating queue handler ends.
+
+Maker requests retain their class in the persisted payload and continuations.
+A coalesced outstanding main request promotes the run, and completed priority
+does not leak into a later background-only request. Recovery checks the class
+of the actual persisted publication, which may precede promotion. Deferred
+per-order handoff retains the run's strongest outstanding class.
+
+Local quota waits release claims without incrementing validation failures or
+isolating orders. They never make unavailable metadata into a successful refresh
+or turn an infrastructure wait into an invalid order. Existing snapshot lifetime,
+head-age, fork and revision/generation checks remain unchanged; very low gap
+allocations can delay valid background completion until capacity is available.

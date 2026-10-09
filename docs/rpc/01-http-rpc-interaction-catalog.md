@@ -398,6 +398,15 @@ Not covered:
 - OpenSea REST retries and rate limiting do not cover Ethereum HTTP JSON-RPC
   calls. They are separate integration resilience.
 
+## Indexer Pipeline Allocation
+
+The HEAD scheduler owns one shared per-endpoint RPC allocation for pipeline
+workers on its local broker. Realtime, manual, bootstrap and reorg work are main;
+automatic gap repairs and their descendants share a smaller configurable
+background allowance. Backend/trading retain their adapter-specific policies.
+See [pipeline allocation](../indexer/04-sync-pipeline.md#rpc-allocation) for
+configuration, durable classification, startup recovery and future control.
+
 ## Current Limits and Future Direction
 
 The remaining trading runtime gaps are the write-capable viem lane and the

@@ -46,6 +46,7 @@ type JobEnvelope<TPayload> = {
   traceId?: string;
   collectionId?: number;
   chainId: number;
+  workClass?: "main" | "gap_repair";
   onchainBlock?: { chainId: number; blockNumber: number; blockHash: string };
 }
 ```
@@ -58,6 +59,15 @@ Key details:
 - `onchainBlock` identifies event-specific sync hints. Domain-worker checks the
   stored canonical hash before handler admission; a late orphan hint is ACKed
   without processing. Range projection jobs reread persisted facts instead.
+
+Automatic-gap descendants retain `gap_repair`; legacy envelopes default to
+`main`. Main uses the existing exact queue subject; background appends
+`.gap_repair` with a separate durable consumer named `<main-consumer>-gap_repair`.
+Both execute the same handler with separate slots. Quota waits are local
+deferrals, retained without terminal delivery-count exhaustion. Maker recovery
+uses the persisted publication's class and checks both consumers' ACK floors.
+The backlog inspector includes both exact subjects when selecting a logical
+queue; an explicit `--subject` still selects only that subject.
 
 ## Queue Port (Interface)
 

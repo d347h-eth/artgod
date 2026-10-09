@@ -151,7 +151,7 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   to later HEAD-check pages. It records warm local timings in
   `tmp/recent-gap-query-cost.json`; these are not a cold disk or fully covered
   26-million-block qualification.
-- `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
+- `tests/scheduler-worker.test.ts` verifies HEAD scheduling at startup and unchanged heads,
   WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
   shutdown draining.
 - `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
@@ -222,6 +222,17 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   including retained parent identities at missing heights, without guessing a fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
+- `tests/continuous-gap-loop.test.ts` verifies immediate bounded continuation,
+  idle/error backoff, nonoverlapping passes and graceful stop without idle delay.
+- `tests/rpc-work-allocation.test.ts` verifies durable work classes, async scope
+  isolation, deferred snapshot/final verification attribution, reserved validation
+  capacity, main priority between backfill ranges and separate queue capacity.
+  Demand/maker SQLite tests cover priority promotion, completed-state reset,
+  retained continuation/publication class and quota deferral without failure count.
+- `shared/evm/rpc-budget.test.ts` verifies shared per-endpoint rates, main use of
+  idle allowance, bounded background concurrency, cancellation, expiry, paused
+  work and endpoint identity privacy. RPC execution tests verify per-attempt
+  admission including retries and no provider penalty for local quota waiting.
 - `tests/fill-execution-upgrades.test.ts` upgrades populated legacy history,
   removes every sale source, preserves unrelated tables, and verifies atomic
   rollback/retry and resumed market-data recovery without restoring old sales.
@@ -257,6 +268,7 @@ helper and child-worker bundler retain disposable SQLite/JetStream stores,
 worker/broker logs and reports under `tmp/reorg-recovery-nats/`. Metadata range
 broker fixtures retain their private stores and logs under `tmp/metadata-range-nats/`.
 Bootstrap coverage-upgrade fixtures use `tmp/bootstrap-coverage-recovery-nats/`.
+RPC allocation fixtures use `tmp/rpc-allocation-nats/`.
 
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
@@ -291,6 +303,13 @@ restore coverage and allow collection-live completion. Real transfer decoding,
 the current-state gate and SQLite persistence prove ERC1155 deltas apply once,
 including when an old queued tail overlaps a recovery batch. Executor unit tests
 also cover bounded pending work, retry timing and uncertain publication.
+
+`integration/rpc-work-allocation.test.ts` uses independent budget clients on the
+isolated broker. It covers shared rates/in-flight limits under main load, failed
+request release, shutdown cancellation, missing-owner fallback for main only,
+paused background, a logical request surviving the 30-second transport deadline
+at low rates, and main queue delivery while a background slot remains occupied.
+It runs the production owner restart fence; no test override disables it.
 
 RPC chain responses are deterministic fixtures. These checks establish the local
 broker/database failure contracts; external-RPC smoke, native/package execution
