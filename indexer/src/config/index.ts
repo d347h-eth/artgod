@@ -42,6 +42,10 @@ import type {
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
 import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
+import {
+    assertRpcGapAllocation,
+    type RpcGapAllocation,
+} from "@artgod/shared/evm/rpc-budget";
 import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
 import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache-storage";
 import {
@@ -54,6 +58,32 @@ import {
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
+export const GAP_RPC_ENV_KEY = {
+    RequestsPerSecond: "GAP_FILL_RPC_REQUESTS_PER_SECOND",
+    MaxInFlight: "GAP_FILL_RPC_MAX_IN_FLIGHT",
+} as const;
+
+export function parseGapRpcAllocation(
+    env: Record<string, string | undefined>,
+): RpcGapAllocation {
+    const requestsPerSecond = parseNumber(
+        env[GAP_RPC_ENV_KEY.RequestsPerSecond],
+        GAP_RPC_ENV_KEY.RequestsPerSecond,
+        getSettingDefaultNumber(GAP_RPC_ENV_KEY.RequestsPerSecond),
+    );
+    if (!Number.isFinite(requestsPerSecond) || requestsPerSecond < 0)
+        throw new Error(
+            `${GAP_RPC_ENV_KEY.RequestsPerSecond} must be a finite nonnegative number`,
+        );
+    return {
+        requestsPerSecond,
+        maxInFlight: parsePositiveInteger(
+            env[GAP_RPC_ENV_KEY.MaxInFlight],
+            GAP_RPC_ENV_KEY.MaxInFlight,
+            getSettingDefaultNumber(GAP_RPC_ENV_KEY.MaxInFlight),
+        ),
+    };
+}
 const DEFAULT_REORG_DEPTH = getSettingDefaultNumber("REORG_DEPTH");
 const DEFAULT_BACKFILL_BATCH_SIZE = getSettingDefaultNumber(
     "BACKFILL_BATCH_SIZE",
@@ -141,6 +171,7 @@ export type IndexerConfig = {
         wsEndpoints?: RpcWebSocketEndpointConfig[];
         retryPolicy: RpcRetryPolicy;
         resilience: RpcEndpointResilienceConfig;
+        gapAllocation: RpcGapAllocation;
     };
     tokens: {
         wethAddress: string;
@@ -237,6 +268,9 @@ export function loadConfig(
             DEFAULT_COMMON_MEDIA_CACHE_DIR,
     });
     const queue = resolveNatsRuntimeConfig(env);
+    const resilience = parseRpcEndpointResilienceConfig(env);
+    const gapAllocation = parseGapRpcAllocation(env);
+    assertRpcGapAllocation(gapAllocation, [resilience.rateLimiter]);
 
     return {
         dbPath,
@@ -246,7 +280,8 @@ export function loadConfig(
             backfillEndpoints,
             wsEndpoints,
             retryPolicy: parseRpcRetryPolicy(env),
-            resilience: parseRpcEndpointResilienceConfig(env),
+            resilience,
+            gapAllocation,
         },
         tokens: {
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),

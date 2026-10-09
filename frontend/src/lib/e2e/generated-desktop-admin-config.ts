@@ -605,6 +605,28 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					view: 'basic'
 				},
 				{
+					key: 'GAP_FILL_RPC_REQUESTS_PER_SECOND',
+					label: 'automatic gap RPC requests/sec per endpoint',
+					inputKind: 'text',
+					secret: false,
+					options: [],
+					help: 'Per-endpoint RPC allowance for automatic gap filling, shared across indexer workers. 0 pauses it. Manual backfills use the main allowance.',
+					requiredForLaunch: false,
+					validation: null,
+					view: 'basic'
+				},
+				{
+					key: 'GAP_FILL_RPC_MAX_IN_FLIGHT',
+					label: 'automatic gap RPC requests in flight',
+					inputKind: 'text',
+					secret: false,
+					options: [],
+					help: 'Maximum simultaneous RPC requests from automatic gap filling across indexer workers.',
+					requiredForLaunch: false,
+					validation: 'positive_integer',
+					view: 'basic'
+				},
+				{
 					key: 'LOG_CHUNK_SIZE',
 					label: 'log chunk size',
 					inputKind: 'text',
@@ -1469,6 +1491,8 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 		REORG_DEPTH: '32',
 		BACKFILL_BATCH_SIZE: '10',
 		BACKFILL_WORKER_COUNT: '1',
+		GAP_FILL_RPC_REQUESTS_PER_SECOND: '0.5',
+		GAP_FILL_RPC_MAX_IN_FLIGHT: '1',
 		LOG_CHUNK_SIZE: '2000',
 		BOOTSTRAP_SNAPSHOT_BATCH_SIZE: '200',
 		BOOTSTRAP_METADATA_BATCH_SIZE: '200',
