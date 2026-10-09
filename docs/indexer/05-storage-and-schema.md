@@ -59,6 +59,15 @@ after maker receipt cleanup. `resolved_orders` excludes pending handoffs;
 `deferred_orders` counts transfers over the run's generations, not current
 remaining work. See [durable maker progress](07-domain-orders.md#durable-maker-progress).
 
+Migration `071_order_validation_chain_revision.sql` adds `proof_chain_revision`
+to `order_validation_demand` and removes its work class. Full ordinary, maker
+and token validation share the same saved validation record. Reuse requires the
+current order revision and chain revision, plus the requested event block or
+source observation time. A historical event does not use its eventual delivery
+time as a new observation. Chain rollback invalidates earlier saved validation
+records without needing a separate per-order cleanup pass. Needed validations
+use main RPC capacity; historical hint admission remains background work.
+
 ## Core Tables (Onchain)
 
 Defined primarily in `database/migrations/002_indexer_schema.sql`.
@@ -125,7 +134,9 @@ collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
 
 - Primary key: `(chain_id, collection_id)`; collection purge cascades the row.
 - Retains the backward coverage-sweep cursor and at most one pending repair.
-- A null cursor begins the next sweep at the currently observed head.
+- A null cursor begins a search at `HEAD - REORG_DEPTH`, or marks a completed
+  search for the current in-process cycle. Completed cycles wait for their next
+  recheck; other collections' saved cursors do not restart them continuously.
 - Retains intent before acquisition and reuses the pending ID across restart or
   failure. Retry and HEAD-check timestamps are epoch milliseconds.
 - `last_head_check_at` is nullable for never-checked rows and persists the
@@ -272,6 +283,21 @@ duplicate headers, broken adjacent parent links and replacement of a stored
 block hash. Reorg rollback owns removal of old headers before canonical resync.
 The verified fork header is retained with the ownership checkpoint even when
 the fork's transfer history was missing.
+
+### Pending canonical hash checks
+
+Migration `072_pending_canonical_checks.sql` adds `canonical_check_pending` and
+`canonical_check_retry_at` to `blocks`, with a partial index for due checks. A
+recent block's check is saved atomically with its facts, coverage, balances and
+required follow-ups. A mature historical import does not create a delayed check.
+Duplicate imports preserve pending/completed status for the same hash.
+
+The reorg worker conditionally clears a matching check, or atomically transfers a
+mismatch to `chain_reorg_recoveries`. Errors retain the row with bounded retry
+backoff; no broker delivery budget can discard it. Rollback deletes orphan checks
+with their blocks. Eligibility depends on fresh HEAD and the configured depth,
+not on whether the block remains inside today's realtime tail. See
+[pending hash checks](06-reorg-handling.md#pending-hash-checks).
 
 ### `chain_reorg_recoveries`
 

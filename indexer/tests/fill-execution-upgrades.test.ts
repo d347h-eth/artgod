@@ -1,3 +1,4 @@
+import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import {
     copyFile,
@@ -63,6 +64,9 @@ const COVERAGE_RESET = "067_reset_collection_sale_coverage.sql";
 const AUTOMATIC_SYNC_SCHEMA = new Set([
     "068_recent_gap_checks.sql",
     "069_newest_gap_priority.sql",
+    "070_sync_work_allocation.sql",
+    "071_order_validation_chain_revision.sql",
+    "072_pending_canonical_checks.sql",
 ]);
 const BUNDLE_FIXTURE =
     "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json";
@@ -755,7 +759,10 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
     const registry = new SqliteCollectionRegistry();
     const outbox = new SqliteQueueOutbox();
     const gaps = new SqliteSyncGapStore();
-    const recoveries = new SqliteReorgRecoveries(storage);
+    const recoveries = new SqliteReorgRecoveries(
+        storage,
+        new SqliteCanonicalChecks(),
+    );
     const commit = new SqliteSyncRangeCommit({
         storage,
         outbox,
@@ -775,6 +782,7 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
             });
     });
     const handler = createBackfillSyncHandler({
+        reorgDepth: 1,
         chainId: 1,
         workerCount: 2,
         wethAddress: zeroAddress,

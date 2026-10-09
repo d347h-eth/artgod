@@ -1,3 +1,5 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./chain-fixture.js";
+import { SqliteCanonicalChecks } from "../../src/infra/storage/sqlite-canonical-checks.js";
 import { RpcWorkScope } from "../../src/infra/rpc/work-scope.js";
 import { db } from "@artgod/shared/database";
 import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
@@ -60,7 +62,10 @@ export function canonicalRecoveryBlock(
 // Deterministic chain fixture; orchestration, exact-block snapshot translation,
 // persistence, revision fences and fanout all use the production implementations.
 export class RecoveryRpc implements RpcProviderPort {
-    constructor(private readonly forkBlock: number = REORG_FIXTURE.Fork) {}
+    constructor(
+        private readonly forkBlock: number = REORG_FIXTURE.Fork,
+        private readonly headBlock: number = REORG_FIXTURE.Head,
+    ) {}
 
     ownerReads: ChainBlockReference[] = [];
     logReads = 0;
@@ -71,7 +76,7 @@ export class RecoveryRpc implements RpcProviderPort {
     beforeBlockRead?: (number: number) => Promise<void>;
     beforeLogs?: (filter: RpcLogFilter) => Promise<void>;
     async getBlockNumber(): Promise<number> {
-        return REORG_FIXTURE.Head;
+        return this.headBlock;
     }
     async getBlock(number: number) {
         await this.beforeBlockRead?.(number);
@@ -126,11 +131,16 @@ export class RecoveryRpc implements RpcProviderPort {
 
 export function reorgRecoveryServices(
     rpc: RecoveryRpc,
-    options: { now?: () => number; retryDelayMs?: number } = {},
+    options: {
+        now?: () => number;
+        retryDelayMs?: number;
+        reorgDepth?: number;
+    } = {},
 ) {
     const storage = new SqliteStorage();
     const outbox = new SqliteQueueOutbox();
-    const recoveries = new SqliteReorgRecoveries(storage);
+    const checks = new SqliteCanonicalChecks();
+    const recoveries = new SqliteReorgRecoveries(storage, checks);
     const gaps = new SqliteSyncGapStore();
     const registry = new SqliteCollectionRegistry();
     const commit = new SqliteSyncRangeCommit({
@@ -168,6 +178,7 @@ export function reorgRecoveryServices(
         storage,
         recoveries,
         new RollbackChainRange(storage, new RpcRollbackOwnershipSnapshot(rpc)),
+        checks,
         {
             chainId: REORG_FIXTURE.ChainId,
             reorgDepth: 3,
@@ -184,6 +195,7 @@ export function reorgRecoveryServices(
         recoveries,
         registry,
         recovery,
+        checks,
         acquireRecoveryRange: async (range: ReorgResyncRange) => {
             if (
                 !isCurrentReorgRange(
@@ -209,6 +221,7 @@ export function seedRecoveryHistory(includeAncestor = true) {
         new SqliteCollectionRegistry().getCollection(1, fixture.collectionId)!,
     ];
     fixture.storage.persistSyncResult({
+        canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
         checkpoint: fixture.storage.captureSyncCheckpoint(1),
         blocks: [
             REORG_FIXTURE.Anchor,
@@ -251,5 +264,23 @@ export function pendingRecoveryRange(): ReorgResyncRange {
         revision: row.revision,
         fromBlock: row.range_from,
         toBlock: row.range_to,
+    };
+}
+
+/** Recovery diagnostics explicitly retain an unverified block identity before checking it. */
+export function retainCanonicalCheckFixture(
+    storage: SqliteStorage,
+    blockNumber: number,
+) {
+    const blockHash = storage.getBlockHash(REORG_FIXTURE.ChainId, blockNumber);
+    if (!blockHash) throw new Error("Recovery fixture lacks the checked block");
+    db.prepare(
+        "UPDATE blocks SET canonical_check_pending=1 WHERE chain_id=? AND block_number=?",
+    ).run(REORG_FIXTURE.ChainId, blockNumber);
+    return {
+        chainId: REORG_FIXTURE.ChainId,
+        blockNumber,
+        blockHash,
+        checkpoint: storage.captureSyncCheckpoint(REORG_FIXTURE.ChainId),
     };
 }

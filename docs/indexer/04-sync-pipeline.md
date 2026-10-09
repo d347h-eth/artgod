@@ -72,9 +72,10 @@ Automatic gaps still use one shared range at a time.
 downstream work. Automatic collection-gap acquisition and historical metadata/extension work
 use `gap_repair`. Needed current-order validation uses main after domain
 relevance and saved-validation checks. The class is explicit in queued envelopes; maker validation continuations are
-main. Per-order validation demand has one main execution lane. Legacy messages without a class retain
-main behavior. Pending coalesced main demand promotes background demand; after
-completion a new background request uses the background class again.
+main. Per-order validation demand has one main execution lane. Historical maker
+hints enter through a background admission slot and retain a main continuation
+only for a current requirement. Needed validation is independent of the hint's
+work class. Ordinary messages without a class retain main behavior.
 
 The sole HEAD scheduler per chain owns an allocation scheduler over the existing
 local NATS connection. All six RPC-bearing pipeline runtimes acquire a permit

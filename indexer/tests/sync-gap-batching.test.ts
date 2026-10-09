@@ -1,3 +1,4 @@
+import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -230,6 +231,7 @@ describe("shared collection gap acquisition", () => {
             logs.push(transferLog(0, 110, 10n));
             const rpc = testRpc(logs);
             const covered = await acquireSyncRange({
+                reorgDepth: 3,
                 rpc,
                 storage: h.storage,
                 collectionScopeResolver: h.registry,
@@ -309,14 +311,14 @@ describe("shared collection gap acquisition", () => {
                 logs: 8,
                 transactions: 1,
                 receipts: 1,
-                heads: 2,
+                heads: 4,
             },
             shared: {
                 headers: 12,
                 logs: 8,
                 transactions: 1,
                 receipts: 1,
-                heads: 2,
+                heads: 4,
             },
         });
     });
@@ -481,12 +483,10 @@ describe("bounded gap batch planning", () => {
                             );
                             expect(
                                 planSyncGapRepairBatches(
-                                    [...pending]
-                                        .reverse()
-                                        .map((repair) => ({
-                                            repair,
-                                            missing: repair,
-                                        })),
+                                    [...pending].reverse().map((repair) => ({
+                                        repair,
+                                        missing: repair,
+                                    })),
                                     cap,
                                 ),
                             ).toEqual(batches);
@@ -603,7 +603,10 @@ function harness(batchSize = 10) {
         store = new SqliteSyncGapStore(),
         storage = new SqliteStorage(),
         outbox = new SqliteQueueOutbox(),
-        recoveries = new SqliteReorgRecoveries(storage);
+        recoveries = new SqliteReorgRecoveries(
+            storage,
+            new SqliteCanonicalChecks(),
+        );
     const commit = new SqliteSyncRangeCommit({
         storage,
         outbox,

@@ -9,10 +9,6 @@ import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { realtimeWindowStart } from "../domain/chain-sync.js";
-import {
-    REORG_JOB_KIND,
-    type BlockCheckPayload,
-} from "../domain/reorg-jobs.js";
 
 export type SchedulerWorkerOptions = {
     pollIntervalMs?: number;
@@ -36,7 +32,6 @@ export async function startSchedulerWorker(
     const apm = options.apm ?? NOOP_APM;
     // lastScheduled is set after bootstrap so polling never schedules from "undefined".
     let lastScheduled: number | null = null;
-    let lastChecked = -1;
     let stopped = false;
     let timer: ReturnType<typeof setInterval> | undefined;
     let stopHeadSource: (() => Promise<void>) | undefined;
@@ -44,7 +39,6 @@ export async function startSchedulerWorker(
     let pollWork: Promise<void> | null = null;
 
     await bootstrapRealtimeScheduling();
-    await bootstrapBlockChecks();
 
     const handleHead = (headNumber: number): Promise<void> => {
         if (stopped) return Promise.resolve();
@@ -54,8 +48,6 @@ export async function startSchedulerWorker(
             if (stopped || lastScheduled === null) return;
             if (headNumber > lastScheduled)
                 await scheduleRealtimeForHead(headNumber);
-            // Retry interrupted block-check fanout even if the head is unchanged.
-            await scheduleBlockChecksForHead(headNumber);
         });
         headWork = next.catch(() => {});
         return next;
@@ -159,38 +151,6 @@ export async function startSchedulerWorker(
         );
     }
 
-    async function bootstrapBlockChecks(): Promise<void> {
-        // Separate bootstrap for reorg checks to keep scheduling intent explicit.
-        await apm.withSpan(
-            "scheduler-worker.bootstrap.blockChecks",
-            {
-                chainId: config.chainId,
-                reorgDepth,
-            },
-            async () => {
-                if (lastScheduled === null) return;
-                const initialCheck = getReorgCheckBlock(
-                    lastScheduled,
-                    reorgDepth,
-                );
-                if (initialCheck <= 0) {
-                    logger.warn(
-                        "Scheduler-worker block-check bootstrap skipped",
-                        {
-                            component: "IndexerSchedulerWorker",
-                            action: "bootstrapBlockChecks",
-                            initialCheck,
-                        },
-                    );
-                    lastChecked = initialCheck;
-                    return;
-                }
-                await scheduleBlockCheck(queue, config.chainId, initialCheck);
-                lastChecked = initialCheck;
-            },
-        );
-    }
-
     async function scheduleRealtimeForHead(headNumber: number): Promise<void> {
         // Schedule only the new head range; dedupe happens at the broker via jobId.
         if (lastScheduled === null) return;
@@ -204,28 +164,6 @@ export async function startSchedulerWorker(
             headNumber,
         );
         lastScheduled = headNumber;
-    }
-
-    async function scheduleBlockChecksForHead(
-        headNumber: number,
-    ): Promise<void> {
-        const targetCheck = getReorgCheckBlock(headNumber, reorgDepth);
-        if (targetCheck < 0) return;
-        const startCheck = lastChecked + 1;
-        if (startCheck <= 0) {
-            logger.warn("Scheduler-worker block-check range skipped", {
-                component: "IndexerSchedulerWorker",
-                action: "scheduleBlockChecksForHead",
-                startCheck,
-                targetCheck,
-            });
-            lastChecked = targetCheck;
-            return;
-        }
-        for (let block = startCheck; block <= targetCheck; block += 1) {
-            await scheduleBlockCheck(queue, config.chainId, block);
-        }
-        lastChecked = targetCheck;
     }
 }
 
@@ -248,25 +186,4 @@ async function scheduleRealtimeRange(
         };
         await queue.publish(QUEUE_NAMES.RealtimeSync, job);
     }
-}
-
-async function scheduleBlockCheck(
-    queue: Pick<QueuePort, "publish">,
-    chainId: number,
-    blockNumber: number,
-): Promise<void> {
-    const job: JobEnvelope<BlockCheckPayload> = {
-        jobId: `reorg:check:${chainId}:${blockNumber}`,
-        kind: REORG_JOB_KIND.BlockCheck,
-        queue: QUEUE_NAMES.BlockCheck,
-        payload: { blockNumber },
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-    };
-    await queue.publish(QUEUE_NAMES.BlockCheck, job);
-}
-
-function getReorgCheckBlock(head: number, depth: number): number {
-    return head - depth + 1;
 }

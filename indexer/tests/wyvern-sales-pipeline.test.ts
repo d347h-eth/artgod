@@ -1,3 +1,4 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -90,6 +91,7 @@ describe("Wyvern historical sale projection", () => {
                     expected.length,
                 );
                 storage.persistSyncResult({
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     checkpoint: storage.captureSyncCheckpoint(1),
                     blocks: [block],
                     data,

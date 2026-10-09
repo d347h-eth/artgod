@@ -40,12 +40,44 @@ describe("realtime scheduler loop", () => {
         expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 
+    it.each([0, 1, 2])(
+        "schedules only positive realtime blocks at HEAD=%s",
+        async (head) => {
+            const h = harness();
+            h.head(head);
+            stop = await h.start();
+            expect(h.publishedBlocks()).toEqual(
+                Array.from({ length: head }, (_, index) => index + 1),
+            );
+        },
+    );
+
     it("leaves older missed blocks to automatic history repair after a large head jump", async () => {
         const h = harness();
         stop = await h.start();
         h.head(200);
         await vi.advanceTimersByTimeAsync(10);
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 198, 199, 200]);
+    });
+
+    it("retries a partially published tail without scheduling older catch-up", async () => {
+        const h = harness();
+        stop = await h.start();
+        let fail = true;
+        h.publish.mockImplementation(async (_queue, job) => {
+            if (
+                (job.payload as { blockNumber: number }).blockNumber === 199 &&
+                fail
+            ) {
+                fail = false;
+                throw new Error("publication unavailable");
+            }
+        });
+        h.head(200);
+        await vi.advanceTimersByTimeAsync(20);
+        expect(h.publishedBlocks()).toEqual([
+            98, 99, 100, 198, 199, 198, 199, 200,
+        ]);
     });
 
     it("prevents overlapping head polls and waits for an active read on shutdown", async () => {
@@ -98,23 +130,14 @@ describe("realtime scheduler loop", () => {
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101, 102, 103]);
     });
 
-    it("recovers failed reorg check publication at an unchanged head", async () => {
+    it("publishes only realtime work; committed blocks own their hash checks", async () => {
         const h = harness();
         stop = await h.start();
-        h.publish.mockImplementation(async (queue) => {
-            if (queue === QUEUE_NAMES.BlockCheck)
-                throw new Error("block check publish failed");
-        });
-        h.head(101);
+        h.head(150);
         await vi.advanceTimersByTimeAsync(10);
-        h.publish.mockResolvedValue(undefined);
-        await vi.advanceTimersByTimeAsync(10);
-        const checks = h.publish.mock.calls.filter(
-            ([queue]) => queue === QUEUE_NAMES.BlockCheck,
+        expect(new Set(h.publish.mock.calls.map(([queue]) => queue))).toEqual(
+            new Set([QUEUE_NAMES.RealtimeSync]),
         );
-        expect(checks.at(-1)?.[1].payload).toEqual({ blockNumber: 99 });
-        expect(h.publishedBlocks()).toEqual([98, 99, 100, 101]);
-        expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 });
 

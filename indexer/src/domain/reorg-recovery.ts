@@ -6,7 +6,6 @@ export const REORG_RECOVERY_PHASE = {
 export const REORG_RECOVERY_POLICY = {
     PollMs: 12_000,
     RetryDelayMs: 300_000,
-    LeaseExtensionMs: 10_000,
 } as const;
 export const REORG_RECOVERY_LOG_COMPONENT = "ReorgRecovery";
 

@@ -47,6 +47,7 @@ export async function acquireSyncRange(input: {
     collectionScopeResolver: CollectionScopeResolverPort;
     collectionExtensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     chainId: number;
+    reorgDepth: number;
     collections: CollectionRecord[];
     range: SyncRange;
     bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">;
@@ -66,6 +67,9 @@ export async function acquireSyncRange(input: {
         orderMaintenancePolicy,
     } = input;
     const checkpoint = storage.captureSyncCheckpoint(chainId);
+    // Classify maturity at fetch time. A delayed commit must retain the check
+    // required by data fetched while unconfirmed; historical imports add none.
+    const observedHeadBlock = await rpc.getBlockNumber();
     const extensionWatchSpecs = resolveCollectionExtensionWatchSpecs(
         collectionExtensions,
         chainId,
@@ -89,7 +93,13 @@ export async function acquireSyncRange(input: {
         orderMaintenancePolicy,
     );
     const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
-    return { checkpoint, blocks, data, collections };
+    return {
+        checkpoint,
+        canonicalCheck: { observedHeadBlock, reorgDepth: input.reorgDepth },
+        blocks,
+        data,
+        collections,
+    };
 }
 
 export type SyncRangeInput = Parameters<typeof acquireSyncRange>[0];
