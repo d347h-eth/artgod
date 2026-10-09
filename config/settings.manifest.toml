@@ -862,6 +862,23 @@ help = "Number of safe historical backfill jobs the sync worker may process in p
 view = "basic"
 
 [[settings]]
+key = "GAP_FILL_RPC_REQUESTS_PER_SECOND"
+group = "indexer"
+label = "automatic gap RPC requests/sec per endpoint"
+default = "0.5"
+help = "Per-endpoint RPC allowance for automatic gap filling, shared across indexer workers. 0 pauses it. Manual backfills use the main allowance."
+view = "basic"
+
+[[settings]]
+key = "GAP_FILL_RPC_MAX_IN_FLIGHT"
+group = "indexer"
+label = "automatic gap RPC requests in flight"
+default = "1"
+help = "Maximum simultaneous RPC requests from automatic gap filling across indexer workers."
+validation = "positive_integer"
+view = "basic"
+
+[[settings]]
 key = "LOG_CHUNK_SIZE"
 group = "indexer"
 label = "log chunk size"

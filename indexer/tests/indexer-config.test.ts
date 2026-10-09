@@ -23,6 +23,7 @@ import {
 import {
     BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY,
     loadConfig,
+    GAP_RPC_ENV_KEY,
 } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
@@ -34,6 +35,54 @@ const REQUIRED_ENV = {
 };
 
 describe("Indexer config", () => {
+    it("loads manifest gap allocation defaults and supports pausing background requests", () => {
+        expect(loadConfig(REQUIRED_ENV).rpc.gapAllocation).toEqual({
+            requestsPerSecond: getSettingDefaultNumber(
+                GAP_RPC_ENV_KEY.RequestsPerSecond,
+            ),
+            maxInFlight: getSettingDefaultNumber(GAP_RPC_ENV_KEY.MaxInFlight),
+        });
+        expect(
+            loadConfig({
+                ...REQUIRED_ENV,
+                [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0",
+            }).rpc.gapAllocation.requestsPerSecond,
+        ).toBe(0);
+    });
+
+    it.each([
+        ["rate", "-0.1"],
+        ["rate", "Infinity"],
+        ["rate", "invalid"],
+        ["flight", "0"],
+        ["flight", "1.5"],
+    ])("rejects invalid gap %s=%s", (kind, value) => {
+        const key =
+            kind === "rate"
+                ? GAP_RPC_ENV_KEY.RequestsPerSecond
+                : GAP_RPC_ENV_KEY.MaxInFlight;
+        expect(() => loadConfig({ ...REQUIRED_ENV, [key]: value })).toThrow(
+            key,
+        );
+    });
+
+    it("keeps main capacity when the total allowance is finite", () => {
+        expect(() =>
+            loadConfig({
+                ...REQUIRED_ENV,
+                [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0.5",
+                [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0.5",
+            }),
+        ).toThrow("smaller");
+        expect(
+            loadConfig({
+                ...REQUIRED_ENV,
+                [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0",
+                [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0.5",
+            }).rpc.gapAllocation.requestsPerSecond,
+        ).toBe(0.5);
+    });
+
     it("loads the configured HTTP RPC response byte limit", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,

@@ -120,22 +120,35 @@ export class TokenBucketRateLimiter {
 
         let waitedMs = 0;
         for (;;) {
-            this.refillTokens();
-            if (this.tokens >= 1) {
-                // Consume one token and proceed immediately.
-                this.tokens -= 1;
-                return waitedMs;
-            }
-
-            // Not enough tokens: sleep until enough budget is refilled.
-            const deficit = 1 - this.tokens;
-            const waitMs = Math.max(
-                1,
-                Math.ceil((deficit / this.requestsPerSecond) * 1000),
-            );
+            if (this.tryAcquire()) return waitedMs;
+            const waitMs = this.waitTimeMs();
             waitedMs += waitMs;
             await this.sleep(waitMs);
         }
+    }
+
+    /** Nonblocking consumption for an owner that schedules multiple work classes.
+     * The owner decides priority before consuming; a waiting caller holds no token. */
+    tryAcquire(): boolean {
+        if (this.requestsPerSecond <= 0) return true;
+        this.refillTokens();
+        if (this.tokens < 1 - 1e-9) return false;
+        this.tokens = Math.max(0, this.tokens - 1);
+        return true;
+    }
+
+    /** Earliest next consumption, without reserving capacity for this caller. */
+    waitTimeMs(): number {
+        if (this.requestsPerSecond <= 0) return 0;
+        this.refillTokens();
+        return this.tokens >= 1 - 1e-9
+            ? 0
+            : Math.max(
+                  1,
+                  Math.ceil(
+                      ((1 - this.tokens) / this.requestsPerSecond) * 1000,
+                  ),
+              );
     }
 
     private refillTokens(): void {

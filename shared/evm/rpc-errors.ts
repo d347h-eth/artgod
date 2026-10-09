@@ -208,10 +208,28 @@ export function shouldRetryRpcError(
     policy?: RpcErrorPolicy,
 ): boolean {
     return (
+        !getRpcBudgetDeferral(error) &&
         !getRpcResponseBodySizeLimit(error) &&
         !isRpcDeterministicContractError(error) &&
         !(policy?.retryZeroData === false && isRpcProviderZeroDataError(error))
     );
+}
+
+/** Local capacity waiting is not endpoint failure and must not exhaust queue retries. */
+export class RpcBudgetDeferred extends Error {
+    constructor(readonly retryAfterMs: number = 1_000) {
+        super("RPC request allocation temporarily unavailable");
+        this.name = "RpcBudgetDeferred";
+    }
+}
+
+/** Preserve local allocation deferrals through SDK/domain error causes. */
+export function getRpcBudgetDeferral(
+    error: unknown,
+): RpcBudgetDeferred | undefined {
+    for (const cause of walkRpcErrorChain(error))
+        if (cause instanceof RpcBudgetDeferred) return cause;
+    return undefined;
 }
 
 // Head-lag, response-size and deterministic contract failures are not endpoint breakage.
