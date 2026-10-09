@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { beforeAll, beforeEach, afterEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
@@ -105,13 +106,17 @@ describe("isolated broker and process reorg recovery", () => {
             QUEUE_NAMES.MetadataDomain,
         ])
             stops.push(
-                await queue.subscribe<DomainSyncPayload>(
-                    name,
-                    async (message) => {
-                        fanout.push(message.data);
-                        await message.ack();
+                await runWorker<DomainSyncPayload>(
+                    queue,
+                    {
+                        queue: name,
+                        consumerName: `fixture-${name}`,
+                        maxInFlight: 1,
+                        acceptGapWork: true,
                     },
-                    { consumerName: `fixture-${name}`, maxInFlight: 1 },
+                    async (job) => {
+                        fanout.push(job);
+                    },
                 ),
             );
         stops.push(
@@ -874,7 +879,7 @@ describe("isolated broker and process reorg recovery", () => {
         await resumed.stop();
     });
 
-    it("publishes retained follow-ups after process death following acquisition completion without new RPC", async () => {
+    it("publishes retained follow-ups after process death without reacquiring recovery ranges", async () => {
         await services.recovery.checkBlock(F.Orphan);
         const acquired = await worker({
             role: ROLE.Resync,
@@ -888,9 +893,9 @@ describe("isolated broker and process reorg recovery", () => {
         expect(
             db
                 .prepare(
-                    "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ?",
+                    "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ? AND json_extract(job_json, '$.workClass') = ?",
                 )
-                .get(QUEUE_OUTBOX_STATUS.Pending),
+                .get(QUEUE_OUTBOX_STATUS.Pending, SYNC_WORK_CLASS.Main),
         ).toEqual({ count: 6 });
         await acquired.kill();
         await restartedBroker();
@@ -1007,9 +1012,9 @@ describe("isolated broker and process reorg recovery", () => {
         await waitForFixture(() => {
             const rows = db
                 .prepare(
-                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
+                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ? AND json_extract(job_json, '$.workClass') = ?",
                 )
-                .all(QUEUE_NAMES.MetadataDomain) as {
+                .all(QUEUE_NAMES.MetadataDomain, SYNC_WORK_CLASS.Main) as {
                 status: string;
                 attempts: number;
             }[];
@@ -1086,6 +1091,7 @@ describe("isolated broker and process reorg recovery", () => {
         ).toBe(true);
         expect(delayed.reports.some((r) => (r.attempt ?? 0) > 1)).toBe(true);
         await delayed.stop();
+        const retainedRecoveryId = pendingRecoveryRange().recoveryId;
         const resumed = await worker({ dropAckOnce: true });
         await queue.publish(QUEUE_NAMES.BackfillSync, {
             jobId: "old-automatic-hint",
@@ -1101,7 +1107,7 @@ describe("isolated broker and process reorg recovery", () => {
                 orderMaintenancePolicy:
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 recovery: {
-                    recoveryId: pendingRecoveryRange().recoveryId,
+                    recoveryId: retainedRecoveryId,
                     revision: 1,
                 },
             },

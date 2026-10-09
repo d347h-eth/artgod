@@ -9,6 +9,7 @@ import {
     type TokenImageCacheRefreshTokenPayload,
 } from "@artgod/shared/media/token-image-cache-jobs";
 import type { JobEnvelope } from "../../domain/jobs.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import type { MetadataUpdatedToken } from "../../domain/metadata.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
@@ -28,6 +29,7 @@ export async function publishMetadataImageRefreshes(input: {
     updatedTokens: readonly MetadataUpdatedToken[];
     traceId: string;
     source?: string | null;
+    workClass?: SyncWorkClass;
 }): Promise<void> {
     const policies = new Map<number, ImageCachePolicyConfig>();
     for (const updated of input.updatedTokens) {
@@ -62,6 +64,9 @@ export async function publishMetadataImageRefreshes(input: {
             chainId: input.chainId,
             collectionId: updated.collectionId,
             traceId: input.traceId,
+            ...(input.workClass === undefined
+                ? {}
+                : { workClass: input.workClass }),
         };
         await input.queue.publish(QUEUE_NAMES.TokenImageCache, job);
     }

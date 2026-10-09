@@ -5,6 +5,11 @@ import {
     type OrderValidationResult,
 } from "./orders.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "./order-validation-policy.js";
+import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 
 export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     leaseMs: 120_000,
@@ -35,6 +40,7 @@ export type OrderValidationRequest = {
     /** Required observation coverage in epoch milliseconds, separate from DB freshness. */
     requiredAt: number;
     minimumBlock: number | null;
+    workClass?: SyncWorkClass;
 };
 export type OrderValidationCandidate = { order: OrderRecord; revision: number };
 export type OrderValidationDemand = OrderValidationRequest & {
@@ -125,6 +131,10 @@ export function advancesValidationDemand(
     request: OrderValidationRequest,
 ): boolean {
     return (
+        (current.pending &&
+            decodeSyncWorkClass(current.workClass) ===
+                SYNC_WORK_CLASS.GapRepair &&
+            decodeSyncWorkClass(request.workClass) === SYNC_WORK_CLASS.Main) ||
         !current.pending ||
         current.revision !== revision ||
         (request.minimumBlock === null && !current.anchorIndependent) ||
@@ -138,6 +148,7 @@ export function advancesValidationDemand(
 export function assertOrderValidationRequest(
     request: OrderValidationRequest,
 ): void {
+    decodeSyncWorkClass(request.workClass);
     if (
         !Number.isSafeInteger(request.chainId) ||
         request.chainId <= 0 ||

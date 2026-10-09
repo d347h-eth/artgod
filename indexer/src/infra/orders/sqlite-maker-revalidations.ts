@@ -1,5 +1,7 @@
+import { decodeSyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
+import { makerWorkClass } from "../../domain/maker-revalidation.js";
 import {
     MAKER_REVALIDATION_POLICY as POLICY,
     MAKER_REVALIDATION_STATUS as STATUS,
@@ -264,6 +266,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                                 run.requestedAt,
                             ),
                             minimumBlock: run.payload.blockNumber ?? null,
+                            workClass: makerWorkClass(run),
                         },
                         resolution.deferredError,
                         now,
@@ -343,11 +346,12 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                         ? undefined
                         : (db
                               .prepare(
-                                  "SELECT status,queue_name AS queueName,publication_stream_id AS streamId,publication_sequence AS sequence FROM queue_outbox WHERE outbox_id=?",
+                                  "SELECT status,job_json AS jobJson,queue_name AS queueName,publication_stream_id AS streamId,publication_sequence AS sequence FROM queue_outbox WHERE outbox_id=?",
                               )
                               .get(row.wakeupOutboxId) as
                               | {
                                     status: MakerWakeup["outboxStatus"];
+                                    jobJson: string;
                                     queueName: MakerWakeup["queueName"];
                                     streamId: string | null;
                                     sequence: number | null;
@@ -357,6 +361,11 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     run: mapRun(row),
                     outboxStatus: outbox?.status ?? null,
                     queueName: outbox?.queueName ?? null,
+                    workClass: outbox
+                        ? decodeSyncWorkClass(
+                              JSON.parse(outbox.jobJson).workClass,
+                          )
+                        : undefined,
                     publication:
                         outbox?.streamId && outbox.sequence !== null
                             ? {

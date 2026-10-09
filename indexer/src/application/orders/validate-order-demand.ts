@@ -1,4 +1,9 @@
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
@@ -79,27 +84,34 @@ export class ValidateOrderDemand {
 
     async executeBatch(
         signal?: AbortSignal,
+        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): Promise<OrderValidationBatchReport | undefined> {
         // Acquire fair capacity before claiming rows or aging a chain snapshot.
         if (signal?.aborted) return undefined;
-        return this.deps.admission.run(async () => {
-            if (signal?.aborted) return undefined;
-            const report = await this.validateBatch(
-                () => signal?.aborted ?? false,
-            );
-            if (report)
-                observeBestEffort(() =>
-                    this.deps.observability?.observer?.demandBatch(
-                        report,
-                        (this.deps.now ?? Date.now)(),
-                    ),
+        return this.deps.admission.run(
+            async () => {
+                if (signal?.aborted) return undefined;
+                const report = await this.validateBatch(
+                    () => signal?.aborted ?? false,
+                    workClass,
                 );
-            return report;
-        }, signal);
+                if (report)
+                    observeBestEffort(() =>
+                        this.deps.observability?.observer?.demandBatch(
+                            report,
+                            (this.deps.now ?? Date.now)(),
+                        ),
+                    );
+                return report;
+            },
+            signal,
+            workClass,
+        );
     }
 
     private async validateBatch(
         shouldStop: () => boolean,
+        workClass: SyncWorkClass,
     ): Promise<OrderValidationBatchReport | undefined> {
         const now = this.deps.now ?? Date.now;
         const startedAt = now();
@@ -114,6 +126,7 @@ export class ValidateOrderDemand {
                     this.deps.chainId,
                     randomUUID(),
                     now(),
+                    workClass,
                 ),
         );
         if (!batch.scanned) return undefined;
@@ -164,6 +177,7 @@ export class ValidateOrderDemand {
                                 // Different demands have different trigger blocks. Check each against the
                                 // fresh snapshot below so one future trigger cannot block unrelated work.
                                 minimumBlock: null,
+                                workClass,
                                 candidates: batch.claims.map(
                                     (claim) => claim.candidate.order,
                                 ),
@@ -236,7 +250,14 @@ export class ValidateOrderDemand {
                 },
             );
         } catch (error) {
-            report.retried += this.deps.store.fail(batch.claims, error, now());
+            if (getRpcBudgetDeferral(error)) {
+                report.released += this.deps.store.release(batch.claims, now());
+            } else
+                report.retried += this.deps.store.fail(
+                    batch.claims,
+                    error,
+                    now(),
+                );
             logger.warn(LOG.BatchFailed, {
                 component: LOG.Component,
                 chainId: this.deps.chainId,
@@ -271,12 +292,17 @@ export function startOrderValidationDemand(
             waits.add(resume);
             if (controller.signal.aborted) resume();
         });
-    const run = async () => {
+    const run = async (workClass: SyncWorkClass) => {
         while (!controller.signal.aborted) {
             let busy = false;
             try {
-                const report = await processor.executeBatch(controller.signal);
-                busy = !!report;
+                const report = await processor.executeBatch(
+                    controller.signal,
+                    workClass,
+                );
+                busy =
+                    !!report &&
+                    (report.claimed === 0 || report.released < report.claimed);
                 reporter?.record(report);
             } catch (error) {
                 if (!controller.signal.aborted)
@@ -289,11 +315,13 @@ export function startOrderValidationDemand(
         }
     };
     // Demand can use both existing permits when other paths are idle. It queues
-    // at most these two executors and rejoins FIFO admission after every batch.
+    // at most two main executors plus one gap executor. Background admission
+    // reserves a remaining slot for main and rejoins admission after every batch.
     const active = Array.from(
         { length: ORDER_PROCESSING_POLICY.concurrentValidations },
-        run,
+        () => run(SYNC_WORK_CLASS.Main),
     );
+    active.push(run(SYNC_WORK_CLASS.GapRepair));
     return async () => {
         controller.abort();
         for (const resume of waits) resume();

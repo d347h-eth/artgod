@@ -1,3 +1,4 @@
+import { SYNC_WORK_CLASS as WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import {
     afterEach,
     beforeAll,
@@ -258,6 +259,52 @@ describe("durable maker checkpoints", () => {
             });
         },
     );
+
+    it("retains gap continuations, promotes coalesced main demand and resets completed priority", async () => {
+        seedHeavyMaker(150);
+        const work = workflow();
+        const background = {
+            ...request,
+            payload: { ...request.payload, workClass: WORK_CLASS.GapRepair },
+            requiredAt: now - 1_000,
+        };
+        await work.stepProcessor.execute(background);
+        let run = work.store.admit({ ...background, now });
+        const before = JSON.parse(
+            (
+                db
+                    .prepare(
+                        "SELECT job_json FROM queue_outbox WHERE outbox_id=?",
+                    )
+                    .get(run.wakeupOutboxId) as { job_json: string }
+            ).job_json,
+        ) as JobEnvelope<OrderUpdateByMakerPayload>;
+        expect(before.workClass).toBe(WORK_CLASS.GapRepair);
+        expect(before.payload.workClass).toBe(WORK_CLASS.GapRepair);
+        const main = {
+            ...background,
+            jobId: "main-promotion",
+            payload: { ...background.payload, workClass: WORK_CLASS.Main },
+            requiredAt: now - 1,
+        };
+        work.store.admit({ ...main, now });
+        // Recovery checks the class of the published job, not the now-promoted run.
+        const wakeup = work.store.listWakeups(now + 60_000, 16)[0]!;
+        expect(wakeup.workClass).toBe(WORK_CLASS.GapRepair);
+        await work.processor.execute(background);
+        run = work.store.get(run.runId)!;
+        expect(run.status).toBe(STATUS.Completed);
+        expect(run.payload.workClass).toBe(WORK_CLASS.Main);
+        work.store.admit({
+            ...background,
+            jobId: "later-background",
+            requiredAt: now + 1,
+            now: now + 1,
+        });
+        expect(work.store.get(run.runId)!.payload.workClass).toBe(
+            WORK_CLASS.GapRepair,
+        );
+    });
 
     it("validates all 9,339 bids through durable steps with bounded status aggregates", async () => {
         seedHeavyMaker();

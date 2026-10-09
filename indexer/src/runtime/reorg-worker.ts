@@ -1,3 +1,4 @@
+import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -53,6 +54,9 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: false,
+        });
         const rpc = new ViemRpcProvider({
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
@@ -61,6 +65,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.ReorgHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const storage = new SqliteStorage();
         const rollback = new RollbackChainRange(
@@ -96,6 +101,7 @@ async function main() {
                 await recovery.checkBlock(job.payload.blockNumber);
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.reorgCheck.consume",
             },
@@ -107,6 +113,7 @@ async function main() {
         });
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             logger.info("Reorg worker shutting down", {
                 component: "IndexerReorgWorker",
                 action: "shutdown",
@@ -115,6 +122,7 @@ async function main() {
             await stopRecoveryLoop();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

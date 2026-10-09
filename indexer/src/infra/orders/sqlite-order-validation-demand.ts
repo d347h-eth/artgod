@@ -1,5 +1,11 @@
 import { db } from "@artgod/shared/database";
 import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+    strongestSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
+import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
     ORDER_VALIDATION_DEMAND_OUTCOME as OUTCOME,
     assertOrderValidationRequest,
@@ -24,7 +30,7 @@ type DemandRow = Omit<
     "pending" | "anchorIndependent"
 > & { pending: number; anchorIndependent: number };
 const SELECT =
-    "SELECT chain_id AS chainId,order_id AS orderId,generation,revision,required_at AS requiredAt,minimum_block AS minimumBlock,anchor_independent AS anchorIndependent,pending,proof_revision AS proofRevision,proof_at AS proofAt,proof_block AS proofBlock,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,failures FROM order_validation_demand ";
+    "SELECT chain_id AS chainId,order_id AS orderId,generation,revision,required_at AS requiredAt,minimum_block AS minimumBlock,work_class AS workClass,anchor_independent AS anchorIndependent,pending,proof_revision AS proofRevision,proof_at AS proofAt,proof_block AS proofBlock,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,failures FROM order_validation_demand ";
 
 /** The pending row itself is the durable wakeup; polling cannot lose a sent broker message. */
 export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
@@ -56,7 +62,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                 return OUTCOME.Covered;
             if (!current) {
                 db.prepare(
-                    "INSERT INTO order_validation_demand (order_id,chain_id,revision,required_at,minimum_block,anchor_independent,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO order_validation_demand (order_id,chain_id,revision,required_at,minimum_block,anchor_independent,work_class,updated_at) VALUES (?,?,?,?,?,?,?,?)",
                 ).run(
                     request.orderId,
                     request.chainId,
@@ -64,13 +70,14 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     request.requiredAt,
                     request.minimumBlock,
                     request.minimumBlock === null ? 1 : 0,
+                    decodeSyncWorkClass(request.workClass),
                     now,
                 );
             } else if (
                 advancesValidationDemand(current, candidate.revision, request)
             ) {
                 db.prepare(
-                    "UPDATE order_validation_demand SET generation=generation+1,revision=?,required_at=MAX(required_at,?),minimum_block=CASE WHEN ? IS NULL THEN minimum_block WHEN minimum_block IS NULL THEN ? ELSE MAX(minimum_block,?) END,anchor_independent=?,pending=1,next_attempt_at=0,updated_at=? WHERE chain_id=? AND order_id=?",
+                    "UPDATE order_validation_demand SET generation=generation+1,revision=?,required_at=MAX(required_at,?),minimum_block=CASE WHEN ? IS NULL THEN minimum_block WHEN minimum_block IS NULL THEN ? ELSE MAX(minimum_block,?) END,anchor_independent=?,work_class=?,pending=1,next_attempt_at=0,updated_at=? WHERE chain_id=? AND order_id=?",
                 ).run(
                     candidate.revision,
                     request.requiredAt,
@@ -81,6 +88,12 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                         (current.pending && current.anchorIndependent)
                         ? 1
                         : 0,
+                    current.pending
+                        ? strongestSyncWorkClass(
+                              decodeSyncWorkClass(current.workClass),
+                              decodeSyncWorkClass(request.workClass),
+                          )
+                        : decodeSyncWorkClass(request.workClass),
                     now,
                     request.chainId,
                     request.orderId,
@@ -115,15 +128,22 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         chainId: number,
         owner: string,
         now: number,
+        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): OrderValidationClaimBatch {
         return db.writeTransaction(() => {
             // Retired/ineligible rows cannot make one tick scan an unbounded backlog.
             const due = db
                 .prepare(
                     SELECT +
-                        "WHERE chain_id=? AND pending=1 AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
+                        "WHERE chain_id=? AND pending=1 AND work_class=? AND next_attempt_at<=? AND lease_until<=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
                 )
-                .all(chainId, now, now, POLICY.batchOrders) as DemandRow[];
+                .all(
+                    chainId,
+                    workClass,
+                    now,
+                    now,
+                    POLICY.batchOrders,
+                ) as DemandRow[];
             // Repeatedly failed snapshots must not keep unrelated orders in one retry
             // group forever. Retry those rows alone, retaining due-order fairness and
             // fresh batches for the preceding rows. A first transient failure still batches.

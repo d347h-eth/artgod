@@ -1,3 +1,5 @@
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilience";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
@@ -45,6 +47,35 @@ const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
 describe("ViemTokenUriResolver RPC resilience", () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it("preserves a quota deferral instead of reporting unavailable metadata", async () => {
+        const read = vi.fn(async () => TEST_TOKEN_URI);
+        const resolver = new ViemTokenUriResolver({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            retryPolicy: TEST_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            createClient: () =>
+                ({
+                    readContract: read,
+                }) as ReturnType<TokenUriRpcClientFactory>,
+            requestBudget: {
+                workClass: () => SYNC_WORK_CLASS.GapRepair,
+                budget: {
+                    run: async () => {
+                        throw new RpcBudgetDeferred();
+                    },
+                },
+            },
+        });
+        await expect(
+            resolver.resolveTokenUri(
+                TEST_CONTRACT_ADDRESS,
+                TEST_TOKEN_ID,
+                TEST_TOKEN_STANDARD_ERC721,
+            ),
+        ).rejects.toBeInstanceOf(RpcBudgetDeferred);
+        expect(read).not.toHaveBeenCalled();
     });
 
     it.each([
