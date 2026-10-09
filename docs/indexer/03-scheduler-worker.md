@@ -1,6 +1,6 @@
 # Scheduler-Worker Runtime
 
-The scheduler-worker translates chain head updates into sync and reorg jobs and continuously repairs missing coverage for live collections. It is the only component allowed to publish realtime sync jobs.
+The scheduler-worker translates chain head updates into sync and reorg jobs while the sync worker discovers and repairs missing collection coverage. It is the only component allowed to publish realtime sync jobs.
 
 Implementation:
 
@@ -14,7 +14,6 @@ Implementation:
 - RPC provider (HTTP): used to fetch the current head.
 - Optional WebSocket head source: emits head updates.
 - Queue port: publishes jobs to NATS.
-- Collection registry and gap store: read eligible collections and their coverage, and retain repair intent in SQLite.
 
 ## Bootstrap Sequence
 
@@ -24,7 +23,6 @@ Implementation:
 2. Schedule realtime sync jobs for the recent reorg window only.
 3. Schedule the initial block-check job for reorg validation.
 4. Set `lastScheduled` and `lastChecked` based on the head.
-5. Run one bounded collection gap scan using that observed head.
 
 This ensures the scheduler-worker never publishes from an uninitialized head.
 
@@ -71,8 +69,14 @@ The WS path and poller both call the same `handleHead()` function.
 
 ## Perpetual Collection Gap Repair
 
-Gap detection is enabled by default. Startup and every successful HTTP poll
-(default 12 seconds) run a bounded pass, including when the head is unchanged.
+Gap detection is enabled by default in the sync worker. Its automatic executor
+finds gaps and fetches/saves blocks continuously, including at stationary HEAD.
+After a successful repair or a discovery page with more history to check, it
+yields to runtime work and starts the next pass immediately. A completed sweep,
+retry backoff, RPC lag, or paused allocation uses the 12-second idle poll.
+Local-only discovery reuses a HEAD observed within 12 seconds; every
+fetch-and-save batch reads a fresh HEAD before choosing its range. An app
+without eligible collections sends no automatic gap HEAD requests.
 Each pass visits at most 16 eligible collections in collection-ID order, rotating
 through the full set. Only `live` collections with a valid bootstrap anchor
 participate. Newly live collections join automatically; prepared, bootstrapping,
@@ -116,13 +120,12 @@ Checks and replacement run inside the shared backfill gate, between attempts to
 fetch and save blocks. A running attempt finishes first; work waiting for the
 gate is selected again when it can start. Slow RPC or another current-state
 backfill can delay a due check; 30 minutes defines eligibility, not a deadline.
-Conditional progress saves prevent stale reads in the separate scheduler
-process from overwriting a newer worker decision.
+Conditional progress saves fence changed collection/repair state before commit.
 
-The scheduler saves the next scan position and one repair intent per collection
+The scanner, owned by the sync worker, saves the next scan position and one repair intent per collection
 in `collection_sync_gap_scans`. It publishes no automatic range job. The sync
 worker's `AutomaticSyncExecutor` reads due intent directly, running at most one
-range per startup/poll pass (default 12 seconds). It finds the globally highest
+range per pass and immediately continuing while work progresses. It finds the globally highest
 pending upper bound across live collections, then reads at most 16 ready members
 at that height. Their common suffix is shared and the range is capped by
 `BACKFILL_BATCH_SIZE`. Retry eligibility is applied after finding the highest
@@ -200,8 +203,9 @@ effects without treating old WETH/counter events as current maker state.
 `indexer/src/runtime/scheduler-worker.ts` wires the ports:
 
 - Loads config from `.env`.
-- Applies migrations and opens collection coverage and durable gap-scan adapters.
+- Applies migrations.
 - Connects to NATS.
 - Initializes in-memory cache for RPC calls.
 - Creates HTTP RPC provider and optional WS head source.
-- Starts the scheduler-worker and installs shutdown handlers.
+- Owns the pipeline's shared RPC allowance, then starts head scheduling and
+  installs shutdown handlers. See [RPC allocation](04-sync-pipeline.md#rpc-allocation).

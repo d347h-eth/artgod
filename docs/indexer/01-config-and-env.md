@@ -61,6 +61,18 @@ The indexer reads these variables from the root `.env`:
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
+- `GAP_FILL_RPC_REQUESTS_PER_SECOND` (default: 0.5)
+    - Maximum automatic-gap HTTP RPC attempts per second per endpoint, shared
+      across pipeline workers. Must be smaller than a finite total RPC rate.
+      Zero pauses automatic repairs and retains their queued RPC follow-ups.
+    - `RPC_RATE_LIMIT_REQUESTS_PER_SECOND`/`RPC_RATE_LIMIT_BURST` apply to
+      total pipeline traffic per endpoint; main uses all unused gap capacity.
+- `GAP_FILL_RPC_MAX_IN_FLIGHT` (default: 1)
+    - Maximum simultaneous gap RPC attempts across workers and endpoint pools.
+    - Positive integer. Realtime, manual, bootstrap and reorg work remain main.
+    - Both gap settings apply after runtime restart. Start low for free RPCs;
+      raise the rate to improve repair throughput, and the in-flight cap only
+      when slow responses leave that rate unused.
 - `LOG_CHUNK_SIZE` (default: 2000)
     - Maximum block span per RPC log request. On viem's response-size limit,
       the provider halves the failed span and retries from the same block.
