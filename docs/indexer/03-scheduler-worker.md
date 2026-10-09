@@ -29,7 +29,7 @@ This ensures the scheduler-worker never publishes from an uninitialized head.
 ## Realtime Scheduling
 
 - The scheduler-worker maintains `lastScheduled` (last head seen and scheduled).
-- On each head update, it schedules jobs from `lastScheduled + 1` to `head`.
+- On each head update, it schedules jobs from `max(lastScheduled + 1, HEAD - REORG_DEPTH + 1)` to `head`. Older missed blocks belong to automatic history repair.
 - Jobs are published to `events-sync-realtime` with dedupe by jobId.
 - WS and HTTP scheduling share a serialized cursor; overlapping polls are coalesced.
 
@@ -209,3 +209,20 @@ effects without treating old WETH/counter events as current maker state.
 - Creates HTTP RPC provider and optional WS head source.
 - Owns the pipeline's shared RPC allowance, then starts head scheduling and
   installs shutdown handlers. See [RPC allocation](04-sync-pipeline.md#rpc-allocation).
+
+### Automatic history boundary and completed searches
+
+Both backward discovery and the 30-minute newer-hole check end at
+`HEAD - REORG_DEPTH`. The latest `REORG_DEPTH` blocks belong to realtime.
+Before fetching a repair, the executor rechecks at most one batch-sized coverage
+window per member. Covered suffixes are removed locally; older unfinished
+blocks and the saved scan cursor remain intact. Only still-missing common
+suffixes share RPC work. Realtime delayed beyond the tail can still overlap
+background work after that check.
+
+A completed collection stays finished while peers search older windows. This
+completion bookkeeping is process-local. A completed cycle restarts after
+30 minutes; a process restart resumes saved cursors, and a chain revision change
+restarts discovery from the current history boundary. New collections and
+changed anchors can join immediately. Fully covered mixed cursors converge to
+idle instead of repeatedly restarting finished peers.

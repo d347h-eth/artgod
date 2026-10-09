@@ -277,6 +277,7 @@ async function main() {
                 recoveries: reorgRecoveries,
                 gate: backfillExecutionGate,
                 batchSize: config.sync.backfillBatchSize,
+                reorgDepth: config.sync.reorgDepth,
             }),
         );
 

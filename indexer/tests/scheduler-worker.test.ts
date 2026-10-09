@@ -40,6 +40,14 @@ describe("realtime scheduler loop", () => {
         expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 
+    it("leaves older missed blocks to automatic history repair after a large head jump", async () => {
+        const h = harness();
+        stop = await h.start();
+        h.head(200);
+        await vi.advanceTimersByTimeAsync(10);
+        expect(h.publishedBlocks()).toEqual([98, 99, 100, 198, 199, 200]);
+    });
+
     it("prevents overlapping head polls and waits for an active read on shutdown", async () => {
         const h = harness();
         stop = await h.start();

@@ -333,11 +333,14 @@ describe("durable production reorg recovery", () => {
         async function repairNext(expected: number[]) {
             await scheduler.scan(F.Orphan);
             const batch = planSyncGapRepairBatches(
-                gaps.listDueRepairsAtNewestPendingHeight({
-                    chainId: F.ChainId,
-                    now,
-                    limit: 16,
-                }),
+                gaps
+                    .listDueRepairsAtNewestPendingHeight({
+                        upperBound: Number.MAX_SAFE_INTEGER,
+                        chainId: F.ChainId,
+                        now,
+                        limit: 16,
+                    })
+                    .map((repair) => ({ repair, missing: repair })),
                 F.BatchSize,
             )[0];
             expect([batch.fromBlock, batch.toBlock]).toEqual(expected);
@@ -535,15 +538,19 @@ describe("durable production reorg recovery", () => {
             batchSize: F.BatchSize,
             now: () => now,
         });
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(F.Head + 1);
         const repaired: number[][] = [];
         for (let i = 0; i < 3; i++) {
             await scheduler.scan(F.Head);
             const batch = planSyncGapRepairBatches(
-                gaps.listDueRepairsAtNewestPendingHeight({
-                    chainId: 1,
-                    now,
-                    limit: 16,
-                }),
+                gaps
+                    .listDueRepairsAtNewestPendingHeight({
+                        upperBound: Number.MAX_SAFE_INTEGER,
+                        chainId: 1,
+                        now,
+                        limit: 16,
+                    })
+                    .map((repair) => ({ repair, missing: repair })),
                 F.BatchSize,
             )[0];
             repaired.push([batch.fromBlock, batch.toBlock]);
