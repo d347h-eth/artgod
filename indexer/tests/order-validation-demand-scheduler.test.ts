@@ -66,19 +66,19 @@ describe("continuous fair demand scheduling", () => {
         const reporter = { record: vi.fn(), flush: vi.fn() };
         stop = startOrderValidationDemand({ executeBatch }, reporter);
         await vi.advanceTimersByTimeAsync(20);
-        expect(executeBatch).toHaveBeenCalledTimes(9);
+        expect(executeBatch).toHaveBeenCalledTimes(8);
         expect(
             reporter.record.mock.calls.filter(([report]) => report),
         ).toHaveLength(6);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs - 30);
-        expect(executeBatch).toHaveBeenCalledTimes(9);
+        expect(executeBatch).toHaveBeenCalledTimes(8);
         await vi.advanceTimersByTimeAsync(30);
-        expect(executeBatch).toHaveBeenCalledTimes(12);
+        expect(executeBatch).toHaveBeenCalledTimes(10);
         await stop();
         expect(reporter.flush).toHaveBeenCalledOnce();
         expect(vi.getTimerCount()).toBe(0);
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 2);
-        expect(executeBatch).toHaveBeenCalledTimes(12);
+        expect(executeBatch).toHaveBeenCalledTimes(10);
     });
 
     it("holds at most two executions and waits for active work during stop", async () => {
@@ -105,7 +105,7 @@ describe("continuous fair demand scheduling", () => {
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 3);
         expect(executeBatch).toHaveBeenCalledTimes(
-            ORDER_PROCESSING_POLICY.concurrentValidations + 1,
+            ORDER_PROCESSING_POLICY.concurrentValidations,
         );
         expect(maximum).toBe(ORDER_PROCESSING_POLICY.concurrentValidations);
         let stopped = false;
@@ -126,10 +126,10 @@ describe("continuous fair demand scheduling", () => {
             .mockResolvedValue(undefined);
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(POLICY.pollMs - 1);
-        expect(executeBatch).toHaveBeenCalledTimes(3);
+        expect(executeBatch).toHaveBeenCalledTimes(2);
         expect(logger.warn).toHaveBeenCalledTimes(1);
         await vi.advanceTimersByTimeAsync(1);
-        expect(executeBatch).toHaveBeenCalledTimes(6);
+        expect(executeBatch).toHaveBeenCalledTimes(4);
     });
 
     it("services waiting maker and token work before demand takes another batch", async () => {
@@ -166,7 +166,7 @@ describe("continuous fair demand scheduling", () => {
         await Promise.all([maker, token]);
         expect(events).toEqual(["demand", "demand", "maker", "token"]);
         await vi.advanceTimersByTimeAsync(10);
-        expect(executeBatch).toHaveBeenCalledTimes(5);
+        expect(executeBatch).toHaveBeenCalledTimes(4);
     });
 
     it("cancels queued demand on stop before claiming or creating snapshots", async () => {
@@ -177,6 +177,9 @@ describe("continuous fair demand scheduling", () => {
             admission.run(() => gate.promise),
         ];
         const store: OrderValidationDemandPort = {
+            captureSyncCheckpoint: vi.fn(),
+            isCovered: vi.fn(),
+            recordValidation: vi.fn(),
             defer: vi.fn(),
             admit: vi.fn(),
             get: vi.fn(),
