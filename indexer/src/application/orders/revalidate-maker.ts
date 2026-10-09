@@ -53,6 +53,8 @@ export class RevalidateMakerOrders {
         payload: OrderUpdateByMakerPayload;
         origin?: QueueDeliveryOrigin;
         requiredAt?: number;
+        /** Raw historical hints retain/coalesce intent and publish main validation. */
+        admissionOnly?: boolean;
     }): Promise<void> {
         const { store } = this.deps;
         const now = this.deps.now ?? Date.now;
@@ -133,6 +135,10 @@ export class RevalidateMakerOrders {
                 "Maker continuation payload changed",
             );
         if (admitted.status === STATUS.Completed) return;
+        if (input.admissionOnly && !continuation) {
+            store.scheduleWakeup(admitted, now());
+            return;
+        }
         // A redelivered origin can ACK once the atomic checkpoint/outbox owns the rest.
         if (
             !continuation &&
@@ -220,8 +226,10 @@ export class RevalidateMakerOrders {
         const resolutions: MakerValidationCheckpointEntry[] = [];
         let stepEnd: (typeof STEP_END)[keyof typeof STEP_END] = STEP_END.Count;
         const first = candidates.find(
-            (candidate) => candidate.currentAtTrigger,
+            (candidate) =>
+                candidate.currentAtTrigger && !candidate.validationCovered,
         );
+        const checkpoint = this.deps.store.captureSyncCheckpoint(run.chainId);
         const batch = first
             ? await observeProcessing(
                   hooks,
@@ -233,7 +241,11 @@ export class RevalidateMakerOrders {
                           minimumBlock: run.payload.blockNumber ?? null,
                           workClass: makerWorkClass(run),
                           candidates: candidates
-                              .filter((candidate) => candidate.currentAtTrigger)
+                              .filter(
+                                  (candidate) =>
+                                      candidate.currentAtTrigger &&
+                                      !candidate.validationCovered,
+                              )
                               .map((candidate) => candidate.order),
                       }),
               )
@@ -257,7 +269,9 @@ export class RevalidateMakerOrders {
                                 stepEnd = STEP_END.Time;
                                 break;
                             }
-                            if (candidate.currentAtTrigger) {
+                            if (candidate.validationCovered)
+                                resolutions.push({ candidate, covered: true });
+                            else if (candidate.currentAtTrigger) {
                                 if (resolutions.length && !batch!.canAccept()) {
                                     stepEnd = STEP_END.Time;
                                     break;
@@ -311,6 +325,12 @@ export class RevalidateMakerOrders {
                         resolutions,
                         complete,
                         now(),
+                        batch &&
+                            !resolutions.some(
+                                (result) => "deferredError" in result,
+                            )
+                            ? { ...batch.proof, checkpoint }
+                            : null,
                     ),
             );
             const progress = {

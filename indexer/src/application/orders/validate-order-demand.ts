@@ -1,9 +1,6 @@
 import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
-import {
-    SYNC_WORK_CLASS,
-    type SyncWorkClass,
-} from "@artgod/shared/types/sync-work-class";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
@@ -84,7 +81,6 @@ export class ValidateOrderDemand {
 
     async executeBatch(
         signal?: AbortSignal,
-        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): Promise<OrderValidationBatchReport | undefined> {
         // Acquire fair capacity before claiming rows or aging a chain snapshot.
         if (signal?.aborted) return undefined;
@@ -93,7 +89,6 @@ export class ValidateOrderDemand {
                 if (signal?.aborted) return undefined;
                 const report = await this.validateBatch(
                     () => signal?.aborted ?? false,
-                    workClass,
                 );
                 if (report)
                     observeBestEffort(() =>
@@ -105,13 +100,12 @@ export class ValidateOrderDemand {
                 return report;
             },
             signal,
-            workClass,
+            SYNC_WORK_CLASS.Main,
         );
     }
 
     private async validateBatch(
         shouldStop: () => boolean,
-        workClass: SyncWorkClass,
     ): Promise<OrderValidationBatchReport | undefined> {
         const now = this.deps.now ?? Date.now;
         const startedAt = now();
@@ -126,7 +120,6 @@ export class ValidateOrderDemand {
                     this.deps.chainId,
                     randomUUID(),
                     now(),
-                    workClass,
                 ),
         );
         if (!batch.scanned) return undefined;
@@ -162,6 +155,9 @@ export class ValidateOrderDemand {
             | Awaited<ReturnType<OrderValidationSnapshotFactory>>
             | undefined;
         try {
+            const checkpoint = this.deps.store.captureSyncCheckpoint(
+                this.deps.chainId,
+            );
             await observeProcessing(
                 hooks,
                 OPERATION.DemandBatch,
@@ -177,7 +173,7 @@ export class ValidateOrderDemand {
                                 // Different demands have different trigger blocks. Check each against the
                                 // fresh snapshot below so one future trigger cannot block unrelated work.
                                 minimumBlock: null,
-                                workClass,
+                                workClass: SYNC_WORK_CLASS.Main,
                                 candidates: batch.claims.map(
                                     (claim) => claim.candidate.order,
                                 ),
@@ -234,7 +230,7 @@ export class ValidateOrderDemand {
                         () =>
                             this.deps.store.completeBatch(
                                 completions,
-                                snapshot!.proof,
+                                { ...snapshot!.proof, checkpoint },
                                 now(),
                             ),
                     );
@@ -292,14 +288,11 @@ export function startOrderValidationDemand(
             waits.add(resume);
             if (controller.signal.aborted) resume();
         });
-    const run = async (workClass: SyncWorkClass) => {
+    const run = async () => {
         while (!controller.signal.aborted) {
             let busy = false;
             try {
-                const report = await processor.executeBatch(
-                    controller.signal,
-                    workClass,
-                );
+                const report = await processor.executeBatch(controller.signal);
                 busy =
                     !!report &&
                     (report.claimed === 0 || report.released < report.claimed);
@@ -314,14 +307,12 @@ export function startOrderValidationDemand(
             if (!controller.signal.aborted) await pause(busy);
         }
     };
-    // Demand can use both existing permits when other paths are idle. It queues
-    // at most two main executors plus one gap executor. Background admission
-    // reserves a remaining slot for main and rejoins admission after every batch.
+    // Both current-order executors use main capacity. Historical hints are
+    // filtered/coalesced before becoming validation demand.
     const active = Array.from(
         { length: ORDER_PROCESSING_POLICY.concurrentValidations },
-        () => run(SYNC_WORK_CLASS.Main),
+        () => run(),
     );
-    active.push(run(SYNC_WORK_CLASS.GapRepair));
     return async () => {
         controller.abort();
         for (const resume of waits) resume();

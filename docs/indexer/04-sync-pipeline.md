@@ -69,9 +69,10 @@ Automatic gaps still use one shared range at a time.
 ### RPC allocation
 
 `main` covers realtime, manual backfills, bootstrap, reorg recovery and their
-downstream work. Only automatic collection-gap repairs and their descendants
-use `gap_repair`. The class is explicit in queued envelopes, maker continuations,
-and persisted order-validation demand. Legacy messages without a class retain
+downstream work. Automatic collection-gap acquisition and historical metadata/extension work
+use `gap_repair`. Needed current-order validation uses main after domain
+relevance and saved-validation checks. The class is explicit in queued envelopes; maker validation continuations are
+main. Per-order validation demand has one main execution lane. Legacy messages without a class retain
 main behavior. Pending coalesced main demand promotes background demand; after
 completion a new background request uses the background class again.
 
@@ -97,9 +98,8 @@ deliveries renew their broker lease and retain quota waits without DLQ exhaustio
 Actual failed background descendants retry after five minutes and do not use
 broker delivery counts to terminalize extension tasks; manual/bootstrap retry
 limits retain their existing behavior.
-Order validation keeps one of its two permits available for main, allowing main
-to use both when background is idle. Snapshot freshness, fork verification and
-revision/generation fences apply to both classes.
+Order validation uses both existing permits for needed current-order work in
+main. Historical hints are filtered/coalesced before requiring RPC validation.
 
 Budget messages are transient request/reply, outside the durable jobs stream.
 Transport waiters and attempt leases are bounded; a caller can rejoin quota

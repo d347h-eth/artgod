@@ -1189,7 +1189,7 @@ export class SqliteOrdersDomain
     applyMakerResolution(
         payload: OrderUpdateByMakerPayload,
         resolution: MakerValidationResolution,
-    ): void {
+    ): number | null {
         const row = this.selectOrderById.get({
             chainId: payload.chainId,
             orderId: resolution.candidate.order.id,
@@ -1208,7 +1208,7 @@ export class SqliteOrdersDomain
                 payload.blockNumber,
             )
         )
-            return;
+            return null;
         // Do not advance past a still-actionable revision we did not validate. The
         // outer checkpoint transaction rolls back and retry rereads this candidate.
         if (
@@ -1220,6 +1220,12 @@ export class SqliteOrdersDomain
             );
         }
         this.applyValidation(row, resolution.validation.status);
+        return (
+            this.selectOrderById.get({
+                chainId: payload.chainId,
+                orderId: row.id,
+            }) as OrderRow
+        ).state_revision;
     }
 
     private filterCurrentStateRows(

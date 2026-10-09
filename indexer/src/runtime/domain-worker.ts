@@ -341,6 +341,10 @@ async function main() {
                                       ),
                                   },
                             requiredAt: job.scheduledAt,
+                            admissionOnly:
+                                decodeSyncWorkClass(job.workClass) ===
+                                    SYNC_WORK_CLASS.GapRepair &&
+                                !job.payload.continuation,
                             origin,
                         });
                     },

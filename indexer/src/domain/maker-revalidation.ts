@@ -89,6 +89,7 @@ const MAKER_VALIDATION_SCOPE = {
 /** Only hints selecting the same orders and bootstrap-gating mode can share a pass. */
 export function makerValidationScopeKey(
     input: OrderUpdateByMakerPayload,
+    chainRevision: number,
 ): string {
     const payload = canonicalMakerRequest(input);
     const kind =
@@ -101,6 +102,7 @@ export function makerValidationScopeKey(
               : MAKER_VALIDATION_SCOPE.CollectionSells;
     return JSON.stringify([
         payload.chainId,
+        chainRevision,
         payload.maker,
         kind,
         payload.blockNumber == null,
@@ -198,6 +200,7 @@ export type MakerValidationCandidate = {
     order: OrderRecord;
     revision: number;
     currentAtTrigger: boolean;
+    validationCovered?: boolean;
 };
 export type MakerValidationResolution = {
     candidate: MakerValidationCandidate;
@@ -208,6 +211,7 @@ export type MakerValidationResolution = {
 /** Deferred entries have no validation result and cannot establish protocol coverage. */
 export type MakerValidationCheckpointEntry =
     | MakerValidationResolution
+    | { candidate: MakerValidationCandidate; covered: true }
     | { candidate: MakerValidationCandidate; deferredError: string };
 
 export class MakerRevalidationConflict extends Error {}
@@ -256,10 +260,13 @@ export function canonicalMakerRequest(
         (!Number.isSafeInteger(payload.blockNumber) || payload.blockNumber < 0)
     )
         throw new Error("Invalid maker trigger block");
+    // Work admitted to this domain is current-order validation. The envelope
+    // can still classify a raw historical hint as background admission work.
+    decodeSyncWorkClass(payload.workClass);
     const attribution = {
         ...(payload.workClass === undefined
             ? {}
-            : { workClass: decodeSyncWorkClass(payload.workClass) }),
+            : { workClass: SYNC_WORK_CLASS.Main }),
         chainId: payload.chainId,
         maker: payload.maker.toLowerCase(),
         blockNumber: payload.blockNumber ?? null,

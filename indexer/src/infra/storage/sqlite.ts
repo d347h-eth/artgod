@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { captureChainSyncCheckpoint, assertChainSyncCheckpoint, advanceChainSyncRevision } from "./sqlite-chain-revisions.js";
 import { isDeepStrictEqual } from "node:util";
 import {
     fillExecutionIdentity,
@@ -88,13 +89,6 @@ export class SqliteStorage
 {
     private selectReorgHeaders = db.prepare<[number, number, number]>(
         "SELECT block_number AS number, block_hash AS hash, parent_hash AS parentHash, timestamp FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number",
-    );
-    private selectSyncRevision = db.prepare<[number]>(
-        "SELECT revision FROM chain_sync_revisions WHERE chain_id = ?",
-    );
-    private advanceSyncRevision = db.prepare<[number]>(
-        "INSERT INTO chain_sync_revisions (chain_id, revision) VALUES (?, 1) " +
-            "ON CONFLICT(chain_id) DO UPDATE SET revision = revision + 1",
     );
     private selectOwnershipCheckpoint = db.prepare<[number, number, string]>(
         "SELECT p.owner, p.block_number, p.block_hash, p.block_timestamp " +
@@ -355,20 +349,11 @@ export class SqliteStorage
     );
 
     captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint {
-        const row = this.selectSyncRevision.get(chainId) as
-            | { revision: number }
-            | undefined;
-        return { chainId, revision: row?.revision ?? 0 };
+        return captureChainSyncCheckpoint(chainId);
     }
 
     private assertSyncCheckpoint(checkpoint: ChainSyncCheckpoint): void {
-        if (
-            this.captureSyncCheckpoint(checkpoint.chainId).revision !==
-            checkpoint.revision
-        )
-            throw new ChainSyncConflict(
-                "Sync work predates a committed chain rollback",
-            );
+        assertChainSyncCheckpoint(checkpoint);
     }
 
     persistSyncResult({
@@ -644,7 +629,7 @@ export class SqliteStorage
                     timestamp: snapshot.block.blockTimestamp,
                 },
             ]);
-            this.advanceSyncRevision.run(chainId);
+            advanceChainSyncRevision(chainId);
         });
         run();
     }

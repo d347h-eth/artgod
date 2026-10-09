@@ -1,5 +1,4 @@
 import type { JobEnvelope } from "../../domain/jobs.js";
-import { decodeSyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
@@ -55,8 +54,9 @@ export function orderUpdateHandler(deps: {
                     job.payload.observedAt ??
                     Math.floor(job.scheduledAt / 1000),
             },
-            job.scheduledAt,
-            decodeSyncWorkClass(job.workClass),
+            job.payload.observedAt == null
+                ? job.scheduledAt
+                : job.payload.observedAt * 1000,
         );
     };
 }

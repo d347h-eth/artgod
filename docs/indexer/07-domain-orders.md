@@ -736,23 +736,35 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
   `Deposit` and `Withdrawal` triggers are not decoded separately yet.
 
-## Main and automatic-gap validation allocation
+## Historical hints and current-order validation
 
-Ordinary demand retains `work_class` in `order_validation_demand`; bounded
-claims select one class through the due index. Two main executors and one gap
-executor share two validation permits. At most one background validator runs,
-leaving a slot for main; main may use both when background is idle. RPC
-snapshot creation, reads and final verification use the retained class even
-after the originating queue handler ends.
+Automatic repair imports missing chain history under the background RPC allowance.
+An event hint still passes canonical block identity, collection anchor, scope,
+source activity, expiry and protocol-terminal checks before requiring validation.
+Fills and cancellations apply lifecycle facts without validation RPC.
 
-Maker requests retain their class in the persisted payload and continuations.
-A coalesced outstanding main request promotes the run, and completed priority
-does not leak into a later background-only request. Recovery checks the class
-of the actual persisted publication, which may precede promotion. Deferred
-per-order handoff retains the run's strongest outstanding class.
+`eventValidationRequest` requires a full validation at or after the event block.
+Its eventual delivery time is not a new source observation.
+`observedOrderValidationRequest` separately requires a validation observed at or
+after the source observation. Coalescing preserves both unmet requirements.
 
-Local quota waits release claims without incrementing validation failures or
-isolating orders. They never make unavailable metadata into a successful refresh
-or turn an infrastructure wait into an invalid order. Existing snapshot lifetime,
-head-age, fork and revision/generation checks remain unchanged; very low gap
-allocations can delay valid background completion until capacity is available.
+Ordinary and maker/token validation share the existing per-order validation
+record. Reuse requires the current order revision, the current chain rollback
+revision, a sufficiently recent validation block and any required source
+observation time. Maker checkpoint commits its successful full validation record
+with the resulting order revision and cursor. A covered historical hint consumes
+no validation RPC and cannot clear a newer unmet observation. Rollback fences
+in-flight results and separates maker coalescing scopes from earlier history.
+
+All admitted current-order validation uses main capacity: both ordinary demand
+executors, maker/token continuations, retries, snapshot creation, reads and final
+verification. Per-order demand does not retain a selectable work class. A raw
+background maker hint only retains/coalesces its request and publishes a main
+continuation through the existing outbox. Historical metadata and extension work
+keep their background allocation.
+
+Validation still uses the shared total per-endpoint limits and the same two FIFO
+validation permits. No quota exemption or longer snapshot lifetime is needed.
+Local quota deferral releases claims without recording a validation failure; RPC
+uncertainty never becomes a protocol-invalid result. Snapshot lifetime, head-age,
+canonicality, order revision, generation and lease fences remain required.

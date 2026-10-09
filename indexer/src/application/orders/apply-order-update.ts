@@ -1,12 +1,12 @@
 import type { OrderUpdateByIdPayload } from "../../domain/order-jobs.js";
-import {
-    SYNC_WORK_CLASS,
-    type SyncWorkClass,
-} from "@artgod/shared/types/sync-work-class";
 import { orderUpdateQueue } from "../../domain/order-processing.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
 import type { AdmitOrderValidation } from "./validate-order-demand.js";
+import {
+    eventValidationRequest,
+    observedOrderValidationRequest,
+} from "../../domain/order-validation-demand.js";
 import { observeProcessing } from "../processing-observability.js";
 import {
     ORDER_PROCESSING_OPERATION as OPERATION,
@@ -26,18 +26,23 @@ export class ApplyOrderUpdate {
     async execute(
         payload: OrderUpdateByIdPayload,
         requiredAt: number,
-        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): Promise<void> {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
         if (orderUpdateQueue(payload) === QUEUE_NAMES.OrdersUpdateById) {
-            this.deps.validation.execute({
-                chainId: payload.chainId,
-                orderId: payload.orderId,
-                requiredAt,
-                minimumBlock: payload.blockNumber ?? null,
-                workClass,
-            });
+            this.deps.validation.execute(
+                payload.blockNumber == null
+                    ? observedOrderValidationRequest(
+                          payload.chainId,
+                          payload.orderId,
+                          requiredAt,
+                      )
+                    : eventValidationRequest(
+                          payload.chainId,
+                          payload.orderId,
+                          payload.blockNumber,
+                      ),
+            );
         } else
             await observeProcessing(
                 this.deps.observability,

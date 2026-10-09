@@ -239,7 +239,7 @@ describe("maker scan handoff to durable order validation", () => {
         const obligation = restarted.demand.get(1, bad.id)!;
         expect(obligation).toMatchObject({
             pending: true,
-            requiredAt: now,
+            requiredAt: 0,
             minimumBlock: request.payload.blockNumber,
             proofRevision: null,
             failures: DEMAND_POLICY.isolateAfterFailures,
@@ -418,6 +418,7 @@ describe("maker scan handoff to durable order validation", () => {
                 {
                     observedAt: newer.requiredAt,
                     blockNumber: newer.minimumBlock,
+                    checkpoint: { chainId: 1, revision: 0 },
                 },
                 now,
             ),
@@ -458,12 +459,14 @@ describe("maker scan handoff to durable order validation", () => {
         });
         expect(work.demand.get(1, bad.id)).toMatchObject({
             pending: true,
-            requiredAt: later,
+            requiredAt: 0,
             minimumBlock: input.payload.blockNumber,
             proofRevision: null,
         });
         await work.processor.execute(request); // old source replay must not erase newer demand
-        expect(work.demand.get(1, bad.id)?.requiredAt).toBe(later);
+        expect(work.demand.get(1, bad.id)?.minimumBlock).toBe(
+            input.payload.blockNumber,
+        );
     });
 
     it("preserves a newer maker trigger arriving during the final failed read", async () => {
@@ -504,7 +507,7 @@ describe("maker scan handoff to durable order validation", () => {
         });
         expect(work.demand.get(1, bad.id)).toMatchObject({
             pending: true,
-            requiredAt: later,
+            requiredAt: 0,
             minimumBlock: newer.payload.blockNumber,
             proofRevision: null,
         });
@@ -607,6 +610,7 @@ describe("maker scan handoff to durable order validation", () => {
                 [{ candidate, deferredError: "fixture failed read" }],
                 true,
                 Date.now(),
+                null,
             ),
         ).toThrow(MakerRevalidationConflict);
         expect(work.demand.get(1, bad.id)).toBeNull();
