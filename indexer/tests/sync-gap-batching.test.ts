@@ -618,6 +618,9 @@ async function run(
                   getProgress: h.store.getProgress.bind(h.store),
                   saveProgress: h.store.saveProgress.bind(h.store),
                   findGap: h.store.findGap.bind(h.store),
+                  findNewestGap: h.store.findNewestGap.bind(h.store),
+                  listHeadRecheckCollectionIds:
+                      h.store.listHeadRecheckCollectionIds.bind(h.store),
                   deferRetry: h.store.deferRetry.bind(h.store),
                   recordRepairProgress: h.store.recordRepairProgress.bind(
                       h.store,
@@ -642,6 +645,7 @@ async function run(
         collectionsPort: h.registry,
         collectionExtensions: { getInstall: () => null },
         gaps,
+        headGapRecheck: h.scheduler,
         recoveries: h.recoveries,
         gate: new BackfillExecutionGate(),
         batchSize: h.batchSize,

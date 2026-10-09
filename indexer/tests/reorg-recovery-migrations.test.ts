@@ -35,6 +35,7 @@ import {
 
 // Assert filename identity at the migration/storage boundary, including the two
 // distinct 062 files. Upgrade may happen in either historical installation order.
+const HEAD_CHECK_MIGRATION = "068_recent_gap_checks.sql";
 const FEATURE_MIGRATIONS = new Set([
     "056_transfer_projection_order.sql",
     "057_collection_sync_gap_scans.sql",
@@ -43,6 +44,8 @@ const FEATURE_MIGRATIONS = new Set([
     "064_required_sync_followups.sql",
     "065_direct_automatic_sync.sql",
     "066_sync_gap_due_paging.sql",
+    "067_reset_collection_sale_coverage.sql",
+    HEAD_CHECK_MIGRATION,
 ]);
 const MAIN_MIGRATION = "062_trait_competition_presets.sql";
 
@@ -61,6 +64,7 @@ describe("integrated reorg recovery migration upgrades", () => {
             "064_required_sync_followups.sql",
             "065_direct_automatic_sync.sql",
             "066_sync_gap_due_paging.sql",
+            HEAD_CHECK_MIGRATION,
         ];
         for (const file of filenames.filter(
             (file) => !additions.includes(file),
@@ -84,16 +88,12 @@ describe("integrated reorg recovery migration upgrades", () => {
         db.prepare(
             "INSERT INTO chain_reorg_recoveries (chain_id,recovery_id,version,revision,checked_block,stored_hash,observed_hash,phase,retry_at,range_from,range_to,target_block,delivery) VALUES (1,'old-recovery',9,1,105,'old','new',?,9999999999999,105,106,107,7)",
         ).run(REORG_RECOVERY_PHASE.Resync);
-        new SqliteSyncGapStore().saveProgress(1, collectionId, {
-            anchorBlock: F.Anchor,
-            cursorBlock: 103,
-            pending: {
-                repairId: "old-gap",
-                fromBlock: 105,
-                toBlock: 106,
-                retryAt: 9999999999999,
-            },
-        });
+        // This fixture deliberately has the pre-upgrade schema; do not construct
+        // today's adapter before its migrations have run.
+        db.prepare(
+            "INSERT INTO collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at) " +
+                "VALUES(1, ?, ?, 103, 'old-gap', 105, 106, 9999999999999)",
+        ).run(collectionId, F.Anchor);
         for (const source of [
             BACKFILL_SOURCE.ReorgRecovery,
             BACKFILL_SOURCE.ManualHistorical,
@@ -290,10 +290,17 @@ describe("integrated reorg recovery migration upgrades", () => {
                 fromBlock: 105,
                 toBlock: 106,
             });
-            new SqliteSyncGapStore().saveProgress(1, collectionId, {
-                anchorBlock: F.Anchor,
-                cursorBlock: null,
-                pending: null,
+            const gapStore = new SqliteSyncGapStore();
+            gapStore.saveProgress({
+                chainId: 1,
+                collectionId,
+                expected: gapStore.getProgress(1, collectionId),
+                progress: {
+                    anchorBlock: F.Anchor,
+                    cursorBlock: null,
+                    pending: null,
+                    lastHeadCheckAt: null,
+                },
             });
             new SqliteCollectionPurgeRepository().purgeCollectionData({
                 chainId: 1,

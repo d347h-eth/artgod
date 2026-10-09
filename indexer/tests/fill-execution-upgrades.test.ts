@@ -59,6 +59,7 @@ import { syncBlockFixture } from "./helpers/chain-fixture.js";
 // Filenames and legacy columns are deliberately asserted at the storage boundary.
 const UPGRADE = "064_fill_execution_facts.sql";
 const COVERAGE_RESET = "067_reset_collection_sale_coverage.sql";
+const AUTOMATIC_SYNC_SCHEMA = new Set(["068_recent_gap_checks.sql"]);
 const BUNDLE_FIXTURE =
     "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json";
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
@@ -326,7 +327,7 @@ describe("fill execution schema adoption", () => {
                 if (
                     name.endsWith(".sql") &&
                     name > UPGRADE &&
-                    name < COVERAGE_RESET
+                    (name < COVERAGE_RESET || AUTOMATIC_SYNC_SCHEMA.has(name))
                 )
                     await copyFile(
                         join(source, name),
@@ -365,14 +366,20 @@ describe("fill execution schema adoption", () => {
                 [1, collectionId],
                 [2, other.collection_id],
             ])
-                services.gaps.saveProgress(chainId, id, {
-                    anchorBlock: tx.blockNumber - 1,
-                    cursorBlock: tx.blockNumber,
-                    pending: {
-                        repairId: `old:${chainId}:${id}`,
-                        fromBlock: tx.blockNumber,
-                        toBlock: tx.blockNumber + 1,
-                        retryAt: 999999,
+                services.gaps.saveProgress({
+                    chainId,
+                    collectionId: id,
+                    expected: services.gaps.getProgress(chainId, id),
+                    progress: {
+                        anchorBlock: tx.blockNumber - 1,
+                        cursorBlock: tx.blockNumber,
+                        lastHeadCheckAt: 1000,
+                        pending: {
+                            repairId: `old:${chainId}:${id}`,
+                            fromBlock: tx.blockNumber,
+                            toBlock: tx.blockNumber + 1,
+                            retryAt: 999999,
+                        },
                     },
                 });
             return { collectionId, ...services };
@@ -415,10 +422,19 @@ describe("fill execution schema adoption", () => {
                     "INSERT INTO collection_sync_blocks(chain_id,collection_id,block_number) SELECT chain_id,collection_id,bootstrap_anchor_block FROM collections WHERE bootstrap_anchor_block IS NOT NULL",
                 );
                 coverage.run();
-                services.gaps.saveProgress(1, services.collectionId, {
-                    anchorBlock: tx.blockNumber - 1,
-                    cursorBlock: tx.blockNumber,
-                    pending: null,
+                services.gaps.saveProgress({
+                    chainId: 1,
+                    collectionId: services.collectionId,
+                    expected: services.gaps.getProgress(
+                        1,
+                        services.collectionId,
+                    ),
+                    progress: {
+                        anchorBlock: tx.blockNumber - 1,
+                        cursorBlock: tx.blockNumber,
+                        pending: null,
+                        lastHeadCheckAt: 1000,
+                    },
                 });
                 const resumed = snapshotTables(["migrations"]);
                 setDbPath(databasePath);
@@ -780,6 +796,11 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         gaps,
         recoveries,
         now: () => 1000,
+        headGapRecheck: new SyncGapScheduler(registry, gaps, {
+            chainId: 1,
+            batchSize: 2,
+            now: () => 1000,
+        }),
     });
     return {
         storage,

@@ -9,6 +9,8 @@ export type SyncGapProgress = {
     anchorBlock: number;
     cursorBlock: number | null;
     pending: PendingSyncGapRepair | null;
+    // Epoch milliseconds; null means no HEAD check has been recorded yet.
+    lastHeadCheckAt: number | null;
 };
 export type SyncGapRepairTarget = SyncGapRange & {
     collectionId: number;

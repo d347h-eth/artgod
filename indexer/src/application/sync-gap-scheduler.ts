@@ -19,11 +19,16 @@ export type {
 export const SYNC_GAP_POLICY = {
     ScanWindowBlocks: 10_000,
     CollectionsPerPass: 16,
+    HeadRecheckIntervalMs: 30 * 60_000,
 } as const;
 
 const SYNC_GAP_LOG_COMPONENT = "IndexerSyncGapScheduler";
 
 export interface SyncGapCollectionsPort {
+    getCollection(
+        chainId: number,
+        collectionId: number,
+    ): CollectionRecord | null;
     listCollectionsForGapRepair(
         chainId: number,
         afterCollectionId: number,
@@ -41,14 +46,30 @@ export interface SyncGapStorePort {
         limit: number;
         after: SyncGapRepairCursor | null;
     }): SyncGapRepairPage;
-    saveProgress(
-        chainId: number,
-        collectionId: number,
-        progress: SyncGapProgress,
-    ): void;
+    // Save only if the previously read state is still current. The scanner and
+    // sync worker run in separate processes; stale scans must not replace work.
+    saveProgress(input: {
+        chainId: number;
+        collectionId: number;
+        expected: SyncGapProgress | null;
+        progress: SyncGapProgress;
+    }): boolean;
+    listHeadRecheckCollectionIds(input: {
+        chainId: number;
+        checkedBefore: number;
+        limit: number;
+    }): number[];
     // Returns the highest missing contiguous range, capped to batchSize, from
     // collection coverage only. Implementations must bound reads to window.
     findGap(
+        chainId: number,
+        collectionId: number,
+        window: SyncGapRange,
+        batchSize: number,
+    ): SyncGapRange | null;
+    // Search the full newer span without allocating its coverage rows. All
+    // reads must use one coverage snapshot; cap only the returned repair range.
+    findNewestGap(
         chainId: number,
         collectionId: number,
         window: SyncGapRange,
@@ -73,22 +94,33 @@ export interface SyncGapDetectorPort {
     scan(headBlock: number): Promise<void>;
 }
 
+export interface SyncGapHeadRecheckPort {
+    hasHeadRechecksDue(): boolean;
+    // Call between fetch-and-save attempts, inside the shared backfill gate.
+    // Returns whether a newer repair replaced the saved scan position.
+    recheckFromHead(headBlock: number): boolean;
+}
+
 export type SyncGapSchedulerOptions = {
     chainId: number;
     batchSize: number;
     scanWindowBlocks?: number;
     collectionsPerPass?: number;
+    headRecheckIntervalMs?: number;
     now?: () => number;
 };
 
 // Each pass visits a bounded page of collections. Each collection retains one
 // outstanding repair, so slow workers cannot admit the whole missing history.
-export class SyncGapScheduler implements SyncGapDetectorPort {
+export class SyncGapScheduler
+    implements SyncGapDetectorPort, SyncGapHeadRecheckPort
+{
     private afterCollectionId = 0;
     private active: Promise<void> | null = null;
     private readonly windowSize: number;
     private readonly pageSize: number;
     private readonly now: () => number;
+    private readonly headRecheckIntervalMs: number;
 
     constructor(
         private readonly collections: SyncGapCollectionsPort,
@@ -100,16 +132,104 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
         this.pageSize =
             options.collectionsPerPass ?? SYNC_GAP_POLICY.CollectionsPerPass;
         this.now = options.now ?? Date.now;
+        this.headRecheckIntervalMs =
+            options.headRecheckIntervalMs ??
+            SYNC_GAP_POLICY.HeadRecheckIntervalMs;
         for (const value of [
             options.batchSize,
             this.windowSize,
             this.pageSize,
+            this.headRecheckIntervalMs,
         ]) {
             if (!Number.isSafeInteger(value) || value < 1)
                 throw new Error(
                     "Sync gap limits must be positive safe integers",
                 );
         }
+    }
+
+    hasHeadRechecksDue(): boolean {
+        return this.headRecheckCollectionIds(1).length > 0;
+    }
+
+    recheckFromHead(headBlock: number): boolean {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        let replaced = false;
+        for (const collectionId of this.headRecheckCollectionIds(
+            this.pageSize,
+        )) {
+            try {
+                const collection = this.collections.getCollection(
+                    this.options.chainId,
+                    collectionId,
+                );
+                if (collection)
+                    replaced =
+                        this.recheckCollection(collection, headBlock) ||
+                        replaced;
+            } catch (error) {
+                logger.warn("Collection HEAD gap check failed", {
+                    component: SYNC_GAP_LOG_COMPONENT,
+                    action: "head_check",
+                    chainId: this.options.chainId,
+                    collectionId,
+                    error: String(error),
+                });
+            }
+        }
+        return replaced;
+    }
+
+    private headRecheckCollectionIds(limit: number): number[] {
+        return this.store.listHeadRecheckCollectionIds({
+            chainId: this.options.chainId,
+            checkedBefore: this.now() - this.headRecheckIntervalMs,
+            limit,
+        });
+    }
+
+    private recheckCollection(
+        collection: CollectionRecord,
+        headBlock: number,
+    ): boolean {
+        const window = collection.gapRepairWindow(headBlock);
+        if (!window) return false;
+        const chainId = this.options.chainId;
+        const expected = this.store.getProgress(chainId, collection.id);
+        if (!expected || expected.anchorBlock !== window.fromBlock)
+            return false;
+        const fromBlock = Math.max(
+            window.fromBlock,
+            (expected.pending?.toBlock ??
+                expected.cursorBlock ??
+                window.fromBlock - 1) + 1,
+        );
+        const gap =
+            fromBlock <= headBlock
+                ? this.store.findNewestGap(
+                      chainId,
+                      collection.id,
+                      { fromBlock, toBlock: headBlock },
+                      this.options.batchSize,
+                  )
+                : null;
+        const progress = gap
+            ? this.progressForGap({
+                  collectionId: collection.id,
+                  anchorBlock: window.fromBlock,
+                  gap,
+                  scannedFromBlock: fromBlock,
+                  lastHeadCheckAt: this.now(),
+              })
+            : { ...expected, lastHeadCheckAt: this.now() };
+        return (
+            this.store.saveProgress({
+                chainId,
+                collectionId: collection.id,
+                expected,
+                progress,
+            }) && gap !== null
+        );
     }
 
     scan(headBlock: number): Promise<void> {
@@ -159,12 +279,14 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
         const window = collection.gapRepairWindow(headBlock);
         if (!window) return;
         const chainId = this.options.chainId;
-        let progress = this.store.getProgress(chainId, collection.id);
+        const expected = this.store.getProgress(chainId, collection.id);
+        let progress = expected;
         if (!progress || progress.anchorBlock !== window.fromBlock) {
             progress = {
                 anchorBlock: window.fromBlock,
                 cursorBlock: null,
                 pending: null,
+                lastHeadCheckAt: null,
             };
         }
         if (!progress.pending) {
@@ -182,21 +304,55 @@ export class SyncGapScheduler implements SyncGapDetectorPort {
                 scanWindow,
                 this.options.batchSize,
             );
-            const nextCursor = (gap?.fromBlock ?? scanWindow.fromBlock) - 1;
-            progress = {
+            // A scan starting at HEAD already checked everything above the new
+            // cursor. Continuing older history must not postpone the next check.
+            const lastHeadCheckAt =
+                progress.cursorBlock === null
+                    ? this.now()
+                    : progress.lastHeadCheckAt;
+            progress = this.progressForGap({
+                collectionId: collection.id,
                 anchorBlock: window.fromBlock,
-                cursorBlock: nextCursor < window.fromBlock ? null : nextCursor,
-                pending: gap
-                    ? {
-                          ...gap,
-                          repairId: `sync:gap:${chainId}:${collection.id}:${randomUUID()}`,
-                          retryAt: this.now(),
-                      }
-                    : null,
-            };
+                gap,
+                lastHeadCheckAt,
+                scannedFromBlock: scanWindow.fromBlock,
+            });
             // Retain the exact range before acquisition. Restarts reuse this row
             // until the sync commit atomically advances it with data and follow-ups.
-            this.store.saveProgress(chainId, collection.id, progress);
+            this.store.saveProgress({
+                chainId,
+                collectionId: collection.id,
+                expected,
+                progress,
+            });
         }
+    }
+
+    private progressForGap({
+        collectionId,
+        anchorBlock,
+        gap,
+        lastHeadCheckAt,
+        scannedFromBlock,
+    }: {
+        collectionId: number;
+        anchorBlock: number;
+        gap: SyncGapRange | null;
+        lastHeadCheckAt: number | null;
+        scannedFromBlock: number;
+    }): SyncGapProgress {
+        const nextCursor = (gap?.fromBlock ?? scannedFromBlock) - 1;
+        return {
+            anchorBlock,
+            cursorBlock: nextCursor < anchorBlock ? null : nextCursor,
+            pending: gap
+                ? {
+                      ...gap,
+                      repairId: `sync:gap:${this.options.chainId}:${collectionId}:${randomUUID()}`,
+                      retryAt: this.now(),
+                  }
+                : null,
+            lastHeadCheckAt,
+        };
     }
 }

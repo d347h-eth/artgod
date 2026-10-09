@@ -10,7 +10,10 @@ import {
     BackfillExecutionGate,
     BACKFILL_EXECUTION_MODE,
 } from "../src/application/backfill-execution.js";
-import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
+import {
+    SyncGapScheduler,
+    SYNC_GAP_POLICY,
+} from "../src/application/sync-gap-scheduler.js";
 import { buildSyncFollowUps } from "../src/application/sync-range-processing.js";
 import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
@@ -62,17 +65,146 @@ describe("direct automatic sync execution", () => {
         fromBlock: number,
         toBlock: number,
     ) {
-        s.gaps.saveProgress(1, collectionId, {
-            anchorBlock: 100,
-            cursorBlock: fromBlock - 1,
-            pending: {
-                repairId: `repair:${collectionId}`,
-                fromBlock,
-                toBlock,
-                retryAt: now,
+        s.gaps.saveProgress({
+            chainId: 1,
+            collectionId,
+            expected: s.gaps.getProgress(1, collectionId),
+            progress: {
+                anchorBlock: 100,
+                cursorBlock: fromBlock - 1,
+                lastHeadCheckAt: now,
+                pending: {
+                    repairId: `repair:${collectionId}`,
+                    fromBlock,
+                    toBlock,
+                    retryAt: now,
+                },
             },
         });
     }
+
+    function cover(
+        collectionId: number,
+        from: number,
+        to: number,
+        missing: number[] = [],
+    ) {
+        const skip = new Set(missing);
+        const insert = db.prepare(
+            "INSERT OR IGNORE INTO collection_sync_blocks(chain_id,collection_id,block_number) VALUES(1,?,?)",
+        );
+        db.writeTransaction(() => {
+            for (let n = from; n <= to; n++)
+                if (!skip.has(n)) insert.run(collectionId, n);
+        })();
+    }
+
+    it("finishes the running range before checking HEAD and replacing older progress", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc),
+            f = transferFixture();
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+        retain(s, f.collectionId, 101, 102);
+        cover(f.collectionId, 103, 200, [199, 200]);
+        const old = s.gaps.getProgress(1, f.collectionId)!.pending;
+        const entered = Promise.withResolvers<void>(),
+            release = Promise.withResolvers<void>();
+        let held = false;
+        rpc.beforeLogs = async (filter) => {
+            if (filter.fromBlock !== 101 || held) return;
+            held = true;
+            entered.resolve();
+            await release.promise;
+        };
+        const running = s.executor.runDue();
+        await entered.promise;
+        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        await scanner(s).scan(200);
+        expect(s.executor.runDue()).toBe(running);
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toEqual(old);
+        release.resolve();
+        await running;
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                102,
+            ),
+        ).toBe(2);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            1000,
+        );
+        await s.executor.runDue();
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            now,
+        );
+        expect(s.gaps.getProgress(1, f.collectionId)?.cursorBlock).toBe(198);
+    });
+
+    it("checks HEAD and selects replacement work after waiting for another backfill", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc),
+            f = transferFixture();
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+        retain(s, f.collectionId, 101, 102);
+        cover(f.collectionId, 103, 200, [199, 200]);
+        const gate = new BackfillExecutionGate(),
+            release = Promise.withResolvers<void>();
+        const holder = gate.run(
+            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+            () => release.promise,
+        );
+        const head = vi.spyOn(rpc, "getBlockNumber");
+        const executor = new AutomaticSyncExecutor({
+            rpc,
+            storage: s.storage,
+            commit: s.commit,
+            gaps: s.gaps,
+            headGapRecheck: scanner(s),
+            recoveries: s.recoveries,
+            collectionsPort: s.registry,
+            collectionExtensions: { getInstall: () => null },
+            chainId: 1,
+            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            wethAddress: F.Weth,
+            batchSize: 2,
+            gate,
+            now: () => now,
+        });
+        const waiting = executor.runDue();
+        await Promise.resolve();
+        expect(head).not.toHaveBeenCalled();
+        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        release.resolve();
+        await holder;
+        await waiting;
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                102,
+            ),
+        ).toBe(0);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        expect(head).toHaveBeenCalledOnce();
+    });
 
     it("does no RPC polling when idle and executes at most one bounded range per pass", async () => {
         const rpc = new RecoveryRpc(200),
@@ -223,6 +355,7 @@ describe("direct automatic sync execution", () => {
             storage: s.storage,
             commit: s.commit,
             gaps: s.gaps,
+            headGapRecheck: scanner(s),
             recoveries: s.recoveries,
             collectionsPort: s.registry,
             collectionExtensions: { getInstall: () => null },

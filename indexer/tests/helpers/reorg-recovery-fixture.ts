@@ -2,6 +2,7 @@ import { db } from "@artgod/shared/database";
 import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
 import { AutomaticSyncExecutor } from "../../src/application/automatic-sync-executor.js";
+import { SyncGapScheduler } from "../../src/application/sync-gap-scheduler.js";
 import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../../src/application/queue-outbox/drainer.js";
 import { SqliteSyncGapStore } from "../../src/infra/storage/sqlite-sync-gaps.js";
@@ -145,6 +146,11 @@ export function reorgRecoveryServices(
         gaps,
         recoveries,
         collectionsPort: registry,
+        headGapRecheck: new SyncGapScheduler(registry, gaps, {
+            chainId: REORG_FIXTURE.ChainId,
+            batchSize: REORG_FIXTURE.BatchSize,
+            now: options.now,
+        }),
         collectionExtensions: { getInstall: () => null },
         chainId: REORG_FIXTURE.ChainId,
         bidderIndex: { isActive: () => false, shouldEmit: () => false },

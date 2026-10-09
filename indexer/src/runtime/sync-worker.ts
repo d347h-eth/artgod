@@ -16,6 +16,7 @@ import {
     AutomaticSyncExecutor,
     startAutomaticSyncLoop,
 } from "../application/automatic-sync-executor.js";
+import { SyncGapScheduler } from "../application/sync-gap-scheduler.js";
 import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import { SqliteSyncRangeCommit } from "../infra/storage/sqlite-sync-range-commit.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
@@ -255,6 +256,14 @@ async function main() {
                 bidderIndex,
                 wethAddress: config.tokens.wethAddress,
                 gaps: syncGapStore,
+                headGapRecheck: new SyncGapScheduler(
+                    collectionRegistry,
+                    syncGapStore,
+                    {
+                        chainId: config.chainId,
+                        batchSize: config.sync.backfillBatchSize,
+                    },
+                ),
                 recoveries: reorgRecoveries,
                 gate: backfillExecutionGate,
                 batchSize: config.sync.backfillBatchSize,
