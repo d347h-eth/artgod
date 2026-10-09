@@ -18,12 +18,6 @@ export type SyncGapRepairTarget = SyncGapRange & {
     anchorBlock: number;
 };
 
-export type SyncGapRepairCursor = { retryAt: number; collectionId: number };
-export type SyncGapRepairPage = {
-    repairs: SyncGapRepairTarget[];
-    cursor: SyncGapRepairCursor | null;
-};
-
 export function isCurrentSyncGapRepair(input: {
     chainId: number;
     repair: SyncGapRepairTarget;

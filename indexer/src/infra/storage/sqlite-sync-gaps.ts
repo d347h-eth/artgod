@@ -17,15 +17,17 @@ type ProgressRow = {
     last_head_check_at: number | null;
 };
 
-const DUE_REPAIRS_QUERY =
-    "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock, s.retry_at AS retryAt " +
-    "FROM collection_sync_gap_scans s JOIN collections c ON c.collection_id = s.collection_id AND c.chain_id = s.chain_id " +
-    "WHERE s.chain_id = @chainId AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block AND s.pending_job_id IS NOT NULL AND s.retry_at <= @now ";
-const DUE_REPAIRS_ORDER = "ORDER BY s.retry_at, s.collection_id LIMIT @limit";
+// SQLite CROSS JOIN keeps the ordered intent index as the outer loop. With an
+// ordinary join, ANALYZE can make SQLite visit/sort every live collection before
+// applying LIMIT. Eligibility still requires the exact live collection/anchor.
+const LIVE_GAP_PROGRESS_QUERY =
+    "FROM collection_sync_gap_scans s CROSS JOIN collections c " +
+    "WHERE s.chain_id = @chainId AND c.collection_id = s.collection_id AND c.chain_id = s.chain_id " +
+    "AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block ";
+const PENDING_REPAIRS_QUERY =
+    LIVE_GAP_PROGRESS_QUERY + "AND s.pending_job_id IS NOT NULL ";
 const HEAD_RECHECK_QUERY =
-    "SELECT s.collection_id AS collectionId FROM collection_sync_gap_scans s " +
-    "JOIN collections c ON c.chain_id = s.chain_id AND c.collection_id = s.collection_id " +
-    "WHERE s.chain_id = @chainId AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block ";
+    "SELECT s.collection_id AS collectionId " + LIVE_GAP_PROGRESS_QUERY;
 
 export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectProgress = db.prepare<[number, number]>(
@@ -61,11 +63,16 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         HEAD_RECHECK_QUERY +
             "AND s.last_head_check_at <= @checkedBefore ORDER BY s.last_head_check_at, s.collection_id LIMIT @limit",
     );
-    private selectDue = db.prepare(DUE_REPAIRS_QUERY + DUE_REPAIRS_ORDER);
-    private selectDueAfter = db.prepare(
-        DUE_REPAIRS_QUERY +
-            "AND (s.retry_at, s.collection_id) > (@afterRetryAt, @afterCollectionId) " +
-            DUE_REPAIRS_ORDER,
+    private selectNewest = db.prepare(
+        "SELECT s.pending_to_block AS toBlock " +
+            PENDING_REPAIRS_QUERY +
+            "ORDER BY s.pending_to_block DESC LIMIT 1",
+    );
+    private selectDueAtNewest = db.prepare(
+        "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock " +
+            PENDING_REPAIRS_QUERY +
+            "AND s.pending_to_block = @toBlock AND s.retry_at <= @now " +
+            "ORDER BY s.retry_at, s.collection_id LIMIT @limit",
     );
     private updateRetry = db.prepare(
         "UPDATE collection_sync_gap_scans SET retry_at = @retryAt " +
@@ -99,33 +106,29 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         };
     }
 
-    listDuePage(
-        input: Parameters<SyncGapStorePort["listDuePage"]>[0],
-    ): ReturnType<SyncGapStorePort["listDuePage"]> {
-        const bindings = {
-            chainId: input.chainId,
-            now: input.now,
-            limit: input.limit,
-            status: COLLECTION_STATUS.Live,
-        };
-        const rows = (
-            input.after
-                ? this.selectDueAfter.all({
+    listDueRepairsAtNewestPendingHeight({
+        chainId,
+        now,
+        limit,
+    }: Parameters<
+        SyncGapStorePort["listDueRepairsAtNewestPendingHeight"]
+    >[0]): SyncGapRepairTarget[] {
+        return db.raw.transaction(() => {
+            const bindings = { chainId, status: COLLECTION_STATUS.Live };
+            const newest = this.selectNewest.get(bindings) as
+                | { toBlock: number }
+                | undefined;
+            // Find newest intent before retry filtering. A newer failed range
+            // must not hand scarce RPC capacity back to older missing history.
+            return newest
+                ? (this.selectDueAtNewest.all({
                       ...bindings,
-                      afterRetryAt: input.after.retryAt,
-                      afterCollectionId: input.after.collectionId,
-                  })
-                : this.selectDue.all(bindings)
-        ) as (SyncGapRepairTarget & {
-            retryAt: number;
-        })[];
-        const last = rows.at(-1);
-        return {
-            repairs: rows.map(({ retryAt: _retryAt, ...repair }) => repair),
-            cursor: last
-                ? { retryAt: last.retryAt, collectionId: last.collectionId }
-                : null,
-        };
+                      toBlock: newest.toBlock,
+                      now,
+                      limit,
+                  }) as SyncGapRepairTarget[])
+                : [];
+        })();
     }
 
     saveProgress({

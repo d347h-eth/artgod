@@ -74,14 +74,16 @@ describe("wall-clock HEAD gap checks", () => {
     }
 
     it("checks at exactly 30 minutes, survives restart and resets to the newest hole", () => {
-        const h = harness(),
-            id = seed();
+        let h = harness();
+        const id = seed();
         retain(h.store, id);
         cover(id, 103, 200, [180, 181]);
         now += SYNC_GAP_POLICY.HeadRecheckIntervalMs - 1;
         expect(h.scanner().hasHeadRechecksDue()).toBe(false);
         expect(h.scanner().recheckFromHead(200)).toBe(false);
         now += 1;
+        setDbPath(db.raw.name);
+        h = harness();
         const restarted = h.scanner();
         expect(restarted.hasHeadRechecksDue()).toBe(true);
         expect(restarted.recheckFromHead(200)).toBe(true);
@@ -319,6 +321,23 @@ describe("wall-clock HEAD gap checks", () => {
                 toBlock: 199,
             },
         });
+    });
+
+    it("reuses a HEAD check completed by the scheduler after due IDs were selected", () => {
+        const h = harness(),
+            id = seed();
+        retain(h.store, id, { lastHeadCheckAt: null });
+        const get = h.registry.getCollection.bind(h.registry);
+        vi.spyOn(h.registry, "getCollection").mockImplementationOnce(
+            (...args) => {
+                retain(h.store, id, { lastHeadCheckAt: now });
+                return get(...args);
+            },
+        );
+        const lookup = vi.spyOn(h.store, "findNewestGap");
+        expect(h.scanner().recheckFromHead(200)).toBe(false);
+        expect(lookup).not.toHaveBeenCalled();
+        expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(now);
     });
 
     it("records ordinary HEAD scans without moving the time during older scanning", async () => {

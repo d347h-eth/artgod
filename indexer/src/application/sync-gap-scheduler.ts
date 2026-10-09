@@ -5,8 +5,6 @@ import type {
     SyncGapRange,
     SyncGapProgress,
     SyncGapRepairTarget,
-    SyncGapRepairCursor,
-    SyncGapRepairPage,
 } from "../domain/sync-gap-repair.js";
 export type {
     SyncGapRange,
@@ -38,14 +36,13 @@ export interface SyncGapCollectionsPort {
 
 export interface SyncGapStorePort {
     getProgress(chainId: number, collectionId: number): SyncGapProgress | null;
-    // Read at most limit due members in retry/collection order. A non-null cursor
-    // seeks after a previously skipped page without OFFSET or an unbounded list.
-    listDuePage(input: {
+    // Read at most limit due members at the globally highest pending upper
+    // bound. Older ranges wait even when that newest height is in retry backoff.
+    listDueRepairsAtNewestPendingHeight(input: {
         chainId: number;
         now: number;
         limit: number;
-        after: SyncGapRepairCursor | null;
-    }): SyncGapRepairPage;
+    }): SyncGapRepairTarget[];
     // Save only if the previously read state is still current. The scanner and
     // sync worker run in separate processes; stale scans must not replace work.
     saveProgress(input: {
@@ -197,6 +194,13 @@ export class SyncGapScheduler
         const chainId = this.options.chainId;
         const expected = this.store.getProgress(chainId, collection.id);
         if (!expected || expected.anchorBlock !== window.fromBlock)
+            return false;
+        // The scheduler may have completed a HEAD scan after the due IDs were
+        // selected. Reuse that check instead of repeating a large coverage read.
+        if (
+            expected.lastHeadCheckAt !== null &&
+            expected.lastHeadCheckAt > this.now() - this.headRecheckIntervalMs
+        )
             return false;
         const fromBlock = Math.max(
             window.fromBlock,

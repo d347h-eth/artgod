@@ -36,6 +36,7 @@ import {
 // Assert filename identity at the migration/storage boundary, including the two
 // distinct 062 files. Upgrade may happen in either historical installation order.
 const HEAD_CHECK_MIGRATION = "068_recent_gap_checks.sql";
+const NEWEST_GAP_MIGRATION = "069_newest_gap_priority.sql";
 const FEATURE_MIGRATIONS = new Set([
     "056_transfer_projection_order.sql",
     "057_collection_sync_gap_scans.sql",
@@ -46,6 +47,7 @@ const FEATURE_MIGRATIONS = new Set([
     "066_sync_gap_due_paging.sql",
     "067_reset_collection_sale_coverage.sql",
     HEAD_CHECK_MIGRATION,
+    NEWEST_GAP_MIGRATION,
 ]);
 const MAIN_MIGRATION = "062_trait_competition_presets.sql";
 
@@ -65,6 +67,7 @@ describe("integrated reorg recovery migration upgrades", () => {
             "065_direct_automatic_sync.sql",
             "066_sync_gap_due_paging.sql",
             HEAD_CHECK_MIGRATION,
+            NEWEST_GAP_MIGRATION,
         ];
         for (const file of filenames.filter(
             (file) => !additions.includes(file),

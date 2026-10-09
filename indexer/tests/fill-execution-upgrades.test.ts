@@ -59,7 +59,10 @@ import { syncBlockFixture } from "./helpers/chain-fixture.js";
 // Filenames and legacy columns are deliberately asserted at the storage boundary.
 const UPGRADE = "064_fill_execution_facts.sql";
 const COVERAGE_RESET = "067_reset_collection_sale_coverage.sql";
-const AUTOMATIC_SYNC_SCHEMA = new Set(["068_recent_gap_checks.sql"]);
+const AUTOMATIC_SYNC_SCHEMA = new Set([
+    "068_recent_gap_checks.sql",
+    "069_newest_gap_priority.sql",
+]);
 const BUNDLE_FIXTURE =
     "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json";
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";

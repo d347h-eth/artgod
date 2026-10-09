@@ -3,7 +3,6 @@ import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
     type SyncGapRepairBatch,
-    type SyncGapRepairCursor,
 } from "../domain/sync-gap-repair.js";
 import {
     REORG_RECOVERY_PHASE,
@@ -74,7 +73,6 @@ type AutomaticSyncInput = Omit<
 // no broker message, delivery generation or publication reply owns progression.
 export class AutomaticSyncExecutor {
     private active: Promise<void> | null = null;
-    private gapCursor: SyncGapRepairCursor | null = null;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -108,17 +106,15 @@ export class AutomaticSyncExecutor {
             await this.runReorgResync();
             return;
         }
-        const pending = this.input.gaps.listDuePage({
+        const pending = this.input.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: this.input.chainId,
             now: this.now(),
             limit: SYNC_GAP_POLICY.CollectionsPerPass,
-            after: this.gapCursor,
         });
         if (
-            !pending.repairs.length &&
+            !pending.length &&
             !this.input.headGapRecheck.hasHeadRechecksDue()
         ) {
-            this.gapCursor = null;
             return;
         }
         await this.input.gate.run(
@@ -133,30 +129,22 @@ export class AutomaticSyncExecutor {
                 )
                     return;
                 const head = await this.input.rpc.getBlockNumber();
-                if (this.input.headGapRecheck.recheckFromHead(head))
-                    this.gapCursor = null;
-                const page = this.input.gaps.listDuePage({
-                    chainId: this.input.chainId,
-                    now: this.now(),
-                    limit: SYNC_GAP_POLICY.CollectionsPerPass,
-                    after: this.gapCursor,
-                });
-                const eligible = page.repairs.filter(
+                this.input.headGapRecheck.recheckFromHead(head);
+                const pending =
+                    this.input.gaps.listDueRepairsAtNewestPendingHeight({
+                        chainId: this.input.chainId,
+                        now: this.now(),
+                        limit: SYNC_GAP_POLICY.CollectionsPerPass,
+                    });
+                const eligible = pending.filter(
                     (repair) => repair.toBlock <= head,
                 );
-                this.gapCursor = eligible.length ? null : page.cursor;
-                const oldest = eligible[0];
-                const batch =
-                    oldest &&
-                    planSyncGapRepairBatches(
-                        eligible,
-                        this.input.batchSize,
-                    ).find((candidate) =>
-                        candidate.repairs.some(
-                            (repair) =>
-                                repair.collectionId === oldest.collectionId,
-                        ),
-                    );
+                // The store retains newest priority during retries; a shortened
+                // RPC head also leaves that range pending instead of choosing older work.
+                const batch = planSyncGapRepairBatches(
+                    eligible,
+                    this.input.batchSize,
+                )[0];
                 if (batch) await this.runGapRepair(batch);
             },
         );
