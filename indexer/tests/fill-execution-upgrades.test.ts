@@ -1,3 +1,4 @@
+import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import {
     copyFile,
     mkdir,
@@ -799,7 +800,9 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         gaps,
         recoveries,
         now: () => 1000,
-        headGapRecheck: new SyncGapScheduler(registry, gaps, {
+        gapWorkEnabled: true,
+        workScope: new RpcWorkScope(),
+        gapScheduler: new SyncGapScheduler(registry, gaps, {
             chainId: 1,
             batchSize: 2,
             now: () => 1000,

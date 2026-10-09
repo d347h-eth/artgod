@@ -236,7 +236,7 @@ if (config.role === ROLE.All || config.role === ROLE.Resync) {
                     const before = services.recoveries.getRecovery(
                         REORG_FIXTURE.ChainId,
                     );
-                    await runDue();
+                    const busy = await runDue();
                     const after = services.recoveries.getRecovery(
                         REORG_FIXTURE.ChainId,
                     );
@@ -254,6 +254,7 @@ if (config.role === ROLE.All || config.role === ROLE.Resync) {
                                         before.fromBlock !== after.fromBlock)),
                             logReads: rpc.logReads,
                         });
+                    return busy;
                 },
             },
             20,

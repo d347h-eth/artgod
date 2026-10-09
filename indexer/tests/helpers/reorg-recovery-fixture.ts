@@ -1,3 +1,4 @@
+import { RpcWorkScope } from "../../src/infra/rpc/work-scope.js";
 import { db } from "@artgod/shared/database";
 import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
@@ -146,7 +147,9 @@ export function reorgRecoveryServices(
         gaps,
         recoveries,
         collectionsPort: registry,
-        headGapRecheck: new SyncGapScheduler(registry, gaps, {
+        gapWorkEnabled: true,
+        workScope: new RpcWorkScope(),
+        gapScheduler: new SyncGapScheduler(registry, gaps, {
             chainId: REORG_FIXTURE.ChainId,
             batchSize: REORG_FIXTURE.BatchSize,
             now: options.now,

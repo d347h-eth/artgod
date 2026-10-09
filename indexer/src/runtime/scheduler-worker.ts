@@ -1,11 +1,9 @@
+import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { logger } from "@artgod/shared/utils";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { loadConfig } from "../config/index.js";
 import { startSchedulerWorker } from "../application/scheduler-worker.js";
-import { SyncGapScheduler } from "../application/sync-gap-scheduler.js";
-import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -42,6 +40,9 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: true,
+        });
         const cache = new InMemoryCache({
             maxEntries: config.cache.maxEntries,
             ttlMs: config.cache.ttlMs,
@@ -56,6 +57,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.SchedulerHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
 
         const headSource = config.rpc.wsEndpoints
@@ -71,14 +73,6 @@ async function main() {
             rpc,
             queue,
             config,
-            new SyncGapScheduler(
-                new SqliteCollectionRegistry(),
-                new SqliteSyncGapStore(),
-                {
-                    chainId: config.chainId,
-                    batchSize: config.sync.backfillBatchSize,
-                },
-            ),
             {
                 headSource,
                 apm: runtimeApm.apm,
@@ -91,6 +85,7 @@ async function main() {
         });
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             logger.info("Scheduler-worker shutting down", {
                 component: "IndexerSchedulerWorker",
                 action: "shutdown",
@@ -98,6 +93,7 @@ async function main() {
             await stopSchedulerWorker();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

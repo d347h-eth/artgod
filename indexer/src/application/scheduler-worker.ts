@@ -3,7 +3,6 @@ import type { IndexerConfig } from "../config/index.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import type { RealtimeSyncPayload } from "../domain/sync-jobs.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
-import type { SyncGapDetectorPort } from "./sync-gap-scheduler.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
@@ -29,7 +28,6 @@ export async function startSchedulerWorker(
         chainId: IndexerConfig["chainId"];
         sync: Pick<IndexerConfig["sync"], "reorgDepth">;
     },
-    gapDetector: SyncGapDetectorPort,
     options: SchedulerWorkerOptions = {},
 ): Promise<() => Promise<void>> {
     const pollIntervalMs = options.pollIntervalMs ?? 12_000;
@@ -46,7 +44,6 @@ export async function startSchedulerWorker(
 
     await bootstrapRealtimeScheduling();
     await bootstrapBlockChecks();
-    if (lastScheduled !== null) await scanGaps(lastScheduled);
 
     const handleHead = (headNumber: number): Promise<void> => {
         if (stopped) return Promise.resolve();
@@ -114,9 +111,6 @@ export async function startSchedulerWorker(
             },
             () => handleHead(current),
         );
-        // Coverage may change without a new head: bootstrap, rollback, dropped
-        // work, or an older hole. Never gate the perpetual sweep on lastScheduled.
-        if (!stopped) await scanGaps(current);
     };
 
     // Non-blocking: the timer drives polling while the caller continues.
@@ -144,18 +138,6 @@ export async function startSchedulerWorker(
         await pollWork;
         await headWork;
     };
-
-    async function scanGaps(headBlock: number): Promise<void> {
-        try {
-            await gapDetector.scan(headBlock);
-        } catch (error) {
-            logger.warn("Scheduler-worker gap scan failed", {
-                component: "IndexerSchedulerWorker",
-                action: "scanGaps",
-                error: String(error),
-            });
-        }
-    }
 
     async function bootstrapRealtimeScheduling(): Promise<void> {
         // Realtime bootstrap covers the recent reorg window; gap repair has its
