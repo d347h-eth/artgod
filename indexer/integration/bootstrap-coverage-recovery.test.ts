@@ -60,6 +60,10 @@ import { loadTestEnv } from "../tests/helpers/test-env.js";
 
 // Migration filenames and ABI event names are asserted at their storage/wire boundaries.
 const RESET = "067_reset_collection_sale_coverage.sql";
+const AUTOMATIC_SYNC_SCHEMA = new Set([
+    "068_recent_gap_checks.sql",
+    "069_newest_gap_priority.sql",
+]);
 const CONTRACT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CONSUMER = "bootstrap-coverage-recovery";
@@ -87,7 +91,12 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
         await mkdir(migrationsDir);
         const source = resolveProjectPath("database/migrations");
         for (const name of await readdir(source))
-            if (name.endsWith(".sql") && name < RESET)
+            // Isolate the historical reset while supplying the schema required
+            // by today's production adapters before constructing those adapters.
+            if (
+                name.endsWith(".sql") &&
+                (name < RESET || AUTOMATIC_SYNC_SCHEMA.has(name))
+            )
                 await copyFile(
                     path.join(source, name),
                     path.join(migrationsDir, name),

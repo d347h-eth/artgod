@@ -3,7 +3,6 @@ import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
     type SyncGapRepairBatch,
-    type SyncGapRepairCursor,
 } from "../domain/sync-gap-repair.js";
 import {
     REORG_RECOVERY_PHASE,
@@ -37,6 +36,7 @@ import {
 import {
     SYNC_GAP_POLICY,
     type SyncGapStorePort,
+    type SyncGapHeadRecheckPort,
 } from "./sync-gap-scheduler.js";
 import type { SyncRange } from "./sync.js";
 
@@ -61,6 +61,7 @@ type AutomaticSyncInput = Omit<
     > &
         CollectionScopeResolverPort;
     gaps: SyncGapStorePort;
+    headGapRecheck: SyncGapHeadRecheckPort;
     recoveries: Pick<ReorgRecoveryStore, "getRecovery" | "deferResync">;
     gate: Pick<BackfillExecutionGate, "run">;
     batchSize: number;
@@ -72,7 +73,6 @@ type AutomaticSyncInput = Omit<
 // no broker message, delivery generation or publication reply owns progression.
 export class AutomaticSyncExecutor {
     private active: Promise<void> | null = null;
-    private gapCursor: SyncGapRepairCursor | null = null;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -106,96 +106,99 @@ export class AutomaticSyncExecutor {
             await this.runReorgResync();
             return;
         }
-        const page = this.input.gaps.listDuePage({
+        const pending = this.input.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: this.input.chainId,
             now: this.now(),
             limit: SYNC_GAP_POLICY.CollectionsPerPass,
-            after: this.gapCursor,
         });
-        if (!page.repairs.length) {
-            this.gapCursor = null;
+        if (
+            !pending.length &&
+            !this.input.headGapRecheck.hasHeadRechecksDue()
+        ) {
             return;
         }
-        // No additional head polling when idle. The scanner retains only observed
-        // history; a fresh head prevents acquisition above a subsequently shorter chain.
-        const head = await this.input.rpc.getBlockNumber();
-        const eligible = page.repairs.filter(
-            (repair) => repair.toBlock <= head,
-        );
-        // Keep one bounded SQL page per poll. Only an entirely above-head page
-        // moves the cursor; normal acquisition starts with the oldest due work.
-        // Restart begins the same bounded sweep again without changing intent.
-        this.gapCursor = eligible.length ? null : page.cursor;
-        const oldest = eligible[0];
-        const batch =
-            oldest &&
-            planSyncGapRepairBatches(eligible, this.input.batchSize).find(
-                (candidate) =>
-                    candidate.repairs.some(
-                        (repair) => repair.collectionId === oldest.collectionId,
-                    ),
-            );
-        if (batch) await this.runGapRepair(batch);
-    }
-
-    private async runGapRepair(planned: SyncGapRepairBatch): Promise<void> {
         await this.input.gate.run(
             BACKFILL_EXECUTION_MODE.SerializedCurrentState,
             async () => {
-                const admitted = planned.repairs.flatMap((repair) => {
-                    const collection = this.input.collectionsPort.getCollection(
-                        this.input.chainId,
-                        repair.collectionId,
-                    );
-                    if (
-                        !collection ||
-                        !isCurrentSyncGapRepair({
-                            chainId: this.input.chainId,
-                            repair,
-                            collection,
-                            progress: this.input.gaps.getProgress(
-                                this.input.chainId,
-                                repair.collectionId,
-                            ),
-                        })
-                    )
-                        return [];
-                    return [{ repair, collection }];
-                });
-                if (!admitted.length) return;
-                const repairs = admitted.map((member) => member.repair);
-                const batch = { ...planned, repairs };
-                const collections = admitted.map((member) => member.collection);
-                const sources = repairs.map((repair) => {
-                    const id = `${repair.repairId}:range:${batch.fromBlock}-${batch.toBlock}`;
-                    return {
-                        fanoutId: id,
-                        sourceJobId: id,
-                        sourceKind: SYNC_JOB_KIND.BackfillRange,
-                        collectionId: repair.collectionId,
-                    };
-                });
-                try {
-                    await this.process(collections, batch, sources, {
-                        kind: SYNC_WORK_COMPLETION.GapRepair,
-                        batch,
-                        retryAt: this.now(),
+                // Waiting for this gate must not freeze an old selection. HEAD
+                // checks and replacement happen before fetching any block data,
+                // after the previous current-state backfill has finished.
+                if (
+                    this.input.recoveries.getRecovery(this.input.chainId)
+                        ?.phase === REORG_RECOVERY_PHASE.Resync
+                )
+                    return;
+                const head = await this.input.rpc.getBlockNumber();
+                this.input.headGapRecheck.recheckFromHead(head);
+                const pending =
+                    this.input.gaps.listDueRepairsAtNewestPendingHeight({
+                        chainId: this.input.chainId,
+                        now: this.now(),
+                        limit: SYNC_GAP_POLICY.CollectionsPerPass,
                     });
-                } catch (error) {
-                    for (const repair of repairs)
-                        this.input.gaps.deferRetry(
-                            this.input.chainId,
-                            repair,
-                            this.now() + this.retryDelayMs,
-                        );
-                    this.logFailure(
-                        SYNC_WORK_COMPLETION.GapRepair,
-                        batch,
-                        error,
-                    );
-                }
+                const eligible = pending.filter(
+                    (repair) => repair.toBlock <= head,
+                );
+                // The store retains newest priority during retries; a shortened
+                // RPC head also leaves that range pending instead of choosing older work.
+                const batch = planSyncGapRepairBatches(
+                    eligible,
+                    this.input.batchSize,
+                )[0];
+                if (batch) await this.runGapRepair(batch);
             },
         );
+    }
+
+    private async runGapRepair(planned: SyncGapRepairBatch): Promise<void> {
+        const admitted = planned.repairs.flatMap((repair) => {
+            const collection = this.input.collectionsPort.getCollection(
+                this.input.chainId,
+                repair.collectionId,
+            );
+            if (
+                !collection ||
+                !isCurrentSyncGapRepair({
+                    chainId: this.input.chainId,
+                    repair,
+                    collection,
+                    progress: this.input.gaps.getProgress(
+                        this.input.chainId,
+                        repair.collectionId,
+                    ),
+                })
+            )
+                return [];
+            return [{ repair, collection }];
+        });
+        if (!admitted.length) return;
+        const repairs = admitted.map((member) => member.repair);
+        const batch = { ...planned, repairs };
+        const collections = admitted.map((member) => member.collection);
+        const sources = repairs.map((repair) => {
+            const id = `${repair.repairId}:range:${batch.fromBlock}-${batch.toBlock}`;
+            return {
+                fanoutId: id,
+                sourceJobId: id,
+                sourceKind: SYNC_JOB_KIND.BackfillRange,
+                collectionId: repair.collectionId,
+            };
+        });
+        try {
+            await this.process(collections, batch, sources, {
+                kind: SYNC_WORK_COMPLETION.GapRepair,
+                batch,
+                retryAt: this.now(),
+            });
+        } catch (error) {
+            for (const repair of repairs)
+                this.input.gaps.deferRetry(
+                    this.input.chainId,
+                    repair,
+                    this.now() + this.retryDelayMs,
+                );
+            this.logFailure(SYNC_WORK_COMPLETION.GapRepair, batch, error);
+        }
     }
 
     private async runReorgResync(): Promise<void> {

@@ -48,10 +48,15 @@ sequenceDiagram
         end
     end
     loop Sync startup and periodic bounded passes
-        Sync->>DB: Read due retained intent
-        Sync->>RPC: Read head only when gap intent is due
-        Sync->>DB: Recheck oldest due member and peers after gate admission
-        Sync->>RPC: Acquire one common suffix for participating collections
+        Sync->>DB: Check newest pending height and due HEAD-check times
+        Sync->>Sync: Wait for preceding current-state backfill
+        Sync->>RPC: Read HEAD when a range or HEAD check is due
+        opt Collection HEAD check overdue by 30 minutes
+            Sync->>DB: Find newest missing blocks above pending range or cursor
+            Sync->>DB: Save check time; replace range/cursor only if newer hole found
+        end
+        Sync->>DB: Select ready members at newest pending height, LIMIT 16
+        Sync->>RPC: Fetch one common suffix for participating collections
         alt Valid acquisition and retained owners
             Sync->>DB: Atomic data, required follow-ups and exact member progress
         else Acquisition or commit failed
@@ -61,7 +66,8 @@ sequenceDiagram
     Domain->>DB: Read retained follow-up intent
     Domain->>NATS: Publish required jobs with stable IDs
     Domain->>DB: Remove accepted intent or retain retry with capped delay
-    Note over Scheduler,DB: Completed sweeps restart at head; older remainders keep their repair identity
+    Note over Scheduler,DB: Completed scans restart at HEAD; saved check time includes downtime
+    Note over Sync,DB: Newest retry or above-head range holds older history
     Note over Sync,Domain: Failed publication repeats no RPC acquisition
 ```
 

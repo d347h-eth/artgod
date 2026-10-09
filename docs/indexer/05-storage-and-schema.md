@@ -114,27 +114,42 @@ collection_sync_blocks(chain_id, collection_id, block_number, first_synced_at, l
 
 ### `collection_sync_gap_scans`
 
-Defined in `057_collection_sync_gap_scans.sql`.
+Defined in `057_collection_sync_gap_scans.sql`, extended by
+`068_recent_gap_checks.sql` and `069_newest_gap_priority.sql`.
 
 ```sql
 collection_sync_gap_scans(chain_id, collection_id, anchor_block, cursor_block,
-                          pending_job_id, pending_from_block, pending_to_block, retry_at)
+                          pending_job_id, pending_from_block, pending_to_block,
+                          retry_at, last_head_check_at)
 ```
 
 - Primary key: `(chain_id, collection_id)`; collection purge cascades the row.
 - Retains the backward coverage-sweep cursor and at most one pending repair.
 - A null cursor begins the next sweep at the currently observed head.
 - Retains intent before acquisition and reuses the pending ID across restart or
-  failure. Retry timestamps are epoch milliseconds.
+  failure. Retry and HEAD-check timestamps are epoch milliseconds.
+- `last_head_check_at` is nullable for never-checked rows and persists the
+  30-minute wall-clock interval across shutdown. Finding no newer hole changes
+  only this timestamp; finding one replaces the pending range and scan cursor
+  between fetch-and-save attempts. No second historical cursor is retained.
 - The legacy `pending_job_id` column stores the logical repair ID; no broker
   range or delivery generation is needed. The sync executor reads due rows.
 - Data, required publication intent and progress commit atomically. Matching
   writes use repair ID, anchor and exact pending bounds. A partial batch retains
   its older range with the same repair ID; publication failure cannot rewind it.
 - A changed bootstrap anchor replaces the previous sweep and repair intent.
-- Migration `066_sync_gap_due_paging.sql` indexes pending intent by chain, retry
-  time and collection ID. Automatic polls seek through bounded pages when an
-  earlier page is entirely above the observed head; paging does not alter intent.
+- Progress saves require the previously read cursor, anchor, pending fields and
+  check time to match, preventing lost updates between scheduler and sync worker.
+- Migration 068 indexes HEAD-check scheduling by chain, check time and collection.
+  Migration 069 replaces the older retry-first index with pending upper bound,
+  retry time and collection. The worker finds the newest pending height first,
+  then selects at most 16 due members there. A newer retry or above-head range
+  holds older work. Ordered intent scans look up collection eligibility without
+  sorting the full live set, including after SQLite `ANALYZE`.
+- HEAD-check pages seek through the existing check-time index, applying fresh
+  HEAD/anchor eligibility before the member limit. A process-local position and
+  fixed due-time cutoff let later collections pass a failed/skipped page; neither
+  is stored in this table. Unperformed checks keep their original timestamps.
 
 ### `transactions`
 

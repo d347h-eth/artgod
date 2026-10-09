@@ -4,13 +4,17 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import {
     AutomaticSyncExecutor,
+    AUTOMATIC_SYNC_POLICY,
     startAutomaticSyncLoop,
 } from "../src/application/automatic-sync-executor.js";
 import {
     BackfillExecutionGate,
     BACKFILL_EXECUTION_MODE,
 } from "../src/application/backfill-execution.js";
-import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
+import {
+    SyncGapScheduler,
+    SYNC_GAP_POLICY,
+} from "../src/application/sync-gap-scheduler.js";
 import { buildSyncFollowUps } from "../src/application/sync-range-processing.js";
 import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
@@ -62,17 +66,224 @@ describe("direct automatic sync execution", () => {
         fromBlock: number,
         toBlock: number,
     ) {
-        s.gaps.saveProgress(1, collectionId, {
-            anchorBlock: 100,
-            cursorBlock: fromBlock - 1,
-            pending: {
-                repairId: `repair:${collectionId}`,
-                fromBlock,
-                toBlock,
-                retryAt: now,
+        s.gaps.saveProgress({
+            chainId: 1,
+            collectionId,
+            expected: s.gaps.getProgress(1, collectionId),
+            progress: {
+                anchorBlock: 100,
+                cursorBlock: fromBlock - 1,
+                lastHeadCheckAt: now,
+                pending: {
+                    repairId: `repair:${collectionId}`,
+                    fromBlock,
+                    toBlock,
+                    retryAt: now,
+                },
             },
         });
     }
+
+    function cover(
+        collectionId: number,
+        from: number,
+        to: number,
+        missing: number[] = [],
+    ) {
+        const skip = new Set(missing);
+        const insert = db.prepare(
+            "INSERT OR IGNORE INTO collection_sync_blocks(chain_id,collection_id,block_number) VALUES(1,?,?)",
+        );
+        db.writeTransaction(() => {
+            for (let n = from; n <= to; n++)
+                if (!skip.has(n)) insert.run(collectionId, n);
+        })();
+    }
+
+    it.each([null, 0])(
+        "fills newer holes despite 16 no-pending anchors above RPC HEAD (check time=%s)",
+        async (lastHeadCheckAt) => {
+            now = 2 * SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+            const rpc = new RecoveryRpc(300);
+            vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+            const s = reorgRecoveryServices(rpc, { now: () => now });
+            const blocked = Array.from(
+                { length: SYNC_GAP_POLICY.CollectionsPerPass },
+                (_, n) =>
+                    insertCollection({
+                        chainId: 1,
+                        slug: `anchor-above-head-${n}`,
+                        address: F.Owner,
+                        anchorBlock: 300,
+                    }),
+            );
+            for (const id of blocked)
+                expect(
+                    s.gaps.saveProgress({
+                        chainId: 1,
+                        collectionId: id,
+                        expected: null,
+                        progress: {
+                            anchorBlock: 300,
+                            cursorBlock: null,
+                            pending: null,
+                            lastHeadCheckAt,
+                        },
+                    }),
+                ).toBe(true);
+            const f = transferFixture();
+            retain(s, f.collectionId, 101, 102);
+            const expected = s.gaps.getProgress(1, f.collectionId)!;
+            expect(
+                s.gaps.saveProgress({
+                    chainId: 1,
+                    collectionId: f.collectionId,
+                    expected,
+                    progress: {
+                        ...expected,
+                        lastHeadCheckAt,
+                        pending: {
+                            ...expected.pending!,
+                            retryAt: now + AUTOMATIC_SYNC_POLICY.RetryDelayMs,
+                        },
+                    },
+                }),
+            ).toBe(true);
+            cover(f.collectionId, 103, 200, [199, 200]);
+            const detector = scanner(s);
+            const checkedAt = now;
+            for (let pass = 0; pass < 6; pass++) {
+                await detector.scan(200);
+                await s.executor.runDue();
+                expect(
+                    s.storage.countCollectionSyncedBlocksInRange(
+                        1,
+                        f.collectionId,
+                        199,
+                        200,
+                    ),
+                ).toBe(2);
+                expect(
+                    s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt,
+                ).toBeGreaterThanOrEqual(checkedAt);
+                for (const id of blocked)
+                    expect(s.gaps.getProgress(1, id)).toEqual({
+                        anchorBlock: 300,
+                        cursorBlock: null,
+                        pending: null,
+                        lastHeadCheckAt,
+                    });
+                now += AUTOMATIC_SYNC_POLICY.PollMs;
+            }
+        },
+    );
+
+    it("finishes the running range before checking HEAD and replacing older progress", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc),
+            f = transferFixture();
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+        retain(s, f.collectionId, 101, 102);
+        cover(f.collectionId, 103, 200, [199, 200]);
+        const old = s.gaps.getProgress(1, f.collectionId)!.pending;
+        const entered = Promise.withResolvers<void>(),
+            release = Promise.withResolvers<void>();
+        let held = false;
+        rpc.beforeLogs = async (filter) => {
+            if (filter.fromBlock !== 101 || held) return;
+            held = true;
+            entered.resolve();
+            await release.promise;
+        };
+        const running = s.executor.runDue();
+        await entered.promise;
+        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        await scanner(s).scan(200);
+        expect(s.executor.runDue()).toBe(running);
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toEqual(old);
+        release.resolve();
+        await running;
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                102,
+            ),
+        ).toBe(2);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            1000,
+        );
+        await s.executor.runDue();
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            now,
+        );
+        expect(s.gaps.getProgress(1, f.collectionId)?.cursorBlock).toBe(198);
+    });
+
+    it("checks HEAD and selects replacement work after waiting for another backfill", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc),
+            f = transferFixture();
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(200);
+        retain(s, f.collectionId, 101, 102);
+        cover(f.collectionId, 103, 200, [199, 200]);
+        const gate = new BackfillExecutionGate(),
+            release = Promise.withResolvers<void>();
+        const holder = gate.run(
+            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+            () => release.promise,
+        );
+        const head = vi.spyOn(rpc, "getBlockNumber");
+        const executor = new AutomaticSyncExecutor({
+            rpc,
+            storage: s.storage,
+            commit: s.commit,
+            gaps: s.gaps,
+            headGapRecheck: scanner(s),
+            recoveries: s.recoveries,
+            collectionsPort: s.registry,
+            collectionExtensions: { getInstall: () => null },
+            chainId: 1,
+            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            wethAddress: F.Weth,
+            batchSize: 2,
+            gate,
+            now: () => now,
+        });
+        const waiting = executor.runDue();
+        await Promise.resolve();
+        expect(head).not.toHaveBeenCalled();
+        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        release.resolve();
+        await holder;
+        await waiting;
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                102,
+            ),
+        ).toBe(0);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        expect(head).toHaveBeenCalledOnce();
+    });
 
     it("does no RPC polling when idle and executes at most one bounded range per pass", async () => {
         const rpc = new RecoveryRpc(200),
@@ -97,17 +308,17 @@ describe("direct automatic sync execution", () => {
         await s.executor.runDue();
         expect(
             s.storage.countCollectionSyncedBlocksInRange(1, first, 101, 102),
-        ).toBe(2);
+        ).toBe(0);
         expect(
             s.storage.countCollectionSyncedBlocksInRange(1, second, 103, 104),
-        ).toBe(0);
-        expect(s.gaps.getProgress(1, second)?.pending).not.toBeNull();
+        ).toBe(2);
+        expect(s.gaps.getProgress(1, first)?.pending).not.toBeNull();
         await s.executor.runDue();
-        expect(s.gaps.getProgress(1, second)?.pending).toBeNull();
+        expect(s.gaps.getProgress(1, first)?.pending).toBeNull();
         expect(head).toHaveBeenCalledTimes(2);
     });
 
-    it("defers a failed batch without starving a different due collection", async () => {
+    it("holds older history while the newest batch awaits retry", async () => {
         const rpc = new RecoveryRpc(200),
             s = services(rpc);
         const first = insertCollection({
@@ -130,11 +341,91 @@ describe("direct automatic sync execution", () => {
         await s.executor.runDue();
         expect(s.gaps.getProgress(1, first)?.pending?.retryAt).toBe(1100);
         await s.executor.runDue();
-        expect(s.gaps.getProgress(1, second)?.pending).toBeNull();
+        expect(s.gaps.getProgress(1, second)?.pending).not.toBeNull();
         expect(s.gaps.getProgress(1, first)?.pending).not.toBeNull();
         now += 100;
         await s.executor.runDue();
         expect(s.gaps.getProgress(1, first)?.pending).toBeNull();
+        expect(s.gaps.getProgress(1, second)?.pending).not.toBeNull();
+        await s.executor.runDue();
+        expect(s.gaps.getProgress(1, second)?.pending).toBeNull();
+    });
+
+    it("processes ready peers at the newest height while another peer awaits retry", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc);
+        const retrying = insertCollection({
+            chainId: 1,
+            slug: "retrying-peer",
+            address: F.Owner,
+            anchorBlock: 100,
+        });
+        const ready = insertCollection({
+            chainId: 1,
+            slug: "ready-peer",
+            address: F.OrphanOwner,
+            anchorBlock: 100,
+        });
+        const older = insertCollection({
+            chainId: 1,
+            slug: "older-peer",
+            address: F.Weth,
+            anchorBlock: 100,
+        });
+        retain(s, retrying, 105, 106);
+        retain(s, ready, 105, 106);
+        retain(s, older, 101, 102);
+        const repair = s.gaps
+            .listDueRepairsAtNewestPendingHeight({ chainId: 1, now, limit: 16 })
+            .find((r) => r.collectionId === retrying)!;
+        s.gaps.deferRetry(1, repair, now + 100);
+        await s.executor.runDue();
+        expect(s.gaps.getProgress(1, ready)?.pending).toBeNull();
+        expect(s.gaps.getProgress(1, retrying)?.pending).not.toBeNull();
+        expect(s.gaps.getProgress(1, older)?.pending).not.toBeNull();
+    });
+
+    it("reselects a newer collection range that appears while waiting for another backfill", async () => {
+        const rpc = new RecoveryRpc(200),
+            s = services(rpc),
+            f = transferFixture();
+        retain(s, f.collectionId, 101, 102);
+        const gate = new BackfillExecutionGate(),
+            release = Promise.withResolvers<void>();
+        const holder = gate.run(
+            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+            () => release.promise,
+        );
+        const executor = new AutomaticSyncExecutor({
+            rpc,
+            storage: s.storage,
+            commit: s.commit,
+            gaps: s.gaps,
+            headGapRecheck: scanner(s),
+            recoveries: s.recoveries,
+            collectionsPort: s.registry,
+            collectionExtensions: { getInstall: () => null },
+            chainId: 1,
+            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            wethAddress: F.Weth,
+            batchSize: 2,
+            gate,
+            now: () => now,
+        });
+        const waiting = executor.runDue();
+        await Promise.resolve();
+        const newer = insertCollection({
+            chainId: 1,
+            slug: "new-range-while-waiting",
+            address: F.Owner,
+            anchorBlock: 100,
+        });
+        retain(s, newer, 105, 106);
+        release.resolve();
+        await holder;
+        await waiting;
+        expect(s.gaps.getProgress(1, newer)?.pending).toBeNull();
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending).not.toBeNull();
     });
 
     it("coalesces polling and drains admitted work before shutdown", async () => {
@@ -223,6 +514,7 @@ describe("direct automatic sync execution", () => {
             storage: s.storage,
             commit: s.commit,
             gaps: s.gaps,
+            headGapRecheck: scanner(s),
             recoveries: s.recoveries,
             collectionsPort: s.registry,
             collectionExtensions: { getInstall: () => null },
@@ -249,12 +541,11 @@ describe("direct automatic sync execution", () => {
         const s = services(),
             f = transferFixture();
         retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDuePage({
+        const repair = s.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: 1,
             now,
             limit: 1,
-            after: null,
-        }).repairs[0];
+        })[0];
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents.push(
             f.transfer(102, 1, F.Owner, F.OrphanOwner),
@@ -348,12 +639,11 @@ describe("direct automatic sync execution", () => {
         const s = services(),
             f = transferFixture();
         retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDuePage({
+        const repair = s.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: 1,
             now,
             limit: 1,
-            after: null,
-        }).repairs[0];
+        })[0];
         expect(() =>
             s.commit.commitSyncRange({
                 result: {
@@ -455,7 +745,7 @@ describe("direct automatic sync execution", () => {
         });
     });
     it.each([false, true])(
-        "passes one above-head page per poll and reaches eligible history (restart=%s)",
+        "waits for RPC HEAD before processing older ranges (restart=%s)",
         async (restart) => {
             const rpc = new RecoveryRpc(200),
                 s = services(rpc),
@@ -486,7 +776,7 @@ describe("direct automatic sync execution", () => {
                 expect(rpc.logReads).toBe(0);
             }
             await executor.runDue();
-            expect(s.gaps.getProgress(1, eligible)?.pending).toBeNull();
+            expect(s.gaps.getProgress(1, eligible)?.pending).not.toBeNull();
             expect(
                 s.storage.countCollectionSyncedBlocksInRange(
                     1,
@@ -494,7 +784,7 @@ describe("direct automatic sync execution", () => {
                     101,
                     102,
                 ),
-            ).toBe(2);
+            ).toBe(0);
             expect(head).toHaveBeenCalledTimes(restart ? 3 : 2);
             for (const id of blocked)
                 expect(s.gaps.getProgress(1, id)?.pending).toEqual({
@@ -503,10 +793,24 @@ describe("direct automatic sync execution", () => {
                     toBlock: 110,
                     retryAt: now,
                 });
+            head.mockResolvedValue(110);
+            await executor.runDue();
+            expect(s.gaps.getProgress(1, eligible)?.pending).not.toBeNull();
+            for (const id of blocked)
+                expect(s.gaps.getProgress(1, id)?.pending).toMatchObject({
+                    fromBlock: 108,
+                    toBlock: 108,
+                });
+            await executor.runDue();
+            expect(s.gaps.getProgress(1, eligible)?.pending).not.toBeNull();
+            for (const id of blocked)
+                expect(s.gaps.getProgress(1, id)?.pending).toBeNull();
+            await executor.runDue();
+            expect(s.gaps.getProgress(1, eligible)?.pending).toBeNull();
         },
     );
 
-    it("seeks a bounded retry-ordered page through a larger retained backlog", () => {
+    it("finds the globally newest range beyond the first 16 older rows and keeps membership bounded", () => {
         const s = services();
         const ids: number[] = [];
         db.writeTransaction(() => {
@@ -521,28 +825,44 @@ describe("direct automatic sync execution", () => {
                 ids.push(id);
             }
         })();
-        const page = s.gaps.listDuePage({
+        const newestId = ids.at(-1)!;
+        retain(s, newestId, 199, 200);
+        const newest = s.gaps.listDueRepairsAtNewestPendingHeight({
             chainId: 1,
             now,
             limit: 16,
-            after: { retryAt: now, collectionId: ids[4079] },
         });
-        expect(page.repairs.map((repair) => repair.collectionId)).toEqual(
-            ids.slice(4080),
-        );
-        expect(page.cursor).toEqual({ retryAt: now, collectionId: ids[4095] });
+        expect(newest.map((repair) => repair.collectionId)).toEqual([newestId]);
+        s.gaps.deferRetry(1, newest[0], now + 100);
         expect(
-            s.gaps.listDuePage({
+            s.gaps.listDueRepairsAtNewestPendingHeight({
                 chainId: 1,
                 now,
                 limit: 16,
-                after: page.cursor,
-            }).repairs,
+            }),
         ).toEqual([]);
+        now += 100;
         expect(
             s.gaps
-                .listDuePage({ chainId: 1, now, limit: 16, after: null })
-                .repairs.map((repair) => repair.collectionId),
+                .listDueRepairsAtNewestPendingHeight({
+                    chainId: 1,
+                    now,
+                    limit: 16,
+                })
+                .map((repair) => repair.collectionId),
+        ).toEqual([newestId]);
+        db.prepare("UPDATE collections SET status=? WHERE collection_id=?").run(
+            COLLECTION_STATUS.Paused,
+            newestId,
+        );
+        expect(
+            s.gaps
+                .listDueRepairsAtNewestPendingHeight({
+                    chainId: 1,
+                    now,
+                    limit: 16,
+                })
+                .map((repair) => repair.collectionId),
         ).toEqual(ids.slice(0, 16));
     });
 });

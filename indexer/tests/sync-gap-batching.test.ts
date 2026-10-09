@@ -598,8 +598,11 @@ function harness(batchSize = 10) {
         now: () => now,
         batches: () =>
             planSyncGapRepairBatches(
-                store.listDuePage({ chainId: 1, now, limit: 16, after: null })
-                    .repairs,
+                store.listDueRepairsAtNewestPendingHeight({
+                    chainId: 1,
+                    now,
+                    limit: 16,
+                }),
                 batchSize,
             ),
     };
@@ -618,20 +621,23 @@ async function run(
                   getProgress: h.store.getProgress.bind(h.store),
                   saveProgress: h.store.saveProgress.bind(h.store),
                   findGap: h.store.findGap.bind(h.store),
+                  findNewestGap: h.store.findNewestGap.bind(h.store),
+                  hasHeadRechecksDue: h.store.hasHeadRechecksDue.bind(h.store),
+                  listHeadRechecksAfter: h.store.listHeadRechecksAfter.bind(
+                      h.store,
+                  ),
                   deferRetry: h.store.deferRetry.bind(h.store),
                   recordRepairProgress: h.store.recordRepairProgress.bind(
                       h.store,
                   ),
-                  listDuePage: (
-                      input: Parameters<SqliteSyncGapStore["listDuePage"]>[0],
+                  listDueRepairsAtNewestPendingHeight: (
+                      input: Parameters<
+                          SqliteSyncGapStore["listDueRepairsAtNewestPendingHeight"]
+                      >[0],
                   ) => {
-                      const page = h.store.listDuePage(input);
-                      return {
-                          ...page,
-                          repairs: page.repairs.filter(
-                              (r) => r.collectionId === onlyCollection,
-                          ),
-                      };
+                      return h.store
+                          .listDueRepairsAtNewestPendingHeight(input)
+                          .filter((r) => r.collectionId === onlyCollection);
                   },
               };
     const executor = new AutomaticSyncExecutor({
@@ -642,6 +648,7 @@ async function run(
         collectionsPort: h.registry,
         collectionExtensions: { getInstall: () => null },
         gaps,
+        headGapRecheck: h.scheduler,
         recoveries: h.recoveries,
         gate: new BackfillExecutionGate(),
         batchSize: h.batchSize,

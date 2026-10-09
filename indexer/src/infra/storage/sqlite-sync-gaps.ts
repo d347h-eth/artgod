@@ -4,6 +4,7 @@ import type {
     SyncGapProgress,
     SyncGapRange,
     SyncGapStorePort,
+    SyncGapHeadCheckPosition,
 } from "../../application/sync-gap-scheduler.js";
 import type { SyncGapRepairTarget } from "../../domain/sync-jobs.js";
 
@@ -14,34 +15,77 @@ type ProgressRow = {
     pending_from_block: number | null;
     pending_to_block: number | null;
     retry_at: number | null;
+    last_head_check_at: number | null;
 };
 
-const DUE_REPAIRS_QUERY =
-    "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock, s.retry_at AS retryAt " +
-    "FROM collection_sync_gap_scans s JOIN collections c ON c.collection_id = s.collection_id AND c.chain_id = s.chain_id " +
-    "WHERE s.chain_id = @chainId AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block AND s.pending_job_id IS NOT NULL AND s.retry_at <= @now ";
-const DUE_REPAIRS_ORDER = "ORDER BY s.retry_at, s.collection_id LIMIT @limit";
+// SQLite CROSS JOIN keeps the ordered intent index as the outer loop. With an
+// ordinary join, ANALYZE can make SQLite visit/sort every live collection before
+// applying LIMIT. Eligibility still requires the exact live collection/anchor.
+const LIVE_GAP_PROGRESS_QUERY =
+    "FROM collection_sync_gap_scans s CROSS JOIN collections c " +
+    "WHERE s.chain_id = @chainId AND c.collection_id = s.collection_id AND c.chain_id = s.chain_id " +
+    "AND c.status = @status AND c.bootstrap_anchor_block = s.anchor_block ";
+const PENDING_REPAIRS_QUERY =
+    LIVE_GAP_PROGRESS_QUERY + "AND s.pending_job_id IS NOT NULL ";
+const HEAD_RECHECK_QUERY =
+    "SELECT s.collection_id AS collectionId, s.last_head_check_at AS lastHeadCheckAt " +
+    LIVE_GAP_PROGRESS_QUERY;
 
 export class SqliteSyncGapStore implements SyncGapStorePort {
     private selectProgress = db.prepare<[number, number]>(
-        "SELECT anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at " +
+        "SELECT anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at, last_head_check_at " +
             "FROM collection_sync_gap_scans WHERE chain_id = ? AND collection_id = ?",
     );
-    private upsertProgress = db.prepare(
-        "INSERT INTO collection_sync_gap_scans (chain_id, collection_id, anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at) " +
-            "VALUES (@chainId, @collectionId, @anchorBlock, @cursorBlock, @repairId, @fromBlock, @toBlock, @retryAt) " +
-            "ON CONFLICT(chain_id, collection_id) DO UPDATE SET anchor_block = excluded.anchor_block, cursor_block = excluded.cursor_block, " +
-            "pending_job_id = excluded.pending_job_id, pending_from_block = excluded.pending_from_block, pending_to_block = excluded.pending_to_block, retry_at = excluded.retry_at",
+    private insertProgress = db.prepare(
+        "INSERT INTO collection_sync_gap_scans (chain_id, collection_id, anchor_block, cursor_block, pending_job_id, pending_from_block, pending_to_block, retry_at, last_head_check_at) " +
+            "VALUES (@chainId, @collectionId, @anchorBlock, @cursorBlock, @repairId, @fromBlock, @toBlock, @retryAt, @lastHeadCheckAt) " +
+            "ON CONFLICT(chain_id, collection_id) DO NOTHING",
+    );
+    private updateProgress = db.prepare(
+        "UPDATE collection_sync_gap_scans SET anchor_block = @anchorBlock, cursor_block = @cursorBlock, " +
+            "pending_job_id = @repairId, pending_from_block = @fromBlock, pending_to_block = @toBlock, retry_at = @retryAt, last_head_check_at = @lastHeadCheckAt " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND anchor_block = @expectedAnchor " +
+            "AND cursor_block IS @expectedCursor AND pending_job_id IS @expectedRepairId " +
+            "AND pending_from_block IS @expectedFrom AND pending_to_block IS @expectedTo " +
+            "AND retry_at IS @expectedRetryAt AND last_head_check_at IS @expectedHeadCheckAt",
     );
     private selectCoverage = db.prepare<[number, number, number, number]>(
         "SELECT block_number FROM collection_sync_blocks " +
             "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number DESC",
     );
-    private selectDue = db.prepare(DUE_REPAIRS_QUERY + DUE_REPAIRS_ORDER);
-    private selectDueAfter = db.prepare(
-        DUE_REPAIRS_QUERY +
-            "AND (s.retry_at, s.collection_id) > (@afterRetryAt, @afterCollectionId) " +
-            DUE_REPAIRS_ORDER,
+    private countCoverage = db.prepare<[number, number, number, number]>(
+        "SELECT COUNT(*) AS count FROM collection_sync_blocks " +
+            "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ?",
+    );
+    private probeUncheckedHead = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.last_head_check_at IS NULL ORDER BY s.collection_id LIMIT 1",
+    );
+    private probeDueHead = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.last_head_check_at <= @checkedBefore ORDER BY s.last_head_check_at, s.collection_id LIMIT 1",
+    );
+    private selectUncheckedHeadAfter = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.anchor_block <= @headBlock AND s.last_head_check_at IS NULL " +
+            "AND s.collection_id > @afterCollectionId ORDER BY s.collection_id LIMIT @limit",
+    );
+    private selectDueHeadAfter = db.prepare(
+        HEAD_RECHECK_QUERY +
+            "AND s.anchor_block <= @headBlock AND s.last_head_check_at <= @checkedBefore " +
+            "AND (s.last_head_check_at, s.collection_id) > (@afterHeadCheckAt, @afterCollectionId) " +
+            "ORDER BY s.last_head_check_at, s.collection_id LIMIT @limit",
+    );
+    private selectNewest = db.prepare(
+        "SELECT s.pending_to_block AS toBlock " +
+            PENDING_REPAIRS_QUERY +
+            "ORDER BY s.pending_to_block DESC LIMIT 1",
+    );
+    private selectDueAtNewest = db.prepare(
+        "SELECT s.collection_id AS collectionId, s.pending_job_id AS repairId, s.anchor_block AS anchorBlock, s.pending_from_block AS fromBlock, s.pending_to_block AS toBlock " +
+            PENDING_REPAIRS_QUERY +
+            "AND s.pending_to_block = @toBlock AND s.retry_at <= @now " +
+            "ORDER BY s.retry_at, s.collection_id LIMIT @limit",
     );
     private updateRetry = db.prepare(
         "UPDATE collection_sync_gap_scans SET retry_at = @retryAt " +
@@ -62,6 +106,7 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         return {
             anchorBlock: row.anchor_block,
             cursorBlock: row.cursor_block,
+            lastHeadCheckAt: row.last_head_check_at,
             pending:
                 row.pending_job_id === null
                     ? null
@@ -74,41 +119,38 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
         };
     }
 
-    listDuePage(
-        input: Parameters<SyncGapStorePort["listDuePage"]>[0],
-    ): ReturnType<SyncGapStorePort["listDuePage"]> {
-        const bindings = {
-            chainId: input.chainId,
-            now: input.now,
-            limit: input.limit,
-            status: COLLECTION_STATUS.Live,
-        };
-        const rows = (
-            input.after
-                ? this.selectDueAfter.all({
+    listDueRepairsAtNewestPendingHeight({
+        chainId,
+        now,
+        limit,
+    }: Parameters<
+        SyncGapStorePort["listDueRepairsAtNewestPendingHeight"]
+    >[0]): SyncGapRepairTarget[] {
+        return db.raw.transaction(() => {
+            const bindings = { chainId, status: COLLECTION_STATUS.Live };
+            const newest = this.selectNewest.get(bindings) as
+                | { toBlock: number }
+                | undefined;
+            // Find newest intent before retry filtering. A newer failed range
+            // must not hand scarce RPC capacity back to older missing history.
+            return newest
+                ? (this.selectDueAtNewest.all({
                       ...bindings,
-                      afterRetryAt: input.after.retryAt,
-                      afterCollectionId: input.after.collectionId,
-                  })
-                : this.selectDue.all(bindings)
-        ) as (SyncGapRepairTarget & {
-            retryAt: number;
-        })[];
-        const last = rows.at(-1);
-        return {
-            repairs: rows.map(({ retryAt: _retryAt, ...repair }) => repair),
-            cursor: last
-                ? { retryAt: last.retryAt, collectionId: last.collectionId }
-                : null,
-        };
+                      toBlock: newest.toBlock,
+                      now,
+                      limit,
+                  }) as SyncGapRepairTarget[])
+                : [];
+        })();
     }
 
-    saveProgress(
-        chainId: number,
-        collectionId: number,
-        progress: SyncGapProgress,
-    ): void {
-        this.upsertProgress.run({
+    saveProgress({
+        chainId,
+        collectionId,
+        expected,
+        progress,
+    }: Parameters<SyncGapStorePort["saveProgress"]>[0]): boolean {
+        const bindings = {
             chainId,
             collectionId,
             anchorBlock: progress.anchorBlock,
@@ -117,7 +159,118 @@ export class SqliteSyncGapStore implements SyncGapStorePort {
             fromBlock: progress.pending?.fromBlock ?? null,
             toBlock: progress.pending?.toBlock ?? null,
             retryAt: progress.pending?.retryAt ?? null,
-        });
+            lastHeadCheckAt: progress.lastHeadCheckAt,
+        };
+        const result =
+            expected === null
+                ? this.insertProgress.run(bindings)
+                : this.updateProgress.run({
+                      ...bindings,
+                      expectedAnchor: expected.anchorBlock,
+                      expectedCursor: expected.cursorBlock,
+                      expectedRepairId: expected.pending?.repairId ?? null,
+                      expectedFrom: expected.pending?.fromBlock ?? null,
+                      expectedTo: expected.pending?.toBlock ?? null,
+                      expectedRetryAt: expected.pending?.retryAt ?? null,
+                      expectedHeadCheckAt: expected.lastHeadCheckAt,
+                  });
+        return result.changes === 1;
+    }
+
+    hasHeadRechecksDue({
+        chainId,
+        checkedBefore,
+    }: Parameters<SyncGapStorePort["hasHeadRechecksDue"]>[0]): boolean {
+        const bindings = { chainId, status: COLLECTION_STATUS.Live };
+        return !!(
+            this.probeUncheckedHead.get(bindings) ??
+            this.probeDueHead.get({ ...bindings, checkedBefore })
+        );
+    }
+
+    listHeadRechecksAfter({
+        chainId,
+        checkedBefore,
+        headBlock,
+        limit,
+        after,
+    }: Parameters<
+        SyncGapStorePort["listHeadRechecksAfter"]
+    >[0]): SyncGapHeadCheckPosition[] {
+        return db.raw.transaction(() => {
+            const bindings = {
+                chainId,
+                status: COLLECTION_STATUS.Live,
+                headBlock,
+                limit,
+            };
+            const unchecked =
+                after === null || after.lastHeadCheckAt === null
+                    ? (this.selectUncheckedHeadAfter.all({
+                          ...bindings,
+                          afterCollectionId: after?.collectionId ?? 0,
+                      }) as SyncGapHeadCheckPosition[])
+                    : [];
+            // NULL times form the first partition. Nonnegative persisted check
+            // times make (-1, 0) the starting position of the checked partition.
+            const due =
+                unchecked.length < limit
+                    ? (this.selectDueHeadAfter.all({
+                          ...bindings,
+                          checkedBefore,
+                          afterHeadCheckAt: after?.lastHeadCheckAt ?? -1,
+                          afterCollectionId:
+                              after !== null && after.lastHeadCheckAt !== null
+                                  ? after.collectionId
+                                  : 0,
+                          limit: limit - unchecked.length,
+                      }) as SyncGapHeadCheckPosition[])
+                    : [];
+            return [...unchecked, ...due];
+        })();
+    }
+
+    findNewestGap(
+        chainId: number,
+        collectionId: number,
+        window: SyncGapRange,
+        batchSize: number,
+    ): SyncGapRange | null {
+        // Use a read transaction, never the global writer, while checking a large
+        // newer span. Counts use the unique covering collection/block index.
+        return db.raw.transaction(() => {
+            let from = window.fromBlock;
+            let to = window.toBlock;
+            const count = (lower: number, upper: number) =>
+                (
+                    this.countCoverage.get(
+                        chainId,
+                        collectionId,
+                        lower,
+                        upper,
+                    ) as { count: number }
+                ).count;
+            const covered = count(from, to);
+            if (covered === to - from + 1) return null;
+            if (covered > 0) {
+                while (from < to) {
+                    const middle = Math.floor((from + to + 1) / 2);
+                    if (count(middle, to) < to - middle + 1) from = middle;
+                    else to = middle - 1;
+                }
+            }
+            // Reuse the ordinary gap boundary logic once the newest missing
+            // block is known; this reads at most one repair-sized suffix.
+            return this.findGap(
+                chainId,
+                collectionId,
+                {
+                    fromBlock: Math.max(window.fromBlock, to - batchSize + 1),
+                    toBlock: to,
+                },
+                batchSize,
+            );
+        })();
     }
 
     findGap(

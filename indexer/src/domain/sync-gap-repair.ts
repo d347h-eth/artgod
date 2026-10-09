@@ -9,17 +9,13 @@ export type SyncGapProgress = {
     anchorBlock: number;
     cursorBlock: number | null;
     pending: PendingSyncGapRepair | null;
+    // Epoch milliseconds; null means no HEAD check has been recorded yet.
+    lastHeadCheckAt: number | null;
 };
 export type SyncGapRepairTarget = SyncGapRange & {
     collectionId: number;
     repairId: string;
     anchorBlock: number;
-};
-
-export type SyncGapRepairCursor = { retryAt: number; collectionId: number };
-export type SyncGapRepairPage = {
-    repairs: SyncGapRepairTarget[];
-    cursor: SyncGapRepairCursor | null;
 };
 
 export function isCurrentSyncGapRepair(input: {
