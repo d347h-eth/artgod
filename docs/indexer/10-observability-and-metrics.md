@@ -623,7 +623,48 @@ sum by (work_class) (
 The runtime metrics dashboard's indexer HTTP attempt panel and RPC
 failure/latency/retry/wait panels group by work class. The attempt panel counts
 HTTP requests per second across each selected worker/component's endpoints;
-the configured rate ceilings apply per endpoint.
+the configured rate ceilings apply per endpoint. The existing custom-gauge
+and counter tables also expose allocation policy/pressure and automatic progress.
+
+### Allocation and Automatic Sync Progress
+
+Only the scheduler-worker's allocation owner exports `rpc.budget.*` gauges,
+sampled every second from bounded in-memory transport state. No coverage query
+or additional RPC request is required:
+
+- `rpc.budget.policy`: value one, with `overall_mode` and `gap_mode` labels.
+- `rpc.budget.total_rate_limit_requests_per_second` and
+  `rpc.budget.gap_rate_limit_requests_per_second`: active per-endpoint ceilings.
+- `rpc.budget.gap_in_flight_limit`: the active background concurrency ceiling,
+  across all workers/endpoints.
+- `rpc.budget.waiting_requests`, `rpc.budget.in_flight_requests` and
+  `rpc.budget.oldest_wait_seconds`: split by `work_class`, summed across endpoints.
+
+Inactive numeric ceilings are absent; use the mode gauge to distinguish unlimited
+or disabled policies. A transport waiter's age starts on admission and resets
+when the client rejoins after its 30-second transport timeout. Each quota-wait
+observation includes the wait across those rejoins. These gauges are not durable
+queue depth, oldest order requirement age, or the number of historical gaps.
+Expired transport waiters/leases are excluded from snapshots.
+
+The sync worker exports `automatic_sync.*`, split by completion `kind`
+(`gap_repair` or `reorg_resync`), only after successful atomic range commits:
+
+- `automatic_sync.ranges`, `automatic_sync.blocks` and
+  `automatic_sync.collection_blocks`: committed processing counters. A shared
+  N-block range for C collections counts N blocks and N\*C collection-blocks.
+  Revisited blocks count again; these are not unique stored coverage totals.
+- `automatic_sync.range_duration_seconds`: fetch/save duration including quota wait.
+- `automatic_sync.last_completed_timestamp_seconds` and
+  `automatic_sync.last_completed_block`: the last successful range per kind.
+
+These exports reuse completion reports and do not scan the database. Failed
+commits emit no success progress; telemetry failure cannot retry a committed range.
+Reliable durable backlog ages, realtime coverage lag, overdue canonical-check
+gauges and newer-gap check ages remain separate follow-up work for automatic
+allocation qualification; see `BKL-071` in the unified backlog.
+
+### RPC Interpretation
 
 RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
 and custom fetch-backed paths so timeout dashboards do not split by provider

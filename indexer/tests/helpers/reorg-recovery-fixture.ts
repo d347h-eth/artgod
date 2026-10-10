@@ -4,7 +4,10 @@ import { RpcWorkScope } from "../../src/infra/rpc/work-scope.js";
 import { db } from "@artgod/shared/database";
 import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
-import { AutomaticSyncExecutor } from "../../src/application/automatic-sync-executor.js";
+import {
+    AutomaticSyncExecutor,
+    type AutomaticSyncObserver,
+} from "../../src/application/automatic-sync-executor.js";
 import { SyncGapScheduler } from "../../src/application/sync-gap-scheduler.js";
 import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../../src/application/queue-outbox/drainer.js";
@@ -136,6 +139,7 @@ export function reorgRecoveryServices(
         retryDelayMs?: number;
         reorgDepth?: number;
         gapWorkEnabled?: boolean;
+        observer?: AutomaticSyncObserver;
     } = {},
 ) {
     const storage = new SqliteStorage();

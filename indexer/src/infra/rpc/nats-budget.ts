@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { Metrics } from "@artgod/shared/observability/metrics";
+import {
+    RpcBudgetMetrics,
+    RPC_BUDGET_METRIC_POLICY,
+} from "./budget-metrics.js";
 import {
     connect,
     ErrorCode,
@@ -91,6 +96,7 @@ type Config = {
     endpointLimit: RpcRateLimiterConfig;
     gap: RpcGapAllocation;
     requestTimeoutMs: number;
+    metrics?: Metrics;
 };
 
 /** The HEAD scheduler runtime owns one allocation service per chain on the existing local broker.
@@ -100,6 +106,7 @@ export class NatsRpcBudget implements RpcRequestBudget {
     private readonly pending = new Map<string, () => void>();
     private readonly subscriptions: Subscription[] = [];
     private scheduler?: RpcBudgetScheduler;
+    private metricsTimer?: ReturnType<typeof setInterval>;
     private stopped = false;
 
     private constructor(
@@ -133,6 +140,20 @@ export class NatsRpcBudget implements RpcRequestBudget {
             this.config.gap,
             leaseMs,
         );
+        if (this.config.metrics) {
+            const observer = new RpcBudgetMetrics(
+                this.config.metrics,
+                this.config.endpointLimit,
+                this.config.gap,
+            );
+            const report = () => observer.report(this.scheduler!.snapshot());
+            report();
+            this.metricsTimer = setInterval(
+                report,
+                RPC_BUDGET_METRIC_POLICY.SampleIntervalMs,
+            );
+            this.metricsTimer.unref();
+        }
         // A previous owner may have crashed while a bounded HTTP attempt was running.
         // Main startup stays available; new background permits wait for those attempts.
         const backgroundReadyAt = Date.now() + leaseMs;
@@ -320,6 +341,7 @@ export class NatsRpcBudget implements RpcRequestBudget {
     }
 
     async close(): Promise<void> {
+        clearInterval(this.metricsTimer);
         this.stopWaiting();
         this.scheduler?.stop();
         for (const subscription of this.subscriptions)

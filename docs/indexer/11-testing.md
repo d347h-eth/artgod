@@ -140,11 +140,16 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   paused/disabled/unanchored collections, fair paging, reorg deletions, retained
   intent, repeated repair and stale identities. Scanning creates no publication.
 - `tests/sync-gap-head-recheck.test.ts` covers the exact 30-minute boundary,
-  downtime and restart, preserving old progress when no newer hole exists,
+  downtime and restart, startup checks before the saved timer is due, fair
+  bounded startup pages, preserving old progress when no newer hole exists,
   replacing it when one does, regressed heads, retained older holes, failed
   checks, bounded membership, complete skipped/failed pages, traversal wrap and
   restart, HEAD catch-up, stale cross-process saves, all small coverage shapes and
   a consistent WAL read snapshot with a competing connection.
+- `tests/rpc-budget-metrics.test.ts` verifies real Prometheus exports of active
+  ceilings/modes, class-specific transport pressure/age and expired-state removal.
+- `tests/automatic-sync-observability.test.ts` verifies shared-range progress,
+  commit failure producing no success metrics, and best-effort telemetry after commit.
 - `tests/sync-gap-query-cost.test.ts` seeds 50,000 pending collections and 400,000
   coverage blocks. It checks the global newest selection, SQL limits and ordered
   query plans after `ANALYZE`, including idle HEAD-check probes and direct seeks

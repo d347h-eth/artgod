@@ -70,6 +70,16 @@ export interface RpcRequestBudget {
     run<T>(input: RpcRequestBudgetInput, request: () => Promise<T>): Promise<T>;
 }
 
+/** Current transport waiters/leases, not durable jobs or historical gap counts. */
+export type RpcBudgetSnapshot = {
+    mainWaiting: number;
+    gapWaiting: number;
+    mainInFlight: number;
+    gapInFlight: number;
+    mainOldestWaitMs: number;
+    gapOldestWaitMs: number;
+};
+
 export const RPC_BUDGET_POLICY = {
     MaxPending: 1024,
     WaitMs: 30_000,
@@ -170,16 +180,43 @@ export class RpcBudgetScheduler {
         this.drain();
     }
 
-    snapshot() {
-        return {
-            mainWaiting: [...this.pending.values()].filter(
-                (p) => p.workClass === SYNC_WORK_CLASS.Main,
-            ).length,
-            gapWaiting: [...this.pending.values()].filter(
-                (p) => p.workClass === SYNC_WORK_CLASS.GapRepair,
-            ).length,
-            gapInFlight: this.gapInFlight,
+    snapshot(): RpcBudgetSnapshot {
+        const now = this.now();
+        const snapshot = {
+            mainWaiting: 0,
+            gapWaiting: 0,
+            mainInFlight: 0,
+            gapInFlight: 0,
+            mainOldestWaitMs: 0,
+            gapOldestWaitMs: 0,
         };
+        for (const pending of this.pending.values()) {
+            if (pending.expiresAt <= now) continue;
+            const ageMs = Math.max(
+                0,
+                now - (pending.expiresAt - RPC_BUDGET_POLICY.WaitMs),
+            );
+            if (pending.workClass === SYNC_WORK_CLASS.Main) {
+                snapshot.mainWaiting++;
+                snapshot.mainOldestWaitMs = Math.max(
+                    snapshot.mainOldestWaitMs,
+                    ageMs,
+                );
+            } else {
+                snapshot.gapWaiting++;
+                snapshot.gapOldestWaitMs = Math.max(
+                    snapshot.gapOldestWaitMs,
+                    ageMs,
+                );
+            }
+        }
+        for (const lease of this.leases.values()) {
+            if (lease.expiresAt <= now) continue;
+            if (lease.workClass === SYNC_WORK_CLASS.Main)
+                snapshot.mainInFlight++;
+            else snapshot.gapInFlight++;
+        }
+        return snapshot;
     }
 
     stop(): void {
