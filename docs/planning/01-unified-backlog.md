@@ -129,6 +129,12 @@ implemented boundary; this file only prioritizes changes to it.
 | --------- | -------- | ------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BKL-071` | P3       | Open   | Adjust automatic-gap RPC allocation from measured main demand and endpoint supply, below manual limits. | Manual shared request/concurrency ceilings exist. Purpose-separated measurements and public-RPC qualification must precede automatic control; see [allocation direction](../indexer/04-sync-pipeline.md#deferred-automatic-allocation). |
 
+## Configuration Validation
+
+| ID        | Priority | Status | Retained outcome                                                                  | Current evidence and context                                                                                                                                                                                                                                           |
+| --------- | -------- | ------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BKL-072` | P2       | Open   | Validate active configuration policies consistently before Admin save and launch. | `RPC-MODE-001` deferred by agreement: Admin can save incompatible limited RPC/gap rates that indexer startup rejects. Tooltips explain the constraint; see [shared validation scope](../desktop/04-settings-manifest-process.md#deferred-validation-between-settings). |
+
 ## Maintenance Rules
 
 1. Do not add design essays here. Add current technical context to the owning

@@ -81,6 +81,9 @@ The indexer reads these variables from the root `.env`:
     - Positive per-endpoint allowance shared across pipeline workers in limited
       gap mode. Must be smaller than the overall rate when both modes are limited.
       With the default 5 RPS overall limit, this reserves 30% for gaps.
+    - Equal or higher limited gap rates prevent indexer startup. Admin currently
+      accepts this combination; its tooltips explain how to correct it. Shared
+      save/launch policy validation is [deferred](../desktop/04-settings-manifest-process.md#deferred-validation-between-settings).
 - `GAP_FILL_RPC_MAX_IN_FLIGHT` (default: 3)
     - Positive integer cap on simultaneous gap RPC attempts across all pipeline
       workers and endpoint pools in limited gap mode.
