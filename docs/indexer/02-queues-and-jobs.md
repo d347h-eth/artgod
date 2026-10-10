@@ -59,8 +59,11 @@ Key details:
   stored canonical hash before handler admission; a late orphan hint is ACKed
   without processing. Range projection jobs reread persisted facts instead.
 
-Automatic-gap descendants retain `gap_repair`; legacy envelopes default to
-`main`. Main uses the existing exact queue subject; background appends
+Automatic gap history processing retains `gap_repair`. The orders domain checks
+relevance and saved validation results before admitting unmet current-order
+validation to `main`; maker/token continuations and both ordinary demand
+executors use main capacity. Legacy envelopes default to `main`.
+Main uses the existing exact queue subject; background appends
 `.gap_repair` with a separate durable consumer named `<main-consumer>-gap_repair`.
 Both execute the same handler with separate slots. Quota waits are local
 deferrals, retained without terminal delivery-count exhaustion. Maker recovery
