@@ -75,7 +75,7 @@ Optional fields:
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
 - `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `weighted_endpoint_list`.
 - `options`: allowed values for `select`.
-- `validation`: one of the values owned by `config/settings-validation-rules.json`, including URL, positive-integer, TCP-port, RPC endpoint-list, and block-explorer rules.
+- `validation`: one of the values owned by `config/settings-validation-rules.json`, including URL, positive-number, positive-integer, TCP-port, RPC endpoint-list, and block-explorer rules.
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.
@@ -85,6 +85,33 @@ parser use the same decimal safe-integer rule. Values must be greater than zero
 and at most `Number.MAX_SAFE_INTEGER`, without exponent, hexadecimal, sign, or
 leading-zero notation. Surrounding whitespace is trimmed; an absent or blank
 runtime override uses its validated default.
+
+Admin positive-number validation and shared `parsePositiveNumber` use the same
+finite decimal rule. Rates may be fractional (for example `1.5` or `0.05`) and
+must be greater than zero. Zero, negative values, infinity, exponent and
+hexadecimal notation are invalid. Blank runtime overrides use validated defaults.
+
+### Rate and concurrency settings
+
+Represent policy choices with a named mode selector, rather than numeric
+sentinels or overlapping enable/unlimited flags:
+
+- Use `limited` when positive rate/concurrency numbers apply.
+- Offer `disabled` only when the feature can pause. Document how unfinished work
+  is retained and which work remains available.
+- Offer `unlimited` only for resources the user can control. Document which caps
+  it removes and any limits or scheduling priorities that still apply.
+- Validate saved numeric fields in every mode; omit inactive limits from the
+  typed runtime policy. Share mode constants and parsers through the owning
+  module so consumers do not reinterpret values.
+- Keep numeric fields strictly positive. `0` and `-1` never change the mode.
+
+RPC uses `RPC_RATE_LIMIT_MODE=limited|unlimited` for the endpoint rate and burst.
+Automatic repair uses `GAP_FILL_MODE=disabled|limited|unlimited`; unlimited removes
+both its rate and in-flight caps, while a finite overall RPC cap and main priority
+still apply. OpenSea always retains finite limits because the app cannot remove
+that provider's service limits. The existing Admin select and numeric controls
+render these modes; a future form may conditionally present the inactive fields.
 
 For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
@@ -160,9 +187,12 @@ Run these before review when settings change:
 
 ```sh
 yarn config:check
-yarn tsc -b
 yarn workspace @artgod/frontend check
+yarn tsc -b
 ```
+
+Run the frontend check first so SvelteKit generates its TypeScript config before
+the root build follows the frontend project reference.
 
 Run focused runtime tests for touched consumers:
 

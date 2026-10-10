@@ -61,18 +61,33 @@ The indexer reads these variables from the root `.env`:
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
-- `GAP_FILL_RPC_REQUESTS_PER_SECOND` (default: 0.5)
-    - Maximum automatic-gap HTTP RPC attempts per second per endpoint, shared
-      across pipeline workers. Must be smaller than a finite total RPC rate.
-      Zero pauses automatic repairs and retains their queued RPC follow-ups.
-    - `RPC_RATE_LIMIT_REQUESTS_PER_SECOND`/`RPC_RATE_LIMIT_BURST` apply to
-      total pipeline traffic per endpoint; main uses all unused gap capacity.
-- `GAP_FILL_RPC_MAX_IN_FLIGHT` (default: 1)
-    - Maximum simultaneous gap RPC attempts across workers and endpoint pools.
-    - Positive integer. Realtime, manual, bootstrap and reorg work remain main.
-    - Both gap settings apply after runtime restart. Start low for free RPCs;
-      raise the rate to improve repair throughput, and the in-flight cap only
-      when slow responses leave that rate unused.
+- `RPC_RATE_LIMIT_MODE` (default: `limited`)
+    - `limited` applies the per-endpoint rate and burst below. `unlimited`
+      removes local RPC rate throttling; provider limits still apply.
+- `RPC_RATE_LIMIT_REQUESTS_PER_SECOND` (default: 5 locally/desktop, 50 in deploy)
+    - Positive number of HTTP RPC attempts per second per endpoint. In the
+      indexer this caps total pipeline traffic, including automatic gaps.
+- `RPC_RATE_LIMIT_BURST` (default: 5 locally/desktop, 50 in deploy)
+    - Positive integer bucket capacity in limited mode.
+- `GAP_FILL_MODE` (default: `limited`)
+    - `disabled` pauses automatic discovery/repair and defers background RPC
+      follow-ups without discarding retained work. Realtime, manual, bootstrap,
+      reorg recovery and admitted current-order validation remain main work.
+    - `limited` reserves the per-endpoint gap rate below, subject to the total
+      RPC allowance. Main work uses the remaining and unused gap capacity.
+    - `unlimited` removes both gap-specific rate and concurrency caps. Gaps yield
+      to eligible waiting main requests and still obey a limited overall RPC rate.
+- `GAP_FILL_RPC_REQUESTS_PER_SECOND` (default: 1.5)
+    - Positive per-endpoint allowance shared across pipeline workers in limited
+      gap mode. Must be smaller than the overall rate when both modes are limited.
+      With the default 5 RPS overall limit, this reserves 30% for gaps.
+- `GAP_FILL_RPC_MAX_IN_FLIGHT` (default: 3)
+    - Positive integer cap on simultaneous gap RPC attempts across all pipeline
+      workers and endpoint pools in limited gap mode.
+    - All rate and concurrency numbers must remain positive in every mode;
+      `0` and `-1` are invalid. Inactive numbers are saved configuration only.
+      To remove both overall and gap throttling, select `unlimited` for both modes.
+      These are startup settings; saved changes require runtime restart.
 - `LOG_CHUNK_SIZE` (default: 2000)
     - Maximum block span per RPC log request. On viem's response-size limit,
       the provider halves the failed span and retries from the same block.
