@@ -380,13 +380,24 @@ describe("shared collection gap acquisition", () => {
                 db.prepare(
                     "DELETE FROM collections WHERE collection_id = ?",
                 ).run(second);
-            if (change === "complete")
+            if (change === "complete") {
+                // A completed repair commits coverage along with progression.
+                const mark = db.prepare(
+                    "INSERT INTO collection_sync_blocks(chain_id,collection_id,block_number) VALUES(1,?,?)",
+                );
+                for (
+                    let block = target.fromBlock;
+                    block <= target.toBlock;
+                    block++
+                )
+                    mark.run(second, block);
                 h.store.recordRepairProgress({
                     chainId: 1,
                     repair: target,
                     remaining: null,
                     retryAt: 0,
                 });
+            }
             const rpc = testRpc(),
                 published: JobEnvelope[] = [];
             await run(h, rpc, async (j) => {
@@ -394,7 +405,7 @@ describe("shared collection gap acquisition", () => {
             });
             expect(rpc.getLogs.mock.calls[0][0].address).toBe(CONTRACTS[0]);
             expect(coverage(first)).toBe(10);
-            expect(coverage(second)).toBe(0);
+            expect(coverage(second)).toBe(change === "complete" ? 10 : 0);
             expect(published.some((j) => j.collectionId === second)).toBe(
                 false,
             );

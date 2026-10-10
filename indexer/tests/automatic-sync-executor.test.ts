@@ -71,6 +71,8 @@ describe("direct automatic sync execution", () => {
         fromBlock: number,
         toBlock: number,
     ) {
+        // These isolated repair fixtures have an already-covered newer tail.
+        cover(collectionId, toBlock + 1, F.Head - 1);
         s.gaps.saveProgress({
             chainId: 1,
             collectionId,
@@ -200,6 +202,8 @@ describe("direct automatic sync execution", () => {
             cover(f.collectionId, 103, 200, [199, 200]);
             const detector = scanner(s);
             const checkedAt = now;
+            // The bounded startup check visits the above-head page first.
+            await s.executor.runDue();
             for (let pass = 0; pass < 6; pass++) {
                 await detector.scan(200);
                 await s.executor.runDue();
@@ -232,7 +236,7 @@ describe("direct automatic sync execution", () => {
             f = transferFixture();
         vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
         retain(s, f.collectionId, 101, 102);
-        cover(f.collectionId, 103, 200, [199, 200]);
+        cover(f.collectionId, 103, 200);
         const old = s.gaps.getProgress(1, f.collectionId)!.pending;
         const entered = Promise.withResolvers<void>(),
             release = Promise.withResolvers<void>();
@@ -245,6 +249,9 @@ describe("direct automatic sync execution", () => {
         };
         const running = s.executor.runDue();
         await entered.promise;
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number IN (199,200)",
+        ).run(f.collectionId);
         now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
         await scanner(s).scan(200);
         expect(s.executor.runDue()).toBe(running);
@@ -275,6 +282,79 @@ describe("direct automatic sync execution", () => {
             now,
         );
         expect(s.gaps.getProgress(1, f.collectionId)?.cursorBlock).toBe(198);
+    });
+
+    it("repairs a downtime hole before older saved work without waiting 30 minutes", async () => {
+        const rpc = new RecoveryRpc(300, 201),
+            s = services(rpc),
+            f = transferFixture();
+        retain(s, f.collectionId, 101, 102);
+        cover(f.collectionId, 103, 200, [199, 200]);
+        const prior = s.gaps.getProgress(1, f.collectionId)!;
+        now += 60_000;
+        await s.executor.runDue();
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                102,
+            ),
+        ).toBe(0);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            now,
+        );
+        expect(prior.lastHeadCheckAt).toBe(1000);
+    });
+
+    it("finishes all resume-check pages before spending RPC on older pending ranges", async () => {
+        const rpc = new RecoveryRpc(300, 201),
+            s = services(rpc);
+        const ids = Array.from(
+            { length: SYNC_GAP_POLICY.CollectionsPerPass + 1 },
+            (_, index) => {
+                const id = insertCollection({
+                    chainId: 1,
+                    slug: `resume-page-${index}`,
+                    address: `0x${String(index + 1).padStart(40, "0")}`,
+                    anchorBlock: 100,
+                });
+                retain(s, id, 101, 102);
+                cover(
+                    id,
+                    103,
+                    200,
+                    index === SYNC_GAP_POLICY.CollectionsPerPass
+                        ? [199, 200]
+                        : [],
+                );
+                return id;
+            },
+        );
+        const logs = vi.spyOn(rpc, "getLogs");
+        expect(await s.executor.runDue()).toBe(true);
+        expect(logs).not.toHaveBeenCalled();
+        expect(await s.executor.runDue()).toBe(true);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                ids.at(-1)!,
+                199,
+                200,
+            ),
+        ).toBe(2);
+        for (const id of ids)
+            expect(
+                s.storage.countCollectionSyncedBlocksInRange(1, id, 101, 102),
+            ).toBe(0);
     });
 
     it("checks HEAD and selects replacement work after waiting for another backfill", async () => {
@@ -953,6 +1033,8 @@ describe("direct automatic sync execution", () => {
             retain(s, id, last ? 106 : 105, 106);
             if (!last) older.push(id);
         }
+        await s.executor.runDue();
+        // Finish the second startup page before examining repair selection.
         await s.executor.runDue();
         expect(logs).not.toHaveBeenCalled();
         expect(

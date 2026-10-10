@@ -263,7 +263,12 @@ describe("durable production reorg recovery", () => {
             REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
 
-        // Descending collection repair first inserts canonical 104 between orphan
+        // Startup now repairs the newest eligible hole (106) before older work.
+        await services.executor.runDue();
+        expect(services.storage.getBlockHash(F.ChainId, 106)).toBe(
+            canonicalRecoveryBlock(106, forkBlock).hash,
+        );
+        // Descending collection repair then inserts canonical 104 between orphan
         // 103 and 105. This matching island is above the genuine fork at 102.
         await repairNext([104, 104]);
         now += retryDelayMs;

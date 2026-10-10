@@ -60,6 +60,9 @@ beside repair in the sync worker and does not depend on a scheduler tick.
 A local-only discovery page may reuse HEAD for at most 12 seconds. Every batch
 that fetches block data reads fresh HEAD before selection. Persisted 30-minute
 checks can replace older pending ranges inside the shared current-state gate.
+Startup also finishes one bounded pass of newer-gap checks across live collections
+before older repair, even when the saved 30-minute timer is not due. Reenabling
+gap filling requires restart and follows this same path.
 A running range finishes first; queued manual/recovery work gets the gate before
 another automatic gap pass. Selection is repeated after waiting for that gate.
 The loop drains admitted work before dependencies close; realtime stays outside

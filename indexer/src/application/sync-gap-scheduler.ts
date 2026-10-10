@@ -22,6 +22,7 @@ export const SYNC_GAP_POLICY = {
 } as const;
 
 const SYNC_GAP_LOG_COMPONENT = "IndexerSyncGapScheduler";
+const SYNC_GAP_LOG_ACTION = { HeadCheck: "head_check", Scan: "scan" } as const;
 
 export interface SyncGapCollectionsPort {
     getCollection(
@@ -124,6 +125,9 @@ export interface SyncGapDetectorPort {
 }
 
 export interface SyncGapHeadRecheckPort {
+    // Ignore saved check timing once on startup/resume. Each call checks a
+    // bounded page; true means more pages must finish before older repair runs.
+    recheckOnResume(headBlock: number): boolean;
     hasHeadRechecksDue(): boolean;
     // Call between fetch-and-save attempts, inside the shared backfill gate.
     // Returns whether a newer repair replaced the saved scan position.
@@ -150,6 +154,7 @@ export class SyncGapScheduler
     implements SyncGapDetectorPort, SyncGapHeadRecheckPort
 {
     private afterCollectionId = 0;
+    private resumeAfterCollectionId = 0;
     private headCheckTraversal: HeadCheckTraversal | null = null;
     private active: Promise<boolean> | null = null;
     private roundHasOlderWindows = false;
@@ -195,6 +200,32 @@ export class SyncGapScheduler
         });
     }
 
+    recheckOnResume(headBlock: number): boolean {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const collections = this.collections.listCollectionsForGapRepair(
+            this.options.chainId,
+            this.resumeAfterCollectionId,
+            this.pageSize,
+        );
+        for (const collection of collections) {
+            // Traverse by collection ID, independently of saved check times.
+            // Failed/skipped members cannot monopolize the startup check.
+            this.resumeAfterCollectionId = collection.id;
+            try {
+                this.retainNewestGap(
+                    collection,
+                    headBlock,
+                    this.store.getProgress(this.options.chainId, collection.id),
+                );
+            } catch (error) {
+                this.logHeadCheckFailure(collection.id, error);
+            }
+        }
+        if (collections.length === this.pageSize) return true;
+        this.resumeAfterCollectionId = 0;
+        return false;
+    }
+
     recheckFromHead(headBlock: number): boolean {
         if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
         const checkedBefore = this.now() - this.headRecheckIntervalMs;
@@ -222,16 +253,13 @@ export class SyncGapScheduler
                 );
                 if (collection)
                     replaced =
-                        this.recheckCollection(collection, headBlock) ||
-                        replaced;
+                        this.recheckCollection(
+                            collection,
+                            headBlock,
+                            traversal.checkedBefore,
+                        ) || replaced;
             } catch (error) {
-                logger.warn("Collection HEAD gap check failed", {
-                    component: SYNC_GAP_LOG_COMPONENT,
-                    action: "head_check",
-                    chainId: this.options.chainId,
-                    collectionId,
-                    error: String(error),
-                });
+                this.logHeadCheckFailure(collectionId, error);
             }
         }
         return replaced;
@@ -252,20 +280,32 @@ export class SyncGapScheduler
     private recheckCollection(
         collection: CollectionRecord,
         headBlock: number,
+        checkedBefore: number,
     ): boolean {
-        const window = collection.gapRepairWindow(headBlock);
-        if (!window) return false;
-        const chainId = this.options.chainId;
-        const expected = this.store.getProgress(chainId, collection.id);
-        if (!expected || expected.anchorBlock !== window.fromBlock)
-            return false;
+        const expected = this.store.getProgress(
+            this.options.chainId,
+            collection.id,
+        );
         // The scheduler may have completed a HEAD scan after the due IDs were
         // selected. Reuse that check instead of repeating a large coverage read.
         if (
+            expected &&
             expected.lastHeadCheckAt !== null &&
-            expected.lastHeadCheckAt > this.now() - this.headRecheckIntervalMs
+            expected.lastHeadCheckAt > checkedBefore
         )
             return false;
+        return this.retainNewestGap(collection, headBlock, expected);
+    }
+
+    private retainNewestGap(
+        collection: CollectionRecord,
+        headBlock: number,
+        expected: SyncGapProgress | null,
+    ): boolean {
+        const window = collection.gapRepairWindow(headBlock);
+        if (!window || !expected || expected.anchorBlock !== window.fromBlock)
+            return false;
+        const chainId = this.options.chainId;
         const fromBlock = Math.max(
             window.fromBlock,
             (expected.pending?.toBlock ??
@@ -299,8 +339,26 @@ export class SyncGapScheduler
         if (saved && gap) {
             this.completed.delete(collection.id);
             this.cycleCompletedAt = null;
+        } else if (
+            saved &&
+            !expected.pending &&
+            expected.cursorBlock === null
+        ) {
+            // A completed collection's newer span is its whole anchor-to-HEAD
+            // history. Reuse that successful check instead of scanning it again.
+            this.completed.set(collection.id, window.fromBlock);
         }
         return saved && gap !== null;
+    }
+
+    private logHeadCheckFailure(collectionId: number, error: unknown): void {
+        logger.warn("Collection HEAD gap check failed", {
+            component: SYNC_GAP_LOG_COMPONENT,
+            action: SYNC_GAP_LOG_ACTION.HeadCheck,
+            chainId: this.options.chainId,
+            collectionId,
+            error: String(error),
+        });
     }
 
     hasCollections(): boolean {
@@ -352,7 +410,7 @@ export class SyncGapScheduler
                 // A failed collection scan must not starve other collections.
                 logger.warn("Collection gap scan failed", {
                     component: SYNC_GAP_LOG_COMPONENT,
-                    action: "scan",
+                    action: SYNC_GAP_LOG_ACTION.Scan,
                     chainId: this.options.chainId,
                     collectionId: collection.id,
                     error: String(error),

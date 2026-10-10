@@ -86,6 +86,7 @@ export class AutomaticSyncExecutor {
     private active: Promise<boolean> | null = null;
     private discoveryHead: { block: number; readAt: number } | null = null;
     private discoveryRevision: number | null = null;
+    private resumeHeadCheckPending = true;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -159,6 +160,14 @@ export class AutomaticSyncExecutor {
                         head,
                         this.input.reorgDepth,
                     );
+                    if (upperBound < 1) return false;
+                    if (this.resumeHeadCheckPending) {
+                        // Restart-required settings also reenable gap filling here.
+                        // Complete every bounded collection page before older work.
+                        if (this.input.gapScheduler.recheckOnResume(upperBound))
+                            return true;
+                        this.resumeHeadCheckPending = false;
+                    }
                     this.input.gapScheduler.recheckFromHead(upperBound);
                     const moreToScan =
                         await this.input.gapScheduler.scan(upperBound);
