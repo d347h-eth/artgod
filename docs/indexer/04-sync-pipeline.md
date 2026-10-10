@@ -80,18 +80,26 @@ work class. Ordinary messages without a class retain main behavior.
 The sole HEAD scheduler per chain owns an allocation scheduler over the existing
 local NATS connection. All six RPC-bearing pipeline runtimes acquire a permit
 for each actual network attempt, including retries. Cached results consume none.
-The existing `RPC_RATE_LIMIT_REQUESTS_PER_SECOND` and `RPC_RATE_LIMIT_BURST`
+In `RPC_RATE_LIMIT_MODE=limited`, `RPC_RATE_LIMIT_REQUESTS_PER_SECOND` and `RPC_RATE_LIMIT_BURST`
 limit total pipeline traffic per endpoint across processes and pools. Endpoint
 identity is an opaque hash of the normalized URL; credentials never enter
 budget messages. Backend/trading retain their existing separate RPC policies.
 
-`GAP_FILL_RPC_REQUESTS_PER_SECOND` limits background traffic per endpoint
-(default 0.5, burst one), and `GAP_FILL_RPC_MAX_IN_FLIGHT` limits concurrent
-background attempts across all pipeline workers/endpoints (default one).
-Main uses remaining capacity and may borrow the background allowance when
-unused. Background cannot borrow extra main capacity. A zero gap rate pauses
-automatic discovery/repair and defers queued background RPC work; recovery and
-manual work remain main. These are startup settings; saved changes require restart.
+`GAP_FILL_MODE=limited` reserves `GAP_FILL_RPC_REQUESTS_PER_SECOND` per endpoint
+(default 1.5 RPS, burst one), and `GAP_FILL_RPC_MAX_IN_FLIGHT` caps concurrent
+background attempts across all pipeline workers/endpoints (default three).
+Main uses remaining capacity and may borrow unused background allowance.
+Limited background work cannot borrow extra main capacity.
+
+`GAP_FILL_MODE=disabled` pauses automatic discovery/repair and defers queued
+background RPC work while retaining unfinished work. Recovery, manual work and
+admitted current-order validation remain main. `GAP_FILL_MODE=unlimited` removes
+both gap-specific caps, yields to eligible waiting main requests, and still obeys
+the overall RPC limit. `RPC_RATE_LIMIT_MODE=unlimited` removes that overall rate
+and burst limit; a limited gap policy still applies independently. Selecting both
+unlimited modes removes all configured RPC rate and gap concurrency caps.
+Numeric settings must remain positive even when inactive; zero and negative
+sentinels are invalid. These are startup settings; saved changes require restart.
 
 Downstream queues use separate durable main/background slots for the same
 handlers, so waiting background work cannot occupy a main slot. Background

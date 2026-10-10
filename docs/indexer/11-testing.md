@@ -237,10 +237,13 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   across ordinary, maker and token paths, distinct event/observation requirements,
   rollback fencing and background hint admission followed by main validation.
   The real allocation scheduler and validation implementation complete strict
-  snapshots with two competing streams at default, low and zero background rates.
-- `shared/evm/rpc-budget.test.ts` verifies shared per-endpoint rates, main use of
-  idle allowance, bounded background concurrency, cancellation, expiry, paused
-  work and endpoint identity privacy. RPC execution tests verify per-attempt
+  snapshots with two competing streams at default and low background rates,
+  and with disabled or unlimited gap policies.
+- `shared/evm/rpc-budget.test.ts` verifies all six overall/gap mode combinations,
+  shared per-endpoint rates, main use of idle allowance, bounded background
+  concurrency, unlimited-gap main priority, cancellation, expiry, disabled
+  work and endpoint identity privacy. Default 1.5 RPS/three-in-flight probes
+  cover 500 ms and 1.5 s responses. RPC execution tests verify per-attempt
   admission including retries and no provider penalty for local quota waiting.
 - `tests/fill-execution-upgrades.test.ts` upgrades populated legacy history,
   removes every sale source, preserves unrelated tables, and verifies atomic
@@ -316,7 +319,7 @@ also cover bounded pending work, retry timing and uncertain publication.
 `integration/rpc-work-allocation.test.ts` uses independent budget clients on the
 isolated broker. It covers shared rates/in-flight limits under main load, failed
 request release, shutdown cancellation, missing-owner fallback for main only,
-paused background, a logical request surviving the 30-second transport deadline
+disabled background, unlimited gap concurrency across clients, a logical request surviving the 30-second transport deadline
 at low rates, and main queue delivery while a background slot remains occupied.
 It runs the production owner restart fence; no test override disables it.
 

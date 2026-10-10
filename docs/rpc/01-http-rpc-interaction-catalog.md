@@ -191,6 +191,17 @@ The policy is configured through `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`,
 `RPC_RATE_LIMIT_*`, and `RPC_CIRCUIT_BREAKER_*`. The timeout is per HTTP
 request attempt; the retry policy still bounds the total number of attempts.
 
+`RPC_RATE_LIMIT_MODE` explicitly selects `limited` or `unlimited` in the shared
+configuration parser used by backend, indexer and trading. Limited mode uses
+positive RPS and burst settings; unlimited mode carries neither numeric limit
+into the runtime policy. Saved numeric fields must remain positive in either
+mode. Indexer automatic gaps additionally use `GAP_FILL_MODE` (`disabled`,
+`limited`, `unlimited`): limited reserves 1.5 RPS per endpoint and caps three
+simultaneous attempts by default; unlimited removes both gap caps while yielding
+to eligible waiting main work and respecting a limited overall RPC rate.
+See [pipeline allocation](../indexer/04-sync-pipeline.md#rpc-allocation)
+for scope and broker ownership.
+
 Log acquisition also adapts request windows to viem's response-byte limit.
 `getLogs` halves an oversized window, retries the uncovered interval, and keeps
 the smaller block cap for all calls on that provider instance until restart.
