@@ -210,13 +210,13 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, component, result) (rate(artgod_indexer_rpc_call_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[$__rate_interval]))",
-                    "legendFormat": "{{worker}} / {{component}} / {{result}}",
+                    "expr": "sum by (work_class, worker, component, result) (rate(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", protocol=\"http\"}[$__rate_interval]))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{result}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Indexer RPC Calls by Result",
+            "title": "Indexer HTTP RPC Attempts / sec",
             "type": "timeseries"
         },
         {
@@ -256,8 +256,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, component, endpoint) (increase(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
+                    "expr": "sum by (work_class, worker, component, endpoint) (increase(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -302,8 +302,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "100 * sum by (worker, component, endpoint) (rate(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[$__rate_interval])) / clamp_min(sum by (worker, component, endpoint) (rate(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=~\"success|failure\"}[$__rate_interval])), 0.001)",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
+                    "expr": "100 * sum by (work_class, worker, component, endpoint) (rate(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[$__rate_interval])) / clamp_min(sum by (work_class, worker, component, endpoint) (rate(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=~\"success|failure\"}[$__rate_interval])), 0.001)",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -348,8 +348,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, component, method) (rate(artgod_indexer_rpc_call_duration_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"success\"}[$__rate_interval])))",
-                    "legendFormat": "{{worker}} / {{component}} / {{method}}",
+                    "expr": "histogram_quantile(0.95, sum by (le, work_class, worker, component, method) (rate(artgod_indexer_rpc_call_duration_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"success\"}[$__rate_interval])))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{method}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -394,8 +394,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, component, endpoint, method) (increase(artgod_indexer_rpc_retry_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{method}}",
+                    "expr": "sum by (work_class, worker, component, endpoint, method) (increase(artgod_indexer_rpc_retry_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}} / {{method}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -486,8 +486,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "expr": "sum by (work_class, worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -532,8 +532,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_circuit_open_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "expr": "sum by (work_class, worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_circuit_open_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -578,8 +578,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, component, endpoint) (rate(artgod_indexer_rpc_rate_limiter_wait_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\"}[$__rate_interval])))",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
+                    "expr": "histogram_quantile(0.95, sum by (le, work_class, worker, component, endpoint) (rate(artgod_indexer_rpc_rate_limiter_wait_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "legendFormat": "{{work_class}} / {{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
@@ -1683,9 +1683,7 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": [
-                        "lastNotNull"
-                    ],
+                    "reducer": ["lastNotNull"],
                     "show": false
                 },
                 "showHeader": true
@@ -1744,9 +1742,7 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": [
-                        "lastNotNull"
-                    ],
+                    "reducer": ["lastNotNull"],
                     "show": false
                 },
                 "showHeader": true
@@ -2134,23 +2130,15 @@
     "refresh": "10s",
     "schemaVersion": 39,
     "style": "dark",
-    "tags": [
-        "artgod",
-        "runtime",
-        "metrics"
-    ],
+    "tags": ["artgod", "runtime", "metrics"],
     "templating": {
         "list": [
             {
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": [
-                        "All"
-                    ],
-                    "value": [
-                        "$__all"
-                    ]
+                    "text": ["All"],
+                    "value": ["$__all"]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -2172,12 +2160,8 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": [
-                        "All"
-                    ],
-                    "value": [
-                        "$__all"
-                    ]
+                    "text": ["All"],
+                    "value": ["$__all"]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -2199,12 +2183,8 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": [
-                        "All"
-                    ],
-                    "value": [
-                        "$__all"
-                    ]
+                    "text": ["All"],
+                    "value": ["$__all"]
                 },
                 "datasource": {
                     "type": "prometheus",

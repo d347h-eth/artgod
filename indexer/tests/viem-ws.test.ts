@@ -12,6 +12,7 @@ import type {
 import {
     RPC_OBSERVABILITY_EVENT,
     RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
     RPC_PROTOCOL,
@@ -31,8 +32,11 @@ class CapturingMetrics implements Metrics {
         value?: number;
         labels?: MetricLabels;
     }> = [];
-    readonly gauges: Array<{ name: string; value: number; labels?: MetricLabels }> =
-        [];
+    readonly gauges: Array<{
+        name: string;
+        value: number;
+        labels?: MetricLabels;
+    }> = [];
     readonly histograms: Array<{
         name: string;
         value: number;
@@ -125,6 +129,8 @@ describe("ViemWebSocketHeadSource", () => {
                 endpoint: FIRST_WS_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.None,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
                 event: RPC_OBSERVABILITY_EVENT.ReconnectScheduled,
             },
         });

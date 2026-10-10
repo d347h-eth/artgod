@@ -4,6 +4,7 @@ import {
     errorLogFields,
     RPC_OBSERVABILITY_ERROR_CLASS,
     RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
     RPC_OBSERVABILITY_WORKSPACE,
@@ -12,6 +13,8 @@ import {
 } from "./rpc.js";
 import type { MetricLabels, Metrics } from "./metrics/types.js";
 import type { LogLevel } from "../utils/logger.js";
+import { createPrometheusMetrics } from "./metrics/index.js";
+import { SYNC_WORK_CLASS } from "../types/sync-work-class.js";
 import {
     JSON_RPC_ERROR_CODE,
     RPC_PROVIDER_HEAD_LAG_ERROR_DATA,
@@ -44,8 +47,11 @@ class CapturingMetrics implements Metrics {
         value?: number;
         labels?: MetricLabels;
     }> = [];
-    readonly gauges: Array<{ name: string; value: number; labels?: MetricLabels }> =
-        [];
+    readonly gauges: Array<{
+        name: string;
+        value: number;
+        labels?: MetricLabels;
+    }> = [];
     readonly histograms: Array<{
         name: string;
         value: number;
@@ -66,6 +72,53 @@ class CapturingMetrics implements Metrics {
 }
 
 describe("RpcObservability", () => {
+    it("exports both work classes after an unclassified call registers the shared metric", async () => {
+        const metrics = await createPrometheusMetrics({
+            collectProcessMetrics: false,
+        });
+        expect(metrics).toBeDefined();
+        const observer = new RpcObservability({
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
+            component: TEST_RPC_COMPONENT,
+            protocol: RPC_PROTOCOL.Http,
+            metrics: metrics!,
+            logger: {
+                debug: () => {},
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+            },
+        });
+        const endpoint = {
+            id: TEST_RPC_ENDPOINT_ID,
+            url: TEST_RPC_ENDPOINT_URL,
+            configuredWeight: 1,
+            effectiveWeight: 1,
+        };
+        for (const workClass of [
+            undefined,
+            ...Object.values(SYNC_WORK_CLASS),
+        ]) {
+            const call = observer.startCall(
+                TEST_RPC_METHOD,
+                undefined,
+                workClass,
+            );
+            const attempt = observer.startEndpointAttempt(call, endpoint, 1);
+            observer.recordEndpointAttemptSuccess(attempt, endpoint);
+            observer.recordCallSuccess(call, endpoint);
+        }
+        const scrape = await metrics!.metricsText();
+        for (const value of [
+            RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
+            ...Object.values(SYNC_WORK_CLASS),
+        ])
+            expect(scrape).toContain(
+                `${RPC_OBSERVABILITY_LABEL.WorkClass}="${value}"`,
+            );
+        expect(scrape).not.toContain("api-key");
+    });
+
     it("records mirrored RPC call logs and metrics without raw endpoint URLs", () => {
         const metrics = new CapturingMetrics();
         const logs: Array<{
@@ -124,6 +177,8 @@ describe("RpcObservability", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: TEST_ERROR_CLASS,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -136,6 +191,8 @@ describe("RpcObservability", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: TEST_ERROR_CLASS,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -148,6 +205,8 @@ describe("RpcObservability", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.None,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
                 attempt: 1,
                 next_attempt: 2,
             },
@@ -190,8 +249,7 @@ describe("RpcObservability", () => {
         const cause = Object.assign(new Error(TEST_INVALID_PARAMS_MESSAGE), {
             name: TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS,
             code: JSON_RPC_ERROR_CODE.InvalidParams,
-            data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA
-                .FromBlockGreaterThanLatestBlock,
+            data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA.FromBlockGreaterThanLatestBlock,
         });
         const error = Object.assign(new Error(TEST_INVALID_PARAMS_MESSAGE), {
             name: TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS,

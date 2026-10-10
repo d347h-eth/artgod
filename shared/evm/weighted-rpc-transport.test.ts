@@ -5,6 +5,7 @@ import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
     RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
     RPC_OBSERVABILITY_WORKSPACE,
@@ -223,6 +224,8 @@ describe("createWeightedRpcTransport", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -235,6 +238,8 @@ describe("createWeightedRpcTransport", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });
