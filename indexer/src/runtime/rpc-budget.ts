@@ -3,11 +3,12 @@ import type { OrderValidationSnapshotFactory } from "../ports/order-validation.j
 import type { IndexerConfig } from "../config/index.js";
 import { NatsRpcBudget } from "../infra/rpc/nats-budget.js";
 import { RpcWorkScope } from "../infra/rpc/work-scope.js";
+import type { Metrics } from "@artgod/shared/observability/metrics";
 
 /** Compose a pipeline-wide request allocation on the already configured broker. */
 export async function connectIndexerRpcBudget(
     config: IndexerConfig,
-    options: { owner: boolean },
+    options: { owner: boolean; metrics?: Metrics },
 ) {
     const budget = await NatsRpcBudget.connect({
         ...config.queue,
@@ -19,6 +20,7 @@ export async function connectIndexerRpcBudget(
         endpointLimit: config.rpc.resilience.rateLimiter,
         gap: config.rpc.gapAllocation,
         requestTimeoutMs: config.rpc.resilience.requestTimeoutMs,
+        metrics: options.metrics,
     });
     if (options.owner) await budget.serve();
     const workScope = new RpcWorkScope();

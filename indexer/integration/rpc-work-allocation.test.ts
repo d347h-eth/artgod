@@ -22,6 +22,8 @@ import {
 } from "../tests/helpers/isolated-nats.js";
 import { loadReorgRecoveryTestConfig } from "../tests/helpers/reorg-recovery-test-config.js";
 import { loadTestEnv } from "../tests/helpers/test-env.js";
+import { processingTelemetry } from "../tests/helpers/processing-observability.js";
+import { RPC_OBSERVABILITY_LABEL } from "@artgod/shared/observability/rpc";
 
 describe("shared RPC work allocation through the broker", () => {
     loadTestEnv();
@@ -30,6 +32,7 @@ describe("shared RPC work allocation through the broker", () => {
     const endpointKey = rpcEndpointBudgetKey(endpoint);
     let broker: IsolatedNats;
     let owner: NatsRpcBudget, main: NatsRpcBudget, gap: NatsRpcBudget;
+    let ownerTelemetry: Awaited<ReturnType<typeof processingTelemetry>>;
     let queue: NatsJetStreamQueue;
     const stops: Array<() => Promise<void>> = [];
     beforeAll(async () => {
@@ -58,7 +61,11 @@ describe("shared RPC work allocation through the broker", () => {
             },
             requestTimeoutMs: 100,
         };
-        owner = await NatsRpcBudget.connect(config);
+        ownerTelemetry = await processingTelemetry();
+        owner = await NatsRpcBudget.connect({
+            ...config,
+            metrics: ownerTelemetry.metrics,
+        });
         await owner.serve();
         main = await NatsRpcBudget.connect(config);
         gap = await NatsRpcBudget.connect(config);
@@ -76,6 +83,72 @@ describe("shared RPC work allocation through the broker", () => {
         await Promise.all([main?.close(), gap?.close()]);
         await owner?.close();
         await broker?.stop();
+    });
+
+    it("exports owner pressure across independent clients and clears it after requests finish", async () => {
+        const release = Promise.withResolvers<void>();
+        const gapEntered = Promise.withResolvers<void>(),
+            mainEntered = Promise.withResolvers<void>();
+        const first = gap.run(
+            { endpointKey, workClass: CLASS.GapRepair },
+            async () => {
+                gapEntered.resolve();
+                await release.promise;
+            },
+        );
+        const foreground = main.run(
+            { endpointKey, workClass: CLASS.Main },
+            async () => {
+                mainEntered.resolve();
+                await release.promise;
+            },
+        );
+        await Promise.all([gapEntered.promise, mainEntered.promise]);
+        const waiting = gap.run(
+            { endpointKey, workClass: CLASS.GapRepair },
+            async () => {},
+        );
+        const backgroundLabels = {
+            [RPC_OBSERVABILITY_LABEL.WorkClass]: CLASS.GapRepair,
+        };
+        const mainLabels = { [RPC_OBSERVABILITY_LABEL.WorkClass]: CLASS.Main };
+        try {
+            await waitForFixture(
+                async () =>
+                    (await ownerTelemetry.value(
+                        "rpc_budget_waiting_requests",
+                        backgroundLabels,
+                    )) === 1,
+                "sampled background waiter",
+            );
+            expect(
+                await ownerTelemetry.value(
+                    "rpc_budget_in_flight_requests",
+                    backgroundLabels,
+                ),
+            ).toBe(1);
+            expect(
+                await ownerTelemetry.value(
+                    "rpc_budget_in_flight_requests",
+                    mainLabels,
+                ),
+            ).toBe(1);
+        } finally {
+            release.resolve();
+            await Promise.all([first, foreground, waiting]);
+        }
+        await waitForFixture(
+            async () =>
+                (await ownerTelemetry.value(
+                    "rpc_budget_in_flight_requests",
+                    backgroundLabels,
+                )) === 0 &&
+                (await ownerTelemetry.value(
+                    "rpc_budget_waiting_requests",
+                    backgroundLabels,
+                )) === 0,
+            "cleared background pressure",
+        );
     });
 
     it("shares rate and in-flight limits between independent clients under main load", async () => {

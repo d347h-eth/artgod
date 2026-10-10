@@ -47,6 +47,21 @@ import {
     type SyncGapDetectorPort,
 } from "./sync-gap-scheduler.js";
 import type { SyncRange } from "./sync.js";
+import { observeBestEffort } from "./processing-observability.js";
+
+export type AutomaticSyncRangeReport = {
+    kind: SyncWorkCompletion["kind"];
+    blocksProcessed: number;
+    collectionsProcessed: number;
+    toBlock: number;
+    durationMs: number;
+    completedAtMs: number;
+};
+
+export interface AutomaticSyncObserver {
+    // Called only after the range's facts, coverage and follow-ups commit.
+    rangeCompleted(report: AutomaticSyncRangeReport): void;
+}
 
 export const AUTOMATIC_SYNC_POLICY = {
     PollMs: 12_000,
@@ -78,6 +93,7 @@ type AutomaticSyncInput = Omit<
     reorgDepth: number;
     retryDelayMs?: number;
     now?: () => number;
+    observer?: AutomaticSyncObserver;
 };
 
 // One bounded acquisition per pass. SQLite owns intent before and after a crash;
@@ -357,6 +373,7 @@ export class AutomaticSyncExecutor {
         sources: DomainSyncSource[],
         completion: SyncWorkCompletion,
     ): Promise<void> {
+        const startedAtMs = this.now();
         const result = await processSyncRange({
             rpc: this.input.rpc,
             storage: this.input.storage,
@@ -375,6 +392,17 @@ export class AutomaticSyncExecutor {
             orderMaintenancePolicy:
                 BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
         });
+        const completedAtMs = this.now();
+        observeBestEffort(() =>
+            this.input.observer?.rangeCompleted({
+                kind: completion.kind,
+                blocksProcessed: result.blocks.length,
+                collectionsProcessed: collections.length,
+                toBlock: range.toBlock,
+                durationMs: Math.max(0, completedAtMs - startedAtMs),
+                completedAtMs,
+            }),
+        );
         logger.info("Automatic sync range acquired", {
             component: LOG_COMPONENT,
             action: LOG_ACTION.Range,

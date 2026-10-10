@@ -20,6 +20,7 @@ import {
     startAutomaticSyncLoop,
 } from "../application/automatic-sync-executor.js";
 import { SyncGapScheduler } from "../application/sync-gap-scheduler.js";
+import { AutomaticSyncMetrics } from "../infra/observability/automatic-sync-metrics.js";
 import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import { SqliteSyncRangeCommit } from "../infra/storage/sqlite-sync-range-commit.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
@@ -286,6 +287,7 @@ async function main() {
                 gate: backfillExecutionGate,
                 batchSize: config.sync.backfillBatchSize,
                 reorgDepth: config.sync.reorgDepth,
+                observer: new AutomaticSyncMetrics(runtimeMetrics.metrics),
             }),
         );
 

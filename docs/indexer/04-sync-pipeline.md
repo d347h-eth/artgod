@@ -133,8 +133,9 @@ Use main backlog age, local quota wait, provider response time excluding that wa
 timeouts/rejections and achieved throughput. Reduce background quickly under main
 pressure and increase it slowly with hysteresis; do not add persisted gap state
 or weaken snapshot/canonical checks. Endpoint attempt timing excludes quota wait
-for allocated pipeline calls; wait is reported separately. Purpose-separated
-measurements and live free-public-RPC qualification remain required before
+for allocated pipeline calls; wait is reported separately. RPC metrics now
+separate work classes, and the owner exports waiting/active counts and ceilings.
+Durable main backlog/coverage measurements and live free-public-RPC qualification remain required before
 enabling automatic adjustment.
 
 Acquisition completion establishes persisted data and publication intent.
