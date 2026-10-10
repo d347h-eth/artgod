@@ -146,8 +146,14 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   checks, bounded membership, complete skipped/failed pages, traversal wrap and
   restart, HEAD catch-up, stale cross-process saves, all small coverage shapes and
   a consistent WAL read snapshot with a competing connection.
+  Incremental checks cover all newly eligible blocks, preserve broader timing
+  and covered retry state, skip unchanged bounds, retry failed conditional saves
+  and reset after rollback without starving later collection pages.
 - `tests/rpc-budget-metrics.test.ts` verifies real Prometheus exports of active
   ceilings/modes, class-specific transport pressure/age and expired-state removal.
+- `tests/rpc-budget-transport-monitor.test.ts` verifies separate broker/owner
+  latency exports, deadline/error outcomes, bounded unresolved PINGs, shutdown
+  without late reports and best-effort telemetry.
 - `tests/automatic-sync-observability.test.ts` verifies shared-range progress,
   commit failure producing no success metrics, and best-effort telemetry after commit.
 - `tests/sync-gap-query-cost.test.ts` seeds 50,000 pending collections and 400,000
@@ -325,7 +331,9 @@ also cover bounded pending work, retry timing and uncertain publication.
 isolated broker. It covers shared rates/in-flight limits under main load, failed
 request release, shutdown cancellation, missing-owner fallback for main only,
 disabled background, unlimited gap concurrency across clients, a logical request surviving the 30-second transport deadline
-at low rates, and main queue delivery while a background slot remains occupied.
+at low rates, quota-independent broker/owner probes during a blocked background
+permission, exported fallback/timeout counters and main queue delivery while a
+background slot remains occupied.
 It runs the production owner restart fence; no test override disables it.
 
 RPC chain responses are deterministic fixtures. These checks establish the local

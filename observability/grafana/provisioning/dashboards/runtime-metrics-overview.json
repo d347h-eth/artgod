@@ -634,12 +634,157 @@
             "type": "timeseries"
         },
         {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 41
+            },
+            "id": 112,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, target) (rate(artgod_indexer_rpc_budget_round_trip_seconds_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"success\"}[$__rate_interval])))",
+                    "legendFormat": "{{worker}} / {{target}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Indexer RPC Coordination Round Trip p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 41
+            },
+            "id": 113,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, event, work_class) (increase(artgod_indexer_rpc_budget_transport_events_total{worker=~\"$worker\", chain_id=~\"$chain_id\", event!=\"permit_granted\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{work_class}} / {{event}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, target, result) (increase(artgod_indexer_rpc_budget_probes_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result!=\"success\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{target}} / {{result}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Indexer RPC Coordination Problems (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 41
+            },
+            "id": 114,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "time() - artgod_indexer_rpc_budget_last_probe_success_timestamp_seconds{worker=~\"$worker\", chain_id=~\"$chain_id\"}",
+                    "legendFormat": "{{worker}} / {{target}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Indexer RPC Time Since Last Successful Reply",
+            "type": "timeseries"
+        },
+        {
             "collapsed": false,
             "gridPos": {
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 41
+                "y": 49
             },
             "id": 201,
             "panels": [],
@@ -665,7 +810,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 42
+                "y": 50
             },
             "id": 202,
             "options": {
@@ -711,7 +856,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 42
+                "y": 50
             },
             "id": 203,
             "options": {
@@ -757,7 +902,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 42
+                "y": 50
             },
             "id": 204,
             "options": {
@@ -803,7 +948,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 50
+                "y": 58
             },
             "id": 205,
             "options": {
@@ -849,7 +994,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 50
+                "y": 58
             },
             "id": 207,
             "options": {
@@ -895,7 +1040,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 50
+                "y": 58
             },
             "id": 206,
             "options": {
@@ -948,7 +1093,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 58
+                "y": 66
             },
             "id": 208,
             "options": {
@@ -994,7 +1139,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 58
+                "y": 66
             },
             "id": 209,
             "options": {
@@ -1040,7 +1185,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 58
+                "y": 66
             },
             "id": 210,
             "options": {
@@ -1073,7 +1218,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 66
+                "y": 74
             },
             "id": 251,
             "panels": [],
@@ -1099,7 +1244,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 67
+                "y": 75
             },
             "id": 252,
             "options": {
@@ -1145,7 +1290,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 67
+                "y": 75
             },
             "id": 253,
             "options": {
@@ -1191,7 +1336,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 67
+                "y": 75
             },
             "id": 254,
             "options": {
@@ -1237,7 +1382,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 75
+                "y": 83
             },
             "id": 255,
             "options": {
@@ -1283,7 +1428,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 75
+                "y": 83
             },
             "id": 257,
             "options": {
@@ -1329,7 +1474,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 75
+                "y": 83
             },
             "id": 256,
             "options": {
@@ -1382,7 +1527,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 83
+                "y": 91
             },
             "id": 258,
             "options": {
@@ -1428,7 +1573,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 83
+                "y": 91
             },
             "id": 259,
             "options": {
@@ -1474,7 +1619,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 83
+                "y": 91
             },
             "id": 260,
             "options": {
@@ -1507,7 +1652,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 91
+                "y": 99
             },
             "id": 301,
             "panels": [],
@@ -1533,7 +1678,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 92
+                "y": 100
             },
             "id": 6,
             "options": {
@@ -1586,7 +1731,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 92
+                "y": 100
             },
             "id": 7,
             "options": {
@@ -1632,7 +1777,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 92
+                "y": 100
             },
             "id": 8,
             "options": {
@@ -1677,7 +1822,7 @@
                 "h": 9,
                 "w": 12,
                 "x": 0,
-                "y": 100
+                "y": 108
             },
             "id": 9,
             "options": {
@@ -1736,7 +1881,7 @@
                 "h": 9,
                 "w": 12,
                 "x": 12,
-                "y": 100
+                "y": 108
             },
             "id": 10,
             "options": {
@@ -1783,7 +1928,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 109
+                "y": 117
             },
             "id": 401,
             "panels": [],
@@ -1809,7 +1954,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 110
+                "y": 118
             },
             "id": 11,
             "options": {
@@ -1855,7 +2000,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 110
+                "y": 118
             },
             "id": 12,
             "options": {
@@ -1901,7 +2046,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 110
+                "y": 118
             },
             "id": 13,
             "options": {
@@ -1961,7 +2106,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 118
+                "y": 126
             },
             "id": 14,
             "options": {
@@ -2007,7 +2152,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 118
+                "y": 126
             },
             "id": 17,
             "options": {
@@ -2053,7 +2198,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 118
+                "y": 126
             },
             "id": 15,
             "options": {
@@ -2099,7 +2244,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 126
+                "y": 134
             },
             "id": 16,
             "options": {

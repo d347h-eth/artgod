@@ -80,6 +80,9 @@ async function main() {
         });
         const rpcAllocation = await connectIndexerRpcBudget(config, {
             owner: false,
+            metrics: config.metrics.enabled
+                ? runtimeMetrics.metrics
+                : undefined,
         });
         const cache = new InMemoryCache({
             maxEntries: config.cache.maxEntries,
