@@ -11,6 +11,13 @@ import {
     rpcEndpointBudgetKey,
 } from "@artgod/shared/evm/rpc-budget";
 import { SYNC_WORK_CLASS as CLASS } from "@artgod/shared/types/sync-work-class";
+import {
+    RPC_BUDGET_METRIC_POLICY,
+    RPC_BUDGET_METRIC_LABEL,
+    RPC_BUDGET_PROBE_TARGET,
+    RPC_BUDGET_PROBE_RESULT,
+    RPC_BUDGET_TRANSPORT_EVENT,
+} from "../src/infra/rpc/budget-metrics.js";
 import { NatsRpcBudget } from "../src/infra/rpc/nats-budget.js";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { runWorker } from "../src/application/worker-runner.js";
@@ -33,6 +40,7 @@ describe("shared RPC work allocation through the broker", () => {
     let broker: IsolatedNats;
     let owner: NatsRpcBudget, main: NatsRpcBudget, gap: NatsRpcBudget;
     let ownerTelemetry: Awaited<ReturnType<typeof processingTelemetry>>;
+    let clientTelemetry: Awaited<ReturnType<typeof processingTelemetry>>;
     let queue: NatsJetStreamQueue;
     const stops: Array<() => Promise<void>> = [];
     beforeAll(async () => {
@@ -67,7 +75,11 @@ describe("shared RPC work allocation through the broker", () => {
             metrics: ownerTelemetry.metrics,
         });
         await owner.serve();
-        main = await NatsRpcBudget.connect(config);
+        clientTelemetry = await processingTelemetry();
+        main = await NatsRpcBudget.connect({
+            ...config,
+            metrics: clientTelemetry.metrics,
+        });
         gap = await NatsRpcBudget.connect(config);
         queue = await NatsJetStreamQueue.connect(config);
         // Qualify the same restart fence used by production, without overriding it.
@@ -151,6 +163,88 @@ describe("shared RPC work allocation through the broker", () => {
         );
     });
 
+    it("samples broker and owner replies while an independent client waits for quota", async () => {
+        const config = {
+            natsUrl: broker.url,
+            streamPrefix: "probe_allocation_fixture",
+            chainId: 1,
+            endpoints: [{ url: endpoint }],
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 0.01,
+                burst: 1,
+            },
+            gap: { mode: GAP_FILL_MODE.Disabled },
+            requestTimeoutMs: 100,
+        };
+        const telemetry = await processingTelemetry();
+        const probeOwner = await NatsRpcBudget.connect(config);
+        const client = await NatsRpcBudget.connect({
+            ...config,
+            metrics: telemetry.metrics,
+        });
+        await probeOwner.serve();
+        await client.run(
+            { endpointKey, workClass: CLASS.Main },
+            async () => {},
+        );
+        let sent = false;
+        const waiting = client.run(
+            { endpointKey, workClass: CLASS.Main },
+            async () => {
+                sent = true;
+            },
+        );
+        const rejected =
+            expect(waiting).rejects.toBeInstanceOf(RpcBudgetDeferred);
+        const labels = {
+            [RPC_BUDGET_METRIC_LABEL.Target]:
+                RPC_BUDGET_PROBE_TARGET.Coordinator,
+            [RPC_BUDGET_METRIC_LABEL.Result]: RPC_BUDGET_PROBE_RESULT.Success,
+        };
+        try {
+            await waitForFixture(
+                async () => {
+                    try {
+                        return (
+                            (await telemetry.value(
+                                "rpc_budget_probes_total",
+                                labels,
+                            )) > 0
+                        );
+                    } catch {
+                        return false;
+                    }
+                },
+                "quota-independent owner probe",
+                RPC_BUDGET_METRIC_POLICY.ProbeIntervalMs + 2000,
+            );
+            expect(sent).toBe(false);
+            expect(
+                await telemetry.value("rpc_budget_probes_total", {
+                    ...labels,
+                    [RPC_BUDGET_METRIC_LABEL.Target]:
+                        RPC_BUDGET_PROBE_TARGET.Broker,
+                }),
+            ).toBeGreaterThan(0);
+            expect(
+                await telemetry.value("rpc_budget_transport_events_total", {
+                    [RPC_BUDGET_METRIC_LABEL.Event]:
+                        RPC_BUDGET_TRANSPORT_EVENT.Granted,
+                    [RPC_OBSERVABILITY_LABEL.WorkClass]: CLASS.Main,
+                }),
+            ).toBe(1);
+            expect(await telemetry.metrics.metricsText()).not.toContain(
+                "rpc_budget_waiting_requests",
+            );
+        } finally {
+            client.stopWaiting();
+            await rejected;
+            await client.close();
+            await probeOwner.close();
+        }
+    });
+
     it("shares rate and in-flight limits between independent clients under main load", async () => {
         const times: number[] = [];
         let active = 0,
@@ -232,6 +326,7 @@ describe("shared RPC work allocation through the broker", () => {
     });
 
     it("lets main use the established limiter when no owner exists and keeps gaps retained", async () => {
+        const telemetry = await processingTelemetry();
         const orphan = await NatsRpcBudget.connect({
             natsUrl: broker.url,
             streamPrefix: "no_owner_fixture",
@@ -248,6 +343,7 @@ describe("shared RPC work allocation through the broker", () => {
                 maxInFlight: 1,
             },
             requestTimeoutMs: 100,
+            metrics: telemetry.metrics,
         });
         try {
             expect(
@@ -262,12 +358,28 @@ describe("shared RPC work allocation through the broker", () => {
                     async () => "gap",
                 ),
             ).rejects.toBeInstanceOf(RpcBudgetDeferred);
+            expect(
+                await telemetry.value("rpc_budget_transport_events_total", {
+                    [RPC_BUDGET_METRIC_LABEL.Event]:
+                        RPC_BUDGET_TRANSPORT_EVENT.MainFallback,
+                    [RPC_OBSERVABILITY_LABEL.WorkClass]: CLASS.Main,
+                }),
+            ).toBe(1);
+            for (const workClass of [CLASS.Main, CLASS.GapRepair])
+                expect(
+                    await telemetry.value("rpc_budget_transport_events_total", {
+                        [RPC_BUDGET_METRIC_LABEL.Event]:
+                            RPC_BUDGET_TRANSPORT_EVENT.OwnerUnavailable,
+                        [RPC_OBSERVABILITY_LABEL.WorkClass]: workClass,
+                    }),
+                ).toBe(1);
         } finally {
             await orphan.close();
         }
     });
 
     it("keeps the logical request waiting across transport deadlines at a low rate", async () => {
+        const telemetry = await processingTelemetry();
         const slowOwner = await NatsRpcBudget.connect({
             natsUrl: broker.url,
             streamPrefix: "slow_allocation_fixture",
@@ -280,6 +392,7 @@ describe("shared RPC work allocation through the broker", () => {
             },
             gap: { mode: GAP_FILL_MODE.Disabled },
             requestTimeoutMs: 100,
+            metrics: telemetry.metrics,
         });
         try {
             await slowOwner.serve();
@@ -308,6 +421,13 @@ describe("shared RPC work allocation through the broker", () => {
             await delay(RPC_BUDGET_POLICY.WaitMs + 1500);
             expect(settled).toBe(false);
             expect(sent).toBe(false);
+            expect(
+                await telemetry.value("rpc_budget_transport_events_total", {
+                    [RPC_BUDGET_METRIC_LABEL.Event]:
+                        RPC_BUDGET_TRANSPORT_EVENT.WaitTimeout,
+                    [RPC_OBSERVABILITY_LABEL.WorkClass]: CLASS.Main,
+                }),
+            ).toBeGreaterThan(0);
             slowOwner.stopWaiting();
             await rejected;
         } finally {

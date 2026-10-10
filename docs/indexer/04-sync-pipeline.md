@@ -118,6 +118,10 @@ Order validation uses both existing permits for needed current-order work in
 main. Historical hints are filtered/coalesced before requiring RPC validation.
 
 Budget messages are transient request/reply, outside the durable jobs stream.
+Installed desktop uses the native NATS protocol over its existing loopback TCP
+connection. Each metrics-enabled client samples broker PING/PONG and a
+quota-independent allocator reply every five seconds; see
+[coordination measurements](10-observability-and-metrics.md#rpc-coordination-health).
 Transport waiters and attempt leases are bounded; a caller can rejoin quota
 admission while preserving its selected request and earlier reads. This permits
 slow configured rates without restarting the whole range. Pausing or shutdown

@@ -3,7 +3,11 @@ import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
     RpcBudgetMetrics,
     RPC_BUDGET_METRIC_POLICY,
+    RpcBudgetTransportMetrics,
+    RPC_BUDGET_PROBE_TARGET,
+    RPC_BUDGET_TRANSPORT_EVENT,
 } from "./budget-metrics.js";
+import { RpcBudgetTransportMonitor } from "./budget-transport-monitor.js";
 import {
     connect,
     ErrorCode,
@@ -35,6 +39,7 @@ const ACTION = {
     Acquire: "acquire",
     Release: "release",
     Cancel: "cancel",
+    Probe: "probe",
 } as const;
 const WAIT_REASON = {
     Capacity: "capacity",
@@ -43,6 +48,7 @@ const WAIT_REASON = {
     Unavailable: "unavailable",
 } as const;
 const codec = JSONCodec<unknown>();
+const PROBE_PAYLOAD = new Uint8Array(0);
 type AcquireRequest = RpcRequestBudgetInput & { id: string };
 type BudgetResponse =
     | { permitId: string }
@@ -107,6 +113,8 @@ export class NatsRpcBudget implements RpcRequestBudget {
     private readonly subscriptions: Subscription[] = [];
     private scheduler?: RpcBudgetScheduler;
     private metricsTimer?: ReturnType<typeof setInterval>;
+    private readonly transportMetrics?: RpcBudgetTransportMetrics;
+    private readonly transportMonitor?: RpcBudgetTransportMonitor;
     private stopped = false;
 
     private constructor(
@@ -118,6 +126,27 @@ export class NatsRpcBudget implements RpcRequestBudget {
                 rpcEndpointBudgetKey(endpoint.url),
                 new TokenBucketRateLimiter(config.endpointLimit),
             );
+        if (config.metrics) {
+            this.transportMetrics = new RpcBudgetTransportMetrics(
+                config.metrics,
+            );
+            this.transportMonitor = new RpcBudgetTransportMonitor(
+                this.transportMetrics,
+                {
+                    [RPC_BUDGET_PROBE_TARGET.Broker]: () => this.nc.rtt(),
+                    [RPC_BUDGET_PROBE_TARGET.Coordinator]: () =>
+                        this.nc.request(
+                            this.subject(ACTION.Probe),
+                            PROBE_PAYLOAD,
+                            {
+                                timeout:
+                                    RPC_BUDGET_METRIC_POLICY.ProbeTimeoutMs,
+                            },
+                        ),
+                },
+            );
+            this.transportMonitor.start();
+        }
     }
 
     static async connect(config: Config): Promise<NatsRpcBudget> {
@@ -158,6 +187,13 @@ export class NatsRpcBudget implements RpcRequestBudget {
         // Main startup stays available; new background permits wait for those attempts.
         const backgroundReadyAt = Date.now() + leaseMs;
         this.subscriptions.push(
+            // Health replies bypass rate/concurrency allocation. Slow replies
+            // therefore indicate transport/owner delay, not configured throttling.
+            this.nc.subscribe(this.subject(ACTION.Probe), {
+                callback: (_error, msg) => {
+                    msg.respond(PROBE_PAYLOAD);
+                },
+            }),
             this.nc.subscribe(this.subject(ACTION.Acquire), {
                 callback: (_error, msg) => {
                     try {
@@ -268,6 +304,10 @@ export class NatsRpcBudget implements RpcRequestBudget {
                         if (response.permitId !== id)
                             throw new RpcBudgetDeferred();
                         granted = true;
+                        this.transportMetrics?.event(
+                            RPC_BUDGET_TRANSPORT_EVENT.Granted,
+                            input.workClass,
+                        );
                         break;
                     }
                     if (
@@ -283,6 +323,23 @@ export class NatsRpcBudget implements RpcRequestBudget {
                         "code" in error
                             ? error.code
                             : undefined;
+                    if (!this.stopped) {
+                        if (code === ErrorCode.NoResponders)
+                            this.transportMetrics?.event(
+                                RPC_BUDGET_TRANSPORT_EVENT.OwnerUnavailable,
+                                input.workClass,
+                            );
+                        else if (code === ErrorCode.Timeout)
+                            this.transportMetrics?.event(
+                                RPC_BUDGET_TRANSPORT_EVENT.WaitTimeout,
+                                input.workClass,
+                            );
+                        else if (!(error instanceof RpcBudgetDeferred))
+                            this.transportMetrics?.event(
+                                RPC_BUDGET_TRANSPORT_EVENT.RequestError,
+                                input.workClass,
+                            );
+                    }
                     // Standalone/main startup keeps the established per-client limiter.
                     // Missing ownership never lets background bypass its allocation.
                     if (
@@ -294,6 +351,10 @@ export class NatsRpcBudget implements RpcRequestBudget {
                         if (!limiter) throw new RpcBudgetDeferred();
                         await Promise.race([limiter.acquire(), cancelled]);
                         fallback = true;
+                        this.transportMetrics?.event(
+                            RPC_BUDGET_TRANSPORT_EVENT.MainFallback,
+                            input.workClass,
+                        );
                         break;
                     }
                     if (this.stopped || code !== ErrorCode.Timeout)
@@ -333,6 +394,7 @@ export class NatsRpcBudget implements RpcRequestBudget {
     /** Interrupt capacity waits before draining handlers; requests already sent finish. */
     stopWaiting(): void {
         this.stopped = true;
+        this.transportMonitor?.stop();
         for (const [id, cancel] of this.pending) {
             this.nc.publish(this.subject(ACTION.Cancel), codec.encode({ id }));
             cancel();

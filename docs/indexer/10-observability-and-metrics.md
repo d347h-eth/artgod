@@ -664,6 +664,52 @@ Reliable durable backlog ages, realtime coverage lag, overdue canonical-check
 gauges and newer-gap check ages remain separate follow-up work for automatic
 allocation qualification; see `BKL-071` in the unified backlog.
 
+### RPC Coordination Health
+
+Each metrics-enabled RPC budget client exports transport health on its existing
+runtime metrics endpoint. Samples run every five seconds on its existing NATS
+connection, independently of configured Ethereum RPC allowances:
+
+- `rpc.budget.round_trip_seconds`, with `target=broker|coordinator` and
+  `result=success|timeout|unavailable|error`. Broker samples use native PING/PONG;
+  coordinator samples use a Core NATS request/reply whose handler bypasses
+  permission allocation. Both include local event-loop/transport delay; neither
+  includes intentional quota waiting. Durations use a monotonic clock and buckets
+  from 100 microseconds through five seconds.
+- `rpc.budget.probes`: completed samples by target/result.
+- `rpc.budget.last_probe_success_timestamp_seconds`: last successful sample
+  per target. A stale timestamp matters even after failures leave a rolling window.
+- `rpc.budget.transport_events`, with `work_class` and `event`: permission
+  grants, 30-second permission-wait timeouts, missing owners, main fallback and
+  other transport request errors. A wait timeout can be normal at low configured
+  rates; it does not alone establish broker overload.
+
+Every target allows only one pending sample and reports its one-second deadline
+once. A native PING that remains unresolved occupies that slot until it settles,
+so an outage cannot accumulate PING promises. Failed samples emit no successful
+timestamp; shutdown cancels sampling without waiting for a stuck probe. Metrics
+are optional and their failures cannot change permission or RPC execution.
+
+The Runtime Metrics dashboard's Indexer RPC section shows coordination p95,
+problems in the last five minutes and time since each target last replied.
+For example, quota-independent p95 uses:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, worker, target) (
+    rate(artgod_indexer_rpc_budget_round_trip_seconds_bucket{result="success"}[5m])
+  )
+)
+```
+
+High quota wait with healthy probe latency indicates allowance pressure. Rising
+broker latency/failures suggests broker, connection or local process scheduling
+pressure. A healthy broker probe with slower coordinator replies points toward
+the owner path. Compare these with existing Node process CPU/event-loop metrics;
+probe latency alone cannot attribute a delay exclusively to NATS. The samples
+cover budget connections, not all broker clients or sustained maximum-throughput
+qualification. Broker-wide server counters/profiling remain separate work.
+
 ### RPC Interpretation
 
 RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed

@@ -70,6 +70,9 @@ async function main() {
         });
         const rpcAllocation = await connectIndexerRpcBudget(config, {
             owner: false,
+            metrics: config.metrics.enabled
+                ? runtimeMetrics.metrics
+                : undefined,
         });
         const rpc = new ViemRpcProvider({
             endpoints: config.rpc.endpoints,
