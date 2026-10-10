@@ -128,6 +128,9 @@ export interface SyncGapHeadRecheckPort {
     // Ignore saved check timing once on startup/resume. Each call checks a
     // bounded page; true means more pages must finish before older repair runs.
     recheckOnResume(headBlock: number): boolean;
+    // Check a bounded page of blocks newly eligible since successful local
+    // checks. True means finish more pages before selecting older repair.
+    recheckNewlyEligible(headBlock: number): boolean;
     hasHeadRechecksDue(): boolean;
     // Call between fetch-and-save attempts, inside the shared backfill gate.
     // Returns whether a newer repair replaced the saved scan position.
@@ -148,14 +151,26 @@ type HeadCheckTraversal = {
     after: SyncGapHeadCheckPosition | null;
 };
 
+type EligibleCheckTraversal = {
+    upperBound: number;
+    afterCollectionId: number;
+    failed: boolean;
+};
+
 // Each pass visits a bounded page of collections. Each collection retains one
 // outstanding repair, so slow workers cannot admit the whole missing history.
 export class SyncGapScheduler
     implements SyncGapDetectorPort, SyncGapHeadRecheckPort
 {
     private afterCollectionId = 0;
-    private resumeAfterCollectionId = 0;
+    private resumeTraversal: EligibleCheckTraversal | null = null;
     private headCheckTraversal: HeadCheckTraversal | null = null;
+    private eligibleTraversal: EligibleCheckTraversal | null = null;
+    private eligibleCompletedBound: number | null = null;
+    private eligibleChecked = new Map<
+        number,
+        { anchorBlock: number; upperBound: number }
+    >();
     private active: Promise<boolean> | null = null;
     private roundHasOlderWindows = false;
     private roundHasUnfinishedCollections = false;
@@ -202,27 +217,51 @@ export class SyncGapScheduler
 
     recheckOnResume(headBlock: number): boolean {
         if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const traversal = (this.resumeTraversal ??= {
+            upperBound: headBlock,
+            afterCollectionId: 0,
+            failed: false,
+        });
+        traversal.upperBound = Math.min(traversal.upperBound, headBlock);
         const collections = this.collections.listCollectionsForGapRepair(
             this.options.chainId,
-            this.resumeAfterCollectionId,
+            traversal.afterCollectionId,
             this.pageSize,
         );
         for (const collection of collections) {
             // Traverse by collection ID, independently of saved check times.
             // Failed/skipped members cannot monopolize the startup check.
-            this.resumeAfterCollectionId = collection.id;
+            traversal.afterCollectionId = collection.id;
             try {
+                const expected = this.store.getProgress(
+                    this.options.chainId,
+                    collection.id,
+                );
                 this.retainNewestGap(
                     collection,
-                    headBlock,
-                    this.store.getProgress(this.options.chainId, collection.id),
+                    traversal.upperBound,
+                    expected,
                 );
+                if (
+                    expected &&
+                    expected.anchorBlock ===
+                        collection.gapRepairWindow(traversal.upperBound)
+                            ?.fromBlock &&
+                    (this.eligibleChecked.get(collection.id)?.upperBound ?? 0) <
+                        traversal.upperBound
+                )
+                    traversal.failed = true;
             } catch (error) {
+                traversal.failed = true;
                 this.logHeadCheckFailure(collection.id, error);
             }
         }
         if (collections.length === this.pageSize) return true;
-        this.resumeAfterCollectionId = 0;
+        // All successful startup pages checked this fixed bound. Seed the
+        // incremental traversal without rereading the same collection pages.
+        if (!traversal.failed)
+            this.eligibleCompletedBound = traversal.upperBound;
+        this.resumeTraversal = null;
         return false;
     }
 
@@ -263,6 +302,118 @@ export class SyncGapScheduler
             }
         }
         return replaced;
+    }
+
+    recheckNewlyEligible(headBlock: number): boolean {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        // A lagging provider must not make this traversal query above its HEAD.
+        if (
+            this.eligibleTraversal &&
+            this.eligibleTraversal.upperBound > headBlock
+        )
+            this.eligibleTraversal = null;
+        if (
+            !this.eligibleTraversal &&
+            this.eligibleCompletedBound !== null &&
+            headBlock <= this.eligibleCompletedBound
+        )
+            return false;
+        const traversal = (this.eligibleTraversal ??= {
+            upperBound: headBlock,
+            afterCollectionId: 0,
+            failed: false,
+        });
+        const collections = this.collections.listCollectionsForGapRepair(
+            this.options.chainId,
+            traversal.afterCollectionId,
+            this.pageSize,
+        );
+        for (const collection of collections) {
+            traversal.afterCollectionId = collection.id;
+            try {
+                if (
+                    !this.checkEligibleCollection(
+                        collection,
+                        traversal.upperBound,
+                    )
+                )
+                    traversal.failed = true;
+            } catch (error) {
+                // Retry failed checks after the traversal, never ahead of its peers.
+                traversal.failed = true;
+                this.logHeadCheckFailure(collection.id, error);
+            }
+        }
+        if (collections.length === this.pageSize) return true;
+        if (!traversal.failed)
+            this.eligibleCompletedBound = traversal.upperBound;
+        this.eligibleTraversal = null;
+        // HEAD may have advanced while checking earlier pages. Finish that strip
+        // too before older fetch/save work, without chasing it within one pass.
+        return headBlock > traversal.upperBound;
+    }
+
+    private checkEligibleCollection(
+        collection: CollectionRecord,
+        upperBound: number,
+    ): boolean {
+        const window = collection.gapRepairWindow(upperBound);
+        if (!window) return true;
+        const checked = this.eligibleChecked.get(collection.id);
+        if (
+            checked?.anchorBlock === window.fromBlock &&
+            checked.upperBound >= upperBound
+        )
+            return true;
+        const chainId = this.options.chainId;
+        const expected = this.store.getProgress(chainId, collection.id);
+        // Ordinary bounded discovery establishes a new/changed anchor's row.
+        if (!expected || expected.anchorBlock !== window.fromBlock) return true;
+        if (!checked || checked.anchorBlock !== window.fromBlock) {
+            this.retainNewestGap(collection, upperBound, expected);
+            return (
+                this.eligibleChecked.get(collection.id)?.upperBound ===
+                upperBound
+            );
+        }
+        const fromBlock = Math.max(
+            window.fromBlock,
+            checked.upperBound + 1,
+            (expected.pending?.toBlock ?? 0) + 1,
+        );
+        const gap =
+            fromBlock <= upperBound
+                ? this.store.findNewestGap(
+                      chainId,
+                      collection.id,
+                      { fromBlock, toBlock: upperBound },
+                      this.options.batchSize,
+                  )
+                : null;
+        if (gap) {
+            const saved = this.store.saveProgress({
+                chainId,
+                collectionId: collection.id,
+                expected,
+                progress: this.progressForGap({
+                    collectionId: collection.id,
+                    anchorBlock: window.fromBlock,
+                    gap,
+                    scannedFromBlock: fromBlock,
+                    // Incremental checks must not postpone the broader timer.
+                    lastHeadCheckAt: expected.lastHeadCheckAt,
+                }),
+            });
+            if (!saved) return false;
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
+        }
+        // Covered strips do not rewrite durable cursor, repair or check timing.
+        this.eligibleChecked.set(collection.id, {
+            anchorBlock: window.fromBlock,
+            upperBound,
+        });
+        return true;
     }
 
     private headRechecksAfter(
@@ -336,6 +487,11 @@ export class SyncGapScheduler
             expected,
             progress,
         });
+        if (saved)
+            this.eligibleChecked.set(collection.id, {
+                anchorBlock: window.fromBlock,
+                upperBound: headBlock,
+            });
         if (saved && gap) {
             this.completed.delete(collection.id);
             this.cycleCompletedAt = null;
@@ -391,6 +547,10 @@ export class SyncGapScheduler
         this.roundHasOlderWindows = false;
         this.roundHasUnfinishedCollections = false;
         this.restartFromHead = true;
+        this.eligibleChecked.clear();
+        this.eligibleCompletedBound = null;
+        this.eligibleTraversal = null;
+        this.resumeTraversal = null;
     }
 
     private async scanPage(headBlock: number): Promise<boolean> {
@@ -490,6 +650,11 @@ export class SyncGapScheduler
                 this.roundHasUnfinishedCollections = true;
                 return false;
             }
+            if (cursor === null)
+                this.eligibleChecked.set(collection.id, {
+                    anchorBlock: window.fromBlock,
+                    upperBound: headBlock,
+                });
             if (progress.cursorBlock === null)
                 this.completed.set(collection.id, window.fromBlock);
             else {
