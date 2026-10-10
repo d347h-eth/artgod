@@ -8,12 +8,19 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { BOOTSTRAP_FLOW_ROWS, bootstrapFlowRow } from '$lib/bootstrap-flow';
+	import { blockExplorerBlockHref } from '$lib/marketplace-links';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import {
 		BOOTSTRAP_FLOW_STEP_STATE,
 		BOOTSTRAP_RUN_STATUS,
 		BOOTSTRAP_STEP_ACTION,
 		BOOTSTRAP_STEP_KEY,
 		isBootstrapStepKey,
+		isBootstrapSingleTaskStep,
 		type BootstrapStepAction
 	} from '@artgod/shared/bootstrap/pipeline';
 	import {
@@ -30,11 +37,13 @@
 	let {
 		chainRef,
 		runId,
-		initialDetail
+		initialDetail,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chainRef: string;
 		runId: number | null;
 		initialDetail: BootstrapRunDetailApiResponse | null;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	let detail = $state<BootstrapRunDetailApiResponse | null>(initialDetail);
@@ -47,6 +56,12 @@
 	let refreshClockNowMs = $state(Date.now());
 	let refreshInFlight = false;
 	let liveRefreshHandle: ScheduledLiveRefreshHandle | null = null;
+	let flowRows = $derived(
+		BOOTSTRAP_FLOW_ROWS.map((label) => ({
+			label,
+			steps: detail?.flow.steps.filter((step) => bootstrapFlowRow(step) === label) ?? []
+		})).filter((row) => row.steps.length > 0)
+	);
 
 	$effect(() => {
 		detail = initialDetail;
@@ -182,14 +197,26 @@
 	}
 
 	function flowProgressLabel(step: ApiBootstrapFlowStep): string | null {
-		if (!step.progress) return null;
+		if (isBootstrapSingleTaskStep(step.key) || !step.progress) return null;
 		return `${step.progress.completed} / ${step.progress.total}`;
 	}
 
 	function flowProgressPercentLabel(step: ApiBootstrapFlowStep): string | null {
-		if (!step.progress || step.progress.total <= 0) return null;
+		if (isBootstrapSingleTaskStep(step.key) || !step.progress || step.progress.total <= 0) return null;
 		const percent = Math.round((step.progress.completed / step.progress.total) * 100);
 		return `${Math.min(100, Math.max(0, percent))}%`;
+	}
+
+	function singleTaskState(step: ApiBootstrapFlowStep): string {
+		if (step.paused) return 'paused';
+		if (step.state === BOOTSTRAP_FLOW_STEP_STATE.Failed) return 'failed';
+		return step.state === BOOTSTRAP_FLOW_STEP_STATE.Completed ? 'done' : 'pending';
+	}
+
+	function stepBlock(step: ApiBootstrapFlowStep): number | null {
+		if (step.key === BOOTSTRAP_STEP_KEY.Anchor) return detail?.run.anchorBlock ?? null;
+		if (step.key === BOOTSTRAP_STEP_KEY.DeploymentBlock) return detail?.run.deploymentBlock ?? null;
+		return null;
 	}
 </script>
 
@@ -249,44 +276,64 @@
 			{/if}
 		</section>
 
-		<section class="bootstrap-flow-panel">
-			<div class="bootstrap-flow-strip" role="list" aria-label="bootstrap flow">
-				{#each detail.flow.steps as step}
-					<div class={`bootstrap-flow-step bootstrap-flow-step-${step.state}`} role="listitem">
-						<div class="bootstrap-flow-step-label">{step.label}</div>
-						{#if flowProgressLabel(step)}
-							<div class="mono bootstrap-flow-step-progress">{flowProgressLabel(step)}</div>
-							{#if flowProgressPercentLabel(step)}
-								<div class="mono bootstrap-flow-step-progress-percent">
-									{flowProgressPercentLabel(step)}
+		<section class="bootstrap-flow-panel" role="group" aria-label="bootstrap flow">
+			{#each flowRows as row}
+				<div class="bootstrap-flow-strip" role="list" aria-label={row.label}>
+					{#each row.steps as step}
+						{@const block = stepBlock(step)}
+						{@const blockHref = blockExplorerBlockHref(block, blockExplorer)}
+						<div class={`bootstrap-flow-step bootstrap-flow-step-${step.state}`} role="listitem">
+							<div class="bootstrap-flow-step-label">{step.label}</div>
+							{#if block !== null}
+								{#if blockHref}
+									<a
+										class="mono bootstrap-flow-step-block"
+										href={blockHref}
+										target="_blank"
+										rel="noopener noreferrer"
+									>{block}</a>
+								{:else}
+									<div class="mono bootstrap-flow-step-progress">{block}</div>
+								{/if}
+							{/if}
+							{#if isBootstrapSingleTaskStep(step.key)}
+								<div class="bootstrap-flow-step-progress">{singleTaskState(step)}</div>
+							{:else if flowProgressLabel(step)}
+								<div class="mono bootstrap-flow-step-progress">{flowProgressLabel(step)}</div>
+								{#if flowProgressPercentLabel(step)}
+									<div class="mono bootstrap-flow-step-progress-percent">
+										{flowProgressPercentLabel(step)}
+									</div>
+								{/if}
+							{/if}
+							{#if step.detailText &&
+								(!isBootstrapSingleTaskStep(step.key) || step.detailText !== singleTaskState(step)) &&
+								!(block !== null && step.detailText === `block ${block}`)}
+								<div class="mono bootstrap-flow-step-detail">{step.detailText}</div>
+							{/if}
+							{#if step.availableActions.length > 0}
+								<div class="bootstrap-flow-step-actions">
+									{#each step.availableActions as action}
+										<button
+											type="button"
+											class="bootstrap-flow-step-action"
+											onclick={() => void onStepAction(step, action)}
+											disabled={stepActionPending !== null}
+											aria-label={`${stepActionLabel(action)} ${step.label}`}
+										>
+											{#if stepActionPending === stepActionKey(step, action)}
+												{stepActionLabel(action)}...
+											{:else}
+												{stepActionLabel(action)}
+											{/if}
+										</button>
+									{/each}
 								</div>
 							{/if}
-						{/if}
-						{#if step.detailText}
-							<div class="mono bootstrap-flow-step-detail">{step.detailText}</div>
-						{/if}
-						{#if step.availableActions.length > 0}
-							<div class="bootstrap-flow-step-actions">
-								{#each step.availableActions as action}
-									<button
-										type="button"
-										class="bootstrap-flow-step-action"
-										onclick={() => void onStepAction(step, action)}
-										disabled={stepActionPending !== null}
-										aria-label={`${stepActionLabel(action)} ${step.label}`}
-									>
-										{#if stepActionPending === stepActionKey(step, action)}
-											{stepActionLabel(action)}...
-										{:else}
-											{stepActionLabel(action)}
-										{/if}
-									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/each}
-			</div>
+						</div>
+					{/each}
+				</div>
+			{/each}
 		</section>
 
 		{#if detail.failedMetadataTasksPreview.length > 0}

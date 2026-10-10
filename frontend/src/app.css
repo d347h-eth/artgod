@@ -194,15 +194,20 @@ input[type='number']::-webkit-outer-spin-button {
 .bootstrap-flow-panel {
 	border-bottom: 1px solid var(--c-blue);
 	padding: 0.75rem;
-	overflow-x: auto;
+	display: grid;
+	gap: 0.5rem;
+	width: fit-content;
+	max-width: 100%;
+	margin-inline: auto;
 }
 
 .bootstrap-flow-strip {
 	display: grid;
 	grid-auto-flow: column;
-	grid-auto-columns: minmax(10rem, 1fr);
+	grid-auto-columns: 9rem;
 	gap: 0.5rem;
-	min-width: max-content;
+	min-width: 0;
+	overflow-x: auto;
 }
 
 .bootstrap-flow-step {
@@ -250,6 +255,13 @@ input[type='number']::-webkit-outer-spin-button {
 	font-size: 0.7rem;
 	line-height: 1.25;
 	word-break: break-word;
+}
+
+.bootstrap-flow-step-block {
+	background: var(--c-bg);
+	padding: 0.15rem 0.3rem;
+	width: fit-content;
+	font-size: 0.88rem;
 }
 
 .bootstrap-flow-step-actions {

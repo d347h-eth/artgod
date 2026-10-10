@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getBootstrapRunDetail } from '$lib/backend-api';
+import { BackendApiError, getBootstrapRunDetail, getRuntimeConfig } from '$lib/backend-api';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
@@ -23,11 +23,15 @@ export const load: PageLoad = async ({ fetch, params }) => {
 	}
 
 	try {
-		const detail = await getBootstrapRunDetail(fetch, params.chain_ref, runId);
+		const [detail, runtimeConfig] = await Promise.all([
+			getBootstrapRunDetail(fetch, params.chain_ref, runId),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chainRef: params.chain_ref,
 			runId,
-			initialDetail: detail
+			initialDetail: detail,
+			blockExplorer: runtimeConfig.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);
