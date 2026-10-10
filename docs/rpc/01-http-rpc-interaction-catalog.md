@@ -401,9 +401,13 @@ Not covered:
 ## Indexer Pipeline Allocation
 
 The HEAD scheduler owns one shared per-endpoint RPC allocation for pipeline
-workers on its local broker. Realtime, manual, bootstrap and reorg work are main;
-automatic gap repairs and their descendants share a smaller configurable
-background allowance. Backend/trading retain their adapter-specific policies.
+workers on its local broker. Realtime, manual, bootstrap, reorg work and admitted
+current-order validation use main capacity. Automatic missing-history acquisition
+and historical metadata/extension work share a smaller configurable background
+allowance. The orders domain checks relevance and saved validation results before
+admitting unmet current-order requirements to main, including maker/token
+continuations and both ordinary demand executors. Backend/trading retain their
+adapter-specific policies.
 See [pipeline allocation](../indexer/04-sync-pipeline.md#rpc-allocation) for
 configuration, durable classification, startup recovery and future control.
 
