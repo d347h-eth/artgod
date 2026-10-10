@@ -1,3 +1,5 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
+import { GAP_FILL_MODE } from "@artgod/shared/evm/rpc-budget";
 import { describe, expect, it } from "vitest";
 import {
     getSettingDefault,
@@ -35,23 +37,29 @@ const REQUIRED_ENV = {
 };
 
 describe("Indexer config", () => {
-    it("loads manifest gap allocation defaults and supports pausing background requests", () => {
+    it("loads manifest gap allocation defaults", () => {
         expect(loadConfig(REQUIRED_ENV).rpc.gapAllocation).toEqual({
+            mode: GAP_FILL_MODE.Limited,
             requestsPerSecond: getSettingDefaultNumber(
                 GAP_RPC_ENV_KEY.RequestsPerSecond,
             ),
             maxInFlight: getSettingDefaultNumber(GAP_RPC_ENV_KEY.MaxInFlight),
         });
-        expect(
-            loadConfig({
-                ...REQUIRED_ENV,
-                [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0",
-            }).rpc.gapAllocation.requestsPerSecond,
-        ).toBe(0);
     });
+
+    it.each([GAP_FILL_MODE.Disabled, GAP_FILL_MODE.Unlimited])(
+        "keeps %s policies explicit and omits inactive capacities",
+        (mode) => {
+            expect(
+                loadConfig({ ...REQUIRED_ENV, [GAP_RPC_ENV_KEY.Mode]: mode })
+                    .rpc.gapAllocation,
+            ).toEqual({ mode });
+        },
+    );
 
     it.each([
         ["rate", "-0.1"],
+        ["rate", "0"],
         ["rate", "Infinity"],
         ["rate", "invalid"],
         ["flight", "0"],
@@ -77,11 +85,57 @@ describe("Indexer config", () => {
         expect(
             loadConfig({
                 ...REQUIRED_ENV,
-                [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0",
+                [RPC_RESILIENCE_ENV_KEY.RateLimitMode]:
+                    RPC_RATE_LIMIT_MODE.Unlimited,
                 [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0.5",
-            }).rpc.gapAllocation.requestsPerSecond,
-        ).toBe(0.5);
+            }).rpc.gapAllocation,
+        ).toMatchObject({
+            mode: GAP_FILL_MODE.Limited,
+            requestsPerSecond: 0.5,
+        });
     });
+
+    it.each([GAP_FILL_MODE.Disabled, GAP_FILL_MODE.Unlimited])(
+        "does not apply finite cross-budget constraints in %s mode",
+        (mode) => {
+            expect(
+                loadConfig({
+                    ...REQUIRED_ENV,
+                    [GAP_RPC_ENV_KEY.Mode]: mode,
+                    [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0.1",
+                }).rpc.gapAllocation,
+            ).toEqual({ mode });
+        },
+    );
+
+    it.each(["disabled-ish", "auto", "0"])(
+        "rejects unknown gap mode %s",
+        (value) => {
+            expect(() =>
+                loadConfig({ ...REQUIRED_ENV, [GAP_RPC_ENV_KEY.Mode]: value }),
+            ).toThrow(GAP_RPC_ENV_KEY.Mode);
+        },
+    );
+
+    it.each([GAP_FILL_MODE.Disabled, GAP_FILL_MODE.Unlimited])(
+        "rejects invalid saved numeric values in %s mode",
+        (mode) => {
+            expect(() =>
+                loadConfig({
+                    ...REQUIRED_ENV,
+                    [GAP_RPC_ENV_KEY.Mode]: mode,
+                    [GAP_RPC_ENV_KEY.RequestsPerSecond]: "0",
+                }),
+            ).toThrow(GAP_RPC_ENV_KEY.RequestsPerSecond);
+            expect(() =>
+                loadConfig({
+                    ...REQUIRED_ENV,
+                    [GAP_RPC_ENV_KEY.Mode]: mode,
+                    [GAP_RPC_ENV_KEY.MaxInFlight]: "-1",
+                }),
+            ).toThrow(GAP_RPC_ENV_KEY.MaxInFlight);
+        },
+    );
 
     it("loads the configured HTTP RPC response byte limit", () => {
         const config = loadConfig({

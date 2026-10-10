@@ -482,11 +482,22 @@ help = "Maximum backoff delay between HTTP JSON-RPC retry attempts."
 view = "basic"
 
 [[settings]]
+key = "RPC_RATE_LIMIT_MODE"
+group = "chain-rpc"
+label = "rpc rate limit mode"
+default = "limited"
+help = "Limited uses the rate and burst below. Unlimited removes local RPC rate throttling."
+input = "select"
+options = ["limited", "unlimited"]
+view = "basic"
+
+[[settings]]
 key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
 group = "chain-rpc"
 label = "rpc rate limit requests per second"
 defaults = { local = "5", deploy = "50", desktop = "5" }
-help = "Maximum HTTP JSON-RPC requests per endpoint each second; 0 disables throttling."
+help = "Maximum HTTP JSON-RPC requests per endpoint each second in limited mode."
+validation = "positive_number"
 view = "basic"
 
 [[settings]]
@@ -495,6 +506,7 @@ group = "chain-rpc"
 label = "rpc rate limit burst"
 defaults = { local = "5", deploy = "50", desktop = "5" }
 help = "Burst capacity for each endpoint's HTTP JSON-RPC rate limiter."
+validation = "positive_integer"
 view = "basic"
 
 [[settings]]
@@ -862,19 +874,30 @@ help = "Number of safe historical backfill jobs the sync worker may process in p
 view = "basic"
 
 [[settings]]
+key = "GAP_FILL_MODE"
+group = "indexer"
+label = "automatic gap filling mode"
+default = "limited"
+help = "Disabled pauses automatic repairs and their RPC follow-ups. Unlimited removes both gap RPC limits."
+input = "select"
+options = ["disabled", "limited", "unlimited"]
+view = "basic"
+
+[[settings]]
 key = "GAP_FILL_RPC_REQUESTS_PER_SECOND"
 group = "indexer"
 label = "automatic gap RPC requests/sec per endpoint"
-default = "0.5"
-help = "Per-endpoint RPC allowance for automatic gap filling, shared across indexer workers. 0 pauses it. Manual backfills use the main allowance."
+default = "1.5"
+help = "Per-endpoint RPC allowance for automatic gap filling in limited mode, within the overall RPC allowance."
+validation = "positive_number"
 view = "basic"
 
 [[settings]]
 key = "GAP_FILL_RPC_MAX_IN_FLIGHT"
 group = "indexer"
 label = "automatic gap RPC requests in flight"
-default = "1"
-help = "Maximum simultaneous RPC requests from automatic gap filling across indexer workers."
+default = "3"
+help = "Maximum simultaneous automatic-gap RPC requests across workers and endpoints in limited mode."
 validation = "positive_integer"
 view = "basic"
 

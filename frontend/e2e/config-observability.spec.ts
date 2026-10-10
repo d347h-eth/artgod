@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import { TCP_PORT_RANGE } from '@artgod/shared/config/tcp-port';
+import { GAP_FILL_MODE } from '@artgod/shared/evm/rpc-budget';
+import { RPC_RATE_LIMIT_MODE } from '@artgod/shared/evm/rpc-resilience';
 import { getSettingDefault } from '@artgod/shared/config/generated-settings-defaults';
 import { SETTINGS_KEY } from '@artgod/shared/config/generated-settings-defaults';
 import {
@@ -11,6 +13,79 @@ import {
 } from '../src/lib/e2e/admin-config-observability-fixtures';
 import { CONFIG_OBSERVABILITY_HARNESS } from './config-observability-harness.mjs';
 import { validateAdminConfigField } from '../src/lib/admin/configuration/validation';
+
+test('RPC modes keep positive numeric settings and save explicit unlimited or disabled policies', async ({
+	page
+}, testInfo) => {
+	const metadata = createAdminConfigObservabilityFixture(false, true).groups.flatMap(
+		(group) => group.fields
+	);
+	const field = (key: string) => {
+		const entry = metadata.find((candidate) => candidate.key === key);
+		if (!entry) throw new Error(`Missing RPC policy field: ${key}`);
+		return page.getByLabel(entry.label);
+	};
+	await page.goto(`${CONFIG_OBSERVABILITY_HARNESS.routePath}?${ADMIN_CONFIG_RPC_QUERY}`, {
+		waitUntil: 'networkidle'
+	});
+	const rpcMode = field(SETTINGS_KEY.RPC_RATE_LIMIT_MODE);
+	const gapMode = field(SETTINGS_KEY.GAP_FILL_MODE);
+	const rpcRate = field(SETTINGS_KEY.RPC_RATE_LIMIT_REQUESTS_PER_SECOND);
+	const gapRate = field(SETTINGS_KEY.GAP_FILL_RPC_REQUESTS_PER_SECOND);
+	const gapInFlight = field(SETTINGS_KEY.GAP_FILL_RPC_MAX_IN_FLIGHT);
+	const save = page.getByRole('button', { name: 'save' });
+	await expect(rpcMode).toHaveValue(RPC_RATE_LIMIT_MODE.Limited);
+	await expect(gapMode).toHaveValue(GAP_FILL_MODE.Limited);
+	await expect(rpcRate).toHaveValue(
+		getSettingDefault(SETTINGS_KEY.RPC_RATE_LIMIT_REQUESTS_PER_SECOND)
+	);
+	await expect(gapRate).toHaveValue(
+		getSettingDefault(SETTINGS_KEY.GAP_FILL_RPC_REQUESTS_PER_SECOND)
+	);
+	await expect(gapInFlight).toHaveValue(getSettingDefault(SETTINGS_KEY.GAP_FILL_RPC_MAX_IN_FLIGHT));
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'rpc-policy-defaults');
+
+	await gapMode.selectOption(GAP_FILL_MODE.Disabled);
+	await save.click();
+	const disabled = JSON.parse(
+		(await page.getByTestId(ADMIN_CONFIG_OBSERVABILITY_TEST_ID.SavedConfig).textContent()) ?? ''
+	);
+	expect(disabled.values[SETTINGS_KEY.GAP_FILL_MODE]).toBe(GAP_FILL_MODE.Disabled);
+	await attachSurface(page, testInfo, 'rpc-policy-disabled');
+
+	await rpcMode.selectOption(RPC_RATE_LIMIT_MODE.Unlimited);
+	await gapMode.selectOption(GAP_FILL_MODE.Unlimited);
+	for (const control of [rpcRate, gapRate, gapInFlight]) {
+		const value = await control.inputValue();
+		for (const invalid of ['0', '-1']) {
+			await control.fill(invalid);
+			await expect(control).toHaveAttribute('aria-invalid', 'true');
+			await expect(save).toBeDisabled();
+			if (control === gapRate && invalid === '0') {
+				await assertNoHorizontalOverflow(page);
+				await attachSurface(page, testInfo, 'rpc-policy-invalid');
+			}
+		}
+		await control.fill(value);
+	}
+	await save.click();
+	const unlimited = JSON.parse(
+		(await page.getByTestId(ADMIN_CONFIG_OBSERVABILITY_TEST_ID.SavedConfig).textContent()) ?? ''
+	);
+	expect(unlimited.values).toMatchObject({
+		[SETTINGS_KEY.RPC_RATE_LIMIT_MODE]: RPC_RATE_LIMIT_MODE.Unlimited,
+		[SETTINGS_KEY.GAP_FILL_MODE]: GAP_FILL_MODE.Unlimited,
+		[SETTINGS_KEY.GAP_FILL_RPC_REQUESTS_PER_SECOND]: getSettingDefault(
+			SETTINGS_KEY.GAP_FILL_RPC_REQUESTS_PER_SECOND
+		),
+		[SETTINGS_KEY.GAP_FILL_RPC_MAX_IN_FLIGHT]: getSettingDefault(
+			SETTINGS_KEY.GAP_FILL_RPC_MAX_IN_FLIGHT
+		)
+	});
+	await assertNoHorizontalOverflow(page);
+	await attachSurface(page, testInfo, 'rpc-policy-unlimited');
+});
 
 test('Advanced RPC response limit validates byte counts and saves an override', async ({
 	page

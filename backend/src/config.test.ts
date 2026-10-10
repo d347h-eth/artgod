@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { describe, expect, it } from "vitest";
 import {
     getSettingDefault,
@@ -80,7 +81,8 @@ describe("loadBackendConfig", () => {
             [RPC_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "3",
             [RPC_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "50",
             [RPC_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "500",
-            [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0",
+            [RPC_RESILIENCE_ENV_KEY.RateLimitMode]:
+                RPC_RATE_LIMIT_MODE.Unlimited,
             [RPC_RESILIENCE_ENV_KEY.RateLimitBurst]: "25",
             [RPC_RESILIENCE_ENV_KEY.CircuitBreakerFailureThreshold]: "2",
             [RPC_RESILIENCE_ENV_KEY.CircuitBreakerOpenMs]: "1000",
@@ -98,8 +100,7 @@ describe("loadBackendConfig", () => {
                 requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
                 maxResponseBodySizeBytes: 20_971_520,
                 rateLimiter: {
-                    requestsPerSecond: 0,
-                    burst: 25,
+                    mode: RPC_RATE_LIMIT_MODE.Unlimited,
                 },
                 circuitBreaker: {
                     failureThreshold: 2,

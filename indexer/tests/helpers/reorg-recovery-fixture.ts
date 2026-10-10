@@ -135,6 +135,7 @@ export function reorgRecoveryServices(
         now?: () => number;
         retryDelayMs?: number;
         reorgDepth?: number;
+        gapWorkEnabled?: boolean;
     } = {},
 ) {
     const storage = new SqliteStorage();

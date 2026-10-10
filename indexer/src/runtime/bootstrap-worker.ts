@@ -611,9 +611,7 @@ async function main() {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.Main,
             rpcEndpoint: summarizeRpcUrl(config.rpc.endpoints[0]?.url ?? ""),
-            rpcRateLimitRps:
-                config.rpc.resilience.rateLimiter.requestsPerSecond,
-            rpcRateLimitBurst: config.rpc.resilience.rateLimiter.burst,
+            rpcRateLimit: config.rpc.resilience.rateLimiter,
         });
 
         const shutdown = async () => {

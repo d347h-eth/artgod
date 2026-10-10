@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "./rpc-resilience.js";
 import { describe, expect, it } from "vitest";
 import { createPublicClient } from "viem";
 import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
@@ -38,10 +39,7 @@ const TEST_RPC_RETRY_POLICY = {
 const TEST_RPC_RESILIENCE = {
     ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
-    rateLimiter: {
-        requestsPerSecond: 0,
-        burst: 1,
-    },
+    rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
     circuitBreaker: {
         failureThreshold: 10,
         openMs: 1_000,

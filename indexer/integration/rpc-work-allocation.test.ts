@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -5,6 +6,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
 import {
     RPC_BUDGET_POLICY,
+    GAP_FILL_MODE,
     RpcBudgetDeferred,
     rpcEndpointBudgetKey,
 } from "@artgod/shared/evm/rpc-budget";
@@ -44,8 +46,16 @@ describe("shared RPC work allocation through the broker", () => {
             streamPrefix: "rpc_allocation_fixture",
             chainId: 1,
             endpoints: [{ url: endpoint }],
-            endpointLimit: { requestsPerSecond: 6, burst: 1 },
-            gap: { requestsPerSecond: 2, maxInFlight: 1 },
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 6,
+                burst: 1,
+            },
+            gap: {
+                mode: GAP_FILL_MODE.Limited,
+                requestsPerSecond: 2,
+                maxInFlight: 1,
+            },
             requestTimeoutMs: 100,
         };
         owner = await NatsRpcBudget.connect(config);
@@ -117,8 +127,16 @@ describe("shared RPC work allocation through the broker", () => {
             streamPrefix: "rpc_allocation_fixture",
             chainId: 1,
             endpoints: [{ url: endpoint }],
-            endpointLimit: { requestsPerSecond: 6, burst: 1 },
-            gap: { requestsPerSecond: 2, maxInFlight: 1 },
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 6,
+                burst: 1,
+            },
+            gap: {
+                mode: GAP_FILL_MODE.Limited,
+                requestsPerSecond: 2,
+                maxInFlight: 1,
+            },
             requestTimeoutMs: 100,
         });
         let sent = false;
@@ -146,8 +164,16 @@ describe("shared RPC work allocation through the broker", () => {
             streamPrefix: "no_owner_fixture",
             chainId: 1,
             endpoints: [{ url: endpoint }],
-            endpointLimit: { requestsPerSecond: 6, burst: 1 },
-            gap: { requestsPerSecond: 2, maxInFlight: 1 },
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 6,
+                burst: 1,
+            },
+            gap: {
+                mode: GAP_FILL_MODE.Limited,
+                requestsPerSecond: 2,
+                maxInFlight: 1,
+            },
             requestTimeoutMs: 100,
         });
         try {
@@ -174,8 +200,12 @@ describe("shared RPC work allocation through the broker", () => {
             streamPrefix: "slow_allocation_fixture",
             chainId: 1,
             endpoints: [{ url: endpoint }],
-            endpointLimit: { requestsPerSecond: 0.01, burst: 1 },
-            gap: { requestsPerSecond: 0, maxInFlight: 1 },
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 0.01,
+                burst: 1,
+            },
+            gap: { mode: GAP_FILL_MODE.Disabled },
             requestTimeoutMs: 100,
         });
         try {
@@ -212,14 +242,18 @@ describe("shared RPC work allocation through the broker", () => {
         }
     }, 45_000);
 
-    it("retains paused background requests without consuming main capacity", async () => {
+    it("retains disabled background requests without consuming main capacity", async () => {
         const pausedOwner = await NatsRpcBudget.connect({
             natsUrl: broker.url,
             streamPrefix: "paused_allocation_fixture",
             chainId: 1,
             endpoints: [{ url: endpoint }],
-            endpointLimit: { requestsPerSecond: 6, burst: 1 },
-            gap: { requestsPerSecond: 0, maxInFlight: 1 },
+            endpointLimit: {
+                mode: RPC_RATE_LIMIT_MODE.Limited,
+                requestsPerSecond: 6,
+                burst: 1,
+            },
+            gap: { mode: GAP_FILL_MODE.Disabled },
             requestTimeoutMs: 100,
         });
         try {
@@ -241,6 +275,68 @@ describe("shared RPC work allocation through the broker", () => {
         } finally {
             await pausedOwner.close();
         }
+    });
+
+    it("allows unlimited gap concurrency across independent clients and endpoints", async () => {
+        const secondEndpoint = "http://second-fixture.invalid";
+        const config = {
+            natsUrl: broker.url,
+            streamPrefix: "unlimited_allocation_fixture",
+            chainId: 1,
+            endpoints: [{ url: endpoint }, { url: secondEndpoint }],
+            endpointLimit: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
+            gap: { mode: GAP_FILL_MODE.Unlimited },
+            requestTimeoutMs: 100,
+        };
+        const unlimitedOwner = await NatsRpcBudget.connect(config);
+        const clients = await Promise.all([
+            NatsRpcBudget.connect(config),
+            NatsRpcBudget.connect(config),
+        ]);
+        const held = Promise.withResolvers<void>();
+        const requests: Promise<void>[] = [];
+        let active = 0;
+        try {
+            await unlimitedOwner.serve();
+            await delay(
+                config.requestTimeoutMs + RPC_BUDGET_POLICY.LeaseGraceMs + 20,
+            );
+            for (let i = 0; i < 8; i++) {
+                requests.push(
+                    clients[i % clients.length]!.run(
+                        {
+                            endpointKey: rpcEndpointBudgetKey(
+                                i % 2 ? secondEndpoint : endpoint,
+                            ),
+                            workClass: CLASS.GapRepair,
+                        },
+                        async () => {
+                            active++;
+                            await held.promise;
+                            active--;
+                        },
+                    ),
+                );
+            }
+            await waitForFixture(
+                () => active === 8,
+                "unlimited gap requests admitted",
+                2000,
+            );
+            expect(
+                await clients[0]!.run(
+                    { endpointKey, workClass: CLASS.Main },
+                    async () => "main",
+                ),
+            ).toBe("main");
+        } finally {
+            held.resolve();
+            for (const client of clients) client.stopWaiting();
+            await Promise.allSettled(requests);
+            await Promise.all(clients.map((client) => client.close()));
+            await unlimitedOwner.close();
+        }
+        expect(active).toBe(0);
     });
 
     it("delivers main work while a background job occupies its separate durable slot", async () => {

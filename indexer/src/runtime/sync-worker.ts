@@ -1,3 +1,4 @@
+import { GAP_FILL_MODE } from "@artgod/shared/evm/rpc-budget";
 import { SqliteCanonicalChecks } from "../infra/storage/sqlite-canonical-checks.js";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -270,7 +271,8 @@ async function main() {
                 bidderIndex,
                 wethAddress: config.tokens.wethAddress,
                 gaps: syncGapStore,
-                gapWorkEnabled: config.rpc.gapAllocation.requestsPerSecond > 0,
+                gapWorkEnabled:
+                    config.rpc.gapAllocation.mode !== GAP_FILL_MODE.Disabled,
                 workScope: rpcAllocation.workScope,
                 gapScheduler: new SyncGapScheduler(
                     collectionRegistry,

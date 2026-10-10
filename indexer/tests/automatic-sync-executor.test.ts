@@ -731,6 +731,37 @@ describe("direct automatic sync execution", () => {
         expect(s.storage.getBlockHash(1, 102)).toBeNull();
     });
 
+    it("keeps gap progress paused while disabled and still completes canonical reorg resync", async () => {
+        const rpc = new RecoveryRpc();
+        const s = reorgRecoveryServices(rpc, {
+            now: () => now,
+            gapWorkEnabled: false,
+        });
+        const f = seedRecoveryHistory();
+        retain(s, f.collectionId, 101, 102);
+        const pending = s.gaps.getProgress(1, f.collectionId);
+        const head = vi.spyOn(rpc, "getBlockNumber");
+        const logs = vi.spyOn(rpc, "getLogs");
+        expect(await s.executor.runDue()).toBe(false);
+        expect(head).not.toHaveBeenCalled();
+        expect(logs).not.toHaveBeenCalled();
+        expect(s.gaps.getProgress(1, f.collectionId)).toEqual(pending);
+
+        await s.recovery.checkBlock(
+            retainCanonicalCheckFixture(s.storage, F.Orphan),
+        );
+        expect(s.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.Resync,
+        );
+        await s.executor.runDue();
+        await s.executor.runDue();
+        expect(s.recoveries.getRecovery(1)).toBeNull();
+        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
+            canonicalRecoveryBlock(F.Orphan).hash,
+        );
+        expect(s.gaps.getProgress(1, f.collectionId)).toEqual(pending);
+    });
+
     it("prioritizes retained resync and atomically rolls back acquisition if continuation storage fails", async () => {
         const s = services(new RecoveryRpc());
         const f = seedRecoveryHistory();

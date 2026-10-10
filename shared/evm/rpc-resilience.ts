@@ -7,11 +7,31 @@ export type RpcRetryPolicy = {
     maxDelayMs: number;
 };
 
-// Policy values that configure a per-endpoint JSON-RPC token bucket.
-export type RpcRateLimiterConfig = {
-    requestsPerSecond: number;
-    burst: number;
-};
+export const RPC_RATE_LIMIT_MODE = {
+    Limited: "limited",
+    Unlimited: "unlimited",
+} as const;
+
+/** Per-endpoint RPC policy; unlimited carries no rate or burst caps. */
+export type RpcRateLimiterConfig =
+    | { mode: typeof RPC_RATE_LIMIT_MODE.Unlimited }
+    | {
+          mode: typeof RPC_RATE_LIMIT_MODE.Limited;
+          requestsPerSecond: number;
+          burst: number;
+      };
+
+export function assertRpcRateLimiterConfig(config: RpcRateLimiterConfig): void {
+    if (config.mode === RPC_RATE_LIMIT_MODE.Unlimited) return;
+    if (
+        config.mode !== RPC_RATE_LIMIT_MODE.Limited ||
+        !Number.isFinite(config.requestsPerSecond) ||
+        config.requestsPerSecond <= 0 ||
+        !Number.isSafeInteger(config.burst) ||
+        config.burst < 1
+    )
+        throw new Error("Invalid RPC rate limit policy");
+}
 
 // Policy values that configure a per-endpoint JSON-RPC circuit breaker.
 export type RpcCircuitBreakerConfig = {
@@ -80,21 +100,18 @@ export type CircuitBreakerExecuteOptions = {
 
 // TokenBucketRateLimiter smooths JSON-RPC request throughput per endpoint.
 export class TokenBucketRateLimiter {
-    private readonly requestsPerSecond: number;
-    private readonly burst: number;
     private tokens: number;
     private lastRefillMs: number;
     private queue: Promise<unknown> = Promise.resolve();
 
     constructor(
-        config: RpcRateLimiterConfig,
+        private readonly config: RpcRateLimiterConfig,
         private nowMs: ClockFn = Date.now,
         private sleep: SleepFn = sleepMs,
     ) {
-        // Defensive clamps keep behavior predictable even with bad config.
-        this.requestsPerSecond = Math.max(0, config.requestsPerSecond);
-        this.burst = Math.max(1, config.burst);
-        this.tokens = this.burst;
+        assertRpcRateLimiterConfig(config);
+        this.tokens =
+            config.mode === RPC_RATE_LIMIT_MODE.Limited ? config.burst : 0;
         this.lastRefillMs = this.nowMs();
     }
 
@@ -113,8 +130,7 @@ export class TokenBucketRateLimiter {
     }
 
     private async acquireInternal(): Promise<number> {
-        // Zero or negative RPS means "disabled limiter".
-        if (this.requestsPerSecond <= 0) {
+        if (this.config.mode === RPC_RATE_LIMIT_MODE.Unlimited) {
             return 0;
         }
 
@@ -130,7 +146,7 @@ export class TokenBucketRateLimiter {
     /** Nonblocking consumption for an owner that schedules multiple work classes.
      * The owner decides priority before consuming; a waiting caller holds no token. */
     tryAcquire(): boolean {
-        if (this.requestsPerSecond <= 0) return true;
+        if (this.config.mode === RPC_RATE_LIMIT_MODE.Unlimited) return true;
         this.refillTokens();
         if (this.tokens < 1 - 1e-9) return false;
         this.tokens = Math.max(0, this.tokens - 1);
@@ -139,26 +155,28 @@ export class TokenBucketRateLimiter {
 
     /** Earliest next consumption, without reserving capacity for this caller. */
     waitTimeMs(): number {
-        if (this.requestsPerSecond <= 0) return 0;
+        if (this.config.mode === RPC_RATE_LIMIT_MODE.Unlimited) return 0;
         this.refillTokens();
         return this.tokens >= 1 - 1e-9
             ? 0
             : Math.max(
                   1,
                   Math.ceil(
-                      ((1 - this.tokens) / this.requestsPerSecond) * 1000,
+                      ((1 - this.tokens) / this.config.requestsPerSecond) *
+                          1000,
                   ),
               );
     }
 
     private refillTokens(): void {
+        if (this.config.mode === RPC_RATE_LIMIT_MODE.Unlimited) return;
         // Continuous refill model (fractional tokens) capped by burst.
         const now = this.nowMs();
         const elapsedMs = Math.max(0, now - this.lastRefillMs);
         if (elapsedMs <= 0) return;
 
-        const refill = (elapsedMs / 1000) * this.requestsPerSecond;
-        this.tokens = Math.min(this.burst, this.tokens + refill);
+        const refill = (elapsedMs / 1000) * this.config.requestsPerSecond;
+        this.tokens = Math.min(this.config.burst, this.tokens + refill);
         this.lastRefillMs = now;
     }
 }
