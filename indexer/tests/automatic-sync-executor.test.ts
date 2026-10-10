@@ -315,6 +315,87 @@ describe("direct automatic sync execution", () => {
         expect(prior.lastHeadCheckAt).toBe(1000);
     });
 
+    it("repairs a newly eligible hole before older work without waiting for the broader timer", async () => {
+        const rpc = new RecoveryRpc(300, 201),
+            s = services(rpc),
+            f = transferFixture();
+        const head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
+        retain(s, f.collectionId, 101, 106);
+        cover(f.collectionId, 107, 200);
+        await s.executor.runDue();
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
+            104,
+        );
+        const lookup = vi.spyOn(s.gaps, "findNewestGap");
+        cover(f.collectionId, 201, 203, [202]);
+        head.mockResolvedValue(204);
+        now += 1000;
+        await s.executor.runDue();
+        expect(lookup).toHaveBeenCalledWith(
+            1,
+            f.collectionId,
+            { fromBlock: 201, toBlock: 203 },
+            2,
+        );
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                202,
+                202,
+            ),
+        ).toBe(1);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                101,
+                104,
+            ),
+        ).toBe(0);
+        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
+            1000,
+        );
+    });
+
+    it("finishes incremental check pages before fetching older work when a later collection has the newer hole", async () => {
+        const rpc = new RecoveryRpc(300, 201),
+            s = services(rpc);
+        const head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
+        const ids = Array.from(
+            { length: SYNC_GAP_POLICY.CollectionsPerPass + 1 },
+            (_, index) =>
+                insertCollection({
+                    chainId: 1,
+                    slug: `incremental-${index}`,
+                    address: F.Owner,
+                    anchorBlock: 100,
+                }),
+        );
+        for (const id of ids) {
+            retain(s, id, 101, 110);
+            cover(id, 111, 200);
+        }
+        await s.executor.runDue();
+        await s.executor.runDue();
+        const last = ids.at(-1)!;
+        expect(s.gaps.getProgress(1, last)?.pending?.toBlock).toBe(110);
+        for (const id of ids) cover(id, 201, 203, id === last ? [202] : []);
+        head.mockResolvedValue(204);
+        now += 1000;
+        const reads = rpc.logReads;
+        await s.executor.runDue();
+        expect(rpc.logReads).toBe(reads);
+        expect(s.gaps.getProgress(1, last)?.pending?.toBlock).toBe(110);
+        await s.executor.runDue();
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(1, last, 202, 202),
+        ).toBe(1);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(1, last, 109, 110),
+        ).toBe(0);
+    });
+
     it("finishes all resume-check pages before spending RPC on older pending ranges", async () => {
         const rpc = new RecoveryRpc(300, 201),
             s = services(rpc);

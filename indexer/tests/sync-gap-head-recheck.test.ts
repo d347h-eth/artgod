@@ -191,6 +191,197 @@ describe("wall-clock HEAD gap checks", () => {
             );
     });
 
+    it("checks every newly eligible block without rewriting covered state or postponing the broader timer", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id);
+        cover(id, 103, 200);
+        scanner.recheckOnResume(200);
+        scanner.recheckNewlyEligible(200);
+        const before = h.store.getProgress(1, id)!;
+        const lookup = vi.spyOn(h.store, "findNewestGap"),
+            save = vi.spyOn(h.store, "saveProgress");
+        cover(id, 201, 203);
+        now += 1000;
+        expect(scanner.recheckNewlyEligible(203)).toBe(false);
+        expect(lookup).toHaveBeenCalledExactlyOnceWith(
+            1,
+            id,
+            { fromBlock: 201, toBlock: 203 },
+            2,
+        );
+        expect(save).not.toHaveBeenCalled();
+        expect(h.store.getProgress(1, id)).toEqual(before);
+        lookup.mockClear();
+        for (let pass = 0; pass < 3; pass++) scanner.recheckNewlyEligible(203);
+        expect(lookup).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+        now = before.lastHeadCheckAt! + SYNC_GAP_POLICY.HeadRecheckIntervalMs;
+        expect(scanner.hasHeadRechecksDue()).toBe(true);
+    });
+
+    it("finds a hole below the new bound immediately and keeps the broader check time", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id);
+        cover(id, 103, 200);
+        scanner.recheckOnResume(200);
+        scanner.recheckNewlyEligible(200);
+        const checkedAt = h.store.getProgress(1, id)!.lastHeadCheckAt;
+        cover(id, 201, 203, [202]);
+        now += 1000;
+        scanner.recheckNewlyEligible(203);
+        expect(h.store.getProgress(1, id)).toMatchObject({
+            cursorBlock: 201,
+            lastHeadCheckAt: checkedAt,
+            pending: { fromBlock: 202, toBlock: 202, retryAt: now },
+        });
+        cover(id, 204, 205, [205]);
+        scanner.recheckNewlyEligible(205);
+        expect(h.store.getProgress(1, id)?.pending).toMatchObject({
+            fromBlock: 205,
+            toBlock: 205,
+        });
+    });
+
+    it("preserves a covered retrying range while checking newly eligible blocks", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id, {
+            pending: {
+                repairId: "retry",
+                fromBlock: 101,
+                toBlock: 102,
+                retryAt: now + 50_000,
+            },
+        });
+        cover(id, 103, 200);
+        scanner.recheckOnResume(200);
+        scanner.recheckNewlyEligible(200);
+        const before = h.store.getProgress(1, id);
+        cover(id, 201, 201);
+        scanner.recheckNewlyEligible(201);
+        expect(h.store.getProgress(1, id)).toEqual(before);
+    });
+
+    it("pages past failures, retries the same unchecked strip and handles an advancing bound between pages", () => {
+        const h = harness(),
+            ids = Array.from({ length: 3 }, seed);
+        for (const id of ids) {
+            retain(h.store, id);
+            cover(id, 103, 200);
+        }
+        const scanner = new SyncGapScheduler(h.registry, h.store, {
+            chainId: 1,
+            batchSize: 2,
+            collectionsPerPass: 2,
+            now: () => now,
+        });
+        while (scanner.recheckOnResume(200)) {}
+        while (scanner.recheckNewlyEligible(200)) {}
+        const original = h.store.findNewestGap.bind(h.store);
+        const lookup = vi
+            .spyOn(h.store, "findNewestGap")
+            .mockImplementation((chain, id, window, size) => {
+                if (id === ids[0]) throw new Error("coverage unavailable");
+                return original(chain, id, window, size);
+            });
+        cover(ids[1]!, 201, 203);
+        expect(scanner.recheckNewlyEligible(201)).toBe(true);
+        expect(h.store.getProgress(1, ids[2]!)?.pending?.toBlock).toBe(102);
+        expect(scanner.recheckNewlyEligible(203)).toBe(true);
+        expect(h.store.getProgress(1, ids[2]!)?.pending?.toBlock).toBe(201);
+        expect(scanner.recheckNewlyEligible(203)).toBe(true);
+        expect(scanner.recheckNewlyEligible(203)).toBe(false);
+        expect(h.store.getProgress(1, ids[2]!)?.pending?.toBlock).toBe(203);
+        lookup.mockImplementation(original);
+        scanner.recheckNewlyEligible(203);
+        expect(h.store.getProgress(1, ids[0]!)?.pending?.toBlock).toBe(203);
+        expect(lookup.mock.calls.at(-1)?.[2]).toEqual({
+            fromBlock: 201,
+            toBlock: 203,
+        });
+    });
+
+    it("does not advance the checked bound when a concurrent range change rejects retention", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id);
+        cover(id, 103, 200);
+        scanner.recheckOnResume(200);
+        scanner.recheckNewlyEligible(200);
+        vi.spyOn(h.store, "saveProgress").mockReturnValueOnce(false);
+        scanner.recheckNewlyEligible(203);
+        expect(h.store.getProgress(1, id)?.pending?.toBlock).toBe(102);
+        scanner.recheckNewlyEligible(203);
+        expect(h.store.getProgress(1, id)?.pending?.toBlock).toBe(203);
+    });
+
+    it("resets checked positions after rollback and notices newly introduced older holes", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id);
+        cover(id, 103, 203);
+        scanner.recheckOnResume(203);
+        scanner.recheckNewlyEligible(203);
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE collection_id = ? AND block_number = 180",
+        ).run(id);
+        scanner.resetDiscovery();
+        scanner.recheckNewlyEligible(203);
+        expect(h.store.getProgress(1, id)?.pending).toMatchObject({
+            fromBlock: 180,
+            toBlock: 180,
+        });
+    });
+
+    it("ignores regressed bounds and never replaces a newer retained range with an older strip", () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        retain(h.store, id);
+        cover(id, 103, 200);
+        scanner.recheckOnResume(200);
+        scanner.recheckNewlyEligible(200);
+        const lookup = vi.spyOn(h.store, "findNewestGap");
+        scanner.recheckNewlyEligible(199);
+        expect(lookup).not.toHaveBeenCalled();
+        retain(h.store, id, {
+            cursorBlock: 204,
+            pending: {
+                repairId: "newer",
+                fromBlock: 205,
+                toBlock: 205,
+                retryAt: now,
+            },
+        });
+        scanner.recheckNewlyEligible(203);
+        expect(lookup).not.toHaveBeenCalled();
+        expect(h.store.getProgress(1, id)?.pending?.repairId).toBe("newer");
+    });
+
+    it("seeds incremental checks from ordinary discovery for a new collection", async () => {
+        const h = harness(),
+            id = seed(),
+            scanner = h.scanner();
+        cover(id, 100, 200);
+        await scanner.scan(200);
+        const lookup = vi.spyOn(h.store, "findNewestGap");
+        scanner.recheckNewlyEligible(201);
+        expect(lookup).toHaveBeenCalledExactlyOnceWith(
+            1,
+            id,
+            { fromBlock: 201, toBlock: 201 },
+            2,
+        );
+        expect(h.store.getProgress(1, id)?.pending?.toBlock).toBe(201);
+    });
+
     it("preserves exact pending identity, retry and cursor when newer history is covered", () => {
         const h = harness(),
             id = seed();

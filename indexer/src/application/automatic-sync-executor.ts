@@ -185,6 +185,10 @@ export class AutomaticSyncExecutor {
                         this.resumeHeadCheckPending = false;
                     }
                     this.input.gapScheduler.recheckFromHead(upperBound);
+                    if (
+                        this.input.gapScheduler.recheckNewlyEligible(upperBound)
+                    )
+                        return true;
                     const moreToScan =
                         await this.input.gapScheduler.scan(upperBound);
                     let pending = this.dueGaps(upperBound);
@@ -195,6 +199,12 @@ export class AutomaticSyncExecutor {
                             this.input.reorgDepth,
                         );
                         this.input.gapScheduler.recheckFromHead(upperBound);
+                        if (
+                            this.input.gapScheduler.recheckNewlyEligible(
+                                upperBound,
+                            )
+                        )
+                            return true;
                         pending = this.dueGaps(upperBound);
                     }
                     // Coverage may have been committed since discovery or while waiting

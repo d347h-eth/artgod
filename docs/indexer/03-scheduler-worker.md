@@ -83,8 +83,8 @@ selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
 `blocks` rows and `bootstrap_last_synced_block` are not coverage evidence. A
 persisted cursor keeps ordinary polling and restarts from resetting the backward
 scan. Reaching the anchor marks that collection complete for the current cycle.
-A complete cycle waits until its next 30-minute recheck instead of restarting
-completed collections while another collection finishes. Changed anchors, new
+A complete cycle waits for newly eligible blocks or its next 30-minute recheck
+instead of restarting completed history while another collection finishes. Changed anchors, new
 live collections and rollback start their required discovery again.
 
 Every 30 minutes of wall-clock time, the sync worker checks up to `HEAD - REORG_DEPTH` for newer holes
@@ -98,6 +98,23 @@ Reenabling is a restart-required setting, so both paths use the same startup
 check. Previously unchecked rows are due immediately. A
 normal scan starting at HEAD also records this time; continuing older history
 does not postpone it. Each check pass handles at most 16 due collections.
+
+When the observed `HEAD - REORG_DEPTH` advances, the worker also checks only
+`(last successfully checked eligible block, new upper bound]` per collection.
+Those positions live in memory and are seeded by successful startup, broader
+HEAD checks or ordinary discovery beginning at HEAD. Collection pages have a
+fixed upper bound and at most 16 members; every page finishes before older repair
+is selected. If HEAD advanced between pages, the next bounded traversal checks
+the additional strip first. Failed checks advance pagination and retain their
+old positions for retry after the traversal. Regressed provider heads do not
+move checked positions backward or replace a newer pending repair.
+
+Covered strips require no progress-row write. A newer hole replaces the pending
+range through the same conditional save as broader checks, preserving the
+independent `last_head_check_at` timer. Incremental checks therefore cannot
+postpone the broader 30-minute lookup. Rollback clears local positions; changed
+anchors are initialized by ordinary discovery. This adds no persistent state
+and uses the executor's existing HEAD reads, with no additional blockchain RPC.
 
 Periodic HEAD-check pages use fresh RPC HEAD to filter out anchors above HEAD
 before those 16 rows are selected. They advance through indexed check-time/collection order
@@ -114,7 +131,7 @@ repair-sized suffix to find its contiguous boundary. All those reads share one
 SQLite read snapshot. They create no additional coverage table and make no
 per-block RPC calls. The ordinary backward scan keeps its 10,000-block bound.
 
-If no newer hole exists, only the check time changes. The existing cursor,
+If a broader HEAD check finds no newer hole, only the check time changes. The existing cursor,
 pending identity, bounds and retry time stay intact. If a newer hole exists, it
 replaces the pending range and moves the cursor just below that range. Older
 holes remain absent from coverage and will be rediscovered by backward scanning.

@@ -63,6 +63,10 @@ checks can replace older pending ranges inside the shared current-state gate.
 Startup also finishes one bounded pass of newer-gap checks across live collections
 before older repair, even when the saved 30-minute timer is not due. Reenabling
 gap filling requires restart and follows this same path.
+Advancing `HEAD - REORG_DEPTH` also checks each collection's newly eligible strip
+in bounded pages before selecting older work. Successful positions are local
+memory; covered strips require no durable write, and incremental checks do not
+reset the broader 30-minute timer.
 A running range finishes first; queued manual/recovery work gets the gate before
 another automatic gap pass. Selection is repeated after waiting for that gate.
 The loop drains admitted work before dependencies close; realtime stays outside
