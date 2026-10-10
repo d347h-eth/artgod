@@ -41,8 +41,10 @@ import {
 import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from "@artgod/shared/opensea/collection-slug-probe";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
+    BOOTSTRAP_FLOW_STEP_STATE,
     BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_RUN_STATUSES,
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
@@ -51,6 +53,11 @@ import {
     type BootstrapStepKey,
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
+import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import {
+    BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
+    BootstrapConflictError,
+} from "./application/use-cases/bootstrap/types.js";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
@@ -5412,6 +5419,51 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(400);
     });
 
+    it("persists a setup shared-contract finding for the deployment lookup", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        const headers = {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+            cookie: csrf.headers["set-cookie"] as string,
+            "x-artgod-csrf": csrf.payload.token as string,
+            "content-type": "application/json",
+        };
+        const body = {
+            slug: "deployment-shared-contract",
+            address: "0x00000000000000000000000000000000000abcde",
+            imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+            standard: COLLECTION_STANDARD.Erc721,
+            metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+            scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
+            sharedContract: true,
+        };
+        const invalid = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            { ...body, sharedContract: "true" },
+            headers,
+        );
+        expect(invalid.statusCode).toBe(400);
+        const created = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            body,
+            headers,
+        );
+        expect(created.statusCode).toBe(200);
+        const step = db
+            .prepare(
+                "SELECT config_json FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+            )
+            .get(created.payload.runId, BOOTSTRAP_STEP_KEY.DeploymentBlock) as {
+            config_json: string;
+        };
+        expect(JSON.parse(step.config_json)).toEqual({ sharedContract: true });
+    });
+
     it("creates and reads bootstrap run via secured endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:42710",
@@ -5503,6 +5555,12 @@ describe("backend api routes", () => {
                 ]),
             }),
             expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                blocking: 0,
+                depends_on_json: serializeBootstrapStepDependencies([]),
+            }),
+            expect.objectContaining({
                 step_key: BOOTSTRAP_STEP_KEY.ImageCache,
                 blocking: 0,
                 depends_on_json: serializeBootstrapStepDependencies([
@@ -5515,6 +5573,40 @@ describe("backend api routes", () => {
             `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
         );
         expect(createdDetail.statusCode).toBe(200);
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.DeploymentBlock,
+            ),
+        ).toMatchObject({
+            blocking: false,
+            availableActions: [BOOTSTRAP_STEP_ACTION.Pause],
+        });
+        const startsBeforeDeploymentActions = bootstrapStartInputs.length;
+        for (const action of [
+            BOOTSTRAP_STEP_ACTION.Pause,
+            BOOTSTRAP_STEP_ACTION.Resume,
+        ]) {
+            const response = await resolve(
+                "POST",
+                `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.DeploymentBlock}/${action}`,
+                {},
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+            expect(response.statusCode).toBe(200);
+            expect(response.payload.status).toBe(
+                action === BOOTSTRAP_STEP_ACTION.Pause
+                    ? BOOTSTRAP_STEP_STATUS.Paused
+                    : BOOTSTRAP_STEP_STATUS.Ready,
+            );
+        }
+        expect(bootstrapStartInputs.length).toBe(startsBeforeDeploymentActions);
         expect(
             createdDetail.payload.flow.steps.find(
                 (step: { key: string }) =>
@@ -5996,6 +6088,350 @@ describe("backend api routes", () => {
         expect(status.statusCode).toBe(200);
         expect(status.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
         expect(status.payload.latestRun.runId).toBe(create.payload.runId);
+    });
+
+    it.each([BOOTSTRAP_RUN_STATUS.Completed, BOOTSTRAP_RUN_STATUS.Failed])(
+        "allows deployment controls on a completed run and rejects them on a failed run: %s",
+        async (runStatus) => {
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
+            const headers = {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie: csrf.headers["set-cookie"] as string,
+                "x-artgod-csrf": csrf.payload.token as string,
+                "content-type": "application/json",
+            };
+            const create = await resolve(
+                "POST",
+                "/api/ethereum/collections/bootstrap",
+                {
+                    slug: `deployment-controls-${runStatus}`,
+                    address:
+                        runStatus === BOOTSTRAP_RUN_STATUS.Completed
+                            ? "0x5555555555555555555555555555555555555555"
+                            : "0x5555555555555555555555555555555555555556",
+                    standard: "erc721",
+                    imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                    metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+                    scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
+                    imageCache: {
+                        selectedSource:
+                            COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                        imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                        maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                    },
+                },
+                headers,
+            );
+            expect(create.statusCode, JSON.stringify(create.payload)).toBe(200);
+            const runId = create.payload.runId as number;
+            db.prepare(
+                "UPDATE bootstrap_runs SET status = ? WHERE run_id = ?",
+            ).run(runStatus, runId);
+            db.prepare(
+                "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND blocking = 1",
+            ).run(
+                runStatus === BOOTSTRAP_RUN_STATUS.Completed
+                    ? BOOTSTRAP_STEP_STATUS.Succeeded
+                    : BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                runId,
+            );
+            const publishedBefore = bootstrapStartInputs.length;
+            for (const action of [
+                BOOTSTRAP_STEP_ACTION.Pause,
+                BOOTSTRAP_STEP_ACTION.Resume,
+                BOOTSTRAP_STEP_ACTION.Retry,
+            ]) {
+                if (action === BOOTSTRAP_STEP_ACTION.Retry) {
+                    db.prepare(
+                        "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+                    ).run(
+                        BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                        runId,
+                        BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                    );
+                    const failedDetail = await resolve(
+                        "GET",
+                        `/api/ethereum/bootstrap-runs/${runId}`,
+                    );
+                    expect(
+                        failedDetail.payload.flow.steps.find(
+                            (step: { key: string }) =>
+                                step.key === BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                        ),
+                    ).toEqual(
+                        expect.objectContaining({
+                            state: BOOTSTRAP_FLOW_STEP_STATE.Failed,
+                            detailText: null,
+                            blocking: false,
+                        }),
+                    );
+                }
+                const response = await resolve(
+                    "POST",
+                    `/api/ethereum/bootstrap-runs/${runId}/steps/${BOOTSTRAP_STEP_KEY.DeploymentBlock}/${action}`,
+                    {},
+                    headers,
+                );
+                expect(response.statusCode).toBe(
+                    runStatus === BOOTSTRAP_RUN_STATUS.Failed ? 409 : 200,
+                );
+                if (runStatus === BOOTSTRAP_RUN_STATUS.Completed) {
+                    expect(response.payload.status).toBe(
+                        action === BOOTSTRAP_STEP_ACTION.Pause
+                            ? BOOTSTRAP_STEP_STATUS.Paused
+                            : BOOTSTRAP_STEP_STATUS.Ready,
+                    );
+                }
+                const detail = await resolve(
+                    "GET",
+                    `/api/ethereum/bootstrap-runs/${runId}`,
+                );
+                expect(detail.payload.run.status).toBe(runStatus);
+                if (runStatus === BOOTSTRAP_RUN_STATUS.Failed) {
+                    expect(detail.payload.flow.shouldPoll).toBe(false);
+                    expect(detail.payload.flow.isTerminal).toBe(true);
+                    expect(
+                        detail.payload.flow.steps.find(
+                            (step: { key: string }) =>
+                                step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+                        ).availableActions,
+                    ).toEqual([]);
+                }
+                if (runStatus === BOOTSTRAP_RUN_STATUS.Failed) {
+                    expect(
+                        detail.payload.flow.steps.find(
+                            (step: { key: string }) =>
+                                step.key === BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                        ).availableActions,
+                    ).toEqual([]);
+                }
+                expect(
+                    detail.payload.flow.steps.some(
+                        (step: { key: string }) =>
+                            step.key === BOOTSTRAP_RUN_STATUS.Queued,
+                    ),
+                ).toBe(false);
+            }
+            expect(bootstrapStartInputs.length).toBe(publishedBefore);
+        },
+    );
+
+    it.each(BOOTSTRAP_RUN_STATUSES)(
+        "allows a replacement bootstrap only after the previous run failed: %s",
+        async (runStatus) => {
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
+            const headers = {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie: csrf.headers["set-cookie"] as string,
+                "x-artgod-csrf": csrf.payload.token as string,
+                "content-type": "application/json",
+            };
+            const input = {
+                slug: `run-admission-${runStatus.replaceAll("_", "-")}`,
+                address: `0x${(700 + BOOTSTRAP_RUN_STATUSES.indexOf(runStatus)).toString(16).padStart(40, "0")}`,
+                standard: COLLECTION_STANDARD.Erc721,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+                scope: {
+                    mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
+                    tokenIds: ["200", "201"],
+                },
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.Off,
+                    maxDimension: null,
+                },
+            };
+            const created = await resolve(
+                "POST",
+                "/api/ethereum/collections/bootstrap",
+                input,
+                headers,
+            );
+            expect(created.statusCode, JSON.stringify(created.payload)).toBe(
+                200,
+            );
+            const runId = created.payload.runId as number;
+            db.prepare(
+                "UPDATE bootstrap_runs SET status = ? WHERE run_id = ?",
+            ).run(runStatus, runId);
+            const repository = new SqliteBootstrapRunsRepository();
+            const run = repository.getRunById(1, runId)!;
+            const before = repository.getCollectionById(1, run.collectionId);
+            const publishedBefore = bootstrapStartInputs.length;
+            const replacement = await resolve(
+                "POST",
+                "/api/ethereum/collections/bootstrap",
+                {
+                    ...input,
+                    scope: {
+                        mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
+                        tokenIds: ["1"],
+                    },
+                    deploymentBlock: 99,
+                },
+                headers,
+            );
+            if (runStatus === BOOTSTRAP_RUN_STATUS.Failed) {
+                expect(
+                    replacement.statusCode,
+                    JSON.stringify(replacement.payload),
+                ).toBe(200);
+                expect(replacement.payload.runId).not.toBe(runId);
+                expect(bootstrapStartInputs.length).toBe(publishedBefore + 1);
+                expect(
+                    repository.listCollectionScopeTokenIds(1, run.collectionId),
+                ).toEqual(["1"]);
+            } else {
+                expect(replacement.statusCode).toBe(409);
+                expect(
+                    repository.getCollectionById(1, run.collectionId),
+                ).toEqual(before);
+                expect(
+                    repository.listCollectionScopeTokenIds(1, run.collectionId),
+                ).toEqual(["200", "201"]);
+                expect(
+                    repository.getLatestRun(1, run.collectionId)?.runId,
+                ).toBe(runId);
+                expect(bootstrapStartInputs.length).toBe(publishedBefore);
+
+                // Check admission inside the adapter transaction as well as the HTTP use case.
+                expect(() =>
+                    repository.createRun({
+                        ...run,
+                        imageSourceField: input.imageSourceField,
+                        steps: [],
+                    }),
+                ).toThrow(BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE);
+            }
+        },
+    );
+
+    it("rolls back a prepared collection transition when a non-failed run already exists", async () => {
+        const collectionId = insertPreparedBootstrapCollectionFixture();
+        try {
+            const repository = new SqliteBootstrapRunsRepository();
+            const collection = repository.getCollectionById(
+                DEFAULT_CHAIN_ID,
+                collectionId,
+            )!;
+            const input = {
+                chainId: DEFAULT_CHAIN_ID,
+                collectionId,
+                requestSlug: collection.slug,
+                requestOpenseaSlug: collection.openseaSlug,
+                requestAddress: collection.address,
+                requestStandard: collection.standard,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                animationSourceField: null,
+                requestExtensionKey: null,
+                metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+                enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+                manualTokenIdsJson: null,
+                manualRangeStartTokenId: null,
+                manualRangeTotalSupply: null,
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                imageCacheMaxDimension: null,
+                deploymentBlock: collection.deploymentBlock,
+                steps: [],
+            };
+            const run = repository.createRun(input);
+            repository.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Completed,
+            );
+            // Even a newer failed run cannot make an older completed run admissible.
+            db.prepare(
+                "INSERT INTO bootstrap_runs (chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
+                    "SELECT chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, ? FROM bootstrap_runs WHERE run_id = ?",
+            ).run(BOOTSTRAP_RUN_STATUS.Failed, run.runId);
+            const latestBefore = repository.getLatestRun(
+                1,
+                collection.collectionId,
+            );
+            expect(latestBefore?.status).toBe(BOOTSTRAP_RUN_STATUS.Failed);
+            const before = repository.getCollectionById(
+                1,
+                collection.collectionId,
+            );
+            const eventsBefore = repository.listRunEvents(run.runId);
+            expect(() =>
+                repository.createPreparedCollectionRun({
+                    ...input,
+                    requestedEvent: {
+                        eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
+                        eventLevel: "info",
+                        message: "fixture",
+                        payloadJson: null,
+                    },
+                }),
+            ).toThrow(BootstrapConflictError);
+            expect(
+                repository.getCollectionById(1, collection.collectionId),
+            ).toEqual(before);
+            expect(repository.listRunEvents(run.runId)).toEqual(eventsBefore);
+            expect(repository.getLatestRun(1, collection.collectionId)).toEqual(
+                latestBefore,
+            );
+            expect(() =>
+                repository.upsertCollectionForBootstrap({
+                    chainId: 1,
+                    slug: collection.slug,
+                    address: collection.address,
+                    standard: collection.standard,
+                    openseaSlug: collection.openseaSlug,
+                    tokenScopeKind: collection.tokenScopeKind,
+                    scopeStartTokenId: collection.scopeStartTokenId,
+                    scopeTotalSupply: collection.scopeTotalSupply,
+                    explicitTokenIds: ["1"],
+                    deploymentBlock: 99,
+                }),
+            ).toThrow(BootstrapConflictError);
+            expect(
+                repository.getCollectionById(1, collection.collectionId),
+            ).toEqual(before);
+            expect(
+                repository.listCollectionScopeTokenIds(
+                    1,
+                    collection.collectionId,
+                ),
+            ).toEqual([]);
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
+            const publishedBefore = bootstrapStartInputs.length;
+            const start = await resolve(
+                "POST",
+                buildStartCollectionBootstrapPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: collection.slug,
+                }),
+                {},
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie: csrf.headers["set-cookie"] as string,
+                    "x-artgod-csrf": csrf.payload.token as string,
+                    "content-type": "application/json",
+                },
+            );
+            expect(start.statusCode).toBe(409);
+            expect(bootstrapStartInputs.length).toBe(publishedBefore);
+            expect(
+                repository.getCollectionById(1, collection.collectionId),
+            ).toEqual(before);
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
     });
 
     it("starts bootstrap from a prepared collection row", async () => {
@@ -6789,9 +7225,9 @@ describe("backend api routes", () => {
             ) as { selected_source: string | null } | undefined;
         expect(customizationRow).toBeUndefined();
 
-        db.prepare<[number]>(
-            "UPDATE bootstrap_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE run_id = ?",
-        ).run(create.payload.runId);
+        db.prepare(
+            "UPDATE bootstrap_runs SET status = ?, finished_at = CURRENT_TIMESTAMP WHERE run_id = ?",
+        ).run(BOOTSTRAP_RUN_STATUS.Failed, create.payload.runId);
 
         const userOverride = await resolve(
             "POST",
@@ -6927,7 +7363,6 @@ describe("backend api routes", () => {
         expect(
             detail.payload.flow.steps.map((step: { key: string }) => step.key),
         ).toEqual([
-            "queued",
             "anchor",
             "enumeration",
             "metadata",

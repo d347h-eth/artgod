@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
@@ -10,6 +10,7 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import {
     BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION,
     BOOTSTRAP_STEP_ORCHESTRATION_ERROR,
@@ -44,6 +45,201 @@ const TEST_LOG_LEVEL = {
 } as const;
 
 describe("bootstrap step orchestrator", () => {
+    it("preserves the failure allowance across repeated shared-quota deferrals", async () => {
+        const run = buildRun();
+        const steps = [
+            step(
+                BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                BOOTSTRAP_STEP_STATUS.Ready,
+            ),
+        ];
+        const released: Array<{
+            stepKey: BootstrapStepKey;
+            nextAttemptAt: number;
+        }> = [];
+        const port = stepsPort(steps, [], released);
+        const retry = vi.spyOn(port, "markStepFailedRetry");
+        const terminal = vi.spyOn(port, "markStepFailedTerminal");
+        let nowMs = 0;
+        const process = vi.fn(async () => {
+            throw new Error("RPC wait deferred", {
+                cause: new RpcBudgetDeferred(25),
+            });
+        });
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            port,
+            processorPort(process),
+            wakePort([]),
+            () => nowMs,
+        );
+        for (let pass = 0; pass < TEST_RETRY_POLICY.maxAttempts + 2; pass++) {
+            await orchestrator.run(
+                orchestratorInput(run.runId, [
+                    BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                ]),
+            );
+            expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.Ready);
+            expect(steps[0]?.attempts).toBe(0);
+            expect(steps[0]?.leaseOwner).toBeNull();
+            expect(steps[0]?.nextAttemptAt).toBe(nowMs + 25);
+            nowMs += 25;
+        }
+        expect(process).toHaveBeenCalledTimes(
+            TEST_RETRY_POLICY.maxAttempts + 2,
+        );
+        expect(released).toHaveLength(TEST_RETRY_POLICY.maxAttempts + 2);
+        expect(retry).not.toHaveBeenCalled();
+        expect(terminal).not.toHaveBeenCalled();
+    });
+    it("stops a failed lease-renewal timer without crashing the worker", async () => {
+        vi.useFakeTimers();
+        try {
+            const run = buildRun();
+            const steps = [
+                step(
+                    BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                    BOOTSTRAP_STEP_STATUS.Ready,
+                ),
+            ];
+            const port = stepsPort(steps, [], []);
+            port.renewStepLease = vi.fn(() => {
+                throw new Error("database is locked");
+            });
+            const warn = vi.fn();
+            let finish!: () => void;
+            const pending = new Promise<void>((resolve) => {
+                finish = resolve;
+            });
+            const orchestrator = new BootstrapStepOrchestrator(
+                runsPort(run),
+                port,
+                processorPort(async () => {
+                    await pending;
+                    return readyStepResult(1234);
+                }),
+                wakePort([]),
+                Date.now,
+                { debug: () => {}, warn, error: () => {} },
+            );
+            const processing = orchestrator.run({
+                ...orchestratorInput(run.runId, [
+                    BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                ]),
+                leaseMs: 30,
+                maxIterations: 1,
+            });
+            await vi.advanceTimersByTimeAsync(100);
+            expect(port.renewStepLease).toHaveBeenCalledTimes(1);
+            expect(warn).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalFailed,
+                }),
+            );
+            expect(vi.getTimerCount()).toBe(0);
+            finish();
+            await processing;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    it("ignores failed runs even when explicitly woken", async () => {
+        const run = { ...buildRun(), status: BOOTSTRAP_RUN_STATUS.Failed };
+        const steps = [
+            step(BOOTSTRAP_STEP_KEY.Metadata, BOOTSTRAP_STEP_STATUS.Ready),
+            step(BOOTSTRAP_STEP_KEY.ImageCache, BOOTSTRAP_STEP_STATUS.Pending),
+        ];
+        const claimed: BootstrapStepKey[] = [];
+        const woken: BootstrapStepKey[] = [];
+        const process = vi.fn(async () => readyStepResult(1234));
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(steps, claimed, []),
+            processorPort(process),
+            wakePort(woken),
+        );
+        await orchestrator.run(
+            orchestratorInput(run.runId, [BOOTSTRAP_STEP_KEY.Metadata]),
+        );
+        expect(claimed).toEqual([]);
+        expect(woken).toEqual([]);
+        expect(process).not.toHaveBeenCalled();
+        expect(steps[1]?.status).toBe(BOOTSTRAP_STEP_STATUS.Pending);
+    });
+
+    it.each([false, true])(
+        "stops lease renewal, further processing, and retry after the run fails; rejection=%s",
+        async (reject) => {
+            vi.useFakeTimers();
+            try {
+                const run = buildRun();
+                const steps = [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Metadata,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                    step(
+                        BOOTSTRAP_STEP_KEY.Ownership,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ];
+                const released: Array<{
+                    stepKey: BootstrapStepKey;
+                    nextAttemptAt: number;
+                }> = [];
+                const failures: Array<{
+                    stepKey: BootstrapStepKey;
+                    attempts: number;
+                    nextAttemptAt: number;
+                    error: string;
+                }> = [];
+                const renewals: Array<{
+                    stepKey: BootstrapStepKey;
+                    leaseOwner: string;
+                    leaseUntil: number;
+                }> = [];
+                let finish!: () => void;
+                const pending = new Promise<void>((resolve) => {
+                    finish = resolve;
+                });
+                const process = vi.fn(async () => {
+                    await pending;
+                    if (reject) throw new Error("late processor failure");
+                    return readyStepResult(1234);
+                });
+                const orchestrator = new BootstrapStepOrchestrator(
+                    runsPort(run),
+                    stepsPort(steps, [], released, failures, [], renewals),
+                    processorPort(process),
+                    wakePort([]),
+                );
+                const processing = orchestrator.run({
+                    ...orchestratorInput(run.runId, [
+                        BOOTSTRAP_STEP_KEY.Metadata,
+                        BOOTSTRAP_STEP_KEY.Ownership,
+                    ]),
+                    claimLimit: 2,
+                    maxIterations: 3,
+                    leaseMs: 30,
+                });
+                await vi.advanceTimersByTimeAsync(0);
+                expect(process).toHaveBeenCalledTimes(1);
+                run.status = BOOTSTRAP_RUN_STATUS.Failed;
+                await vi.advanceTimersByTimeAsync(100);
+                expect(renewals).toEqual([]);
+                finish();
+                await processing;
+                expect(process).toHaveBeenCalledTimes(1);
+                expect(released).toEqual([]);
+                expect(failures).toEqual([]);
+                expect(vi.getTimerCount()).toBe(0);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it("claims in-lane ready steps and wakes out-of-lane ready steps", async () => {
         const run = buildRun();
         const steps = [
@@ -56,8 +252,10 @@ describe("bootstrap step orchestrator", () => {
             ]),
         ];
         const claimed: BootstrapStepKey[] = [];
-        const released: Array<{ stepKey: BootstrapStepKey; nextAttemptAt: number }> =
-            [];
+        const released: Array<{
+            stepKey: BootstrapStepKey;
+            nextAttemptAt: number;
+        }> = [];
         const woken: BootstrapStepKey[] = [];
         const orchestrator = new BootstrapStepOrchestrator(
             runsPort(run),
@@ -232,9 +430,7 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Debug,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                                .StepPausedObserved,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepPausedObserved,
                         stepKey: BOOTSTRAP_STEP_KEY.Ownership,
                     }),
                 }),
@@ -389,9 +585,7 @@ describe("bootstrap step orchestrator", () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                                .LeaseRenewalProgressStale,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalProgressStale,
                     }),
                 }),
             ]),
@@ -454,9 +648,7 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Warn,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                                .LeaseRenewalProgressStale,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalProgressStale,
                         stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
                         leaseOwner: TEST_LEASE_OWNER,
                     }),
@@ -495,8 +687,7 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Debug,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepClaimed,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepClaimed,
                         laneName: TEST_LANE_NAME,
                         runId: readyRun.runId,
                         chainId: readyRun.chainId,
@@ -509,9 +700,7 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Debug,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                                .StepReleasedReady,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepReleasedReady,
                         nextAttemptAt: 2_000,
                     }),
                 }),
@@ -549,8 +738,7 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Debug,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepDelegated,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepDelegated,
                         laneName: TEST_LANE_NAME,
                         stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
                         healthCheckAt: 5_000,
@@ -590,15 +778,12 @@ describe("bootstrap step orchestrator", () => {
                 expect.objectContaining({
                     level: TEST_LOG_LEVEL.Warn,
                     meta: expect.objectContaining({
-                        action:
-                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                                .StepRetryScheduled,
+                        action: BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepRetryScheduled,
                         laneName: TEST_LANE_NAME,
                         stepKey: BOOTSTRAP_STEP_KEY.Metadata,
                         attempts: 1,
                         errorCode:
-                            BOOTSTRAP_STEP_ORCHESTRATION_ERROR
-                                .ProcessorException,
+                            BOOTSTRAP_STEP_ORCHESTRATION_ERROR.ProcessorException,
                     }),
                 }),
             ]),
@@ -638,12 +823,20 @@ function stepsPort(
     return {
         listRunSteps: () => steps,
         markStepReady: (_runId, stepKey) => {
-            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            const target = steps.find(
+                (stepItem) => stepItem.stepKey === stepKey,
+            );
             if (target) {
                 target.status = BOOTSTRAP_STEP_STATUS.Ready;
             }
         },
-        claimReadySteps: ({ stepKeys, leaseOwner, leaseUntil, nowMs, limit }) => {
+        claimReadySteps: ({
+            stepKeys,
+            leaseOwner,
+            leaseUntil,
+            nowMs,
+            limit,
+        }) => {
             const result: BootstrapStepRecord[] = [];
             for (const stepItem of steps) {
                 if (result.length >= limit) {
@@ -665,7 +858,9 @@ function stepsPort(
             return result;
         },
         releaseStepLease: ({ stepKey, nextAttemptAt }) => {
-            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            const target = steps.find(
+                (stepItem) => stepItem.stepKey === stepKey,
+            );
             if (target) {
                 target.status = BOOTSTRAP_STEP_STATUS.Ready;
                 target.nextAttemptAt = nextAttemptAt;
@@ -676,14 +871,18 @@ function stepsPort(
         },
         releaseStepLeaseAsRunning: () => {},
         renewStepLease: ({ stepKey, leaseOwner, leaseUntil }) => {
-            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            const target = steps.find(
+                (stepItem) => stepItem.stepKey === stepKey,
+            );
             if (target && target.leaseOwner === leaseOwner) {
                 target.leaseUntil = leaseUntil;
             }
             renewals.push({ stepKey, leaseOwner, leaseUntil });
         },
         markStepFailedRetry: ({ stepKey, attempts, nextAttemptAt, error }) => {
-            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            const target = steps.find(
+                (stepItem) => stepItem.stepKey === stepKey,
+            );
             if (target) {
                 target.status = BOOTSTRAP_STEP_STATUS.FailedRetry;
                 target.attempts = attempts;
@@ -695,7 +894,9 @@ function stepsPort(
             failures.push({ stepKey, attempts, nextAttemptAt, error });
         },
         markStepFailedTerminal: ({ stepKey, attempts, error }) => {
-            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            const target = steps.find(
+                (stepItem) => stepItem.stepKey === stepKey,
+            );
             if (target) {
                 target.status = BOOTSTRAP_STEP_STATUS.FailedTerminal;
                 target.attempts = attempts;

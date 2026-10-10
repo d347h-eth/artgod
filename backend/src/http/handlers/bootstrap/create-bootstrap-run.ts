@@ -39,6 +39,7 @@ export type CreateBootstrapRunRoute = {
         standard?: string;
         metadataMode?: string;
         scope?: unknown;
+        sharedContract?: boolean;
         imageCache?: {
             selectedSource?: unknown;
             imageCacheMode?: unknown;
@@ -99,6 +100,14 @@ export class CreateBootstrapRunHttpAdapter {
             throw error;
         }
         const imageCache = parseImageCacheInput(body.imageCache);
+        if (
+            body.sharedContract !== undefined &&
+            typeof body.sharedContract !== "boolean"
+        ) {
+            throw new ReadModelBadRequestError(
+                "sharedContract must be a boolean",
+            );
+        }
         const deploymentBlock = parseOptionalPositiveInteger(
             body.deploymentBlock,
             "deploymentBlock",
@@ -114,6 +123,7 @@ export class CreateBootstrapRunHttpAdapter {
             standard: standard as "erc721",
             metadataMode: metadataMode as "strict" | "best_effort",
             scope,
+            sharedContract: body.sharedContract,
             imageCache,
             deploymentBlock: deploymentBlock ?? undefined,
         };

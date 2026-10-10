@@ -33,6 +33,21 @@ const TEST_ANCHOR = {
 } as const;
 
 describe("bootstrap enumeration executor", () => {
+    it("persists the first runtime token in enumeration order for background mint lookup", async () => {
+        const harness = createHarness({ tokenIds: ["200", "1"] });
+        await harness.executor.execute({
+            run: harness.run,
+            anchor: TEST_ANCHOR,
+            leaseOwner: "enumeration-test",
+            metadataBatchSize: 2,
+            traceId: "trace-first-token",
+        });
+        expect(harness.confirmations[0]).toMatchObject({
+            tokenCount: 2,
+            firstTokenId: "200",
+        });
+    });
+
     it("enumerates tokens and seeds metadata tasks", async () => {
         const harness = createHarness({
             tokenIds: ["1", "2", "3"],
@@ -45,6 +60,7 @@ describe("bootstrap enumeration executor", () => {
         const result = await harness.executor.execute({
             run: harness.run,
             anchor: TEST_ANCHOR,
+            leaseOwner: "enumeration-test",
             metadataBatchSize: 2,
             traceId: "trace-1",
         });
@@ -102,6 +118,7 @@ describe("bootstrap enumeration executor", () => {
         await harness.executor.execute({
             run: harness.run,
             anchor: TEST_ANCHOR,
+            leaseOwner: "enumeration-test",
             metadataBatchSize: 1,
             traceId: "trace-1",
         });
@@ -120,6 +137,7 @@ describe("bootstrap enumeration executor", () => {
         await harness.executor.execute({
             run: harness.run,
             anchor: TEST_ANCHOR,
+            leaseOwner: "enumeration-test",
             metadataBatchSize: 1,
             traceId: "trace-progress",
         });
@@ -142,6 +160,7 @@ describe("bootstrap enumeration executor", () => {
         const result = await harness.executor.execute({
             run: harness.run,
             anchor: TEST_ANCHOR,
+            leaseOwner: "enumeration-test",
             metadataBatchSize: 2,
             traceId: "trace-duplicate",
         });
@@ -172,6 +191,7 @@ describe("bootstrap enumeration executor", () => {
             harness.executor.execute({
                 run: harness.run,
                 anchor: TEST_ANCHOR,
+                leaseOwner: "enumeration-test",
                 metadataBatchSize: 2,
                 traceId: "trace-1",
             }),
@@ -212,6 +232,7 @@ describe("bootstrap enumeration executor", () => {
             harness.executor.execute({
                 run: harness.run,
                 anchor: TEST_ANCHOR,
+                leaseOwner: "enumeration-test",
                 metadataBatchSize: 2,
                 traceId: "trace-1",
             }),
@@ -242,6 +263,9 @@ type Harness = {
         error?: { code: string; message: string } | null;
     }>;
     runningSteps: Array<{ runId: number; stepKey: BootstrapStepKey }>;
+    confirmations: Array<
+        Parameters<BootstrapEnumerationStepsPort["completeEnumeration"]>[0]
+    >;
     succeededSteps: Array<{
         runId: number;
         stepKey: BootstrapStepKey;
@@ -274,6 +298,7 @@ function createHarness(input: {
     const runStatusUpdates: Harness["runStatusUpdates"] = [];
     const runningSteps: Harness["runningSteps"] = [];
     const succeededSteps: Harness["succeededSteps"] = [];
+    const confirmations: Harness["confirmations"] = [];
     const failedSteps: Harness["failedSteps"] = [];
     const progressUpdates: Harness["progressUpdates"] = [];
     const resolverPort: BootstrapEnumerationResolverPort = {
@@ -325,8 +350,28 @@ function createHarness(input: {
         markStepRunning: (runId, stepKey) => {
             runningSteps.push({ runId, stepKey });
         },
-        markStepSucceeded: (runId, stepKey, progress) => {
-            succeededSteps.push({ runId, stepKey, progress });
+        ownsEnumerationLease: () => true,
+        completeEnumeration: (input) => {
+            confirmations.push(input);
+            events.push({
+                runId: input.run.runId,
+                chainId: input.run.chainId,
+                collectionId: input.run.collectionId,
+                eventCode:
+                    BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+                eventLevel: "info",
+                message: "Token enumeration completed",
+                payloadJson: JSON.stringify({ tokenCount: input.tokenCount }),
+            });
+            succeededSteps.push({
+                runId: input.run.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                progress: {
+                    completed: input.tokenCount,
+                    total: input.tokenCount,
+                },
+            });
+            return true;
         },
         markStepFailedTerminal: (failure) => {
             failedSteps.push(failure);
@@ -352,6 +397,7 @@ function createHarness(input: {
         runStatusUpdates,
         runningSteps,
         succeededSteps,
+        confirmations,
         failedSteps,
         progressUpdates,
     };

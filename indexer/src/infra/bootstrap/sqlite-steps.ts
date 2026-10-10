@@ -1,7 +1,11 @@
 import { db } from "@artgod/shared/database";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
     BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_RUN_STATUS,
     parseBootstrapStepDependencies,
+    type BootstrapRunStatus,
     type BootstrapStepKey,
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -11,7 +15,12 @@ import type {
     BootstrapStepProgress,
     BootstrapStepRecord,
     BootstrapStepsPort,
+    BootstrapEnumerationConfirmation,
 } from "../../ports/bootstrap-steps.js";
+import type {
+    BootstrapEnumerationClaim,
+    BootstrapEnumerationStepsPort,
+} from "../../application/bootstrap-enumeration-executor.js";
 
 type BootstrapStepDbRow = {
     run_id: number;
@@ -30,7 +39,100 @@ type BootstrapStepDbRow = {
 };
 
 // SQLite adapter for the durable bootstrap_run_steps orchestration journal.
-export class SqliteBootstrapSteps implements BootstrapStepsPort {
+export class SqliteBootstrapSteps
+    implements BootstrapStepsPort, BootstrapEnumerationStepsPort
+{
+    constructor(private readonly nowMs: () => number = Date.now) {}
+
+    ownsEnumerationLease({
+        run,
+        anchor,
+        leaseOwner,
+    }: BootstrapEnumerationClaim): boolean {
+        return (
+            db
+                .prepare(
+                    "SELECT 1 FROM bootstrap_run_steps s JOIN bootstrap_runs r ON r.run_id = s.run_id " +
+                        "WHERE s.run_id = @runId AND s.step_key = @stepKey AND s.status = @running " +
+                        "AND s.lease_owner = @leaseOwner AND s.lease_until > @nowMs " +
+                        "AND r.status != @failed AND r.chain_id = @chainId AND r.collection_id = @collectionId " +
+                        "AND lower(r.request_address) = lower(@address) " +
+                        "AND r.anchor_block = @anchorBlock AND r.anchor_block_hash = @anchorHash",
+                )
+                .get({
+                    runId: run.runId,
+                    stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                    running: BOOTSTRAP_STEP_STATUS.Running,
+                    failed: BOOTSTRAP_RUN_STATUS.Failed,
+                    chainId: run.chainId,
+                    collectionId: run.collectionId,
+                    address: run.requestAddress,
+                    anchorBlock: anchor.anchorBlock,
+                    anchorHash: anchor.anchorHash,
+                    leaseOwner,
+                    nowMs: this.nowMs(),
+                }) !== undefined
+        );
+    }
+
+    completeEnumeration(
+        input: Parameters<
+            BootstrapEnumerationStepsPort["completeEnumeration"]
+        >[0],
+    ): boolean {
+        return db.writeTransaction(() => {
+            if (!this.ownsEnumerationLease(input)) return false;
+            const { run, anchor, tokenCount, firstTokenId } = input;
+            // This small run-owned output outlives snapshot/task cleanup. Task
+            // counts on resume cannot reconstruct or replace a confirmed token.
+            const result = {
+                completed: tokenCount,
+                total: tokenCount,
+                ...(firstTokenId === undefined
+                    ? {}
+                    : ({
+                          firstTokenId,
+                          anchorBlock: anchor.anchorBlock,
+                          anchorHash: anchor.anchorHash,
+                      } satisfies BootstrapEnumerationConfirmation)),
+            };
+            db.prepare(
+                "INSERT INTO bootstrap_run_events (run_id, chain_id, collection_id, event_code, event_level, message, payload_json) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+                run.runId,
+                run.chainId,
+                run.collectionId,
+                BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+                "info",
+                "Token enumeration completed",
+                JSON.stringify({
+                    enumerationMode: run.enumerationMode,
+                    tokenCount,
+                    elapsedMs: input.elapsedMs,
+                }),
+            );
+            return (
+                db
+                    .prepare(
+                        "UPDATE bootstrap_run_steps SET status = @succeeded, progress_completed = @count, progress_total = @count, " +
+                            "result_json = json_patch(CASE WHEN json_valid(result_json) AND json_type(result_json) = 'object' " +
+                            "THEN result_json ELSE '{}' END, @resultJson), " +
+                            "lease_owner = NULL, lease_until = NULL, next_attempt_at = 0, last_error = NULL, last_error_at = NULL, " +
+                            "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
+                            "WHERE run_id = @runId AND step_key = @stepKey",
+                    )
+                    .run({
+                        runId: run.runId,
+                        stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                        succeeded: BOOTSTRAP_STEP_STATUS.Succeeded,
+                        count: tokenCount,
+                        resultJson: JSON.stringify(result),
+                    }).changes === 1
+            );
+        })();
+    }
+
     private selectStepStmt = db.prepare<{
         runId: number;
         stepKey: BootstrapStepKey;
@@ -117,11 +219,14 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         leaseOwner: string;
         leaseUntil: number;
         runningStatus: BootstrapStepStatus;
+        failedStatus: BootstrapRunStatus;
+        nowMs: number;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "lease_until = @leaseUntil, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status = @runningStatus AND lease_owner = @leaseOwner",
+            "AND status = @runningStatus AND lease_owner = @leaseOwner AND lease_until > @nowMs " +
+            "AND EXISTS (SELECT 1 FROM bootstrap_runs r WHERE r.run_id = @runId AND r.status != @failedStatus)",
     );
 
     private markSucceededStmt = db.prepare<{
@@ -252,7 +357,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             "SELECT DISTINCT s.run_id " +
             "FROM bootstrap_run_steps s " +
             "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
-            `WHERE r.chain_id = ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
+            `WHERE r.chain_id = ? AND r.status != ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
             "AND (" +
             "(s.status IN (?, ?) AND s.next_attempt_at <= ? AND (s.lease_until IS NULL OR s.lease_until <= ?)) " +
             "OR (s.status = ? AND s.lease_until IS NOT NULL AND s.lease_until <= ?)" +
@@ -261,6 +366,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             .prepare(sql)
             .all(
                 input.chainId,
+                BOOTSTRAP_RUN_STATUS.Failed,
                 ...input.stepKeys,
                 BOOTSTRAP_STEP_STATUS.Ready,
                 BOOTSTRAP_STEP_STATUS.FailedRetry,
@@ -282,7 +388,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             "SELECT MIN(CASE WHEN s.status = ? THEN s.lease_until ELSE s.next_attempt_at END) AS next_due_at " +
             "FROM bootstrap_run_steps s " +
             "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
-            `WHERE r.chain_id = ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
+            `WHERE r.chain_id = ? AND r.status != ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
             "AND (" +
             "s.status IN (?, ?) " +
             "OR (s.status = ? AND s.lease_until IS NOT NULL)" +
@@ -292,6 +398,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             .get(
                 BOOTSTRAP_STEP_STATUS.Running,
                 input.chainId,
+                BOOTSTRAP_RUN_STATUS.Failed,
                 ...input.stepKeys,
                 BOOTSTRAP_STEP_STATUS.Ready,
                 BOOTSTRAP_STEP_STATUS.FailedRetry,
@@ -362,7 +469,9 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
     }): void {
         this.renewLeaseStmt.run({
             ...input,
+            nowMs: this.nowMs(),
             runningStatus: BOOTSTRAP_STEP_STATUS.Running,
+            failedStatus: BOOTSTRAP_RUN_STATUS.Failed,
         });
     }
 
@@ -536,6 +645,7 @@ function selectClaimCandidates(input: {
         "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, result_json, attempts, last_error " +
         "FROM bootstrap_run_steps " +
         `WHERE run_id = ? AND step_key IN (${stepKeyPlaceholders}) ` +
+        "AND EXISTS (SELECT 1 FROM bootstrap_runs r WHERE r.run_id = bootstrap_run_steps.run_id AND r.status != ?) " +
         "AND (" +
         "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
         "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
@@ -545,6 +655,7 @@ function selectClaimCandidates(input: {
         .all(
             input.runId,
             ...input.stepKeys,
+            BOOTSTRAP_RUN_STATUS.Failed,
             BOOTSTRAP_STEP_STATUS.Ready,
             BOOTSTRAP_STEP_STATUS.FailedRetry,
             input.nowMs,

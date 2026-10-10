@@ -51,11 +51,13 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
     private updateRunStatusStmt = db.prepare<{
         runId: number;
         status: BootstrapRunStatus;
+        failedStatus: BootstrapRunStatus;
         errorCode: string | null;
         errorMessage: string | null;
         finishedAt: string | null;
     }>(
-        "UPDATE bootstrap_runs SET status = @status, error_code = @errorCode, error_message = @errorMessage, finished_at = @finishedAt, updated_at = CURRENT_TIMESTAMP WHERE run_id = @runId",
+        "UPDATE bootstrap_runs SET status = @status, error_code = @errorCode, error_message = @errorMessage, finished_at = @finishedAt, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND (status != @failedStatus OR @status = @failedStatus)",
     );
 
     private updateRunAnchorStmt = db.prepare<{
@@ -102,7 +104,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
         const sql =
             `SELECT ${BOOTSTRAP_RUN_SELECT_COLUMNS} ` +
             "FROM bootstrap_runs " +
-            `WHERE chain_id = ? AND (status IN (${runStatusPlaceholders}) ` +
+            `WHERE chain_id = ? AND status != ? AND (status IN (${runStatusPlaceholders}) ` +
             "OR EXISTS (" +
             "SELECT 1 FROM bootstrap_run_steps s " +
             "WHERE s.run_id = bootstrap_runs.run_id " +
@@ -114,6 +116,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
             .prepare(sql)
             .all(
                 chainId,
+                BOOTSTRAP_RUN_STATUS.Failed,
                 ...BOOTSTRAP_ACTIVE_RUN_STATUSES,
                 ...BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
                 boundedLimit,
@@ -134,6 +137,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
         this.updateRunStatusStmt.run({
             runId,
             status,
+            failedStatus: BOOTSTRAP_RUN_STATUS.Failed,
             errorCode: error?.code ?? null,
             errorMessage: error?.message ?? null,
             finishedAt,

@@ -8,6 +8,7 @@ import {
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     type BootstrapRunStepPlan,
+    type BootstrapDeploymentStepConfig,
     type BootstrapStepKey,
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -17,6 +18,7 @@ export type BootstrapPipelinePlanInput = {
     openseaSlug: string | null;
     openseaIntegration: OpenSeaIntegrationStatus;
     requestExtensionKey: CollectionExtensionKey | null;
+    sharedContract?: boolean;
 };
 
 // Plans the persisted bootstrap graph from the immutable request-time decisions.
@@ -47,6 +49,13 @@ export function planBootstrapRunSteps(
         blockingStep({
             stepKey: BOOTSTRAP_STEP_KEY.CollectionLive,
             dependsOn: [BOOTSTRAP_STEP_KEY.Backfill],
+        }),
+        sideLaneStep({
+            stepKey: BOOTSTRAP_STEP_KEY.DeploymentBlock,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+            config: {
+                sharedContract: input.sharedContract === true,
+            } satisfies BootstrapDeploymentStepConfig,
         }),
     ];
 

@@ -177,8 +177,18 @@ describe("bootstrap pipeline lifecycle", () => {
         if (!anchorResult.anchor) {
             throw new Error("Expected anchor selection");
         }
+        bootstrapSteps.markStepReady(runId, BOOTSTRAP_STEP_KEY.Enumeration);
+        bootstrapSteps.claimReadySteps({
+            runId,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Enumeration],
+            leaseOwner: "enumeration-test",
+            nowMs: Date.now(),
+            leaseUntil: Date.now() + 60_000,
+            limit: 1,
+        });
         await enumerationExecutor.execute({
-            run,
+            run: bootstrapRuns.getRun(runId)!,
+            leaseOwner: "enumeration-test",
             anchor: anchorResult.anchor,
             metadataBatchSize: 1,
             traceId: "trace-1",
@@ -329,7 +339,7 @@ describe("bootstrap pipeline lifecycle", () => {
         ]);
 
         const bootstrapRuns = new SqliteBootstrapRuns();
-        const bootstrapSteps = new SqliteBootstrapSteps();
+        const bootstrapSteps = new SqliteBootstrapSteps(() => 1_000);
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
         const storage = new SqliteStorage();
@@ -377,7 +387,12 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
             bootstrapSteps as BootstrapStepSchedulerStepsPort,
             {
-                processClaimedStep: async ({ run, step, traceId }) => {
+                processClaimedStep: async ({
+                    run,
+                    step,
+                    traceId,
+                    leaseOwner,
+                }) => {
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Anchor) {
                         await anchorExecutor.anchor({ run, reorgDepth: 10 });
                     } else if (
@@ -392,6 +407,7 @@ describe("bootstrap pipeline lifecycle", () => {
                         }
                         await enumerationExecutor.execute({
                             run,
+                            leaseOwner,
                             anchor: {
                                 anchorBlock: run.anchorBlock,
                                 anchorHash: run.anchorBlockHash as Hex,
@@ -523,7 +539,7 @@ describe("bootstrap pipeline lifecycle", () => {
         ]);
 
         const bootstrapRuns = new SqliteBootstrapRuns();
-        const bootstrapSteps = new SqliteBootstrapSteps();
+        const bootstrapSteps = new SqliteBootstrapSteps(() => nowMs);
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
         const statsRecomputeRequests: Array<{
@@ -576,7 +592,12 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
             bootstrapSteps as BootstrapStepSchedulerStepsPort,
             {
-                processClaimedStep: async ({ run, step, traceId }) => {
+                processClaimedStep: async ({
+                    run,
+                    step,
+                    traceId,
+                    leaseOwner,
+                }) => {
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Anchor) {
                         await anchorExecutor.anchor({ run, reorgDepth: 10 });
                         return terminalStepResult();
@@ -591,6 +612,7 @@ describe("bootstrap pipeline lifecycle", () => {
                         }
                         await enumerationExecutor.execute({
                             run,
+                            leaseOwner,
                             anchor: {
                                 anchorBlock: run.anchorBlock,
                                 anchorHash: run.anchorBlockHash as Hex,
@@ -814,9 +836,6 @@ function backfillQueuePort(
         scheduleBackfillCheck: async () => {},
         scheduleOpenSeaBootstrap: async () => {
             throw new Error("OpenSea bootstrap should be skipped");
-        },
-        publishMetadataStatsRecompute: async (request) => {
-            statsRecomputeRequests.push(request);
         },
         enqueueBootstrapFinalStats: async (request) => {
             statsRecomputeRequests.push({

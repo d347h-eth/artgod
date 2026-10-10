@@ -777,15 +777,99 @@ Workers:
 
 In desktop composition, OpenSea workers are staged but not launched when the resolved OpenSea capability is disabled. In standalone dev, starting an OpenSea worker directly still fails fast unless OpenSea integration is enabled.
 
+## Deployment Block Enrichment
+
+New runs also plan a non-blocking `deployment_block` step. A separate
+bootstrap-worker scheduler lane handles the lookup. Collection liveness and run
+completion never wait for it; completed runs can retain unfinished lookup work.
+
+Supplied deployment hints are preserved. A positive shared-contract finding from
+the matching setup probe is carried in the queue request and saved in the step's
+configuration. That finding or any manual scope selects the first `Transfer`
+event from the zero address for the collection's selected first token. All other
+cases binary-search historical runtime-code presence through `eth_getCode`, from
+genesis through a settled upper block.
+Every mint lookup consumes the first confirmed token returned by this run's
+anchored enumeration, preserving enumeration order for both ranges and lists.
+An absent first candidate never becomes a mint target. Enumeration atomically
+retains the token and its anchor block/hash in its own step result, settles the
+step, and appends the completion event. Publication requires the current,
+unexpired enumeration lease and the same nonfailed run identity and anchor.
+
+The deployment lane waits while that input is absent. Declared candidates,
+completion-event counts, metadata membership, and current balances cannot
+supply it. Count-only restart paths preserve an existing confirmation.
+Successful task cleanup and operational task
+resets retain the small step result, so optional deployment can continue after
+mandatory work completes without retaining the full inventory. A changed anchor
+withholds the old confirmation. Collection purge removes the run and its steps.
+Art Blocks collections use the same mint-event method as other shared contracts.
+
+Before requesting mint events, the lookup uses that same historical code search
+to find the contract's deployment block. This is the inclusive lower bound for
+event queries, never the shared collection's marker. The bound is saved with the
+mint cursor and is not searched again on each page, retry, or restart. Missing
+code history remains a lookup error; it does not trigger a genesis log scan.
+Both code lookups also save their confirmed absent/present boundaries after each
+successful probe in `bootstrap_run_steps.result_json`. Quota deferral, worker
+restart, and retry resume the next unconfirmed probe instead of repeating the
+whole binary search. The pinned upper block/hash belongs to those boundaries.
+
+Mint queries filter both the sender and token ID at the RPC endpoint. Each
+request covers at most `LOG_CHUNK_SIZE` blocks, using the same learned cap as
+ordinary log acquisition. Provider range/response-size rejections reduce that
+cap. Multi-block mint-page timeouts also reduce it before retrying the same
+cursor; single-block timeouts retain normal endpoint retries. Quota limits and
+unavailable history retain the existing RPC error policy.
+
+One successful page runs per scheduler pass, in ascending block order. Its
+verified empty prefix is saved in the step result, so restart and retry resume
+at the next unsearched block. A failed request never advances the cursor. The
+selected token and settled upper block/hash remain pinned across pages. Before
+publishing a marker or concluding that no mint exists, a fresh upper-block read
+must match that hash; a changed hash invalidates both the cursor and contract
+bound and code-search position, so the next attempt searches code again before
+requesting events. Code searches check the upper block freshly before their first
+probe and after their final probe. Unavailable
+RPC history uses the optional step's existing retry policy.
+
+Collection/run deployment hints and step success are saved in one write
+transaction guarded by contract identity and the running step's unexpired owner
+lease. The run must also be non-failed, checked inside that transaction. A paused,
+failed, expired, reassigned, or identity-changed attempt cannot publish progress
+or a deployment marker. Lease renewal cannot revive an expired owner.
+Schedulers exclude failed runs from due selection, startup recovery, claims, and
+lease renewal. Automatic indexer status updates also preserve failure atomically;
+only an explicit backend retry can recover the run. Ownership is checked before
+every RPC attempt and again after quota admission. An RPC already sent can finish,
+but the lookup cannot make
+another request or publish after observing failure. The saved result contains the
+deployment block number. Existing runs are not retroactively given this step.
+
+Run-detail chips use three rows: required steps, OpenSea, and optional work
+(image cache, deployment lookup, and extension artifacts when planned). Queue
+state remains in run status, with no queue chip. Anchor and discovered deployment
+blocks link to the configured explorer. Anchor, collection-live, OpenSea, and
+deployment chips show pending/done state instead of single-task percentages;
+paused and failed states retain their recovery controls.
+
 ## Operator Controls and Recovery
 
 Admin creates and inspects durable runs through the backend bootstrap routes.
 The run detail exposes each planned step, persisted progress, whether it blocks
 collection liveness, and the actions valid for its current state.
 
-- metadata, ownership, and image-cache processing steps can be paused and
+- metadata, ownership, image-cache, and deployment lookup steps can be paused and
   resumed where the shared bootstrap contract marks them pausable;
 - a terminal failed step must be explicitly retried, not resumed;
+- pause and resume require a non-failed run; terminal-step retry can recover the
+  existing failed run;
+- deployment lookup controls are unavailable while the run is failed; retry the
+  failed bootstrap step before continuing that run;
+- a new run for the same collection is allowed only when every previous run has
+  failed. Completed runs also prevent creating another run. Admission is checked
+  before changing the collection definition and again in the run-creation write
+  transaction;
 - run-level `retry-failed` is metadata-specific: it requeues eligible terminal
   metadata tasks and, when image caching is configured, resets the image-cache
   step and removes its old tasks so they can be regenerated; other terminal
@@ -794,7 +878,7 @@ collection liveness, and the actions valid for its current state.
   restart, so recovery does not depend on the original queue delivery;
 - strict metadata failure blocks liveness; best-effort metadata can complete
   with retained terminal failures; ownership failure always blocks liveness;
-- image-cache and extension-artifact side lanes may fail without rolling back
+- image-cache, deployment lookup, and extension-artifact side lanes may fail without rolling back
   canonical metadata or ownership.
 - completed-run history remains the current place to inspect terminal
   non-blocking side-lane failures; whether those failures also warrant a

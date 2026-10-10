@@ -219,15 +219,16 @@ implement purge coordination or replay.
 
 ### Uncaught lease and heartbeat timers
 
-- `indexer/src/application/bootstrap-step-orchestrator.ts` renews a step lease
-  from a synchronous interval callback without a catch.
 - `indexer/src/application/collection-extensions/refresh-artifacts-lifecycle.ts`
-  has the same behavior for extension-artifact leases.
+  renews extension-artifact leases from an interval callback without a catch.
 - Trading heartbeat persistence can similarly escape its interval after the
   shared retry budget is exhausted.
 
 The database calls now have baseline retries. The remaining decision is whether
 exhaustion means lease loss, a stopped runtime, or a process-fatal invariant.
+The bootstrap step orchestrator catches exhausted lease-renewal writes, reports
+the failure once, and stops renewing. The durable lease then expires; deployment
+RPC attempts and settlement remain guarded by that lease.
 
 ### External side effect followed by database bookkeeping
 

@@ -16,6 +16,7 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_LABEL,
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     canPauseBootstrapStepStatus,
@@ -26,6 +27,7 @@ import {
     isBootstrapStepTerminalRetryable,
     isBootstrapStepTerminalStatus,
     type BootstrapFlowStepKey,
+    type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
     BootstrapFlowStep,
@@ -142,7 +144,7 @@ function mapCollectionSummary(
 
 type BootstrapFlowStepDraft = Omit<
     BootstrapFlowStep,
-    "blocking" | "pausable" | "paused" | "availableActions"
+    "label" | "blocking" | "pausable" | "paused" | "availableActions"
 > &
     Partial<
         Pick<
@@ -169,7 +171,6 @@ function buildBootstrapRunFlow(input: {
 
     const eventCodes = new Set(input.events.map((event) => event.eventCode));
 
-    const hasRequested = true;
     const hasQueued =
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.RunQueued) ||
         input.run.status !== BOOTSTRAP_RUN_STATUS.Requested;
@@ -226,19 +227,7 @@ function buildBootstrapRunFlow(input: {
 
     const steps: BootstrapFlowStepDraft[] = [
         {
-            key: BOOTSTRAP_FLOW_STEP_KEY.Queued,
-            label: "queued",
-            state: resolveStepState({
-                completed: hasQueued,
-                active: !hasQueued && hasRequested,
-                failed: false,
-            }),
-            detailText: null,
-            progress: null,
-        },
-        {
             key: BOOTSTRAP_FLOW_STEP_KEY.Anchor,
-            label: "anchor",
             state: resolveStepState({
                 completed: hasAnchor,
                 active: hasQueued && !hasAnchor && !isRunFailed,
@@ -252,7 +241,6 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.Enumeration,
-            label: "enumeration",
             state: resolveStepState({
                 completed: hasEnumerationCompleted,
                 active:
@@ -269,7 +257,6 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.Metadata,
-            label: "metadata",
             state: resolveStepState({
                 completed: hasMetadataCompleted,
                 active:
@@ -284,7 +271,7 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.ImageCache,
-            label: "image cache",
+            blocking: false,
             state: resolveStepState({
                 completed: hasImageCacheCompleted,
                 active:
@@ -303,7 +290,6 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.Ownership,
-            label: "ownership",
             state: resolveStepState({
                 completed: hasOwnershipCompleted,
                 active:
@@ -319,7 +305,6 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.Backfill,
-            label: "backfill",
             state: resolveStepState({
                 completed: hasBackfillCompleted,
                 active:
@@ -334,7 +319,6 @@ function buildBootstrapRunFlow(input: {
         },
         {
             key: BOOTSTRAP_FLOW_STEP_KEY.CollectionLive,
-            label: "collection live",
             state: resolveStepState({
                 completed: input.collection.status === COLLECTION_STATUS.Live,
                 active: false,
@@ -375,7 +359,7 @@ function buildBootstrapRunFlow(input: {
         steps.push(
             {
                 key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaIdentity,
-                label: "opensea identity",
+                blocking: false,
                 state: resolveStepState({
                     completed: openseaIdentityCompleted,
                     active: openseaIdentityActive,
@@ -386,7 +370,7 @@ function buildBootstrapRunFlow(input: {
             },
             {
                 key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaSnapshot,
-                label: "opensea snapshot",
+                blocking: false,
                 state: resolveStepState({
                     completed: openseaSnapshotCompleted,
                     active: openseaSnapshotActive,
@@ -400,7 +384,7 @@ function buildBootstrapRunFlow(input: {
             },
             {
                 key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaReady,
-                label: "opensea ready",
+                blocking: false,
                 state: resolveStepState({
                     completed: openseaReadyCompleted,
                     active: false,
@@ -425,7 +409,7 @@ function buildBootstrapRunFlow(input: {
 
     const shouldPoll =
         resolveShouldPoll(input) ||
-        shouldPollNonBlockingSteps(input.runSteps);
+        shouldPollNonBlockingSteps(input.runSteps, input.run.status);
     return {
         steps: finalizeBootstrapFlowSteps(steps),
         isTerminal: !shouldPoll,
@@ -436,34 +420,23 @@ function buildBootstrapRunFlow(input: {
 function buildBootstrapRunFlowFromSteps(
     input: Parameters<typeof buildBootstrapRunFlow>[0],
 ): BootstrapRunDetailOutput["flow"] {
-    const queuedCompleted = input.run.status !== BOOTSTRAP_RUN_STATUS.Requested;
-    const steps: BootstrapFlowStepDraft[] = [
-        {
-            key: BOOTSTRAP_FLOW_STEP_KEY.Queued,
-            label: "queued",
-            state: resolveStepState({
-                completed: queuedCompleted,
-                active: !queuedCompleted,
-                failed: false,
-            }),
-            detailText: null,
-            progress: null,
-            blocking: true,
-        },
-    ];
+    const steps: BootstrapFlowStepDraft[] = [];
 
     for (const step of input.runSteps) {
         const key = step.stepKey as BootstrapFlowStepKey;
         steps.push({
             key,
-            label: formatBootstrapStepLabel(key),
             state: resolveFlowStepStateFromStepStatus(step.status),
             detailText: formatPersistedStepDetail(input, step),
             progress: resolvePersistedStepProgress(step),
             blocking: step.blocking,
             pausable: isPausableBootstrapStep(key),
             paused: step.status === BOOTSTRAP_STEP_STATUS.Paused,
-            availableActions: resolveBootstrapStepActions(key, step.status),
+            availableActions: resolveBootstrapStepActions(
+                key,
+                step.status,
+                input.run.status,
+            ),
         });
     }
 
@@ -476,7 +449,7 @@ function buildBootstrapRunFlowFromSteps(
 
     const shouldPoll =
         resolveShouldPoll(input) ||
-        shouldPollNonBlockingSteps(input.runSteps);
+        shouldPollNonBlockingSteps(input.runSteps, input.run.status);
     return {
         steps: finalizeBootstrapFlowSteps(steps),
         isTerminal: !shouldPoll,
@@ -545,6 +518,11 @@ function formatPersistedStepDetail(
     step: BootstrapRunStepRecord,
 ): string | null {
     if (step.lastError) {
+        if (step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock) {
+            // State and recovery controls suffice here; retain endpoint details
+            // in the durable step journal and logs rather than on the chip.
+            return null;
+        }
         return step.lastError;
     }
     if (step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
@@ -559,35 +537,6 @@ function formatPersistedStepDetail(
     return null;
 }
 
-function formatBootstrapStepLabel(key: BootstrapFlowStepKey): string {
-    switch (key) {
-        case BOOTSTRAP_FLOW_STEP_KEY.Anchor:
-            return "anchor";
-        case BOOTSTRAP_FLOW_STEP_KEY.Enumeration:
-            return "enumeration";
-        case BOOTSTRAP_FLOW_STEP_KEY.Metadata:
-            return "metadata";
-        case BOOTSTRAP_FLOW_STEP_KEY.ImageCache:
-            return "image cache";
-        case BOOTSTRAP_FLOW_STEP_KEY.Ownership:
-            return "ownership";
-        case BOOTSTRAP_FLOW_STEP_KEY.Backfill:
-            return "backfill";
-        case BOOTSTRAP_FLOW_STEP_KEY.CollectionLive:
-            return "collection live";
-        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaIdentity:
-            return "opensea identity";
-        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaSnapshot:
-            return "opensea snapshot";
-        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaReady:
-            return "opensea ready";
-        case BOOTSTRAP_FLOW_STEP_KEY.CollectionExtensionArtifacts:
-            return "extension artifacts";
-        case BOOTSTRAP_FLOW_STEP_KEY.Queued:
-            return "queued";
-    }
-}
-
 function isPausableBootstrapStep(key: BootstrapFlowStepKey): boolean {
     return isBootstrapStepKey(key) && isBootstrapStepPausable(key);
 }
@@ -595,7 +544,13 @@ function isPausableBootstrapStep(key: BootstrapFlowStepKey): boolean {
 function resolveBootstrapStepActions(
     key: BootstrapFlowStepKey,
     status: BootstrapRunStepRecord["status"],
+    runStatus: BootstrapRunRow["status"],
 ): BootstrapFlowStep["availableActions"] {
+    if (
+        runStatus === BOOTSTRAP_RUN_STATUS.Failed &&
+        key === BOOTSTRAP_STEP_KEY.DeploymentBlock
+    )
+        return [];
     if (
         isBootstrapStepKey(key) &&
         isBootstrapStepTerminalRetryable(key) &&
@@ -603,6 +558,7 @@ function resolveBootstrapStepActions(
     ) {
         return [BOOTSTRAP_STEP_ACTION.Retry];
     }
+    if (runStatus === BOOTSTRAP_RUN_STATUS.Failed) return [];
     if (!isPausableBootstrapStep(key)) {
         return [];
     }
@@ -619,11 +575,11 @@ function finalizeBootstrapFlowSteps(
     steps: BootstrapFlowStepDraft[],
 ): BootstrapFlowStep[] {
     return steps.map((step) => {
-        const pausable =
-            step.pausable ?? isPausableBootstrapStep(step.key);
+        const pausable = step.pausable ?? isPausableBootstrapStep(step.key);
         const paused = step.paused ?? false;
         return {
             ...step,
+            label: BOOTSTRAP_STEP_LABEL[step.key],
             blocking: step.blocking ?? true,
             pausable,
             paused,
@@ -779,7 +735,11 @@ function applyRunFailureDetail(
     failureMessage: string,
 ): void {
     for (let index = steps.length - 1; index >= 0; index -= 1) {
-        if (steps[index]?.state !== BOOTSTRAP_FLOW_STEP_STATE.Failed) continue;
+        if (
+            steps[index]?.state !== BOOTSTRAP_FLOW_STEP_STATE.Failed ||
+            steps[index]?.blocking === false
+        )
+            continue;
         steps[index] = {
             ...steps[index]!,
             detailText: failureMessage,
@@ -818,7 +778,9 @@ function resolveShouldPoll(input: {
 
 function shouldPollNonBlockingSteps(
     steps: readonly BootstrapRunStepRecord[],
+    runStatus: BootstrapRunStatus,
 ): boolean {
+    if (runStatus === BOOTSTRAP_RUN_STATUS.Failed) return false;
     return steps.some(
         (step) =>
             !step.blocking &&

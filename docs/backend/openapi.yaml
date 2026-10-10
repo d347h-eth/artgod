@@ -6580,6 +6580,7 @@ components:
                     backfill,
                     collection_live,
                     image_cache,
+                    deployment_block,
                     opensea_identity,
                     opensea_snapshot,
                     opensea_ready,
@@ -6733,11 +6734,11 @@ components:
             type: string
             enum:
                 [
-                    queued,
                     anchor,
                     enumeration,
                     metadata,
                     image_cache,
+                    deployment_block,
                     ownership,
                     backfill,
                     collection_live,
@@ -7053,6 +7054,9 @@ components:
                     $ref: "#/components/schemas/BootstrapMetadataMode"
                 scope:
                     $ref: "#/components/schemas/BootstrapScope"
+                sharedContract:
+                    type: boolean
+                    description: Positive finding from the matching setup probe, used only for the deployment lookup
                 imageCache:
                     type: object
                     required: [selectedSource, imageCacheMode, maxDimension]

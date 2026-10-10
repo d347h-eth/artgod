@@ -46,6 +46,8 @@ export type CreateBootstrapRunInput = {
     standard: typeof COLLECTION_STANDARD.Erc721;
     metadataMode: BootstrapMetadataMode;
     scope: BootstrapScope;
+    /** Positive shared-contract finding from setup, for deployment lookup only. */
+    sharedContract?: boolean;
     imageCache?: {
         selectedSource: CollectionCustomizationSourceKind;
         imageCacheMode: ImageCacheMode;
@@ -203,6 +205,9 @@ export type BootstrapStatusOutput = {
         total: number;
     };
 };
+
+export const BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE =
+    "Collection already has a non-failed bootstrap run";
 
 export class BootstrapConflictError extends Error {
     constructor(message: string) {

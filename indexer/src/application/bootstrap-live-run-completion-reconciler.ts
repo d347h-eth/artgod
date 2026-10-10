@@ -27,8 +27,7 @@ export interface BootstrapLiveRunCompletionCollectionPort {
     ): CollectionRecord | null;
 }
 
-export interface BootstrapLiveRunCompletionRunsPort
-    extends BootstrapTemporaryDataRunsPort {
+export interface BootstrapLiveRunCompletionRunsPort extends BootstrapTemporaryDataRunsPort {
     updateRunStatus(
         runId: number,
         status: typeof BOOTSTRAP_RUN_STATUS.Completed,
@@ -40,8 +39,7 @@ export interface BootstrapLiveRunCompletionStepsPort {
     listRunSteps(runId: number): BootstrapStepRecord[];
 }
 
-export interface BootstrapLiveRunCompletionTemporaryDataPort
-    extends BootstrapTemporaryDataStoragePort {}
+export interface BootstrapLiveRunCompletionTemporaryDataPort extends BootstrapTemporaryDataStoragePort {}
 
 // Restores completed run status after live collection side-lanes settle.
 export class BootstrapLiveRunCompletionReconciler {
@@ -52,9 +50,7 @@ export class BootstrapLiveRunCompletionReconciler {
         private readonly temporaryDataPort: BootstrapLiveRunCompletionTemporaryDataPort,
     ) {}
 
-    reconcile(
-        runId: number,
-    ): BootstrapLiveRunCompletionReconcileResult {
+    reconcile(runId: number): BootstrapLiveRunCompletionReconcileResult {
         const run = this.runsPort.getRun(runId);
         if (!run || !isRunCompletionRecoverable(run)) {
             return buildIdleResult();
@@ -100,10 +96,12 @@ function isLiveRunCompletionSettled(
 ): boolean {
     return (
         hasCollectionLiveStepSatisfied(steps) &&
-        steps.every((step) =>
-            step.blocking
-                ? isBootstrapStepDependencySatisfied(step.status)
-                : isBootstrapStepTerminalStatus(step.status),
+        steps.every(
+            (step) =>
+                step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock ||
+                (step.blocking
+                    ? isBootstrapStepDependencySatisfied(step.status)
+                    : isBootstrapStepTerminalStatus(step.status)),
         )
     );
 }
@@ -112,8 +110,7 @@ function hasCollectionLiveStepSatisfied(
     steps: readonly BootstrapStepRecord[],
 ): boolean {
     const step = steps.find(
-        (candidate) =>
-            candidate.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive,
+        (candidate) => candidate.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive,
     );
     return step ? isBootstrapStepDependencySatisfied(step.status) : false;
 }

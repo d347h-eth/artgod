@@ -101,6 +101,10 @@ synced state reflects coverage of each exact block, independently of the whole
 bucket. Markers appear only for the selected collection; chain-wide views
 continues to show indexed block coverage without collection markers.
 
+New collection bootstraps discover a missing deployment block in an independent
+optional step. The marker becomes available when that lookup finishes, including
+after the collection becomes live. Supplied deployment hints are preserved.
+
 Drill-down before deployment is blocked in the
 single-collection public view so public users cannot spend requests exploring
 irrelevant pre-deployment history.
@@ -259,18 +263,18 @@ different chain/context, it marks a bypass and falls back.
 Response/debug surfaces:
 
 - backend response headers:
-  - `X-ArtGod-Query-Cache`
-  - `X-ArtGod-Query-Cache-Age-Ms`
-  - `X-ArtGod-Query-Cache-Ttl-Ms`
-  - `X-ArtGod-Query-Cache-Events`
+    - `X-ArtGod-Query-Cache`
+    - `X-ArtGod-Query-Cache-Age-Ms`
+    - `X-ArtGod-Query-Cache-Ttl-Ms`
+    - `X-ArtGod-Query-Cache-Events`
 - backend Loki logs:
-  - `component=BackendApi`
-  - `action=query_cache_response`
+    - `component=BackendApi`
+    - `action=query_cache_response`
 - frontend SSR Loki logs:
-  - `component=FrontendSSR`
-  - `action=backend_api_response`
+    - `component=FrontendSSR`
+    - `action=backend_api_response`
 - page response headers in SSR:
-  - aggregate cache state across all backend calls used by that page load
+    - aggregate cache state across all backend calls used by that page load
 
 For the full SSR/backend observability path and focused tests, see
 `docs/indexer/10-observability-and-metrics.md`.

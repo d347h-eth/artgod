@@ -1026,6 +1026,7 @@
 				standard: 'erc721',
 				metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
 				scope,
+				sharedContract: latestProbeMatchesAddress && Boolean(probeResult?.sharedContract),
 				imageCache: {
 					selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
 					imageCacheMode,

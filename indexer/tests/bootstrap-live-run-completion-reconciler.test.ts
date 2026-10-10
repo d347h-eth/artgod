@@ -12,7 +12,11 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
-import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    OPENSEA_STREAM_INGESTION_STATUS,
+    type CollectionStatus,
+} from "@artgod/shared/types";
 import { BootstrapLiveRunCompletionReconciler } from "../src/application/bootstrap-live-run-completion-reconciler.js";
 import {
     CollectionRecord,
@@ -40,6 +44,32 @@ const EMPTY_COUNTS: BootstrapTaskCounts = {
 };
 
 describe("BootstrapLiveRunCompletionReconciler", () => {
+    it.each([
+        BOOTSTRAP_STEP_STATUS.Ready,
+        BOOTSTRAP_STEP_STATUS.Running,
+        BOOTSTRAP_STEP_STATUS.Paused,
+        BOOTSTRAP_STEP_STATUS.FailedRetry,
+        BOOTSTRAP_STEP_STATUS.FailedTerminal,
+    ])("completes a live run while deployment lookup is %s", (status) => {
+        const harness = buildHarness({
+            run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Metadata }),
+            collection: buildCollection(COLLECTION_STATUS.Live),
+            steps: [
+                succeededStep(BOOTSTRAP_STEP_KEY.Anchor),
+                succeededStep(BOOTSTRAP_STEP_KEY.Enumeration),
+                succeededStep(BOOTSTRAP_STEP_KEY.Metadata),
+                succeededStep(BOOTSTRAP_STEP_KEY.Ownership),
+                succeededStep(BOOTSTRAP_STEP_KEY.Backfill),
+                succeededStep(BOOTSTRAP_STEP_KEY.CollectionLive),
+                {
+                    ...readyStep(BOOTSTRAP_STEP_KEY.DeploymentBlock, false),
+                    status,
+                },
+            ],
+        });
+        expect(harness.reconciler.reconcile(TEST_RUN_ID).completed).toBe(true);
+        expect(harness.run?.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
+    });
     it("restores completed status for a live run after every step settles", () => {
         const harness = buildHarness({
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Metadata }),
@@ -223,6 +253,7 @@ function buildCollection(status: CollectionStatus): CollectionRecord {
         bootstrapLastSyncedBlock: TEST_ANCHOR_BLOCK,
         openseaSlug: null,
         openseaStatus: null,
+        openseaStreamIngestionStatus: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
         openseaReadyAt: null,
         openseaSnapshotStartedAt: null,
         openseaSnapshotCompletedAt: null,

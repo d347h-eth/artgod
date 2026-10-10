@@ -23,6 +23,7 @@ export const BOOTSTRAP_METADATA_TASK_SEED_LOG_STEP = 10_000;
 // Enumeration executor outcomes are returned to the runtime for diagnostics.
 export const BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME = {
     MetadataQueued: "metadata_queued",
+    LeaseLost: "lease_lost",
 } as const;
 
 // Enumeration failure codes are persisted on bootstrap_runs.error_code.
@@ -48,17 +49,19 @@ export type BootstrapEnumerationAnchor = {
 export type BootstrapEnumerationInput = {
     run: BootstrapRunDefinition;
     anchor: BootstrapEnumerationAnchor;
+    leaseOwner: string;
     metadataBatchSize: number;
     traceId: string;
 };
 
 export type BootstrapEnumerationExecutorResult = {
-    outcome: typeof BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued;
+    outcome: BootstrapEnumerationExecutorOutcome;
     tokenCount: number;
     elapsedMs: number;
 };
 
 export interface BootstrapEnumerationResolverPort {
+    // Return confirmed present IDs in enumeration order at this run's anchor.
     resolveTokenIds(input: {
         run: BootstrapRunDefinition;
         anchorBlock: number;
@@ -96,16 +99,21 @@ export interface BootstrapEnumerationRunsPort {
 }
 
 export interface BootstrapEnumerationStepsPort {
+    ownsEnumerationLease(input: BootstrapEnumerationClaim): boolean;
+    // Atomically retain the confirmed input and settle enumeration. A restart
+    // with existing tasks supplies no new token and preserves the retained input.
+    completeEnumeration(
+        input: BootstrapEnumerationClaim & {
+            tokenCount: number;
+            elapsedMs: number;
+            firstTokenId?: string;
+        },
+    ): boolean;
     markStepRunning(
         runId: number,
         stepKey:
             | typeof BOOTSTRAP_STEP_KEY.Enumeration
             | typeof BOOTSTRAP_STEP_KEY.Metadata,
-    ): void;
-    markStepSucceeded(
-        runId: number,
-        stepKey: typeof BOOTSTRAP_STEP_KEY.Enumeration,
-        progress: { completed: number; total: number | null },
     ): void;
     markStepFailedTerminal(input: {
         runId: number;
@@ -122,6 +130,11 @@ export interface BootstrapEnumerationStepsPort {
     ): void;
 }
 
+export type BootstrapEnumerationClaim = Pick<
+    BootstrapEnumerationInput,
+    "run" | "anchor" | "leaseOwner"
+>;
+
 // Executes token enumeration and durable metadata task seeding for a bootstrap run.
 export class BootstrapEnumerationExecutor {
     constructor(
@@ -136,16 +149,25 @@ export class BootstrapEnumerationExecutor {
         input: BootstrapEnumerationInput,
     ): Promise<BootstrapEnumerationExecutorResult> {
         const { run, anchor } = input;
+        const leaseLost: BootstrapEnumerationExecutorResult = {
+            outcome: BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.LeaseLost,
+            tokenCount: 0,
+            elapsedMs: 0,
+        };
+        if (!this.stepsPort.ownsEnumerationLease(input)) return leaseLost;
         let activeStep: BootstrapStepKey = BOOTSTRAP_STEP_KEY.Enumeration;
         try {
             const existingMetadataTasks =
                 this.storagePort.getMetadataTaskCounts(run.runId);
             if (existingMetadataTasks.total > 0) {
-                this.completeEnumeration(
-                    run,
-                    existingMetadataTasks.total,
-                    0,
-                );
+                if (
+                    !this.completeEnumeration(
+                        input,
+                        existingMetadataTasks.total,
+                        0,
+                    )
+                )
+                    return leaseLost;
                 return {
                     outcome:
                         BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
@@ -179,7 +201,19 @@ export class BootstrapEnumerationExecutor {
                 enumerationStartedAt,
             );
             const elapsedMs = Date.now() - enumerationStartedAt;
-            this.completeEnumeration(run, tokenIds.length, elapsedMs);
+            if (tokenIds.length === 0)
+                throw new Error(
+                    "No tokens exist in the collection scope at the bootstrap anchor",
+                );
+            if (
+                !this.completeEnumeration(
+                    input,
+                    tokenIds.length,
+                    elapsedMs,
+                    tokenIds[0],
+                )
+            )
+                return leaseLost;
 
             activeStep = BOOTSTRAP_STEP_KEY.Metadata;
             const seededTokenCount = this.seedMetadataTasks(
@@ -215,12 +249,17 @@ export class BootstrapEnumerationExecutor {
             });
 
             return {
-                outcome:
-                    BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
+                outcome: BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
                 tokenCount: seededTokenCount,
                 elapsedMs,
             };
         } catch (error) {
+            // A late resolver reply belongs to the old owner, including errors.
+            if (
+                activeStep === BOOTSTRAP_STEP_KEY.Enumeration &&
+                !this.stepsPort.ownsEnumerationLease(input)
+            )
+                return leaseLost;
             const message = String(error);
             logger.error("Bootstrap enumeration failed", {
                 component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,
@@ -239,10 +278,14 @@ export class BootstrapEnumerationExecutor {
                 attempts: 1,
                 error: message,
             });
-            this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-                code: BOOTSTRAP_ENUMERATION_FAILURE_CODE.BootstrapStartFailed,
-                message,
-            });
+            this.runsPort.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Failed,
+                {
+                    code: BOOTSTRAP_ENUMERATION_FAILURE_CODE.BootstrapStartFailed,
+                    message,
+                },
+            );
             this.runsPort.appendRunEvent({
                 runId: run.runId,
                 chainId: run.chainId,
@@ -280,19 +323,22 @@ export class BootstrapEnumerationExecutor {
 
         let resolvedCount = 0;
         let totalCount: number | null = null;
-        const heartbeat = setInterval(() => {
-            logger.info("Bootstrap token enumeration in progress", {
-                component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,
-                action: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Action,
-                runId: run.runId,
-                chainId: run.chainId,
-                collectionId: run.collectionId,
-                enumerationMode: run.enumerationMode,
-                resolvedTokenIds: resolvedCount,
-                totalTokenIds: totalCount,
-                elapsedMs: Date.now() - startedAt,
-            });
-        }, Math.max(1, this.heartbeatMs));
+        const heartbeat = setInterval(
+            () => {
+                logger.info("Bootstrap token enumeration in progress", {
+                    component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,
+                    action: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Action,
+                    runId: run.runId,
+                    chainId: run.chainId,
+                    collectionId: run.collectionId,
+                    enumerationMode: run.enumerationMode,
+                    resolvedTokenIds: resolvedCount,
+                    totalTokenIds: totalCount,
+                    elapsedMs: Date.now() - startedAt,
+                });
+            },
+            Math.max(1, this.heartbeatMs),
+        );
 
         try {
             return await this.resolverPort.resolveTokenIds({
@@ -361,10 +407,21 @@ export class BootstrapEnumerationExecutor {
     }
 
     private completeEnumeration(
-        run: BootstrapRunDefinition,
+        input: BootstrapEnumerationClaim,
         tokenCount: number,
         elapsedMs: number,
-    ): void {
+        firstTokenId?: string,
+    ): boolean {
+        const { run } = input;
+        if (
+            !this.stepsPort.completeEnumeration({
+                ...input,
+                tokenCount,
+                elapsedMs,
+                firstTokenId,
+            })
+        )
+            return false;
         logger.info("Bootstrap token enumeration completed", {
             component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,
             action: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Action,
@@ -375,27 +432,7 @@ export class BootstrapEnumerationExecutor {
             tokenCount,
             elapsedMs,
         });
-        this.runsPort.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
-            eventLevel: "info",
-            message: "Token enumeration completed",
-            payloadJson: JSON.stringify({
-                enumerationMode: run.enumerationMode,
-                tokenCount,
-                elapsedMs,
-            }),
-        });
-        this.stepsPort.markStepSucceeded(
-            run.runId,
-            BOOTSTRAP_STEP_KEY.Enumeration,
-            {
-                completed: tokenCount,
-                total: tokenCount,
-            },
-        );
+        return true;
     }
 
     private seedMetadataTasks(
@@ -404,7 +441,9 @@ export class BootstrapEnumerationExecutor {
         tokenIds: string[],
         batchSize: number,
     ): number {
-        const existingCounts = this.storagePort.getMetadataTaskCounts(run.runId);
+        const existingCounts = this.storagePort.getMetadataTaskCounts(
+            run.runId,
+        );
         if (existingCounts.total > 0) {
             logger.info("Bootstrap metadata task seeding skipped", {
                 component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,

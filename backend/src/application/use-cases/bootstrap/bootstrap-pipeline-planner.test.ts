@@ -36,7 +36,9 @@ describe("bootstrap pipeline planner", () => {
             requestExtensionKey: null,
         });
 
-        expect(steps.map((step) => step.stepKey)).toEqual([
+        expect(
+            steps.filter((step) => step.blocking).map((step) => step.stepKey),
+        ).toEqual([
             BOOTSTRAP_STEP_KEY.Anchor,
             BOOTSTRAP_STEP_KEY.Enumeration,
             BOOTSTRAP_STEP_KEY.Metadata,
@@ -51,7 +53,44 @@ describe("bootstrap pipeline planner", () => {
                 dependsOn: [],
             }),
         );
-        expect(steps.every((step) => step.blocking)).toBe(true);
+        expect(
+            steps.find(
+                (step) => step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                blocking: false,
+                dependsOn: [],
+                config: { sharedContract: false },
+            }),
+        );
+        expect(
+            steps.every(
+                (step) =>
+                    !step.dependsOn.includes(
+                        BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                    ),
+            ),
+        ).toBe(true);
+    });
+
+    it("persists a positive shared-contract probe finding for the deployment worker", () => {
+        const steps = planBootstrapRunSteps({
+            imageCache: {
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                maxDimension: null,
+            },
+            openseaSlug: null,
+            openseaIntegration: DISABLED_OPENSEA_INTEGRATION,
+            requestExtensionKey: null,
+            sharedContract: true,
+        });
+        expect(
+            steps.find(
+                (step) => step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock,
+            )?.config,
+        ).toEqual({ sharedContract: true });
     });
 
     it("adds non-blocking image-cache, extension, and OpenSea side lanes", () => {
