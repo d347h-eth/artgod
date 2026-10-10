@@ -482,11 +482,22 @@ help = "Maximum backoff delay between HTTP JSON-RPC retry attempts."
 view = "basic"
 
 [[settings]]
+key = "RPC_RATE_LIMIT_MODE"
+group = "chain-rpc"
+label = "rpc rate limit mode"
+default = "limited"
+help = "Limited uses the rate and burst below. Unlimited removes local RPC rate throttling."
+input = "select"
+options = ["limited", "unlimited"]
+view = "basic"
+
+[[settings]]
 key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
 group = "chain-rpc"
 label = "rpc rate limit requests per second"
 defaults = { local = "5", deploy = "50", desktop = "5" }
-help = "Maximum HTTP JSON-RPC requests per endpoint each second; 0 disables throttling."
+help = "Maximum HTTP JSON-RPC requests per endpoint each second in limited mode, including automatic gaps. When both RPC and gap filling are limited, set this above the gap RPC rate or the indexer cannot start."
+validation = "positive_number"
 view = "basic"
 
 [[settings]]
@@ -495,6 +506,7 @@ group = "chain-rpc"
 label = "rpc rate limit burst"
 defaults = { local = "5", deploy = "50", desktop = "5" }
 help = "Burst capacity for each endpoint's HTTP JSON-RPC rate limiter."
+validation = "positive_integer"
 view = "basic"
 
 [[settings]]
@@ -859,6 +871,34 @@ group = "indexer"
 label = "backfill worker count"
 default = "1"
 help = "Number of safe historical backfill jobs the sync worker may process in parallel."
+view = "basic"
+
+[[settings]]
+key = "GAP_FILL_MODE"
+group = "indexer"
+label = "automatic gap filling mode"
+default = "limited"
+help = "Disabled pauses automatic repairs and their RPC follow-ups. Unlimited removes the gap rate and concurrency caps; the overall RPC limit and priority for main work still apply."
+input = "select"
+options = ["disabled", "limited", "unlimited"]
+view = "basic"
+
+[[settings]]
+key = "GAP_FILL_RPC_REQUESTS_PER_SECOND"
+group = "indexer"
+label = "automatic gap RPC requests/sec per endpoint"
+default = "1.5"
+help = "Per-endpoint RPC allowance for automatic gap filling in limited mode. When overall RPC is also limited, set this below the overall RPC rate or the indexer cannot start."
+validation = "positive_number"
+view = "basic"
+
+[[settings]]
+key = "GAP_FILL_RPC_MAX_IN_FLIGHT"
+group = "indexer"
+label = "automatic gap RPC requests in flight"
+default = "3"
+help = "Maximum simultaneous automatic-gap RPC requests across workers and endpoints in limited mode."
+validation = "positive_integer"
 view = "basic"
 
 [[settings]]

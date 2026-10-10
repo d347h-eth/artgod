@@ -1,3 +1,5 @@
+import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -21,7 +23,6 @@ import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     type BackfillSyncPayload,
 } from "../src/domain/sync-jobs.js";
-import { REORG_JOB_KIND } from "../src/domain/reorg-jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
@@ -97,91 +98,40 @@ describe("durable production reorg recovery", () => {
         return selectBalanceOwners(F.ChainId, collectionId, "1");
     }
 
-    it("retains the original delivery beyond its DLQ budget until mismatch persistence succeeds", async () => {
+    it("retains a pending DB check across retention failure and restart", async () => {
         seedRecoveryHistory();
+        const check = retainCanonicalCheckFixture(services.storage, F.Orphan);
         db.exec(
-            "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+            "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT,'journal unavailable'); END;",
         );
-        const ack = vi.fn(async () => {});
-        const nack = vi.fn(async () => {});
-        const stop = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.BlockCheck,
-                consumerName: "retention-test",
-                maxAttempts: 1,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<{ blockNumber: number }>) =>
-                services.recovery.checkBlock(job.payload.blockNumber),
-        );
-        const message = {
-            data: {
-                jobId: "unretained-check",
-                kind: REORG_JOB_KIND.BlockCheck,
-                queue: QUEUE_NAMES.BlockCheck,
-                chainId: 1,
-                scheduledAt: 0,
-                attempt: 10,
-                payload: { blockNumber: F.Orphan },
-            },
-            ack,
-            nack,
-            touch: async () => {},
-        };
-        await queue.handler!(message);
-        expect(ack).not.toHaveBeenCalled();
-        expect(nack).toHaveBeenCalledWith({ delayMs: retryDelayMs });
-        expect(queue.jobs).toHaveLength(0); // No DLQ acknowledgement can relinquish the only owner.
+        await services.recovery.checkBlock(check);
         expect(services.recoveries.getRecovery(1)).toBeNull();
-        expect(revision()).toBe(0);
+        expect(services.checks.hasPending(1, now)).toBe(false);
         db.exec("DROP TRIGGER fail_mismatch_retention;");
-        await queue.handler!(message);
-        expect(ack).toHaveBeenCalledOnce();
+        now += retryDelayMs;
+        reopen();
+        expect(await services.recovery.checkDue()).toBe(true);
         expect(revision()).toBe(1);
         expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.Resync,
         );
-        await stop();
+        expect(queue.jobs).toHaveLength(0);
     });
 
     it.each(["rpc", "wrong-height", "checkpoint-read", "header-read"] as const)(
-        "retains the only check owner after journal deferrals followed by a pre-handoff %s failure",
+        "retains DB ownership after repeated journal failures followed by %s failure",
         async (failure) => {
             const fixture = seedRecoveryHistory();
+            const check = retainCanonicalCheckFixture(
+                services.storage,
+                F.Orphan,
+            );
             db.exec(
-                "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+                "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT,'journal unavailable'); END;",
             );
-            const ack = vi.fn(async () => {});
-            const nack = vi.fn(async () => {});
-            const stop = await runWorker(
-                queue,
-                {
-                    queue: QUEUE_NAMES.BlockCheck,
-                    consumerName: "pre-handoff-test",
-                    maxAttempts: 5,
-                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
-                },
-                async (job: JobEnvelope<{ blockNumber: number }>) =>
-                    services.recovery.checkBlock(job.payload.blockNumber),
-            );
-            const message: QueueMessage<{ blockNumber: number }> = {
-                data: {
-                    jobId: "unretained-check",
-                    kind: REORG_JOB_KIND.BlockCheck,
-                    queue: QUEUE_NAMES.BlockCheck,
-                    chainId: F.ChainId,
-                    scheduledAt: 0,
-                    attempt: 1,
-                    payload: { blockNumber: F.Orphan },
-                },
-                ack,
-                nack,
-                touch: async () => {},
-            };
-            for (let attempt = 1; attempt <= 5; attempt++) {
-                message.data.attempt = attempt;
-                await queue.handler!(message);
+            for (let attempt = 0; attempt < 5; attempt++) {
+                await services.recovery.checkBlock(check);
+                now += retryDelayMs;
             }
             db.exec("DROP TRIGGER fail_mismatch_retention;");
             switch (failure) {
@@ -212,27 +162,19 @@ describe("durable production reorg recovery", () => {
                     });
                     break;
             }
-            message.data.attempt = 6;
-            await queue.handler!(message);
-            expect(ack).not.toHaveBeenCalled();
-            expect(nack).toHaveBeenCalledTimes(6);
-            expect(nack).toHaveBeenLastCalledWith({ delayMs: retryDelayMs });
-            expect(queue.jobs).toHaveLength(0);
-            expect(services.recoveries.getRecovery(F.ChainId)).toBeNull();
-            await services.recovery.resumeDue();
+            await services.recovery.checkBlock(check);
+            expect(services.recoveries.getRecovery(1)).toBeNull();
+            expect(services.checks.hasPending(1, now + retryDelayMs)).toBe(
+                true,
+            );
             expect(revision()).toBe(0);
             expect(owners(fixture.collectionId)).toEqual([
                 { owner: F.OrphanOwner, amount: "1" },
             ]);
-
-            message.data.attempt = 7;
-            await queue.handler!(message);
-            expect(ack).toHaveBeenCalledOnce();
-            expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
-                REORG_RECOVERY_PHASE.Resync,
-            );
+            now += retryDelayMs;
+            expect(await services.recovery.checkDue()).toBe(true);
             let ranges = 0;
-            while (services.recoveries.getRecovery(F.ChainId)) {
+            while (services.recoveries.getRecovery(1)) {
                 expect(await acquireAndPublish(pendingRecoveryRange())).toBe(
                     true,
                 );
@@ -243,26 +185,21 @@ describe("durable production reorg recovery", () => {
             expect(owners(fixture.collectionId)).toEqual([
                 { owner: F.Owner, amount: "1" },
             ]);
-            expect(
-                selectTransferCount(F.ChainId, fixture.collectionId, "1"),
-            ).toBe(0);
+            expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
             expect(
                 services.storage.countCollectionSyncedBlocksInRange(
-                    F.ChainId,
+                    1,
                     fixture.collectionId,
                     F.Orphan,
                     F.Head,
                 ),
             ).toBe(3);
-            expect(
-                queue.jobs.some((job) => job.queue === QUEUE_NAMES.DeadLetter),
-            ).toBe(false);
-            await stop();
         },
     );
 
-    it("leaves retry with retained recovery when a post-handoff continuation reaches DLQ", async () => {
+    it("retains recovery after a post-handoff continuation and retry-bookkeeping failure", async () => {
         const fixture = seedRecoveryHistory();
+        const check = retainCanonicalCheckFixture(services.storage, F.Orphan);
         vi.spyOn(rpc, "readContractAtBlock").mockRejectedValueOnce(
             new Error("Ownership RPC unavailable"),
         );
@@ -271,46 +208,18 @@ describe("durable production reorg recovery", () => {
                 throw new Error("Retry bookkeeping unavailable");
             },
         );
-        const ack = vi.fn(async () => {});
-        const stop = await runWorker(
-            queue,
-            {
-                queue: QUEUE_NAMES.BlockCheck,
-                consumerName: "post-handoff-test",
-                maxAttempts: 5,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<{ blockNumber: number }>) =>
-                services.recovery.checkBlock(job.payload.blockNumber),
+        await expect(services.recovery.checkBlock(check)).rejects.toThrow(
+            "Retry bookkeeping unavailable",
         );
-        await queue.handler!({
-            data: {
-                jobId: "retained-check",
-                kind: REORG_JOB_KIND.BlockCheck,
-                queue: QUEUE_NAMES.BlockCheck,
-                chainId: F.ChainId,
-                scheduledAt: 0,
-                attempt: 6,
-                payload: { blockNumber: F.Orphan },
-            },
-            ack,
-            nack: vi.fn(async () => {}),
-            touch: async () => {},
-        });
-        expect(ack).toHaveBeenCalledOnce();
-        expect(
-            queue.jobs.filter((job) => job.queue === QUEUE_NAMES.DeadLetter),
-        ).toHaveLength(1);
-        expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
+        expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
-        expect(revision()).toBe(0);
+        expect(services.checks.hasPending(1, now)).toBe(false);
         await services.recovery.resumeDue();
         expect(revision()).toBe(1);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.Owner, amount: "1" },
         ]);
-        await stop();
     });
 
     it("does not let a repaired header hide an earlier orphan when choosing the rollback boundary", async () => {
@@ -333,18 +242,23 @@ describe("durable production reorg recovery", () => {
         async function repairNext(expected: number[]) {
             await scheduler.scan(F.Orphan);
             const batch = planSyncGapRepairBatches(
-                gaps.listDueRepairsAtNewestPendingHeight({
-                    chainId: F.ChainId,
-                    now,
-                    limit: 16,
-                }),
+                gaps
+                    .listDueRepairsAtNewestPendingHeight({
+                        upperBound: Number.MAX_SAFE_INTEGER,
+                        chainId: F.ChainId,
+                        now,
+                        limit: 16,
+                    })
+                    .map((repair) => ({ repair, missing: repair })),
                 F.BatchSize,
             )[0];
             expect([batch.fromBlock, batch.toBlock]).toEqual(expected);
             await services.executor.runDue();
             await services.publishRetained(queue);
         }
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
             REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
@@ -447,6 +361,7 @@ describe("durable production reorg recovery", () => {
                 rpc.beforeOwnerRead = undefined;
                 const header = syncBlockFixture(divergent ? 10_103 : 103);
                 fixture.storage.persistSyncResult({
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     checkpoint: fixture.storage.captureSyncCheckpoint(
                         F.ChainId,
                     ),
@@ -460,7 +375,9 @@ describe("durable production reorg recovery", () => {
                     ],
                 });
             };
-            await services.recovery.checkBlock(F.Orphan);
+            await services.recovery.checkBlock(
+                retainCanonicalCheckFixture(services.storage, F.Orphan),
+            );
             expect(revision()).toBe(0);
             expect(owners(fixture.collectionId)).toEqual([
                 { owner: F.OrphanOwner, amount: "1" },
@@ -493,33 +410,11 @@ describe("durable production reorg recovery", () => {
         },
     );
 
-    it("acknowledges retained mismatch, fills missing ancestors through actual gap processing, then recovers at stationary HEAD after reopen", async () => {
+    it("hands off the DB check to retained recovery, fills missing ancestors through actual gap processing, then recovers at stationary HEAD after reopen", async () => {
         const fixture = seedRecoveryHistory(false);
-        const ack = vi.fn(async () => {});
-        const nack = vi.fn(async () => {});
-        const stop = await runWorker(
-            queue,
-            { queue: QUEUE_NAMES.BlockCheck, consumerName: "recovery-test" },
-            async (job: JobEnvelope<{ blockNumber: number }>) =>
-                services.recovery.checkBlock(job.payload.blockNumber),
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
-        await queue.handler!({
-            data: {
-                jobId: "check-105",
-                kind: REORG_JOB_KIND.BlockCheck,
-                queue: QUEUE_NAMES.BlockCheck,
-                chainId: 1,
-                scheduledAt: 0,
-                attempt: 1,
-                payload: { blockNumber: F.Orphan },
-            },
-            ack,
-            nack,
-            touch: async () => {},
-        });
-        await stop();
-        expect(ack).toHaveBeenCalledOnce();
-        expect(nack).not.toHaveBeenCalled();
         expect(services.recoveries.getRecovery(1)).toMatchObject({
             phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
             checkedBlock: F.Orphan,
@@ -535,15 +430,19 @@ describe("durable production reorg recovery", () => {
             batchSize: F.BatchSize,
             now: () => now,
         });
+        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(F.Head + 1);
         const repaired: number[][] = [];
         for (let i = 0; i < 3; i++) {
             await scheduler.scan(F.Head);
             const batch = planSyncGapRepairBatches(
-                gaps.listDueRepairsAtNewestPendingHeight({
-                    chainId: 1,
-                    now,
-                    limit: 16,
-                }),
+                gaps
+                    .listDueRepairsAtNewestPendingHeight({
+                        upperBound: Number.MAX_SAFE_INTEGER,
+                        chainId: 1,
+                        now,
+                        limit: 16,
+                    })
+                    .map((repair) => ({ repair, missing: repair })),
                 F.BatchSize,
             )[0];
             repaired.push([batch.fromBlock, batch.toBlock]);
@@ -603,12 +502,16 @@ describe("durable production reorg recovery", () => {
 
     it("unknown ownership failure retains proof without rollback; matching checks have no recovery", async () => {
         const fixture = seedRecoveryHistory();
-        await services.recovery.checkBlock(F.Fork);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Fork),
+        );
         expect(services.recoveries.getRecovery(1)).toBeNull();
         rpc.beforeOwnerRead = async () => {
             throw new Error("Historical state unavailable");
         };
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(revision()).toBe(0);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
@@ -633,7 +536,9 @@ describe("durable production reorg recovery", () => {
     it("defers a head behind the verified fork and completes fork-only rollback without an invented range", async () => {
         const fixture = seedRecoveryHistory();
         rpc.getBlockNumber = async () => F.Fork - 1;
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(revision()).toBe(0);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
@@ -658,7 +563,9 @@ describe("durable production reorg recovery", () => {
         db.exec(
             `CREATE TEMP TRIGGER fail_recovery_publication BEFORE UPDATE ON chain_reorg_recoveries WHEN NEW.phase = '${REORG_RECOVERY_PHASE.Resync}' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;`,
         );
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(revision()).toBe(0);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
@@ -683,7 +590,9 @@ describe("durable production reorg recovery", () => {
 
     it("resumes direct acquisition after rollback and retries partial publication without acquiring again", async () => {
         const fixture = seedRecoveryHistory();
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const first = pendingRecoveryRange();
         reopen();
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
@@ -718,13 +627,16 @@ describe("durable production reorg recovery", () => {
     });
 
     it("keeps required publication retryable beyond the ordinary budget after recovery completion", async () => {
+        const ranges = vi.spyOn(rpc, "getLogs");
         seedRecoveryHistory();
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         while (services.recoveries.getRecovery(1))
             expect(
                 await services.acquireRecoveryRange(pendingRecoveryRange()),
             ).toBe(true);
-        const reads = rpc.logReads;
+        const completedCalls = ranges.mock.calls.length;
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
         for (let i = 0; i < 7; i++)
             await drainQueueOutbox(services.outbox, queue, {
@@ -745,7 +657,13 @@ describe("durable production reorg recovery", () => {
         queue.failureQueue = undefined;
         await services.publishRetained(queue);
         await services.executor.runDue();
-        expect(rpc.logReads).toBe(reads);
+        // Automatic discovery may repair unrelated older holes; publication
+        // recovery must never repeat the completed resync range.
+        expect(
+            ranges.mock.calls
+                .slice(completedCalls)
+                .every(([filter]) => filter.toBlock <= F.Fork),
+        ).toBe(true);
         expect(services.recoveries.getRecovery(1)).toBeNull();
     });
 
@@ -753,7 +671,14 @@ describe("durable production reorg recovery", () => {
         const fixture = seedRecoveryHistory();
         rpc.beforeOwnerRead = async () => {
             rpc.beforeOwnerRead = undefined;
-            await services.recovery.checkBlock(F.Orphan + 1); // No stored header: no false mismatch.
+            expect(
+                services.checks.nextDue({
+                    chainId: 1,
+                    now,
+                    upperBound: F.Orphan + 1,
+                }),
+            ).toBeNull(); // No imported header can own a check.
+            retainCanonicalCheckFixture(services.storage, F.Fork);
             services.recoveries.retainMismatch({
                 checkpoint: services.storage.captureSyncCheckpoint(1),
                 recoveryId: "new-earlier-mismatch",
@@ -763,7 +688,9 @@ describe("durable production reorg recovery", () => {
                 now,
             });
         };
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(revision()).toBe(0);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
@@ -787,7 +714,9 @@ describe("durable production reorg recovery", () => {
                 },
             ]);
         };
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         expect(revision()).toBe(0);
         expect(selectTransferCount(1, fixture.collectionId, "2")).toBe(1);
         expect(
@@ -814,6 +743,7 @@ describe("durable production reorg recovery", () => {
             await releasePromise;
         };
         const realtime = processSyncRange({
+            reorgDepth: 3,
             rpc,
             storage: services.storage,
             commit: services.commit,
@@ -840,7 +770,9 @@ describe("durable production reorg recovery", () => {
             completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
         });
         await enteredPromise;
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         released();
         await expect(realtime).rejects.toBeInstanceOf(ChainSyncConflict);
         expect(services.storage.getBlockHash(1, 107)).toBeNull();
@@ -849,7 +781,9 @@ describe("durable production reorg recovery", () => {
 
     it("preserves unfinished pre-fork range publications when a newer mismatch interrupts resync", async () => {
         seedRecoveryHistory();
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const old = pendingRecoveryRange();
         expect(await services.acquireRecoveryRange(old)).toBe(true);
         queue.failureQueue = QUEUE_NAMES.OrdersDomain;
@@ -865,7 +799,9 @@ describe("durable production reorg recovery", () => {
                       hash: `0x${String(number + 20_000).padStart(64, "0")}`,
                   };
         };
-        await services.recovery.checkBlock(106);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, 106),
+        );
         expect(revision()).toBe(2);
         expect(services.recoveries.getRecovery(1)!.recoveryId).not.toBe(
             previousId,
@@ -890,7 +826,9 @@ describe("durable production reorg recovery", () => {
 
     it("does not complete or acquire a retained reorg range when all eligible collections are paused", async () => {
         const fixture = seedRecoveryHistory();
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const range = pendingRecoveryRange();
         db.prepare(
             "UPDATE collections SET status = ? WHERE collection_id = ?",

@@ -1,4 +1,10 @@
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
+import { automaticGapUpperBound } from "../domain/chain-sync.js";
 import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
@@ -10,6 +16,7 @@ import {
 } from "../domain/reorg-recovery.js";
 import {
     SYNC_WORK_COMPLETION,
+    AUTOMATIC_GAP_WORK_POLICY,
     type SyncWorkCompletion,
 } from "../domain/sync-work.js";
 import {
@@ -37,12 +44,13 @@ import {
     SYNC_GAP_POLICY,
     type SyncGapStorePort,
     type SyncGapHeadRecheckPort,
+    type SyncGapDetectorPort,
 } from "./sync-gap-scheduler.js";
 import type { SyncRange } from "./sync.js";
 
 export const AUTOMATIC_SYNC_POLICY = {
     PollMs: 12_000,
-    RetryDelayMs: 5 * 60_000,
+    RetryDelayMs: AUTOMATIC_GAP_WORK_POLICY.RetryDelayMs,
 } as const;
 const LOG_COMPONENT = "AutomaticSyncExecutor";
 const LOG_ACTION = { Range: "range", Poll: "poll" } as const;
@@ -61,10 +69,13 @@ type AutomaticSyncInput = Omit<
     > &
         CollectionScopeResolverPort;
     gaps: SyncGapStorePort;
-    headGapRecheck: SyncGapHeadRecheckPort;
+    gapScheduler: SyncGapHeadRecheckPort & SyncGapDetectorPort;
+    gapWorkEnabled: boolean;
+    workScope: { run<T>(workClass: SyncWorkClass, task: () => T): T };
     recoveries: Pick<ReorgRecoveryStore, "getRecovery" | "deferResync">;
     gate: Pick<BackfillExecutionGate, "run">;
     batchSize: number;
+    reorgDepth: number;
     retryDelayMs?: number;
     now?: () => number;
 };
@@ -72,7 +83,9 @@ type AutomaticSyncInput = Omit<
 // One bounded acquisition per pass. SQLite owns intent before and after a crash;
 // no broker message, delivery generation or publication reply owns progression.
 export class AutomaticSyncExecutor {
-    private active: Promise<void> | null = null;
+    private active: Promise<boolean> | null = null;
+    private discoveryHead: { block: number; readAt: number } | null = null;
+    private discoveryRevision: number | null = null;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -83,13 +96,16 @@ export class AutomaticSyncExecutor {
         if (
             !Number.isSafeInteger(input.batchSize) ||
             input.batchSize < 1 ||
+            !Number.isSafeInteger(input.reorgDepth) ||
+            input.reorgDepth < 1 ||
             !Number.isSafeInteger(this.retryDelayMs) ||
             this.retryDelayMs < 1
         )
             throw new Error("Invalid automatic sync policy");
     }
 
-    runDue(): Promise<void> {
+    // True requests another immediate pass; false means idle, paused or waiting.
+    runDue(): Promise<boolean> {
         if (!this.active)
             this.active = this.run().finally(() => {
                 this.active = null;
@@ -97,60 +113,112 @@ export class AutomaticSyncExecutor {
         return this.active;
     }
 
-    private async run(): Promise<void> {
+    private async run(): Promise<boolean> {
         const recovery = this.input.recoveries.getRecovery(this.input.chainId);
-        if (
-            recovery?.phase === REORG_RECOVERY_PHASE.Resync &&
-            recovery.retryAt <= this.now()
-        ) {
-            await this.runReorgResync();
-            return;
+        if (recovery?.phase === REORG_RECOVERY_PHASE.Resync) {
+            if (recovery.retryAt > this.now()) return false;
+            return this.input.workScope.run(SYNC_WORK_CLASS.Main, () =>
+                this.runReorgResync(),
+            );
         }
-        const pending = this.input.gaps.listDueRepairsAtNewestPendingHeight({
-            chainId: this.input.chainId,
-            now: this.now(),
-            limit: SYNC_GAP_POLICY.CollectionsPerPass,
-        });
         if (
-            !pending.length &&
-            !this.input.headGapRecheck.hasHeadRechecksDue()
-        ) {
-            return;
-        }
-        await this.input.gate.run(
-            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-            async () => {
-                // Waiting for this gate must not freeze an old selection. HEAD
-                // checks and replacement happen before fetching any block data,
-                // after the previous current-state backfill has finished.
-                if (
-                    this.input.recoveries.getRecovery(this.input.chainId)
-                        ?.phase === REORG_RECOVERY_PHASE.Resync
-                )
-                    return;
-                const head = await this.input.rpc.getBlockNumber();
-                this.input.headGapRecheck.recheckFromHead(head);
-                const pending =
-                    this.input.gaps.listDueRepairsAtNewestPendingHeight({
-                        chainId: this.input.chainId,
-                        now: this.now(),
-                        limit: SYNC_GAP_POLICY.CollectionsPerPass,
+            !this.input.gapWorkEnabled ||
+            !this.input.gapScheduler.hasCollections()
+        )
+            return false;
+        return this.input.workScope.run(SYNC_WORK_CLASS.GapRepair, () =>
+            this.input.gate.run(
+                BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+                async () => {
+                    // Reselect after any manual/recovery work admitted ahead of this pass.
+                    if (
+                        this.input.recoveries.getRecovery(this.input.chainId)
+                            ?.phase === REORG_RECOVERY_PHASE.Resync
+                    )
+                        return false;
+                    // Reuse a briefly observed HEAD for local-only discovery pages.
+                    // Fetch-and-save work always reads a fresh HEAD before selection.
+                    let freshHead =
+                        !this.discoveryHead ||
+                        this.now() - this.discoveryHead.readAt >=
+                            AUTOMATIC_SYNC_POLICY.PollMs ||
+                        this.input.gapScheduler.hasHeadRechecksDue();
+                    let head = freshHead
+                        ? await this.readHead()
+                        : this.discoveryHead!.block;
+                    const revision = this.input.storage.captureSyncCheckpoint(
+                        this.input.chainId,
+                    ).revision;
+                    if (
+                        this.discoveryRevision !== null &&
+                        revision !== this.discoveryRevision
+                    )
+                        this.input.gapScheduler.resetDiscovery();
+                    this.discoveryRevision = revision;
+                    let upperBound = automaticGapUpperBound(
+                        head,
+                        this.input.reorgDepth,
+                    );
+                    this.input.gapScheduler.recheckFromHead(upperBound);
+                    const moreToScan =
+                        await this.input.gapScheduler.scan(upperBound);
+                    let pending = this.dueGaps(upperBound);
+                    if (pending.length && !freshHead) {
+                        head = await this.readHead();
+                        upperBound = automaticGapUpperBound(
+                            head,
+                            this.input.reorgDepth,
+                        );
+                        this.input.gapScheduler.recheckFromHead(upperBound);
+                        pending = this.dueGaps(upperBound);
+                    }
+                    // Coverage may have been committed since discovery or while waiting
+                    // for the gate. Inspect only the next bounded window before RPC.
+                    const candidates = pending.flatMap((repair) => {
+                        const candidate =
+                            this.input.gaps.reconcileRepairCoverage({
+                                chainId: this.input.chainId,
+                                repair,
+                                batchSize: this.input.batchSize,
+                                now: this.now(),
+                            });
+                        return candidate ? [candidate] : [];
                     });
-                const eligible = pending.filter(
-                    (repair) => repair.toBlock <= head,
-                );
-                // The store retains newest priority during retries; a shortened
-                // RPC head also leaves that range pending instead of choosing older work.
-                const batch = planSyncGapRepairBatches(
-                    eligible,
-                    this.input.batchSize,
-                )[0];
-                if (batch) await this.runGapRepair(batch);
-            },
+                    // Removing a covered suffix can reveal newer work beyond this
+                    // bounded page. Reconsider global priority before fetching.
+                    const newestReady = this.dueGaps(upperBound)[0]?.toBlock;
+                    const batch = planSyncGapRepairBatches(
+                        candidates.filter(
+                            (candidate) =>
+                                candidate.repair.toBlock === newestReady,
+                        ),
+                        this.input.batchSize,
+                    )[0];
+                    return batch
+                        ? this.runGapRepair(batch)
+                        : pending.length > 0 || moreToScan;
+                },
+                SYNC_WORK_CLASS.GapRepair,
+            ),
         );
     }
 
-    private async runGapRepair(planned: SyncGapRepairBatch): Promise<void> {
+    private dueGaps(upperBound: number) {
+        return this.input.gaps.listDueRepairsAtNewestPendingHeight({
+            chainId: this.input.chainId,
+            now: this.now(),
+            limit: SYNC_GAP_POLICY.CollectionsPerPass,
+            upperBound,
+        });
+    }
+
+    private async readHead(): Promise<number> {
+        const block = await this.input.rpc.getBlockNumber();
+        this.discoveryHead = { block, readAt: this.now() };
+        return block;
+    }
+
+    private async runGapRepair(planned: SyncGapRepairBatch): Promise<boolean> {
         const admitted = planned.repairs.flatMap((repair) => {
             const collection = this.input.collectionsPort.getCollection(
                 this.input.chainId,
@@ -171,7 +239,7 @@ export class AutomaticSyncExecutor {
                 return [];
             return [{ repair, collection }];
         });
-        if (!admitted.length) return;
+        if (!admitted.length) return false;
         const repairs = admitted.map((member) => member.repair);
         const batch = { ...planned, repairs };
         const collections = admitted.map((member) => member.collection);
@@ -190,19 +258,25 @@ export class AutomaticSyncExecutor {
                 batch,
                 retryAt: this.now(),
             });
+            return true;
         } catch (error) {
             for (const repair of repairs)
                 this.input.gaps.deferRetry(
                     this.input.chainId,
                     repair,
-                    this.now() + this.retryDelayMs,
+                    this.now() +
+                        (error instanceof RpcBudgetDeferred
+                            ? error.retryAfterMs
+                            : this.retryDelayMs),
                 );
-            this.logFailure(SYNC_WORK_COMPLETION.GapRepair, batch, error);
+            if (!(error instanceof RpcBudgetDeferred))
+                this.logFailure(SYNC_WORK_COMPLETION.GapRepair, batch, error);
+            return false;
         }
     }
 
-    private async runReorgResync(): Promise<void> {
-        await this.input.gate.run(
+    private async runReorgResync(): Promise<boolean> {
+        return this.input.gate.run(
             BACKFILL_EXECUTION_MODE.SerializedCurrentState,
             async () => {
                 const current = this.input.recoveries.getRecovery(
@@ -212,13 +286,13 @@ export class AutomaticSyncExecutor {
                     current?.phase !== REORG_RECOVERY_PHASE.Resync ||
                     current.retryAt > this.now()
                 )
-                    return;
+                    return false;
                 const collections = resolveBackfillCollections(
                     this.input.collectionsPort,
                     this.input.chainId,
                     null,
                 );
-                if (!collections.length) return;
+                if (!collections.length) return false;
                 const range: ReorgResyncRange = {
                     chainId: current.chainId,
                     recoveryId: current.recoveryId,
@@ -245,10 +319,15 @@ export class AutomaticSyncExecutor {
                             retryAt: this.now(),
                         },
                     );
+                    return true;
                 } catch (error) {
                     this.input.recoveries.deferResync({
                         range,
-                        retryAt: this.now() + this.retryDelayMs,
+                        retryAt:
+                            this.now() +
+                            (error instanceof RpcBudgetDeferred
+                                ? error.retryAfterMs
+                                : this.retryDelayMs),
                         error: String(error),
                     });
                     this.logFailure(
@@ -256,8 +335,10 @@ export class AutomaticSyncExecutor {
                         range,
                         error,
                     );
+                    return false;
                 }
             },
+            SYNC_WORK_CLASS.Main,
         );
     }
 
@@ -273,6 +354,7 @@ export class AutomaticSyncExecutor {
             commit: this.input.commit,
             collectionExtensions: this.input.collectionExtensions,
             chainId: this.input.chainId,
+            reorgDepth: this.input.reorgDepth,
             bidderIndex: this.input.bidderIndex,
             wethAddress: this.input.wethAddress,
             collectionScopeResolver: this.input.collectionsPort,
@@ -319,20 +401,41 @@ export function startAutomaticSyncLoop(
 ): () => Promise<void> {
     if (!Number.isSafeInteger(pollMs) || pollMs < 1)
         throw new Error("Invalid automatic sync polling interval");
-    const tick = () =>
-        executor.runDue().catch((error) =>
-            logger.warn("Automatic sync pass failed", {
-                component: LOG_COMPONENT,
-                action: LOG_ACTION.Poll,
-                error: String(error),
-            }),
-        );
-    let active = tick();
-    const timer = setInterval(() => {
-        active = tick();
-    }, pollMs);
+    let stopped = false;
+    let resume: (() => void) | undefined;
+    const active = (async () => {
+        while (!stopped) {
+            let busy = false;
+            try {
+                busy = await executor.runDue();
+            } catch (error) {
+                if (!(error instanceof RpcBudgetDeferred))
+                    logger.warn("Automatic sync pass failed", {
+                        component: LOG_COMPONENT,
+                        action: LOG_ACTION.Poll,
+                        error: String(error),
+                    });
+            }
+            if (stopped) break;
+            await new Promise<void>((resolve) => {
+                const timer = setTimeout(
+                    () => {
+                        resume = undefined;
+                        resolve();
+                    },
+                    busy ? 0 : pollMs,
+                );
+                resume = () => {
+                    clearTimeout(timer);
+                    resume = undefined;
+                    resolve();
+                };
+            });
+        }
+    })();
     return async () => {
-        clearInterval(timer);
+        stopped = true;
+        resume?.();
         await active;
     };
 }

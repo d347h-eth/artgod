@@ -1,3 +1,7 @@
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
 import {
@@ -79,15 +83,31 @@ describe("continuous fair demand scheduling", () => {
 
     it("holds at most two executions and waits for active work during stop", async () => {
         const gate = deferred();
-        const executeBatch = vi.fn(async () => {
-            await gate.promise;
-            return progressed;
-        });
+        const admission = new FairOrderValidationAdmission(2);
+        let active = 0,
+            maximum = 0;
+        const executeBatch = vi.fn(
+            (
+                signal?: AbortSignal,
+                workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
+            ) =>
+                admission.run(
+                    async () => {
+                        maximum = Math.max(maximum, ++active);
+                        await gate.promise;
+                        active--;
+                        return progressed;
+                    },
+                    signal,
+                    workClass,
+                ),
+        );
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(POLICY.pollMs * 3);
         expect(executeBatch).toHaveBeenCalledTimes(
             ORDER_PROCESSING_POLICY.concurrentValidations,
         );
+        expect(maximum).toBe(ORDER_PROCESSING_POLICY.concurrentValidations);
         let stopped = false;
         const stopping = stop().then(() => {
             stopped = true;
@@ -117,14 +137,22 @@ describe("continuous fair demand scheduling", () => {
         const gate = deferred();
         const events: string[] = [];
         let count = 0;
-        const executeBatch = vi.fn((signal?: AbortSignal) =>
-            admission.run(async () => {
-                count++;
-                if (count > 2) return undefined;
-                events.push("demand");
-                await gate.promise;
-                return progressed;
-            }, signal),
+        const executeBatch = vi.fn(
+            (
+                signal?: AbortSignal,
+                workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
+            ) =>
+                admission.run(
+                    async () => {
+                        count++;
+                        if (count > 2) return undefined;
+                        events.push("demand");
+                        await gate.promise;
+                        return progressed;
+                    },
+                    signal,
+                    workClass,
+                ),
         );
         stop = startOrderValidationDemand({ executeBatch });
         await vi.advanceTimersByTimeAsync(0);
@@ -149,6 +177,9 @@ describe("continuous fair demand scheduling", () => {
             admission.run(() => gate.promise),
         ];
         const store: OrderValidationDemandPort = {
+            captureSyncCheckpoint: vi.fn(),
+            isCovered: vi.fn(),
+            recordValidation: vi.fn(),
             defer: vi.fn(),
             admit: vi.fn(),
             get: vi.fn(),

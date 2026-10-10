@@ -1,3 +1,4 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./chain-fixture.js";
 import { db } from "@artgod/shared/database";
 import { SqliteCollectionRegistry } from "../../src/infra/collections/sqlite.js";
 import { SqliteStorage } from "../../src/infra/storage/sqlite.js";
@@ -96,6 +97,7 @@ export function transferFixture() {
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents = events;
         storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: storage.captureSyncCheckpoint(1),
             blocks: events.map((event) => ({
                 ...syncBlockFixture(event.blockNumber),

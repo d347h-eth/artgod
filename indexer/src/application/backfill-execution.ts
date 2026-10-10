@@ -1,3 +1,7 @@
+import {
+    SYNC_WORK_CLASS,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { SyncRange } from "./sync.js";
 
@@ -31,26 +35,44 @@ export function resolveBackfillExecutionMode(
 
 // Serializes current-state-capable backfills without slowing pre-anchor facts-only ranges.
 export class BackfillExecutionGate {
-    private currentStateTail: Promise<void> = Promise.resolve();
+    private active = false;
+    private readonly waiting: Array<{
+        workClass: SyncWorkClass;
+        start: () => void;
+    }> = [];
 
-    async run<T>(
+    run<T>(
         mode: BackfillExecutionMode,
         task: () => Promise<T>,
+        workClass: SyncWorkClass = SYNC_WORK_CLASS.Main,
     ): Promise<T> {
-        if (mode === BACKFILL_EXECUTION_MODE.ParallelFactsOnly) {
-            return task();
-        }
-
-        return this.runSerialized(task);
+        if (mode === BACKFILL_EXECUTION_MODE.ParallelFactsOnly) return task();
+        return new Promise<T>((resolve, reject) => {
+            this.waiting.push({
+                workClass,
+                start: () => {
+                    this.active = true;
+                    Promise.resolve()
+                        .then(task)
+                        .then(resolve, reject)
+                        .finally(() => {
+                            this.active = false;
+                            this.startNext();
+                        });
+                },
+            });
+            this.startNext();
+        });
     }
 
-    private runSerialized<T>(task: () => Promise<T>): Promise<T> {
-        const previous = this.currentStateTail;
-        const next = previous.then(task, task);
-        this.currentStateTail = next.then(
-            () => undefined,
-            () => undefined,
+    private startNext(): void {
+        if (this.active) return;
+        // Finish the current bounded range, then admit queued manual/recovery
+        // work before another automatic gap range. FIFO within each class.
+        const main = this.waiting.findIndex(
+            (task) => task.workClass === SYNC_WORK_CLASS.Main,
         );
-        return next;
+        const next = this.waiting.splice(main < 0 ? 0 : main, 1)[0];
+        next?.start();
     }
 }

@@ -67,6 +67,7 @@ beforeAll(async () => {
 
 it("uses ordered indexes and bounded reads even when the newest row follows 49,999 older rows", async () => {
     const input = {
+        upperBound: NEWEST_BLOCK,
         chainId: 1,
         now: NOW,
         limit: SYNC_GAP_POLICY.CollectionsPerPass,
@@ -100,6 +101,7 @@ it("uses ordered indexes and bounded reads even when the newest row follows 49,9
             chainId: 1,
             status: COLLECTION_STATUS.Live,
         };
+        if (sql.includes("@upperBound")) bindings.upperBound = NEWEST_BLOCK;
         if (sql.includes("@toBlock")) bindings.toBlock = NEWEST_BLOCK;
         if (sql.includes("@now")) bindings.now = NOW;
         if (sql.includes("@limit")) bindings.limit = input.limit;

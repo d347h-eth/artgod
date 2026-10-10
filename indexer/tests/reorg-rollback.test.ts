@@ -1,3 +1,4 @@
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -54,6 +55,7 @@ describe("verified reorg ownership rollback", () => {
         f.persist([f.transfer(103, 1, B, C)]); // A -> B at 102 is missing.
         await f.rollback.execute({ ...block(100), chainId: 1 });
         f.storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: f.storage.captureSyncCheckpoint(1),
             blocks: [101, 102, 103].map(block),
             data: emptyOnChainData(),
@@ -140,6 +142,7 @@ describe("verified reorg ownership rollback", () => {
         data.collectionScoped.nftTransferEvents = [orphan];
         expect(() =>
             f.storage.persistSyncResult({
+                canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 checkpoint,
                 blocks: [block(103)],
                 data,

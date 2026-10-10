@@ -34,6 +34,7 @@ const generatedObservabilityGroup = requireGeneratedConfigGroup(
 const generatedRpcGroup = requireGeneratedConfigGroup([
 	SETTINGS_KEY.RPC_HTTP_MAX_RESPONSE_BODY_SIZE_BYTES
 ]);
+const generatedIndexerGroup = requireGeneratedConfigGroup([SETTINGS_KEY.GAP_FILL_MODE]);
 
 // Uses the native manifest's groups for observability and optional RPC settings journeys.
 export function createAdminConfigObservabilityFixture(
@@ -42,7 +43,7 @@ export function createAdminConfigObservabilityFixture(
 ): AdminConfigState {
 	const groups = [
 		...(localDesktop ? localSchema.groups : []),
-		...(rpcSettings ? [generatedRpcGroup] : []),
+		...(rpcSettings ? [generatedRpcGroup, generatedIndexerGroup] : []),
 		generatedObservabilityGroup
 	].map((group) => ({
 		...group,

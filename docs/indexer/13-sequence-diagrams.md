@@ -16,10 +16,10 @@ sequenceDiagram
 
     RPC-->>Scheduler: Head update (WS)
     Scheduler->>RPC: Poll head (HTTP)
-    Scheduler->>NATS: Publish realtime and block-check jobs
+    Scheduler->>NATS: Publish realtime jobs within the recent tail
     NATS-->>Sync: Deliver realtime job
     Sync->>RPC: Fetch logs, extensions, headers, transactions and receipts
-    Sync->>DB: Atomic facts, coverage, balances and required follow-up intent
+    Sync->>DB: Atomic facts, coverage, balances, pending hash checks and follow-up intent
     Sync->>NATS: ACK successful acquisition
     Domain->>DB: Read due required follow-ups
     Domain->>NATS: Publish domain, order and refresh jobs
@@ -33,21 +33,21 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Scheduler as Scheduler Worker
+    participant Scanner as Sync Worker Gap Discovery
     participant DB as SQLite
     participant Sync as Sync Worker Automatic Executor
     participant RPC as RPC Node
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
 
-    loop Startup and HTTP head polls, including unchanged heads
-        Scheduler->>DB: Page live collections and saved scan progress
-        Scheduler->>DB: Stream bounded descending collection coverage
+    loop Bounded discovery pages, including unchanged heads
+        Scanner->>DB: Page live collections and saved scan progress
+        Scanner->>DB: Stream bounded descending collection coverage up to HEAD - depth
         alt Missing coverage and no pending repair
-            Scheduler->>DB: Save cursor and one pending range per collection
+            Scanner->>DB: Save cursor and one pending range per collection
         end
     end
-    loop Sync startup and periodic bounded passes
+    loop Continuous bounded passes; poll only when idle or waiting
         Sync->>DB: Check newest pending height and due HEAD-check times
         Sync->>Sync: Wait for preceding current-state backfill
         Sync->>RPC: Read HEAD when a range or HEAD check is due
@@ -56,6 +56,7 @@ sequenceDiagram
             Sync->>DB: Save check time; replace range/cursor only if newer hole found
         end
         Sync->>DB: Select ready members at newest pending height, LIMIT 16
+        Sync->>DB: Recheck bounded coverage; trim covered suffixes and reselect priority
         Sync->>RPC: Fetch one common suffix for participating collections
         alt Valid acquisition and retained owners
             Sync->>DB: Atomic data, required follow-ups and exact member progress
@@ -66,8 +67,8 @@ sequenceDiagram
     Domain->>DB: Read retained follow-up intent
     Domain->>NATS: Publish required jobs with stable IDs
     Domain->>DB: Remove accepted intent or retain retry with capped delay
-    Note over Scheduler,DB: Completed scans restart at HEAD; saved check time includes downtime
-    Note over Sync,DB: Newest retry or above-head range holds older history
+    Note over Scanner,DB: Completed cycles wait until the next recheck; saved check time includes downtime
+    Note over Sync,DB: Newest eligible retry holds older history; recent tail belongs to realtime
     Note over Sync,Domain: Failed publication repeats no RPC acquisition
 ```
 
@@ -82,11 +83,11 @@ sequenceDiagram
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
 
-    NATS-->>Reorg: Block-check delivery
+    Reorg->>DB: Read one eligible pending stored hash and revision
     Reorg->>RPC: Fresh header differs from stored hash
-    Reorg->>DB: Retain mismatch identity and revision
+    Reorg->>DB: Atomically retain mismatch and clear its pending check
     alt Retention fails
-        Reorg->>NATS: Deferred NACK beyond ordinary retry budget
+        Reorg->>DB: Leave check pending with durable retry time
     else Mismatch retained
         Reorg->>RPC: Complete bounded common-ancestor proof
         alt Proof unavailable
@@ -95,13 +96,12 @@ sequenceDiagram
             Reorg->>RPC: ownerOf at exact fork hash, requireCanonical
             Reorg->>DB: Atomic checkpoints, rollback, revision and resync range
         end
-        Reorg->>NATS: ACK retained check
     end
     loop Reorg startup and proof polling, independent of HEAD changes
         Reorg->>DB: Read due awaiting_ancestor
         Reorg->>RPC: Retry bounded proof and exact-hash snapshot
     end
-    loop Sync startup and periodic automatic passes
+    loop Continuous bounded sync passes
         Sync->>DB: Read one retained canonical range and eligible collections
         Sync->>RPC: Acquire canonical range through shared pipeline
         Sync->>DB: Atomic data, required follow-ups and next range or completion

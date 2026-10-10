@@ -191,6 +191,17 @@ The policy is configured through `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`,
 `RPC_RATE_LIMIT_*`, and `RPC_CIRCUIT_BREAKER_*`. The timeout is per HTTP
 request attempt; the retry policy still bounds the total number of attempts.
 
+`RPC_RATE_LIMIT_MODE` explicitly selects `limited` or `unlimited` in the shared
+configuration parser used by backend, indexer and trading. Limited mode uses
+positive RPS and burst settings; unlimited mode carries neither numeric limit
+into the runtime policy. Saved numeric fields must remain positive in either
+mode. Indexer automatic gaps additionally use `GAP_FILL_MODE` (`disabled`,
+`limited`, `unlimited`): limited reserves 1.5 RPS per endpoint and caps three
+simultaneous attempts by default; unlimited removes both gap caps while yielding
+to eligible waiting main work and respecting a limited overall RPC rate.
+See [pipeline allocation](../indexer/04-sync-pipeline.md#rpc-allocation)
+for scope and broker ownership.
+
 Log acquisition also adapts request windows to viem's response-byte limit.
 `getLogs` halves an oversized window, retries the uncovered interval, and keeps
 the smaller block cap for all calls on that provider instance until restart.
@@ -397,6 +408,19 @@ Not covered:
   limiter. Direct viem HTTP transports retain viem's default transport retry.
 - OpenSea REST retries and rate limiting do not cover Ethereum HTTP JSON-RPC
   calls. They are separate integration resilience.
+
+## Indexer Pipeline Allocation
+
+The HEAD scheduler owns one shared per-endpoint RPC allocation for pipeline
+workers on its local broker. Realtime, manual, bootstrap, reorg work and admitted
+current-order validation use main capacity. Automatic missing-history acquisition
+and historical metadata/extension work share a smaller configurable background
+allowance. The orders domain checks relevance and saved validation results before
+admitting unmet current-order requirements to main, including maker/token
+continuations and both ordinary demand executors. Backend/trading retain their
+adapter-specific policies.
+See [pipeline allocation](../indexer/04-sync-pipeline.md#rpc-allocation) for
+configuration, durable classification, startup recovery and future control.
 
 ## Current Limits and Future Direction
 

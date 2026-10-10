@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { RpcBudgetDeferred } from "./rpc-budget.js";
+import { SYNC_WORK_CLASS } from "../types/sync-work-class.js";
 import { ResponseBodyTooLargeError } from "viem";
 import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
@@ -15,6 +17,7 @@ import {
     CircuitBreaker,
     CircuitOpenError,
     TokenBucketRateLimiter,
+    RPC_RATE_LIMIT_MODE,
 } from "./rpc-resilience.js";
 import {
     JSON_RPC_ERROR_CODE,
@@ -55,6 +58,7 @@ const TEST_RETRY_POLICY = {
     maxDelayMs: 0,
 };
 const TEST_RATE_LIMIT_CONFIG = {
+    mode: RPC_RATE_LIMIT_MODE.Limited,
     requestsPerSecond: 1,
     burst: 1,
 };
@@ -103,6 +107,73 @@ class CapturingMetrics implements Metrics {
 }
 
 describe("executeObservedRpcEndpointCall", () => {
+    it("does not send, retry or penalize an endpoint when its local allocation is deferred", async () => {
+        const selector = createTestSelector([{ url: TEST_RPC_ENDPOINT_A_URL }]);
+        let networkCalls = 0,
+            requests = 0;
+        const deferred = new RpcBudgetDeferred();
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                retryPolicy: TEST_RETRY_POLICY,
+                requestBudget: {
+                    endpointKey: () => "fixture-key",
+                    workClass: () => SYNC_WORK_CLASS.GapRepair,
+                    budget: {
+                        run: async (input, _request) => {
+                            expect(input.workClass).toBe(
+                                SYNC_WORK_CLASS.GapRepair,
+                            );
+                            requests++;
+                            throw deferred;
+                        },
+                    },
+                },
+                execute: async () => {
+                    networkCalls++;
+                    return TEST_RPC_RESULT;
+                },
+            }),
+        ).rejects.toBe(deferred);
+        expect(requests).toBe(1);
+        expect(networkCalls).toBe(0);
+        expect(selector.snapshot()[0]?.effectiveWeight).toBe(1);
+    });
+
+    it("allocates each retry independently and preserves its work class", async () => {
+        const selector = createTestSelector([{ url: TEST_RPC_ENDPOINT_A_URL }]);
+        let calls = 0,
+            permits = 0,
+            completions = 0;
+        const value = await executeObservedRpcEndpointCall({
+            selector,
+            method: TEST_RPC_METHOD,
+            retryPolicy: TEST_RETRY_POLICY,
+            requestBudget: {
+                endpointKey: () => "fixture-key",
+                workClass: () => SYNC_WORK_CLASS.Main,
+                budget: {
+                    run: async (input, request) => {
+                        expect(input.workClass).toBe(SYNC_WORK_CLASS.Main);
+                        permits++;
+                        try {
+                            return await request();
+                        } finally {
+                            completions++;
+                        }
+                    },
+                },
+            },
+            execute: async () => {
+                if (++calls === 1) throw new Error(TEST_RPC_FAILURE_MESSAGE);
+                return TEST_RPC_RESULT;
+            },
+        });
+        expect(value).toBe(TEST_RPC_RESULT);
+        expect([permits, completions, calls]).toEqual([2, 2, 2]);
+    });
+
     it("leaves the endpoint available after a local response-size rejection", async () => {
         const metrics = new CapturingMetrics();
         const observer = createTestRpcObservability(metrics);

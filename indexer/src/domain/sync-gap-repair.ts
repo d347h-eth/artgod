@@ -44,34 +44,45 @@ export type SyncGapRepairBatch = {
     repairs: SyncGapRepairTarget[];
 };
 
+/** Keep the complete retained intent for commit fencing; fetch only its newest missing suffix. */
+export type SyncGapRepairCandidate = {
+    repair: SyncGapRepairTarget;
+    missing: SyncGapRange;
+};
+
 // Only share a suffix that is inside every retained intent. Equal upper bounds
 // keep each unfinished intent contiguous; unequal starts leave older remainders.
 // Widening to the union would reacquire already covered participants' receipts.
 export function planSyncGapRepairBatches(
-    repairs: readonly SyncGapRepairTarget[],
+    candidates: readonly SyncGapRepairCandidate[],
     batchSize: number,
 ): SyncGapRepairBatch[] {
     if (!Number.isSafeInteger(batchSize) || batchSize < 1)
         throw new RangeError(
             "Gap repair batch size must be a positive safe integer",
         );
-    const pending = [...repairs].sort(
-        (a, b) => b.toBlock - a.toBlock || a.collectionId - b.collectionId,
+    const pending = [...candidates].sort(
+        (a, b) =>
+            b.missing.toBlock - a.missing.toBlock ||
+            a.repair.collectionId - b.repair.collectionId,
     );
     const batches: SyncGapRepairBatch[] = [];
     while (pending.length) {
         const first = pending.shift()!;
-        const lowerBound = first.toBlock - batchSize + 1;
-        let fromBlock = Math.max(first.fromBlock, lowerBound);
-        const members = [first];
-        while (pending.length && pending[0].toBlock === first.toBlock) {
+        const lowerBound = first.missing.toBlock - batchSize + 1;
+        let fromBlock = Math.max(first.missing.fromBlock, lowerBound);
+        const members = [first.repair];
+        while (
+            pending.length &&
+            pending[0].missing.toBlock === first.missing.toBlock
+        ) {
             const next = pending.shift()!;
-            members.push(next);
-            fromBlock = Math.max(fromBlock, next.fromBlock);
+            members.push(next.repair);
+            fromBlock = Math.max(fromBlock, next.missing.fromBlock);
         }
         batches.push({
             fromBlock,
-            toBlock: first.toBlock,
+            toBlock: first.missing.toBlock,
             repairs: members.sort((a, b) => a.collectionId - b.collectionId),
         });
     }

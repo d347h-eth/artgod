@@ -10,6 +10,7 @@ import {
 } from "../src/domain/sync-gap-repair.js";
 import {
     SyncGapScheduler,
+    SYNC_GAP_POLICY,
     type SyncGapSchedulerOptions,
 } from "../src/application/sync-gap-scheduler.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
@@ -86,7 +87,7 @@ describe("durable collection gap scanning", () => {
             [101, 102],
             [100, 100],
         ]);
-        expect(h.store.getProgress(1, id)?.cursorBlock).toBe(108);
+        expect(h.store.getProgress(1, id)?.cursorBlock).toBeNull();
     });
 
     it("revisits stationary history and detects rollback deletions", async () => {
@@ -98,6 +99,7 @@ describe("durable collection gap scanning", () => {
         db.prepare(
             "DELETE FROM collection_sync_blocks WHERE collection_id = ? AND block_number = 101",
         ).run(id);
+        h.advance(SYNC_GAP_POLICY.HeadRecheckIntervalMs);
         await h.scheduler.scan(110);
         const first = h.due()[0];
         expect(first).toMatchObject({ fromBlock: 101, toBlock: 101 });
@@ -108,7 +110,7 @@ describe("durable collection gap scanning", () => {
             fromBlock: 108,
             owners: [],
         });
-        await h.scheduler.scan(110);
+        h.scheduler.resetDiscovery();
         await h.scheduler.scan(110);
         expect(h.due()[0]).toMatchObject({ fromBlock: 109, toBlock: 110 });
         expect(h.due()[0].repairId).not.toBe(first.repairId);
@@ -142,6 +144,36 @@ describe("durable collection gap scanning", () => {
                 toBlock: 110,
             }),
         ]);
+    });
+
+    it("finishes unequal saved cursors without restarting completed peers at an unchanged head", async () => {
+        const first = seedCollection(100),
+            second = seedCollection(100);
+        const h = harness({ scanWindowBlocks: 10_000 });
+        cover(first, 100, 20_099);
+        cover(second, 100, 20_099);
+        h.store.saveProgress({
+            chainId: 1,
+            collectionId: second,
+            expected: null,
+            progress: {
+                anchorBlock: 100,
+                cursorBlock: 10_099,
+                pending: null,
+                lastHeadCheckAt: 1000,
+            },
+        });
+        const reads = vi.spyOn(h.store, "findGap");
+        const passes = [];
+        for (let n = 0; n < 10; n++)
+            passes.push(await h.scheduler.scan(20_099));
+        expect(passes.slice(-5)).toEqual([false, false, false, false, false]);
+        expect(reads).toHaveBeenCalledTimes(3);
+        expect(h.store.getProgress(1, first)?.cursorBlock).toBeNull();
+        expect(h.store.getProgress(1, second)?.cursorBlock).toBeNull();
+        h.advance(SYNC_GAP_POLICY.HeadRecheckIntervalMs);
+        expect(await h.scheduler.scan(20_099)).toBe(true);
+        expect(reads).toHaveBeenCalledTimes(5);
     });
 
     it("retains one exact repair and cursor across reopen and repeated scans", async () => {
@@ -315,6 +347,7 @@ function harness(overrides: Partial<SyncGapSchedulerOptions> = {}) {
         },
         due: () =>
             store.listDueRepairsAtNewestPendingHeight({
+                upperBound: Number.MAX_SAFE_INTEGER,
                 chainId: 1,
                 now,
                 limit: 100,

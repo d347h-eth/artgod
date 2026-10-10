@@ -6,6 +6,7 @@ import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import {
     resolveNatsJobStreamName,
     resolveNatsJobSubject,
+    resolveNatsJobQueueSubjects,
 } from "@artgod/shared/queue/nats-job-stream";
 import {
     summarizeJobBacklog,
@@ -33,6 +34,7 @@ type InspectorConfig = {
     streamPrefix: string;
     stream: string;
     subject: string;
+    subjects: readonly string[];
     startSeq?: number;
     limit: number;
     top: number;
@@ -107,24 +109,28 @@ async function inspectBacklog(config: InspectorConfig) {
         let nextSeq = config.startSeq ?? state.first_seq;
 
         while (rows.length < config.limit) {
-            const response = await requestJson<MessageGetResponse>(
-                codec,
-                nc,
-                `$JS.API.STREAM.MSG.GET.${config.stream}`,
-                {
-                    seq: nextSeq,
-                    next_by_subj: config.subject,
-                },
+            const responses = await Promise.all(
+                config.subjects.map((subject) =>
+                    requestJson<MessageGetResponse>(
+                        codec,
+                        nc,
+                        `$JS.API.STREAM.MSG.GET.${config.stream}`,
+                        { seq: nextSeq, next_by_subj: subject },
+                    ),
+                ),
             );
-            if (response.error) {
-                if (response.error.err_code === NO_MESSAGE_FOUND) {
-                    break;
-                }
-                throw new Error(formatJetStreamError(response.error));
-            }
-            if (!response.message) {
-                break;
-            }
+            for (const response of responses)
+                if (
+                    response.error &&
+                    response.error.err_code !== NO_MESSAGE_FOUND
+                )
+                    throw new Error(formatJetStreamError(response.error));
+            const response = responses
+                .filter((response) => response.message)
+                .sort(
+                    (left, right) => left.message!.seq - right.message!.seq,
+                )[0];
+            if (!response?.message) break;
 
             rows.push(decodeStoredJob(response.message));
             nextSeq = response.message.seq + 1;
@@ -133,6 +139,7 @@ async function inspectBacklog(config: InspectorConfig) {
         return {
             stream: config.stream,
             subject: config.subject,
+            subjects: config.subjects,
             scan: {
                 startSeq: config.startSeq ?? state.first_seq,
                 limit: config.limit,
@@ -238,6 +245,9 @@ function loadInspectorConfig(
         streamPrefix,
         stream,
         subject,
+        subjects: args.subject
+            ? [args.subject]
+            : resolveNatsJobQueueSubjects(streamPrefix, knownQueue),
         startSeq: args.startSeq,
         limit:
             args.limit ??

@@ -1,3 +1,5 @@
+import { retainCanonicalCheckFixture } from "../tests/helpers/reorg-recovery-fixture.js";
+import { FINALIZED_SYNC_CHECK_POLICY } from "../tests/helpers/chain-fixture.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
@@ -7,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { beforeAll, beforeEach, afterEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { resolveNatsJobStreamName } from "@artgod/shared/queue/nats-job-stream";
 import { buildIndexerTestWorker } from "../../scripts/build/build-indexer-test-worker.mjs";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
@@ -17,10 +20,8 @@ import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
-import type { BlockCheckPayload } from "../src/domain/reorg-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
-import { REORG_JOB_KIND } from "../src/domain/reorg-jobs.js";
 import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
@@ -105,13 +106,17 @@ describe("isolated broker and process reorg recovery", () => {
             QUEUE_NAMES.MetadataDomain,
         ])
             stops.push(
-                await queue.subscribe<DomainSyncPayload>(
-                    name,
-                    async (message) => {
-                        fanout.push(message.data);
-                        await message.ack();
+                await runWorker<DomainSyncPayload>(
+                    queue,
+                    {
+                        queue: name,
+                        consumerName: `fixture-${name}`,
+                        maxInFlight: 1,
+                        acceptGapWork: true,
                     },
-                    { consumerName: `fixture-${name}`, maxInFlight: 1 },
+                    async (job) => {
+                        fanout.push(job);
+                    },
                 ),
             );
         stops.push(
@@ -172,7 +177,7 @@ describe("isolated broker and process reorg recovery", () => {
                 anchorBlock: F.Anchor,
             }),
         );
-        const rpc = new RecoveryRpc();
+        const rpc = new RecoveryRpc(F.Fork, F.Head + 1);
         const blockReads: number[] = [];
         rpc.beforeBlockRead = async (number) => {
             blockReads.push(number);
@@ -187,11 +192,14 @@ describe("isolated broker and process reorg recovery", () => {
         });
         await scheduler.scan(F.Head);
         const batch = planSyncGapRepairBatches(
-            gaps.listDueRepairsAtNewestPendingHeight({
-                chainId: 1,
-                now: Date.now(),
-                limit: 16,
-            }),
+            gaps
+                .listDueRepairsAtNewestPendingHeight({
+                    upperBound: Number.MAX_SAFE_INTEGER,
+                    chainId: 1,
+                    now: Date.now(),
+                    limit: 16,
+                })
+                .map((repair) => ({ repair, missing: repair })),
             F.BatchSize,
         )[0];
         await services.executor.runDue();
@@ -273,6 +281,7 @@ describe("isolated broker and process reorg recovery", () => {
             const gaps = new SqliteSyncGapStore();
             // Keep a third live collection fully covered and outside the members.
             services.storage.persistSyncResult({
+                canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 checkpoint: services.storage.captureSyncCheckpoint(F.ChainId),
                 blocks: Array.from({ length: 8 }, (_, i) =>
                     canonicalRecoveryBlock(100 + i),
@@ -411,11 +420,14 @@ describe("isolated broker and process reorg recovery", () => {
         gaps: SqliteSyncGapStore,
     ): JobEnvelope<BackfillSyncPayload> {
         const batch = planSyncGapRepairBatches(
-            gaps.listDueRepairsAtNewestPendingHeight({
-                chainId: 1,
-                now: Date.now(),
-                limit: 16,
-            }),
+            gaps
+                .listDueRepairsAtNewestPendingHeight({
+                    upperBound: Number.MAX_SAFE_INTEGER,
+                    chainId: 1,
+                    now: Date.now(),
+                    limit: 16,
+                })
+                .map((repair) => ({ repair, missing: repair })),
             F.BatchSize,
         )[0];
         return {
@@ -435,7 +447,7 @@ describe("isolated broker and process reorg recovery", () => {
     }
 
     it("ACKs legacy scoped gap hints without acquisition, then executes their durable owner", async () => {
-        const rpc = new RecoveryRpc();
+        const rpc = new RecoveryRpc(F.Fork, F.Head + 1);
         services = reorgRecoveryServices(rpc);
         const gaps = services.gaps;
         await new SyncGapScheduler(services.registry, gaps, {
@@ -475,7 +487,9 @@ describe("isolated broker and process reorg recovery", () => {
     it("ACKs obsolete reorg range hints and completes managed acquisition directly", async () => {
         const rpc = new RecoveryRpc();
         services = reorgRecoveryServices(rpc);
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const first = pendingRecoveryRange();
         const delivered: JobEnvelope[] = [];
         await startBackfillHandler(rpc, services.gaps, delivered);
@@ -529,6 +543,7 @@ describe("isolated broker and process reorg recovery", () => {
             }),
         );
         const handle = createBackfillSyncHandler({
+            reorgDepth: 3,
             chainId: F.ChainId,
             workerCount: 1,
             wethAddress: F.Weth,
@@ -633,16 +648,8 @@ describe("isolated broker and process reorg recovery", () => {
             },
         };
     }
-    async function publishCheck(id = "check-105") {
-        await queue.publish(QUEUE_NAMES.BlockCheck, {
-            jobId: id,
-            kind: REORG_JOB_KIND.BlockCheck,
-            queue: QUEUE_NAMES.BlockCheck,
-            chainId: 1,
-            attempt: 0,
-            scheduledAt: Date.now(),
-            payload: { blockNumber: F.Orphan },
-        });
+    async function retainCheck() {
+        retainCanonicalCheckFixture(services.storage, F.Orphan);
     }
     function revision() {
         return services.storage.captureSyncCheckpoint(1).revision;
@@ -706,9 +713,12 @@ describe("isolated broker and process reorg recovery", () => {
             publish: false,
             resume: false,
         });
-        await publishCheck();
+        await retainCheck();
         await first.wait(
-            () => first.reports.some((r) => r.phase === PHASE.Acknowledged),
+            () =>
+                first.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
             "retained check acknowledged",
         );
         expect(revision()).toBe(1);
@@ -726,16 +736,19 @@ describe("isolated broker and process reorg recovery", () => {
         expect(revision()).toBe(1);
     });
 
-    it("keeps the only recovery owner on the broker beyond retry limits when initial journal persistence fails", async () => {
+    it("keeps the pending DB check across repeated initial journal failures", async () => {
         db.exec(
             "CREATE TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
         );
         const retained = await worker();
-        await publishCheck();
+        await retainCheck();
         await retained.wait(
             () =>
                 retained.reports.some(
-                    (r) => r.phase === PHASE.Deferred && (r.attempt ?? 0) > 2,
+                    (r) =>
+                        r.phase === PHASE.Checked &&
+                        r.pending &&
+                        (r.attempt ?? 0) > 2,
                 ),
             "retention retries exceed ordinary DLQ limit",
         );
@@ -747,100 +760,35 @@ describe("isolated broker and process reorg recovery", () => {
         await retained.stop();
     });
 
-    it("keeps broker ownership when an RPC failure follows journal deferrals beyond the production retry budget", async () => {
+    it("keeps DB ownership when an RPC failure follows repeated journal failures", async () => {
         db.exec(
-            "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;",
+            "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT,'journal unavailable'); END;",
         );
         const rpc = new RecoveryRpc();
         services = reorgRecoveryServices(rpc, { retryDelayMs: 20 });
-        const deliveries: number[] = [];
-        let releaseSeventh!: () => void;
-        const seventhGate = new Promise<void>((resolve) => {
-            releaseSeventh = resolve;
-        });
-        stops.push(
-            await runWorker(
-                queue,
-                {
-                    queue: QUEUE_NAMES.BlockCheck,
-                    consumerName: CONSUMER.Reorg,
-                    maxInFlight: 1,
-                    ackWaitMs: 150,
-                    extendLeaseMs: 25,
-                    maxAttempts: 5,
-                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
-                },
-                async (job: JobEnvelope<BlockCheckPayload>) => {
-                    const attempt = job.attempt!;
-                    deliveries.push(attempt);
-                    if (attempt === 6) {
-                        db.exec("DROP TRIGGER fail_mismatch_retention;");
-                        rpc.beforeBlockRead = async () => {
-                            rpc.beforeBlockRead = undefined;
-                            throw new Error(
-                                "Temporary RPC outage after journal recovery",
-                            );
-                        };
-                    }
-                    if (attempt === 7) await seventhGate;
-                    await services.recovery.checkBlock(job.payload.blockNumber);
-                },
-            ),
-        );
-        await publishCheck("retention-followup-check");
-        const manager = await broker.connection.jetstreamManager();
-        try {
-            await waitForFixture(
-                () => deliveries.includes(7),
-                "the original check survives its sixth-delivery RPC failure",
-            );
-            expect(deliveries).toEqual([1, 2, 3, 4, 5, 6, 7]);
-            expect(deadLetters).toHaveLength(0);
-            expect(services.recoveries.getRecovery(F.ChainId)).toBeNull();
-            expect(revision()).toBe(0);
-            const consumer = await manager.consumers.info(
-                resolveNatsJobStreamName(prefix),
-                CONSUMER.Reorg,
-            );
-            expect(consumer.num_ack_pending).toBe(1);
-        } finally {
-            releaseSeventh();
-        }
-        await waitForFixture(
-            () =>
-                services.recoveries.getRecovery(F.ChainId)?.phase ===
-                REORG_RECOVERY_PHASE.Resync,
-            "healthy delivery retains and rolls back recovery",
-        );
+        const check = retainCanonicalCheckFixture(services.storage, F.Orphan);
+        for (let attempt = 0; attempt < 5; attempt++)
+            await services.recovery.checkBlock(check);
+        db.exec("DROP TRIGGER fail_mismatch_retention;");
+        rpc.beforeBlockRead = async () => {
+            rpc.beforeBlockRead = undefined;
+            throw new Error("Temporary RPC outage after journal recovery");
+        };
+        await services.recovery.checkBlock(check);
+        expect(services.recoveries.getRecovery(1)).toBeNull();
+        expect(services.checks.hasPending(1, Date.now() + 20)).toBe(true);
+        expect(deadLetters).toHaveLength(0);
+        await services.recovery.checkBlock(check);
+        expect(revision()).toBe(1);
         const resumed = await worker({ role: ROLE.Resync });
         await complete();
-        await waitForFixture(async () => {
-            const consumer = await manager.consumers.info(
-                resolveNatsJobStreamName(prefix),
-                CONSUMER.Reorg,
-            );
-            return consumer.num_pending === 0 && consumer.num_ack_pending === 0;
-        }, "the handed-off check is acknowledged");
-        expect(deadLetters).toHaveLength(0);
-        await writeFile(
-            path.join(artifacts, "retention-followup-result.json"),
-            JSON.stringify(
-                {
-                    deliveries,
-                    deadLetters: deadLetters.length,
-                    recovery: services.recoveries.getRecovery(F.ChainId),
-                    revision: revision(),
-                    owners: owners(),
-                },
-                null,
-                2,
-            ),
-        );
         await resumed.stop();
     });
 
     it("retries acquisition after process death during RPC with intent and progress unchanged", async () => {
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const retained = pendingRecoveryRange();
         const interrupted = await worker({
             role: ROLE.Resync,
@@ -874,8 +822,10 @@ describe("isolated broker and process reorg recovery", () => {
         await resumed.stop();
     });
 
-    it("publishes retained follow-ups after process death following acquisition completion without new RPC", async () => {
-        await services.recovery.checkBlock(F.Orphan);
+    it("publishes retained follow-ups after process death without reacquiring recovery ranges", async () => {
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const acquired = await worker({
             role: ROLE.Resync,
             resume: false,
@@ -888,9 +838,9 @@ describe("isolated broker and process reorg recovery", () => {
         expect(
             db
                 .prepare(
-                    "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ?",
+                    "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ? AND json_extract(job_json, '$.workClass') = ?",
                 )
-                .get(QUEUE_OUTBOX_STATUS.Pending),
+                .get(QUEUE_OUTBOX_STATUS.Pending, SYNC_WORK_CLASS.Main),
         ).toEqual({ count: 6 });
         await acquired.kill();
         await restartedBroker();
@@ -903,7 +853,9 @@ describe("isolated broker and process reorg recovery", () => {
     });
 
     it("replays partial fanout after coverage, process death and broker restart", async () => {
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const first = await worker({
             role: ROLE.Resync,
             resume: false,
@@ -954,7 +906,9 @@ describe("isolated broker and process reorg recovery", () => {
     });
 
     it("retries required publications with a lost broker reply using the same deduplication identity", async () => {
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         while (services.recoveries.getRecovery(1))
             await services.executor.runDue();
         const first = services.outbox
@@ -998,7 +952,9 @@ describe("isolated broker and process reorg recovery", () => {
     });
 
     it("keeps required fanout beyond ordinary retry limits and recovers after broker restart", async () => {
-        await services.recovery.checkBlock(F.Orphan);
+        await services.recovery.checkBlock(
+            retainCanonicalCheckFixture(services.storage, F.Orphan),
+        );
         const failing = await worker({
             role: ROLE.Resync,
             resume: false,
@@ -1007,9 +963,9 @@ describe("isolated broker and process reorg recovery", () => {
         await waitForFixture(() => {
             const rows = db
                 .prepare(
-                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
+                    "SELECT status, attempts FROM queue_outbox WHERE queue_name = ? AND json_extract(job_json, '$.workClass') = ?",
                 )
-                .all(QUEUE_NAMES.MetadataDomain) as {
+                .all(QUEUE_NAMES.MetadataDomain, SYNC_WORK_CLASS.Main) as {
                 status: string;
                 attempts: number;
             }[];
@@ -1034,27 +990,22 @@ describe("isolated broker and process reorg recovery", () => {
         await resumed.stop();
     });
 
-    it("renews a real reorg lease while exact-block ownership takes longer than ackWait", async () => {
+    it("checks one stored identity while slow ownership RPC leaves recovery durable", async () => {
         const delayed = await worker({
             role: ROLE.Reorg,
             resume: false,
             publish: false,
             ownerDelayMs: 550,
         });
-        await publishCheck();
+        await retainCheck();
         await delayed.wait(
-            () => delayed.reports.some((r) => r.phase === PHASE.Acknowledged),
+            () =>
+                delayed.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
             "delayed recovery acknowledged",
         );
-        const manager = await broker.connection.jetstreamManager();
-        const consumer = await manager.consumers.info(
-            resolveNatsJobStreamName(prefix),
-            CONSUMER.Reorg,
-        );
-        expect(consumer.num_redelivered).toBe(0);
-        expect(
-            delayed.reports.filter((r) => r.phase === PHASE.Touch).length,
-        ).toBeGreaterThan(3);
+        expect(services.checks.hasPending(1, Date.now())).toBe(false);
         expect(
             delayed.reports.filter((r) => r.phase === PHASE.Checked),
         ).toEqual([
@@ -1063,7 +1014,7 @@ describe("isolated broker and process reorg recovery", () => {
         await delayed.stop();
     });
 
-    it("remains idempotent under forced check redelivery and a lost obsolete hint ACK", async () => {
+    it("remains idempotent across DB recovery restart and a lost obsolete hint ACK", async () => {
         const delayed = await worker({
             role: ROLE.Reorg,
             resume: false,
@@ -1071,21 +1022,20 @@ describe("isolated broker and process reorg recovery", () => {
             extendLeaseMs: 0,
             ownerDelayMs: 550,
         });
-        await publishCheck();
+        await retainCheck();
         await delayed.wait(
             () =>
-                delayed.reports.filter((r) => r.phase === PHASE.Checked)
-                    .length >= 2,
-            "forced check redelivery",
+                delayed.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
+            "stored check handed off",
         );
         expect(revision()).toBe(1);
         expect(
-            delayed.reports
-                .filter((r) => r.phase === PHASE.Checked)
-                .every((r) => r.ownerReads === 1),
-        ).toBe(true);
-        expect(delayed.reports.some((r) => (r.attempt ?? 0) > 1)).toBe(true);
+            delayed.reports.filter((r) => r.phase === PHASE.Checked),
+        ).toHaveLength(1);
         await delayed.stop();
+        const retainedRecoveryId = pendingRecoveryRange().recoveryId;
         const resumed = await worker({ dropAckOnce: true });
         await queue.publish(QUEUE_NAMES.BackfillSync, {
             jobId: "old-automatic-hint",
@@ -1101,7 +1051,7 @@ describe("isolated broker and process reorg recovery", () => {
                 orderMaintenancePolicy:
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 recovery: {
-                    recoveryId: pendingRecoveryRange().recoveryId,
+                    recoveryId: retainedRecoveryId,
                     revision: 1,
                 },
             },
@@ -1120,7 +1070,7 @@ describe("isolated broker and process reorg recovery", () => {
         await resumed.stop();
     });
 
-    it("retains the lease and bounded continuation for a larger serial ownership snapshot", async () => {
+    it("retains DB recovery and a bounded continuation for a larger serial ownership snapshot", async () => {
         const collection = services.registry.getCollection(1, collectionId)!;
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents = Array.from(
@@ -1140,6 +1090,7 @@ describe("isolated broker and process reorg recovery", () => {
             }),
         );
         services.storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: services.storage.captureSyncCheckpoint(1),
             blocks: [syncBlockFixture(F.Orphan)],
             collections: [collection],
@@ -1151,9 +1102,12 @@ describe("isolated broker and process reorg recovery", () => {
             publish: false,
             ownerDelayMs: 5,
         });
-        await publishCheck();
+        await retainCheck();
         await snapshot.wait(
-            () => snapshot.reports.some((r) => r.phase === PHASE.Acknowledged),
+            () =>
+                snapshot.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
             "serial ownership snapshot completion",
         );
         const result = snapshot.reports.find((r) => r.phase === PHASE.Checked)!;
@@ -1162,18 +1116,9 @@ describe("isolated broker and process reorg recovery", () => {
         expect(result.elapsedMs).toBeGreaterThan(2_000);
         expect(result.rssBytes).toBeGreaterThan(0);
         expect(
-            snapshot.reports.filter((r) => r.phase === PHASE.Touch).length,
-        ).toBeGreaterThan(20);
-        expect(
-            (
-                await (
-                    await broker.connection.jetstreamManager()
-                ).consumers.info(
-                    resolveNatsJobStreamName(prefix),
-                    CONSUMER.Reorg,
-                )
-            ).num_redelivered,
-        ).toBe(0);
+            snapshot.reports.filter((r) => r.phase === PHASE.Checked),
+        ).toHaveLength(1);
+        expect(services.checks.hasPending(1, Date.now())).toBe(false);
         expect(
             db
                 .prepare(
@@ -1199,7 +1144,7 @@ describe("isolated broker and process reorg recovery", () => {
             holdOwner: true,
             sqliteBusyTimeoutMs: 80,
         });
-        await publishCheck();
+        await retainCheck();
         await checking.wait(
             () => checking.reports.some((r) => r.phase === PHASE.RpcHeld),
             "snapshot held before writer contention",
@@ -1207,7 +1152,10 @@ describe("isolated broker and process reorg recovery", () => {
         const writer = await worker({ role: ROLE.Writer, writerHoldMs: 250 });
         checking.child.send(COMMAND.ReleaseRpc);
         await checking.wait(
-            () => checking.reports.some((r) => r.phase === PHASE.Acknowledged),
+            () =>
+                checking.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
             "rollback after bounded SQLite retry",
         );
         const result = checking.reports.find((r) => r.phase === PHASE.Checked)!;
@@ -1235,7 +1183,7 @@ describe("isolated broker and process reorg recovery", () => {
             publish: false,
             holdOwner: true,
         });
-        await publishCheck();
+        await retainCheck();
         await first.wait(
             () => first.reports.some((r) => r.phase === PHASE.RpcHeld),
             "first process snapshot held",
@@ -1254,7 +1202,10 @@ describe("isolated broker and process reorg recovery", () => {
         const retainedRange = pendingRecoveryRange();
         first.child.send(COMMAND.ReleaseRpc);
         await first.wait(
-            () => first.reports.some((r) => r.phase === PHASE.Acknowledged),
+            () =>
+                first.reports.some(
+                    (r) => r.phase === PHASE.Checked && !r.pending,
+                ),
             "stale process safely finishes",
         );
         expect(revision()).toBe(1);

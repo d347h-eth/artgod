@@ -1,4 +1,5 @@
 import type { OrderSourceStatus } from "./orders.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import {
     MAKER_TRIGGER_SCOPE,
     type CollectionScopedMakerTriggerReason,
@@ -29,6 +30,7 @@ export { MAKER_TRIGGER_SCOPE };
 export type OrderUpdateByMakerReason = MakerTriggerReason;
 
 type OrderUpdateByMakerAttribution = {
+    workClass?: SyncWorkClass;
     chainId: number;
     maker: string;
     blockNumber?: number | null;

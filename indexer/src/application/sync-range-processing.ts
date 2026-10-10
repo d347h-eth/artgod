@@ -5,6 +5,8 @@ import {
 } from "../domain/sync-follow-ups.js";
 import { syncRange, type SyncRange } from "./sync.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 import { resolveIndexerCollectionExtension } from "./collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
@@ -45,6 +47,7 @@ export async function acquireSyncRange(input: {
     collectionScopeResolver: CollectionScopeResolverPort;
     collectionExtensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     chainId: number;
+    reorgDepth: number;
     collections: CollectionRecord[];
     range: SyncRange;
     bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">;
@@ -64,6 +67,9 @@ export async function acquireSyncRange(input: {
         orderMaintenancePolicy,
     } = input;
     const checkpoint = storage.captureSyncCheckpoint(chainId);
+    // Classify maturity at fetch time. A delayed commit must retain the check
+    // required by data fetched while unconfirmed; historical imports add none.
+    const observedHeadBlock = await rpc.getBlockNumber();
     const extensionWatchSpecs = resolveCollectionExtensionWatchSpecs(
         collectionExtensions,
         chainId,
@@ -87,7 +93,13 @@ export async function acquireSyncRange(input: {
         orderMaintenancePolicy,
     );
     const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
-    return { checkpoint, blocks, data, collections };
+    return {
+        checkpoint,
+        canonicalCheck: { observedHeadBlock, reorgDepth: input.reorgDepth },
+        blocks,
+        data,
+        collections,
+    };
 }
 
 export type SyncRangeInput = Parameters<typeof acquireSyncRange>[0];
@@ -111,7 +123,16 @@ export async function processSyncRange(
         input.mode,
         result.data,
         input.orderMaintenancePolicy,
-    );
+    ).map((followUp) => ({
+        ...followUp,
+        job: {
+            ...followUp.job,
+            workClass:
+                input.completion.kind === SYNC_WORK_COMPLETION.GapRepair
+                    ? SYNC_WORK_CLASS.GapRepair
+                    : SYNC_WORK_CLASS.Main,
+        },
+    }));
     input.commit.commitSyncRange({
         result,
         followUps,

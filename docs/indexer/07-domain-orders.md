@@ -735,3 +735,36 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
   forms still need a deterministic parsing/repair policy.
 - Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
   `Deposit` and `Withdrawal` triggers are not decoded separately yet.
+
+## Historical hints and current-order validation
+
+Automatic repair imports missing chain history under the background RPC allowance.
+An event hint still passes canonical block identity, collection anchor, scope,
+source activity, expiry and protocol-terminal checks before requiring validation.
+Fills and cancellations apply lifecycle facts without validation RPC.
+
+`eventValidationRequest` requires a full validation at or after the event block.
+Its eventual delivery time is not a new source observation.
+`observedOrderValidationRequest` separately requires a validation observed at or
+after the source observation. Coalescing preserves both unmet requirements.
+
+Ordinary and maker/token validation share the existing per-order validation
+record. Reuse requires the current order revision, the current chain rollback
+revision, a sufficiently recent validation block and any required source
+observation time. Maker checkpoint commits its successful full validation record
+with the resulting order revision and cursor. A covered historical hint consumes
+no validation RPC and cannot clear a newer unmet observation. Rollback fences
+in-flight results and separates maker coalescing scopes from earlier history.
+
+All admitted current-order validation uses main capacity: both ordinary demand
+executors, maker/token continuations, retries, snapshot creation, reads and final
+verification. Per-order demand does not retain a selectable work class. A raw
+background maker hint only retains/coalesces its request and publishes a main
+continuation through the existing outbox. Historical metadata and extension work
+keep their background allocation.
+
+Validation still uses the shared total per-endpoint limits and the same two FIFO
+validation permits. No quota exemption or longer snapshot lifetime is needed.
+Local quota deferral releases claims without recording a validation failure; RPC
+uncertainty never becomes a protocol-invalid result. Snapshot lifetime, head-age,
+canonicality, order revision, generation and lease fences remain required.

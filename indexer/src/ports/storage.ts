@@ -1,4 +1,5 @@
 import type { OnChainData } from "../domain/onchain.js";
+import type { CanonicalCheckPolicy } from "../domain/canonical-check.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type {
     ChainSyncCheckpoint,
@@ -7,6 +8,7 @@ import type {
 
 export type SyncRangeResult = {
     checkpoint: ChainSyncCheckpoint;
+    canonicalCheck: CanonicalCheckPolicy;
     blocks: readonly SyncBlockHeader[];
     data: OnChainData;
     collections: CollectionRecord[];

@@ -6,6 +6,12 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import {
+    rpcEndpointBudgetKey,
+    RpcBudgetDeferred,
+    type RpcRequestBudget,
+} from "@artgod/shared/evm/rpc-budget";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { createHttpRpcTransport } from "@artgod/shared/evm/http-rpc-transport";
 import {
     CircuitBreaker,
@@ -59,6 +65,10 @@ export type TokenUriResolverConfig = {
     resilience?: RpcEndpointResilienceConfig;
     createClient?: TokenUriRpcClientFactory;
     sleep?: (ms: number) => Promise<void>;
+    requestBudget?: {
+        budget: RpcRequestBudget;
+        workClass: () => SyncWorkClass;
+    };
 };
 
 export type TokenUriRpcClient = ReturnType<typeof createPublicClient>;
@@ -137,6 +147,7 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             );
             return uri;
         } catch (error) {
+            if (error instanceof RpcBudgetDeferred) throw error;
             this.metrics?.increment(
                 INDEXER_METADATA_RPC_METRIC.ResolveFailure,
                 1,
@@ -204,6 +215,13 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             sleep: this.config.sleep,
             circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
             rateLimiter: (endpoint) => endpoint.value.rateLimiter,
+            requestBudget: this.config.requestBudget
+                ? {
+                      ...this.config.requestBudget,
+                      endpointKey: (endpoint) =>
+                          rpcEndpointBudgetKey(endpoint.url),
+                  }
+                : undefined,
             execute: (endpoint) => read(endpoint.value.client),
         });
     }

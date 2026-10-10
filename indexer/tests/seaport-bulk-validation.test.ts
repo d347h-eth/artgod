@@ -231,7 +231,11 @@ describe("stored bulk listing recovery", () => {
                     },
                 },
             ],
-            { observedAt: oldTime * 1_000, blockNumber: rpc.blockNumber },
+            {
+                observedAt: oldTime * 1_000,
+                blockNumber: rpc.blockNumber,
+                checkpoint: store.captureSyncCheckpoint(order.chainId),
+            },
             oldTime * 1_000,
         );
         expect(store.get(order.chainId, order.id)?.pending).toBe(false);

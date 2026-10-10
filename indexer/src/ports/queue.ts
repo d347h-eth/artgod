@@ -1,4 +1,5 @@
 import type { QueueName } from "../domain/queues.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import type {
     JobEnvelope,
     QueueDeliveryOrigin,
@@ -21,6 +22,7 @@ export type SubscribeOptions = {
     consumerName: string;
     maxInFlight?: number;
     ackWaitMs?: number;
+    workClass?: SyncWorkClass;
 };
 
 export interface QueuePort {

@@ -1,4 +1,9 @@
 import { db } from "@artgod/shared/database";
+import {
+    captureChainSyncCheckpoint,
+    assertChainSyncCheckpoint,
+    advanceChainSyncRevision,
+} from "./sqlite-chain-revisions.js";
 import { isDeepStrictEqual } from "node:util";
 import {
     fillExecutionIdentity,
@@ -17,6 +22,12 @@ import {
 } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
+import type { SyncRangeResult } from "../../ports/storage.js";
+import {
+    assertCanonicalCheckPolicy,
+    needsDelayedCanonicalCheck,
+    type CanonicalCheckPolicy,
+} from "../../domain/canonical-check.js";
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
@@ -89,13 +100,6 @@ export class SqliteStorage
     private selectReorgHeaders = db.prepare<[number, number, number]>(
         "SELECT block_number AS number, block_hash AS hash, parent_hash AS parentHash, timestamp FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ? ORDER BY block_number",
     );
-    private selectSyncRevision = db.prepare<[number]>(
-        "SELECT revision FROM chain_sync_revisions WHERE chain_id = ?",
-    );
-    private advanceSyncRevision = db.prepare<[number]>(
-        "INSERT INTO chain_sync_revisions (chain_id, revision) VALUES (?, 1) " +
-            "ON CONFLICT(chain_id) DO UPDATE SET revision = revision + 1",
-    );
     private selectOwnershipCheckpoint = db.prepare<[number, number, string]>(
         "SELECT p.owner, p.block_number, p.block_hash, p.block_timestamp " +
             "FROM erc721_ownership_checkpoints p JOIN collections c ON c.collection_id = p.collection_id " +
@@ -133,8 +137,10 @@ export class SqliteStorage
             "WHERE c.chain_id = @chainId AND c.standard = @standard AND c.bootstrap_anchor_block IS NOT NULL " +
             "ORDER BY c.collection_id, t.token_id",
     );
-    private insertBlock = db.prepare<[number, number, string, string, number]>(
-        "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp) VALUES (?, ?, ?, ?, ?) " +
+    private insertBlock = db.prepare<
+        [number, number, string, string, number, number]
+    >(
+        "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp, canonical_check_pending) VALUES (?, ?, ?, ?, ?, ?) " +
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
             "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
     );
@@ -355,33 +361,21 @@ export class SqliteStorage
     );
 
     captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint {
-        const row = this.selectSyncRevision.get(chainId) as
-            | { revision: number }
-            | undefined;
-        return { chainId, revision: row?.revision ?? 0 };
+        return captureChainSyncCheckpoint(chainId);
     }
 
     private assertSyncCheckpoint(checkpoint: ChainSyncCheckpoint): void {
-        if (
-            this.captureSyncCheckpoint(checkpoint.chainId).revision !==
-            checkpoint.revision
-        )
-            throw new ChainSyncConflict(
-                "Sync work predates a committed chain rollback",
-            );
+        assertChainSyncCheckpoint(checkpoint);
     }
 
     persistSyncResult({
         checkpoint,
+        canonicalCheck,
         blocks,
         data,
         collections,
-    }: {
-        checkpoint: ChainSyncCheckpoint;
-        blocks: readonly SyncBlockHeader[];
-        data: OnChainData;
-        collections: CollectionRecord[];
-    }): void {
+    }: SyncRangeResult): void {
+        assertCanonicalCheckPolicy(canonicalCheck);
         const chainId = checkpoint.chainId;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(checkpoint);
@@ -398,7 +392,7 @@ export class SqliteStorage
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
             );
-            this.persistBlocks(chainId, blocks);
+            this.persistBlocks(chainId, blocks, canonicalCheck);
             this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
@@ -636,15 +630,19 @@ export class SqliteStorage
             ).run(chainId, fromBlock);
             // Retain the verified fork header even when its transfer facts were
             // missing, so later reorg checks can invalidate this checkpoint.
-            this.persistBlocks(chainId, [
-                {
-                    number: snapshot.block.blockNumber,
-                    hash: snapshot.block.blockHash,
-                    parentHash: snapshot.block.parentHash,
-                    timestamp: snapshot.block.blockTimestamp,
-                },
-            ]);
-            this.advanceSyncRevision.run(chainId);
+            this.persistBlocks(
+                chainId,
+                [
+                    {
+                        number: snapshot.block.blockNumber,
+                        hash: snapshot.block.blockHash,
+                        parentHash: snapshot.block.parentHash,
+                        timestamp: snapshot.block.blockTimestamp,
+                    },
+                ],
+                null,
+            );
+            advanceChainSyncRevision(chainId);
         });
         run();
     }
@@ -652,6 +650,7 @@ export class SqliteStorage
     private persistBlocks(
         chainId: number,
         blocks: readonly SyncBlockHeader[],
+        canonicalCheck: CanonicalCheckPolicy | null,
     ): void {
         // Store block metadata for reorg checks and future gap detection.
         for (const block of blocks) {
@@ -661,6 +660,10 @@ export class SqliteStorage
                 block.hash,
                 block.parentHash,
                 block.timestamp,
+                canonicalCheck &&
+                    needsDelayedCanonicalCheck(block.number, canonicalCheck)
+                    ? 1
+                    : 0,
             );
         }
     }

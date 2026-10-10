@@ -1,3 +1,5 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import {
     afterEach,
     beforeAll,
@@ -138,7 +140,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
             resilience: {
                 ...getDefaultRpcEndpointResilienceConfig(),
                 requestTimeoutMs: 1000,
-                rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
                 circuitBreaker: {
                     failureThreshold: 10,
                     openMs: 1000,
@@ -160,6 +162,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
         const f = harness({ divergent: true });
         await f.rollback.execute(CANONICAL);
         f.storage.persistSyncResult({
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             checkpoint: f.storage.captureSyncCheckpoint(1),
             blocks: [104, 105, 106, 107].map(block),
             data: emptyOnChainData(),

@@ -1,6 +1,9 @@
 # Scheduler-Worker Runtime
 
-The scheduler-worker translates chain head updates into sync and reorg jobs and continuously repairs missing coverage for live collections. It is the only component allowed to publish realtime sync jobs.
+The scheduler-worker translates chain head updates into realtime sync jobs while
+the sync worker discovers and repairs missing collection coverage. It is the only
+component allowed to publish realtime sync jobs. Reorg checks belong to the
+stored blocks and the reorg worker.
 
 Implementation:
 
@@ -14,7 +17,6 @@ Implementation:
 - RPC provider (HTTP): used to fetch the current head.
 - Optional WebSocket head source: emits head updates.
 - Queue port: publishes jobs to NATS.
-- Collection registry and gap store: read eligible collections and their coverage, and retain repair intent in SQLite.
 
 ## Bootstrap Sequence
 
@@ -22,16 +24,14 @@ Implementation:
 
 1. Fetch current head via `rpc.getBlockNumber()`.
 2. Schedule realtime sync jobs for the recent reorg window only.
-3. Schedule the initial block-check job for reorg validation.
-4. Set `lastScheduled` and `lastChecked` based on the head.
-5. Run one bounded collection gap scan using that observed head.
+3. Set `lastScheduled` based on the head.
 
 This ensures the scheduler-worker never publishes from an uninitialized head.
 
 ## Realtime Scheduling
 
 - The scheduler-worker maintains `lastScheduled` (last head seen and scheduled).
-- On each head update, it schedules jobs from `lastScheduled + 1` to `head`.
+- On each head update, it schedules jobs from `max(lastScheduled + 1, HEAD - REORG_DEPTH + 1)` to `head`. Older missed blocks belong to automatic history repair.
 - Jobs are published to `events-sync-realtime` with dedupe by jobId.
 - WS and HTTP scheduling share a serialized cursor; overlapping polls are coalesced.
 
@@ -40,20 +40,12 @@ Important invariant:
 - The realtime window is always relative to the latest head.
 - Automatic gap repairs run separately from the realtime window and use each live collection's anchor as their lower bound.
 
-## Reorg Block Checks
+## Reorg Checks
 
-Block-check jobs are scheduled after blocks become old enough to be safe from shallow reorgs.
-
-- `reorgDepth` determines the delay.
-- The scheduler-worker increments `lastChecked` and schedules `block-check` jobs in order.
-
-If scheduling would fall below block 1, the scheduler-worker logs a warning and skips the check.
-
-`lastChecked` tracks scheduled checks, not completed recovery. The reorg worker
-retains a detected mismatch separately and resumes due proof at startup
-and periodically; the sync worker executes retained resync ranges, including at stationary HEAD. Collection gap sweeps can fill
-missing ancestor headers; covered orphan blocks still require that retained
-[reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
+The scheduler has no hash-check cursor or queue. Saving recent blocks atomically
+retains their delayed checks in SQLite. The reorg worker drains eligible rows
+even after downtime moves them outside the realtime tail, then retains and
+resolves any mismatch. See [pending hash checks](06-reorg-handling.md#pending-hash-checks).
 
 ## Head Sources
 
@@ -71,22 +63,31 @@ The WS path and poller both call the same `handleHead()` function.
 
 ## Perpetual Collection Gap Repair
 
-Gap detection is enabled by default. Startup and every successful HTTP poll
-(default 12 seconds) run a bounded pass, including when the head is unchanged.
+Gap detection is enabled by default in the sync worker. Its automatic executor
+finds gaps and fetches/saves blocks continuously, including at stationary HEAD.
+After a successful repair or a discovery page with more history to check, it
+yields to runtime work and starts the next pass immediately. A completed sweep,
+retry backoff, RPC lag, or paused allocation uses the 12-second idle poll.
+Local-only discovery reuses a HEAD observed within 12 seconds; every
+fetch-and-save batch reads a fresh HEAD before choosing its range. An app
+without eligible collections sends no automatic gap HEAD requests.
 Each pass visits at most 16 eligible collections in collection-ID order, rotating
 through the full set. Only `live` collections with a valid bootstrap anchor
 participate. Newly live collections join automatically; prepared, bootstrapping,
 paused, disabled, and unanchored collections are excluded.
 
 For each collection, the scanner reads at most a 10,000-block window of
-`collection_sync_blocks`, walking backward from the observed head to
+`collection_sync_blocks`, walking backward from `HEAD - REORG_DEPTH` to
 `bootstrap_anchor_block`, inclusive. It streams the indexed coverage rows and
 selects the highest contiguous gap, capped by `BACKFILL_BATCH_SIZE`. Global
 `blocks` rows and `bootstrap_last_synced_block` are not coverage evidence. A
 persisted cursor keeps ordinary polling and restarts from resetting the backward
-scan; after the anchor it starts another scan from the current head.
+scan. Reaching the anchor marks that collection complete for the current cycle.
+A complete cycle waits until its next 30-minute recheck instead of restarting
+completed collections while another collection finishes. Changed anchors, new
+live collections and rollback start their required discovery again.
 
-Every 30 minutes of wall-clock time, the sync worker checks for newer holes
+Every 30 minutes of wall-clock time, the sync worker checks up to `HEAD - REORG_DEPTH` for newer holes
 above each collection's pending range, or above its cursor when no range is
 pending. `last_head_check_at` persists this timing, so downtime counts and overdue
 checks run after restart. Previously unchecked rows are due immediately. A
@@ -116,13 +117,12 @@ Checks and replacement run inside the shared backfill gate, between attempts to
 fetch and save blocks. A running attempt finishes first; work waiting for the
 gate is selected again when it can start. Slow RPC or another current-state
 backfill can delay a due check; 30 minutes defines eligibility, not a deadline.
-Conditional progress saves prevent stale reads in the separate scheduler
-process from overwriting a newer worker decision.
+Conditional progress saves fence changed collection/repair state before commit.
 
-The scheduler saves the next scan position and one repair intent per collection
+The scanner, owned by the sync worker, saves the next scan position and one repair intent per collection
 in `collection_sync_gap_scans`. It publishes no automatic range job. The sync
 worker's `AutomaticSyncExecutor` reads due intent directly, running at most one
-range per startup/poll pass (default 12 seconds). It finds the globally highest
+range per pass and immediately continuing while work progresses. It finds the globally highest
 pending upper bound across live collections, then reads at most 16 ready members
 at that height. Their common suffix is shared and the range is capped by
 `BACKFILL_BATCH_SIZE`. Retry eligibility is applied after finding the highest
@@ -200,8 +200,26 @@ effects without treating old WETH/counter events as current maker state.
 `indexer/src/runtime/scheduler-worker.ts` wires the ports:
 
 - Loads config from `.env`.
-- Applies migrations and opens collection coverage and durable gap-scan adapters.
+- Applies migrations.
 - Connects to NATS.
 - Initializes in-memory cache for RPC calls.
 - Creates HTTP RPC provider and optional WS head source.
-- Starts the scheduler-worker and installs shutdown handlers.
+- Owns the pipeline's shared RPC allowance, then starts head scheduling and
+  installs shutdown handlers. See [RPC allocation](04-sync-pipeline.md#rpc-allocation).
+
+### Automatic history boundary and completed searches
+
+Both backward discovery and the 30-minute newer-hole check end at
+`HEAD - REORG_DEPTH`. The latest `REORG_DEPTH` blocks belong to realtime.
+Before fetching a repair, the executor rechecks at most one batch-sized coverage
+window per member. Covered suffixes are removed locally; older unfinished
+blocks and the saved scan cursor remain intact. Only still-missing common
+suffixes share RPC work. Realtime delayed beyond the tail can still overlap
+background work after that check.
+
+A completed collection stays finished while peers search older windows. This
+completion bookkeeping is process-local. A completed cycle restarts after
+30 minutes; a process restart resumes saved cursors, and a chain revision change
+restarts discovery from the current history boundary. New collections and
+changed anchors can join immediately. Fully covered mixed cursors converge to
+idle instead of repeatedly restarting finished peers.

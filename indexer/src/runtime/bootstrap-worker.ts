@@ -1,3 +1,4 @@
+import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -243,6 +244,9 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: false,
+        });
         const rpc = new ViemRpcProvider({
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
@@ -251,6 +255,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.BootstrapHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const collections = new SqliteCollectionRegistry();
         const collectionExtensions = new SqliteCollectionExtensions(
@@ -324,6 +329,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             ipfsGateway: config.ipfs.gatewayOrigin,
@@ -528,6 +534,7 @@ async function main() {
                 }
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.bootstrap.consume",
             },
@@ -594,6 +601,7 @@ async function main() {
                 }
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.bootstrap.image_cache.consume",
             },
@@ -603,12 +611,11 @@ async function main() {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.Main,
             rpcEndpoint: summarizeRpcUrl(config.rpc.endpoints[0]?.url ?? ""),
-            rpcRateLimitRps:
-                config.rpc.resilience.rateLimiter.requestsPerSecond,
-            rpcRateLimitBurst: config.rpc.resilience.rateLimiter.burst,
+            rpcRateLimit: config.rpc.resilience.rateLimiter,
         });
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             logger.info("Collection bootstrap worker shutting down", {
                 component: BOOTSTRAP_WORKER_COMPONENT,
                 action: BOOTSTRAP_WORKER_ACTION.Shutdown,
@@ -619,6 +626,7 @@ async function main() {
             await stopImageCache();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

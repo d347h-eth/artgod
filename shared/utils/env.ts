@@ -26,6 +26,40 @@ export function parseRequiredString(
     return normalized;
 }
 
+/** Parse an explicit policy choice; absent input uses the owner's validated default. */
+export function parseEnum<T extends string>(
+    value: string | undefined,
+    name: string,
+    choices: readonly T[],
+    defaultValue: string,
+): T {
+    const candidate = value?.trim() || defaultValue;
+    const choice = choices.find((allowed) => allowed === candidate);
+    if (choice === undefined)
+        throw new Error(`Invalid ${name}: expected ${choices.join(" or ")}`);
+    return choice;
+}
+
+/** Positive finite decimal values shared by numeric config and Admin validation. */
+export function isPositiveNumber(value: string | number): boolean {
+    if (typeof value === "string" && !/^\d+(?:\.\d+)?$/.test(value.trim()))
+        return false;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+}
+
+export function parsePositiveNumber(
+    value: string | undefined,
+    name: string,
+    defaultValue?: number,
+): number {
+    const candidate = value?.trim() || defaultValue;
+    if (candidate === undefined) throw new Error(`Missing ${name}`);
+    if (!isPositiveNumber(candidate))
+        throw new Error(`Invalid ${name}: ${candidate}`);
+    return Number(candidate);
+}
+
 export function parseAddress(value: string | undefined, name: string): string {
     if (!value) {
         throw new Error(`Missing ${name}`);

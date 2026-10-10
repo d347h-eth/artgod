@@ -3,7 +3,7 @@ import { startSchedulerWorker } from "../src/application/scheduler-worker.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import type { QueuePort } from "../src/ports/queue.js";
 
-describe("scheduler coverage loop", () => {
+describe("realtime scheduler loop", () => {
     let stop: (() => Promise<void>) | undefined;
     beforeEach(() => vi.useFakeTimers());
     afterEach(async () => {
@@ -12,45 +12,86 @@ describe("scheduler coverage loop", () => {
         vi.useRealTimers();
     });
 
-    it("scans on startup and every HTTP poll even when the head does not change", async () => {
+    it("polls realtime heads without publishing duplicate work at an unchanged head", async () => {
         const h = harness();
         stop = await h.start();
-        expect(h.scan).toHaveBeenCalledExactlyOnceWith(100);
+        expect(h.getHead).toHaveBeenCalledTimes(1);
         expect(h.publishedBlocks()).toEqual([98, 99, 100]);
         await vi.advanceTimersByTimeAsync(30);
-        expect(h.scan).toHaveBeenCalledTimes(4);
+        expect(h.getHead).toHaveBeenCalledTimes(4);
         expect(h.publishedBlocks()).toEqual([98, 99, 100]);
         h.head(102);
         await vi.advanceTimersByTimeAsync(10);
-        expect(h.scan).toHaveBeenLastCalledWith(102);
+        expect(h.getHead).toHaveBeenCalledTimes(5);
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101, 102]);
         await stop();
         await vi.advanceTimersByTimeAsync(100);
-        expect(h.scan).toHaveBeenCalledTimes(5);
+        expect(h.getHead).toHaveBeenCalledTimes(5);
     });
 
-    it("keeps realtime scheduling alive after a gap scan failure", async () => {
+    it("recovers realtime scheduling after a head read failure", async () => {
         const h = harness();
-        h.scan.mockRejectedValueOnce(new Error("database unavailable"));
         stop = await h.start();
+        h.getHead.mockRejectedValueOnce(new Error("RPC unavailable"));
         h.head(101);
         await vi.advanceTimersByTimeAsync(10);
+        await vi.advanceTimersByTimeAsync(10);
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101]);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(3);
     });
 
-    it("prevents overlapping polls and waits for active gap publication on shutdown", async () => {
+    it.each([0, 1, 2])(
+        "schedules only positive realtime blocks at HEAD=%s",
+        async (head) => {
+            const h = harness();
+            h.head(head);
+            stop = await h.start();
+            expect(h.publishedBlocks()).toEqual(
+                Array.from({ length: head }, (_, index) => index + 1),
+            );
+        },
+    );
+
+    it("leaves older missed blocks to automatic history repair after a large head jump", async () => {
+        const h = harness();
+        stop = await h.start();
+        h.head(200);
+        await vi.advanceTimersByTimeAsync(10);
+        expect(h.publishedBlocks()).toEqual([98, 99, 100, 198, 199, 200]);
+    });
+
+    it("retries a partially published tail without scheduling older catch-up", async () => {
+        const h = harness();
+        stop = await h.start();
+        let fail = true;
+        h.publish.mockImplementation(async (_queue, job) => {
+            if (
+                (job.payload as { blockNumber: number }).blockNumber === 199 &&
+                fail
+            ) {
+                fail = false;
+                throw new Error("publication unavailable");
+            }
+        });
+        h.head(200);
+        await vi.advanceTimersByTimeAsync(20);
+        expect(h.publishedBlocks()).toEqual([
+            98, 99, 100, 198, 199, 198, 199, 200,
+        ]);
+    });
+
+    it("prevents overlapping head polls and waits for an active read on shutdown", async () => {
         const h = harness();
         stop = await h.start();
         let release!: () => void;
-        h.scan.mockImplementationOnce(
+        h.getHead.mockImplementationOnce(
             () =>
-                new Promise<void>((resolve) => {
-                    release = resolve;
+                new Promise<number>((resolve) => {
+                    release = () => resolve(100);
                 }),
         );
         await vi.advanceTimersByTimeAsync(50);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(2);
         let stopped = false;
         const shutdown = stop().then(() => {
             stopped = true;
@@ -60,7 +101,7 @@ describe("scheduler coverage loop", () => {
         release();
         await shutdown;
         await vi.advanceTimersByTimeAsync(50);
-        expect(h.scan).toHaveBeenCalledTimes(2);
+        expect(h.getHead).toHaveBeenCalledTimes(2);
     });
 
     it("serializes concurrent WS and polling heads without duplicate realtime ranges", async () => {
@@ -89,32 +130,23 @@ describe("scheduler coverage loop", () => {
         expect(h.publishedBlocks()).toEqual([98, 99, 100, 101, 102, 103]);
     });
 
-    it("recovers failed reorg check publication at an unchanged head", async () => {
+    it("publishes only realtime work; committed blocks own their hash checks", async () => {
         const h = harness();
         stop = await h.start();
-        h.publish.mockImplementation(async (queue) => {
-            if (queue === QUEUE_NAMES.BlockCheck)
-                throw new Error("block check publish failed");
-        });
-        h.head(101);
+        h.head(150);
         await vi.advanceTimersByTimeAsync(10);
-        h.publish.mockResolvedValue(undefined);
-        await vi.advanceTimersByTimeAsync(10);
-        const checks = h.publish.mock.calls.filter(
-            ([queue]) => queue === QUEUE_NAMES.BlockCheck,
+        expect(new Set(h.publish.mock.calls.map(([queue]) => queue))).toEqual(
+            new Set([QUEUE_NAMES.RealtimeSync]),
         );
-        expect(checks.at(-1)?.[1].payload).toEqual({ blockNumber: 99 });
-        expect(h.publishedBlocks()).toEqual([98, 99, 100, 101]);
-        expect(h.scan).toHaveBeenLastCalledWith(101);
     });
 });
 
 function harness() {
     let head = 100;
-    const scan = vi.fn(async (_head: number) => {});
+    const getHead = vi.fn(async () => head);
     const publish = vi.fn<QueuePort["publish"]>(async () => {});
     return {
-        scan,
+        getHead,
         publish,
         head(value: number) {
             head = value;
@@ -123,10 +155,9 @@ function harness() {
             start(onHead: (head: number) => void): Promise<() => Promise<void>>;
         }) {
             return startSchedulerWorker(
-                { getBlockNumber: async () => head },
+                { getBlockNumber: getHead },
                 { publish },
                 { chainId: 1, sync: { reorgDepth: 3 } },
-                { scan },
                 { pollIntervalMs: 10, headSource },
             );
         },

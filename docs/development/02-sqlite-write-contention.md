@@ -177,6 +177,7 @@ retain deferred snapshot reads; they must not acquire a writer lock.
 | `infra/storage/sqlite-sync-range-commit.ts`       | atomic canonical data, required follow-ups and gap/reorg acquisition progress                         | one outer writer with existing nested persistence adapters; RPC/publication outside     |
 | `infra/storage/sqlite-sync-gaps.ts`               | retain scan cursor and gap intent; conditional failure/progress writes                                | protected autocommit; completion occurs inside the sync commit writer                   |
 | `infra/storage/sqlite-reorg-recoveries.ts`        | mismatch/proof retry, atomic checkpoint rollback/resync retention and range progress                  | protected autocommit and writers; range completion occurs inside the sync commit writer |
+| `infra/storage/sqlite-canonical-checks.ts`        | conditional hash-check completion and durable retry                                                   | protected writers; mismatch handoff shares the recovery retention transaction           |
 | `infra/storage/sqlite.ts`                         | canonical sync persistence and reorg rollback                                                         | 2 transaction units                                                                     |
 | `infra/token-sets/sqlite.ts`                      | token-set upsert and member insertion                                                                 | member transaction converted; split atomicity remains below                             |
 

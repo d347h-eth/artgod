@@ -600,6 +600,14 @@ The canonical RPC metrics are:
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
 
+For pipeline calls using the shared main/background allocation, endpoint-attempt
+timing starts after local quota admission. Quota waits use the existing
+`rpc.rate_limiter.wait_ms` observation; whole-call duration still includes them.
+Local allocation deferral records no provider failure, retry or weight penalty.
+Legacy per-client limiter timing in backend/trading is unchanged. These metrics
+currently aggregate both work classes; purpose-separated demand/throughput
+measurements are a prerequisite for the deferred automatic allocation controller.
+
 RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
 and custom fetch-backed paths so timeout dashboards do not split by provider
 implementation detail.
@@ -625,7 +633,6 @@ Metadata fetch/resolve:
 Scheduler-worker spans in `indexer/src/application/scheduler-worker.ts`:
 
 - `scheduler-worker.bootstrap.realtime`
-- `scheduler-worker.bootstrap.blockChecks`
 - `scheduler-worker.head.poll`
 - `scheduler-worker.head.ws`
 

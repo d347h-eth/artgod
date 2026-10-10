@@ -151,7 +151,7 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   to later HEAD-check pages. It records warm local timings in
   `tmp/recent-gap-query-cost.json`; these are not a cold disk or fully covered
   26-million-block qualification.
-- `tests/scheduler-worker.test.ts` verifies startup and unchanged-head scanning,
+- `tests/scheduler-worker.test.ts` verifies HEAD scheduling at startup and unchanged heads,
   WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
   shutdown draining.
 - `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
@@ -183,8 +183,12 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   newer mismatch, concurrent token scope and pre-rollback realtime results. A
   two-token mixed-fork fixture proves that a repaired matching header cannot hide
   an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
-  Initial journal deferrals followed by RPC, wrong-height, checkpoint or header
-  read failures cannot ACK/DLQ the only check owner after retry-budget exhaustion.
+  Initial journal failures followed by RPC, wrong-height, checkpoint or header
+  read failures cannot consume the pending DB check.
+- `tests/pending-canonical-checks.test.ts` covers atomic recent-block retention,
+  unchanged maturity thresholds, duplicate imports, fresh-hash/revision fences,
+  downtime beyond the realtime tail, durable retries and atomic recovery handoff.
+  It also verifies prompt draining and shutdown of the serial check loop.
 - `tests/rollback-snapshot-provider.test.ts` uses the real weighted RPC adapter
   against independently coherent disagreeing providers. Owners and recognized
   absence must come from the exact canonical hash; unsupported/unavailable/
@@ -199,7 +203,7 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   zero idle head reads, newest-height priority across collections, retry and
   above-head waits, ready peers at the same height, bounded indexed selection
   past thousands of older rows, finishing a running range before HEAD checks,
-  and reselecting after waiting for the current-state gate,
+  and reselecting after waiting for the current-state gate or trimming a covered suffix,
   newer-hole processing past 16 no-pending anchors above HEAD with default retry
   timing and repeated scheduler/worker passes,
   coalescing and shutdown draining, lifecycle changes during acquisition, dense
@@ -222,6 +226,25 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   including retained parent identities at missing heights, without guessing a fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
+- `tests/continuous-gap-loop.test.ts` verifies immediate bounded continuation,
+  idle/error backoff, nonoverlapping passes and graceful stop without idle delay.
+- `tests/rpc-work-allocation.test.ts` verifies durable work classes, async scope
+  isolation, deferred snapshot/final verification attribution, current-validation
+  main admission, main priority between backfill ranges and separate queue capacity.
+  Maker SQLite tests cover retained continuation/publication class and quota
+  deferral without failure count.
+- `tests/historical-order-validation.test.ts` covers saved full-validation reuse
+  across ordinary, maker and token paths, distinct event/observation requirements,
+  rollback fencing and background hint admission followed by main validation.
+  The real allocation scheduler and validation implementation complete strict
+  snapshots with two competing streams at default and low background rates,
+  and with disabled or unlimited gap policies.
+- `shared/evm/rpc-budget.test.ts` verifies all six overall/gap mode combinations,
+  shared per-endpoint rates, main use of idle allowance, bounded background
+  concurrency, unlimited-gap main priority, cancellation, expiry, disabled
+  work and endpoint identity privacy. Default 1.5 RPS/three-in-flight probes
+  cover 500 ms and 1.5 s responses. RPC execution tests verify per-attempt
+  admission including retries and no provider penalty for local quota waiting.
 - `tests/fill-execution-upgrades.test.ts` upgrades populated legacy history,
   removes every sale source, preserves unrelated tables, and verifies atomic
   rollback/retry and resumed market-data recovery without restoring old sales.
@@ -257,22 +280,23 @@ helper and child-worker bundler retain disposable SQLite/JetStream stores,
 worker/broker logs and reports under `tmp/reorg-recovery-nats/`. Metadata range
 broker fixtures retain their private stores and logs under `tmp/metadata-range-nats/`.
 Bootstrap coverage-upgrade fixtures use `tmp/bootstrap-coverage-recovery-nats/`.
+RPC allocation fixtures use `tmp/rpc-allocation-nats/`.
 
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
 outbox, SQLite and range/fanout implementations across:
 
-- initial retention failure beyond ordinary broker retry limits, including a
-  later RPC outage after five failed journal writes and healthy eventual recovery;
+- pending DB checks surviving repeated journal failures, including a later RPC
+  outage after five failed writes and healthy eventual recovery;
 - worker death after rollback, during RPC, after acquisition before publication,
   and during partial publication;
 - broker restart over the retained private JetStream store;
 - accepted publication with a lost reply and stable identity inside NATS's
   dedupe window;
 - required publication beyond ordinary retry limits, without DLQ or reacquisition;
-- lease renewal with ownership slower than the acknowledgment deadline;
+- durable recovery ownership through slow ownership reads without a check queue;
 - a 401-token serial rollback snapshot with controlled per-read latency, recording
   completion time and process RSS while keeping one bounded resync continuation;
-- forced check redelivery and a lost obsolete automatic-hint ACK;
+- restart after a committed check handoff and a lost obsolete automatic-hint ACK;
 - a competing SQLite writer requiring bounded transaction retries, and stale
   proof from one process after another commits rollback.
 
@@ -291,6 +315,13 @@ restore coverage and allow collection-live completion. Real transfer decoding,
 the current-state gate and SQLite persistence prove ERC1155 deltas apply once,
 including when an old queued tail overlaps a recovery batch. Executor unit tests
 also cover bounded pending work, retry timing and uncertain publication.
+
+`integration/rpc-work-allocation.test.ts` uses independent budget clients on the
+isolated broker. It covers shared rates/in-flight limits under main load, failed
+request release, shutdown cancellation, missing-owner fallback for main only,
+disabled background, unlimited gap concurrency across clients, a logical request surviving the 30-second transport deadline
+at low rates, and main queue delivery while a background slot remains occupied.
+It runs the production owner restart fence; no test override disables it.
 
 RPC chain responses are deterministic fixtures. These checks establish the local
 broker/database failure contracts; external-RPC smoke, native/package execution

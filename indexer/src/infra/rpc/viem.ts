@@ -18,6 +18,11 @@ import {
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import {
+    rpcEndpointBudgetKey,
+    type RpcRequestBudget,
+} from "@artgod/shared/evm/rpc-budget";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { createHttpRpcTransport } from "@artgod/shared/evm/http-rpc-transport";
 import {
     CircuitBreaker,
@@ -63,6 +68,10 @@ export type ViemRpcConfig = {
     retryPolicy?: RpcRetryPolicy;
     resilience?: RpcEndpointResilienceConfig;
     createClient?: ViemRpcClientFactory;
+    requestBudget?: {
+        budget: RpcRequestBudget;
+        workClass: () => SyncWorkClass;
+    };
 };
 
 type ViemPublicClient = ReturnType<typeof createPublicClient>;
@@ -427,6 +436,13 @@ export class ViemRpcProvider implements RpcProviderPort {
             retryPolicy: this.retryPolicy,
             circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
             rateLimiter: (endpoint) => endpoint.value.rateLimiter,
+            requestBudget: this.config.requestBudget
+                ? {
+                      ...this.config.requestBudget,
+                      endpointKey: (endpoint) =>
+                          rpcEndpointBudgetKey(endpoint.url),
+                  }
+                : undefined,
             execute: (endpoint) => fn(endpoint.value.client),
         });
     }

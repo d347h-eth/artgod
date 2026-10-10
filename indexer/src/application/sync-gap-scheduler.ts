@@ -5,6 +5,7 @@ import type {
     SyncGapRange,
     SyncGapProgress,
     SyncGapRepairTarget,
+    SyncGapRepairCandidate,
 } from "../domain/sync-gap-repair.js";
 export type {
     SyncGapRange,
@@ -49,6 +50,7 @@ export interface SyncGapStorePort {
         chainId: number;
         now: number;
         limit: number;
+        upperBound: number;
     }): SyncGapRepairTarget[];
     // Save only if the previously read state is still current. The scanner and
     // sync worker run in separate processes; stale scans must not replace work.
@@ -89,6 +91,15 @@ export interface SyncGapStorePort {
         window: SyncGapRange,
         batchSize: number,
     ): SyncGapRange | null;
+    // Recheck at most batchSize blocks at the intent's upper end in one transaction.
+    // Remove covered suffixes, preserving every older remainder and its scan cursor.
+    // Null means stale intent or no missing block in that suffix, not a sync commit.
+    reconcileRepairCoverage(input: {
+        chainId: number;
+        repair: SyncGapRepairTarget;
+        batchSize: number;
+        now: number;
+    }): SyncGapRepairCandidate | null;
     deferRetry(
         chainId: number,
         repair: SyncGapRepairTarget,
@@ -105,7 +116,11 @@ export interface SyncGapStorePort {
 }
 
 export interface SyncGapDetectorPort {
-    scan(headBlock: number): Promise<void>;
+    hasCollections(): boolean;
+    // Forget process-local completed searches when rollback invalidates coverage.
+    resetDiscovery(): void;
+    // True means another bounded discovery page/window can make progress now.
+    scan(headBlock: number): Promise<boolean>;
 }
 
 export interface SyncGapHeadRecheckPort {
@@ -136,7 +151,12 @@ export class SyncGapScheduler
 {
     private afterCollectionId = 0;
     private headCheckTraversal: HeadCheckTraversal | null = null;
-    private active: Promise<void> | null = null;
+    private active: Promise<boolean> | null = null;
+    private roundHasOlderWindows = false;
+    private roundHasUnfinishedCollections = false;
+    private completed = new Map<number, number>();
+    private cycleCompletedAt: number | null = null;
+    private restartFromHead = false;
     private readonly windowSize: number;
     private readonly pageSize: number;
     private readonly now: () => number;
@@ -270,43 +290,64 @@ export class SyncGapScheduler
                   lastHeadCheckAt: this.now(),
               })
             : { ...expected, lastHeadCheckAt: this.now() };
+        const saved = this.store.saveProgress({
+            chainId,
+            collectionId: collection.id,
+            expected,
+            progress,
+        });
+        if (saved && gap) {
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
+        }
+        return saved && gap !== null;
+    }
+
+    hasCollections(): boolean {
         return (
-            this.store.saveProgress({
-                chainId,
-                collectionId: collection.id,
-                expected,
-                progress,
-            }) && gap !== null
+            this.collections.listCollectionsForGapRepair(
+                this.options.chainId,
+                0,
+                1,
+            ).length > 0
         );
     }
 
-    scan(headBlock: number): Promise<void> {
+    scan(headBlock: number): Promise<boolean> {
         if (this.active) return this.active;
+        if (
+            this.cycleCompletedAt !== null &&
+            this.now() - this.cycleCompletedAt >= this.headRecheckIntervalMs
+        )
+            this.resetDiscovery();
         this.active = this.scanPage(headBlock).finally(() => {
             this.active = null;
         });
         return this.active;
     }
 
-    private async scanPage(headBlock: number): Promise<void> {
-        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return;
-        let collections = this.collections.listCollectionsForGapRepair(
+    resetDiscovery(): void {
+        this.completed.clear();
+        this.cycleCompletedAt = null;
+        this.afterCollectionId = 0;
+        this.roundHasOlderWindows = false;
+        this.roundHasUnfinishedCollections = false;
+        this.restartFromHead = true;
+    }
+
+    private async scanPage(headBlock: number): Promise<boolean> {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const collections = this.collections.listCollectionsForGapRepair(
             this.options.chainId,
             this.afterCollectionId,
             this.pageSize,
         );
-        if (collections.length === 0 && this.afterCollectionId !== 0) {
-            this.afterCollectionId = 0;
-            collections = this.collections.listCollectionsForGapRepair(
-                this.options.chainId,
-                0,
-                this.pageSize,
-            );
-        }
         for (const collection of collections) {
             this.afterCollectionId = collection.id;
             try {
-                this.scanCollection(collection, headBlock);
+                this.roundHasOlderWindows =
+                    this.scanCollection(collection, headBlock) ||
+                    this.roundHasOlderWindows;
             } catch (error) {
                 // A failed collection scan must not starve other collections.
                 logger.warn("Collection gap scan failed", {
@@ -318,18 +359,29 @@ export class SyncGapScheduler
                 });
             }
         }
+        if (collections.length === this.pageSize) return true;
+        this.afterCollectionId = 0;
+        this.restartFromHead = false;
+        const more = this.roundHasOlderWindows;
+        if (!this.roundHasUnfinishedCollections)
+            this.cycleCompletedAt ??= this.now();
+        this.roundHasOlderWindows = false;
+        this.roundHasUnfinishedCollections = false;
+        return more;
     }
 
     private scanCollection(
         collection: CollectionRecord,
         headBlock: number,
-    ): void {
+    ): boolean {
         const window = collection.gapRepairWindow(headBlock);
-        if (!window) return;
+        if (!window) return false;
         const chainId = this.options.chainId;
         const expected = this.store.getProgress(chainId, collection.id);
         let progress = expected;
         if (!progress || progress.anchorBlock !== window.fromBlock) {
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
             progress = {
                 anchorBlock: window.fromBlock,
                 cursorBlock: null,
@@ -337,8 +389,13 @@ export class SyncGapScheduler
                 lastHeadCheckAt: null,
             };
         }
+        // A null cursor also marks a finished search. Keep that meaning for
+        // this cycle instead of restarting it while peers visit older windows.
+        if (this.completed.get(collection.id) === window.fromBlock)
+            return false;
         if (!progress.pending) {
-            const end = Math.min(progress.cursorBlock ?? headBlock, headBlock);
+            const cursor = this.restartFromHead ? null : progress.cursorBlock;
+            const end = Math.min(cursor ?? headBlock, headBlock);
             const scanWindow = {
                 fromBlock: Math.max(
                     window.fromBlock,
@@ -355,9 +412,7 @@ export class SyncGapScheduler
             // A scan starting at HEAD already checked everything above the new
             // cursor. Continuing older history must not postpone the next check.
             const lastHeadCheckAt =
-                progress.cursorBlock === null
-                    ? this.now()
-                    : progress.lastHeadCheckAt;
+                cursor === null ? this.now() : progress.lastHeadCheckAt;
             progress = this.progressForGap({
                 collectionId: collection.id,
                 anchorBlock: window.fromBlock,
@@ -367,13 +422,31 @@ export class SyncGapScheduler
             });
             // Retain the exact range before acquisition. Restarts reuse this row
             // until the sync commit atomically advances it with data and follow-ups.
-            this.store.saveProgress({
+            const saved = this.store.saveProgress({
                 chainId,
                 collectionId: collection.id,
                 expected,
                 progress,
             });
+            if (!saved) {
+                this.roundHasUnfinishedCollections = true;
+                return false;
+            }
+            if (progress.cursorBlock === null)
+                this.completed.set(collection.id, window.fromBlock);
+            else {
+                this.roundHasUnfinishedCollections = true;
+                this.cycleCompletedAt = null;
+            }
+            return !progress.pending && progress.cursorBlock !== null;
         }
+        if (progress.cursorBlock === null)
+            this.completed.set(collection.id, window.fromBlock);
+        else {
+            this.roundHasUnfinishedCollections = true;
+            this.cycleCompletedAt = null;
+        }
+        return false;
     }
 
     private progressForGap({

@@ -1,4 +1,5 @@
 import type { OrderRecord, OrderValidationResult } from "../domain/orders.js";
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 export type { OrderValidationResult } from "../domain/orders.js";
 export type OrderValidator = (
     order: OrderRecord,
@@ -21,6 +22,7 @@ export interface MakerValidationBatch {
 type ValidationSnapshotInput = {
     chainId: number;
     minimumBlock: number | null;
+    workClass?: SyncWorkClass;
     /** Bounded lookahead only; each candidate still requires full validation before commit. */
     candidates?: readonly OrderRecord[];
 };

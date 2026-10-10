@@ -8,7 +8,7 @@ import {
     validationProofSatisfies,
     type ClaimedOrderValidation,
     type OrderValidationDemand,
-    type OrderValidationProof,
+    type OrderValidationEvidence,
     type OrderValidationRequest,
     type OrderValidationClaimBatch,
     type OrderValidationCompletion,
@@ -18,17 +18,70 @@ import type {
     OrderValidationDemandPort,
     OrderValidationProjectionPort,
 } from "../../ports/order-validation-demand.js";
+import {
+    assertChainSyncCheckpoint,
+    captureChainSyncCheckpoint,
+} from "../storage/sqlite-chain-revisions.js";
 
 type DemandRow = Omit<
     OrderValidationDemand,
     "pending" | "anchorIndependent"
 > & { pending: number; anchorIndependent: number };
 const SELECT =
-    "SELECT chain_id AS chainId,order_id AS orderId,generation,revision,required_at AS requiredAt,minimum_block AS minimumBlock,anchor_independent AS anchorIndependent,pending,proof_revision AS proofRevision,proof_at AS proofAt,proof_block AS proofBlock,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,failures FROM order_validation_demand ";
+    "SELECT chain_id AS chainId,order_id AS orderId,generation,revision,required_at AS requiredAt,minimum_block AS minimumBlock,anchor_independent AS anchorIndependent,pending,proof_revision AS proofRevision,proof_at AS proofAt,proof_block AS proofBlock,proof_chain_revision AS proofChainRevision,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,failures FROM order_validation_demand ";
 
 /** The pending row itself is the durable wakeup; polling cannot lose a sent broker message. */
 export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
     constructor(private readonly orders: OrderValidationProjectionPort) {}
+
+    captureSyncCheckpoint = captureChainSyncCheckpoint;
+
+    isCovered(request: OrderValidationRequest, revision: number): boolean {
+        if (this.orders.validationCandidate(request)?.revision !== revision)
+            return false;
+        const current = this.get(request.chainId, request.orderId);
+        return (
+            !!current &&
+            validationProofCovers(
+                current,
+                revision,
+                request,
+                captureChainSyncCheckpoint(request.chainId).revision,
+            )
+        );
+    }
+
+    recordValidation(
+        request: OrderValidationRequest,
+        revision: number,
+        evidence: OrderValidationEvidence,
+        now: number,
+    ): void {
+        if (evidence.checkpoint.chainId !== request.chainId)
+            throw new Error("Validation evidence chain mismatch");
+        assertChainSyncCheckpoint(evidence.checkpoint);
+        if (!validationProofSatisfies(evidence, request))
+            throw new Error("Validation does not cover maker requirement");
+        const current = this.get(request.chainId, request.orderId);
+        const pending =
+            !!current?.pending && !validationProofSatisfies(evidence, current);
+        db.prepare(
+            "INSERT INTO order_validation_demand(order_id,chain_id,revision,required_at,minimum_block,anchor_independent,pending,proof_revision,proof_at,proof_block,proof_chain_revision,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET revision=excluded.revision,pending=excluded.pending,proof_revision=excluded.proof_revision,proof_at=excluded.proof_at,proof_block=excluded.proof_block,proof_chain_revision=excluded.proof_chain_revision,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=excluded.updated_at",
+        ).run(
+            request.orderId,
+            request.chainId,
+            revision,
+            request.requiredAt,
+            request.minimumBlock,
+            request.minimumBlock === null ? 1 : 0,
+            pending ? 1 : 0,
+            revision,
+            evidence.observedAt,
+            evidence.blockNumber,
+            evidence.checkpoint.revision,
+            now,
+        );
+    }
 
     get(chainId: number, orderId: string): OrderValidationDemand | null {
         const row = db
@@ -49,10 +102,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             const candidate = this.orders.validationCandidate(request);
             if (!candidate) return OUTCOME.Unneeded;
             const current = this.get(request.chainId, request.orderId);
-            if (
-                current &&
-                validationProofCovers(current, candidate.revision, request)
-            )
+            if (current && this.isCovered(request, candidate.revision))
                 return OUTCOME.Covered;
             if (!current) {
                 db.prepare(
@@ -194,11 +244,12 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
 
     completeBatch(
         completions: readonly OrderValidationCompletion[],
-        proof: OrderValidationProof,
+        proof: OrderValidationEvidence,
         now: number,
     ): OrderValidationCompletionCounts {
         // One bounded commit follows snapshot verification; RPC never holds this transaction.
         return db.writeTransaction(() => {
+            assertChainSyncCheckpoint(proof.checkpoint);
             const counts: OrderValidationCompletionCounts = {
                 applied: 0,
                 covered: 0,
@@ -207,6 +258,8 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                 lostClaims: 0,
             };
             for (const { claim, result } of completions) {
+                if (proof.checkpoint.chainId !== claim.demand.chainId)
+                    throw new Error("Validation evidence chain mismatch");
                 const current = this.get(
                     claim.demand.chainId,
                     claim.demand.orderId,
@@ -238,13 +291,14 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     (revision === null ||
                         current!.generation !== claim.demand.generation);
                 db.prepare(
-                    "UPDATE order_validation_demand SET pending=?,revision=COALESCE(?,revision),proof_revision=?,proof_at=?,proof_block=?,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=? WHERE order_id=?",
+                    "UPDATE order_validation_demand SET pending=?,revision=COALESCE(?,revision),proof_revision=?,proof_at=?,proof_block=?,proof_chain_revision=?,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=? WHERE order_id=?",
                 ).run(
                     pending ? 1 : 0,
                     revision,
                     revision,
                     revision === null ? null : proof.observedAt,
                     revision === null ? null : proof.blockNumber,
+                    revision === null ? null : proof.checkpoint.revision,
                     now,
                     claim.demand.orderId,
                 );
