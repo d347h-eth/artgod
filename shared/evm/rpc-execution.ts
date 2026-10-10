@@ -88,6 +88,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
     const call = options.rpcObservability?.startCall(
         options.method,
         options.logFields,
+        options.requestBudget?.workClass(),
     );
     let lastEndpoint: WeightedEndpointSelection<TEndpoint> | null = null;
     const executeAttempt = (attempt: number) =>
@@ -117,6 +118,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
                           nextAttempt,
                           delayMs,
                           logFields: options.logFields,
+                          workClass: call?.workClass,
                       });
                   },
               })
@@ -248,6 +250,7 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
                 updatedEndpoint,
                 error,
                 input.options.logFields,
+                input.call?.workClass,
             );
         }
         if (attemptContext) {
@@ -303,10 +306,11 @@ async function runWithOptionalRateLimit<TEndpoint, TValue>(
     const allocation = options.requestBudget;
     if (allocation) {
         const waitingAt = Date.now();
+        const workClass = allocation.workClass();
         return allocation.budget.run(
             {
                 endpointKey: allocation.endpointKey(endpoint),
-                workClass: allocation.workClass(),
+                workClass,
             },
             () => {
                 const waitedMs = Date.now() - waitingAt;
@@ -316,6 +320,7 @@ async function runWithOptionalRateLimit<TEndpoint, TValue>(
                         endpoint,
                         waitedMs,
                         logFields: options.logFields,
+                        workClass,
                     });
                 return run();
             },

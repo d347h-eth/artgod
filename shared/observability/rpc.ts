@@ -8,6 +8,7 @@ import {
     RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
 } from "../evm/rpc-errors.js";
 import type { Metrics } from "./metrics/types.js";
+import type { SyncWorkClass } from "../types/sync-work-class.js";
 
 // Canonical workspace labels used by RPC logs and metrics.
 export const RPC_OBSERVABILITY_WORKSPACE = {
@@ -97,7 +98,10 @@ export const RPC_OBSERVABILITY_SENTINEL = {
     NoEndpoint: "none",
     NoErrorClass: "none",
     NoMethod: "none",
+    NoWorkClass: "none",
 } as const;
+
+export const RPC_OBSERVABILITY_LABEL = { WorkClass: "work_class" } as const;
 
 // Canonical error_class labels emitted by the shared RPC observer.
 export const RPC_OBSERVABILITY_ERROR_CLASS = {
@@ -146,6 +150,7 @@ export type RpcObservabilityConfig = {
 export type RpcCallContext = {
     method: string;
     startedAtMs: number;
+    workClass?: SyncWorkClass;
     logFields?: Record<string, unknown>;
 };
 
@@ -161,6 +166,7 @@ export type RpcRetryScheduledInput = {
     attempt: number;
     nextAttempt: number;
     delayMs: number;
+    workClass?: SyncWorkClass;
     logFields?: Record<string, unknown>;
 };
 
@@ -168,6 +174,7 @@ export type RpcRateLimitWaitInput = {
     method: string;
     endpoint: RpcEndpointSnapshot;
     waitedMs: number;
+    workClass?: SyncWorkClass;
     logFields?: Record<string, unknown>;
 };
 
@@ -175,6 +182,7 @@ export type RpcEndpointEventInput = {
     event: RpcObservabilityEvent;
     method: string;
     endpoint: RpcEndpointSnapshot;
+    workClass?: SyncWorkClass;
     level?: LogLevel;
     message?: string;
     extra?: Record<string, unknown>;
@@ -205,10 +213,12 @@ export class RpcObservability {
     startCall(
         method: string,
         logFields?: Record<string, unknown>,
+        workClass?: SyncWorkClass,
     ): RpcCallContext {
         return {
             method,
             startedAtMs: Date.now(),
+            workClass,
             ...(logFields ? { logFields } : {}),
         };
     }
@@ -234,11 +244,12 @@ export class RpcObservability {
             ...this.endpointLogFields(endpoint),
             attempt,
         });
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.AttemptStarted,
-            call.method,
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.AttemptStarted,
+            method: call.method,
             endpoint,
-        );
+            workClass: call.workClass,
+        });
         return context;
     }
 
@@ -259,17 +270,18 @@ export class RpcObservability {
             durationMs,
         });
         this.recordEndpointAttemptMetric(
-            context.method,
+            context,
             endpoint,
             RPC_OBSERVABILITY_RESULT.Success,
             RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
             durationMs,
         );
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.AttemptSucceeded,
-            context.method,
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.AttemptSucceeded,
+            method: context.method,
             endpoint,
-        );
+            workClass: context.workClass,
+        });
     }
 
     recordEndpointAttemptFailure(
@@ -292,19 +304,20 @@ export class RpcObservability {
             durationMs,
         });
         this.recordEndpointAttemptMetric(
-            context.method,
+            context,
             endpoint,
             RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
             durationMs,
         );
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.AttemptFailed,
-            context.method,
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.AttemptFailed,
+            method: context.method,
             endpoint,
-            RPC_OBSERVABILITY_RESULT.Failure,
+            result: RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
-        );
+            workClass: context.workClass,
+        });
     }
 
     recordCallSuccess(
@@ -322,7 +335,7 @@ export class RpcObservability {
             durationMs,
         });
         this.recordCallMetric(
-            call.method,
+            call,
             endpoint,
             RPC_OBSERVABILITY_RESULT.Success,
             RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
@@ -348,7 +361,7 @@ export class RpcObservability {
             durationMs,
         });
         this.recordCallMetric(
-            call.method,
+            call,
             endpoint,
             RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
@@ -362,22 +375,21 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.RetryScheduled,
                 input.method,
             ),
-            ...(input.logFields ?? {}),
+            ...this.rpcCallLogFields(input),
             ...this.endpointLogFields(input.endpoint),
             attempt: input.attempt,
             nextAttempt: input.nextAttempt,
             delayMs: input.delayMs,
         });
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.RetryAttempt, 1, {
-            ...this.baseMetricLabels(input.method, input.endpoint),
+            ...this.baseMetricLabels(input),
             attempt: input.attempt,
             next_attempt: input.nextAttempt,
         });
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.RetryScheduled,
-            input.method,
-            input.endpoint,
-        );
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.RetryScheduled,
+            ...input,
+        });
     }
 
     recordRateLimitWait(input: RpcRateLimitWaitInput): void {
@@ -386,7 +398,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.RateLimiterWaited,
                 input.method,
             ),
-            ...(input.logFields ?? {}),
+            ...this.rpcCallLogFields(input),
             ...this.endpointLogFields(input.endpoint),
             waitedMs: input.waitedMs,
         });
@@ -394,14 +406,13 @@ export class RpcObservability {
             RPC_OBSERVABILITY_METRIC.RateLimiterWaitMs,
             input.waitedMs,
             {
-                ...this.baseMetricLabels(input.method, input.endpoint),
+                ...this.baseMetricLabels(input),
             },
         );
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.RateLimiterWaited,
-            input.method,
-            input.endpoint,
-        );
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.RateLimiterWaited,
+            ...input,
+        });
     }
 
     recordCircuitOpen(
@@ -409,27 +420,29 @@ export class RpcObservability {
         endpoint: RpcEndpointSnapshot,
         error: unknown,
         logFields?: Record<string, unknown>,
+        workClass?: SyncWorkClass,
     ): void {
         this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.CircuitOpen, {
             ...this.baseLogFields(
                 RPC_OBSERVABILITY_LOG_ACTION.CircuitOpen,
                 method,
             ),
-            ...(logFields ?? {}),
+            ...this.rpcCallLogFields({ logFields, workClass }),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
         });
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.CircuitOpen, 1, {
-            ...this.baseMetricLabels(method, endpoint),
+            ...this.baseMetricLabels({ method, endpoint, workClass }),
             error_class: errorClassName(error),
         });
-        this.incrementEndpointEvent(
-            RPC_OBSERVABILITY_EVENT.CircuitOpen,
+        this.incrementEndpointEvent({
+            event: RPC_OBSERVABILITY_EVENT.CircuitOpen,
             method,
             endpoint,
-            RPC_OBSERVABILITY_RESULT.Failure,
-            errorClassName(error),
-        );
+            result: RPC_OBSERVABILITY_RESULT.Failure,
+            errorClass: errorClassName(error),
+            workClass,
+        });
     }
 
     recordEndpointEvent(input: RpcEndpointEventInput): void {
@@ -440,25 +453,26 @@ export class RpcObservability {
                 ...this.baseLogFields(input.event, input.method),
                 ...this.endpointLogFields(input.endpoint),
                 ...(input.extra ?? {}),
+                ...(input.workClass ? { workClass: input.workClass } : {}),
             },
         );
         this.recordEndpointWeightGauges(input.endpoint);
-        this.incrementEndpointEvent(input.event, input.method, input.endpoint);
+        this.incrementEndpointEvent(input);
     }
 
     private recordCallMetric(
-        method: string,
+        call: RpcCallContext,
         endpoint: RpcEndpointSnapshot | null,
         result: RpcObservabilityResult,
         errorClass: string,
         durationMs: number,
     ): void {
-        const labels = this.baseMetricLabels(
-            method,
+        const labels = this.baseMetricLabels({
+            ...call,
             endpoint,
             result,
             errorClass,
-        );
+        });
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.Call, 1, labels);
         this.metrics?.histogram(
             RPC_OBSERVABILITY_METRIC.CallDurationMs,
@@ -468,18 +482,18 @@ export class RpcObservability {
     }
 
     private recordEndpointAttemptMetric(
-        method: string,
+        context: RpcEndpointAttemptContext,
         endpoint: RpcEndpointSnapshot,
         result: RpcObservabilityResult,
         errorClass: string,
         durationMs: number,
     ): void {
-        const labels = this.baseMetricLabels(
-            method,
+        const labels = this.baseMetricLabels({
+            ...context,
             endpoint,
             result,
             errorClass,
-        );
+        });
         this.metrics?.increment(
             RPC_OBSERVABILITY_METRIC.EndpointAttempt,
             1,
@@ -492,16 +506,17 @@ export class RpcObservability {
         );
     }
 
-    private incrementEndpointEvent(
-        event: RpcObservabilityEvent,
-        method: string,
-        endpoint: RpcEndpointSnapshot | null,
-        result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
-        errorClass: string = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
-    ): void {
+    private incrementEndpointEvent(input: {
+        event: RpcObservabilityEvent;
+        method: string;
+        endpoint: RpcEndpointSnapshot;
+        result?: RpcObservabilityResult;
+        errorClass?: string;
+        workClass?: SyncWorkClass;
+    }): void {
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.EndpointEvent, 1, {
-            ...this.baseMetricLabels(method, endpoint, result, errorClass),
-            event,
+            ...this.baseMetricLabels(input),
+            event: input.event,
         });
     }
 
@@ -523,19 +538,24 @@ export class RpcObservability {
         );
     }
 
-    private baseMetricLabels(
-        method: string,
-        endpoint: RpcEndpointSnapshot | null,
-        result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
-        errorClass: string = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
-    ): Record<string, string | number> {
+    private baseMetricLabels(input: {
+        method: string;
+        endpoint: RpcEndpointSnapshot | null;
+        result?: RpcObservabilityResult;
+        errorClass?: string;
+        workClass?: SyncWorkClass;
+    }): Record<string, string | number> {
         return {
             component: this.config.component,
             protocol: this.config.protocol,
-            method,
-            endpoint: endpoint?.id ?? RPC_OBSERVABILITY_SENTINEL.NoEndpoint,
-            result,
-            error_class: errorClass,
+            method: input.method,
+            endpoint:
+                input.endpoint?.id ?? RPC_OBSERVABILITY_SENTINEL.NoEndpoint,
+            result: input.result ?? RPC_OBSERVABILITY_RESULT.None,
+            error_class:
+                input.errorClass ?? RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+            [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                input.workClass ?? RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
         };
     }
 
@@ -564,8 +584,13 @@ export class RpcObservability {
         };
     }
 
-    private rpcCallLogFields(context: RpcCallContext): Record<string, unknown> {
-        return context.logFields ?? {};
+    private rpcCallLogFields(
+        context: Pick<RpcCallContext, "logFields" | "workClass">,
+    ): Record<string, unknown> {
+        return {
+            ...(context.logFields ?? {}),
+            ...(context.workClass ? { workClass: context.workClass } : {}),
+        };
     }
 }
 

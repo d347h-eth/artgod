@@ -565,6 +565,8 @@ RPC logs use stable fields:
   `scheduler-ws-rpc`, `bidding-viem-rpc`, or `bidding-opensea-sdk-rpc`
 - `protocol`: `http` or `websocket`
 - `method`: RPC method or websocket watch operation
+- `workClass`: `main` or `gap_repair` for allocated indexer requests, taken from
+  their execution scope rather than inferred from the adapter/endpoint pool
 - `endpointId`: low-cardinality configured endpoint id
 - `endpointOrigin`: URL origin only; paths, query strings, credentials, and raw
   API-key-bearing URLs are not logged
@@ -586,7 +588,7 @@ RPC metrics export with the workspace runtime prefixes:
 The canonical RPC metrics are:
 
 - `rpc.call` counter by `component`, `protocol`, `method`, `endpoint`,
-  `result`, and `error_class`
+  `result`, `error_class`, and `work_class`
 - `rpc.call.duration_ms` histogram with the same labels
 - `rpc.endpoint.attempt` counter by endpoint attempt result
 - `rpc.endpoint.attempt.duration_ms` histogram with the same labels
@@ -604,9 +606,24 @@ For pipeline calls using the shared main/background allocation, endpoint-attempt
 timing starts after local quota admission. Quota waits use the existing
 `rpc.rate_limiter.wait_ms` observation; whole-call duration still includes them.
 Local allocation deferral records no provider failure, retry or weight penalty.
-Legacy per-client limiter timing in backend/trading is unchanged. These metrics
-currently aggregate both work classes; purpose-separated demand/throughput
-measurements are a prerequisite for the deferred automatic allocation controller.
+Legacy per-client limiter timing in backend/trading is unchanged. Calls, attempts,
+retries, circuit events and wait histograms retain the allocated `work_class`.
+Unclassified requests/events use `none`, including backend/trading and WebSocket
+events; endpoint-weight gauges remain independent of work class. Needed current-order
+validation records `main` even when historical gap work supplied its hint.
+Measure consumed RPS from endpoint attempts, including retries, rather than
+logical calls. For example, across all allocated indexer workers/endpoints:
+
+```promql
+sum by (work_class) (
+  rate(artgod_indexer_rpc_endpoint_attempt_total{work_class=~"main|gap_repair"}[5m])
+)
+```
+
+The runtime metrics dashboard's indexer HTTP attempt panel and RPC
+failure/latency/retry/wait panels group by work class. The attempt panel counts
+HTTP requests per second across each selected worker/component's endpoints;
+the configured rate ceilings apply per endpoint.
 
 RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
 and custom fetch-backed paths so timeout dashboards do not split by provider

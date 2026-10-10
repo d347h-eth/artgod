@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RpcBudgetDeferred } from "./rpc-budget.js";
 import { SYNC_WORK_CLASS } from "../types/sync-work-class.js";
 import { ResponseBodyTooLargeError } from "viem";
@@ -7,6 +7,7 @@ import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
     RPC_OBSERVABILITY_ERROR_CLASS,
     RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
     RPC_OBSERVABILITY_WORKSPACE,
@@ -107,6 +108,117 @@ class CapturingMetrics implements Metrics {
 }
 
 describe("executeObservedRpcEndpointCall", () => {
+    it.each(Object.values(SYNC_WORK_CLASS))(
+        "labels %s calls, attempts, retries and waits without counting quota wait as provider latency",
+        async (workClass) => {
+            vi.useFakeTimers();
+            vi.setSystemTime(1000);
+            try {
+                const metrics = new CapturingMetrics();
+                const logs: Record<string, unknown>[] = [];
+                const capture = (
+                    _message: string,
+                    fields?: Record<string, unknown>,
+                ) => {
+                    if (fields) logs.push(fields);
+                };
+                const observer = new RpcObservability({
+                    workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
+                    component: TEST_RPC_COMPONENT,
+                    protocol: RPC_PROTOCOL.Http,
+                    metrics,
+                    logger: {
+                        debug: capture,
+                        info: capture,
+                        warn: capture,
+                        error: capture,
+                    },
+                });
+                let calls = 0;
+                await executeObservedRpcEndpointCall({
+                    selector: createTestSelector([
+                        { url: TEST_RPC_ENDPOINT_A_URL },
+                    ]),
+                    method: TEST_RPC_METHOD,
+                    rpcObservability: observer,
+                    retryPolicy: TEST_RETRY_POLICY,
+                    sleep: async () => {},
+                    requestBudget: {
+                        endpointKey: () => "fixture-key",
+                        workClass: () => workClass,
+                        budget: {
+                            run: async (input, request) => {
+                                expect(input.workClass).toBe(workClass);
+                                vi.setSystemTime(Date.now() + 500);
+                                return request();
+                            },
+                        },
+                    },
+                    execute: async () => {
+                        vi.setSystemTime(Date.now() + 100);
+                        if (++calls === 1)
+                            throw new Error(TEST_RPC_FAILURE_MESSAGE);
+                        return TEST_RPC_RESULT;
+                    },
+                });
+                for (const name of [
+                    RPC_OBSERVABILITY_METRIC.Call,
+                    RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+                    RPC_OBSERVABILITY_METRIC.RetryAttempt,
+                    RPC_OBSERVABILITY_METRIC.EndpointEvent,
+                ]) {
+                    const samples = metrics.increments.filter(
+                        (sample) => sample.name === name,
+                    );
+                    expect(samples.length).toBeGreaterThan(0);
+                    expect(
+                        samples.every(
+                            ({ labels }) =>
+                                labels?.[RPC_OBSERVABILITY_LABEL.WorkClass] ===
+                                workClass,
+                        ),
+                    ).toBe(true);
+                }
+                expect(
+                    metrics.increments.filter(
+                        ({ name }) =>
+                            name === RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+                    ),
+                ).toHaveLength(2);
+                const waits = metrics.histograms.filter(
+                    ({ name }) =>
+                        name === RPC_OBSERVABILITY_METRIC.RateLimiterWaitMs,
+                );
+                expect(waits).toHaveLength(2);
+                expect(
+                    waits.every(
+                        ({ value, labels }) =>
+                            value === 500 &&
+                            labels?.[RPC_OBSERVABILITY_LABEL.WorkClass] ===
+                                workClass,
+                    ),
+                ).toBe(true);
+                const attempts = metrics.histograms.filter(
+                    ({ name }) =>
+                        name ===
+                        RPC_OBSERVABILITY_METRIC.EndpointAttemptDurationMs,
+                );
+                expect(attempts.map(({ value }) => value)).toEqual([100, 100]);
+                expect(
+                    metrics.histograms.find(
+                        ({ name }) =>
+                            name === RPC_OBSERVABILITY_METRIC.CallDurationMs,
+                    )?.value,
+                ).toBe(1200);
+                expect(
+                    logs.every((fields) => fields.workClass === workClass),
+                ).toBe(true);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it("does not send, retry or penalize an endpoint when its local allocation is deferred", async () => {
         const selector = createTestSelector([{ url: TEST_RPC_ENDPOINT_A_URL }]);
         let networkCalls = 0,
@@ -222,6 +334,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: RPC_OBSERVABILITY_ERROR_CLASS.ResponseBodyTooLarge,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         await expect(
@@ -274,6 +388,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.None,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
                 attempt: 1,
                 next_attempt: 2,
             },
@@ -288,6 +404,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: Error.name,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -300,6 +418,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_B_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });
@@ -340,6 +460,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.None,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });
@@ -386,6 +508,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.None,
                 error_class: CircuitOpenError.name,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });
@@ -424,6 +548,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
 
@@ -483,6 +609,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -495,6 +623,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
 
@@ -598,6 +728,8 @@ describe("executeObservedRpcEndpointCall", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
                 error_class: Error.name,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });
@@ -638,6 +770,8 @@ describe("startObservedRpcEndpointAttempt", () => {
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(
