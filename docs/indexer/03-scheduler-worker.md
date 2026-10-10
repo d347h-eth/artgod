@@ -90,12 +90,17 @@ live collections and rollback start their required discovery again.
 Every 30 minutes of wall-clock time, the sync worker checks up to `HEAD - REORG_DEPTH` for newer holes
 above each collection's pending range, or above its cursor when no range is
 pending. `last_head_check_at` persists this timing, so downtime counts and overdue
-checks run after restart. Previously unchecked rows are due immediately. A
+checks run after restart. In addition, startup and reenabling gap filling check
+newer history once regardless of the saved timer, before older automatic repair
+starts. This check traverses live collections by ID in pages of at most 16; its
+position is process-local, and failed/skipped members do not prevent later pages.
+Reenabling is a restart-required setting, so both paths use the same startup
+check. Previously unchecked rows are due immediately. A
 normal scan starting at HEAD also records this time; continuing older history
 does not postpone it. Each check pass handles at most 16 due collections.
 
-The fresh RPC HEAD filters out anchors above HEAD before those 16 rows are
-selected. HEAD-check passes advance through indexed check-time/collection order
+Periodic HEAD-check pages use fresh RPC HEAD to filter out anchors above HEAD
+before those 16 rows are selected. They advance through indexed check-time/collection order
 even when a whole page fails or is skipped after selection. They wrap after
 reaching the end, with a fixed due-time cutoff during each traversal so rows
 becoming due again cannot prevent that wrap. This position is process-local and

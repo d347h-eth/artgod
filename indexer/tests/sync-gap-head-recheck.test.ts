@@ -111,6 +111,86 @@ describe("wall-clock HEAD gap checks", () => {
         });
     });
 
+    it("checks newer history on resume even when the saved check is not due", () => {
+        const h = harness(),
+            id = seed();
+        retain(h.store, id);
+        cover(id, 103, 200, [199, 200]);
+        now += 60_000;
+        const resumed = h.scanner();
+        expect(resumed.hasHeadRechecksDue()).toBe(false);
+        expect(resumed.recheckOnResume(200)).toBe(false);
+        expect(h.store.getProgress(1, id)).toMatchObject({
+            cursorBlock: 198,
+            lastHeadCheckAt: now,
+            pending: { fromBlock: 199, toBlock: 200, retryAt: now },
+        });
+    });
+
+    it("preserves a pending repair and its retry on resume when newer coverage is complete", () => {
+        const h = harness(),
+            id = seed();
+        retain(h.store, id, {
+            pending: {
+                repairId: "retrying",
+                fromBlock: 101,
+                toBlock: 102,
+                retryAt: now + 50_000,
+            },
+        });
+        cover(id, 103, 200);
+        const before = h.store.getProgress(1, id)!;
+        now += 60_000;
+        expect(h.scanner().recheckOnResume(200)).toBe(false);
+        expect(h.store.getProgress(1, id)).toEqual({
+            ...before,
+            lastHeadCheckAt: now,
+        });
+    });
+
+    it("reuses a complete startup check instead of sweeping the same covered history again", async () => {
+        const h = harness(),
+            id = seed();
+        retain(h.store, id, { pending: null, cursorBlock: null });
+        cover(id, 100, 200);
+        const backward = vi.spyOn(h.store, "findGap");
+        const resumed = h.scanner();
+        expect(resumed.recheckOnResume(200)).toBe(false);
+        expect(await resumed.scan(200)).toBe(false);
+        expect(backward).not.toHaveBeenCalled();
+    });
+
+    it("pages resume checks past an entire failed page without recording false freshness", () => {
+        const h = harness();
+        const ids = Array.from(
+            { length: SYNC_GAP_POLICY.CollectionsPerPass + 1 },
+            seed,
+        );
+        for (const id of ids) retain(h.store, id);
+        const oldCheckedAt = now;
+        now += 60_000;
+        const find = vi.spyOn(h.store, "findNewestGap");
+        find.mockImplementation((chain, id, range, batchSize) => {
+            if (id !== ids.at(-1)) throw new Error("coverage unavailable");
+            return {
+                fromBlock: range.toBlock - batchSize + 1,
+                toBlock: range.toBlock,
+            };
+        });
+        const resumed = h.scanner();
+        expect(resumed.recheckOnResume(200)).toBe(true);
+        expect(find).toHaveBeenCalledTimes(SYNC_GAP_POLICY.CollectionsPerPass);
+        expect(resumed.recheckOnResume(200)).toBe(false);
+        expect(h.store.getProgress(1, ids.at(-1)!)).toMatchObject({
+            pending: { fromBlock: 199, toBlock: 200 },
+            lastHeadCheckAt: now,
+        });
+        for (const id of ids.slice(0, -1))
+            expect(h.store.getProgress(1, id)?.lastHeadCheckAt).toBe(
+                oldCheckedAt,
+            );
+    });
+
     it("preserves exact pending identity, retry and cursor when newer history is covered", () => {
         const h = harness(),
             id = seed();
