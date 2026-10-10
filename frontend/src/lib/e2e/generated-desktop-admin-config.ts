@@ -143,7 +143,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					inputKind: 'text',
 					secret: false,
 					options: [],
-					help: 'Maximum HTTP JSON-RPC requests per endpoint each second in limited mode.',
+					help: 'Maximum HTTP JSON-RPC requests per endpoint each second in limited mode, including automatic gaps. When both RPC and gap filling are limited, set this above the gap RPC rate or the indexer cannot start.',
 					requiredForLaunch: false,
 					validation: 'positive_number',
 					view: 'basic'
@@ -621,7 +621,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					inputKind: 'select',
 					secret: false,
 					options: ['disabled', 'limited', 'unlimited'],
-					help: 'Disabled pauses automatic repairs and their RPC follow-ups. Unlimited removes both gap RPC limits.',
+					help: 'Disabled pauses automatic repairs and their RPC follow-ups. Unlimited removes the gap rate and concurrency caps; the overall RPC limit and priority for main work still apply.',
 					requiredForLaunch: false,
 					validation: null,
 					view: 'basic'
@@ -632,7 +632,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					inputKind: 'text',
 					secret: false,
 					options: [],
-					help: 'Per-endpoint RPC allowance for automatic gap filling in limited mode, within the overall RPC allowance.',
+					help: 'Per-endpoint RPC allowance for automatic gap filling in limited mode. When overall RPC is also limited, set this below the overall RPC rate or the indexer cannot start.',
 					requiredForLaunch: false,
 					validation: 'positive_number',
 					view: 'basic'

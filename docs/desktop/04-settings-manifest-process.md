@@ -138,6 +138,43 @@ the maintained browser harness renders the desktop-managed schema and defaults
 from the manifest instead of maintaining a parallel fixture. Run `yarn
 config:check` after generation to catch drift.
 
+## Deferred validation between settings
+
+Admin validates fields individually, reusing shared parsers for RPC endpoints,
+block-explorer settings and numeric values. It does not validate relationships
+between settings. Its launch checks consider only fields marked
+`required_for_launch`; native settings persistence does not enforce the RPC
+allocation relationship either.
+
+When `RPC_RATE_LIMIT_MODE=limited` and `GAP_FILL_MODE=limited`, the gap rate must
+be strictly below the overall RPC rate. Equal or higher gap rates cause indexer
+configuration loading to fail before processing starts. Admin can currently save
+such a pair; the rate tooltips explain the constraint and startup consequence.
+Lower the gap rate or raise the overall rate before starting the indexer.
+
+Unlimited gaps with limited overall RPC are valid: only the gap-specific caps
+are removed, and the overall limit and main-work priority still apply. The rate
+comparison also does not apply when overall RPC is unlimited or gaps are
+disabled. Positive saved numeric values remain required in every mode, and mode
+changes preserve inactive values.
+
+Shared validation of active configuration policies before Admin save and launch
+is explicitly deferred under `BKL-072` in the [unified backlog](../planning/01-unified-backlog.md#configuration-validation).
+The follow-up should:
+
+- Expose browser-safe policy checks from their owning shared modules and reuse
+  them in Admin and typed runtime configuration.
+- Validate effective draft values before save and saved values before both
+  manual and automatic startup, including applicable rules for optional fields.
+  `required_for_launch` determines whether a value may be absent; it should not
+  bypass validation of supplied values or active policy combinations.
+- Present actionable field issues, preserve inactive positive values and avoid
+  silently adjusting settings. Keep runtime rejection as the final guard and
+  make native save/start responsibilities explicit without duplicating policy
+  rules in Rust.
+- Cover mode transitions, equal and higher limited gap rates, valid lower rates,
+  disabled/unlimited modes and saved configuration used for startup.
+
 ## Local Desktop Selection
 
 The non-default Cargo feature `desktop-local-observability` compiles
