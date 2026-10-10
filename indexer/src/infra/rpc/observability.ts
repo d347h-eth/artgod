@@ -37,6 +37,7 @@ export const INDEXER_RPC_LOG_COMPONENT = {
 
 // Method labels used by HTTP, metadata and WebSocket RPC observers.
 export const INDEXER_RPC_METHOD = {
+    GetBytecode: "getBytecode",
     GetLogs: "getLogs",
     WatchBlockNumber: "watchBlockNumber",
     TokenUri: "tokenURI",
@@ -46,9 +47,15 @@ export const INDEXER_RPC_METHOD = {
 // Log-range recovery belongs to the HTTP adapter, outside endpoint retries.
 export const INDEXER_RPC_LOG_ACTION = {
     LogResponseSizeLimitExceeded: "log_response_size_limit_exceeded",
+    LogRangeLimitExceeded: "log_range_limit_exceeded",
+    LogTimeoutRangeReduced: "log_timeout_range_reduced",
 } as const;
 
 export const INDEXER_RPC_LOG_MESSAGE = {
+    LogTimeoutRangeReduced:
+        "RPC mint log page timed out; reduced the query interval.",
+    ProviderLogRangeReduced:
+        "RPC provider rejected the log range; reduced the query interval.",
     LogRangeReduced:
         "RPC log response exceeded the size limit; reduced runtime log chunk size. Reduce BACKFILL_BATCH_SIZE or LOG_CHUNK_SIZE.",
     SingleBlockResponseTooLarge:

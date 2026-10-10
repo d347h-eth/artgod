@@ -42,6 +42,37 @@ const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
 };
 
 describe("ViemRpcProvider RPC resilience", () => {
+    it("reads code at an explicit historical block and preserves archive failures", async () => {
+        const getBytecode = vi
+            .fn()
+            .mockResolvedValueOnce("0x1234")
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error("archive unavailable"));
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            createClient: () =>
+                ({
+                    getBytecode,
+                }) as unknown as ReturnType<ViemRpcClientFactory>,
+        });
+        const address = "0x1111111111111111111111111111111111111111";
+        await expect(
+            provider.getBytecode(address, TEST_BLOCK_NUMBER),
+        ).resolves.toBe("0x1234");
+        await expect(
+            provider.getBytecode(address, TEST_BLOCK_NUMBER),
+        ).resolves.toBeNull();
+        await expect(
+            provider.getBytecode(address, TEST_BLOCK_NUMBER),
+        ).rejects.toThrow("archive unavailable");
+        expect(getBytecode).toHaveBeenCalledWith({
+            address,
+            blockNumber: BigInt(TEST_BLOCK_NUMBER),
+        });
+    });
     afterEach(() => {
         vi.unstubAllGlobals();
     });

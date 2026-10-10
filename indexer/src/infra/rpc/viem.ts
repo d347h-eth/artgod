@@ -9,7 +9,12 @@ import {
 import {
     getRpcResponseBodySizeLimit,
     isRpcDeterministicContractError,
+    isRpcLogRangeLimitError,
+    isRpcRequestTimeoutError,
+    type RpcErrorPolicy,
+    RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME,
     RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+    RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME,
 } from "@artgod/shared/evm/rpc-errors";
 import {
     getDefaultRpcEndpointResilienceConfig,
@@ -44,6 +49,9 @@ import type {
     RpcBlock,
     RpcLog,
     RpcLogFilter,
+    RpcFirstLogPort,
+    RpcFirstLogPage,
+    RpcLogRequestHooks,
     RpcProviderPort,
     RpcTransaction,
     RpcTransactionReceipt,
@@ -88,7 +96,7 @@ type ViemRpcEndpoint = {
 const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
 const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
 
-export class ViemRpcProvider implements RpcProviderPort {
+export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
     private cache?: CachePort;
     private retryPolicy: RpcRetryPolicy;
     private endpointSelector: WeightedEndpointSelector<ViemRpcEndpoint>;
@@ -142,26 +150,48 @@ export class ViemRpcProvider implements RpcProviderPort {
         }
     }
 
-    async getBlockNumber(): Promise<number> {
-        const value = await this.executeRpc("getBlockNumber", (client) =>
-            client.getBlockNumber(),
+    async getBlockNumber(beforeRequest?: () => void): Promise<number> {
+        const value = await this.executeRpc(
+            "getBlockNumber",
+            (client) => client.getBlockNumber(),
+            { beforeRequest },
         );
         return toSafeNumber(value, "blockNumber");
     }
 
+    async getBytecode(
+        address: Hex,
+        blockNumber: number,
+        beforeRequest?: () => void,
+    ): Promise<Hex | null> {
+        const code = await this.executeRpc(
+            INDEXER_RPC_METHOD.GetBytecode,
+            (client) =>
+                client.getBytecode({
+                    address,
+                    blockNumber: BigInt(blockNumber),
+                }),
+            { beforeRequest },
+        );
+        return code ?? null;
+    }
+
     async getBlock(
         blockNumber: number,
-        options?: { fresh: boolean },
+        options?: { fresh: boolean; beforeRequest?: () => void },
     ): Promise<RpcBlock> {
         const cached = options?.fresh
             ? undefined
             : this.cache?.get<RpcBlock>("block", String(blockNumber));
         if (cached) return cached;
 
-        const block = await this.executeRpc("getBlock", (client) =>
-            client.getBlock({
-                blockNumber: BigInt(blockNumber),
-            }),
+        const block = await this.executeRpc(
+            "getBlock",
+            (client) =>
+                client.getBlock({
+                    blockNumber: BigInt(blockNumber),
+                }),
+            { beforeRequest: options?.beforeRequest },
         );
 
         const mapped: RpcBlock = {
@@ -227,9 +257,45 @@ export class ViemRpcProvider implements RpcProviderPort {
     }
 
     async getLogs(filter: RpcLogFilter): Promise<RpcLog[]> {
-        if (filter.fromBlock > filter.toBlock) return [];
-
         const logs: RpcLog[] = [];
+        for await (const page of this.readLogChunks(filter)) {
+            logs.push(...page.logs);
+        }
+        return logs;
+    }
+
+    async findFirstLogPage(
+        filter: RpcLogFilter & {
+            address: Hex;
+            event: NonNullable<RpcLogFilter["event"]>;
+        },
+        hooks?: RpcLogRequestHooks,
+    ): Promise<RpcFirstLogPage> {
+        // Use the configured/learned cap from ordinary log acquisition. Yield
+        // after one successful page so the caller can checkpoint and let other
+        // collections run. A sparse filter does not make a whole-chain scan cheap.
+        for await (const page of this.readLogChunks(filter, hooks, true)) {
+            const log =
+                page.logs.length === 0
+                    ? null
+                    : page.logs.reduce((first, log) =>
+                          log.blockNumber < first.blockNumber ||
+                          (log.blockNumber === first.blockNumber &&
+                              log.logIndex < first.logIndex)
+                              ? log
+                              : first,
+                      );
+            return { log, nextBlock: page.toBlock + 1 };
+        }
+        return { log: null, nextBlock: filter.fromBlock };
+    }
+
+    private async *readLogChunks(
+        filter: RpcLogFilter,
+        hooks?: RpcLogRequestHooks,
+        reduceTimeouts = false,
+    ): AsyncGenerator<{ logs: RpcLog[]; toBlock: number }> {
+        if (filter.fromBlock > filter.toBlock) return;
         let start = filter.fromBlock;
         while (start <= filter.toBlock) {
             const end = Math.min(
@@ -239,6 +305,8 @@ export class ViemRpcProvider implements RpcProviderPort {
             const params = {
                 address: filter.address as any,
                 events: filter.events as any,
+                event: filter.event as any,
+                args: filter.args as any,
                 fromBlock: BigInt(start),
                 toBlock: BigInt(end),
             };
@@ -246,50 +314,78 @@ export class ViemRpcProvider implements RpcProviderPort {
                 const chunk = await this.executeRpc(
                     INDEXER_RPC_METHOD.GetLogs,
                     (client) => client.getLogs(params as any),
+                    {
+                        beforeRequest: hooks?.beforeRequest,
+                        onRequest: () =>
+                            hooks?.onRequest?.({
+                                fromBlock: start,
+                                toBlock: end,
+                            }),
+                        errorPolicy: {
+                            reduceLogRangeOnTimeout:
+                                reduceTimeouts && end > start,
+                        },
+                    },
                 );
-                logs.push(...chunk.map(mapLog));
                 // Advance only after the exact interval succeeds, even when
                 // another call reduced the shared cap while this one awaited RPC.
                 start = end + 1;
+                yield { logs: chunk.map(mapLog), toBlock: end };
             } catch (error) {
                 const sizeLimit = getRpcResponseBodySizeLimit(error);
-                if (!sizeLimit) throw error;
+                const rangeLimit = isRpcLogRangeLimitError(error);
+                const timeout =
+                    reduceTimeouts &&
+                    end > start &&
+                    isRpcRequestTimeoutError(error);
+                if (!sizeLimit && !rangeLimit && !timeout) throw error;
 
                 const requestedBlockCount = end - start + 1;
                 const previousChunkSize = this.effectiveLogChunkSize;
                 // Concurrent failures can only lower the cap. Retrying the same
                 // cursor with half the failed span bounds recovery at one block.
-                this.effectiveLogChunkSize = Math.min(
+                const reducedChunkSize = Math.min(
                     previousChunkSize,
                     Math.max(1, Math.floor(requestedBlockCount / 2)),
                 );
+                this.effectiveLogChunkSize = reducedChunkSize;
                 logger.error(
-                    requestedBlockCount > 1
-                        ? INDEXER_RPC_LOG_MESSAGE.LogRangeReduced
-                        : INDEXER_RPC_LOG_MESSAGE.SingleBlockResponseTooLarge,
+                    timeout
+                        ? INDEXER_RPC_LOG_MESSAGE.LogTimeoutRangeReduced
+                        : rangeLimit
+                          ? INDEXER_RPC_LOG_MESSAGE.ProviderLogRangeReduced
+                          : requestedBlockCount > 1
+                            ? INDEXER_RPC_LOG_MESSAGE.LogRangeReduced
+                            : INDEXER_RPC_LOG_MESSAGE.SingleBlockResponseTooLarge,
                     {
                         component: INDEXER_RPC_LOG_COMPONENT.Http,
                         workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
                         rpcComponent: this.rpcComponent,
                         protocol: RPC_PROTOCOL.Http,
                         method: INDEXER_RPC_METHOD.GetLogs,
-                        action: INDEXER_RPC_LOG_ACTION.LogResponseSizeLimitExceeded,
-                        errorClass:
-                            RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+                        action: timeout
+                            ? INDEXER_RPC_LOG_ACTION.LogTimeoutRangeReduced
+                            : rangeLimit
+                              ? INDEXER_RPC_LOG_ACTION.LogRangeLimitExceeded
+                              : INDEXER_RPC_LOG_ACTION.LogResponseSizeLimitExceeded,
+                        errorClass: timeout
+                            ? RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME
+                            : rangeLimit
+                              ? RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME
+                              : RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
                         fromBlock: start,
                         toBlock: end,
                         requestedBlockCount,
                         configuredChunkSize: this.config.logChunkSize,
                         previousChunkSize,
-                        effectiveChunkSize: this.effectiveLogChunkSize,
-                        maxResponseBodySize: sizeLimit.maxSize,
-                        responseBodySize: sizeLimit.size,
+                        effectiveChunkSize: reducedChunkSize,
+                        maxResponseBodySize: sizeLimit?.maxSize,
+                        responseBodySize: sizeLimit?.size,
                     },
                 );
                 if (requestedBlockCount === 1) throw error;
             }
         }
-        return logs;
     }
 
     async readContract<T>(params: {
@@ -428,12 +524,24 @@ export class ViemRpcProvider implements RpcProviderPort {
     private async executeRpc<T>(
         method: string,
         fn: (client: ViemPublicClient) => Promise<T>,
+        options?: {
+            beforeRequest?: () => void;
+            onRequest?: () => void;
+            errorPolicy?: RpcErrorPolicy;
+        },
     ): Promise<T> {
         return executeObservedRpcEndpointCall({
             selector: this.endpointSelector,
             method,
             rpcObservability: this.rpcObservability,
             retryPolicy: this.retryPolicy,
+            errorPolicy: options?.errorPolicy,
+            wrapAttempt: options?.beforeRequest
+                ? async (_endpoint, run) => {
+                      options.beforeRequest!();
+                      return run();
+                  }
+                : undefined,
             circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
             rateLimiter: (endpoint) => endpoint.value.rateLimiter,
             requestBudget: this.config.requestBudget
@@ -443,7 +551,13 @@ export class ViemRpcProvider implements RpcProviderPort {
                           rpcEndpointBudgetKey(endpoint.url),
                   }
                 : undefined,
-            execute: (endpoint) => fn(endpoint.value.client),
+            execute: (endpoint) => {
+                // Admission may have waited, or an earlier attempt may have
+                // failed. Recheck caller ownership immediately before sending.
+                options?.beforeRequest?.();
+                options?.onRequest?.();
+                return fn(endpoint.value.client);
+            },
         });
     }
 }

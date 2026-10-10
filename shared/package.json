@@ -54,6 +54,7 @@
         "./bootstrap/run-events": "./bootstrap/run-events.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./evm/proxy-detection": "./evm/proxy-detection.ts",
+        "./evm/contract-deployment": "./evm/contract-deployment.ts",
         "./evm/rpc-errors": "./evm/rpc-errors.ts",
         "./evm/http-rpc-transport": "./evm/http-rpc-transport.ts",
         "./evm/erc721-ownership": "./evm/erc721-ownership.ts",

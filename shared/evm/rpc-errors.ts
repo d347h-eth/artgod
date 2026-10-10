@@ -19,6 +19,39 @@ export const RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME =
 export const RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME =
     "ResponseBodyTooLargeError";
 
+export const RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME = "RpcLogRangeLimitError";
+
+export const RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME = "RpcRequestTimeoutError";
+const RPC_REQUEST_CANCELLED_ERROR_CLASS_NAME = "RpcRequestCancelledError";
+// Viem wraps HTTP timeouts in its own TimeoutError, often below BaseError.
+const VIEM_REQUEST_TIMEOUT_ERROR_CLASS_NAME = "TimeoutError";
+
+/** A caller invalidated its work before the next network attempt. */
+export class RpcRequestCancelledError extends Error {
+    constructor() {
+        super("RPC work is no longer active");
+        this.name = RPC_REQUEST_CANCELLED_ERROR_CLASS_NAME;
+    }
+}
+
+export function isRpcRequestCancelledError(error: unknown): boolean {
+    for (const cause of walkRpcErrorChain(error))
+        if (cause instanceof RpcRequestCancelledError) return true;
+    return false;
+}
+
+export function isRpcRequestTimeoutError(error: unknown): boolean {
+    for (const cause of walkRpcErrorChain(error)) {
+        const name = rpcErrorClassName(cause);
+        if (
+            name === RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME ||
+            name === VIEM_REQUEST_TIMEOUT_ERROR_CLASS_NAME
+        )
+            return true;
+    }
+    return false;
+}
+
 // JSON-RPC error codes used for shared provider-error classification.
 export const JSON_RPC_ERROR_CODE = {
     InvalidParams: -32602,
@@ -69,10 +102,21 @@ const DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES = new Set<string>(
 const MAX_RPC_ERROR_CAUSE_SCAN_DEPTH = 6;
 const MAX_RPC_ERROR_TEXT_OBJECT_SCAN_DEPTH = 3;
 
+const LOG_RANGE_LIMIT_PATTERNS = [
+    /ranges? over \d+ blocks (?:are|is) not supported/i,
+    /block range.{0,80}(?:too (?:wide|large)|exceed|limit|maximum)/i,
+    /(?:exceed|limit|maximum|at most).{0,80}(?:block range|blocks range)/i,
+    /query returned more than.{0,40}(?:results|logs)/i,
+    /(?:eth_getLogs|log response).{0,80}(?:too (?:many|large)|(?:maximum|limited to).{0,40}(?:blocks|results|logs|bytes))/i,
+];
+
 // Optional capability checks can accept an empty result as unavailable. Other
 // callers retain endpoint failover because zero data can be a provider failure.
 export type RpcErrorPolicy = {
     retryZeroData?: boolean;
+    // Only a log caller able to reduce a multi-block page opts in. Single-block
+    // requests and other methods retain normal endpoint retry/failover.
+    reduceLogRangeOnTimeout?: boolean;
 };
 
 // Wraps head-lag failures when adapters need a concrete domain error.
@@ -158,6 +202,20 @@ export function getRpcResponseBodySizeLimit(
     return undefined;
 }
 
+// Log range/result limits require a smaller interval, not endpoint failover.
+// Do not confuse quota/rate limits or missing historical data with range limits.
+export function isRpcLogRangeLimitError(error: unknown): boolean {
+    for (const candidate of walkRpcErrorChain(error)) {
+        if (
+            rpcErrorTextFields(candidate).some((text) =>
+                LOG_RANGE_LIMIT_PATTERNS.some((pattern) => pattern.test(text)),
+            )
+        )
+            return true;
+    }
+    return false;
+}
+
 // Detects contract-call failures that retrying another endpoint cannot fix.
 export function isRpcDeterministicContractError(error: unknown): boolean {
     // Viem can wrap an internal JSON-RPC state error as a contract revert.
@@ -186,6 +244,9 @@ export function classifiedRpcErrorClassName(
     if (getRpcResponseBodySizeLimit(error)) {
         return RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME;
     }
+    if (isRpcLogRangeLimitError(error)) {
+        return RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME;
+    }
     if (isRpcProviderHeadLagError(error)) {
         return RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME;
     }
@@ -209,7 +270,10 @@ export function shouldRetryRpcError(
 ): boolean {
     return (
         !getRpcBudgetDeferral(error) &&
+        !isRpcRequestCancelledError(error) &&
+        !(policy?.reduceLogRangeOnTimeout && isRpcRequestTimeoutError(error)) &&
         !getRpcResponseBodySizeLimit(error) &&
+        !isRpcLogRangeLimitError(error) &&
         !isRpcDeterministicContractError(error) &&
         !(policy?.retryZeroData === false && isRpcProviderZeroDataError(error))
     );
