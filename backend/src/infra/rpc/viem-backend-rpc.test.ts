@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilience";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { NOOP_APM } from "@artgod/shared/observability/apm";
@@ -67,10 +68,7 @@ function rpcResponse(payload: {
 const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
     ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: TEST_REQUEST_TIMEOUT_MS,
-    rateLimiter: {
-        requestsPerSecond: 0,
-        burst: 1,
-    },
+    rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
     circuitBreaker: {
         failureThreshold: 10,
         openMs: 1000,

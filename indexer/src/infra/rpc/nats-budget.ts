@@ -8,6 +8,7 @@ import {
 } from "nats";
 import {
     RPC_BUDGET_POLICY,
+    GAP_FILL_MODE,
     RpcBudgetScheduler,
     RpcBudgetDeferred,
     rpcEndpointBudgetKey,
@@ -150,7 +151,9 @@ export class NatsRpcBudget implements RpcRequestBudget {
                             return;
                         }
                         if (input.workClass === SYNC_WORK_CLASS.GapRepair) {
-                            if (this.config.gap.requestsPerSecond === 0) {
+                            if (
+                                this.config.gap.mode === GAP_FILL_MODE.Disabled
+                            ) {
                                 msg.respond(
                                     codec.encode({
                                         retryAfterMs: 1000,

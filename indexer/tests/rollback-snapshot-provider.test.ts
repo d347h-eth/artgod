@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import {
     afterEach,
@@ -139,7 +140,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
             resilience: {
                 ...getDefaultRpcEndpointResilienceConfig(),
                 requestTimeoutMs: 1000,
-                rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
                 circuitBreaker: {
                     failureThreshold: 10,
                     openMs: 1000,

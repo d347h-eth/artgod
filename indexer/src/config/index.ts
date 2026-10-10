@@ -35,6 +35,8 @@ import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
+    parsePositiveNumber,
+    parseEnum,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import type {
@@ -44,6 +46,7 @@ import type {
 import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
 import {
     assertRpcGapAllocation,
+    GAP_FILL_MODE,
     type RpcGapAllocation,
 } from "@artgod/shared/evm/rpc-budget";
 import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
@@ -59,6 +62,7 @@ dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
 export const GAP_RPC_ENV_KEY = {
+    Mode: "GAP_FILL_MODE",
     RequestsPerSecond: "GAP_FILL_RPC_REQUESTS_PER_SECOND",
     MaxInFlight: "GAP_FILL_RPC_MAX_IN_FLIGHT",
 } as const;
@@ -66,23 +70,25 @@ export const GAP_RPC_ENV_KEY = {
 export function parseGapRpcAllocation(
     env: Record<string, string | undefined>,
 ): RpcGapAllocation {
-    const requestsPerSecond = parseNumber(
+    const mode = parseEnum(
+        env[GAP_RPC_ENV_KEY.Mode],
+        GAP_RPC_ENV_KEY.Mode,
+        Object.values(GAP_FILL_MODE),
+        getSettingDefault(GAP_RPC_ENV_KEY.Mode),
+    );
+    const requestsPerSecond = parsePositiveNumber(
         env[GAP_RPC_ENV_KEY.RequestsPerSecond],
         GAP_RPC_ENV_KEY.RequestsPerSecond,
         getSettingDefaultNumber(GAP_RPC_ENV_KEY.RequestsPerSecond),
     );
-    if (!Number.isFinite(requestsPerSecond) || requestsPerSecond < 0)
-        throw new Error(
-            `${GAP_RPC_ENV_KEY.RequestsPerSecond} must be a finite nonnegative number`,
-        );
-    return {
-        requestsPerSecond,
-        maxInFlight: parsePositiveInteger(
-            env[GAP_RPC_ENV_KEY.MaxInFlight],
-            GAP_RPC_ENV_KEY.MaxInFlight,
-            getSettingDefaultNumber(GAP_RPC_ENV_KEY.MaxInFlight),
-        ),
-    };
+    const maxInFlight = parsePositiveInteger(
+        env[GAP_RPC_ENV_KEY.MaxInFlight],
+        GAP_RPC_ENV_KEY.MaxInFlight,
+        getSettingDefaultNumber(GAP_RPC_ENV_KEY.MaxInFlight),
+    );
+    return mode === GAP_FILL_MODE.Limited
+        ? { mode, requestsPerSecond, maxInFlight }
+        : { mode };
 }
 const DEFAULT_REORG_DEPTH = getSettingDefaultNumber("REORG_DEPTH");
 const DEFAULT_BACKFILL_BATCH_SIZE = getSettingDefaultNumber(

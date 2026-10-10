@@ -17,6 +17,7 @@ import {
     CircuitBreaker,
     CircuitOpenError,
     TokenBucketRateLimiter,
+    RPC_RATE_LIMIT_MODE,
 } from "./rpc-resilience.js";
 import {
     JSON_RPC_ERROR_CODE,
@@ -57,6 +58,7 @@ const TEST_RETRY_POLICY = {
     maxDelayMs: 0,
 };
 const TEST_RATE_LIMIT_CONFIG = {
+    mode: RPC_RATE_LIMIT_MODE.Limited,
     requestsPerSecond: 1,
     burst: 1,
 };

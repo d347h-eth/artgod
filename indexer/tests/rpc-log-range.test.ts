@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BaseError, ResponseBodyTooLargeError } from "viem";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
@@ -20,7 +21,7 @@ const TEST_RETRY_POLICY = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 };
 const TEST_RESILIENCE = {
     ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: 5_000,
-    rateLimiter: { requestsPerSecond: 0, burst: 1 },
+    rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
     circuitBreaker: {
         failureThreshold: 1,
         openMs: 10_000,

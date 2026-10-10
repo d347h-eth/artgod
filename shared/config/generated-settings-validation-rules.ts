@@ -5,6 +5,7 @@
 export const SETTINGS_VALIDATION_RULE = {
     Url: "url",
     PositiveInteger: "positive_integer",
+    PositiveNumber: "positive_number",
     TcpPort: "tcp_port",
     RpcEndpointList: "rpc_endpoint_list",
     WebSocketEndpointList: "websocket_endpoint_list",

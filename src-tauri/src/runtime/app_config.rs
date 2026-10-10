@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn env_file_parser_strips_inline_comments() {
-        let model = parse_env_content("RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50 # use 0\nA='x # y'\n");
+        let model = parse_env_content("RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50 # requests/sec\nA='x # y'\n");
 
         assert_eq!(
             model.defaults.get("RPC_RATE_LIMIT_REQUESTS_PER_SECOND"),

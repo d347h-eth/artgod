@@ -9,11 +9,12 @@ import {
 } from '@artgod/shared/config/block-explorer';
 import { TCP_PORT_RANGE, isTcpPort } from '@artgod/shared/config/tcp-port';
 import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
-import { isPositiveInteger } from '@artgod/shared/utils/env';
+import { isPositiveInteger, isPositiveNumber } from '@artgod/shared/utils/env';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: SETTINGS_VALIDATION_RULE.Url,
 	positiveInteger: SETTINGS_VALIDATION_RULE.PositiveInteger,
+	positiveNumber: SETTINGS_VALIDATION_RULE.PositiveNumber,
 	tcpPort: SETTINGS_VALIDATION_RULE.TcpPort,
 	rpcEndpointList: SETTINGS_VALIDATION_RULE.RpcEndpointList,
 	websocketEndpointList: SETTINGS_VALIDATION_RULE.WebSocketEndpointList
@@ -22,7 +23,8 @@ export const ADMIN_CONFIG_VALIDATION_RULES = {
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
 	required: 'required',
 	url: 'url',
-	integer: 'integer'
+	integer: 'integer',
+	number: 'number'
 } as const;
 
 export type AdminConfigValidationIssueKind =
@@ -140,6 +142,16 @@ export function validateAdminConfigField(
 			field,
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
 			`${field.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+		);
+	}
+	if (
+		field.validation === ADMIN_CONFIG_VALIDATION_RULES.positiveNumber &&
+		!isPositiveNumber(trimmed)
+	) {
+		return buildValidationIssue(
+			field,
+			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.number,
+			`${field.label} must be a positive number.`
 		);
 	}
 	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList) {

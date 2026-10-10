@@ -1,7 +1,11 @@
+import {
+    GAP_FILL_MODE,
+    RpcBudgetScheduler,
+} from "@artgod/shared/evm/rpc-budget";
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { RpcBudgetScheduler } from "@artgod/shared/evm/rpc-budget";
 import { SYNC_WORK_CLASS as CLASS } from "@artgod/shared/types/sync-work-class";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
 import {
@@ -273,8 +277,8 @@ describe("historical hints and current-order requirements", () => {
         expect(w.demand.get(F.chainId, order.id)?.pending).toBe(false);
     });
 
-    it.each([0.5, 0.05, 0])(
-        "finishes strict current-order validation under two competing background streams at %s RPS",
+    it.each([1.5, 0.05, GAP_FILL_MODE.Disabled, GAP_FILL_MODE.Unlimited])(
+        "finishes strict current-order validation under two competing background streams with background policy %s",
         async (gapRate) => {
             vi.restoreAllMocks();
             vi.useFakeTimers();
@@ -284,10 +288,20 @@ describe("historical hints and current-order requirements", () => {
                 [
                     {
                         key: "fixture-rpc",
-                        limit: { requestsPerSecond: 10, burst: 10 },
+                        limit: {
+                            mode: RPC_RATE_LIMIT_MODE.Limited,
+                            requestsPerSecond: 10,
+                            burst: 10,
+                        },
                     },
                 ],
-                { requestsPerSecond: gapRate, maxInFlight: 1 },
+                typeof gapRate === "number"
+                    ? {
+                          mode: GAP_FILL_MODE.Limited,
+                          requestsPerSecond: gapRate,
+                          maxInFlight: 3,
+                      }
+                    : { mode: gapRate },
                 60_000,
             );
             let id = 0,
