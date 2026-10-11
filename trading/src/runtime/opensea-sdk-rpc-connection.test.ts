@@ -1,10 +1,12 @@
 import { strict as assert } from "node:assert";
+import { isDeepStrictEqual } from "node:util";
 import { describe, it } from "vitest";
 import type {
     MetricLabels,
     Metrics,
 } from "@artgod/shared/observability/metrics";
 import {
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_METRIC,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
@@ -107,6 +109,8 @@ describe("createOpenSeaSdkRpcConnection", () => {
             endpoint: `${TEST_ENDPOINT_ID_PREFIX}-1`,
             result: RPC_OBSERVABILITY_RESULT.Success,
             error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+            [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
         });
     });
 
@@ -190,6 +194,8 @@ describe("createOpenSeaSdkRpcConnection", () => {
             endpoint: `${TEST_ENDPOINT_ID_PREFIX}-1`,
             result: RPC_OBSERVABILITY_RESULT.Failure,
             error_class: "OpenSeaSdkJsonRpcError",
+            [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
         });
     });
 
@@ -270,7 +276,7 @@ function assertMetric(
             (metric) =>
                 metric.name === name &&
                 metric.value === 1 &&
-                JSON.stringify(metric.labels) === JSON.stringify(labels),
+                isDeepStrictEqual(metric.labels, labels),
         ),
         `Missing metric ${name}`,
     );
