@@ -26,10 +26,17 @@ storage_config:
 
 compactor:
     working_directory: /loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
 
 limits_config:
     allow_structured_metadata: true
     volume_enabled: true
+    retention_period: 168h
+    retention_stream:
+        - selector: '{level="debug"}'
+          priority: 1
+          period: 72h
 
 analytics:
     reporting_enabled: false

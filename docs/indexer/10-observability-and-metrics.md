@@ -253,6 +253,15 @@ ingestion or rendered Grafana panels.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
 
+The shared `observability/loki/loki-config.yaml` enables Compactor retention:
+`level=debug` streams keep 72 hours; `info`, `warn`, `error` and other streams
+keep seven days (`168h`). Both Compose stacks already persist `/loki`, including
+the Compactor's markers and filesystem delete-request store. A running Loki
+instance reads this configuration on restart. Chunk deletion is asynchronous;
+see [Loki retention](https://grafana.com/docs/loki/latest/operations/storage/retention/)
+for policy changes and existing ingested data. Desktop file rotation is separate
+from Loki retention.
+
 For indexed investigation, use Grafana Explore or the Loki read-only
 `/loki/api/v1/query_range` endpoint with explicit time bounds and a result limit.
 Filter the existing component/action labels before parsing JSON. Log files remain
