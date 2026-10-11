@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { capturedOpenSeaRangedOfferFixtures } from "../testing/opensea-offers.js";
 import {
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_TRAIT_TEXT_MAX_LENGTH,
@@ -53,6 +54,62 @@ function makeSnapshotOffer(params: {
 }
 
 describe("OpenSea bidding offer parser", () => {
+    it("preserves the complete criteria and finite membership of captured ranged orders", () => {
+        for (const {
+            payload,
+            expected,
+        } of capturedOpenSeaRangedOfferFixtures) {
+            const parsed = parseOpenSeaBiddingOffer(payload);
+            assert.ok(parsed);
+            assert.equal(parsed.id, payload.order_hash);
+            assert.equal(parsed.price.toString(), expected.unitPriceWei);
+            assert.equal(parsed.quantity.toString(), expected.quantity);
+            assert.equal(
+                parsed.maker,
+                payload.protocol_data.parameters.offerer,
+            );
+            assert.equal(
+                parsed.collectionAddress,
+                payload.criteria.contract.address,
+            );
+            assert.equal(
+                parsed.bidScope.kind,
+                TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            );
+            assert.equal(parsed.bidScope.label, expected.label);
+            assert.deepEqual(parsed.bidScope.traits, expected.traits);
+            assert.equal(
+                parsed.bidScope.encodedTokenIds,
+                payload.criteria.encoded_token_ids,
+            );
+            assert.equal(isOpenSeaCollectionWideOffer(payload), false);
+            assert.equal(
+                openSeaEncodedTokenIdsContain(
+                    payload.criteria.encoded_token_ids,
+                    "132",
+                ),
+                false,
+            );
+            const members = payload.criteria.encoded_token_ids
+                .split(",")
+                .flatMap((segment) => {
+                    const [start, end = start] = segment.split(":").map(Number);
+                    return Array.from({ length: end - start + 1 }, (_, index) =>
+                        String(start + index),
+                    );
+                });
+            assert.equal(members.length, expected.encodedMembershipCount);
+            for (const tokenId of members)
+                assert.equal(
+                    openSeaEncodedTokenIdsContain(
+                        payload.criteria.encoded_token_ids,
+                        tokenId,
+                    ),
+                    true,
+                );
+        }
+    });
+
     it("rejects an entire string scope when any supplied criterion is malformed", () => {
         const mode = { type: "Mode", value: "Terrain" };
         for (const invalid of [
@@ -60,6 +117,8 @@ describe("OpenSea bidding offer parser", () => {
             "malformed",
             false,
             {},
+            [],
+            { traits: [] },
             { type: "Level" },
             { type: "Level", value: null },
             { type: "Level", value: { unexpected: 1 } },
@@ -156,7 +215,15 @@ describe("OpenSea bidding offer parser", () => {
             tokenId: "0",
         });
         const { protocol_data, ...fields } = rest;
-        for (const raw of [rest, { ...fields, protocolData: protocol_data }]) {
+        for (const raw of [
+            rest,
+            { ...fields, protocolData: protocol_data },
+            { ...rest, criteria: {} },
+            {
+                ...rest,
+                criteria: { trait: { type: "Mode", value: "Terrain" } },
+            },
+        ]) {
             const parsed = parseOpenSeaBiddingOffer(raw);
             assert.equal(parsed?.offerScope, "item");
             assert.equal(

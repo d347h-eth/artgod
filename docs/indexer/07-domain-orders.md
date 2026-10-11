@@ -124,6 +124,12 @@ Examples:
 
 ## Upsert Flow
 
+REST item, collection and trait offers and their stream counterparts use
+`normalizeOpenSeaBuyOrder()` in `opensea-bidding-order-terms.ts`. This single
+mapping translates the shared OpenSea offer parser into the canonical order
+DTO and attaches validated Seaport data. Event names provide diagnostic
+context; the complete parsed criteria determine the persisted scope.
+
 1. Offchain ingest normalizes a stream or REST record.
 2. `dispatchOffchainPayload()` publishes `orders.upsert`.
 3. Domain worker admits a current observation and writes only changed canonical

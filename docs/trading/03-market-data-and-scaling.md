@@ -29,6 +29,17 @@ The [bidding lifecycle diagram](../diagrams/10-bidding-command-and-offer-lifecyc
 shows where declared state, authoritative market reads, side effects, and
 display state meet.
 
+OpenSea envelope, order identity and protocol alias readers live in
+`shared/opensea/payload.ts`. The shared offer parser owns WETH unit price and
+complete scope classification; indexer ingestion, bidder reads and bid-book
+projection use those same semantics. Generic trait matching and deduplication
+live in `shared/trading/offer-trait-criteria.ts`. Every string and numeric
+constraint participates in matching and scope identity. Malformed constraints
+reject the offer instead of leaving a broader scope, and exact NFT identifier
+`0` remains distinct from the Seaport criteria wildcard.
+Declared competitor selectors reuse `shared/trading/trait-competition.ts`,
+which keeps literal values separate from all-values selectors during lookup.
+
 ## Collection Snapshot Traversal
 
 `OpenSeaCollectionOfferSource` walks `getAllOffers(collectionSlug, limit, next)`

@@ -14,7 +14,11 @@ import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     assertAddress,
     normalizeCriteriaRoot,
+    parseOptionalAddress,
 } from "@artgod/shared/offchain/normalizer-utils";
+import { getOpenSeaOrderHash } from "@artgod/shared/opensea/payload";
+import type { RawOrderPayload } from "./normalize.js";
+import { normalizeSeaportOrderData } from "./seaport-order-data.js";
 import {
     buildAttributeSchema,
     buildCollectionSchema,
@@ -38,7 +42,26 @@ export type OpenSeaBiddingOrderTerms = {
     validUntil: number | null;
 };
 
-// Maps the bidder-owned OpenSea offer parser into the indexer's persisted order contract.
+// REST and stream buy offers share one mapping into the indexer's canonical order DTO.
+// The source event/record type is diagnostic context; the parsed criteria own the scope.
+export function normalizeOpenSeaBuyOrder(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+): RawOrderPayload {
+    const seaportData = normalizeSeaportOrderData(payload);
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: { ...context, orderHash: getOpenSeaOrderHash(payload) },
+    });
+    return {
+        ...terms,
+        kind: "seaport",
+        side: "buy",
+        taker: parseOptionalAddress(payload.taker, "taker"),
+        seaportData,
+    };
+}
+
+// Maps the shared OpenSea offer parser into the indexer's persisted order contract.
 export function parseRequiredOpenSeaBiddingOrderTerms(
     rawOffer: unknown,
     params: {

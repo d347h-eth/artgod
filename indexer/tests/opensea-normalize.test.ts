@@ -8,6 +8,11 @@ import {
 } from "../src/application/offchain/opensea-normalize.js";
 import { resolveFixturePath } from "./helpers/fixture-paths.js";
 import { ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
+import { capturedOpenSeaRangedOfferFixtures } from "@artgod/shared/testing/opensea-offers";
+import { normalizeOpenSeaRestOrder } from "../src/application/offchain/opensea-rest-normalize.js";
+import { OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
+import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 
 type Fixture = {
     event: string;
@@ -18,6 +23,54 @@ type Fixture = {
 };
 
 describe("opensea normalizer", () => {
+    it("maps captured REST offers consistently across buy record kinds and synthetic stream envelopes", () => {
+        for (const {
+            payload,
+            expected,
+        } of capturedOpenSeaRangedOfferFixtures) {
+            const rest = normalizeOpenSeaRestOrder(
+                OPENSEA_REST_EVENT_TYPE.TraitOffer,
+                payload,
+            );
+            expect(rest?.price).toBe(expected.unitPriceWei);
+            expect(rest?.quantity).toBe(expected.quantity);
+            expect(rest?.sourceEncodedTokenIds).toBe(
+                payload.criteria.encoded_token_ids,
+            );
+            expect(rest?.sourceSchema).toEqual({
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: payload.criteria.contract.address,
+                    attributes: [
+                        {
+                            key: "Level",
+                            min: expected.traits[1].min,
+                            max: expected.traits[1].max,
+                        },
+                        { key: "Mode", value: "Terrain" },
+                    ],
+                },
+            });
+            for (const recordType of [
+                OPENSEA_REST_EVENT_TYPE.ItemOffer,
+                OPENSEA_REST_EVENT_TYPE.CollectionOffer,
+            ])
+                expect(normalizeOpenSeaRestOrder(recordType, payload)).toEqual(
+                    rest,
+                );
+            // This checks adapter equivalence with an injected payload, not an observed stream range schema.
+            for (const event_type of [
+                OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid,
+                OPENSEA_STREAM_EVENT_TYPE.ItemReceivedOffer,
+                OPENSEA_STREAM_EVENT_TYPE.CollectionOffer,
+                OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
+            ])
+                expect(normalizeOpenSeaEvent({ event_type, payload })).toEqual(
+                    rest,
+                );
+        }
+    });
+
     it("normalizes item_listed into a sell order", async () => {
         const fixture = await readFixture("item_listed.json");
         const normalized = normalizeOpenSeaEvent(fixture);

@@ -804,6 +804,56 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(!JSON.stringify(inputs[1]).includes("Zone"));
     });
 
+    it("retains distinct competitor selectors when fetching trait buckets", async () => {
+        for (const { targetTrait, competitorTraits, expected } of [
+            {
+                targetTrait: { type: "A|B", value: "C" },
+                competitorTraits: [{ type: "A", value: "B|C" }],
+                expected: [
+                    ["A|B", "C"],
+                    ["A", "B|C"],
+                ],
+            },
+            {
+                targetTrait: { type: "Mode", value: "*" },
+                competitorTraits: [{ type: "Mode" }],
+                expected: [
+                    ["Mode", "*"],
+                    ["Mode", "Terrain"],
+                ],
+            },
+        ]) {
+            const sdk = new MockOpenSeaSdk();
+            const calls: string[][] = [];
+            sdk.api.getTraits = async () => ({
+                counts: { Mode: { "*": 1, Terrain: 1 } },
+            });
+            sdk.api.getTraitOffers = async (_slug, type, value) => {
+                calls.push([type, value]);
+                return { offers: [] };
+            };
+            const service = new OpenSeaBiddingService(sdk, makerAddress);
+            const job: BidderJob = {
+                id: "selector-job",
+                revision: 1,
+                network: "eth",
+                collectionId: 1,
+                collectionSlug,
+                collectionAddress,
+                target: {
+                    type: BIDDER_TARGET_TYPE.CompetitiveTrait,
+                    quantity: 1,
+                    targetTrait,
+                    competitorTraits,
+                },
+                config: { floor: 1n, ceiling: 2n, delta: 1n },
+                state: {},
+            };
+            await service.getActiveOffers(job);
+            assert.deepEqual(calls, expected);
+        }
+    });
+
     it("preserves distinct delimiter-containing criteria when placing an offer", async () => {
         const sdk = new MockOpenSeaSdk();
         const service = new OpenSeaBiddingService(sdk, makerAddress, {
@@ -831,7 +881,7 @@ describe("OpenSeaBiddingService", () => {
         let submitted: OpenSeaCreateCollectionOfferInput | undefined;
         sdk.createCollectionOffer = async (input) => {
             submitted = input;
-            return { orderHash, protocolAddress };
+            return { orderHash: "  ", order_hash: orderHash, protocolAddress };
         };
         await service.placeOffer(job, parseEther("0.3"));
         assert.deepEqual(submitted?.traits, traits);
@@ -969,6 +1019,29 @@ describe("OpenSeaBiddingService", () => {
         });
 
         assert.equal(sdkCalls, 2);
+    });
+
+    it("recovers a raw order hash when the SDK hash alias is empty", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk, makerAddress);
+        sdk.api.getOrderByHash = async () => ({
+            ...makeOffer(
+                orderHash,
+                makerAddress,
+                "300000000000000000",
+                collectionAddress,
+            ),
+            orderHash: "",
+            status: "ACTIVE",
+        });
+        const result = await service.getOrder(
+            orderHash,
+            protocolAddress,
+            collectionAddress,
+        );
+        assert.equal(result.status, BIDDING_ORDER_RECOVERY_STATUS.Active);
+        if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Active)
+            assert.equal(result.order.id, orderHash);
     });
 
     it("recovers an order directly by hash and drops inactive direct lookups", async () => {

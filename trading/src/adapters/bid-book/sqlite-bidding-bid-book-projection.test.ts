@@ -8,6 +8,7 @@ import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensi
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
 import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
+import { capturedOpenSeaRangedOfferFixtures } from "@artgod/shared/testing/opensea-offers";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
     BIDDING_BID_BOOK_PROJECTION_OUTCOME,
@@ -154,6 +155,51 @@ describe("SqliteBiddingBidBookProjection", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it("projects captured REST range scopes without broadening their criteria", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const offers = capturedOpenSeaRangedOfferFixtures.map(
+            ({ payload }) => payload,
+        );
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "captured-ranges",
+        );
+        const rows = db
+            .prepare(
+                "SELECT order_id, scope_label, scope_traits_json, encoded_token_ids, price_wei FROM trading_bidding_bid_book_rows",
+            )
+            .all() as ProjectedRow[];
+        assert.equal(rows.length, 2);
+        for (const {
+            payload,
+            expected,
+        } of capturedOpenSeaRangedOfferFixtures) {
+            const row = rows.find((row) => row.order_id === payload.order_hash);
+            assert.ok(row);
+            assert.equal(row.scope_label, expected.label);
+            assert.deepEqual(
+                JSON.parse(row.scope_traits_json),
+                expected.traits,
+            );
+            assert.equal(
+                row.encoded_token_ids,
+                payload.criteria.encoded_token_ids,
+            );
+            assert.equal(row.price_wei, expected.unitPriceWei);
+        }
     });
 
     it("persists complete numeric scopes from a collection snapshot", async () => {

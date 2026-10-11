@@ -1,5 +1,10 @@
 import { Chain, OpenSeaAPI } from "@opensea/sdk";
 import { normalizeOpenSeaOfferTraitCriteria } from "@artgod/shared/trading/open-sea-bidding-offers";
+import {
+    getOpenSeaOrderHash,
+    getOpenSeaProtocolParameters,
+} from "@artgod/shared/opensea/payload";
+import { asRecord } from "@artgod/shared/offchain/normalizer-utils";
 import type { OpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
 import {
     OpenSeaApiRateLimiter,
@@ -141,7 +146,7 @@ function toRestListingRecord(
     listing: ListingRecord,
     contractAddress: string,
 ): OpenSeaRestRecord | null {
-    const parameters = getProtocolParameters(getProtocolData(listing));
+    const parameters = getOpenSeaProtocolParameters(listing);
     const nftItem = findNftItem(asArray(parameters.offer));
     if (!nftItem) return null;
 
@@ -151,7 +156,7 @@ function toRestListingRecord(
     const tokenId = identifierToString(nftItem.identifierOrCriteria);
     if (!tokenId) return null;
 
-    const orderHash = getOrderHash(listing);
+    const orderHash = getOpenSeaOrderHash(listing);
     if (!orderHash) return null;
 
     const eventTimestamp = unixToIso(parameters.startTime);
@@ -168,8 +173,8 @@ function toRestOfferRecord(
     offer: OfferRecord,
     contractAddress: string,
 ): OpenSeaRestRecord | null {
-    const parameters = getProtocolParameters(getProtocolData(offer));
-    const orderHash = getOrderHash(offer);
+    const parameters = getOpenSeaProtocolParameters(offer);
+    const orderHash = getOpenSeaOrderHash(offer);
     if (!orderHash) return null;
     const eventTimestamp = unixToIso(parameters.startTime);
 
@@ -217,19 +222,6 @@ function toRestOfferRecord(
     };
 }
 
-function getProtocolParameters(value: unknown): Record<string, unknown> {
-    const protocol = asRecord(value);
-    return asRecord(protocol.parameters);
-}
-
-function getProtocolData(record: Record<string, unknown>): unknown {
-    return record.protocolData ?? record.protocol_data;
-}
-
-function getOrderHash(record: Record<string, unknown>): string | null {
-    return stringOrNull(record.orderHash) ?? stringOrNull(record.order_hash);
-}
-
 function findNftItem(
     items: Array<Record<string, unknown>>,
 ): Record<string, unknown> | null {
@@ -271,12 +263,6 @@ function unixToIso(value: unknown): string | null {
 
 function stringOrNull(value: unknown): string | null {
     return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
 }
 
 function asArray(value: unknown): Array<Record<string, unknown>> {

@@ -84,7 +84,29 @@ export function getOpenSeaOrderId(raw: unknown): string | null {
 // SDK camelCase and raw API snake_case share extraction; callers own validation.
 export function getOpenSeaOrderHash(raw: unknown): string | null {
     const value = readOrderHash(raw);
-    return typeof value === "string" && value.length > 0 ? value : null;
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+/** Read SDK/raw protocol aliases once; strict callers validate the returned data. */
+export function getOpenSeaProtocolData(raw: unknown): unknown {
+    const record = asRecord(raw);
+    return record.protocolData ?? record.protocol_data;
+}
+
+export function getOpenSeaProtocolEnvelope(
+    raw: unknown,
+): Record<string, unknown> | undefined {
+    const value = getOpenSeaProtocolData(raw);
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : undefined;
+}
+
+/** Optional terms readers tolerate absent data; persistence validates required fields. */
+export function getOpenSeaProtocolParameters(
+    raw: unknown,
+): Record<string, unknown> {
+    return asRecord(getOpenSeaProtocolEnvelope(raw)?.parameters);
 }
 
 /** Required order identity for existing listing/lifecycle normalization. */
@@ -94,7 +116,8 @@ export function parseOpenSeaOrderHash(raw: unknown): string {
 
 function readOrderHash(raw: unknown): unknown {
     const record = asRecord(raw);
-    return typeof record.orderHash === "string" && record.orderHash.length > 0
+    return typeof record.orderHash === "string" &&
+        record.orderHash.trim().length > 0
         ? record.orderHash
         : record.order_hash;
 }

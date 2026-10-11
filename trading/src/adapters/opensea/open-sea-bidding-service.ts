@@ -8,6 +8,7 @@ import {
 } from "@artgod/shared/types";
 import { formatUnits } from "viem";
 import { matchesTraitCompetition } from "../../domain/market/strategy/trait-competition.js";
+import { dedupeTradingCompetitionSelectors } from "@artgod/shared/trading/trait-competition";
 import {
     getOpenSeaOfferCriteria,
     inferOpenSeaNftSelectionKind,
@@ -17,6 +18,8 @@ import {
     openSeaEncodedTokenIdsContain,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
+import { getOpenSeaOrderHash } from "@artgod/shared/opensea/payload";
+import { asRecord } from "@artgod/shared/offchain/normalizer-utils";
 import {
     roundOpenSeaOfferPriceDown,
     roundOpenSeaOfferPriceUp,
@@ -1090,16 +1093,7 @@ export class OpenSeaBiddingService implements BiddingService {
             selectors.push(...job.target.competitorTraits);
         }
 
-        const seen = new Set<string>();
-        return selectors.filter((selector) => {
-            const key = `${selector.type}|${selector.value ?? "*"}`;
-            if (seen.has(key)) {
-                return false;
-            }
-
-            seen.add(key);
-            return true;
-        });
+        return dedupeTradingCompetitionSelectors(selectors);
     }
 
     private getRestrictedCriteriaTraitTypes(
@@ -1302,7 +1296,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 summary.criteriaMismatched!++;
                 if (summary.mismatchSamples!.length < 5) {
                     summary.mismatchSamples!.push(
-                        `${getOrderHash(rawOffer) ?? "unknown"}[${this.formatTraitTargetsForLog(criteriaTraits)}]`,
+                        `${getOpenSeaOrderHash(rawOffer) ?? "unknown"}[${this.formatTraitTargetsForLog(criteriaTraits)}]`,
                     );
                 }
                 continue;
@@ -1757,12 +1751,6 @@ function orderLogFields(order: Order): Record<string, unknown> {
     };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
-}
-
 function stringOrUndefined(value: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;
 }
@@ -1777,9 +1765,7 @@ function requirePlacedOrderIdentity(rawOrder: unknown): {
     protocolAddress: string;
 } {
     const order = asRecord(rawOrder);
-    const orderHash =
-        nonEmptyStringOrUndefined(order.orderHash) ??
-        nonEmptyStringOrUndefined(order.order_hash);
+    const orderHash = nonEmptyStringOrUndefined(getOpenSeaOrderHash(order));
     const protocolAddress =
         nonEmptyStringOrUndefined(order.protocolAddress) ??
         nonEmptyStringOrUndefined(order.protocol_address);
@@ -1794,16 +1780,8 @@ function requirePlacedOrderIdentity(rawOrder: unknown): {
     return { orderHash, protocolAddress };
 }
 
-function getOrderHash(rawOrder: unknown): string | undefined {
-    const order = asRecord(rawOrder);
-    return (
-        stringOrUndefined(order.orderHash) ??
-        stringOrUndefined(order.order_hash)
-    );
-}
-
 function matchesOrderHash(rawOrder: unknown, orderHash: string): boolean {
-    return getOrderHash(rawOrder) === orderHash;
+    return getOpenSeaOrderHash(rawOrder) === orderHash;
 }
 
 function isLegacyInactive(rawOrder: unknown): boolean {
