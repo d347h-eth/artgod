@@ -8,6 +8,7 @@ import {
     REORG_RECOVERY_PHASE,
     REORG_RECOVERY_POLICY,
     REORG_RECOVERY_LOG_COMPONENT,
+    REORG_RECOVERY_LOG_ACTION,
     beginReorgResync,
     type AwaitingReorgAncestor,
     type ReorgRecoveryState,
@@ -28,12 +29,6 @@ import {
     type ReorgRollbackPlan,
     type Erc721RollbackSnapshot,
 } from "./reorg-rollback.js";
-
-const REORG_RECOVERY_LOG_ACTION = {
-    Resume: "resume",
-    Poll: "poll",
-    Check: "check",
-} as const;
 
 export interface ReorgRecoveryStore {
     getRecovery(chainId: number): ReorgRecoveryState | null;
@@ -164,13 +159,25 @@ export class RecoverChainReorg {
                 this.checks.complete(check);
                 return;
             }
-            this.recoveries.retainMismatch({
+            const retained = this.recoveries.retainMismatch({
                 checkpoint,
                 checkedBlock: blockNumber,
                 storedHash,
                 observedHash: block.hash,
                 recoveryId: randomUUID(),
                 now: this.now(),
+            });
+            // Report only after SQLite owns this mismatch; failed retention
+            // must not look like a successfully admitted recovery.
+            logger.warn("Reorg hash mismatch retained", {
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.MismatchRetained,
+                chainId: check.chainId,
+                recoveryId: retained.recoveryId,
+                checkedBlock: blockNumber,
+                storedHash,
+                observedHash: block.hash,
+                revision: checkpoint.revision,
             });
         } catch (error) {
             logger.warn("Canonical check remains pending", {
@@ -262,6 +269,31 @@ export class RecoverChainReorg {
                 proof,
                 ...prepared,
                 next,
+            });
+            // These values already belong to the committed plan. Distinguish
+            // the checked block's distance from the fork from the full refill
+            // range, which can include canonical blocks and downtime gaps.
+            logger.info("Reorg rollback committed", {
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+                chainId: recovery.chainId,
+                recoveryId: recovery.recoveryId,
+                checkedBlock: recovery.checkedBlock,
+                storedHash: recovery.storedHash,
+                observedHash: recovery.observedHash,
+                forkBlock: proof.fork.number,
+                forkHash: proof.fork.hash,
+                forkToCheckedBlocks: recovery.checkedBlock - proof.fork.number,
+                rollbackFromBlock: prepared.plan.fromBlock,
+                capturedHeadBlock: head,
+                resyncFromBlock: next?.fromBlock ?? null,
+                resyncToBlock: next?.targetBlock ?? null,
+                resyncBlocks: next ? next.targetBlock - next.fromBlock + 1 : 0,
+                firstBatchToBlock: next?.toBlock ?? null,
+                batchSize: this.options.batchSize,
+                affectedErc721Tokens: prepared.plan.tokens.length,
+                revisionBefore: recovery.revision,
+                revisionAfter: recovery.revision + 1,
             });
         } catch (error) {
             // The journal owns retry. A failed retry write leaves that journal

@@ -235,6 +235,24 @@ ingestion or rendered Grafana panels.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
 
+For indexed investigation, use Grafana Explore or the Loki read-only
+`/loki/api/v1/query_range` endpoint with explicit time bounds and a result limit.
+Filter the existing component/action labels before parsing JSON. Log files remain
+the fallback for periods outside ingestion or retention. Recovery decisions and
+their block processing can be queried separately:
+
+```logql
+{app="artgod",component="ReorgRecovery",action=~"mismatch_retained|rollback_committed"}
+```
+
+```logql
+{app="artgod",component="AutomaticSyncExecutor",action="range"} | json | kind="reorg_resync"
+```
+
+Decision fields and their meaning are defined in
+[reorg handling](06-reorg-handling.md#recovery-decision-logs). Recovery IDs, hashes
+and heights stay in JSON fields rather than indexed labels.
+
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
