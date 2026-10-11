@@ -39,6 +39,48 @@ const RPC_URL_FIELD: AdminConfigField = {
 	view: 'basic'
 };
 
+describe('RPC numeric limits', () => {
+	const rateField: AdminConfigField = {
+		...RPC_URL_FIELD,
+		key: RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond,
+		label: 'rpc requests/sec per endpoint',
+		inputKind: 'text',
+		requiredForLaunch: false,
+		validation: ADMIN_CONFIG_VALIDATION_RULES.positiveNumber
+	};
+	const config: AdminConfigState = {
+		configured: true,
+		envFilePath: '',
+		envFileExists: false,
+		settingsFilePath: '',
+		settingsFileExists: false,
+		autoLaunchOnStartup: false,
+		values: {},
+		defaults: {},
+		groups: [{ id: 'test', label: 'test', fields: [rateField] }]
+	};
+	it.each(['1.5', '0.05', '5'])(
+		'accepts the same positive decimal %s as runtime config',
+		(value) => {
+			expect(resolveAdminConfigValidationIssues(config, { [rateField.key]: value })).toEqual([]);
+			expect(
+				parseRpcEndpointResilienceConfig({ [rateField.key]: value }).rateLimiter
+			).toMatchObject({ requestsPerSecond: Number(value) });
+		}
+	);
+	it.each(['0', '-1', 'Infinity', 'NaN', 'unlimited'])(
+		'rejects invalid numeric value %s',
+		(value) => {
+			expect(resolveAdminConfigValidationIssues(config, { [rateField.key]: value })).toHaveLength(
+				1
+			);
+			expect(() => parseRpcEndpointResilienceConfig({ [rateField.key]: value })).toThrow(
+				rateField.key
+			);
+		}
+	);
+});
+
 const RPC_WS_URL_FIELD: AdminConfigField = {
 	key: RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
 	label: 'rpc ws endpoints',

@@ -1,4 +1,6 @@
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
@@ -82,20 +84,24 @@ export class ValidateOrderDemand {
     ): Promise<OrderValidationBatchReport | undefined> {
         // Acquire fair capacity before claiming rows or aging a chain snapshot.
         if (signal?.aborted) return undefined;
-        return this.deps.admission.run(async () => {
-            if (signal?.aborted) return undefined;
-            const report = await this.validateBatch(
-                () => signal?.aborted ?? false,
-            );
-            if (report)
-                observeBestEffort(() =>
-                    this.deps.observability?.observer?.demandBatch(
-                        report,
-                        (this.deps.now ?? Date.now)(),
-                    ),
+        return this.deps.admission.run(
+            async () => {
+                if (signal?.aborted) return undefined;
+                const report = await this.validateBatch(
+                    () => signal?.aborted ?? false,
                 );
-            return report;
-        }, signal);
+                if (report)
+                    observeBestEffort(() =>
+                        this.deps.observability?.observer?.demandBatch(
+                            report,
+                            (this.deps.now ?? Date.now)(),
+                        ),
+                    );
+                return report;
+            },
+            signal,
+            SYNC_WORK_CLASS.Main,
+        );
     }
 
     private async validateBatch(
@@ -149,6 +155,9 @@ export class ValidateOrderDemand {
             | Awaited<ReturnType<OrderValidationSnapshotFactory>>
             | undefined;
         try {
+            const checkpoint = this.deps.store.captureSyncCheckpoint(
+                this.deps.chainId,
+            );
             await observeProcessing(
                 hooks,
                 OPERATION.DemandBatch,
@@ -164,6 +173,7 @@ export class ValidateOrderDemand {
                                 // Different demands have different trigger blocks. Check each against the
                                 // fresh snapshot below so one future trigger cannot block unrelated work.
                                 minimumBlock: null,
+                                workClass: SYNC_WORK_CLASS.Main,
                                 candidates: batch.claims.map(
                                     (claim) => claim.candidate.order,
                                 ),
@@ -220,7 +230,7 @@ export class ValidateOrderDemand {
                         () =>
                             this.deps.store.completeBatch(
                                 completions,
-                                snapshot!.proof,
+                                { ...snapshot!.proof, checkpoint },
                                 now(),
                             ),
                     );
@@ -236,7 +246,14 @@ export class ValidateOrderDemand {
                 },
             );
         } catch (error) {
-            report.retried += this.deps.store.fail(batch.claims, error, now());
+            if (getRpcBudgetDeferral(error)) {
+                report.released += this.deps.store.release(batch.claims, now());
+            } else
+                report.retried += this.deps.store.fail(
+                    batch.claims,
+                    error,
+                    now(),
+                );
             logger.warn(LOG.BatchFailed, {
                 component: LOG.Component,
                 chainId: this.deps.chainId,
@@ -276,7 +293,9 @@ export function startOrderValidationDemand(
             let busy = false;
             try {
                 const report = await processor.executeBatch(controller.signal);
-                busy = !!report;
+                busy =
+                    !!report &&
+                    (report.claimed === 0 || report.released < report.claimed);
                 reporter?.record(report);
             } catch (error) {
                 if (!controller.signal.aborted)
@@ -288,11 +307,11 @@ export function startOrderValidationDemand(
             if (!controller.signal.aborted) await pause(busy);
         }
     };
-    // Demand can use both existing permits when other paths are idle. It queues
-    // at most these two executors and rejoins FIFO admission after every batch.
+    // Both current-order executors use main capacity. Historical hints are
+    // filtered/coalesced before becoming validation demand.
     const active = Array.from(
         { length: ORDER_PROCESSING_POLICY.concurrentValidations },
-        run,
+        () => run(),
     );
     return async () => {
         controller.abort();

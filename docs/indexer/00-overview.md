@@ -9,7 +9,7 @@ The indexer is a local-first pipeline that reads blockchain data and marketplace
 Current scope:
 
 - All processing runs locally on the user's machine.
-- All cross-process communication goes through a durable queue (NATS JetStream).
+- Cross-process jobs use NATS JetStream; SQLite owns automatic repair and pending hash checks.
 - All persisted state lives in SQLite (`better-sqlite3`).
 - Onchain ownership, metadata, and activities are maintained from RPC data.
 - Offchain orders are ingested from OpenSea streams plus REST snapshot/reconcile passes.
@@ -24,8 +24,7 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 
 - Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
-    - Schedules realtime block sync and block-check (reorg) jobs.
-    - Continuously scans live collections for missing coverage from head through their bootstrap anchor and retains bounded repair intent in SQLite.
+    - Schedules realtime block sync within the latest `REORG_DEPTH` blocks.
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
@@ -41,10 +40,12 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
     - Consumes realtime/backfill sync jobs.
     - Fetches logs, decodes transfers/fills/cancels/counters, persists blocks/transfers/balances.
     - Executes retained automatic gap/reorg ranges in one bounded serial loop.
+    - Discovers missing live-collection coverage from `HEAD - REORG_DEPTH` through each anchor.
+    - Retains delayed hash checks atomically when saving recent blocks.
     - Atomically retains domain and order follow-ups with data and acquisition progress.
 
 - Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
-    - Consumes block-check jobs.
+    - Drains eligible pending hash checks from SQLite, including after downtime.
     - Retains known mismatches and retries ancestor proof at startup and periodically.
     - Atomically rolls back orphaned blocks and retains bounded canonical resync.
     - The sync runtime executes those ranges directly; the domain runtime publishes required follow-ups.
@@ -104,7 +105,7 @@ These assumptions are relied on by the implementation and should be preserved in
 
 1. Only the scheduler-worker publishes realtime sync jobs.
 2. Job handling is idempotent everywhere; at-least-once delivery is assumed.
-3. Live collections receive perpetual, bounded gap repair from the observed head through their own bootstrap anchor, inclusive. Coverage comes from `collection_sync_blocks`, independent of global blocks and bootstrap progress. History before that anchor remains user-triggered.
+3. Live collections receive perpetual, bounded gap repair from `HEAD - REORG_DEPTH` through their own bootstrap anchor, inclusive. Coverage comes from `collection_sync_blocks`, independent of global blocks and bootstrap progress. History before that anchor remains user-triggered.
 4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters implemented in `indexer/src/infra/`.
 5. Configuration is explicit and loaded through typed env/config modules.
 6. Raw OpenSea payloads persisted into SQLite are audit/debug-only for indexer/order validation and passive troubleshooting. Runtime read paths consume normalized order fields and canonical Seaport data instead of reparsing `raw_rest_data` or `raw_stream_data`.
@@ -144,9 +145,9 @@ These assumptions are relied on by the implementation and should be preserved in
     - metadata domain fetches and stores token metadata
     - activity domain writes activity rows
     - successful metadata writes fan out collection-extension artifact refresh jobs when an enabled install exists
-5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.
-6. Reorg worker verifies block hashes and rolls back on mismatch.
-7. On startup and HTTP polls, the scheduler revisits live collection coverage in bounded descending windows. Durable scan cursors and one outstanding repair per collection survive restart; the sweep repeats after reaching the anchor.
+5. Saving recent blocks atomically retains pending hash checks. The reorg worker verifies them at the configured depth, even after downtime moves them outside the realtime tail.
+6. A mismatch atomically hands off to retained rollback and canonical resync.
+7. The sync worker continuously revisits live collection coverage in bounded descending windows. Durable scan cursors and one pending repair per collection survive restart; 30-minute checks give newer holes priority, and completed cycles wait until their next check.
 
 ### OpenSea offchain flow
 

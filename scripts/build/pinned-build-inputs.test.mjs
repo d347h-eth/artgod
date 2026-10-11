@@ -11,7 +11,11 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { materializePinnedInput } from "./pinned-build-inputs.mjs";
+import {
+    materializePinnedInput,
+    verifyGithubReleaseInputProvenance,
+} from "./pinned-build-inputs.mjs";
+import { ENV_GITHUB_TOKEN, GITHUB_METADATA_MEDIA_TYPE } from "./github-api.mjs";
 
 const scratchRoot = fileURLToPath(new URL("../../tmp/", import.meta.url));
 const content = Buffer.from("reviewed bytes");
@@ -34,6 +38,51 @@ async function fixture() {
         input,
     };
 }
+
+test("cold GitHub inputs authenticate both provenance and verified archive requests", async () => {
+    const options = await fixture();
+    const token = "pinned-input-test-token";
+    const publishedAt = "2020-01-01T00:00:00Z";
+    const githubInput = {
+        ...input,
+        url: "https://api.github.com/repos/example/tools/releases/assets/1",
+        releaseTag: "v1.0.0",
+        assetName: input.fileName,
+        publishedAt,
+    };
+    const mediaTypes = [];
+    await materializePinnedInput({
+        ...options,
+        input: githubInput,
+        environment: { [ENV_GITHUB_TOKEN]: token },
+        verifyProvenance: verifyGithubReleaseInputProvenance,
+        fetchImplementation: async (_url, request) => {
+            assert.equal(request.headers.Authorization, `Bearer ${token}`);
+            mediaTypes.push(request.headers.Accept);
+            return request.headers.Accept === GITHUB_METADATA_MEDIA_TYPE
+                ? Response.json({
+                      tag_name: githubInput.releaseTag,
+                      draft: false,
+                      published_at: publishedAt,
+                      assets: [
+                          {
+                              id: 1,
+                              name: input.fileName,
+                              size: input.sizeBytes,
+                              created_at: publishedAt,
+                              updated_at: publishedAt,
+                          },
+                      ],
+                  })
+                : new Response(content);
+        },
+    });
+    assert.deepEqual(mediaTypes, [
+        GITHUB_METADATA_MEDIA_TYPE,
+        "application/octet-stream",
+    ]);
+    assert.deepEqual(await readFile(options.destinationPath), content);
+});
 
 test("valid cached bytes work offline and are rehashed before reuse", async () => {
     const options = await fixture();

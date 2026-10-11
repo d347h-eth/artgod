@@ -1,3 +1,5 @@
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import {
     afterEach,
     beforeAll,
@@ -49,7 +51,11 @@ const request = {
     minimumBlock: HEAVY_MAKER.blockNumber,
 };
 const fillable = { status: ORDER_STATUS.Fillable, reason: "fixture" };
-const proof = { observedAt: now, blockNumber: HEAVY_MAKER.blockNumber };
+const proof = {
+    observedAt: now,
+    blockNumber: HEAVY_MAKER.blockNumber,
+    checkpoint: { chainId: HEAVY_MAKER.chainId, revision: 0 },
+};
 
 function workflow(conduits: ConduitRegistryPort = warmConduits) {
     const rpc = new HeavyMakerRpc();
@@ -468,6 +474,55 @@ describe("durable ordinary validation demand", () => {
                 .get(order.id),
         ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
         expect(await work.processor.executeBatch()).toBeUndefined();
+    });
+
+    it("admits background hints as main current-order demand and coalesces repeats after restart", () => {
+        let work = workflow();
+        work.store.admit(request, now);
+        setDbPath(dbPath);
+        work = workflow();
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: true,
+            generation: 1,
+        });
+        work.store.admit(request, now);
+        expect(
+            work.store.get(request.chainId, request.orderId)?.generation,
+        ).toBe(1);
+        expect(
+            work.store.claimBatch(request.chainId, "main", now).claims,
+        ).toHaveLength(1);
+    });
+
+    it("keeps a newer current-order obligation in main regardless of its hint source", async () => {
+        const work = workflow();
+        work.store.admit(request, now);
+        await work.processor.executeBatch();
+        work.store.admit(
+            {
+                ...request,
+                requiredAt: now + 1,
+            },
+            now + 1,
+        );
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: true,
+        });
+    });
+
+    it("releases deferred quota waits without recording a validation failure or losing demand", async () => {
+        const work = workflow();
+        work.store.admit(request, now);
+        vi.spyOn(work.rpc, "getBlockNumber").mockRejectedValue(
+            new Error("snapshot wrapper", { cause: new RpcBudgetDeferred() }),
+        );
+        const report = await work.processor.executeBatch();
+        expect(report).toMatchObject({ released: 1, retried: 0, applied: 0 });
+        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
+            pending: true,
+            failures: 0,
+            leaseOwner: null,
+        });
     });
 
     it("uses the chain/due index without a temporary sort for bounded polling", () => {

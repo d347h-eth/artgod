@@ -8,13 +8,18 @@ import {
     REORG_RECOVERY_PHASE,
     REORG_RECOVERY_POLICY,
     REORG_RECOVERY_LOG_COMPONENT,
+    REORG_RECOVERY_LOG_ACTION,
     beginReorgResync,
     type AwaitingReorgAncestor,
     type ReorgRecoveryState,
     type ReorgResync,
     type ReorgResyncRange,
 } from "../domain/reorg-recovery.js";
-import { JobDeferred } from "../domain/job-deferred.js";
+import {
+    canonicalCheckUpperBound,
+    type PendingCanonicalCheck,
+} from "../domain/canonical-check.js";
+import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import { findCommonAncestor, type ReorgForkStore } from "./reorg-fork.js";
@@ -24,12 +29,6 @@ import {
     type ReorgRollbackPlan,
     type Erc721RollbackSnapshot,
 } from "./reorg-rollback.js";
-
-const REORG_RECOVERY_LOG_ACTION = {
-    Resume: "resume",
-    Poll: "poll",
-    Check: "check",
-} as const;
 
 export interface ReorgRecoveryStore {
     getRecovery(chainId: number): ReorgRecoveryState | null;
@@ -101,6 +100,7 @@ export class RecoverChainReorg {
             ReorgForkStore,
         private readonly recoveries: ReorgRecoveryStore,
         private readonly rollback: RollbackChainRange,
+        private readonly checks: CanonicalChecksPort,
         private readonly options: ReorgRecoveryOptions,
     ) {
         this.now = options.now ?? Date.now;
@@ -116,24 +116,50 @@ export class RecoverChainReorg {
                 throw new Error("Invalid reorg recovery policy");
     }
 
-    async checkBlock(blockNumber: number): Promise<void> {
-        if (!Number.isSafeInteger(blockNumber) || blockNumber < 1) return;
+    /** Read eligible retained checks even when their blocks aged past today's realtime tail. */
+    async checkDue(): Promise<boolean> {
+        if (
+            this.recoveries.getRecovery(this.options.chainId) ||
+            !this.checks.hasPending(this.options.chainId, this.now())
+        )
+            return false;
+        const head = await this.rpc.getBlockNumber();
+        const check = this.checks.nextDue({
+            chainId: this.options.chainId,
+            now: this.now(),
+            upperBound: canonicalCheckUpperBound(head, this.options.reorgDepth),
+        });
+        if (!check) return false;
+        await this.checkBlock(check);
+        return true;
+    }
+
+    /** Verify one explicit stored identity; success consumes it only in the DB writer. */
+    async checkBlock(check: PendingCanonicalCheck): Promise<void> {
+        const { blockNumber, blockHash: storedHash, checkpoint } = check;
+        if (
+            check.chainId !== this.options.chainId ||
+            checkpoint.chainId !== check.chainId
+        )
+            throw new Error("Canonical check chain mismatch");
         try {
-            const checkpoint = this.storage.captureSyncCheckpoint(
-                this.options.chainId,
-            );
-            const storedHash = this.storage.getBlockHash(
-                this.options.chainId,
-                blockNumber,
-            );
-            if (!storedHash) return;
+            if (
+                this.storage.captureSyncCheckpoint(check.chainId).revision !==
+                    checkpoint.revision ||
+                this.storage.getBlockHash(check.chainId, blockNumber) !==
+                    storedHash
+            )
+                return;
             const block = await this.rpc.getBlock(blockNumber, { fresh: true });
             if (block.number !== blockNumber)
                 throw new ChainSyncConflict(
                     "Block check RPC returned the wrong block",
                 );
-            if (block.hash === storedHash) return;
-            this.recoveries.retainMismatch({
+            if (block.hash === storedHash) {
+                this.checks.complete(check);
+                return;
+            }
+            const retained = this.recoveries.retainMismatch({
                 checkpoint,
                 checkedBlock: blockNumber,
                 storedHash,
@@ -141,21 +167,34 @@ export class RecoverChainReorg {
                 recoveryId: randomUUID(),
                 now: this.now(),
             });
+            // Report only after SQLite owns this mismatch; failed retention
+            // must not look like a successfully admitted recovery.
+            logger.warn("Reorg hash mismatch retained", {
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.MismatchRetained,
+                chainId: check.chainId,
+                recoveryId: retained.recoveryId,
+                checkedBlock: blockNumber,
+                storedHash,
+                observedHash: block.hash,
+                revision: checkpoint.revision,
+            });
         } catch (error) {
-            // Until confirmation or durable handoff, this delivery owns retry.
-            // Every pre-handoff failure must stay deferred: broker delivery count
-            // continues advancing during waits and can exceed the normal budget.
-            logger.warn("Reorg check is pending before durable handoff", {
+            logger.warn("Canonical check remains pending", {
                 component: REORG_RECOVERY_LOG_COMPONENT,
                 action: REORG_RECOVERY_LOG_ACTION.Check,
                 chainId: this.options.chainId,
                 checkedBlock: blockNumber,
                 error: String(error),
             });
-            throw new JobDeferred(
-                "Reorg check awaits confirmation or durable recovery",
-                this.retryDelayMs,
-            );
+            // Rollback may have removed this exact check during RPC. Otherwise
+            // keep it pending regardless of failures or process restarts.
+            if (
+                this.storage.captureSyncCheckpoint(check.chainId).revision ===
+                checkpoint.revision
+            )
+                this.checks.defer(check, this.now() + this.retryDelayMs);
+            return;
         }
         // After retention, SQLite owns retry even if this continuation fails.
         await this.resumeDue();
@@ -231,9 +270,34 @@ export class RecoverChainReorg {
                 ...prepared,
                 next,
             });
+            // These values already belong to the committed plan. Distinguish
+            // the checked block's distance from the fork from the full refill
+            // range, which can include canonical blocks and downtime gaps.
+            logger.info("Reorg rollback committed", {
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+                chainId: recovery.chainId,
+                recoveryId: recovery.recoveryId,
+                checkedBlock: recovery.checkedBlock,
+                storedHash: recovery.storedHash,
+                observedHash: recovery.observedHash,
+                forkBlock: proof.fork.number,
+                forkHash: proof.fork.hash,
+                forkToCheckedBlocks: recovery.checkedBlock - proof.fork.number,
+                rollbackFromBlock: prepared.plan.fromBlock,
+                capturedHeadBlock: head,
+                resyncFromBlock: next?.fromBlock ?? null,
+                resyncToBlock: next?.targetBlock ?? null,
+                resyncBlocks: next ? next.targetBlock - next.fromBlock + 1 : 0,
+                firstBatchToBlock: next?.toBlock ?? null,
+                batchSize: this.options.batchSize,
+                affectedErc721Tokens: prepared.plan.tokens.length,
+                revisionBefore: recovery.revision,
+                revisionAfter: recovery.revision + 1,
+            });
         } catch (error) {
-            // The durable workflow owns retry. If persisting retry fails, reject
-            // the delivery rather than acknowledging work without recovery ownership.
+            // The journal owns retry. A failed retry write leaves that journal
+            // intact for the next DB poll or process restart.
             this.recoveries.deferProof({
                 expected: recovery,
                 retryAt: this.now() + this.retryDelayMs,
@@ -251,25 +315,39 @@ export class RecoverChainReorg {
 }
 
 export function startReorgRecoveryLoop(
-    recovery: RecoverChainReorg,
+    recovery: Pick<RecoverChainReorg, "resumeDue" | "checkDue">,
     pollMs: number = REORG_RECOVERY_POLICY.PollMs,
 ): () => Promise<void> {
     if (!Number.isSafeInteger(pollMs) || pollMs < 1)
         throw new Error("Invalid reorg recovery polling interval");
-    const tick = () =>
-        recovery.resumeDue().catch((error) =>
-            logger.warn("Reorg recovery continuation failed", {
-                component: REORG_RECOVERY_LOG_COMPONENT,
-                action: REORG_RECOVERY_LOG_ACTION.Poll,
-                error: String(error),
-            }),
-        );
-    let active = tick();
-    const timer = setInterval(() => {
-        active = tick();
-    }, pollMs);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let wake: (() => void) | undefined;
+    const run = async () => {
+        while (!stopped) {
+            let busy = false;
+            try {
+                await recovery.resumeDue();
+                if (!stopped) busy = await recovery.checkDue();
+            } catch (error) {
+                logger.warn("Reorg recovery continuation failed", {
+                    component: REORG_RECOVERY_LOG_COMPONENT,
+                    action: REORG_RECOVERY_LOG_ACTION.Poll,
+                    error: String(error),
+                });
+            }
+            if (!stopped)
+                await new Promise<void>((resolve) => {
+                    wake = resolve;
+                    timer = setTimeout(resolve, busy ? 0 : pollMs);
+                });
+        }
+    };
+    const active = run();
     return async () => {
-        clearInterval(timer);
+        stopped = true;
+        clearTimeout(timer);
+        wake?.();
         await active;
     };
 }

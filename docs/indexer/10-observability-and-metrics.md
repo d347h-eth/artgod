@@ -235,6 +235,24 @@ ingestion or rendered Grafana panels.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
 
+For indexed investigation, use Grafana Explore or the Loki read-only
+`/loki/api/v1/query_range` endpoint with explicit time bounds and a result limit.
+Filter the existing component/action labels before parsing JSON. Log files remain
+the fallback for periods outside ingestion or retention. Recovery decisions and
+their block processing can be queried separately:
+
+```logql
+{app="artgod",component="ReorgRecovery",action=~"mismatch_retained|rollback_committed"}
+```
+
+```logql
+{app="artgod",component="AutomaticSyncExecutor",action="range"} | json | kind="reorg_resync"
+```
+
+Decision fields and their meaning are defined in
+[reorg handling](06-reorg-handling.md#recovery-decision-logs). Recovery IDs, hashes
+and heights stay in JSON fields rather than indexed labels.
+
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
@@ -565,6 +583,8 @@ RPC logs use stable fields:
   `scheduler-ws-rpc`, `bidding-viem-rpc`, or `bidding-opensea-sdk-rpc`
 - `protocol`: `http` or `websocket`
 - `method`: RPC method or websocket watch operation
+- `workClass`: `main` or `gap_repair` for allocated indexer requests, taken from
+  their execution scope rather than inferred from the adapter/endpoint pool
 - `endpointId`: low-cardinality configured endpoint id
 - `endpointOrigin`: URL origin only; paths, query strings, credentials, and raw
   API-key-bearing URLs are not logged
@@ -586,7 +606,7 @@ RPC metrics export with the workspace runtime prefixes:
 The canonical RPC metrics are:
 
 - `rpc.call` counter by `component`, `protocol`, `method`, `endpoint`,
-  `result`, and `error_class`
+  `result`, `error_class`, and `work_class`
 - `rpc.call.duration_ms` histogram with the same labels
 - `rpc.endpoint.attempt` counter by endpoint attempt result
 - `rpc.endpoint.attempt.duration_ms` histogram with the same labels
@@ -599,6 +619,116 @@ The canonical RPC metrics are:
   endpoint attempts; this is not a "retry succeeded" metric
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
+
+For pipeline calls using the shared main/background allocation, endpoint-attempt
+timing starts after local quota admission. Quota waits use the existing
+`rpc.rate_limiter.wait_ms` observation; whole-call duration still includes them.
+Local allocation deferral records no provider failure, retry or weight penalty.
+Legacy per-client limiter timing in backend/trading is unchanged. Calls, attempts,
+retries, circuit events and wait histograms retain the allocated `work_class`.
+Unclassified requests/events use `none`, including backend/trading and WebSocket
+events; endpoint-weight gauges remain independent of work class. Needed current-order
+validation records `main` even when historical gap work supplied its hint.
+Measure consumed RPS from endpoint attempts, including retries, rather than
+logical calls. For example, across all allocated indexer workers/endpoints:
+
+```promql
+sum by (work_class) (
+  rate(artgod_indexer_rpc_endpoint_attempt_total{work_class=~"main|gap_repair"}[5m])
+)
+```
+
+The runtime metrics dashboard's indexer HTTP attempt panel and RPC
+failure/latency/retry/wait panels group by work class. The attempt panel counts
+HTTP requests per second across each selected worker/component's endpoints;
+the configured rate ceilings apply per endpoint. The existing custom-gauge
+and counter tables also expose allocation policy/pressure and automatic progress.
+
+### Allocation and Automatic Sync Progress
+
+Only the scheduler-worker's allocation owner exports `rpc.budget.*` gauges,
+sampled every second from bounded in-memory transport state. No coverage query
+or additional RPC request is required:
+
+- `rpc.budget.policy`: value one, with `overall_mode` and `gap_mode` labels.
+- `rpc.budget.total_rate_limit_requests_per_second` and
+  `rpc.budget.gap_rate_limit_requests_per_second`: active per-endpoint ceilings.
+- `rpc.budget.gap_in_flight_limit`: the active background concurrency ceiling,
+  across all workers/endpoints.
+- `rpc.budget.waiting_requests`, `rpc.budget.in_flight_requests` and
+  `rpc.budget.oldest_wait_seconds`: split by `work_class`, summed across endpoints.
+
+Inactive numeric ceilings are absent; use the mode gauge to distinguish unlimited
+or disabled policies. A transport waiter's age starts on admission and resets
+when the client rejoins after its 30-second transport timeout. Each quota-wait
+observation includes the wait across those rejoins. These gauges are not durable
+queue depth, oldest order requirement age, or the number of historical gaps.
+Expired transport waiters/leases are excluded from snapshots.
+
+The sync worker exports `automatic_sync.*`, split by completion `kind`
+(`gap_repair` or `reorg_resync`), only after successful atomic range commits:
+
+- `automatic_sync.ranges`, `automatic_sync.blocks` and
+  `automatic_sync.collection_blocks`: committed processing counters. A shared
+  N-block range for C collections counts N blocks and N\*C collection-blocks.
+  Revisited blocks count again; these are not unique stored coverage totals.
+- `automatic_sync.range_duration_seconds`: fetch/save duration including quota wait.
+- `automatic_sync.last_completed_timestamp_seconds` and
+  `automatic_sync.last_completed_block`: the last successful range per kind.
+
+These exports reuse completion reports and do not scan the database. Failed
+commits emit no success progress; telemetry failure cannot retry a committed range.
+Reliable durable backlog ages, realtime coverage lag, overdue canonical-check
+gauges and newer-gap check ages remain separate follow-up work for automatic
+allocation qualification; see `BKL-071` in the unified backlog.
+
+### RPC Coordination Health
+
+Each metrics-enabled RPC budget client exports transport health on its existing
+runtime metrics endpoint. Samples run every five seconds on its existing NATS
+connection, independently of configured Ethereum RPC allowances:
+
+- `rpc.budget.round_trip_seconds`, with `target=broker|coordinator` and
+  `result=success|timeout|unavailable|error`. Broker samples use native PING/PONG;
+  coordinator samples use a Core NATS request/reply whose handler bypasses
+  permission allocation. Both include local event-loop/transport delay; neither
+  includes intentional quota waiting. Durations use a monotonic clock and buckets
+  from 100 microseconds through five seconds.
+- `rpc.budget.probes`: completed samples by target/result.
+- `rpc.budget.last_probe_success_timestamp_seconds`: last successful sample
+  per target. A stale timestamp matters even after failures leave a rolling window.
+- `rpc.budget.transport_events`, with `work_class` and `event`: permission
+  grants, 30-second permission-wait timeouts, missing owners, main fallback and
+  other transport request errors. A wait timeout can be normal at low configured
+  rates; it does not alone establish broker overload.
+
+Every target allows only one pending sample and reports its one-second deadline
+once. A native PING that remains unresolved occupies that slot until it settles,
+so an outage cannot accumulate PING promises. Failed samples emit no successful
+timestamp; shutdown cancels sampling without waiting for a stuck probe. Metrics
+are optional and their failures cannot change permission or RPC execution.
+
+The Runtime Metrics dashboard's Indexer RPC section shows coordination p95,
+problems in the last five minutes and time since each target last replied.
+For example, quota-independent p95 uses:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, worker, target) (
+    rate(artgod_indexer_rpc_budget_round_trip_seconds_bucket{result="success"}[5m])
+  )
+)
+```
+
+High quota wait with healthy probe latency indicates allowance pressure. Rising
+broker latency/failures suggests broker, connection or local process scheduling
+pressure. A healthy broker probe with slower coordinator replies points toward
+the owner path. Compare these with existing Node process CPU/event-loop metrics;
+probe latency alone cannot attribute a delay exclusively to NATS. The samples
+cover budget connections, not all broker clients or sustained maximum-throughput
+qualification. Broker-wide server counters/profiling remain separate work.
+
+### RPC Interpretation
 
 RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
 and custom fetch-backed paths so timeout dashboards do not split by provider
@@ -625,7 +755,6 @@ Metadata fetch/resolve:
 Scheduler-worker spans in `indexer/src/application/scheduler-worker.ts`:
 
 - `scheduler-worker.bootstrap.realtime`
-- `scheduler-worker.bootstrap.blockChecks`
 - `scheduler-worker.head.poll`
 - `scheduler-worker.head.ws`
 

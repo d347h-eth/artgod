@@ -13,7 +13,6 @@ import { runWorker } from "../../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { BackfillSyncPayload } from "../../src/domain/sync-jobs.js";
-import type { BlockCheckPayload } from "../../src/domain/reorg-jobs.js";
 import type {
     QueuePort,
     QueueMessage,
@@ -162,41 +161,56 @@ const queue: QueuePort = {
     close: () => transport.close(),
 };
 const stops: Array<() => Promise<void>> = [];
-const check = async (
-    blockNumber: number,
-    job?: JobEnvelope<BlockCheckPayload>,
-) => {
+let checkAttempts = 0;
+const verifyCheck = services.recovery.checkBlock.bind(services.recovery);
+services.recovery.checkBlock = async (check) => {
     const start = performance.now();
-    await services.recovery.checkBlock(blockNumber);
-    report({
-        phase: PHASE.Checked,
-        jobId: job?.jobId,
-        attempt: job?.attempt,
-        revision: services.storage.captureSyncCheckpoint(1).revision,
-        ownerReads: rpc.ownerReads.length,
-        rssBytes: process.memoryUsage().rss,
-        elapsedMs: Math.round(performance.now() - start),
-    });
+    try {
+        await verifyCheck(check);
+    } finally {
+        const pending =
+            (
+                db
+                    .prepare(
+                        "SELECT canonical_check_pending AS pending FROM blocks WHERE chain_id=? AND block_number=?",
+                    )
+                    .get(check.chainId, check.blockNumber) as
+                    | { pending: number }
+                    | undefined
+            )?.pending === 1;
+        report({
+            phase: PHASE.Checked,
+            attempt: ++checkAttempts,
+            pending,
+            revision: services.storage.captureSyncCheckpoint(1).revision,
+            ownerReads: rpc.ownerReads.length,
+            rssBytes: process.memoryUsage().rss,
+            elapsedMs: Math.round(performance.now() - start),
+        });
+    }
 };
-if (config.role === ROLE.All || config.role === ROLE.Reorg)
+const check = async () => {
+    if (!(await services.recovery.checkDue())) {
+        await services.recovery.resumeDue();
+        report({
+            phase: PHASE.Checked,
+            pending: false,
+            revision: services.storage.captureSyncCheckpoint(1).revision,
+            ownerReads: rpc.ownerReads.length,
+        });
+    }
+};
+if (config.role === ROLE.All || config.role === ROLE.Reorg || config.resume)
     stops.push(
-        await runWorker(
-            queue,
+        startReorgRecoveryLoop(
             {
-                queue: QUEUE_NAMES.BlockCheck,
-                consumerName: CONSUMER.Reorg,
-                maxInFlight: 1,
-                ackWaitMs: config.ackWaitMs,
-                extendLeaseMs: config.extendLeaseMs,
-                maxAttempts: 2,
-                retryDelayMs: 20,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+                resumeDue: () =>
+                    config.resume
+                        ? services.recovery.resumeDue()
+                        : Promise.resolve(),
+                checkDue: () => services.recovery.checkDue(),
             },
-            (job) =>
-                check(
-                    (job.payload as BlockCheckPayload).blockNumber,
-                    job as JobEnvelope<BlockCheckPayload>,
-                ),
+            20,
         ),
     );
 if (config.role === ROLE.All || config.role === ROLE.Resync)
@@ -214,6 +228,7 @@ if (config.role === ROLE.All || config.role === ROLE.Resync)
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             createBackfillSyncHandler({
+                reorgDepth: 1,
                 chainId: REORG_FIXTURE.ChainId,
                 workerCount: 1,
                 wethAddress: REORG_FIXTURE.Weth,
@@ -236,7 +251,7 @@ if (config.role === ROLE.All || config.role === ROLE.Resync) {
                     const before = services.recoveries.getRecovery(
                         REORG_FIXTURE.ChainId,
                     );
-                    await runDue();
+                    const busy = await runDue();
                     const after = services.recoveries.getRecovery(
                         REORG_FIXTURE.ChainId,
                     );
@@ -254,13 +269,13 @@ if (config.role === ROLE.All || config.role === ROLE.Resync) {
                                         before.fromBlock !== after.fromBlock)),
                             logReads: rpc.logReads,
                         });
+                    return busy;
                 },
             },
             20,
         ),
     );
 }
-if (config.resume) stops.push(startReorgRecoveryLoop(services.recovery, 20));
 if (config.publish)
     stops.push(
         startQueueOutboxDrainer(services.outbox, queue, {
@@ -271,7 +286,7 @@ if (config.publish)
     );
 process.on("message", (message) => {
     if (message === COMMAND.ReleaseRpc) releaseRpc.resolve();
-    if (message === COMMAND.Check) void check(REORG_FIXTURE.Orphan);
+    if (message === COMMAND.Check) void check();
     if (message === COMMAND.Stop)
         void (async () => {
             await Promise.all(stops.map((stop) => stop()));

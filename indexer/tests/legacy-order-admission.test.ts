@@ -134,6 +134,15 @@ describe("legacy queue durable admission", () => {
         return { sale, store, apply, deliver, message, publish };
     }
 
+    it("uses the source observation time when an older observation is delivered later", async () => {
+        const { sale, store, deliver, message } = await fixture();
+        const observedAt = HEAVY_MAKER.now - 60;
+        message.data.payload.observedAt = observedAt;
+        await deliver(message);
+        expect(message.ack).toHaveBeenCalledOnce();
+        expect(store.get(1, sale.id)?.requiredAt).toBe(observedAt * 1000);
+    });
+
     it("does not ACK a failed demand commit; retry admits once before ACK without publication", async () => {
         const { sale, store, deliver, message, publish } = await fixture();
         message.data.attempt = 50;

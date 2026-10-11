@@ -1,3 +1,4 @@
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { SEAPORT_VALIDATION_ABI } from "../../abi/seaport-validation.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../domain/order-validation-policy.js";
 import type { OrderRecord } from "../../domain/orders.js";
@@ -60,7 +61,8 @@ export function createSeaportStatusReader(input: {
             );
             if (!values.some(isOrderStatus)) input.batchFailed();
             return values;
-        } catch {
+        } catch (error) {
+            if (getRpcBudgetDeferral(error)) throw error;
             // Unsupported/failed aggregates cost one attempt then cool down across contexts.
             // Only orders actually validated request their serial fallback.
             input.batchFailed();
@@ -85,11 +87,12 @@ export function createSeaportStatusReader(input: {
             }
             if (chunk.length > 1) {
                 const results = prefetch(chunk);
-                for (let i = 0; i < chunk.length; i++)
-                    prefetched.set(
-                        statusKey(chunk[i]!),
-                        results.then((values) => values[i]),
-                    );
+                for (let i = 0; i < chunk.length; i++) {
+                    const value = results.then((values) => values[i]);
+                    // Other lookahead results may never be consumed after a local deferral.
+                    value.catch(() => {});
+                    prefetched.set(statusKey(chunk[i]!), value);
+                }
             }
         }
         const value = await prefetched.get(key);

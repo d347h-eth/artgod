@@ -1,3 +1,4 @@
+import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -67,6 +68,12 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: false,
+            metrics: config.metrics.enabled
+                ? runtimeMetrics.metrics
+                : undefined,
+        });
         const rpc = new ViemRpcProvider({
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
@@ -77,6 +84,7 @@ async function main() {
                 INDEXER_RPC_ENDPOINT_ID_PREFIX.CollectionExtensionHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
@@ -96,6 +104,7 @@ async function main() {
         const stopWorker = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.CollectionExtensionArtifacts,
                 consumerName: `collection-extension-artifacts-${config.chainId}`,
                 maxInFlight:
@@ -133,6 +142,7 @@ async function main() {
                 });
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 spanName: "worker.collectionExtension.consume",
             },
@@ -144,6 +154,7 @@ async function main() {
         });
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             logger.info("Collection extension worker shutting down", {
                 component: "CollectionExtensionWorker",
                 action: "shutdown",
@@ -151,6 +162,7 @@ async function main() {
             await stopWorker();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

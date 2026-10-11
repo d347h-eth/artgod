@@ -23,7 +23,10 @@ import {
     reorgRecoveryServices,
 } from "./reorg-recovery-fixture.js";
 import { insertCollection, emptyOnChainData } from "./ownership-fixture.js";
-import { syncBlockFixture } from "./chain-fixture.js";
+import {
+    syncBlockFixture,
+    FINALIZED_SYNC_CHECK_POLICY,
+} from "./chain-fixture.js";
 import { commitRollbackFixture } from "./rollback-fixture.js";
 
 // Actual production acquisition/retention, metadata persistence, follow-ups and
@@ -105,6 +108,7 @@ export function metadataRangeFixture(input: {
         );
         services.commit.commitSyncRange({
             result: {
+                canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 checkpoint: services.storage.captureSyncCheckpoint(1),
                 blocks: [syncBlockFixture(102), block],
                 data,

@@ -1,3 +1,4 @@
+import { AUTOMATIC_GAP_WORK_POLICY } from "../domain/sync-work.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
 import { JobDeferred } from "../domain/job-deferred.js";
@@ -14,6 +15,13 @@ import {
     type DeadLetterPayload,
 } from "../domain/dead-letter.js";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
+import { gapConsumerName } from "@artgod/shared/queue/nats-job-stream";
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 
 export type WorkerOptions = {
     queue: QueueName;
@@ -24,12 +32,15 @@ export type WorkerOptions = {
     maxAttempts?: number;
     deadLetterQueue?: QueueName;
     retryDelayMs?: number;
+    workClass?: SyncWorkClass;
+    acceptGapWork?: boolean;
 };
 
 export type WorkerRuntimeHooks = {
     apm?: ApmPort;
     spanName?: string;
     admission?: { isCurrent(job: JobEnvelope): boolean };
+    workScope?: { run<T>(workClass: SyncWorkClass, task: () => T): T };
 };
 
 export async function runWorker<TPayload>(
@@ -41,6 +52,52 @@ export async function runWorker<TPayload>(
     ) => Promise<void>,
     runtimeHooks?: WorkerRuntimeHooks,
 ): Promise<() => Promise<void>> {
+    if (options.acceptGapWork) {
+        const main = await runWorker(
+            queue,
+            {
+                ...options,
+                acceptGapWork: false,
+                workClass: SYNC_WORK_CLASS.Main,
+            },
+            handler,
+            runtimeHooks,
+        );
+        try {
+            const gap = await runWorker(
+                queue,
+                {
+                    ...options,
+                    acceptGapWork: false,
+                    workClass: SYNC_WORK_CLASS.GapRepair,
+                    consumerName: gapConsumerName(options.consumerName),
+                    maxInFlight: 1,
+                    extendLeaseMs:
+                        options.extendLeaseMs ??
+                        Math.max(
+                            1,
+                            Math.min(
+                                AUTOMATIC_GAP_WORK_POLICY.LeaseRenewMaxMs,
+                                Math.floor((options.ackWaitMs ?? 30_000) / 3),
+                            ),
+                        ),
+                    retryDelayMs:
+                        options.retryDelayMs ??
+                        AUTOMATIC_GAP_WORK_POLICY.RetryDelayMs,
+                    // Broker deliveries include quota deferrals; they cannot count as terminal failures.
+                    maxAttempts: undefined,
+                },
+                handler,
+                runtimeHooks,
+            );
+            return async () => {
+                await Promise.all([main(), gap()]);
+            };
+        } catch (error) {
+            await main();
+            throw error;
+        }
+    }
     return queue.subscribe<TPayload>(
         options.queue,
         async (message: QueueMessage<TPayload>) => {
@@ -77,9 +134,21 @@ export async function runWorker<TPayload>(
                             !runtimeHooks?.admission ||
                             runtimeHooks.admission.isCurrent(message.data)
                         )
-                            await handler(message.data, message.origin);
+                            if (runtimeHooks?.workScope)
+                                await runtimeHooks.workScope.run(
+                                    decodeSyncWorkClass(message.data.workClass),
+                                    () => handler(message.data, message.origin),
+                                );
+                            else await handler(message.data, message.origin);
                         await message.ack();
                     } catch (err) {
+                        const budgetDeferral = getRpcBudgetDeferral(err);
+                        if (budgetDeferral) {
+                            await message.nack({
+                                delayMs: budgetDeferral.retryAfterMs,
+                            });
+                            return;
+                        }
                         if (err instanceof UnsupportedJob) {
                             logger.error(UNSUPPORTED_JOB_LOG, {
                                 queue: options.queue,
@@ -145,6 +214,7 @@ export async function runWorker<TPayload>(
         },
         {
             consumerName: options.consumerName,
+            workClass: options.workClass,
             maxInFlight: options.maxInFlight,
             ackWaitMs: options.ackWaitMs,
         },

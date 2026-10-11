@@ -127,14 +127,25 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					view: 'basic'
 				},
 				{
+					key: 'RPC_RATE_LIMIT_MODE',
+					label: 'rpc rate limit mode',
+					inputKind: 'select',
+					secret: false,
+					options: ['limited', 'unlimited'],
+					help: 'Limited uses the rate and burst below. Unlimited removes local RPC rate throttling.',
+					requiredForLaunch: false,
+					validation: null,
+					view: 'basic'
+				},
+				{
 					key: 'RPC_RATE_LIMIT_REQUESTS_PER_SECOND',
 					label: 'rpc rate limit requests per second',
 					inputKind: 'text',
 					secret: false,
 					options: [],
-					help: 'Maximum HTTP JSON-RPC requests per endpoint each second; 0 disables throttling.',
+					help: 'Maximum HTTP JSON-RPC requests per endpoint each second in limited mode, including automatic gaps. When both RPC and gap filling are limited, set this above the gap RPC rate or the indexer cannot start.',
 					requiredForLaunch: false,
-					validation: null,
+					validation: 'positive_number',
 					view: 'basic'
 				},
 				{
@@ -145,7 +156,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					options: [],
 					help: "Burst capacity for each endpoint's HTTP JSON-RPC rate limiter.",
 					requiredForLaunch: false,
-					validation: null,
+					validation: 'positive_integer',
 					view: 'basic'
 				},
 				{
@@ -602,6 +613,39 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 					help: 'Number of safe historical backfill jobs the sync worker may process in parallel.',
 					requiredForLaunch: false,
 					validation: null,
+					view: 'basic'
+				},
+				{
+					key: 'GAP_FILL_MODE',
+					label: 'automatic gap filling mode',
+					inputKind: 'select',
+					secret: false,
+					options: ['disabled', 'limited', 'unlimited'],
+					help: 'Disabled pauses automatic repairs and their RPC follow-ups. Unlimited removes the gap rate and concurrency caps; the overall RPC limit and priority for main work still apply.',
+					requiredForLaunch: false,
+					validation: null,
+					view: 'basic'
+				},
+				{
+					key: 'GAP_FILL_RPC_REQUESTS_PER_SECOND',
+					label: 'automatic gap RPC requests/sec per endpoint',
+					inputKind: 'text',
+					secret: false,
+					options: [],
+					help: 'Per-endpoint RPC allowance for automatic gap filling in limited mode. When overall RPC is also limited, set this below the overall RPC rate or the indexer cannot start.',
+					requiredForLaunch: false,
+					validation: 'positive_number',
+					view: 'basic'
+				},
+				{
+					key: 'GAP_FILL_RPC_MAX_IN_FLIGHT',
+					label: 'automatic gap RPC requests in flight',
+					inputKind: 'text',
+					secret: false,
+					options: [],
+					help: 'Maximum simultaneous automatic-gap RPC requests across workers and endpoints in limited mode.',
+					requiredForLaunch: false,
+					validation: 'positive_integer',
 					view: 'basic'
 				},
 				{
@@ -1445,6 +1489,7 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 		RPC_RETRY_MAX_ATTEMPTS: '10',
 		RPC_RETRY_BASE_DELAY_MS: '500',
 		RPC_RETRY_MAX_DELAY_MS: '10000',
+		RPC_RATE_LIMIT_MODE: 'limited',
 		RPC_RATE_LIMIT_REQUESTS_PER_SECOND: '5',
 		RPC_RATE_LIMIT_BURST: '5',
 		RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD: '5',
@@ -1469,6 +1514,9 @@ export const DESKTOP_ADMIN_CONFIG_SCHEMA = {
 		REORG_DEPTH: '32',
 		BACKFILL_BATCH_SIZE: '10',
 		BACKFILL_WORKER_COUNT: '1',
+		GAP_FILL_MODE: 'limited',
+		GAP_FILL_RPC_REQUESTS_PER_SECOND: '1.5',
+		GAP_FILL_RPC_MAX_IN_FLIGHT: '3',
 		LOG_CHUNK_SIZE: '2000',
 		BOOTSTRAP_SNAPSHOT_BATCH_SIZE: '200',
 		BOOTSTRAP_METADATA_BATCH_SIZE: '200',

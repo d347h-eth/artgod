@@ -15,10 +15,13 @@ import {
     type RpcRetryPolicy,
 } from "./rpc-resilience.js";
 import {
+    getRpcBudgetDeferral,
     shouldPenalizeRpcEndpointFailure,
     shouldRetryRpcError,
     type RpcErrorPolicy,
 } from "./rpc-errors.js";
+import type { RpcRequestBudget } from "./rpc-budget.js";
+import type { SyncWorkClass } from "../types/sync-work-class.js";
 
 // Result returned after one observed endpoint execution attempt.
 export type ObservedRpcEndpointExecution<TEndpoint, TValue> = {
@@ -50,6 +53,11 @@ export type ObservedRpcEndpointCallOptions<TEndpoint, TValue> = {
     rateLimiter?: (
         endpoint: WeightedEndpointSelection<TEndpoint>,
     ) => TokenBucketRateLimiter | undefined;
+    requestBudget?: {
+        budget: RpcRequestBudget;
+        endpointKey: (endpoint: WeightedEndpointSelection<TEndpoint>) => string;
+        workClass: () => SyncWorkClass;
+    };
     wrapAttempt?: RpcEndpointAttemptWrapper<TEndpoint>;
     onEndpointFailure?: (
         endpoint: WeightedEndpointSelection<TEndpoint>,
@@ -80,6 +88,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
     const call = options.rpcObservability?.startCall(
         options.method,
         options.logFields,
+        options.requestBudget?.workClass(),
     );
     let lastEndpoint: WeightedEndpointSelection<TEndpoint> | null = null;
     const executeAttempt = (attempt: number) =>
@@ -109,6 +118,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
                           nextAttempt,
                           delayMs,
                           logFields: options.logFields,
+                          workClass: call?.workClass,
                       });
                   },
               })
@@ -119,7 +129,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
         }
         return result.value;
     } catch (error) {
-        if (call) {
+        if (call && !getRpcBudgetDeferral(error)) {
             options.rpcObservability?.recordCallFailure(
                 call,
                 lastEndpoint,
@@ -188,19 +198,29 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
 ): Promise<ObservedRpcEndpointExecution<TEndpoint, TValue>> {
     const endpoint = input.options.selector.select();
     input.onEndpointObserved(endpoint);
-    const attemptContext =
+    const startContext = () =>
         input.call &&
         input.options.rpcObservability?.startEndpointAttempt(
             input.call,
             endpoint,
             input.attempt,
         );
+    let attemptContext = input.options.requestBudget
+        ? undefined
+        : startContext();
+    const options = input.options.requestBudget
+        ? {
+              ...input.options,
+              execute: (selected: WeightedEndpointSelection<TEndpoint>) => {
+                  // Allocation wait measures local demand, not provider response time.
+                  attemptContext = startContext();
+                  return input.options.execute(selected);
+              },
+          }
+        : input.options;
 
     try {
-        const value = await runObservedRpcEndpointAttempt(
-            input.options,
-            endpoint,
-        );
+        const value = await runObservedRpcEndpointAttempt(options, endpoint);
         const updatedEndpoint =
             input.options.selector.recordSuccess(endpoint.id) ?? endpoint;
         input.onEndpointObserved(updatedEndpoint);
@@ -215,6 +235,7 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
             endpoint: updatedEndpoint,
         };
     } catch (error) {
+        if (getRpcBudgetDeferral(error)) throw error;
         const shouldPenalize = shouldPenalizeRpcEndpointFailure(
             error,
             input.options.errorPolicy,
@@ -229,6 +250,7 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
                 updatedEndpoint,
                 error,
                 input.options.logFields,
+                input.call?.workClass,
             );
         }
         if (attemptContext) {
@@ -249,12 +271,16 @@ async function runObservedRpcEndpointAttempt<TEndpoint, TValue>(
     options: ObservedRpcEndpointCallOptions<TEndpoint, TValue>,
     endpoint: WeightedEndpointSelection<TEndpoint>,
 ): Promise<TValue> {
+    const execute = () => options.execute(endpoint);
+    // Waiting on local allocation must not occupy a half-open circuit permit.
     const run = () =>
-        runWithOptionalCircuit(options, endpoint, () =>
-            runWithOptionalRateLimit(options, endpoint, () =>
-                options.execute(endpoint),
-            ),
-        );
+        options.requestBudget
+            ? runWithOptionalRateLimit(options, endpoint, () =>
+                  runWithOptionalCircuit(options, endpoint, execute),
+              )
+            : runWithOptionalCircuit(options, endpoint, () =>
+                  runWithOptionalRateLimit(options, endpoint, execute),
+              );
     return options.wrapAttempt ? options.wrapAttempt(endpoint, run) : run();
 }
 
@@ -277,6 +303,29 @@ async function runWithOptionalRateLimit<TEndpoint, TValue>(
     endpoint: WeightedEndpointSelection<TEndpoint>,
     run: () => Promise<TValue>,
 ): Promise<TValue> {
+    const allocation = options.requestBudget;
+    if (allocation) {
+        const waitingAt = Date.now();
+        const workClass = allocation.workClass();
+        return allocation.budget.run(
+            {
+                endpointKey: allocation.endpointKey(endpoint),
+                workClass,
+            },
+            () => {
+                const waitedMs = Date.now() - waitingAt;
+                if (waitedMs > 0)
+                    options.rpcObservability?.recordRateLimitWait({
+                        method: options.method,
+                        endpoint,
+                        waitedMs,
+                        logFields: options.logFields,
+                        workClass,
+                    });
+                return run();
+            },
+        );
+    }
     const rateLimiter = options.rateLimiter?.(endpoint);
     if (!rateLimiter) return run();
 

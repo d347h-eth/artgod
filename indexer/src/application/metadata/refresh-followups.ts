@@ -1,4 +1,8 @@
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import {
+    decodeSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import { buildCollectionExtensionRefreshArtifactsJob } from "../collection-extensions/jobs.js";
 import { buildMetadataStatsRecomputeJob } from "./stats-recompute.js";
 import type { MetadataUpdatedToken } from "../../domain/metadata.js";
@@ -50,6 +54,7 @@ export interface MetadataRefreshFollowupStoragePort {
 
 // MetadataRefreshFollowupInput describes one successful metadata-write batch.
 export type MetadataRefreshFollowupInput = {
+    workClass?: SyncWorkClass;
     followups: MetadataRefreshFollowupStoragePort;
     collectionExtensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     chainId: number;
@@ -77,6 +82,7 @@ export function enqueueMetadataRefreshFollowups(
             statsReason: input.statsReason,
             sourceJobId: input.sourceJobId,
             traceId: input.traceId,
+            workClass: input.workClass,
         });
         const install = input.collectionExtensions.getInstall(
             input.chainId,
@@ -98,8 +104,8 @@ export function enqueueMetadataRefreshFollowups(
                 tokenId: token.tokenId,
                 extensionKey: install.extensionKey,
             });
-            extensionArtifactJobs.push(
-                buildCollectionExtensionRefreshArtifactsJob(
+            extensionArtifactJobs.push({
+                ...buildCollectionExtensionRefreshArtifactsJob(
                     {
                         chainId: input.chainId,
                         collectionId,
@@ -112,7 +118,8 @@ export function enqueueMetadataRefreshFollowups(
                     },
                     input.traceId,
                 ),
-            );
+                workClass: decodeSyncWorkClass(input.workClass),
+            });
         }
         input.followups.createRunWithExtensionArtifactTasks({
             run,
@@ -124,6 +131,7 @@ export function enqueueMetadataRefreshFollowups(
 
 // Builds the one stats job guarded by this refresh follow-up run.
 export function buildFollowupRun(input: {
+    workClass?: SyncWorkClass;
     chainId: number;
     collectionId: number;
     runScope: MetadataRefreshRunIdScope;
@@ -149,7 +157,10 @@ export function buildFollowupRun(input: {
         reason: input.statsReason,
         sourceJobId: input.sourceJobId,
         traceId: input.traceId,
-        statsJob: buildMetadataStatsRecomputeJob(statsPayload, input.traceId),
+        statsJob: {
+            ...buildMetadataStatsRecomputeJob(statsPayload, input.traceId),
+            workClass: decodeSyncWorkClass(input.workClass),
+        },
     };
 }
 

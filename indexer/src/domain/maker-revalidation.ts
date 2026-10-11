@@ -1,4 +1,10 @@
 import type { OrderUpdateByMakerPayload } from "./order-jobs.js";
+import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+    strongestSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import type { OrderRecord, OrderValidationResult } from "./orders.js";
 import type { QueueDeliveryOrigin } from "./jobs.js";
 import type { JobEnvelope, QueuePublication } from "./jobs.js";
@@ -83,6 +89,7 @@ const MAKER_VALIDATION_SCOPE = {
 /** Only hints selecting the same orders and bootstrap-gating mode can share a pass. */
 export function makerValidationScopeKey(
     input: OrderUpdateByMakerPayload,
+    chainRevision: number,
 ): string {
     const payload = canonicalMakerRequest(input);
     const kind =
@@ -95,6 +102,7 @@ export function makerValidationScopeKey(
               : MAKER_VALIDATION_SCOPE.CollectionSells;
     return JSON.stringify([
         payload.chainId,
+        chainRevision,
         payload.maker,
         kind,
         payload.blockNumber == null,
@@ -112,6 +120,10 @@ function makerAdmissionIncludes(
     requiredAt: number,
 ): boolean {
     return (
+        !(
+            decodeSyncWorkClass(required.workClass) === SYNC_WORK_CLASS.Main &&
+            decodeSyncWorkClass(payload.workClass) === SYNC_WORK_CLASS.GapRepair
+        ) &&
         at >= requiredAt &&
         (payload.blockNumber ?? -1) >= (required.blockNumber ?? -1) &&
         !(
@@ -156,19 +168,39 @@ export function mergeMakerRequirements(
     requiredAt: number,
 ): OrderUpdateByMakerPayload {
     const previous = run.requestedPayload;
-    if ((payload.blockNumber ?? -1) > (previous.blockNumber ?? -1))
-        return payload;
-    if (
-        (payload.blockNumber ?? -1) === (previous.blockNumber ?? -1) &&
-        requiredAt >= run.requestedAt
-    )
-        return payload;
-    return previous;
+    const newer =
+        (payload.blockNumber ?? -1) > (previous.blockNumber ?? -1) ||
+        ((payload.blockNumber ?? -1) === (previous.blockNumber ?? -1) &&
+            requiredAt >= run.requestedAt);
+    const selected = newer ? payload : previous;
+    // Keep legacy absence stable, and canonicalize property order after promotion.
+    return canonicalMakerRequest(
+        previous.workClass === undefined && payload.workClass === undefined
+            ? selected
+            : {
+                  ...selected,
+                  workClass:
+                      run.status === MAKER_REVALIDATION_STATUS.Completed
+                          ? decodeSyncWorkClass(payload.workClass)
+                          : strongestSyncWorkClass(
+                                decodeSyncWorkClass(previous.workClass),
+                                decodeSyncWorkClass(payload.workClass),
+                            ),
+              },
+    );
+}
+
+export function makerWorkClass(run: MakerRevalidationRun) {
+    return strongestSyncWorkClass(
+        decodeSyncWorkClass(run.payload.workClass),
+        decodeSyncWorkClass(run.requestedPayload.workClass),
+    );
 }
 export type MakerValidationCandidate = {
     order: OrderRecord;
     revision: number;
     currentAtTrigger: boolean;
+    validationCovered?: boolean;
 };
 export type MakerValidationResolution = {
     candidate: MakerValidationCandidate;
@@ -179,6 +211,7 @@ export type MakerValidationResolution = {
 /** Deferred entries have no validation result and cannot establish protocol coverage. */
 export type MakerValidationCheckpointEntry =
     | MakerValidationResolution
+    | { candidate: MakerValidationCandidate; covered: true }
     | { candidate: MakerValidationCandidate; deferredError: string };
 
 export class MakerRevalidationConflict extends Error {}
@@ -188,6 +221,8 @@ export type MakerWakeup = {
     outboxStatus: QueueOutboxStatus | null;
     publication?: QueuePublication;
     queueName: QueueName | null;
+    /** Class of the persisted continuation, even if its run was subsequently promoted. */
+    workClass?: SyncWorkClass;
 };
 
 export function makerContinuationJob(
@@ -199,6 +234,7 @@ export function makerContinuationJob(
         kind: ORDER_JOB_KIND.UpdateByMaker,
         queue: makerUpdateQueue(run.payload),
         chainId: run.chainId,
+        workClass: makerWorkClass(run),
         payload: {
             ...run.payload,
             continuation: { runId: run.runId, step: run.step },
@@ -224,7 +260,13 @@ export function canonicalMakerRequest(
         (!Number.isSafeInteger(payload.blockNumber) || payload.blockNumber < 0)
     )
         throw new Error("Invalid maker trigger block");
+    // Work admitted to this domain is current-order validation. The envelope
+    // can still classify a raw historical hint as background admission work.
+    decodeSyncWorkClass(payload.workClass);
     const attribution = {
+        ...(payload.workClass === undefined
+            ? {}
+            : { workClass: SYNC_WORK_CLASS.Main }),
         chainId: payload.chainId,
         maker: payload.maker.toLowerCase(),
         blockNumber: payload.blockNumber ?? null,

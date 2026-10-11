@@ -1,3 +1,5 @@
+import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
+import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { copyFile, mkdtemp, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -244,6 +246,7 @@ describe("integrated reorg recovery migration upgrades", () => {
                     logIndex: 1,
                 });
                 services.storage.persistSyncResult({
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     checkpoint: services.storage.captureSyncCheckpoint(1),
                     blocks: [
                         syncBlockFixture(F.Fork),
@@ -254,7 +257,9 @@ describe("integrated reorg recovery migration upgrades", () => {
                     ],
                     data,
                 });
-                await services.recovery.checkBlock(F.Orphan);
+                await services.recovery.checkBlock(
+                    retainCanonicalCheckFixture(services.storage, F.Orphan),
+                );
                 return services;
             }
             // A feature-first installation may already have a committed rollback

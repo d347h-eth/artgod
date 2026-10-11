@@ -8,6 +8,8 @@ import type {
     MakerWakeup,
 } from "../domain/maker-revalidation.js";
 import type { QueueDeliveryOrigin, QueueReplayBoundary } from "./queue.js";
+import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
+import type { OrderValidationEvidence } from "../domain/order-validation-demand.js";
 
 /** Domain projection behavior used inside the checkpoint adapter's write transaction. */
 export interface MakerOrderProjectionPort {
@@ -21,10 +23,13 @@ export interface MakerOrderProjectionPort {
     applyMakerResolution(
         payload: OrderUpdateByMakerPayload,
         resolution: MakerValidationResolution,
-    ): void;
+    ): number | null;
 }
 
 export interface MakerRevalidationStore {
+    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
+    /** Hand off a background hint through the existing outbox before main validation. */
+    scheduleWakeup(run: MakerRevalidationRun, now: number): void;
     admit(input: {
         jobId: string;
         payload: OrderUpdateByMakerPayload;
@@ -52,6 +57,7 @@ export interface MakerRevalidationStore {
         resolutions: MakerValidationCheckpointEntry[],
         complete: boolean,
         now: number,
+        evidence: OrderValidationEvidence | null,
     ): MakerRevalidationRun;
     renew(run: MakerRevalidationRun, now: number): boolean;
     release(run: MakerRevalidationRun, now: number, error?: unknown): void;

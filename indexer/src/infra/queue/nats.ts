@@ -20,6 +20,10 @@ import {
     resolveNatsJobSubject,
 } from "@artgod/shared/queue/nats-job-stream";
 import type { QueueName } from "../../domain/queues.js";
+import {
+    decodeSyncWorkClass,
+    type SyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
 import type { JobEnvelope, QueuePublication } from "../../domain/jobs.js";
 import { logger } from "@artgod/shared/utils";
 import {
@@ -97,7 +101,10 @@ export class NatsJetStreamQueue implements QueuePort {
         message: JobEnvelope<TPayload>,
     ): Promise<QueuePublication> {
         await this.ensureStream();
-        const subject = this.subjectForQueue(queue);
+        const subject = this.subjectForQueue(
+            queue,
+            decodeSyncWorkClass(message.workClass),
+        );
         const codec = JSONCodec<JobEnvelope<TPayload>>();
         const published = await this.js.publish(
             subject,
@@ -115,7 +122,7 @@ export class NatsJetStreamQueue implements QueuePort {
         options: SubscribeOptions,
     ): Promise<() => Promise<void>> {
         await this.ensureStream();
-        const subject = this.subjectForQueue(queue);
+        const subject = this.subjectForQueue(queue, options.workClass);
         await this.reconcileConsumerConfig(subject, options);
         const codec = JSONCodec<JobEnvelope<TPayload>>();
         const opts = consumerOpts();
@@ -143,6 +150,13 @@ export class NatsJetStreamQueue implements QueuePort {
                     let data: JobEnvelope<TPayload>;
                     try {
                         data = codec.decode(msg.data);
+                        if (
+                            decodeSyncWorkClass(data?.workClass) !==
+                            decodeSyncWorkClass(options.workClass)
+                        )
+                            throw new Error(
+                                "Queue work class differs from its subject",
+                            );
                         if (
                             !data ||
                             typeof data !== "object" ||
@@ -303,8 +317,15 @@ export class NatsJetStreamQueue implements QueuePort {
         this.streamId = `${created.config.name}:${created.created}`;
     }
 
-    private subjectForQueue(queue: QueueName): string {
-        return resolveNatsJobSubject(this.config.streamPrefix, queue);
+    private subjectForQueue(
+        queue: QueueName,
+        workClass?: SyncWorkClass,
+    ): string {
+        return resolveNatsJobSubject(
+            this.config.streamPrefix,
+            queue,
+            workClass,
+        );
     }
 
     private async reconcileConsumerConfig(

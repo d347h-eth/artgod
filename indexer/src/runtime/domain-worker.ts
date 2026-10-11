@@ -1,3 +1,12 @@
+import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
+import { gapConsumerName } from "@artgod/shared/queue/nats-job-stream";
+import {
+    bindRpcValidationFactory,
+    connectIndexerRpcBudget,
+} from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { zeroAddress } from "viem";
@@ -135,6 +144,12 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const rpcAllocation = await connectIndexerRpcBudget(config, {
+            owner: false,
+            metrics: config.metrics.enabled
+                ? runtimeMetrics.metrics
+                : undefined,
+        });
         const rpc = new ViemRpcProvider({
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
@@ -143,6 +158,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.DomainHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const conduits = new SqliteConduitRegistry();
         const validateOrder = (
@@ -174,12 +190,15 @@ async function main() {
             orderValidationStore,
             processingObservability,
         );
-        const createOrderSnapshot = createSeaportOrderValidationFactory({
-            chainId: config.chainId,
-            rpc,
-            conduits,
-            conduitController: config.seaport.conduitController,
-        });
+        const createOrderSnapshot = bindRpcValidationFactory(
+            rpcAllocation.workScope,
+            createSeaportOrderValidationFactory({
+                chainId: config.chainId,
+                rpc,
+                conduits,
+                conduitController: config.seaport.conduitController,
+            }),
+        );
         const validationAdmission = new FairOrderValidationAdmission(
             ORDER_PROCESSING_POLICY.concurrentValidations,
             processingObservability,
@@ -212,6 +231,7 @@ async function main() {
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
+            requestBudget: rpcAllocation.requestBudget,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             fetchResilience: config.httpFetch,
@@ -262,6 +282,7 @@ async function main() {
         const stopOrders = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.OrdersDomain,
                 consumerName: `orders-domain-${config.chainId}`,
                 maxInFlight: 1,
@@ -273,6 +294,7 @@ async function main() {
                 await ordersDomain.handleDomainSync(toDomainContext(job));
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.ordersDomain.consume",
@@ -285,6 +307,7 @@ async function main() {
                 await runWorker(
                     queue,
                     {
+                        acceptGapWork: true,
                         queue: queueName,
                         consumerName: orderConsumerName(
                             queueName,
@@ -312,12 +335,24 @@ async function main() {
                             );
                         await makerRevalidations.execute({
                             jobId: job.jobId,
-                            payload: job.payload,
+                            payload: job.payload.continuation
+                                ? job.payload
+                                : {
+                                      ...job.payload,
+                                      workClass: decodeSyncWorkClass(
+                                          job.workClass,
+                                      ),
+                                  },
                             requiredAt: job.scheduledAt,
+                            admissionOnly:
+                                decodeSyncWorkClass(job.workClass) ===
+                                    SYNC_WORK_CLASS.GapRepair &&
+                                !job.payload.continuation,
                             origin,
                         });
                     },
                     {
+                        workScope: rpcAllocation.workScope,
                         apm: runtimeApm.apm,
                         admission: syncJobAdmission,
                         spanName:
@@ -331,18 +366,27 @@ async function main() {
         const stopMakerRecovery = startMakerRevalidationRecovery({
             store: makerRevalidationStore,
             observability: processingObservability,
-            isPublicationPending: (publication, queueName) =>
+            isPublicationPending: (publication, queueName, workClass) =>
                 queue.isPublicationPending(
                     publication,
-                    orderConsumerName(queueName, config.chainId),
+                    workClass === SYNC_WORK_CLASS.GapRepair
+                        ? gapConsumerName(
+                              orderConsumerName(queueName, config.chainId),
+                          )
+                        : orderConsumerName(queueName, config.chainId),
                 ),
             replayBoundaries: () =>
                 Promise.all(
-                    makerQueues.map((queueName) =>
+                    makerQueues.flatMap((queueName) => [
                         queue.getReplayBoundary(
                             orderConsumerName(queueName, config.chainId),
                         ),
-                    ),
+                        queue.getReplayBoundary(
+                            gapConsumerName(
+                                orderConsumerName(queueName, config.chainId),
+                            ),
+                        ),
+                    ]),
                 ),
         });
 
@@ -355,6 +399,7 @@ async function main() {
                 await runWorker(
                     queue,
                     {
+                        acceptGapWork: true,
                         queue: queueName,
                         consumerName: orderConsumerName(
                             queueName,
@@ -368,6 +413,7 @@ async function main() {
                         apply: applyOrderUpdate,
                     }),
                     {
+                        workScope: rpcAllocation.workScope,
                         apm: runtimeApm.apm,
                         admission: syncJobAdmission,
                         spanName:
@@ -385,6 +431,7 @@ async function main() {
         const stopOrderUpserts = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.OrdersUpsert,
                 consumerName: `orders-upsert-${config.chainId}`,
                 maxInFlight: 1,
@@ -401,6 +448,7 @@ async function main() {
                 });
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.ordersUpsert.consume",
@@ -410,6 +458,7 @@ async function main() {
         const stopMetadata = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.MetadataDomain,
                 consumerName: `metadata-domain-${config.chainId}`,
                 maxInFlight: 1,
@@ -433,11 +482,13 @@ async function main() {
                     artifactReason: statsReason,
                     statsReason,
                     sourceJobId: job.jobId,
+                    workClass: job.workClass,
                     traceId: job.traceId ?? job.jobId,
                     source: METADATA_REFRESH_SOURCE.Onchain,
                 });
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.metadataDomain.consume",
@@ -455,6 +506,7 @@ async function main() {
         const stopMetadataRefresh = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.MetadataRefresh,
                 consumerName: `metadata-refresh-${config.chainId}`,
                 maxInFlight: 1,
@@ -482,6 +534,7 @@ async function main() {
                             statsReason:
                                 METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
                             sourceJobId: job.jobId,
+                            workClass: job.workClass,
                             traceId: job.traceId ?? job.jobId,
                             source: payload.source,
                         });
@@ -490,6 +543,7 @@ async function main() {
                             policy: imageCachePolicyResolver,
                             chainId: job.chainId,
                             updatedTokens: [updated],
+                            workClass: job.workClass,
                             traceId: job.traceId ?? job.jobId,
                             source: payload.source,
                         });
@@ -503,6 +557,7 @@ async function main() {
                 }
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.metadataRefresh.consume",
@@ -512,6 +567,7 @@ async function main() {
         const stopMetadataStats = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.MetadataStats,
                 consumerName: `metadata-stats-${config.chainId}`,
                 maxInFlight: 1,
@@ -523,6 +579,7 @@ async function main() {
                 await metadataStatsDomain.handleRecompute(job.payload);
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.metadataStats.consume",
@@ -532,6 +589,7 @@ async function main() {
         const stopTokenImageCache = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.TokenImageCache,
                 consumerName: `token-image-cache-${config.chainId}`,
                 maxInFlight: 1,
@@ -567,6 +625,7 @@ async function main() {
                 }
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.tokenImageCache.consume",
@@ -576,6 +635,7 @@ async function main() {
         const stopActivity = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.ActivityDomain,
                 consumerName: `activity-domain-${config.chainId}`,
                 maxInFlight: 1,
@@ -587,6 +647,7 @@ async function main() {
                 await activityDomain.handleDomainSync(toDomainContext(job));
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.activityDomain.consume",
@@ -595,6 +656,7 @@ async function main() {
         const stopActivityUpsert = await runWorker(
             queue,
             {
+                acceptGapWork: true,
                 queue: QUEUE_NAMES.ActivityUpsert,
                 consumerName: `activity-upsert-${config.chainId}`,
                 maxInFlight: 1,
@@ -606,6 +668,7 @@ async function main() {
                 await activityDomain.handleActivityUpsert(job.payload);
             },
             {
+                workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
                 admission: syncJobAdmission,
                 spanName: "worker.activityUpsert.consume",
@@ -677,6 +740,7 @@ async function main() {
         walObservationTimer.unref();
 
         const shutdown = async () => {
+            rpcAllocation.budget.stopWaiting();
             maintenanceStopped = true;
             stopMaintenance();
             clearInterval(walObservationTimer);
@@ -699,6 +763,7 @@ async function main() {
             await stopQueueOutboxDrainer();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
+            await rpcAllocation.budget.close();
             await queue.close();
             process.exit(0);
         };

@@ -1,3 +1,5 @@
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import { describe, expect, it, vi } from "vitest";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
@@ -313,6 +315,33 @@ describe("collection extension refresh artifact lifecycle", () => {
             },
         ]);
     });
+
+    it.each([new RpcBudgetDeferred(), new Error("actual background failure")])(
+        "retains background artifact work after many quota-related deliveries: %s",
+        async (error) => {
+            const harness = createHarness();
+            const job = {
+                ...buildRefreshJob(
+                    {
+                        metadataRefreshRunId: TEST_METADATA_REFRESH_RUN_ID,
+                        metadataRefreshExtensionKey: TERRAFORMS_EXTENSION_KEY,
+                    },
+                    { attempt: 50 },
+                ),
+                workClass: SYNC_WORK_CLASS.GapRepair,
+            };
+            await expect(
+                handleCollectionExtensionRefreshArtifactsLifecycle({
+                    ...harness.input,
+                    job,
+                    refreshArtifacts: async () => {
+                        throw error;
+                    },
+                }),
+            ).rejects.toBe(error);
+            expect(harness.metadataRefreshFollowups.terminalTasks).toEqual([]);
+        },
+    );
 
     it("marks metadata-refresh owned skipped artifact tasks terminal", async () => {
         const harness = createHarness();

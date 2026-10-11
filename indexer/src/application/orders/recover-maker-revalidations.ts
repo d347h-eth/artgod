@@ -1,3 +1,4 @@
+import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -26,6 +27,7 @@ type MakerRecoveryDependencies = {
     isPublicationPending(
         publication: QueuePublication,
         queueName: QueueName,
+        workClass?: SyncWorkClass,
     ): Promise<boolean>;
     replayBoundaries(): Promise<QueueReplayBoundary[]>;
     observability?: OrderProcessingObservability;
@@ -69,6 +71,7 @@ export async function recoverMakerRevalidations(
                                     !(await deps.isPublicationPending(
                                         wakeup.publication,
                                         wakeup.queueName,
+                                        wakeup.workClass,
                                     ));
                             }
                             if (needed && deps.store.recoverWakeup(wakeup, now))

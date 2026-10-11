@@ -1,5 +1,7 @@
+import { decodeSyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
+import { makerWorkClass } from "../../domain/maker-revalidation.js";
 import {
     MAKER_REVALIDATION_POLICY as POLICY,
     MAKER_REVALIDATION_STATUS as STATUS,
@@ -23,7 +25,16 @@ import type {
 } from "../../ports/queue.js";
 import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 import type { OrderValidationDemandPort } from "../../ports/order-validation-demand.js";
-import { ORDER_VALIDATION_DEMAND_OUTCOME } from "../../domain/order-validation-demand.js";
+import {
+    ORDER_VALIDATION_DEMAND_OUTCOME,
+    eventValidationRequest,
+    observedOrderValidationRequest,
+    type OrderValidationEvidence,
+} from "../../domain/order-validation-demand.js";
+import {
+    captureChainSyncCheckpoint,
+    assertChainSyncCheckpoint,
+} from "../storage/sqlite-chain-revisions.js";
 import { OrderValidationReadUnavailable } from "../../domain/order-validation-failure.js";
 
 type RunRow = Omit<
@@ -45,8 +56,38 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
     private readonly outbox = new SqliteQueueOutbox();
     constructor(
         private readonly orders: MakerOrderProjectionPort,
-        private readonly validation: Pick<OrderValidationDemandPort, "defer">,
+        private readonly validation: Pick<
+            OrderValidationDemandPort,
+            "defer" | "isCovered" | "recordValidation"
+        >,
     ) {}
+
+    captureSyncCheckpoint = captureChainSyncCheckpoint;
+
+    scheduleWakeup(run: MakerRevalidationRun, now: number): void {
+        db.writeTransaction(() => {
+            const current = this.get(run.runId);
+            if (
+                current?.status === STATUS.Pending &&
+                current.wakeupOutboxId === null
+            )
+                this.replaceWakeup(current, now);
+        })();
+    }
+
+    private validationRequest(run: MakerRevalidationRun, orderId: string) {
+        return run.payload.blockNumber == null
+            ? observedOrderValidationRequest(
+                  run.chainId,
+                  orderId,
+                  Math.max(run.passStartedAt, run.requestedAt),
+              )
+            : eventValidationRequest(
+                  run.chainId,
+                  orderId,
+                  run.payload.blockNumber,
+              );
+    }
 
     get(runId: string): MakerRevalidationRun | undefined {
         const row = db.prepare(SELECT_RUN + "WHERE run_id=?").get(runId) as
@@ -58,6 +99,8 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
     admit(
         input: Parameters<MakerRevalidationStore["admit"]>[0],
     ): MakerRevalidationRun {
+        if (input.requiredAt !== undefined && input.payload.blockNumber != null)
+            input = { ...input, requiredAt: 0 };
         return db.writeTransaction(() => {
             if (
                 input.requiredAt !== undefined &&
@@ -80,7 +123,10 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
             const scopeKey =
                 input.requiredAt === undefined
                     ? null
-                    : makerValidationScopeKey(payload);
+                    : makerValidationScopeKey(
+                          payload,
+                          captureChainSyncCheckpoint(payload.chainId).revision,
+                      );
             if (!row && scopeKey !== null) {
                 row = db
                     .prepare(SELECT_RUN + "WHERE chain_id=? AND scope_key=?")
@@ -204,12 +250,17 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
     }
 
     next(run: MakerRevalidationRun, limit: number) {
-        return this.orders.selectMakerCandidates(
-            run.payload,
-            run.afterId,
-            run,
-            limit,
-        );
+        return this.orders
+            .selectMakerCandidates(run.payload, run.afterId, run, limit)
+            .map((candidate) => ({
+                ...candidate,
+                validationCovered:
+                    candidate.currentAtTrigger &&
+                    this.validation.isCovered(
+                        this.validationRequest(run, candidate.order.id),
+                        candidate.revision,
+                    ),
+            }));
     }
 
     checkpoint(
@@ -217,6 +268,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
         resolutions: MakerValidationCheckpointEntry[],
         complete: boolean,
         now: number,
+        evidence: OrderValidationEvidence | null,
     ): MakerRevalidationRun {
         return db.writeTransaction(() => {
             const current = this.get(run.runId);
@@ -233,6 +285,13 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     "Maker checkpoint lost its lease or cursor fence",
                 );
             let afterId = run.afterId;
+            if (evidence) {
+                if (evidence.checkpoint.chainId !== run.chainId)
+                    throw new MakerRevalidationConflict(
+                        "Maker evidence chain mismatch",
+                    );
+                assertChainSyncCheckpoint(evidence.checkpoint);
+            }
             let deferred = 0;
             for (const resolution of resolutions) {
                 const order = resolution.candidate.order;
@@ -257,21 +316,41 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     // this same writer transaction. No failed-snapshot result is applied.
                     const outcome = this.validation.defer(
                         {
-                            chainId: run.chainId,
-                            orderId: order.id,
-                            requiredAt: Math.max(
-                                run.passStartedAt,
-                                run.requestedAt,
-                            ),
-                            minimumBlock: run.payload.blockNumber ?? null,
+                            ...this.validationRequest(run, order.id),
                         },
                         resolution.deferredError,
                         now,
                     );
                     if (outcome === ORDER_VALIDATION_DEMAND_OUTCOME.Pending)
                         deferred++;
-                } else
-                    this.orders.applyMakerResolution(run.payload, resolution);
+                } else if ("covered" in resolution) {
+                    // Recheck reuse under the same writer as cursor progression.
+                    if (
+                        !this.validation.isCovered(
+                            this.validationRequest(run, order.id),
+                            resolution.candidate.revision,
+                        )
+                    )
+                        throw new MakerRevalidationConflict(
+                            "Maker validation coverage changed",
+                        );
+                } else {
+                    if (resolution.validation && !evidence)
+                        throw new MakerRevalidationConflict(
+                            "Maker validation evidence is required",
+                        );
+                    const revision = this.orders.applyMakerResolution(
+                        run.payload,
+                        resolution,
+                    );
+                    if (revision !== null && evidence)
+                        this.validation.recordValidation(
+                            this.validationRequest(run, order.id),
+                            revision,
+                            evidence,
+                            now,
+                        );
+                }
                 afterId = order.id;
             }
             const followup =
@@ -343,11 +422,12 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                         ? undefined
                         : (db
                               .prepare(
-                                  "SELECT status,queue_name AS queueName,publication_stream_id AS streamId,publication_sequence AS sequence FROM queue_outbox WHERE outbox_id=?",
+                                  "SELECT status,job_json AS jobJson,queue_name AS queueName,publication_stream_id AS streamId,publication_sequence AS sequence FROM queue_outbox WHERE outbox_id=?",
                               )
                               .get(row.wakeupOutboxId) as
                               | {
                                     status: MakerWakeup["outboxStatus"];
+                                    jobJson: string;
                                     queueName: MakerWakeup["queueName"];
                                     streamId: string | null;
                                     sequence: number | null;
@@ -357,6 +437,11 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     run: mapRun(row),
                     outboxStatus: outbox?.status ?? null,
                     queueName: outbox?.queueName ?? null,
+                    workClass: outbox
+                        ? decodeSyncWorkClass(
+                              JSON.parse(outbox.jobJson).workClass,
+                          )
+                        : undefined,
                     publication:
                         outbox?.streamId && outbox.sequence !== null
                             ? {

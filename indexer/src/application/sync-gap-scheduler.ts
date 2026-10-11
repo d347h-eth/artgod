@@ -5,6 +5,7 @@ import type {
     SyncGapRange,
     SyncGapProgress,
     SyncGapRepairTarget,
+    SyncGapRepairCandidate,
 } from "../domain/sync-gap-repair.js";
 export type {
     SyncGapRange,
@@ -21,6 +22,7 @@ export const SYNC_GAP_POLICY = {
 } as const;
 
 const SYNC_GAP_LOG_COMPONENT = "IndexerSyncGapScheduler";
+const SYNC_GAP_LOG_ACTION = { HeadCheck: "head_check", Scan: "scan" } as const;
 
 export interface SyncGapCollectionsPort {
     getCollection(
@@ -49,6 +51,7 @@ export interface SyncGapStorePort {
         chainId: number;
         now: number;
         limit: number;
+        upperBound: number;
     }): SyncGapRepairTarget[];
     // Save only if the previously read state is still current. The scanner and
     // sync worker run in separate processes; stale scans must not replace work.
@@ -89,6 +92,15 @@ export interface SyncGapStorePort {
         window: SyncGapRange,
         batchSize: number,
     ): SyncGapRange | null;
+    // Recheck at most batchSize blocks at the intent's upper end in one transaction.
+    // Remove covered suffixes, preserving every older remainder and its scan cursor.
+    // Null means stale intent or no missing block in that suffix, not a sync commit.
+    reconcileRepairCoverage(input: {
+        chainId: number;
+        repair: SyncGapRepairTarget;
+        batchSize: number;
+        now: number;
+    }): SyncGapRepairCandidate | null;
     deferRetry(
         chainId: number,
         repair: SyncGapRepairTarget,
@@ -105,10 +117,20 @@ export interface SyncGapStorePort {
 }
 
 export interface SyncGapDetectorPort {
-    scan(headBlock: number): Promise<void>;
+    hasCollections(): boolean;
+    // Forget process-local completed searches when rollback invalidates coverage.
+    resetDiscovery(): void;
+    // True means another bounded discovery page/window can make progress now.
+    scan(headBlock: number): Promise<boolean>;
 }
 
 export interface SyncGapHeadRecheckPort {
+    // Ignore saved check timing once on startup/resume. Each call checks a
+    // bounded page; true means more pages must finish before older repair runs.
+    recheckOnResume(headBlock: number): boolean;
+    // Check a bounded page of blocks newly eligible since successful local
+    // checks. True means finish more pages before selecting older repair.
+    recheckNewlyEligible(headBlock: number): boolean;
     hasHeadRechecksDue(): boolean;
     // Call between fetch-and-save attempts, inside the shared backfill gate.
     // Returns whether a newer repair replaced the saved scan position.
@@ -129,14 +151,32 @@ type HeadCheckTraversal = {
     after: SyncGapHeadCheckPosition | null;
 };
 
+type EligibleCheckTraversal = {
+    upperBound: number;
+    afterCollectionId: number;
+    failed: boolean;
+};
+
 // Each pass visits a bounded page of collections. Each collection retains one
 // outstanding repair, so slow workers cannot admit the whole missing history.
 export class SyncGapScheduler
     implements SyncGapDetectorPort, SyncGapHeadRecheckPort
 {
     private afterCollectionId = 0;
+    private resumeTraversal: EligibleCheckTraversal | null = null;
     private headCheckTraversal: HeadCheckTraversal | null = null;
-    private active: Promise<void> | null = null;
+    private eligibleTraversal: EligibleCheckTraversal | null = null;
+    private eligibleCompletedBound: number | null = null;
+    private eligibleChecked = new Map<
+        number,
+        { anchorBlock: number; upperBound: number }
+    >();
+    private active: Promise<boolean> | null = null;
+    private roundHasOlderWindows = false;
+    private roundHasUnfinishedCollections = false;
+    private completed = new Map<number, number>();
+    private cycleCompletedAt: number | null = null;
+    private restartFromHead = false;
     private readonly windowSize: number;
     private readonly pageSize: number;
     private readonly now: () => number;
@@ -175,6 +215,56 @@ export class SyncGapScheduler
         });
     }
 
+    recheckOnResume(headBlock: number): boolean {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const traversal = (this.resumeTraversal ??= {
+            upperBound: headBlock,
+            afterCollectionId: 0,
+            failed: false,
+        });
+        traversal.upperBound = Math.min(traversal.upperBound, headBlock);
+        const collections = this.collections.listCollectionsForGapRepair(
+            this.options.chainId,
+            traversal.afterCollectionId,
+            this.pageSize,
+        );
+        for (const collection of collections) {
+            // Traverse by collection ID, independently of saved check times.
+            // Failed/skipped members cannot monopolize the startup check.
+            traversal.afterCollectionId = collection.id;
+            try {
+                const expected = this.store.getProgress(
+                    this.options.chainId,
+                    collection.id,
+                );
+                this.retainNewestGap(
+                    collection,
+                    traversal.upperBound,
+                    expected,
+                );
+                if (
+                    expected &&
+                    expected.anchorBlock ===
+                        collection.gapRepairWindow(traversal.upperBound)
+                            ?.fromBlock &&
+                    (this.eligibleChecked.get(collection.id)?.upperBound ?? 0) <
+                        traversal.upperBound
+                )
+                    traversal.failed = true;
+            } catch (error) {
+                traversal.failed = true;
+                this.logHeadCheckFailure(collection.id, error);
+            }
+        }
+        if (collections.length === this.pageSize) return true;
+        // All successful startup pages checked this fixed bound. Seed the
+        // incremental traversal without rereading the same collection pages.
+        if (!traversal.failed)
+            this.eligibleCompletedBound = traversal.upperBound;
+        this.resumeTraversal = null;
+        return false;
+    }
+
     recheckFromHead(headBlock: number): boolean {
         if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
         const checkedBefore = this.now() - this.headRecheckIntervalMs;
@@ -202,19 +292,128 @@ export class SyncGapScheduler
                 );
                 if (collection)
                     replaced =
-                        this.recheckCollection(collection, headBlock) ||
-                        replaced;
+                        this.recheckCollection(
+                            collection,
+                            headBlock,
+                            traversal.checkedBefore,
+                        ) || replaced;
             } catch (error) {
-                logger.warn("Collection HEAD gap check failed", {
-                    component: SYNC_GAP_LOG_COMPONENT,
-                    action: "head_check",
-                    chainId: this.options.chainId,
-                    collectionId,
-                    error: String(error),
-                });
+                this.logHeadCheckFailure(collectionId, error);
             }
         }
         return replaced;
+    }
+
+    recheckNewlyEligible(headBlock: number): boolean {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        // A lagging provider must not make this traversal query above its HEAD.
+        if (
+            this.eligibleTraversal &&
+            this.eligibleTraversal.upperBound > headBlock
+        )
+            this.eligibleTraversal = null;
+        if (
+            !this.eligibleTraversal &&
+            this.eligibleCompletedBound !== null &&
+            headBlock <= this.eligibleCompletedBound
+        )
+            return false;
+        const traversal = (this.eligibleTraversal ??= {
+            upperBound: headBlock,
+            afterCollectionId: 0,
+            failed: false,
+        });
+        const collections = this.collections.listCollectionsForGapRepair(
+            this.options.chainId,
+            traversal.afterCollectionId,
+            this.pageSize,
+        );
+        for (const collection of collections) {
+            traversal.afterCollectionId = collection.id;
+            try {
+                if (
+                    !this.checkEligibleCollection(
+                        collection,
+                        traversal.upperBound,
+                    )
+                )
+                    traversal.failed = true;
+            } catch (error) {
+                // Retry failed checks after the traversal, never ahead of its peers.
+                traversal.failed = true;
+                this.logHeadCheckFailure(collection.id, error);
+            }
+        }
+        if (collections.length === this.pageSize) return true;
+        if (!traversal.failed)
+            this.eligibleCompletedBound = traversal.upperBound;
+        this.eligibleTraversal = null;
+        // HEAD may have advanced while checking earlier pages. Finish that strip
+        // too before older fetch/save work, without chasing it within one pass.
+        return headBlock > traversal.upperBound;
+    }
+
+    private checkEligibleCollection(
+        collection: CollectionRecord,
+        upperBound: number,
+    ): boolean {
+        const window = collection.gapRepairWindow(upperBound);
+        if (!window) return true;
+        const checked = this.eligibleChecked.get(collection.id);
+        if (
+            checked?.anchorBlock === window.fromBlock &&
+            checked.upperBound >= upperBound
+        )
+            return true;
+        const chainId = this.options.chainId;
+        const expected = this.store.getProgress(chainId, collection.id);
+        // Ordinary bounded discovery establishes a new/changed anchor's row.
+        if (!expected || expected.anchorBlock !== window.fromBlock) return true;
+        if (!checked || checked.anchorBlock !== window.fromBlock) {
+            this.retainNewestGap(collection, upperBound, expected);
+            return (
+                this.eligibleChecked.get(collection.id)?.upperBound ===
+                upperBound
+            );
+        }
+        const fromBlock = Math.max(
+            window.fromBlock,
+            checked.upperBound + 1,
+            (expected.pending?.toBlock ?? 0) + 1,
+        );
+        const gap =
+            fromBlock <= upperBound
+                ? this.store.findNewestGap(
+                      chainId,
+                      collection.id,
+                      { fromBlock, toBlock: upperBound },
+                      this.options.batchSize,
+                  )
+                : null;
+        if (gap) {
+            const saved = this.store.saveProgress({
+                chainId,
+                collectionId: collection.id,
+                expected,
+                progress: this.progressForGap({
+                    collectionId: collection.id,
+                    anchorBlock: window.fromBlock,
+                    gap,
+                    scannedFromBlock: fromBlock,
+                    // Incremental checks must not postpone the broader timer.
+                    lastHeadCheckAt: expected.lastHeadCheckAt,
+                }),
+            });
+            if (!saved) return false;
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
+        }
+        // Covered strips do not rewrite durable cursor, repair or check timing.
+        this.eligibleChecked.set(collection.id, {
+            anchorBlock: window.fromBlock,
+            upperBound,
+        });
+        return true;
     }
 
     private headRechecksAfter(
@@ -232,20 +431,32 @@ export class SyncGapScheduler
     private recheckCollection(
         collection: CollectionRecord,
         headBlock: number,
+        checkedBefore: number,
     ): boolean {
-        const window = collection.gapRepairWindow(headBlock);
-        if (!window) return false;
-        const chainId = this.options.chainId;
-        const expected = this.store.getProgress(chainId, collection.id);
-        if (!expected || expected.anchorBlock !== window.fromBlock)
-            return false;
+        const expected = this.store.getProgress(
+            this.options.chainId,
+            collection.id,
+        );
         // The scheduler may have completed a HEAD scan after the due IDs were
         // selected. Reuse that check instead of repeating a large coverage read.
         if (
+            expected &&
             expected.lastHeadCheckAt !== null &&
-            expected.lastHeadCheckAt > this.now() - this.headRecheckIntervalMs
+            expected.lastHeadCheckAt > checkedBefore
         )
             return false;
+        return this.retainNewestGap(collection, headBlock, expected);
+    }
+
+    private retainNewestGap(
+        collection: CollectionRecord,
+        headBlock: number,
+        expected: SyncGapProgress | null,
+    ): boolean {
+        const window = collection.gapRepairWindow(headBlock);
+        if (!window || !expected || expected.anchorBlock !== window.fromBlock)
+            return false;
+        const chainId = this.options.chainId;
         const fromBlock = Math.max(
             window.fromBlock,
             (expected.pending?.toBlock ??
@@ -270,66 +481,125 @@ export class SyncGapScheduler
                   lastHeadCheckAt: this.now(),
               })
             : { ...expected, lastHeadCheckAt: this.now() };
+        const saved = this.store.saveProgress({
+            chainId,
+            collectionId: collection.id,
+            expected,
+            progress,
+        });
+        if (saved)
+            this.eligibleChecked.set(collection.id, {
+                anchorBlock: window.fromBlock,
+                upperBound: headBlock,
+            });
+        if (saved && gap) {
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
+        } else if (
+            saved &&
+            !expected.pending &&
+            expected.cursorBlock === null
+        ) {
+            // A completed collection's newer span is its whole anchor-to-HEAD
+            // history. Reuse that successful check instead of scanning it again.
+            this.completed.set(collection.id, window.fromBlock);
+        }
+        return saved && gap !== null;
+    }
+
+    private logHeadCheckFailure(collectionId: number, error: unknown): void {
+        logger.warn("Collection HEAD gap check failed", {
+            component: SYNC_GAP_LOG_COMPONENT,
+            action: SYNC_GAP_LOG_ACTION.HeadCheck,
+            chainId: this.options.chainId,
+            collectionId,
+            error: String(error),
+        });
+    }
+
+    hasCollections(): boolean {
         return (
-            this.store.saveProgress({
-                chainId,
-                collectionId: collection.id,
-                expected,
-                progress,
-            }) && gap !== null
+            this.collections.listCollectionsForGapRepair(
+                this.options.chainId,
+                0,
+                1,
+            ).length > 0
         );
     }
 
-    scan(headBlock: number): Promise<void> {
+    scan(headBlock: number): Promise<boolean> {
         if (this.active) return this.active;
+        if (
+            this.cycleCompletedAt !== null &&
+            this.now() - this.cycleCompletedAt >= this.headRecheckIntervalMs
+        )
+            this.resetDiscovery();
         this.active = this.scanPage(headBlock).finally(() => {
             this.active = null;
         });
         return this.active;
     }
 
-    private async scanPage(headBlock: number): Promise<void> {
-        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return;
-        let collections = this.collections.listCollectionsForGapRepair(
+    resetDiscovery(): void {
+        this.completed.clear();
+        this.cycleCompletedAt = null;
+        this.afterCollectionId = 0;
+        this.roundHasOlderWindows = false;
+        this.roundHasUnfinishedCollections = false;
+        this.restartFromHead = true;
+        this.eligibleChecked.clear();
+        this.eligibleCompletedBound = null;
+        this.eligibleTraversal = null;
+        this.resumeTraversal = null;
+    }
+
+    private async scanPage(headBlock: number): Promise<boolean> {
+        if (!Number.isSafeInteger(headBlock) || headBlock < 1) return false;
+        const collections = this.collections.listCollectionsForGapRepair(
             this.options.chainId,
             this.afterCollectionId,
             this.pageSize,
         );
-        if (collections.length === 0 && this.afterCollectionId !== 0) {
-            this.afterCollectionId = 0;
-            collections = this.collections.listCollectionsForGapRepair(
-                this.options.chainId,
-                0,
-                this.pageSize,
-            );
-        }
         for (const collection of collections) {
             this.afterCollectionId = collection.id;
             try {
-                this.scanCollection(collection, headBlock);
+                this.roundHasOlderWindows =
+                    this.scanCollection(collection, headBlock) ||
+                    this.roundHasOlderWindows;
             } catch (error) {
                 // A failed collection scan must not starve other collections.
                 logger.warn("Collection gap scan failed", {
                     component: SYNC_GAP_LOG_COMPONENT,
-                    action: "scan",
+                    action: SYNC_GAP_LOG_ACTION.Scan,
                     chainId: this.options.chainId,
                     collectionId: collection.id,
                     error: String(error),
                 });
             }
         }
+        if (collections.length === this.pageSize) return true;
+        this.afterCollectionId = 0;
+        this.restartFromHead = false;
+        const more = this.roundHasOlderWindows;
+        if (!this.roundHasUnfinishedCollections)
+            this.cycleCompletedAt ??= this.now();
+        this.roundHasOlderWindows = false;
+        this.roundHasUnfinishedCollections = false;
+        return more;
     }
 
     private scanCollection(
         collection: CollectionRecord,
         headBlock: number,
-    ): void {
+    ): boolean {
         const window = collection.gapRepairWindow(headBlock);
-        if (!window) return;
+        if (!window) return false;
         const chainId = this.options.chainId;
         const expected = this.store.getProgress(chainId, collection.id);
         let progress = expected;
         if (!progress || progress.anchorBlock !== window.fromBlock) {
+            this.completed.delete(collection.id);
+            this.cycleCompletedAt = null;
             progress = {
                 anchorBlock: window.fromBlock,
                 cursorBlock: null,
@@ -337,8 +607,13 @@ export class SyncGapScheduler
                 lastHeadCheckAt: null,
             };
         }
+        // A null cursor also marks a finished search. Keep that meaning for
+        // this cycle instead of restarting it while peers visit older windows.
+        if (this.completed.get(collection.id) === window.fromBlock)
+            return false;
         if (!progress.pending) {
-            const end = Math.min(progress.cursorBlock ?? headBlock, headBlock);
+            const cursor = this.restartFromHead ? null : progress.cursorBlock;
+            const end = Math.min(cursor ?? headBlock, headBlock);
             const scanWindow = {
                 fromBlock: Math.max(
                     window.fromBlock,
@@ -355,9 +630,7 @@ export class SyncGapScheduler
             // A scan starting at HEAD already checked everything above the new
             // cursor. Continuing older history must not postpone the next check.
             const lastHeadCheckAt =
-                progress.cursorBlock === null
-                    ? this.now()
-                    : progress.lastHeadCheckAt;
+                cursor === null ? this.now() : progress.lastHeadCheckAt;
             progress = this.progressForGap({
                 collectionId: collection.id,
                 anchorBlock: window.fromBlock,
@@ -367,13 +640,36 @@ export class SyncGapScheduler
             });
             // Retain the exact range before acquisition. Restarts reuse this row
             // until the sync commit atomically advances it with data and follow-ups.
-            this.store.saveProgress({
+            const saved = this.store.saveProgress({
                 chainId,
                 collectionId: collection.id,
                 expected,
                 progress,
             });
+            if (!saved) {
+                this.roundHasUnfinishedCollections = true;
+                return false;
+            }
+            if (cursor === null)
+                this.eligibleChecked.set(collection.id, {
+                    anchorBlock: window.fromBlock,
+                    upperBound: headBlock,
+                });
+            if (progress.cursorBlock === null)
+                this.completed.set(collection.id, window.fromBlock);
+            else {
+                this.roundHasUnfinishedCollections = true;
+                this.cycleCompletedAt = null;
+            }
+            return !progress.pending && progress.cursorBlock !== null;
         }
+        if (progress.cursorBlock === null)
+            this.completed.set(collection.id, window.fromBlock);
+        else {
+            this.roundHasUnfinishedCollections = true;
+            this.cycleCompletedAt = null;
+        }
+        return false;
     }
 
     private progressForGap({

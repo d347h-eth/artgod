@@ -1,9 +1,11 @@
+import { RPC_RATE_LIMIT_MODE } from "./rpc-resilience.js";
 import { describe, expect, it } from "vitest";
 import { createPublicClient } from "viem";
 import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
     RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_LABEL,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
     RPC_OBSERVABILITY_WORKSPACE,
@@ -38,10 +40,7 @@ const TEST_RPC_RETRY_POLICY = {
 const TEST_RPC_RESILIENCE = {
     ...getDefaultRpcEndpointResilienceConfig(),
     requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
-    rateLimiter: {
-        requestsPerSecond: 0,
-        burst: 1,
-    },
+    rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
     circuitBreaker: {
         failureThreshold: 10,
         openMs: 1_000,
@@ -225,6 +224,8 @@ describe("createWeightedRpcTransport", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
         expect(metrics.increments).toContainEqual({
@@ -237,6 +238,8 @@ describe("createWeightedRpcTransport", () => {
                 endpoint: TEST_RPC_ENDPOINT_ID,
                 result: RPC_OBSERVABILITY_RESULT.Success,
                 error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                [RPC_OBSERVABILITY_LABEL.WorkClass]:
+                    RPC_OBSERVABILITY_SENTINEL.NoWorkClass,
             },
         });
     });

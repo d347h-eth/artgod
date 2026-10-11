@@ -79,9 +79,13 @@ jobs:
               run: yarn check:linux-release-build --phase prerequisites
 
             - name: Verify Linux no-bundle build
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
               run: yarn check:linux-release-build --phase no-bundle
 
             - name: Build and verify Linux bundles
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
               run: yarn check:linux-release-build --phase bundle
 
     macos-prompt-containment-check:
@@ -138,6 +142,8 @@ jobs:
               run: yarn build:desktop-runtime
 
             - name: Stage macOS desktop runtime resources
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
               run: yarn build:desktop-runtime-resources
 
             - name: Verify staged desktop runtime resources
@@ -151,6 +157,7 @@ jobs:
 
             - name: Build unsigned universal macOS DMG
               env:
+                  GITHUB_TOKEN: ${{ github.token }}
                   DESKTOP_NODE_DIST_TARGET: darwin-universal
                   DESKTOP_NATS_DIST_TARGET: darwin-universal
               run: yarn node ./scripts/build/build-tauri.mjs --ci --target universal-apple-darwin --bundles dmg --no-sign

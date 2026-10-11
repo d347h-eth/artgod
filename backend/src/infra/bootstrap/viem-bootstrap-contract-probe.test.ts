@@ -1,3 +1,4 @@
+import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     BOOTSTRAP_OUTPUT_STEP as Step,
@@ -150,7 +151,7 @@ describe("independent pinned contract discovery", () => {
                 retryPolicy: getDefaultRpcRetryPolicy(),
                 resilience: {
                     ...getDefaultRpcEndpointResilienceConfig(),
-                    rateLimiter: { requestsPerSecond: 0, burst: 1 },
+                    rateLimiter: { mode: RPC_RATE_LIMIT_MODE.Unlimited },
                 },
                 sleep,
             },

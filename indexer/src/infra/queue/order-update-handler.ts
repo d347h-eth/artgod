@@ -54,7 +54,9 @@ export function orderUpdateHandler(deps: {
                     job.payload.observedAt ??
                     Math.floor(job.scheduledAt / 1000),
             },
-            job.scheduledAt,
+            job.payload.observedAt == null
+                ? job.scheduledAt
+                : job.payload.observedAt * 1000,
         );
     };
 }

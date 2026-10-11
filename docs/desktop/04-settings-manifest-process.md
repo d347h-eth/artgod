@@ -75,7 +75,7 @@ Optional fields:
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
 - `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `weighted_endpoint_list`.
 - `options`: allowed values for `select`.
-- `validation`: one of the values owned by `config/settings-validation-rules.json`, including URL, positive-integer, TCP-port, RPC endpoint-list, and block-explorer rules.
+- `validation`: one of the values owned by `config/settings-validation-rules.json`, including URL, positive-number, positive-integer, TCP-port, RPC endpoint-list, and block-explorer rules.
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.
@@ -85,6 +85,33 @@ parser use the same decimal safe-integer rule. Values must be greater than zero
 and at most `Number.MAX_SAFE_INTEGER`, without exponent, hexadecimal, sign, or
 leading-zero notation. Surrounding whitespace is trimmed; an absent or blank
 runtime override uses its validated default.
+
+Admin positive-number validation and shared `parsePositiveNumber` use the same
+finite decimal rule. Rates may be fractional (for example `1.5` or `0.05`) and
+must be greater than zero. Zero, negative values, infinity, exponent and
+hexadecimal notation are invalid. Blank runtime overrides use validated defaults.
+
+### Rate and concurrency settings
+
+Represent policy choices with a named mode selector, rather than numeric
+sentinels or overlapping enable/unlimited flags:
+
+- Use `limited` when positive rate/concurrency numbers apply.
+- Offer `disabled` only when the feature can pause. Document how unfinished work
+  is retained and which work remains available.
+- Offer `unlimited` only for resources the user can control. Document which caps
+  it removes and any limits or scheduling priorities that still apply.
+- Validate saved numeric fields in every mode; omit inactive limits from the
+  typed runtime policy. Share mode constants and parsers through the owning
+  module so consumers do not reinterpret values.
+- Keep numeric fields strictly positive. `0` and `-1` never change the mode.
+
+RPC uses `RPC_RATE_LIMIT_MODE=limited|unlimited` for the endpoint rate and burst.
+Automatic repair uses `GAP_FILL_MODE=disabled|limited|unlimited`; unlimited removes
+both its rate and in-flight caps, while a finite overall RPC cap and main priority
+still apply. OpenSea always retains finite limits because the app cannot remove
+that provider's service limits. The existing Admin select and numeric controls
+render these modes; a future form may conditionally present the inactive fields.
 
 For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
@@ -110,6 +137,43 @@ command generates `frontend/src/lib/e2e/generated-desktop-admin-config.ts`, so
 the maintained browser harness renders the desktop-managed schema and defaults
 from the manifest instead of maintaining a parallel fixture. Run `yarn
 config:check` after generation to catch drift.
+
+## Deferred validation between settings
+
+Admin validates fields individually, reusing shared parsers for RPC endpoints,
+block-explorer settings and numeric values. It does not validate relationships
+between settings. Its launch checks consider only fields marked
+`required_for_launch`; native settings persistence does not enforce the RPC
+allocation relationship either.
+
+When `RPC_RATE_LIMIT_MODE=limited` and `GAP_FILL_MODE=limited`, the gap rate must
+be strictly below the overall RPC rate. Equal or higher gap rates cause indexer
+configuration loading to fail before processing starts. Admin can currently save
+such a pair; the rate tooltips explain the constraint and startup consequence.
+Lower the gap rate or raise the overall rate before starting the indexer.
+
+Unlimited gaps with limited overall RPC are valid: only the gap-specific caps
+are removed, and the overall limit and main-work priority still apply. The rate
+comparison also does not apply when overall RPC is unlimited or gaps are
+disabled. Positive saved numeric values remain required in every mode, and mode
+changes preserve inactive values.
+
+Shared validation of active configuration policies before Admin save and launch
+is explicitly deferred under `BKL-072` in the [unified backlog](../planning/01-unified-backlog.md#configuration-validation).
+The follow-up should:
+
+- Expose browser-safe policy checks from their owning shared modules and reuse
+  them in Admin and typed runtime configuration.
+- Validate effective draft values before save and saved values before both
+  manual and automatic startup, including applicable rules for optional fields.
+  `required_for_launch` determines whether a value may be absent; it should not
+  bypass validation of supplied values or active policy combinations.
+- Present actionable field issues, preserve inactive positive values and avoid
+  silently adjusting settings. Keep runtime rejection as the final guard and
+  make native save/start responsibilities explicit without duplicating policy
+  rules in Rust.
+- Cover mode transitions, equal and higher limited gap rates, valid lower rates,
+  disabled/unlimited modes and saved configuration used for startup.
 
 ## Local Desktop Selection
 
@@ -160,9 +224,12 @@ Run these before review when settings change:
 
 ```sh
 yarn config:check
-yarn tsc -b
 yarn workspace @artgod/frontend check
+yarn tsc -b
 ```
+
+Run the frontend check first so SvelteKit generates its TypeScript config before
+the root build follows the frontend project reference.
 
 Run focused runtime tests for touched consumers:
 

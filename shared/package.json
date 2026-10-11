@@ -58,6 +58,8 @@
         "./evm/erc721-ownership": "./evm/erc721-ownership.ts",
         "./evm/rpc-execution": "./evm/rpc-execution.ts",
         "./evm/rpc-resilience": "./evm/rpc-resilience.ts",
+        "./evm/rpc-budget": "./evm/rpc-budget.ts",
+        "./types/sync-work-class": "./types/sync-work-class.ts",
         "./evm/weighted-rpc-transport": "./evm/weighted-rpc-transport.ts",
         "./extensions": "./extensions/index.ts",
         "./extensions/built-ins": "./extensions/built-ins.ts",

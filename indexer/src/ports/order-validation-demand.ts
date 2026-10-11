@@ -2,7 +2,7 @@ import type {
     ClaimedOrderValidation,
     OrderValidationCandidate,
     OrderValidationDemand,
-    OrderValidationProof,
+    OrderValidationEvidence,
     OrderValidationRequest,
     OrderValidationClaimBatch,
     OrderValidationCompletion,
@@ -10,6 +10,7 @@ import type {
     ORDER_VALIDATION_DEMAND_OUTCOME,
 } from "../domain/order-validation-demand.js";
 import type { OrderValidationResult } from "../domain/orders.js";
+import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
 
 /** Current-state eligibility and revision-guarded effects, inside the owning writer snapshot. */
 export interface OrderValidationProjectionPort {
@@ -24,6 +25,17 @@ export interface OrderValidationProjectionPort {
 }
 
 export interface OrderValidationDemandPort {
+    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
+    /** Same-order, same-canonical-history validation; does not consume pending newer demand. */
+    isCovered(request: OrderValidationRequest, revision: number): boolean;
+    /** Shares the maker checkpoint transaction. Keep newer unmet observations pending. */
+    recordValidation(
+        request: OrderValidationRequest,
+        revision: number,
+        evidence: OrderValidationEvidence,
+        now: number,
+    ): void;
+    /** Needed current-order work is always main, irrespective of the hint's work class. */
     admit(
         request: OrderValidationRequest,
         now: number,
@@ -46,7 +58,7 @@ export interface OrderValidationDemandPort {
     /** Commits order effects and captured-generation coverage together. New demand survives. */
     completeBatch(
         completions: readonly OrderValidationCompletion[],
-        proof: OrderValidationProof,
+        proof: OrderValidationEvidence,
         now: number,
     ): OrderValidationCompletionCounts;
     /** Release unconsumed claims without inventing validation coverage or a failure. */

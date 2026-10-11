@@ -5,6 +5,7 @@ import {
     type OrderValidationResult,
 } from "./orders.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "./order-validation-policy.js";
+import type { ChainSyncCheckpoint } from "./chain-sync.js";
 
 export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     leaseMs: 120_000,
@@ -32,7 +33,8 @@ export const ORDER_VALIDATION_DEMAND_LOG = {
 export type OrderValidationRequest = {
     chainId: number;
     orderId: string;
-    /** Required observation coverage in epoch milliseconds, separate from DB freshness. */
+    /** Source observation time in epoch milliseconds. Canonical event requests use zero;
+     * delivery/retry time is never a new source observation. */
     requiredAt: number;
     minimumBlock: number | null;
 };
@@ -46,6 +48,7 @@ export type OrderValidationDemand = OrderValidationRequest & {
     proofRevision: number | null;
     proofAt: number | null;
     proofBlock: number | null;
+    proofChainRevision: number | null;
     leaseOwner: string | null;
     leaseVersion: number;
     leaseUntil: number;
@@ -56,6 +59,27 @@ export type ClaimedOrderValidation = {
     candidate: OrderValidationCandidate;
 };
 export type OrderValidationProof = { observedAt: number; blockNumber: number };
+export type OrderValidationEvidence = OrderValidationProof & {
+    checkpoint: ChainSyncCheckpoint;
+};
+
+/** A chain event requires validation at/after its block, not after its eventual delivery. */
+export function eventValidationRequest(
+    chainId: number,
+    orderId: string,
+    blockNumber: number,
+): OrderValidationRequest {
+    return { chainId, orderId, requiredAt: 0, minimumBlock: blockNumber };
+}
+
+/** A new source observation requires a validation observed at/after that time. */
+export function observedOrderValidationRequest(
+    chainId: number,
+    orderId: string,
+    observedAt: number,
+): OrderValidationRequest {
+    return { chainId, orderId, requiredAt: observedAt, minimumBlock: null };
+}
 
 export type OrderValidationClaimBatch = {
     claims: ClaimedOrderValidation[];
@@ -107,9 +131,11 @@ export function validationProofCovers(
     demand: OrderValidationDemand,
     revision: number,
     request: OrderValidationRequest,
+    chainRevision: number,
 ): boolean {
     return (
         demand.proofRevision === revision &&
+        demand.proofChainRevision === chainRevision &&
         demand.proofAt !== null &&
         demand.proofAt >= request.requiredAt &&
         demand.proofBlock !== null &&

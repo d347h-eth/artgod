@@ -1,3 +1,4 @@
+import { SYNC_WORK_CLASS as WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import {
     afterEach,
     beforeAll,
@@ -259,6 +260,52 @@ describe("durable maker checkpoints", () => {
         },
     );
 
+    it("retains gap continuations, promotes coalesced main demand and resets completed priority", async () => {
+        seedHeavyMaker(150);
+        const work = workflow();
+        const background = {
+            ...request,
+            payload: { ...request.payload, workClass: WORK_CLASS.GapRepair },
+            requiredAt: now - 1_000,
+        };
+        await work.stepProcessor.execute(background);
+        let run = work.store.admit({ ...background, now });
+        const before = JSON.parse(
+            (
+                db
+                    .prepare(
+                        "SELECT job_json FROM queue_outbox WHERE outbox_id=?",
+                    )
+                    .get(run.wakeupOutboxId) as { job_json: string }
+            ).job_json,
+        ) as JobEnvelope<OrderUpdateByMakerPayload>;
+        expect(before.workClass).toBe(WORK_CLASS.Main);
+        expect(before.payload.workClass).toBe(WORK_CLASS.Main);
+        const main = {
+            ...background,
+            jobId: "main-promotion",
+            payload: { ...background.payload, workClass: WORK_CLASS.Main },
+            requiredAt: now - 1,
+        };
+        work.store.admit({ ...main, now });
+        // Recovery checks the class of the published job, not the now-promoted run.
+        const wakeup = work.store.listWakeups(now + 60_000, 16)[0]!;
+        expect(wakeup.workClass).toBe(WORK_CLASS.Main);
+        await work.processor.execute(background);
+        run = work.store.get(run.runId)!;
+        expect(run.status).toBe(STATUS.Completed);
+        expect(run.payload.workClass).toBe(WORK_CLASS.Main);
+        work.store.admit({
+            ...background,
+            jobId: "later-background",
+            requiredAt: now + 1,
+            now: now + 1,
+        });
+        expect(work.store.get(run.runId)!.payload.workClass).toBe(
+            WORK_CLASS.Main,
+        );
+    });
+
     it("validates all 9,339 bids through durable steps with bounded status aggregates", async () => {
         seedHeavyMaker();
         const rpc = new BatchedHeavyMakerRpc();
@@ -494,7 +541,8 @@ describe("durable maker checkpoints", () => {
         });
         expect(work.rpc.reads.getOrderStatus).toBeUndefined();
         await work.processor.execute(input);
-        expect(work.rpc.reads.getOrderStatus).toBe(205);
+        // The later snapshot already covers 105 orders from the first pass.
+        expect(work.rpc.reads.getOrderStatus).toBe(100);
         expect(work.store.admit({ ...input, now: Date.now() })).toMatchObject({
             status: STATUS.Completed,
             generation: 2,
@@ -513,7 +561,11 @@ describe("durable maker checkpoints", () => {
     it("reopens a completed scope through one durable continuation and fences prior steps", async () => {
         seedHeavyMaker(50);
         const work = workflow();
-        const input = { ...request, requiredAt: now - 1_000 };
+        const input = {
+            ...request,
+            payload: { ...request.payload, blockNumber: null, blockHash: null },
+            requiredAt: now - 1_000,
+        };
         await work.processor.execute(input);
         const first = work.store.admit({ ...input, now });
         vi.mocked(Date.now).mockReturnValue(now + 1_000);
@@ -579,7 +631,11 @@ describe("durable maker checkpoints", () => {
     it("records newer demand while the first step is still in flight before an outbox exists", async () => {
         seedHeavyMaker(50);
         const work = workflow();
-        const input = { ...request, requiredAt: now - 1_000 };
+        const input = {
+            ...request,
+            payload: { ...request.payload, blockNumber: null, blockHash: null },
+            requiredAt: now - 1_000,
+        };
         work.rpc.onRead = async () => {
             work.rpc.onRead = undefined;
             vi.mocked(Date.now).mockReturnValue(now + 1);
@@ -790,6 +846,11 @@ describe("durable maker checkpoints", () => {
             })),
             false,
             now,
+            {
+                observedAt: now,
+                blockNumber: HEAVY_MAKER.blockNumber,
+                checkpoint: { chainId: 1, revision: 0 },
+            },
         );
         setDbPath(dbPath); // No release: simulate losing every in-memory executor object.
         const restarted = workflow();
@@ -891,7 +952,7 @@ describe("durable maker checkpoints", () => {
                 selectMakerCandidates: (...args) =>
                     orders.selectMakerCandidates(...args),
                 applyMakerResolution: (...args) => {
-                    orders.applyMakerResolution(...args);
+                    const revision = orders.applyMakerResolution(...args);
                     if (!injected) {
                         injected = true;
                         if (fault === "busy")
@@ -900,6 +961,7 @@ describe("durable maker checkpoints", () => {
                             });
                         throw new Error("crash between effect and checkpoint");
                     }
+                    return revision;
                 },
             }));
             if (fault === "failure") {
@@ -1084,6 +1146,7 @@ describe("durable maker checkpoints", () => {
                 resolutions,
                 true,
                 now + POLICY.leaseMs + 2,
+                null,
             ),
         ).toThrow(MakerRevalidationConflict);
         expect(work.store.renew(old, now + POLICY.leaseMs + 2)).toBe(false);

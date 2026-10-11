@@ -12,17 +12,50 @@ import {
     fetchWithRpcRequestTimeout,
     RpcRequestTimeoutError,
     TokenBucketRateLimiter,
+    RPC_RATE_LIMIT_MODE,
 } from "./rpc-resilience.js";
 
 const TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE = "ignored circuit failure";
 const TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE = "contract read failed";
 
 describe("TokenBucketRateLimiter", () => {
+    it("unlimited admits every acquire without sleeping or consuming tokens", async () => {
+        let sleeps = 0;
+        const limiter = new TokenBucketRateLimiter(
+            { mode: RPC_RATE_LIMIT_MODE.Unlimited },
+            () => 0,
+            async () => {
+                sleeps++;
+            },
+        );
+        expect(
+            await Promise.all(
+                Array.from({ length: 50 }, () => limiter.acquire()),
+            ),
+        ).toEqual(Array(50).fill(0));
+        expect(limiter.tryAcquire()).toBe(true);
+        expect(limiter.waitTimeMs()).toBe(0);
+        expect(sleeps).toBe(0);
+    });
+    it.each([0, -1, Infinity, NaN])(
+        "rejects an invalid finite rate %s instead of interpreting a sentinel",
+        (requestsPerSecond) => {
+            expect(
+                () =>
+                    new TokenBucketRateLimiter({
+                        mode: RPC_RATE_LIMIT_MODE.Limited,
+                        requestsPerSecond,
+                        burst: 1,
+                    }),
+            ).toThrow("Invalid RPC rate limit policy");
+        },
+    );
     it("returns immediate permits inside burst and waits after it is exhausted", async () => {
         let now = 1_000;
         const limiter = new TokenBucketRateLimiter(
             {
                 requestsPerSecond: 2,
+                mode: RPC_RATE_LIMIT_MODE.Limited,
                 burst: 2,
             },
             () => now,
@@ -42,6 +75,7 @@ describe("TokenBucketRateLimiter", () => {
         const limiter = new TokenBucketRateLimiter(
             {
                 requestsPerSecond: 1,
+                mode: RPC_RATE_LIMIT_MODE.Limited,
                 burst: 1,
             },
             () => now,

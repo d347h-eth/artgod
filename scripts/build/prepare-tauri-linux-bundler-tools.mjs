@@ -14,7 +14,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-    GITHUB_METADATA_MEDIA_TYPE,
     GITHUB_RELEASE_ASSET_URL_PATTERN,
     assertInputPublicationTimestamp as assertUtcTimestamp,
     assertPinnedInputAge,
@@ -22,6 +21,7 @@ import {
     materializePinnedInput,
     verifyGithubReleaseInputProvenance,
 } from "./pinned-build-inputs.mjs";
+import { GITHUB_METADATA_MEDIA_TYPE } from "./github-api.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
 import {
     buildLockedTauri,
@@ -240,6 +240,7 @@ export async function preparePinnedTauriLinuxBundlerTools(options = {}) {
         options.cacheDirectory ?? resolveTauriToolsCacheDirectory(),
     );
     const fetchImplementation = options.fetchImplementation ?? fetch;
+    const environment = options.environment ?? process.env;
     const logger = options.logger ?? console.log;
     const expectedTauriCliVersion =
         options.expectedTauriCliVersion ??
@@ -269,6 +270,7 @@ export async function preparePinnedTauriLinuxBundlerTools(options = {}) {
                 cacheDirectory,
                 temporaryDirectory,
                 fetchImplementation,
+                environment,
             });
             logger(
                 `Verified pinned Tauri Linux tool ${tool.fileName} (${tool.sha256}).`,
@@ -349,6 +351,7 @@ async function materializePinnedTool({
     cacheDirectory,
     temporaryDirectory,
     fetchImplementation,
+    environment,
 }) {
     await materializePinnedInput({
         input: tool,
@@ -356,6 +359,7 @@ async function materializePinnedTool({
         temporaryDirectory,
         verifyProvenance: verifyPinnedToolProvenance,
         fetchImplementation,
+        environment,
         mode: EXECUTABLE_FILE_MODE,
     });
 }

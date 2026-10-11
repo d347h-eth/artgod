@@ -1,3 +1,8 @@
+import {
+    SYNC_WORK_CLASS,
+    decodeSyncWorkClass,
+} from "@artgod/shared/types/sync-work-class";
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "crypto";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
@@ -149,8 +154,10 @@ export async function handleCollectionExtensionRefreshArtifactsLifecycle(
         markMetadataRefreshArtifactTaskTerminal(input, result);
         markBootstrapArtifactTaskSucceeded(input, bootstrapExecution);
     } catch (error) {
+        if (getRpcBudgetDeferral(error)) throw error;
         if (
             job.payload.metadataRefreshRunId &&
+            decodeSyncWorkClass(job.workClass) !== SYNC_WORK_CLASS.GapRepair &&
             isFinalCollectionExtensionArtifactAttempt(
                 job,
                 input.collectionExtensionArtifactMaxAttempts,

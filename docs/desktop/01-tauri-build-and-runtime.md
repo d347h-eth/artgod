@@ -329,6 +329,17 @@ What each command does:
   : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, generated package-local runtime `node_modules`, `src-tauri/target`, `src-tauri/resources/runtime`, `src-tauri/binaries`, sidecar crate `target/*`).
   : Use this broad cleanup for recovery or deliberately cold builds, not as a prerequisite for repeated no-bundle QA.
 
+GitHub build-input requests use `scripts/build/github-api.mjs`. CI supplies its
+read-only `GITHUB_TOKEN` to the build steps; local builds can omit it. Credentials
+are sent only to the GitHub API and removed before following asset redirects.
+GET/HEAD requests allow at most three attempts and 60 seconds of total retry
+waiting for network/transient failures or identified rate limits. Provider
+`Retry-After` and reset hints are respected in full; waits beyond that budget
+fail with numeric rate-limit diagnostics. Response bodies and tokens are never
+included in those errors. Release mutations are never automatically retried.
+Publication-age, provenance, size, SHA-256 and offline cache checks still apply.
+See [GitHub's rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+
 ## Tauri Build Hooking
 
 `src-tauri/tauri.conf.json` contains:
