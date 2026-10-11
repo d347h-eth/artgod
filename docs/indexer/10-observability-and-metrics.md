@@ -575,7 +575,24 @@ The full HTTP JSON-RPC interaction map, including retry and circuit-breaker
 coverage by workspace and runtime lane, is maintained in
 `docs/rpc/01-http-rpc-interaction-catalog.md`.
 
-RPC logs use stable fields:
+Routine RPC attempts, successful calls, quota waits and WebSocket heads are
+counted in `RPC activity progress` (`action=rpc_progress`) once per 60-second
+active window per adapter lane. The report includes calls and attempts started,
+succeeded and failed, retry/circuit/head counts, wait count/total/maximum, and
+call/attempt duration totals and maxima in milliseconds. Duration totals can
+exceed `windowMs` when calls overlap. Started and completed counts can belong to
+different windows when a request crosses a boundary.
+
+Counters have fixed size: no methods, endpoints, wallets or individual requests
+are retained. Idle windows emit nothing; a timer flushes the last active window,
+and graceful runtime shutdown flushes a partial window. Reports work without a
+metrics exporter, including in desktop builds. Per-event metrics remain
+unchanged. Failures, retries, circuit openings and connection lifecycle events
+keep their immediate detail. A caller can explicitly set
+`RpcObservabilityConfig.detailedLogs` to also emit routine detail for diagnosis;
+normal runtime composition leaves it disabled.
+
+Immediate RPC logs use stable fields:
 
 - `workspace`: `backend`, `indexer`, or `trading`
 - `rpcComponent`: low-cardinality adapter lane, such as `backend-rpc`,

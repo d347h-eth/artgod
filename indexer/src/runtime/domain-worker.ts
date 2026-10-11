@@ -1,3 +1,4 @@
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
     SYNC_WORK_CLASS,
     decodeSyncWorkClass,
@@ -761,6 +762,7 @@ async function main() {
             await stopActivity();
             await stopActivityUpsert();
             await stopQueueOutboxDrainer();
+            flushPendingLogReports();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await rpcAllocation.budget.close();

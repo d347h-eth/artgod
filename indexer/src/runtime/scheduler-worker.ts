@@ -1,3 +1,4 @@
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { logger } from "@artgod/shared/utils";
 import { setDbPath } from "@artgod/shared/database";
@@ -94,6 +95,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopSchedulerWorker();
+            flushPendingLogReports();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await rpcAllocation.budget.close();

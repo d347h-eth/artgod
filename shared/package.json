@@ -109,6 +109,7 @@
         },
         "./observability/trading-metrics": "./observability/metrics/trading.ts",
         "./observability/rpc": "./observability/rpc.ts",
+        "./observability/log-reporting": "./observability/log-reporting.ts",
         "./queue/nats-job-stream": "./queue/nats-job-stream.ts",
         "./database": "./database/db.ts",
         "./database/current-asks": "./database/current-asks.ts",
