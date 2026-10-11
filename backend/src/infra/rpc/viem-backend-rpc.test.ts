@@ -389,7 +389,7 @@ describe("ViemBackendRpcClient", () => {
             functionName: TEST_CONTRACT_FUNCTION_NAME,
             args: [TEST_CONTRACT_ARG, TEST_CONTRACT_ARG_TEXT],
             blockNumber: TEST_BLOCK_NUMBER,
-        };
+        } satisfies Parameters<ViemBackendRpcClient["readContract"]>[0];
         await expect(client.readContract(input)).resolves.toBe(
             TEST_CONTRACT_RESULT,
         );
