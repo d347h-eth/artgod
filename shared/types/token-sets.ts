@@ -6,10 +6,19 @@ export const TOKEN_SET_SCHEMA_KIND = {
 export type TokenSetSchemaKind =
     (typeof TOKEN_SET_SCHEMA_KIND)[keyof typeof TOKEN_SET_SCHEMA_KIND];
 
-export type TokenSetAttribute = {
+export type TokenSetExactAttribute = {
     key: string;
     value: string;
 };
+
+export type TokenSetAttribute =
+    | TokenSetExactAttribute
+    | {
+          key: string;
+          min: number;
+          max: number;
+          value?: never;
+      };
 
 export type TokenSetAttributeSchema = {
     kind: typeof TOKEN_SET_SCHEMA_KIND.Attribute;
@@ -73,7 +82,15 @@ function isTokenSetAttribute(value: unknown): value is TokenSetAttribute {
     return (
         Boolean(record) &&
         typeof record?.key === "string" &&
-        typeof record.value === "string"
+        ((typeof record.value === "string" &&
+            record.min === undefined &&
+            record.max === undefined) ||
+            (record.value === undefined &&
+                typeof record.min === "number" &&
+                Number.isFinite(record.min) &&
+                typeof record.max === "number" &&
+                Number.isFinite(record.max) &&
+                record.min <= record.max))
     );
 }
 

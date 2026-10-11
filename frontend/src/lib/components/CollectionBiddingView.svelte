@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
 	import { browser } from '$app/environment';
@@ -101,7 +102,6 @@
 		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
-		biddingTraitCriteriaToTokenAttributes,
 		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
@@ -924,12 +924,6 @@
 		bid: ApiBiddingBidBookRow;
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 	}): Promise<void> {
-		const nextTraits = biddingTraitCriteriaToTokenAttributes(selection.traits);
-		if (!canDraftTraitJobFromFilters({ selectedTraits: nextTraits, selectedTraitRanges: [] })) {
-			onBidBookSelectBid(selection.bid);
-			return;
-		}
-
 		if (!buildBiddingAutomationDraftFromBid(selection.bid)) return;
 		biddingAutomation.selectBid({ bid: selection.bid });
 		expandBiddingAutomationPanel();
@@ -938,9 +932,13 @@
 	async function onBidBookTraitDemandFilter(selection: {
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 	}): Promise<void> {
-		const nextTraits = biddingTraitCriteriaToTokenAttributes(selection.traits);
-		const nextTraitJoinMode = COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or;
-		await applyTraitFilters(nextTraits, [], nextTraitJoinMode);
+		const filters = bidBookCriteriaToBrowseFilters(selection.traits);
+		if (!filters) return;
+		await applyTraitFilters(
+			filters.traits,
+			filters.traitRanges,
+			COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+		);
 	}
 
 	function placeCollectionBid(): void {

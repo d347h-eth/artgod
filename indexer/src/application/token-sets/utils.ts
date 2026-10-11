@@ -116,16 +116,23 @@ function dedupeAndSortAttributes(
     const deduped: TokenSetAttribute[] = [];
     for (const attribute of attributes) {
         const key = attribute.key.trim();
-        const value = attribute.value.trim();
-        if (!key || !value) continue;
-        const signature = `${key}:${value}`;
+        const value = attribute.value?.trim();
+        if (!key || (attribute.value !== undefined && !value)) continue;
+        const normalized: TokenSetAttribute =
+            attribute.value === undefined
+                ? { key, min: attribute.min, max: attribute.max }
+                : { key, value: value! };
+        const signature = JSON.stringify(normalized);
         if (seen.has(signature)) continue;
         seen.add(signature);
-        deduped.push({ key, value });
+        deduped.push(normalized);
     }
     return deduped.sort((a, b) => {
         const keyCompare = a.key.localeCompare(b.key);
         if (keyCompare !== 0) return keyCompare;
-        return a.value.localeCompare(b.value);
+        // Preserve existing exact-attribute schema fingerprints.
+        return a.value !== undefined && b.value !== undefined
+            ? a.value.localeCompare(b.value)
+            : JSON.stringify(a).localeCompare(JSON.stringify(b));
     });
 }

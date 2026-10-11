@@ -6,6 +6,45 @@ const zone = { type: "Zone", value: "Kairo" };
 const biome = { type: "Biome", value: "91" };
 
 describe("trait competition", () => {
+    it("matches numeric intervals only when the complete exact target satisfies them", () => {
+        const criteria = [mode, { type: "Level", min: 1, max: 2 }];
+        expect(matchesTraitCompetition(criteria, [mode])).toBe(false);
+        for (const value of ["1", "2"]) {
+            expect(
+                matchesTraitCompetition(criteria, [
+                    mode,
+                    { type: "Level", value },
+                ]),
+            ).toBe(true);
+        }
+        expect(
+            matchesTraitCompetition(criteria, [
+                mode,
+                { type: "Level", value: "10" },
+            ]),
+        ).toBe(false);
+        expect(
+            matchesTraitCompetition(
+                criteria,
+                [zone],
+                [{ type: "Level" }, mode],
+            ),
+        ).toBe(false);
+        expect(
+            matchesTraitCompetition(
+                [{ type: "Level", min: 1, max: 2 }],
+                [zone],
+                [{ type: "Level", value: "2" }],
+            ),
+        ).toBe(true);
+        expect(
+            matchesTraitCompetition(
+                [{ type: "Level", min: 1, max: 2 }],
+                [zone],
+                [{ type: "Level", value: "10" }],
+            ),
+        ).toBe(false);
+    });
     it("adds exact or whole-key standalone buckets without including multitraits", () => {
         expect(matchesTraitCompetition([mode], [zone, biome], [mode])).toBe(
             true,

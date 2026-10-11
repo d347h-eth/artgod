@@ -1,3 +1,12 @@
+import {
+    biddingTraitsMatchToken,
+    biddingTraitValueMatches,
+    biddingTraitCriteriaKey,
+} from "@artgod/shared/trading/offer-trait-criteria";
+import {
+    formatTradingTraitCriterionLabel,
+    type TradingBiddingTraitCriterion,
+} from "@artgod/shared/types";
 import { formatUnits } from "viem";
 import { matchesTraitCompetition } from "../../domain/market/strategy/trait-competition.js";
 import {
@@ -6,6 +15,7 @@ import {
     isOpenSeaCollectionWideOffer,
     normalizeOpenSeaOfferTraitCriteria,
     parseOpenSeaBiddingOffer,
+    openSeaEncodedTokenIdsContain,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
@@ -1055,12 +1065,14 @@ export class OpenSeaBiddingService implements BiddingService {
         return getOpenSeaOfferCriteria(rawOffer);
     }
 
-    private normalizeOfferTraitCriteria(criteria: unknown): TraitTarget[] {
+    private normalizeOfferTraitCriteria(
+        criteria: unknown,
+    ): TradingBiddingTraitCriterion[] {
         return normalizeOpenSeaOfferTraitCriteria(criteria);
     }
 
     private matchesTraitSelector(
-        criteriaTrait: TraitSelector,
+        criteriaTrait: TradingBiddingTraitCriterion,
         selector: TraitSelector,
     ): boolean {
         if (criteriaTrait.type !== selector.type) {
@@ -1071,7 +1083,7 @@ export class OpenSeaBiddingService implements BiddingService {
             return true;
         }
 
-        return criteriaTrait.value === selector.value;
+        return biddingTraitValueMatches(criteriaTrait, selector.value);
     }
 
     private getPlacementTraits(job: BidderJob): TraitTarget[] {
@@ -1117,77 +1129,14 @@ export class OpenSeaBiddingService implements BiddingService {
         return new Set(traitTypes);
     }
 
-    private formatTraitTargetsForLog(traits: TraitTarget[]): string {
+    private formatTraitTargetsForLog(
+        traits: TradingBiddingTraitCriterion[],
+    ): string {
         if (traits.length === 0) {
             return "none";
         }
 
-        return traits.map((trait) => `${trait.type}=${trait.value}`).join("|");
-    }
-
-    private encodedTokenIdsContain(
-        encodedTokenIds: string,
-        tokenId: string,
-    ): boolean {
-        if (encodedTokenIds === "*") {
-            return true;
-        }
-        if (encodedTokenIds === "") {
-            return false;
-        }
-
-        let target: bigint;
-        try {
-            target = BigInt(tokenId);
-        } catch {
-            return false;
-        }
-
-        for (const segment of encodedTokenIds.split(",")) {
-            if (segment.length === 0) {
-                continue;
-            }
-
-            if (segment.includes(":")) {
-                const [startRaw, endRaw] = segment.split(":");
-                try {
-                    const start = BigInt(startRaw);
-                    const end = BigInt(endRaw);
-                    if (target >= start && target <= end) {
-                        return true;
-                    }
-                } catch {
-                    log.debug(
-                        "encodedTokenIdsRangeParseFailed",
-                        "Failed to parse encoded token id range",
-                        {
-                            segment,
-                            tokenId,
-                        },
-                    );
-                    return false;
-                }
-                continue;
-            }
-
-            try {
-                if (BigInt(segment) === target) {
-                    return true;
-                }
-            } catch {
-                log.debug(
-                    "encodedTokenIdsValueParseFailed",
-                    "Failed to parse encoded token id value",
-                    {
-                        segment,
-                        tokenId,
-                    },
-                );
-                return false;
-            }
-        }
-
-        return false;
+        return traits.map(formatTradingTraitCriterionLabel).join("|");
     }
 
     private addUniqueOffer(
@@ -1315,7 +1264,10 @@ export class OpenSeaBiddingService implements BiddingService {
                 encodedIds !== "*"
             ) {
                 if (
-                    this.encodedTokenIdsContain(encodedIds, tokenTarget.tokenId)
+                    openSeaEncodedTokenIdsContain(
+                        encodedIds,
+                        tokenTarget.tokenId,
+                    )
                 ) {
                     const parsed = this.parseRawOffer(
                         rawOffer,
@@ -1358,12 +1310,9 @@ export class OpenSeaBiddingService implements BiddingService {
                 continue;
             }
 
-            const matchesToken = criteriaTraits.every((criterion) =>
-                tokenTraits.some(
-                    (tokenTrait) =>
-                        tokenTrait.type === criterion.type &&
-                        tokenTrait.value === criterion.value,
-                ),
+            const matchesToken = biddingTraitsMatchToken(
+                criteriaTraits,
+                tokenTraits,
             );
             if (!matchesToken) {
                 summary.criteriaMismatched!++;
@@ -1547,20 +1496,12 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private matchesExactTraitTargets(
-        criteriaTraits: TraitTarget[],
+        criteriaTraits: TradingBiddingTraitCriterion[],
         targetTraits: TraitTarget[],
     ): boolean {
-        const normalizedCriteria = this.dedupeTraitTargets(criteriaTraits);
-        const normalizedTargets = this.dedupeTraitTargets(targetTraits);
-        if (normalizedCriteria.length !== normalizedTargets.length) {
-            return false;
-        }
-
-        const targetKeys = new Set(
-            normalizedTargets.map((target) => `${target.type}|${target.value}`),
-        );
-        return normalizedCriteria.every((criterion) =>
-            targetKeys.has(`${criterion.type}|${criterion.value}`),
+        return (
+            biddingTraitCriteriaKey(criteriaTraits) ===
+            biddingTraitCriteriaKey(this.dedupeTraitTargets(targetTraits))
         );
     }
 

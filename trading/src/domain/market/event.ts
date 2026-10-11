@@ -1,4 +1,5 @@
 import { formatPrice } from "../../utils/price-format.js";
+import type { TradingBiddingTraitCriterion } from "@artgod/shared/types";
 
 export enum Type {
     CollectionOffer = "collection_offer",
@@ -16,10 +17,7 @@ export enum Scope {
     Unknown = "unknown",
 }
 
-export interface TraitCriterion {
-    type: string;
-    value: string;
-}
+export type TraitCriterion = TradingBiddingTraitCriterion;
 
 // MarketEvent is the core hot-path event shape used by bidding refresh logic.
 export class MarketEvent {

@@ -130,6 +130,25 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+// Observed marketplace offers may constrain a numeric interval as well as exact values.
+// Declared bidding jobs continue to use TradingTraitCriterion exact targets.
+export type TradingNumericTraitRange = {
+    type: string;
+    min: number;
+    max: number;
+    value?: never;
+};
+
+export type TradingBiddingTraitCriterion =
+    | TradingTraitCriterion
+    | TradingNumericTraitRange;
+
+export function isTradingNumericTraitRange(
+    criterion: TradingBiddingTraitCriterion,
+): criterion is TradingNumericTraitRange {
+    return criterion.value === undefined;
+}
+
 // Competition-only selector: an omitted value includes all standalone bids for
 // that trait key. It never changes the criteria sent to the marketplace.
 export type TradingTraitCompetitionSelector = {
@@ -594,18 +613,26 @@ export function normalizeTradingTraitText(value: string): string {
 
 // Formats one trait criterion for bidding labels.
 export function formatTradingTraitCriterionLabel(
-    trait: TradingTraitCriterion,
+    trait: TradingBiddingTraitCriterion,
 ): string {
     const type = normalizeTradingTraitText(trait.type);
-    const value = normalizeTradingTraitText(trait.value);
-    return `${type}=${value}`;
+    return `${type}=${formatTradingTraitCriterionValue(trait)}`;
+}
+
+export function formatTradingTraitCriterionValue(
+    trait: TradingBiddingTraitCriterion,
+): string {
+    if (isTradingNumericTraitRange(trait)) {
+        return `${trait.min}–${trait.max}`;
+    }
+    return normalizeTradingTraitText(trait.value);
 }
 
 // Formats bid-scope labels shared by snapshot projection and normalized order fallback rows.
 export function formatTradingBiddingBidScopeLabel(input: {
     kind: TradingBiddingBidScopeKind;
     tokenId?: string | null;
-    traits?: TradingTraitCriterion[];
+    traits?: TradingBiddingTraitCriterion[];
 }): string {
     if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token) {
         return input.tokenId

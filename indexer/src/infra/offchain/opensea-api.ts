@@ -183,7 +183,7 @@ function toRestOfferRecord(
     }
 
     if (criteriaContract) {
-        const traits = normalizeCriteriaTraits(criteria);
+        const traits = normalizeOpenSeaOfferTraitCriteria(criteria);
         if (traits.length === 0) {
             return {
                 eventType: OPENSEA_REST_EVENT_TYPE.CollectionOffer,
@@ -228,15 +228,6 @@ function getProtocolData(record: Record<string, unknown>): unknown {
 
 function getOrderHash(record: Record<string, unknown>): string | null {
     return stringOrNull(record.orderHash) ?? stringOrNull(record.order_hash);
-}
-
-function normalizeCriteriaTraits(
-    criteria: Record<string, unknown>,
-): Array<{ trait_type: string; trait_name: string }> {
-    return normalizeOpenSeaOfferTraitCriteria(criteria).map((trait) => ({
-        trait_type: trait.type,
-        trait_name: trait.value,
-    }));
 }
 
 function findNftItem(

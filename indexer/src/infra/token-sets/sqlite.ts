@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { biddingTraitsMatchToken } from "@artgod/shared/trading/offer-trait-criteria";
 import { logger } from "@artgod/shared/utils";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
@@ -183,6 +184,15 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
     ): string[] {
         const attributes = schema.data.attributes;
         if (!attributes.length) return [];
+        if (attributes.some((attribute) => attribute.value === undefined)) {
+            // Numeric text needs the same strict decimal validation as token/offer matching.
+            // Stream relevant canonical traits one token at a time instead of coercing text in SQL.
+            return this.resolveTokensByNumericAttributes(
+                chainId,
+                collectionId,
+                attributes,
+            );
+        }
 
         // AND semantics over canonical metadata traits; extension traits are browse-only here.
         const values: Record<string, string | number> = {
@@ -197,7 +207,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
             const key = `key${index}`;
             const value = `value${index}`;
             values[key] = attribute.key;
-            values[value] = attribute.value;
+            values[value] = attribute.value!;
             return `(attribute_keys.key = @${key} AND attributes.value = @${value})`;
         });
 
@@ -223,6 +233,55 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         return rows.map((row) => row.token_id);
     }
 
+    private resolveTokensByNumericAttributes(
+        chainId: number,
+        collectionId: number,
+        attributes: TokenSetAttributeSchema["data"]["attributes"],
+    ): string[] {
+        const keys = [...new Set(attributes.map((attribute) => attribute.key))];
+        const criteria = attributes.map((attribute) =>
+            attribute.value === undefined
+                ? {
+                      type: attribute.key,
+                      min: attribute.min,
+                      max: attribute.max,
+                  }
+                : { type: attribute.key, value: attribute.value },
+        );
+        const rows = db.raw
+            .prepare(
+                "SELECT ta.token_id, ak.key, a.value FROM token_attributes ta " +
+                    "JOIN attributes a ON a.id=ta.attribute_id AND a.chain_id=ta.chain_id AND a.collection_id=ta.collection_id " +
+                    "JOIN attribute_keys ak ON ak.id=a.attribute_key_id AND ak.chain_id=a.chain_id AND ak.collection_id=a.collection_id " +
+                    "WHERE ta.chain_id=? AND ta.collection_id=? AND ta.source_kind=? AND ta.source_key=? " +
+                    `AND ak.key IN (${keys.map(() => "?").join(",")}) ORDER BY ta.token_id`,
+            )
+            .iterate(
+                chainId,
+                collectionId,
+                TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                ...keys,
+            ) as Iterable<{ token_id: string; key: string; value: string }>;
+        const tokenIds: string[] = [];
+        let current: string | null = null;
+        let traits: { type: string; value: string }[] = [];
+        const finishToken = () => {
+            if (current !== null && biddingTraitsMatchToken(criteria, traits))
+                tokenIds.push(current);
+        };
+        for (const row of rows) {
+            if (row.token_id !== current) {
+                finishToken();
+                current = row.token_id;
+                traits = [];
+            }
+            traits.push({ type: row.key, value: row.value });
+        }
+        finishToken();
+        return tokenIds;
+    }
+
     private resolveSingleAttributeId(
         chainId: number,
         collectionId: number,
@@ -230,7 +289,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         schema: TokenSetAttributeSchema,
     ): number | null {
         const attribute = schema.data.attributes[0];
-        if (!attribute) return null;
+        if (!attribute || attribute.value === undefined) return null;
         const keyRow = this.selectAttributeKeyId.get({
             chainId,
             collectionId,

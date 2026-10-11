@@ -3,8 +3,13 @@ import {
     formatTradingBiddingBidScopeLabel,
     normalizeTradingTraitText,
     type TradingBiddingBidScopeKind,
-    type TradingTraitCriterion,
+    type TradingBiddingTraitCriterion,
 } from "../types/trading.js";
+import {
+    biddingTraitCriteriaKey,
+    parseBiddingTraitCriteria,
+    numericTraitValue,
+} from "./offer-trait-criteria.js";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "./open-sea-mainnet-security-policy.js";
 import { getOpenSeaOrderHash } from "../opensea/payload.js";
 import { asRecord } from "../offchain/normalizer-utils.js";
@@ -34,7 +39,7 @@ export type OpenSeaBiddingOfferBidScope = {
     kind: TradingBiddingBidScopeKind;
     label: string;
     tokenId: string | null;
-    traits: TradingTraitCriterion[];
+    traits: TradingBiddingTraitCriterion[];
     encodedTokenIds: string | null;
 };
 
@@ -63,6 +68,28 @@ export type ParseOpenSeaBiddingOfferOptions = {
     wethAddress?: string;
     discoverySource?: OpenSeaBiddingOfferDiscoverySource;
 };
+
+// OpenSea's finite membership is authoritative for token applicability, even
+// when a trait-scoped offer also carries a descriptive criteria schema.
+export function openSeaEncodedTokenIdsContain(
+    encodedTokenIds: string,
+    tokenId: string,
+): boolean {
+    if (!/^\d+$/.test(tokenId)) return false;
+    if (encodedTokenIds === "*") return true;
+    if (!encodedTokenIds) return false;
+    const target = BigInt(tokenId);
+    let contains = false;
+    for (const segment of encodedTokenIds.split(",")) {
+        if (!/^\d+(?::\d+)?$/.test(segment)) return false;
+        const [startText, endText = startText] = segment.split(":");
+        const start = BigInt(startText);
+        const end = BigInt(endText);
+        if (start > end) return false;
+        if (target >= start && target <= end) contains = true;
+    }
+    return contains;
+}
 
 // Parses an OpenSea offer with the same price and scope semantics used by the bidder runtime.
 export function parseOpenSeaBiddingOffer(
@@ -377,10 +404,10 @@ export function inferOpenSeaOfferScope(
     return "item";
 }
 
-// Normalizes OpenSea trait, traits, and exact numeric_traits criteria into bidder trait targets.
+// Preserve every string and numeric constraint; dropping a range broadens the offer.
 export function normalizeOpenSeaOfferTraitCriteria(
     criteria: unknown,
-): TradingTraitCriterion[] {
+): TradingBiddingTraitCriterion[] {
     if (!criteria) {
         return [];
     }
@@ -394,7 +421,7 @@ export function normalizeOpenSeaOfferTraitCriteria(
     }
 
     const candidate = asRecord(criteria);
-    const normalized: TradingTraitCriterion[] = [];
+    const normalized: TradingBiddingTraitCriterion[] = [];
     const traitCriteria = candidate.trait ?? candidate.traits;
     if (traitCriteria !== undefined && traitCriteria !== null) {
         normalized.push(...normalizeOpenSeaOfferTraitCriteria(traitCriteria));
@@ -417,7 +444,10 @@ export function normalizeOpenSeaOfferTraitCriteria(
         stringOrUndefined(candidate.trait_type) ??
         stringOrUndefined(candidate.traitType);
     const value =
-        candidate.value ?? candidate.trait_value ?? candidate.traitValue;
+        candidate.value ??
+        candidate.trait_value ??
+        candidate.traitValue ??
+        candidate.trait_name;
     if (typeof type === "string" && value !== undefined && value !== null) {
         return dedupeTraitCriteria([
             {
@@ -448,12 +478,12 @@ export function normalizeOpenSeaOfferTraitCriteria(
 }
 
 function dedupeTraitCriteria(
-    traits: TradingTraitCriterion[],
-): TradingTraitCriterion[] {
+    traits: TradingBiddingTraitCriterion[],
+): TradingBiddingTraitCriterion[] {
     const seen = new Set<string>();
-    const deduped: TradingTraitCriterion[] = [];
+    const deduped: TradingBiddingTraitCriterion[] = [];
     for (const trait of traits) {
-        const key = `${trait.type}\u0000${trait.value}`;
+        const key = biddingTraitCriteriaKey([trait]);
         if (seen.has(key)) {
             continue;
         }
@@ -564,82 +594,52 @@ export function getOpenSeaCriteriaRoot(
 
 function normalizeOpenSeaNumericTraitCriteria(
     value: unknown,
-): TradingTraitCriterion[] {
-    return asArray(value).flatMap((entry) => {
+): TradingBiddingTraitCriterion[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value))
+        throw new Error("Invalid OpenSea numeric criteria");
+    return value.map((entry): TradingBiddingTraitCriterion => {
         const record = asRecord(entry);
         const type =
             stringOrUndefined(record.type) ??
             stringOrUndefined(record.trait_type) ??
             stringOrUndefined(record.traitType);
+        if (record.min !== undefined || record.max !== undefined) {
+            const [range] = parseBiddingTraitCriteria([
+                { type, min: record.min, max: record.max },
+            ]);
+            if ("min" in range && range.min === range.max) {
+                return { type: range.type, value: String(range.min) };
+            }
+            return range;
+        }
         const exactValue =
-            record.value ??
-            record.trait_value ??
-            record.traitValue ??
-            (record.min !== undefined &&
-            record.min !== null &&
-            record.max !== undefined &&
-            record.max !== null &&
-            String(record.min) === String(record.max)
-                ? record.min
-                : undefined);
+            record.value ?? record.trait_value ?? record.traitValue;
 
         if (
-            typeof type !== "string" ||
             exactValue === undefined ||
-            exactValue === null
+            exactValue === null ||
+            numericTraitValue(String(exactValue)) === null
         ) {
-            return [];
+            throw new Error("Invalid OpenSea numeric criterion");
         }
-
-        return [
-            {
-                type: normalizeTradingTraitText(type),
-                value: normalizeTradingTraitText(String(exactValue)),
-            },
-        ];
+        return parseBiddingTraitCriteria([
+            { type, value: String(exactValue) },
+        ])[0];
     });
 }
 
 function getOpenSeaStreamTraitCriteria(
     offer: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
-    const traits: TradingTraitCriterion[] = [];
-    const single = asRecord(offer.trait_criteria ?? offer.traitCriteria);
-    const singleType =
-        stringOrUndefined(single.trait_type) ??
-        stringOrUndefined(single.traitType) ??
-        stringOrUndefined(single.type);
-    const singleValue =
-        stringOrUndefined(single.trait_name) ??
-        stringOrUndefined(single.traitName) ??
-        stringOrUndefined(single.value);
-    if (singleType && singleValue) {
-        traits.push({
-            type: normalizeTradingTraitText(singleType),
-            value: normalizeTradingTraitText(singleValue),
-        });
-    }
-
-    for (const entry of asArray(
-        offer.trait_criteria_list ?? offer.traitCriteriaList,
-    )) {
-        const record = asRecord(entry);
-        const type =
-            stringOrUndefined(record.trait_type) ??
-            stringOrUndefined(record.traitType) ??
-            stringOrUndefined(record.type);
-        const value =
-            stringOrUndefined(record.trait_name) ??
-            stringOrUndefined(record.traitName) ??
-            stringOrUndefined(record.value);
-        if (type && value) {
-            traits.push({
-                type: normalizeTradingTraitText(type),
-                value: normalizeTradingTraitText(value),
-            });
-        }
-    }
-
+    const traits = dedupeTraitCriteria([
+        ...normalizeOpenSeaOfferTraitCriteria(
+            offer.trait_criteria ?? offer.traitCriteria,
+        ),
+        ...normalizeOpenSeaOfferTraitCriteria(
+            offer.trait_criteria_list ?? offer.traitCriteriaList,
+        ),
+    ]);
     return traits.length > 0 ? { traits } : undefined;
 }
 

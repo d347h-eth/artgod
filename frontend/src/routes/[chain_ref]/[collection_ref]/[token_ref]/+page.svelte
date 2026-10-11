@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
+	import type { ApiTraitRangeFilter } from '$lib/api-types';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -58,7 +60,6 @@
 		buildBiddingAutomationDraftFromBid,
 		buildTokenBiddingAutomationDraftFromBid,
 		buildTraitBiddingAutomationDraftFromTrait,
-		biddingTraitCriteriaToTokenAttributes,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import { BIDDING_SELECTION_ACTION_LABEL } from '$lib/bidding-selection-actions';
@@ -362,7 +363,9 @@
 	async function onBidBookTraitFilter(selection: {
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 	}): Promise<void> {
-		await goto(bidBookTraitsHref(biddingTraitCriteriaToTokenAttributes(selection.traits)));
+		const filters = bidBookCriteriaToBrowseFilters(selection.traits);
+		if (!filters) return;
+		await goto(bidBookTraitsHref(filters.traits, filters.traitRanges));
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -559,10 +562,13 @@
 		return bidBookTraitsHref([trait]);
 	}
 
-	function bidBookTraitsHref(traits: { key: string; value: string }[]): string {
+	function bidBookTraitsHref(
+		traits: { key: string; value: string }[],
+		traitRanges: ApiTraitRangeFilter[] = []
+	): string {
 		const query = buildCollectionBiddingQuery({
 			selectedTraits: traits,
-			selectedTraitRanges: [],
+			selectedTraitRanges: traitRanges,
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
 			mediaMode: collectionNavigationMediaMode(),

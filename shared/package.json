@@ -126,6 +126,7 @@
         "./read-models/collections": "./read-models/collections.ts",
         "./read-models/trait-filters": "./read-models/trait-filters.ts",
         "./trading/open-sea-bidding-offers": "./trading/open-sea-bidding-offers.ts",
+        "./trading/offer-trait-criteria": "./trading/offer-trait-criteria.ts",
         "./trading/open-sea-offer-price": "./trading/open-sea-offer-price.ts",
         "./trading/trait-competition": "./trading/trait-competition.ts",
         "./database/bidding-competition-presets": "./database/bidding-competition-presets.ts",

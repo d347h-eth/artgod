@@ -4,6 +4,11 @@
 		BidBookTraitValueHref
 	} from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
+	import {
+		formatTradingTraitCriterionValue,
+		isTradingNumericTraitRange
+	} from '@artgod/shared/types';
+	import { biddingTraitCriteriaKey } from '@artgod/shared/trading/offer-trait-criteria';
 
 	let {
 		traits,
@@ -15,7 +20,7 @@
 </script>
 
 <span class="bid-book-demand-trait-list">
-	{#each traits as trait, traitIndex (`${trait.type}:${trait.value}`)}
+	{#each traits as trait, traitIndex (biddingTraitCriteriaKey([trait]))}
 		<span class="bid-book-demand-trait-entry">
 			{#if traitIndex > 0}
 				<span class="bid-book-demand-trait-separator">+</span>
@@ -23,7 +28,7 @@
 			<span class="bid-book-demand-trait">
 				<span class="bid-book-demand-trait-key">{trimBidBookTraitText(trait.type)}</span>
 				<span class="bid-book-demand-trait-equals">=</span>
-				{#if traitValueHref}
+				{#if traitValueHref && !isTradingNumericTraitRange(trait)}
 					<a
 						class="bid-book-demand-trait-value-link"
 						href={traitValueHref({
@@ -34,7 +39,9 @@
 						{trimBidBookTraitText(trait.value)}
 					</a>
 				{:else}
-					<span class="bid-book-demand-trait-value">{trimBidBookTraitText(trait.value)}</span>
+					<span class="bid-book-demand-trait-value">
+						{trimBidBookTraitText(formatTradingTraitCriterionValue(trait))}
+					</span>
 				{/if}
 			</span>
 		</span>

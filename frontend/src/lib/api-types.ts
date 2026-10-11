@@ -24,6 +24,7 @@ import {
 	type TradingCompetitionPreset,
 	type TradingCompetitionPresetVersion
 } from '@artgod/shared/types';
+import type { TradingBiddingTraitCriterion } from '@artgod/shared/types';
 import type { EvmProxyConfidence, EvmProxyKind } from '@artgod/shared/evm/proxy-detection';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
 import type {
@@ -642,7 +643,7 @@ type ApiBiddingBidBookRowBase = {
 		kind: ApiBiddingBidScopeKind;
 		label: string;
 		tokenId: string | null;
-		traits: ApiTradingTraitCriterion[];
+		traits: TradingBiddingTraitCriterion[];
 	};
 	price: ApiBiddingBidBookPrice;
 	bidLimits: ApiBiddingBidBookBidLimits | null;

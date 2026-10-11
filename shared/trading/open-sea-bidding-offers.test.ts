@@ -9,6 +9,7 @@ import {
     isOpenSeaCollectionWideOffer,
     normalizeOpenSeaOfferTraitCriteria,
     parseOpenSeaBiddingOffer,
+    openSeaEncodedTokenIdsContain,
 } from "./open-sea-bidding-offers.js";
 
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -50,6 +51,82 @@ function makeSnapshotOffer(params: {
 }
 
 describe("OpenSea bidding offer parser", () => {
+    it("preserves mixed and numeric-only intervals in REST and SDK offers", () => {
+        for (const [min, max] of [
+            [1, 2],
+            [19, 20],
+            [-1.5, 2.5],
+        ]) {
+            for (const numericKey of ["numeric_traits", "numericTraits"]) {
+                const criteria = {
+                    traits: [{ type: "Mode", value: "Terrain" }],
+                    [numericKey]: [{ type: "Level", min, max }],
+                    encoded_token_ids: "1:2,19:20",
+                };
+                const parsed = parseOpenSeaBiddingOffer(
+                    makeSnapshotOffer({
+                        orderHash: "0xrange",
+                        maker: MAKER_ADDRESS,
+                        priceWei: "300000000000000000",
+                        criteria,
+                    }),
+                );
+                assert.ok(parsed);
+                assert.equal(parsed.offerScope, "trait");
+                assert.equal(
+                    parsed.bidScope.kind,
+                    TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                );
+                assert.equal(
+                    parsed.bidScope.label,
+                    `Mode=Terrain + Level=${min}–${max}`,
+                );
+                assert.deepEqual(parsed.bidScope.traits, [
+                    { type: "Mode", value: "Terrain" },
+                    { type: "Level", min, max },
+                ]);
+                const numericOnly = makeSnapshotOffer({
+                    orderHash: "0xnumeric",
+                    maker: MAKER_ADDRESS,
+                    priceWei: "300000000000000000",
+                    criteria: { [numericKey]: [{ type: "Level", min, max }] },
+                });
+                assert.equal(isOpenSeaCollectionWideOffer(numericOnly), false);
+                assert.equal(
+                    parseOpenSeaBiddingOffer(numericOnly)?.bidScope.kind,
+                    TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                );
+            }
+        }
+    });
+
+    it("rejects incomplete, reversed and non-finite numeric constraints as a whole", () => {
+        for (const range of [
+            { min: 1 },
+            { max: 2 },
+            { min: 2, max: 1 },
+            { min: NaN, max: 2 },
+            { min: 1, max: Infinity },
+            { min: "1", max: 2 },
+        ]) {
+            assert.throws(() =>
+                normalizeOpenSeaOfferTraitCriteria({
+                    traits: [{ type: "Mode", value: "Terrain" }],
+                    numeric_traits: [{ type: "Level", ...range }],
+                }),
+            );
+        }
+    });
+
+    it("checks complete finite encoded membership without accepting malformed ranges", () => {
+        assert.equal(openSeaEncodedTokenIdsContain("1:2,19:20", "1"), true);
+        assert.equal(openSeaEncodedTokenIdsContain("1:2,19:20", "20"), true);
+        assert.equal(openSeaEncodedTokenIdsContain("1:2,19:20", "10"), false);
+        for (const invalid of ["1,broken", "2:1", "1:2:3", "1,", ""]) {
+            assert.equal(openSeaEncodedTokenIdsContain(invalid, "1"), false);
+        }
+    });
+
     it("preserves direct lookup parsing from the bidder service specs", () => {
         const parsed = parseOpenSeaBiddingOffer(
             {
@@ -200,10 +277,10 @@ describe("OpenSea bidding offer parser", () => {
 
         assert.ok(parsed);
         assert.equal(
-            parsed.bidScope.traits[0]?.value.length,
+            parsed.bidScope.traits[0]?.value?.length,
             TRADING_TRAIT_TEXT_MAX_LENGTH,
         );
-        assert.equal(parsed.bidScope.traits[0]?.value.endsWith("..."), true);
+        assert.equal(parsed.bidScope.traits[0]?.value?.endsWith("..."), true);
         assert.equal(
             parsed.bidScope.label.length,
             "Dynamic=".length + TRADING_TRAIT_TEXT_MAX_LENGTH,

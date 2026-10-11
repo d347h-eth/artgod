@@ -1,7 +1,7 @@
 import { parseOpenSeaBiddingOffer } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { logger } from "@artgod/shared/utils";
 import { TRADING_BIDDING_BID_SCOPE_KIND } from "@artgod/shared/types";
-import type { TradingTraitCriterion } from "@artgod/shared/types";
+import type { TradingBiddingTraitCriterion } from "@artgod/shared/types";
 import type {
     OrderLocalTokenSetStatus,
     OrderSourceScopeKind,
@@ -11,7 +11,6 @@ import {
     ORDER_SOURCE_SCOPE_KIND,
 } from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
-import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 import {
     assertAddress,
     normalizeCriteriaRoot,
@@ -19,6 +18,7 @@ import {
 import {
     buildAttributeSchema,
     buildCollectionSchema,
+    normalizeSchema,
 } from "../token-sets/utils.js";
 
 export type OpenSeaBiddingOrderTerms = {
@@ -123,7 +123,7 @@ function mapBidScopeToOrderScope(
     scope: {
         kind: string;
         tokenId: string | null;
-        traits: TradingTraitCriterion[];
+        traits: TradingBiddingTraitCriterion[];
         encodedTokenIds: string | null;
     },
 ): {
@@ -147,11 +147,10 @@ function mapBidScopeToOrderScope(
     }
 
     if (scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
-        const attributes = normalizeUniqueAttributeList(
-            scope.traits.map((trait) => ({
-                key: trait.type,
-                value: trait.value,
-            })),
+        const attributes = scope.traits.map((trait) =>
+            trait.value === undefined
+                ? { key: trait.type, min: trait.min, max: trait.max }
+                : { key: trait.type, value: trait.value },
         );
         if (attributes.length === 0) {
             return null;
@@ -159,7 +158,9 @@ function mapBidScopeToOrderScope(
         return {
             tokenId: null,
             sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
-            sourceSchema: buildAttributeSchema(collectionAddress, attributes),
+            sourceSchema: normalizeSchema(
+                buildAttributeSchema(collectionAddress, attributes),
+            ),
             sourceEncodedTokenIds: scope.encodedTokenIds ?? null,
             localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         };
