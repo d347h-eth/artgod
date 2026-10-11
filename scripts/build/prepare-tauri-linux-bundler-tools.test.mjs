@@ -30,6 +30,7 @@ import {
     validatePinnedToolsManifest,
 } from "./prepare-tauri-linux-bundler-tools.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
+import { ENV_GITHUB_TOKEN } from "./github-api.mjs";
 
 const testCliVersion = "2.11.3-test";
 const testPublishedAt = "2025-01-01T00:00:00Z";
@@ -189,6 +190,8 @@ test("requires script URLs to select their declared source revision", () => {
 });
 
 test("downloads, verifies, and reuses only pinned executable bytes", async () => {
+    const token = "linux-bundler-input-test-token";
+    const environment = { [ENV_GITHUB_TOKEN]: token };
     const temporaryRoot = await mkdtemp(
         path.join(os.tmpdir(), "artgod-tauri-tools-test-"),
     );
@@ -201,6 +204,13 @@ test("downloads, verifies, and reuses only pinned executable bytes", async () =>
     let fetchCount = 0;
     const fetchImplementation = async (url, options) => {
         fetchCount += 1;
+        const headers = new Headers(options?.headers);
+        assert.equal(
+            headers.get("authorization"),
+            new URL(url).origin === "https://api.github.com"
+                ? `Bearer ${token}`
+                : null,
+        );
         if (isMetadataRequest(options)) {
             return testMetadataResponse(manifest, url);
         }
@@ -224,6 +234,7 @@ test("downloads, verifies, and reuses only pinned executable bytes", async () =>
             expectedTauriCliVersion: testCliVersion,
             fetchImplementation,
             logger: () => {},
+            environment,
         });
 
         assert.equal(fetchCount, manifest.tools.length * 2);
@@ -239,6 +250,7 @@ test("downloads, verifies, and reuses only pinned executable bytes", async () =>
             expectedTauriCliVersion: testCliVersion,
             fetchImplementation,
             logger: () => {},
+            environment,
         });
         assert.equal(fetchCount, manifest.tools.length * 2);
 
@@ -253,6 +265,7 @@ test("downloads, verifies, and reuses only pinned executable bytes", async () =>
             expectedTauriCliVersion: testCliVersion,
             fetchImplementation,
             logger: () => {},
+            environment,
         });
         assert.equal(fetchCount, manifest.tools.length * 2 + 2);
         assert.deepEqual(

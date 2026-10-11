@@ -18,6 +18,7 @@ import {
     DESKTOP_NODE_DIST_TARGET,
 } from "./native-runtime-dependencies.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
+import { ENV_GITHUB_TOKEN } from "./github-api.mjs";
 
 const scratchRoot = fileURLToPath(new URL("../../tmp/", import.meta.url));
 const now = new Date("2026-10-03T00:00:00Z");
@@ -180,7 +181,11 @@ async function fixture() {
     const inputs = validate(value);
     const requests = [];
     const fetchImplementation = async (url, options = {}) => {
-        requests.push({ url, method: options.method });
+        requests.push({
+            url,
+            method: options.method,
+            headers: new Headers(options.headers),
+        });
         if (url === "https://nodejs.org/dist/index.json") {
             return Response.json([
                 {
@@ -266,6 +271,7 @@ test("release dates and changed Node/NATS upload metadata fail before archive do
 
 test("fresh universal slices and assemblies ignore altered staging and legacy derived caches", async () => {
     const f = await fixture();
+    const token = "universal-runtime-input-test-token";
     const resourcesRootDir = path.join(f.rootDir, "resources");
     const context = resolveDesktopRuntimeInputContext(f.inputs, {
         environment: {
@@ -299,12 +305,26 @@ test("fresh universal slices and assemblies ignore altered staging and legacy de
         context,
         platform: "darwin",
         runCommand,
+        environment: { [ENV_GITHUB_TOKEN]: token },
     };
     const binaries = await stageDesktopRuntimeExecutables({
         ...options,
         fetchImplementation: f.fetchImplementation,
     });
     const expected = await readFile(binaries.node);
+    const githubRequests = f.requests.filter(
+        ({ url }) => new URL(url).origin === "https://api.github.com",
+    );
+    assert.equal(
+        githubRequests.length,
+        4,
+        "both NATS slices need metadata and archive requests",
+    );
+    for (const { headers } of githubRequests)
+        assert.equal(headers.get("authorization"), `Bearer ${token}`);
+    for (const { url, headers } of f.requests)
+        if (new URL(url).origin !== "https://api.github.com")
+            assert.equal(headers.has("authorization"), false);
     for (const runtime of Object.values(DESKTOP_RUNTIME_INPUT)) {
         await writeFile(binaries[runtime], "modified staged executable");
         const legacy = path.join(

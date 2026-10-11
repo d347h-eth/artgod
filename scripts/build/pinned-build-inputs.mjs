@@ -5,11 +5,14 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import {
+    createGitHubBuildInputFetch,
+    GITHUB_METADATA_MEDIA_TYPE,
+} from "./github-api.mjs";
+import {
     DEFAULT_MINIMUM_AGE_DAYS,
     calculateCutoffDate,
 } from "../security/dependency-age-policy.mjs";
 
-export const GITHUB_METADATA_MEDIA_TYPE = "application/vnd.github+json";
 export const GITHUB_RELEASE_ASSET_URL_PATTERN =
     /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/[\w.-]+\/releases\/assets\/[1-9][0-9]*$/;
 const BINARY_DOWNLOAD_MEDIA_TYPE = "application/octet-stream";
@@ -92,6 +95,7 @@ export async function materializePinnedInput({
     temporaryDirectory,
     verifyProvenance,
     fetchImplementation = fetch,
+    environment = process.env,
     mode = 0o600,
 }) {
     assertPinnedInputBytesContract(input);
@@ -99,8 +103,13 @@ export async function materializePinnedInput({
         await chmod(destinationPath, mode);
         return destinationPath;
     }
-    await verifyProvenance(input, fetchImplementation);
-    const response = await fetchImplementation(input.url, {
+    const fetchInput = createGitHubBuildInputFetch({
+        fetchImplementation,
+        environment,
+        description: `pinned input ${input.fileName}`,
+    });
+    await verifyProvenance(input, fetchInput);
+    const response = await fetchInput(input.url, {
         headers: { Accept: BINARY_DOWNLOAD_MEDIA_TYPE },
     });
     if (!response.ok || !response.body) {

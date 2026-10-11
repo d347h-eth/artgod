@@ -243,6 +243,7 @@ jobs:
             - name: Build Linux Tauri bundle
               if: runner.os == 'Linux'
               env:
+                  GITHUB_TOKEN: ${{ github.token }}
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -251,6 +252,7 @@ jobs:
             - name: Build macOS Tauri bundle
               if: runner.os == 'macOS'
               env:
+                  GITHUB_TOKEN: ${{ github.token }}
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

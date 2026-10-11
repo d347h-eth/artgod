@@ -18,6 +18,7 @@ import {
 import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
 import { TAURI_BUILD_SCRIPT_NAMES } from "./build-tauri.mjs";
 import { MACOS_CODE_SIGNING_MODE } from "./macos-code-signing.mjs";
+import { ENV_GITHUB_TOKEN } from "./github-api.mjs";
 import {
     DESKTOP_NODE_DIST_TARGET,
     DESKTOP_RUST_TARGET,
@@ -241,6 +242,39 @@ test("CI consumes the ordered Linux verification owner", async () => {
             "check:linux-bundled-runtime",
         ],
     );
+});
+
+test("CI build steps authenticate pinned GitHub input requests", async () => {
+    const stepsByWorkflow = {
+        "tauri-build-check.yml": [
+            "Verify Linux no-bundle build",
+            "Build and verify Linux bundles",
+            "Stage macOS desktop runtime resources",
+            "Build unsigned universal macOS DMG",
+        ],
+        "tauri-release.yml": [
+            "Build Linux Tauri bundle",
+            "Build macOS Tauri bundle",
+        ],
+        "tauri-repro-check.yml": [
+            "Build unsigned binary (pass A)",
+            "Build unsigned binary (pass B)",
+        ],
+    };
+    for (const [workflow, steps] of Object.entries(stepsByWorkflow)) {
+        const source = await readFile(
+            path.join(workflowsDirectory, workflow),
+            "utf8",
+        );
+        for (const name of steps) {
+            assert.match(
+                extractWorkflowStep(source, name),
+                new RegExp(
+                    `${ENV_GITHUB_TOKEN}:\\s*${escapeRegExp("${{ github.token }}")}`,
+                ),
+            );
+        }
+    }
 });
 
 test("keeps checkout credentials out of subsequent workflow steps", async () => {
