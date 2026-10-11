@@ -130,6 +130,49 @@ describe("offchain dispatch", () => {
         );
     });
 
+    it("keeps both string and numeric constraints when dispatching a REST offer", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const record = buildRestNumericTraitOfferRecord();
+        record.criteria = {
+            contract: { address: CONTRACT },
+            traits: [{ type: "Mode", value: "Terrain" }],
+            numeric_traits: [{ type: "Level", min: 1, max: 2 }],
+            encoded_token_ids: "1:2",
+        };
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "snapshot",
+            dedupeKey: "snapshot:test:ranged-trait-offer",
+            eventType: "rest.offer.collection",
+            orderId: String(record.order_hash),
+            runId: 1,
+            sourceEventAt: 1773545938,
+            payload: record,
+        };
+        await dispatchOffchainPayload(
+            queue,
+            new SqliteTokenSetRegistry(),
+            payload,
+        );
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.sourceScopeKind).toBe("attribute");
+        expect(upsert.payload.sourceEncodedTokenIds).toBe("1:2");
+        expect(upsert.payload.sourceSchema).toEqual({
+            kind: "attribute",
+            data: {
+                collection: CONTRACT,
+                attributes: [
+                    { key: "Level", min: 1, max: 2 },
+                    { key: "Mode", value: "Terrain" },
+                ],
+            },
+        });
+    });
+
     it("persists REST numeric-trait offers through shared OpenSea bidding parser semantics", async () => {
         const collectionId = ensureCollection(1, CONTRACT);
         const queue = new QueueCapture();

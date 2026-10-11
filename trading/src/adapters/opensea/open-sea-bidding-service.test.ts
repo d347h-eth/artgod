@@ -1331,6 +1331,119 @@ describe("OpenSeaBiddingService", () => {
         assert.equal(traitOfferCalls, 0);
     });
 
+    it("keeps ranged competition and token applicability consistent across snapshot and fallback reads", async () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        const rawOffers = [
+            [1, 2],
+            [19, 20],
+        ].map(([min, max]) =>
+            makeOffer(
+                `0xrange-${min}`,
+                "0xother",
+                "300000000000000000",
+                collectionAddress,
+                {
+                    traits: [mode],
+                    numeric_traits: [{ type: "Level", min, max }],
+                },
+            ),
+        );
+        const target = {
+            id: "range-job",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+                traits: [mode],
+            },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        for (const cached of [true, false]) {
+            const sdk = new MockOpenSeaSdk();
+            sdk.api.getAllOffers = async () => ({ offers: rawOffers });
+            const service = new OpenSeaBiddingService(
+                sdk as any,
+                makerAddress,
+                {
+                    collectionOfferSnapshotProvider: cached
+                        ? new FakeCollectionOfferSnapshotProvider({
+                              [collectionSlug]: {
+                                  collectionSlug,
+                                  refreshedAt: Date.now(),
+                                  offers: rawOffers,
+                              },
+                          })
+                        : undefined,
+                },
+            );
+            assert.deepEqual(await service.getActiveOffers(target), []);
+            assert.deepEqual(
+                (
+                    await service.getActiveOffers({
+                        ...target,
+                        target: {
+                            ...target.target,
+                            traits: [mode, { type: "Level", value: "1" }],
+                        },
+                    })
+                ).map((offer) => offer.id),
+                ["0xrange-1"],
+            );
+            assert.deepEqual(
+                await service.getActiveOffers({
+                    ...target,
+                    target: {
+                        ...target.target,
+                        traits: [mode, { type: "Level", value: "10" }],
+                    },
+                }),
+                [],
+            );
+        }
+        const sdk = new MockOpenSeaSdk();
+        sdk.api.getOffersByNFT = async () => ({ offers: [] });
+        sdk.api.getCollectionOffers = async () => ({ offers: [] });
+        sdk.api.getBestOffer = async () => null;
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            collectionOfferSnapshotProvider:
+                new FakeCollectionOfferSnapshotProvider({
+                    [collectionSlug]: {
+                        collectionSlug,
+                        refreshedAt: Date.now(),
+                        offers: rawOffers,
+                    },
+                }),
+            tokenMetadataRepository: new FakeTokenMetadataRepository({
+                [`${collectionSlug}:132`]: [
+                    mode,
+                    { type: "Level", value: "10" },
+                ],
+                [`${collectionSlug}:1`]: [mode, { type: "Level", value: "1" }],
+            }),
+        });
+        assert.deepEqual(
+            await service.getActiveOffers({
+                ...target,
+                target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "132" },
+            }),
+            [],
+        );
+        assert.deepEqual(
+            (
+                await service.getActiveOffers({
+                    ...target,
+                    target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" },
+                })
+            ).map((offer) => offer.id),
+            ["0xrange-1"],
+        );
+    });
+
     it("uses cached snapshot discovery for multi-trait collection jobs and skips live collection fetches", async () => {
         const sdk = new MockOpenSeaSdk();
         let liveCollectionOfferCalls = 0;

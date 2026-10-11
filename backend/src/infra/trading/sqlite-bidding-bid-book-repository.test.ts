@@ -32,6 +32,7 @@ import {
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     type TradingBotRuntimeState,
+    type TradingBiddingTraitCriterion,
 } from "@artgod/shared/types";
 import {
     exactBidBookRowPrice,
@@ -122,6 +123,155 @@ describe("SqliteBiddingBidBookRepository", () => {
     afterEach(() => {
         vi.useRealTimers();
     });
+
+    for (const source of [
+        TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+    ]) {
+        it(`preserves complete numeric scopes and token membership from ${source}`, () => {
+            if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
+                seedBiddingRuntime(collectionId);
+                insertProjectedState(collectionId, Date.now());
+            }
+            for (const [min, max] of [
+                [1, 2],
+                [19, 20],
+            ]) {
+                const criteria: TradingBiddingTraitCriterion[] = [
+                    { type: "Mode", value: "Terrain" },
+                    { type: "Level", min, max },
+                ];
+                const orderId = `range-${min}`;
+                const encodedTokenIds = `${min}:${max}`;
+                if (source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders) {
+                    insertIndexedOrder({
+                        collectionId,
+                        id: orderId,
+                        scopeKind: "attribute",
+                        sourceEncodedTokenIds: encodedTokenIds,
+                        sourceSchema: {
+                            kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                            data: {
+                                collection: COLLECTION_ADDRESS,
+                                attributes: [
+                                    { key: "Mode", value: "Terrain" },
+                                    { key: "Level", min, max },
+                                ],
+                            },
+                        },
+                        updatedAt: INDEXED_ORDER_PLACED_AT,
+                    });
+                } else {
+                    insertProjectedBid({
+                        collectionId,
+                        orderId,
+                        scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                        scopeLabel: `Mode=Terrain + Level=${min}–${max}`,
+                        scopeTraits: criteria,
+                        encodedTokenIds,
+                        priceWei: "300000000000000000",
+                    });
+                }
+            }
+            const repository = new SqliteBiddingBidBookRepository();
+            const collectionInput = {
+                chainId: 1,
+                collectionId,
+                includeOwnJobContext: false,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+                traitFilterJoinMode:
+                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                selectedTraits: [],
+                selectedTraitRanges: [],
+            };
+            const book = repository.listCollectionBidBook(collectionInput);
+            assert.equal(book.state.source, source);
+            assert.equal(book.bids.length, 2);
+            assert.equal(book.bids[0].scopeTraits.length, 2);
+            assert.ok(
+                book.bids.some(
+                    (bid) => bid.scopeLabel === "Mode=Terrain + Level=1–2",
+                ),
+            );
+            assert.ok(
+                book.bids.some(
+                    (bid) => bid.scopeLabel === "Mode=Terrain + Level=19–20",
+                ),
+            );
+            // A plain Terrain bucket must not absorb narrower ranged offers.
+            assert.equal(
+                repository.listCollectionBidBook({
+                    ...collectionInput,
+                    selectedTraits: [{ key: "Mode", value: "Terrain" }],
+                }).bids.length,
+                0,
+            );
+            for (const level of ["1", "2", "19", "20"]) {
+                assert.equal(
+                    repository.listCollectionBidBook({
+                        ...collectionInput,
+                        selectedTraits: [
+                            { key: "Mode", value: "Terrain" },
+                            { key: "Level", value: level },
+                        ],
+                    }).bids.length,
+                    1,
+                );
+            }
+            assert.equal(
+                repository.listCollectionBidBook({
+                    ...collectionInput,
+                    selectedTraits: [
+                        { key: "Mode", value: "Terrain" },
+                        { key: "Level", value: "10" },
+                    ],
+                }).bids.length,
+                0,
+            );
+            assert.equal(
+                repository.listCollectionBidBook({
+                    ...collectionInput,
+                    selectedTraits: [{ key: "Mode", value: "Terrain" }],
+                    selectedTraitRanges: [
+                        { key: "Level", fromValue: "2", toValue: "19" },
+                    ],
+                }).bids.length,
+                2,
+            );
+            const tokenBook = (tokenId: string, level: string) =>
+                repository.listTokenBidBook({
+                    chainId: 1,
+                    collectionId,
+                    includeOwnJobContext: false,
+                    tokenId,
+                    tokenTraits: [
+                        { type: "Mode", value: "Terrain" },
+                        { type: "Level", value: level },
+                    ],
+                }).bids;
+            assert.equal(tokenBook("132", "10").length, 0);
+            assert.deepEqual(
+                tokenBook("1", "1").map((bid) => bid.orderId),
+                ["range-1"],
+            );
+            // Explicit source membership wins over changing token metadata.
+            assert.deepEqual(
+                tokenBook("1", "10").map((bid) => bid.orderId),
+                ["range-1"],
+            );
+            // Without encoded membership, metadata must satisfy the complete scope.
+            db.prepare(
+                source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders
+                    ? "UPDATE orders SET source_encoded_token_ids = NULL"
+                    : "UPDATE trading_bidding_bid_book_rows SET encoded_token_ids = NULL",
+            ).run();
+            assert.equal(tokenBook("132", "10").length, 0);
+            assert.deepEqual(
+                tokenBook("132", "2").map((bid) => bid.orderId),
+                ["range-1"],
+            );
+        });
+    }
 
     it("records source selection, orders mapping, filtering, and enrichment spans", () => {
         const apm = new CapturingApm();
@@ -3043,7 +3193,7 @@ function insertProjectedBid(input: {
     scopeLabel: string;
     maker?: string;
     tokenId?: string | null;
-    scopeTraits?: Array<{ type: string; value: string }>;
+    scopeTraits?: TradingBiddingTraitCriterion[];
     encodedTokenIds?: string | null;
     priceWei: string;
     placedAt?: string | null;

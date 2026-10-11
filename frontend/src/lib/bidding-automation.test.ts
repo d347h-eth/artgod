@@ -89,6 +89,21 @@ const EXISTING_TOKEN_JOB: ApiBiddingJob = {
 };
 
 describe('buildBiddingAutomationDraftFromBid', () => {
+	it('does not turn an observed numeric interval into an exact trait job', () => {
+		const bid: ApiBiddingBidBookRow = {
+			...BASE_BID,
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				label: 'Mode=Terrain + Level=1–2',
+				tokenId: null,
+				traits: [
+					{ type: 'Mode', value: 'Terrain' },
+					{ type: 'Level', min: 1, max: 2 }
+				]
+			}
+		};
+		expect(buildBiddingAutomationDraftFromBid(bid)).toBeNull();
+	});
 	it('creates a submittable token draft from a token-scoped bid', () => {
 		const draft = buildBiddingAutomationDraftFromBid(
 			{

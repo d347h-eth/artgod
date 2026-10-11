@@ -646,11 +646,19 @@ The key rule is: local token-set resolution failure or mismatch must not drop ot
 
 ### Token-set materialization
 
+OpenSea offer criteria preserve string `traits` and numeric `numeric_traits`
+(or SDK `numericTraits`) together. A numeric interval is stored as
+`{ key, min, max }` in an attribute schema; exact numeric values retain the
+existing `{ key, value }` shape. Bounds are finite, ordered, and inclusive.
+Malformed intervals reject the whole offer rather than broaden its scope.
+An offer with only numeric criteria is still attribute-scoped.
+
 The token-set registry materializes collection and attribute schemas from the
 canonical local collection state:
 
 - attribute key/value pairs are trimmed, deduplicated, and sorted before the
-  normalized schema JSON is hashed with SHA-256;
+  normalized schema JSON is hashed with SHA-256; numeric bounds participate in
+  the same fingerprint without changing existing exact-schema hashes;
 - attribute schemas resolve membership with AND semantics across canonical
   metadata traits only; extension-owned browse traits do not silently change
   marketplace criteria membership;
@@ -663,6 +671,11 @@ canonical local collection state:
 - `token_sets` stores the normalized schema, schema hash, Merkle root, and
   `list:<contract>:<root>` identity; `token_sets_tokens` stores membership
   under both token-set identity and schema hash.
+
+Numeric attribute membership streams canonical metadata one token at a time
+and requires every string and numeric constraint. Decimal metadata must parse
+as a finite number; blank, hexadecimal, or nonnumeric text never satisfies a
+range. Extension-owned attributes remain excluded.
 
 An empty local set is `unresolved`. For an attribute offer, a computed root
 that differs from the source criteria root is `mismatch`. Only a matching

@@ -2162,6 +2162,34 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
 	});
 
+	test('renders numeric trait ranges as separate buckets with complete filter navigation', async ({
+		page
+	}, testInfo) => {
+		await rememberUnfilteredBiddingNavigation(page);
+		const api = await installBiddingAutomationApiMock(page);
+		api.setBidBookScenario(BIDDING_E2E_SCENARIO.NumericTraitRanges);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=traits&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.NumericTraitRanges}`
+		);
+		const groups = page.locator('.bid-book-demand-group-row');
+		await expect(groups).toHaveCount(2);
+		await expect(groups.filter({ hasText: /Level\s*=\s*1–2/ })).toHaveCount(1);
+		await expect(groups.filter({ hasText: /Level\s*=\s*19–20/ })).toHaveCount(1);
+		await expect(page.getByTestId(TEST_IDS.BidBookTraitBucketBid)).toHaveCount(0);
+		await expect(page.getByTestId(TEST_IDS.BidBookRowBid)).toHaveCount(0);
+		await page.screenshot({
+			path: testInfo.outputPath('numeric-trait-ranges.png'),
+			fullPage: true
+		});
+		await clickCenterVerifiedAction(
+			groups.filter({ hasText: /Level\s*=\s*1–2/ }).getByTestId(TEST_IDS.BidBookTraitBucketFilter)
+		);
+		await expect(page).toHaveURL(/traits=Mode%3ATerrain/);
+		await expect(page).toHaveURL(/trait_ranges=Level%3A1\.\.2/);
+		await expect(page.getByTestId(TEST_IDS.BiddingPanel)).toHaveCount(0);
+	});
+
 	test('supports trait bucket bid and filter actions independently', async ({ page }, testInfo) => {
 		await rememberUnfilteredBiddingNavigation(page);
 		await installBiddingAutomationApiMock(page);

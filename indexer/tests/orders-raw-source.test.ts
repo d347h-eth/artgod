@@ -1,3 +1,4 @@
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -7,6 +8,7 @@ import { ORDER_RETIREMENT_REASON } from "../src/domain/order-retention.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import {
     ORDER_SEAPORT_DATA_SOURCE_KIND,
+    ORDER_SOURCE_SCOPE_KIND,
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
     type OrderRecord,
@@ -31,6 +33,71 @@ describe("orders raw source selection", () => {
 
     beforeEach(() => {
         db.exec(["DELETE FROM orders;", "DELETE FROM collections;"].join("\n"));
+    });
+
+    it("replaces a previously flattened scope when REST refreshes the same active order", async () => {
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async () => ({ status: ORDER_STATUS.Fillable, reason: "unused" }),
+        );
+        const payload = buildOrderUpsert("rest", {});
+        ensureCollection(
+            payload.chainId,
+            payload.collectionId,
+            payload.contract,
+        );
+        const legacySchema = {
+            kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+            data: {
+                collection: payload.contract,
+                attributes: [{ key: "Mode", value: "Terrain" }],
+            },
+        } as const;
+        await domain.handleOrderUpsert({
+            ...payload,
+            tokenId: null,
+            sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
+            sourceSchema: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: payload.contract,
+                    attributes: [...legacySchema.data.attributes],
+                },
+            },
+        });
+        const sourceSchema = {
+            kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+            data: {
+                collection: payload.contract,
+                attributes: [
+                    { key: "Mode", value: "Terrain" },
+                    { key: "Level", min: 1, max: 2 },
+                ],
+            },
+        } as const;
+        const result = await domain.handleOrderUpsert({
+            ...payload,
+            tokenId: null,
+            sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
+            sourceSchema: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: payload.contract,
+                    attributes: [...sourceSchema.data.attributes],
+                },
+            },
+        });
+        expect(result.changed).toBe(true);
+        const stored = db
+            .prepare(
+                "SELECT source_schema_json, raw_rest_data FROM orders WHERE id = ?",
+            )
+            .get(payload.orderId) as {
+            source_schema_json: string;
+            raw_rest_data: string | null;
+        };
+        expect(JSON.parse(stored.source_schema_json)).toEqual(sourceSchema);
+        expect(stored.raw_rest_data).toBeNull();
     });
 
     it("validates using canonical seaport data rather than audit payload fields", async () => {

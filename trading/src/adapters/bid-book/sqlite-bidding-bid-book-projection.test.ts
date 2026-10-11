@@ -156,6 +156,57 @@ describe("SqliteBiddingBidBookProjection", () => {
         collectionId = seedCollection();
     });
 
+    it("persists complete numeric scopes from a collection snapshot", async () => {
+        const offers = [
+            [1, 2],
+            [19, 20],
+        ].map(([min, max]) =>
+            makeOpenSeaOffer({
+                orderHash: `range-${min}`,
+                offerer: OTHER_ADDRESS,
+                priceWei: "300000000000000000",
+                nftItemType: 4,
+                identifierOrCriteria: "123",
+                criteria: {
+                    traits: [{ type: "Mode", value: "Terrain" }],
+                    numeric_traits: [{ type: "Level", min, max }],
+                    encoded_token_ids: `${min}:${max}`,
+                },
+            }),
+        );
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const result = await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "range-regression",
+        );
+        assert.equal(result.rowCount, 2);
+        const rows = db
+            .prepare(
+                "SELECT scope_label, scope_traits_json, encoded_token_ids FROM trading_bidding_bid_book_rows ORDER BY order_id",
+            )
+            .all() as ProjectedRow[];
+        assert.deepEqual(
+            rows.map((row) => row.scope_label),
+            ["Mode=Terrain + Level=1–2", "Mode=Terrain + Level=19–20"],
+        );
+        assert.deepEqual(JSON.parse(rows[0].scope_traits_json), [
+            { type: "Mode", value: "Terrain" },
+            { type: "Level", min: 1, max: 2 },
+        ]);
+        assert.equal(rows[0].encoded_token_ids, "1:2");
+    });
+
     it("keeps skipped writes unpublished but publishes a valid empty bid book", async () => {
         const missingSlug = "missing-projection-collection";
         const projection = new SqliteBiddingBidBookProjection(
