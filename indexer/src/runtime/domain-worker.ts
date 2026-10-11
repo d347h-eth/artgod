@@ -1,3 +1,4 @@
+import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
     SYNC_WORK_CLASS,
@@ -178,6 +179,7 @@ async function main() {
             config.debugPayloads,
             undefined,
             createValidationBatch,
+            new OrderMutationProgress(config.chainId),
         );
         const orderValidationStore = new SqliteOrderValidationDemand(
             ordersDomain,

@@ -1,6 +1,8 @@
+import { ORDER_DOMAIN_LOG_COMPONENT } from "./orders-reporting.js";
+
 // Log context fields keep maker revalidation output searchable across workers.
 export const ORDER_UPDATE_BY_MAKER_LOG_CONTEXT = {
-    Component: "OrdersDomain",
+    Component: ORDER_DOMAIN_LOG_COMPONENT,
     Action: "handleOrderUpdateByMaker",
 } as const;
 

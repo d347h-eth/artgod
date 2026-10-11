@@ -5,6 +5,7 @@ import type {
     ProcessingObserver,
 } from "../processing-observability.js";
 import type { OrderValidationBatchReport } from "./validate-order-demand.js";
+import type { OrderSourceStatus } from "../../domain/orders.js";
 
 /** Stable operation names shared by APM spans and bounded metric labels. */
 export const ORDER_PROCESSING_OPERATION = {
@@ -73,3 +74,13 @@ export interface OrderProcessingObserver extends ProcessingObserver {
 export type OrderProcessingObservability = ProcessingObservability & {
     observer?: OrderProcessingObserver;
 };
+
+/** Observe committed outcomes only; a diagnostic failure must not retry the mutation. */
+export interface OrderMutationObserver {
+    upserted(changed: boolean): void;
+    sourceUpdated(
+        changed: boolean,
+        status: OrderSourceStatus,
+        reason: string,
+    ): void;
+}

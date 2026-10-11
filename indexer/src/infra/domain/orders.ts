@@ -1,3 +1,6 @@
+import type { OrderMutationObserver } from "../../application/orders/observability.js";
+import { observeBestEffort } from "../../application/processing-observability.js";
+import { ORDER_DOMAIN_LOG_COMPONENT } from "./orders-reporting.js";
 import { db } from "@artgod/shared/database";
 import { zeroAddress } from "viem";
 import { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
@@ -355,6 +358,7 @@ export class SqliteOrdersDomain
         private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
         private readonly nowSeconds = () => Math.floor(Date.now() / 1000),
         private readonly createValidationBatch?: MakerValidationBatchFactory,
+        private readonly mutations?: OrderMutationObserver,
     ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
@@ -367,7 +371,7 @@ export class SqliteOrdersDomain
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
         logger.debug("Orders domain sync ignored", {
-            component: "OrdersDomain",
+            component: ORDER_DOMAIN_LOG_COMPONENT,
             action: "handleDomainSync",
             ...context,
             reason: "order-updates-flow-through-dedicated-jobs",
@@ -567,7 +571,8 @@ export class SqliteOrdersDomain
     async handleOrderUpdateById(
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {
-        if (payload.sourceStatus) {
+        const sourceStatus = payload.sourceStatus;
+        if (sourceStatus) {
             const result = db.writeTransaction(() => {
                 const applied = this.applySourceObservation(payload);
                 if (applied.changes)
@@ -579,15 +584,13 @@ export class SqliteOrdersDomain
                 return applied;
             })();
 
-            logger.debug("Orders source update-by-id applied", {
-                component: "OrdersDomain",
-                action: "handleOrderUpdateById",
-                chainId: payload.chainId,
-                orderId: payload.orderId,
-                reason: payload.reason,
-                sourceStatus: payload.sourceStatus,
-                updated: result.changes,
-            });
+            observeBestEffort(() =>
+                this.mutations?.sourceUpdated(
+                    result.changes > 0,
+                    sourceStatus,
+                    payload.reason,
+                ),
+            );
             return;
         }
 
@@ -596,7 +599,7 @@ export class SqliteOrdersDomain
 
         if (!status) {
             logger.debug("Orders update-by-id ignored", {
-                component: "OrdersDomain",
+                component: ORDER_DOMAIN_LOG_COMPONENT,
                 action: "handleOrderUpdateById",
                 ...payload,
             });
@@ -611,7 +614,7 @@ export class SqliteOrdersDomain
             }) as OrderRow | undefined;
             if (!row) {
                 logger.warn("Orders update-by-id missing order", {
-                    component: "OrdersDomain",
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
                     action: "handleOrderUpdateById",
                     ...payload,
                 });
@@ -627,7 +630,7 @@ export class SqliteOrdersDomain
                 logger.debug(
                     "Orders update-by-id skipped before bootstrap anchor",
                     {
-                        component: "OrdersDomain",
+                        component: ORDER_DOMAIN_LOG_COMPONENT,
                         action: "handleOrderUpdateById",
                         chainId: row.chain_id,
                         collectionId: row.collection_id,
@@ -650,7 +653,7 @@ export class SqliteOrdersDomain
                 }) as OrderRow | undefined);
             if (!orderRow) {
                 logger.warn("Orders update-by-id missing order", {
-                    component: "OrdersDomain",
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
                     action: "handleOrderUpdateById",
                     ...payload,
                 });
@@ -668,7 +671,7 @@ export class SqliteOrdersDomain
                 const validation = await this.validateOrder(order);
                 finalStatus = validation.status;
                 logger.debug("Orders validation result", {
-                    component: "OrdersDomain",
+                    component: ORDER_DOMAIN_LOG_COMPONENT,
                     action: "handleOrderUpdateById",
                     orderId: orderRow.id,
                     chainId: orderRow.chain_id,
@@ -680,7 +683,7 @@ export class SqliteOrdersDomain
                 logger.warn(
                     "Orders update-by-id missing canonical seaport data",
                     {
-                        component: "OrdersDomain",
+                        component: ORDER_DOMAIN_LOG_COMPONENT,
                         action: "handleOrderUpdateById",
                         chainId: orderRow.chain_id,
                         orderId: orderRow.id,
@@ -711,7 +714,7 @@ export class SqliteOrdersDomain
         })();
 
         logger.debug("Orders update-by-id applied", {
-            component: "OrdersDomain",
+            component: ORDER_DOMAIN_LOG_COMPONENT,
             action: "handleOrderUpdateById",
             ...payload,
             status: finalStatus,
@@ -834,7 +837,7 @@ export class SqliteOrdersDomain
     }> {
         // Admission, tombstone checks and mutation share the writer snapshot.
         // There is no network work inside this transaction.
-        return db.writeTransaction(() => {
+        const outcome = db.writeTransaction(() => {
             const outcome = this.applyOrderUpsert(payload);
             if (payload.validateAfterUpsert && outcome.validationNeeded) {
                 const now = this.nowSeconds() * 1_000;
@@ -854,6 +857,8 @@ export class SqliteOrdersDomain
             }
             return outcome;
         })();
+        observeBestEffort(() => this.mutations?.upserted(outcome.changed));
+        return outcome;
     }
 
     private applyOrderUpsert(payload: OrderUpsertPayload): {
@@ -1028,15 +1033,6 @@ export class SqliteOrdersDomain
         if (retired) this.retirements.forget(payload.chainId, payload.orderId);
         this.listingPrices.refreshOrder(payload.chainId, payload.orderId, now);
 
-        logger.debug("Orders upsert applied", {
-            component: "OrdersDomain",
-            action: "handleOrderUpsert",
-            orderId: payload.orderId,
-            chainId: payload.chainId,
-            kind: payload.kind,
-            side: payload.side,
-            updated: result.changes,
-        });
         return {
             changed: result.changes > 0,
             validationNeeded:

@@ -41,11 +41,29 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Components and Wiring
 
+### Order mutation progress
+
+The domain worker emits `Order mutation progress` (`component=OrdersDomain`,
+`action=order_mutation_progress`) once per 60-second active window for its
+configured chain. This replaces the routine `Orders upsert applied` and
+`Orders source update-by-id applied` lines. Each group reports `processed`,
+`changed` and `unchanged` after the transaction commits. Upsert `unchanged`
+includes ignored stale/retired observations and inputs that did not change the
+canonical order; it does not mean validation ran. Source updates also count the
+incoming source statuses and reasons. Unknown reasons use one `other` bucket.
+These counts describe processed observations, not distinct orders, validations
+or the current global inventory. Validation results have their own report below.
+
+Storage is fixed-size counters with no identifiers, arbitrary keys or event
+buffers. Idle windows emit nothing, a timer reports the last active window and
+graceful stop flushes any partial window. Failures and warnings remain immediate;
+diagnostic sink failures cannot turn committed mutations into retries.
+
 ### Order validation demand progress
 
 The domain worker emits `Order validation demand progress` through the ordinary
 structured logger, including in desktop builds. One bounded aggregate covers a
-ten-second window; idle polls can flush a final partial window, and graceful stop
+60-second window; a timer flushes the last active window, and graceful stop
 flushes remaining observations. It holds counters only, without per-order or
 per-wallet arrays. `chainId` and `component = OrderValidationDemand` identify it.
 

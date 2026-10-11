@@ -1,4 +1,8 @@
 import { logger } from "@artgod/shared/utils";
+import {
+    LOG_REPORTING_POLICY,
+    WindowedLogReporter,
+} from "@artgod/shared/observability/log-reporting";
 import { ORDER_VALIDATION_DEMAND_LOG as LOG } from "../../domain/order-validation-demand.js";
 import type {
     OrderValidationBatchReport,
@@ -6,95 +10,88 @@ import type {
 } from "../../application/orders/validate-order-demand.js";
 import { ORDER_VALIDATION_BATCH_COUNTERS as counters } from "../../application/orders/observability.js";
 
-export const ORDER_VALIDATION_REPORTING_POLICY = Object.freeze({
-    intervalMs: 10_000,
-});
+export const ORDER_VALIDATION_REPORTING_POLICY = LOG_REPORTING_POLICY;
 
-const emptyCounts = () => ({
-    scanned: 0,
-    claimed: 0,
-    validated: 0,
-    applied: 0,
-    covered: 0,
-    resolvedUnneeded: 0,
-    followup: 0,
-    retried: 0,
-    released: 0,
-    lostClaims: 0,
+const emptyProgress = () => ({
+    batches: 0,
+    counts: {
+        scanned: 0,
+        claimed: 0,
+        validated: 0,
+        applied: 0,
+        covered: 0,
+        resolvedUnneeded: 0,
+        followup: 0,
+        retried: 0,
+        released: 0,
+        lostClaims: 0,
+    },
+    batchDurationMs: 0,
+    maximumBatchDurationMs: 0,
+    oldestRequiredAt: null as number | null,
+    reads: { perOrder: 0, shared: 0, other: 0, statusBatches: 0 },
 });
 
 /** One bounded aggregate per chain worker/window; no order/maker identifiers or arrays. */
 export class OrderValidationDemandProgress implements OrderValidationDemandReporter {
-    private startedAt: number;
-    private batches = 0;
-    private counts = emptyCounts();
-    private batchDurationMs = 0;
-    private maximumBatchDurationMs = 0;
-    private oldestRequiredAt: number | null = null;
-    private reads = { perOrder: 0, shared: 0, other: 0, statusBatches: 0 };
+    private readonly progress: WindowedLogReporter<
+        ReturnType<typeof emptyProgress>
+    >;
 
-    constructor(
-        private readonly chainId: number,
-        private readonly now: () => number = Date.now,
-    ) {
-        this.startedAt = now();
+    constructor(chainId: number, now: () => number = Date.now) {
+        this.progress = new WindowedLogReporter(
+            emptyProgress,
+            (state, window) => {
+                logger.info(LOG.Progress, {
+                    component: LOG.Component,
+                    chainId,
+                    ...window,
+                    batches: state.batches,
+                    ...state.counts,
+                    // Durations add across concurrent batches and can exceed the wall-clock window.
+                    batchDurationMs: state.batchDurationMs,
+                    maximumBatchDurationMs: state.maximumBatchDurationMs,
+                    oldestSampledRequiredAt: state.oldestRequiredAt,
+                    contractReads: state.reads,
+                });
+            },
+            now,
+        );
     }
 
     record(report: OrderValidationBatchReport | undefined): void {
-        if (report) {
-            this.batches++;
-            for (const key of counters) this.counts[key] += report[key];
-            this.batchDurationMs += report.durationMs;
-            this.maximumBatchDurationMs = Math.max(
-                this.maximumBatchDurationMs,
-                report.durationMs,
-            );
-            if (report.oldestRequiredAt !== null)
-                this.oldestRequiredAt =
-                    this.oldestRequiredAt === null
-                        ? report.oldestRequiredAt
-                        : Math.min(
-                              this.oldestRequiredAt,
-                              report.oldestRequiredAt,
-                          );
-            if (report.contractReads) {
-                this.reads.perOrder += report.contractReads.perOrder;
-                this.reads.shared += report.contractReads.shared;
-                this.reads.other += report.contractReads.other;
-                this.reads.statusBatches +=
-                    report.contractReads.statusBatches ?? 0;
-            }
-        }
-        if (
-            this.now() - this.startedAt >=
-            ORDER_VALIDATION_REPORTING_POLICY.intervalMs
-        )
-            this.flush();
+        this.progress.record(
+            report
+                ? (state) => {
+                      state.batches++;
+                      for (const key of counters)
+                          state.counts[key] += report[key];
+                      state.batchDurationMs += report.durationMs;
+                      state.maximumBatchDurationMs = Math.max(
+                          state.maximumBatchDurationMs,
+                          report.durationMs,
+                      );
+                      if (report.oldestRequiredAt !== null)
+                          state.oldestRequiredAt =
+                              state.oldestRequiredAt === null
+                                  ? report.oldestRequiredAt
+                                  : Math.min(
+                                        state.oldestRequiredAt,
+                                        report.oldestRequiredAt,
+                                    );
+                      if (report.contractReads) {
+                          state.reads.perOrder += report.contractReads.perOrder;
+                          state.reads.shared += report.contractReads.shared;
+                          state.reads.other += report.contractReads.other;
+                          state.reads.statusBatches +=
+                              report.contractReads.statusBatches ?? 0;
+                      }
+                  }
+                : undefined,
+        );
     }
 
     flush(): void {
-        const endedAt = this.now();
-        if (this.batches)
-            logger.info(LOG.Progress, {
-                component: LOG.Component,
-                chainId: this.chainId,
-                startedAt: this.startedAt,
-                endedAt,
-                windowMs: Math.max(0, endedAt - this.startedAt),
-                batches: this.batches,
-                ...this.counts,
-                // Durations add across concurrent batches and can exceed the wall-clock window.
-                batchDurationMs: this.batchDurationMs,
-                maximumBatchDurationMs: this.maximumBatchDurationMs,
-                oldestSampledRequiredAt: this.oldestRequiredAt,
-                contractReads: { ...this.reads },
-            });
-        this.startedAt = endedAt;
-        this.batches = 0;
-        this.counts = emptyCounts();
-        this.batchDurationMs = 0;
-        this.maximumBatchDurationMs = 0;
-        this.oldestRequiredAt = null;
-        this.reads = { perOrder: 0, shared: 0, other: 0, statusBatches: 0 };
+        this.progress.flush();
     }
 }
