@@ -297,6 +297,22 @@ describe("SqliteBiddingBidBookProjection", () => {
                 traits: [{ type: "Mode", value: "Terrain" }],
                 numeric_traits: [{ type: "Level", min: 1 }],
             },
+            {
+                numeric_traits: [
+                    { type: "Level", min: 1, max: 2, value: "10" },
+                ],
+            },
+            {
+                numericTraits: [
+                    {
+                        type: "Level",
+                        min: 1,
+                        max: 2,
+                        traitValue: { unexpected: 1 },
+                    },
+                ],
+            },
+            { numericTraits: [{ type: "Level", value: [10] }] },
         ]) {
             const invalidOffer = makeOpenSeaOffer({
                 orderHash: "malformed-refresh",

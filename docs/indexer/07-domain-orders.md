@@ -657,6 +657,9 @@ OpenSea offer criteria preserve string `traits` and numeric `numeric_traits`
 `{ key, min, max }` in an attribute schema; exact numeric values retain the
 existing `{ key, value }` shape. Bounds are finite, ordered, and inclusive.
 Malformed intervals reject the whole offer rather than broaden its scope.
+Numeric criteria cannot combine an exact value with interval bounds. Exact
+numeric values must be decimal strings or finite numbers; containers and
+conflicting value aliases reject the whole offer.
 An offer with only numeric criteria is still attribute-scoped.
 
 The token-set registry materializes collection and attribute schemas from the

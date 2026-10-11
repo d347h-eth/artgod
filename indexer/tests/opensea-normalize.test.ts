@@ -71,6 +71,53 @@ describe("opensea normalizer", () => {
         }
     });
 
+    it("maps trait-name aliases through stream normalization without dropping invalid values", () => {
+        for (const [field, criterion] of [
+            ["trait_criteria", { trait_type: "Mode", trait_name: "Terrain" }],
+            ["traitCriteria", { traitType: "Mode", traitName: "Terrain" }],
+            [
+                "trait_criteria_list",
+                [{ trait_type: "Mode", trait_name: "Terrain" }],
+            ],
+            [
+                "traitCriteriaList",
+                [{ traitType: "Mode", traitName: "Terrain" }],
+            ],
+        ] as const) {
+            const payload = {
+                ...structuredClone(
+                    capturedOpenSeaRangedOfferFixtures[0].payload,
+                ),
+                criteria: null,
+                [field]: criterion,
+            };
+            const normalized = normalizeOpenSeaEvent({
+                event_type: OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
+                payload,
+            });
+            expect(normalized?.sourceSchema).toEqual({
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection:
+                        capturedOpenSeaRangedOfferFixtures[0].payload.criteria
+                            .contract.address,
+                    attributes: [{ key: "Mode", value: "Terrain" }],
+                },
+            });
+        }
+        for (const traitName of [{ unexpected: 1 }, ["Terrain"], null])
+            expect(() =>
+                normalizeOpenSeaEvent({
+                    event_type: OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
+                    payload: {
+                        ...capturedOpenSeaRangedOfferFixtures[0].payload,
+                        criteria: null,
+                        traitCriteria: { traitType: "Mode", traitName },
+                    },
+                }),
+            ).toThrow();
+    });
+
     it("normalizes item_listed into a sell order", async () => {
         const fixture = await readFixture("item_listed.json");
         const normalized = normalizeOpenSeaEvent(fixture);

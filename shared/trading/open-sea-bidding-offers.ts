@@ -475,7 +475,8 @@ function normalizeOpenSeaTraitCriteria(
         candidate.value ??
         candidate.trait_value ??
         candidate.traitValue ??
-        candidate.trait_name;
+        candidate.trait_name ??
+        candidate.traitName;
     if (candidate.min !== undefined || candidate.max !== undefined) {
         return parseBiddingTraitCriteria([
             { type, value, min: candidate.min, max: candidate.max },
@@ -489,7 +490,8 @@ function normalizeOpenSeaTraitCriteria(
         "value" in candidate ||
         "trait_value" in candidate ||
         "traitValue" in candidate ||
-        "trait_name" in candidate
+        "trait_name" in candidate ||
+        "traitName" in candidate
     ) {
         return parseBiddingTraitCriteria([
             { type, value: openSeaTraitValue(value) },
@@ -615,28 +617,37 @@ function normalizeOpenSeaNumericTraitCriteria(
             stringOrUndefined(record.type) ??
             stringOrUndefined(record.trait_type) ??
             stringOrUndefined(record.traitType);
+        // Validate every supplied value alias before choosing an exact/range shape.
+        // Otherwise bounds can hide a contradictory value, or an alias can hide a container.
+        const exactValues = ["value", "trait_value", "traitValue"]
+            .filter((key) => record[key] !== undefined)
+            .map((key) => openSeaTraitValue(record[key]));
         if (record.min !== undefined || record.max !== undefined) {
             const [range] = parseBiddingTraitCriteria([
-                { type, min: record.min, max: record.max },
+                {
+                    type,
+                    value: exactValues[0],
+                    min: record.min,
+                    max: record.max,
+                },
             ]);
             if ("min" in range && range.min === range.max) {
                 return { type: range.type, value: String(range.min) };
             }
             return range;
         }
-        const exactValue =
-            record.value ?? record.trait_value ?? record.traitValue;
+        const [exactValue] = exactValues;
 
         if (
             exactValue === undefined ||
-            exactValue === null ||
-            numericTraitValue(String(exactValue)) === null
+            exactValues.some(
+                (value) =>
+                    value !== exactValue || numericTraitValue(value) === null,
+            )
         ) {
             throw new Error("Invalid OpenSea numeric criterion");
         }
-        return parseBiddingTraitCriteria([
-            { type, value: String(exactValue) },
-        ])[0];
+        return parseBiddingTraitCriteria([{ type, value: exactValue }])[0];
     });
 }
 

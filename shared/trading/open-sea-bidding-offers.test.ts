@@ -54,6 +54,112 @@ function makeSnapshotOffer(params: {
 }
 
 describe("OpenSea bidding offer parser", () => {
+    it("preserves strict trait-name aliases in singular and plural stream envelopes", () => {
+        for (const [field, criterion] of [
+            ["trait_criteria", { trait_type: "Mode", trait_name: "Terrain" }],
+            ["traitCriteria", { traitType: "Mode", traitName: "Terrain" }],
+            [
+                "trait_criteria_list",
+                [{ trait_type: "Mode", trait_name: "Terrain" }],
+            ],
+            [
+                "traitCriteriaList",
+                [{ traitType: "Mode", traitName: "Terrain" }],
+            ],
+        ] as const) {
+            const raw = {
+                ...makeSnapshotOffer({
+                    orderHash: "stream-alias",
+                    maker: MAKER_ADDRESS,
+                    priceWei: "300000000000000000",
+                    criteria: undefined,
+                }),
+                [field]: criterion,
+            };
+            assert.deepEqual(parseOpenSeaBiddingOffer(raw)?.bidScope.traits, [
+                { type: "Mode", value: "Terrain" },
+            ]);
+        }
+        for (const traitName of [{ unexpected: 1 }, ["Terrain"], null])
+            assert.throws(() =>
+                normalizeOpenSeaOfferTraitCriteria({
+                    traitType: "Mode",
+                    traitName,
+                }),
+            );
+    });
+
+    it("rejects conflicting numeric representations and non-scalar value aliases", () => {
+        for (const numericKey of ["numeric_traits", "numericTraits"]) {
+            for (const valueKey of ["value", "trait_value", "traitValue"]) {
+                assert.deepEqual(
+                    normalizeOpenSeaOfferTraitCriteria({
+                        [numericKey]: [
+                            {
+                                type: "Level",
+                                min: 1,
+                                max: 2,
+                                [valueKey]: undefined,
+                            },
+                        ],
+                    }),
+                    [{ type: "Level", min: 1, max: 2 }],
+                );
+                for (const value of ["10", 10, { unexpected: 1 }, [10], null])
+                    assert.throws(() =>
+                        parseOpenSeaBiddingOffer(
+                            makeSnapshotOffer({
+                                orderHash: "mixed-numeric",
+                                maker: MAKER_ADDRESS,
+                                priceWei: "300000000000000000",
+                                criteria: {
+                                    [numericKey]: [
+                                        {
+                                            type: "Level",
+                                            min: 1,
+                                            max: 2,
+                                            [valueKey]: value,
+                                        },
+                                    ],
+                                },
+                            }),
+                        ),
+                    );
+                for (const value of [{ unexpected: 1 }, [10], null, true])
+                    assert.throws(() =>
+                        normalizeOpenSeaOfferTraitCriteria({
+                            [numericKey]: [
+                                { type: "Level", [valueKey]: value },
+                            ],
+                        }),
+                    );
+                for (const value of ["10", 10])
+                    assert.deepEqual(
+                        normalizeOpenSeaOfferTraitCriteria({
+                            [numericKey]: [
+                                { type: "Level", [valueKey]: value },
+                            ],
+                        }),
+                        [{ type: "Level", value: "10" }],
+                    );
+            }
+            assert.throws(() =>
+                normalizeOpenSeaOfferTraitCriteria({
+                    [numericKey]: [
+                        { type: "Level", value: "10", traitValue: [10] },
+                    ],
+                }),
+            );
+            assert.throws(() =>
+                normalizeOpenSeaOfferTraitCriteria({
+                    [numericKey]: [
+                        { type: "Level", value: "10", traitValue: "11" },
+                    ],
+                }),
+            );
+        }
+    });
+
     it("preserves the complete criteria and finite membership of captured ranged orders", () => {
         for (const {
             payload,
