@@ -1,7 +1,8 @@
 import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { logger } from "@artgod/shared/utils";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { processSyncRange } from "../src/application/sync-range-processing.js";
@@ -14,6 +15,8 @@ import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
 import {
     REORG_RECOVERY_PHASE,
+    REORG_RECOVERY_LOG_COMPONENT,
+    REORG_RECOVERY_LOG_ACTION,
     type ReorgResyncRange,
 } from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
@@ -82,6 +85,7 @@ describe("durable production reorg recovery", () => {
         services = reorgRecoveryServices(rpc, { now: () => now, retryDelayMs });
         queue = new RecordingQueue();
     });
+    afterEach(() => vi.restoreAllMocks());
     function reopen() {
         setDbPath(dbPath);
         services = reorgRecoveryServices(rpc, { now: () => now, retryDelayMs });
@@ -100,6 +104,8 @@ describe("durable production reorg recovery", () => {
 
     it("retains a pending DB check across retention failure and restart", async () => {
         seedRecoveryHistory();
+        const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+        const info = vi.spyOn(logger, "info").mockImplementation(() => {});
         const check = retainCanonicalCheckFixture(services.storage, F.Orphan);
         db.exec(
             "CREATE TEMP TRIGGER fail_mismatch_retention BEFORE INSERT ON chain_reorg_recoveries BEGIN SELECT RAISE(ABORT,'journal unavailable'); END;",
@@ -107,6 +113,18 @@ describe("durable production reorg recovery", () => {
         await services.recovery.checkBlock(check);
         expect(services.recoveries.getRecovery(1)).toBeNull();
         expect(services.checks.hasPending(1, now)).toBe(false);
+        expect(warn).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.MismatchRetained,
+            }),
+        );
+        expect(info).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+            }),
+        );
         db.exec("DROP TRIGGER fail_mismatch_retention;");
         now += retryDelayMs;
         reopen();
@@ -114,6 +132,44 @@ describe("durable production reorg recovery", () => {
         expect(revision()).toBe(1);
         expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.Resync,
+        );
+        const recoveryId = services.recoveries.getRecovery(1)!.recoveryId;
+        expect(warn).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.MismatchRetained,
+                chainId: F.ChainId,
+                recoveryId,
+                checkedBlock: F.Orphan,
+                storedHash: check.blockHash,
+                observedHash: canonicalRecoveryBlock(F.Orphan).hash,
+                revision: 0,
+            }),
+        );
+        expect(info).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                component: REORG_RECOVERY_LOG_COMPONENT,
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+                recoveryId,
+                checkedBlock: F.Orphan,
+                storedHash: check.blockHash,
+                observedHash: canonicalRecoveryBlock(F.Orphan).hash,
+                forkBlock: F.Fork,
+                forkHash: canonicalRecoveryBlock(F.Fork).hash,
+                forkToCheckedBlocks: F.Orphan - F.Fork,
+                rollbackFromBlock: F.Fork + 1,
+                capturedHeadBlock: F.Head,
+                resyncFromBlock: F.Fork + 1,
+                resyncToBlock: F.Head,
+                resyncBlocks: F.Head - F.Fork,
+                firstBatchToBlock: F.Fork + F.BatchSize,
+                batchSize: F.BatchSize,
+                affectedErc721Tokens: 1,
+                revisionBefore: 0,
+                revisionAfter: 1,
+            }),
         );
         expect(queue.jobs).toHaveLength(0);
     });
@@ -540,6 +596,7 @@ describe("durable production reorg recovery", () => {
 
     it("defers a head behind the verified fork and completes fork-only rollback without an invented range", async () => {
         const fixture = seedRecoveryHistory();
+        const info = vi.spyOn(logger, "info").mockImplementation(() => {});
         rpc.getBlockNumber = async () => F.Fork - 1;
         await services.recovery.checkBlock(
             retainCanonicalCheckFixture(services.storage, F.Orphan),
@@ -552,6 +609,12 @@ describe("durable production reorg recovery", () => {
             REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
         expect(services.outbox.listDue(now, 10)).toHaveLength(0);
+        expect(info).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+            }),
+        );
         rpc.getBlockNumber = async () => F.Fork;
         now += retryDelayMs;
         await services.recovery.resumeDue();
@@ -561,10 +624,23 @@ describe("durable production reorg recovery", () => {
         ]);
         expect(services.recoveries.getRecovery(1)).toBeNull();
         expect(services.outbox.listDue(now, 10)).toHaveLength(0);
+        expect(info).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+                capturedHeadBlock: F.Fork,
+                resyncFromBlock: null,
+                resyncToBlock: null,
+                resyncBlocks: 0,
+                firstBatchToBlock: null,
+                revisionAfter: 1,
+            }),
+        );
     });
 
     it("rolls back checkpoints, ownership and revision if retaining resync state fails", async () => {
         const fixture = seedRecoveryHistory();
+        const info = vi.spyOn(logger, "info").mockImplementation(() => {});
         db.exec(
             `CREATE TEMP TRIGGER fail_recovery_publication BEFORE UPDATE ON chain_reorg_recoveries WHEN NEW.phase = '${REORG_RECOVERY_PHASE.Resync}' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END;`,
         );
@@ -586,11 +662,24 @@ describe("durable production reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)?.phase).toBe(
             REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
+        expect(info).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+            }),
+        );
         db.exec("DROP TRIGGER fail_recovery_publication;");
         now += retryDelayMs;
         await services.recovery.resumeDue();
         expect(revision()).toBe(1);
         expect(pendingRecoveryRange()).toBeDefined();
+        expect(info).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                action: REORG_RECOVERY_LOG_ACTION.RollbackCommitted,
+                revisionAfter: 1,
+            }),
+        );
     });
 
     it("resumes direct acquisition after rollback and retries partial publication without acquiring again", async () => {

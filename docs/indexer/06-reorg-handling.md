@@ -73,6 +73,32 @@ its replacement workflow. Stale proof cannot commit over a newer recovery or
 chain revision. A changed revision rearms proof while preserving that unfinished
 range rather than retrying a permanently stale checkpoint.
 
+## Recovery Decision Logs
+
+`RecoverChainReorg` emits two structured decisions under `component=ReorgRecovery`.
+The action values belong to `REORG_RECOVERY_LOG_ACTION` in
+`indexer/src/domain/reorg-recovery.ts`:
+
+- `mismatch_retained` (warn): emitted after mismatch retention succeeds. Includes
+  the chain/recovery ID, checked height, stored and observed hashes, and revision.
+  It records the RPC disagreement; ancestor verification still has to succeed.
+- `rollback_committed` (info): emitted after the atomic rollback/resync transaction
+  succeeds. Includes the retained mismatch, verified fork height/hash, rollback
+  start, captured HEAD, full resync bounds/count, first batch end, configured batch
+  size, affected ERC721 token count, and revisions before/after rollback.
+
+`forkToCheckedBlocks` is the distance from the verified fork to the checked height,
+not a measured total of orphaned chain blocks. `resyncBlocks` is the complete
+refill range; it can include already canonical blocks and downtime gaps. Resync
+may start before the rollback boundary when it preserves unfinished earlier
+work. A fork-only rollback with no remaining work records null resync bounds and
+zero blocks. Failed transactions never emit a committed decision, and ordinary
+matching checks add no log volume.
+
+These records retain the decision context in logs after completed recovery state
+is removed from SQLite. See the
+[Loki queries](10-observability-and-metrics.md#log-pipeline) for bounded inspection.
+
 ## Fork Point Search
 
 The fork point search (`findCommonAncestor()`):

@@ -8,6 +8,13 @@ export const REORG_RECOVERY_POLICY = {
     RetryDelayMs: 300_000,
 } as const;
 export const REORG_RECOVERY_LOG_COMPONENT = "ReorgRecovery";
+export const REORG_RECOVERY_LOG_ACTION = {
+    Resume: "resume",
+    Poll: "poll",
+    Check: "check",
+    MismatchRetained: "mismatch_retained",
+    RollbackCommitted: "rollback_committed",
+} as const;
 
 export type ReorgResyncIdentity = { recoveryId: string; revision: number };
 export type ReorgResyncRange = ReorgResyncIdentity & {
