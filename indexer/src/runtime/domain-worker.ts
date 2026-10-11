@@ -1,3 +1,5 @@
+import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
     SYNC_WORK_CLASS,
     decodeSyncWorkClass,
@@ -177,6 +179,7 @@ async function main() {
             config.debugPayloads,
             undefined,
             createValidationBatch,
+            new OrderMutationProgress(config.chainId),
         );
         const orderValidationStore = new SqliteOrderValidationDemand(
             ordersDomain,
@@ -761,6 +764,7 @@ async function main() {
             await stopActivity();
             await stopActivityUpsert();
             await stopQueueOutboxDrainer();
+            flushPendingLogReports();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await rpcAllocation.budget.close();

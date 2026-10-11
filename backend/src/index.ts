@@ -1,3 +1,4 @@
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { InspectBootstrapSampleUseCase } from "./application/use-cases/bootstrap/inspect-bootstrap-sample.js";
 import { pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
@@ -170,6 +171,7 @@ export async function startBackendServer(
             deploymentMode: config.deployment.mode,
         });
         app.addHook("onClose", async () => {
+            flushPendingLogReports();
             await runtimeMetrics.stop();
             await runtimeApm.stop();
         });
@@ -179,6 +181,7 @@ export async function startBackendServer(
         });
         return app;
     } catch (error) {
+        flushPendingLogReports();
         await runtimeMetrics.stop();
         await runtimeApm.stop();
         throw error;

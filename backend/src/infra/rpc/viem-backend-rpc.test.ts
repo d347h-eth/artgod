@@ -3,6 +3,7 @@ import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilie
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { NOOP_APM } from "@artgod/shared/observability/apm";
 import { RPC_OBSERVABILITY_LOG_MESSAGE } from "@artgod/shared/observability/rpc";
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { BOOTSTRAP_TEST_OBSERVATION } from "@artgod/shared/testing/bootstrap-probe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
@@ -78,6 +79,7 @@ const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
 
 describe("ViemBackendRpcClient", () => {
     afterEach(() => {
+        flushPendingLogReports();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
@@ -356,9 +358,12 @@ describe("ViemBackendRpcClient", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it("logs read contract function metadata and compact args", async () => {
+    it("aggregates successful contract reads and keeps compact metadata on failure", async () => {
         const logLines: string[] = [];
         vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+            logLines.push(String(line));
+        });
+        vi.spyOn(console, "error").mockImplementation((line?: unknown) => {
             logLines.push(String(line));
         });
         const readContract = vi.fn(async () => TEST_CONTRACT_RESULT);
@@ -378,15 +383,16 @@ describe("ViemBackendRpcClient", () => {
         );
         logLines.length = 0;
 
-        await expect(
-            client.readContract({
-                address: TEST_CONTRACT_ADDRESS,
-                abi: [],
-                functionName: TEST_CONTRACT_FUNCTION_NAME,
-                args: [TEST_CONTRACT_ARG, TEST_CONTRACT_ARG_TEXT],
-                blockNumber: TEST_BLOCK_NUMBER,
-            }),
-        ).resolves.toBe(TEST_CONTRACT_RESULT);
+        const input = {
+            address: TEST_CONTRACT_ADDRESS,
+            abi: [],
+            functionName: TEST_CONTRACT_FUNCTION_NAME,
+            args: [TEST_CONTRACT_ARG, TEST_CONTRACT_ARG_TEXT],
+            blockNumber: TEST_BLOCK_NUMBER,
+        } satisfies Parameters<ViemBackendRpcClient["readContract"]>[0];
+        await expect(client.readContract(input)).resolves.toBe(
+            TEST_CONTRACT_RESULT,
+        );
 
         expect(readContract).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -396,16 +402,31 @@ describe("ViemBackendRpcClient", () => {
                 blockNumber: BigInt(TEST_BLOCK_NUMBER),
             }),
         );
+        expect(logLines).toEqual([]);
+        flushPendingLogReports();
+        expect(logLines.map((line) => JSON.parse(line))).toEqual([
+            expect.objectContaining({
+                msg: RPC_OBSERVABILITY_LOG_MESSAGE.Progress,
+                callsSucceeded: 1,
+                attemptsSucceeded: 1,
+            }),
+        ]);
+        expect(logLines.join("\n")).not.toContain(TEST_CONTRACT_ADDRESS);
+        readContract.mockRejectedValueOnce(
+            new Error(TEST_RPC_ENDPOINT_FAILURE_MESSAGE),
+        );
+        await expect(client.readContract(input)).rejects.toThrow(
+            TEST_RPC_ENDPOINT_FAILURE_MESSAGE,
+        );
         const logs = logLines.map(
             (line) => JSON.parse(line) as Record<string, unknown>,
         );
-        const attemptStarted = logs.find(
+        const attemptFailed = logs.find(
             (log) =>
-                log.msg ===
-                RPC_OBSERVABILITY_LOG_MESSAGE.EndpointAttemptStarted,
+                log.msg === RPC_OBSERVABILITY_LOG_MESSAGE.EndpointAttemptFailed,
         );
-        const callSucceeded = logs.find(
-            (log) => log.msg === RPC_OBSERVABILITY_LOG_MESSAGE.CallSucceeded,
+        const callFailed = logs.find(
+            (log) => log.msg === RPC_OBSERVABILITY_LOG_MESSAGE.CallFailed,
         );
         const expectedMetadata = {
             [BACKEND_RPC_LOG_FIELD.ContractAddress]: TEST_CONTRACT_ADDRESS,
@@ -417,8 +438,8 @@ describe("ViemBackendRpcClient", () => {
             [BACKEND_RPC_LOG_FIELD.ArgsCount]: 2,
             [BACKEND_RPC_LOG_FIELD.BlockNumber]: TEST_BLOCK_NUMBER,
         };
-        expect(attemptStarted).toMatchObject(expectedMetadata);
-        expect(callSucceeded).toMatchObject(expectedMetadata);
+        expect(attemptFailed).toMatchObject(expectedMetadata);
+        expect(callFailed).toMatchObject(expectedMetadata);
     });
 
     it("pins probe observations to finalized blocks and forwards the same block to code reads", async () => {

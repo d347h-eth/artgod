@@ -41,11 +41,29 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Components and Wiring
 
+### Order mutation progress
+
+The domain worker emits `Order mutation progress` (`component=OrdersDomain`,
+`action=order_mutation_progress`) once per 60-second active window for its
+configured chain. This replaces the routine `Orders upsert applied` and
+`Orders source update-by-id applied` lines. Each group reports `processed`,
+`changed` and `unchanged` after the transaction commits. Upsert `unchanged`
+includes ignored stale/retired observations and inputs that did not change the
+canonical order; it does not mean validation ran. Source updates also count the
+incoming source statuses and reasons. Unknown reasons use one `other` bucket.
+These counts describe processed observations, not distinct orders, validations
+or the current global inventory. Validation results have their own report below.
+
+Storage is fixed-size counters with no identifiers, arbitrary keys or event
+buffers. Idle windows emit nothing, a timer reports the last active window and
+graceful stop flushes any partial window. Failures and warnings remain immediate;
+diagnostic sink failures cannot turn committed mutations into retries.
+
 ### Order validation demand progress
 
 The domain worker emits `Order validation demand progress` through the ordinary
 structured logger, including in desktop builds. One bounded aggregate covers a
-ten-second window; idle polls can flush a final partial window, and graceful stop
+60-second window; a timer flushes the last active window, and graceful stop
 flushes remaining observations. It holds counters only, without per-order or
 per-wallet arrays. `chainId` and `component = OrderValidationDemand` identify it.
 
@@ -234,6 +252,15 @@ ingestion or rendered Grafana panels.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
+
+The shared `observability/loki/loki-config.yaml` enables Compactor retention:
+`level=debug` streams keep 72 hours; `info`, `warn`, `error` and other streams
+keep seven days (`168h`). Both Compose stacks already persist `/loki`, including
+the Compactor's markers and filesystem delete-request store. A running Loki
+instance reads this configuration on restart. Chunk deletion is asynchronous;
+see [Loki retention](https://grafana.com/docs/loki/latest/operations/storage/retention/)
+for policy changes and existing ingested data. Desktop file rotation is separate
+from Loki retention.
 
 For indexed investigation, use Grafana Explore or the Loki read-only
 `/loki/api/v1/query_range` endpoint with explicit time bounds and a result limit.
@@ -575,7 +602,24 @@ The full HTTP JSON-RPC interaction map, including retry and circuit-breaker
 coverage by workspace and runtime lane, is maintained in
 `docs/rpc/01-http-rpc-interaction-catalog.md`.
 
-RPC logs use stable fields:
+Routine RPC attempts, successful calls, quota waits and WebSocket heads are
+counted in `RPC activity progress` (`action=rpc_progress`) once per 60-second
+active window per adapter lane. The report includes calls and attempts started,
+succeeded and failed, retry/circuit/head counts, wait count/total/maximum, and
+call/attempt duration totals and maxima in milliseconds. Duration totals can
+exceed `windowMs` when calls overlap. Started and completed counts can belong to
+different windows when a request crosses a boundary.
+
+Counters have fixed size: no methods, endpoints, wallets or individual requests
+are retained. Idle windows emit nothing; a timer flushes the last active window,
+and graceful runtime shutdown flushes a partial window. Reports work without a
+metrics exporter, including in desktop builds. Per-event metrics remain
+unchanged. Failures, retries, circuit openings and connection lifecycle events
+keep their immediate detail. A caller can explicitly set
+`RpcObservabilityConfig.detailedLogs` to also emit routine detail for diagnosis;
+normal runtime composition leaves it disabled.
+
+Immediate RPC logs use stable fields:
 
 - `workspace`: `backend`, `indexer`, or `trading`
 - `rpcComponent`: low-cardinality adapter lane, such as `backend-rpc`,

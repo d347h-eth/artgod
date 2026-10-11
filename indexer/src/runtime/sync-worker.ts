@@ -1,3 +1,4 @@
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { GAP_FILL_MODE } from "@artgod/shared/evm/rpc-budget";
 import { SqliteCanonicalChecks } from "../infra/storage/sqlite-canonical-checks.js";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
@@ -312,6 +313,7 @@ async function main() {
                 stopRealtime(),
                 stopBackfill(),
             ]);
+            flushPendingLogReports();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await rpcAllocation.budget.close();

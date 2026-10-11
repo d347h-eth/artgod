@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { ORDER_VALIDATION_DEMAND_LOG as LOG } from "../src/domain/order-validation-demand.js";
 import {
     OrderValidationDemandProgress,
@@ -7,7 +8,11 @@ import {
 } from "../src/infra/orders/order-validation-demand-reporting.js";
 import type { OrderValidationBatchReport } from "../src/application/orders/validate-order-demand.js";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+    flushPendingLogReports();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+});
 
 it("reports actual validations separately from durable effects, skips and retries in bounded windows", () => {
     const log = vi.spyOn(logger, "info").mockImplementation(() => {});
@@ -86,4 +91,37 @@ it("reports actual validations separately from durable effects, skips and retrie
     now += POLICY.intervalMs;
     progress.record(undefined);
     expect(log).toHaveBeenCalledTimes(2);
+});
+
+it("reports a final validation batch on the minute timer without requiring another poll", () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const progress = new OrderValidationDemandProgress(1);
+    progress.record({
+        scanned: 1,
+        claimed: 1,
+        validated: 1,
+        applied: 1,
+        covered: 1,
+        resolvedUnneeded: 0,
+        followup: 0,
+        retried: 0,
+        released: 0,
+        lostClaims: 0,
+        oldestRequiredAt: null,
+        durationMs: 1,
+        contractReads: null,
+    });
+    vi.advanceTimersByTime(POLICY.intervalMs);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+        LOG.Progress,
+        expect.objectContaining({
+            windowMs: POLICY.intervalMs,
+            batches: 1,
+            covered: 1,
+        }),
+    );
+    progress.flush();
+    vi.advanceTimersByTime(POLICY.intervalMs);
+    expect(log).toHaveBeenCalledOnce();
 });

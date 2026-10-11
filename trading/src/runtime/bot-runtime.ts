@@ -1,3 +1,4 @@
+import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import process from "node:process";
 import {
     initRuntimeMetrics,
@@ -124,6 +125,7 @@ export async function bootstrapTradingBot(
                     await runtime.shutdown();
                 }
             } finally {
+                flushPendingLogReports();
                 await stopBiddingRuntimeMetrics(runtimeMetrics);
             }
             return;
