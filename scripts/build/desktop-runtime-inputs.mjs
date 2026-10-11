@@ -266,6 +266,7 @@ export async function prepareDesktopRuntimeArchive({
     input,
     scratchDirectory,
     fetchImplementation = fetch,
+    environment = process.env,
 }) {
     const cacheDirectory = path.join(
         rootDir,
@@ -282,6 +283,7 @@ export async function prepareDesktopRuntimeArchive({
         destinationPath: path.join(cacheDirectory, input.fileName),
         temporaryDirectory: scratchDirectory,
         fetchImplementation,
+        environment,
         verifyProvenance:
             runtime === DESKTOP_RUNTIME_INPUT.Node
                 ? verifyNodeArchiveProvenance
@@ -346,6 +348,7 @@ export async function stageDesktopRuntimeExecutables({
     platform = process.platform,
     runCommand = runRedactedCommand,
     fetchImplementation = fetch,
+    environment = process.env,
 }) {
     const scratchRoot = path.join(rootDir, "tmp");
     await mkdir(scratchRoot, { recursive: true });
@@ -371,6 +374,7 @@ export async function stageDesktopRuntimeExecutables({
                     input,
                     scratchDirectory,
                     fetchImplementation,
+                    environment,
                 });
                 slices.push(
                     await extractExecutable({
