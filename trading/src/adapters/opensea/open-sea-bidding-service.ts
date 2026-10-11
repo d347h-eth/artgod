@@ -1,7 +1,6 @@
 import {
     biddingTraitsMatchToken,
-    biddingTraitValueMatches,
-    biddingTraitCriteriaKey,
+    dedupeBiddingTraitCriteria,
 } from "@artgod/shared/trading/offer-trait-criteria";
 import {
     formatTradingTraitCriterionLabel,
@@ -1071,24 +1070,9 @@ export class OpenSeaBiddingService implements BiddingService {
         return normalizeOpenSeaOfferTraitCriteria(criteria);
     }
 
-    private matchesTraitSelector(
-        criteriaTrait: TradingBiddingTraitCriterion,
-        selector: TraitSelector,
-    ): boolean {
-        if (criteriaTrait.type !== selector.type) {
-            return false;
-        }
-
-        if (selector.value === undefined) {
-            return true;
-        }
-
-        return biddingTraitValueMatches(criteriaTrait, selector.value);
-    }
-
     private getPlacementTraits(job: BidderJob): TraitTarget[] {
         if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
-            return this.dedupeTraitTargets(job.target.traits ?? []);
+            return dedupeBiddingTraitCriteria(job.target.traits ?? []);
         }
         if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             return [job.target.targetTrait];
@@ -1380,7 +1364,7 @@ export class OpenSeaBiddingService implements BiddingService {
         const cachedOffers: Order[] = [];
         const targetTraits =
             job.target.type === BIDDER_TARGET_TYPE.Collection
-                ? this.dedupeTraitTargets(job.target.traits ?? [])
+                ? dedupeBiddingTraitCriteria(job.target.traits ?? [])
                 : [];
         const summary: SnapshotScanSummary = {
             collectionWideAdded: 0,
@@ -1479,29 +1463,6 @@ export class OpenSeaBiddingService implements BiddingService {
                 tokenTraits: summary.tokenTraits ?? [],
                 mismatchSamples: summary.mismatchSamples ?? [],
             },
-        );
-    }
-
-    private dedupeTraitTargets(targets: TraitTarget[]): TraitTarget[] {
-        const seen = new Set<string>();
-        return targets.filter((target) => {
-            const key = `${target.type}|${target.value}`;
-            if (seen.has(key)) {
-                return false;
-            }
-
-            seen.add(key);
-            return true;
-        });
-    }
-
-    private matchesExactTraitTargets(
-        criteriaTraits: TradingBiddingTraitCriterion[],
-        targetTraits: TraitTarget[],
-    ): boolean {
-        return (
-            biddingTraitCriteriaKey(criteriaTraits) ===
-            biddingTraitCriteriaKey(this.dedupeTraitTargets(targetTraits))
         );
     }
 
@@ -1625,7 +1586,9 @@ export class OpenSeaBiddingService implements BiddingService {
         }
 
         const offers: Order[] = [];
-        const targetTraits = this.dedupeTraitTargets(job.target.traits ?? []);
+        const targetTraits = dedupeBiddingTraitCriteria(
+            job.target.traits ?? [],
+        );
 
         rawOffers.forEach((rawOffer) => {
             if (!this.isCollectionWideOffer(rawOffer)) {
@@ -1694,7 +1657,7 @@ export class OpenSeaBiddingService implements BiddingService {
             (selector) => selector.value === undefined,
         );
         if (typeOnlySelectors.length === 0) {
-            return this.dedupeTraitTargets(explicitTargets);
+            return dedupeBiddingTraitCriteria(explicitTargets);
         }
 
         let traitsResponse: unknown;
@@ -1714,7 +1677,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     ...toErrorLogFields(error),
                 },
             );
-            return this.dedupeTraitTargets(explicitTargets);
+            return dedupeBiddingTraitCriteria(explicitTargets);
         }
 
         const counts = asRecord(asRecord(traitsResponse)?.counts);
@@ -1740,7 +1703,7 @@ export class OpenSeaBiddingService implements BiddingService {
             );
         }
 
-        return this.dedupeTraitTargets(explicitTargets);
+        return dedupeBiddingTraitCriteria(explicitTargets);
     }
 
     private parseRawOffer(

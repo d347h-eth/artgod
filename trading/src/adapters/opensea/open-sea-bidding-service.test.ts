@@ -804,6 +804,39 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(!JSON.stringify(inputs[1]).includes("Zone"));
     });
 
+    it("preserves distinct delimiter-containing criteria when placing an offer", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            trustOpenSeaSignedZoneTraitOffers: true,
+        });
+        const traits = [
+            { type: "A|B", value: "C" },
+            { type: "A", value: "B|C" },
+        ];
+        const job: BidderJob = {
+            id: "delimiter-job",
+            revision: 1,
+            network: "eth",
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+                traits: [...traits, traits[0]],
+            },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        let submitted: OpenSeaCreateCollectionOfferInput | undefined;
+        sdk.createCollectionOffer = async (input) => {
+            submitted = input;
+            return { orderHash, protocolAddress };
+        };
+        await service.placeOffer(job, parseEther("0.3"));
+        assert.deepEqual(submitted?.traits, traits);
+    });
+
     it("places token offers with unit amount and returns expiration", async () => {
         const sdk = new MockOpenSeaSdk();
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);

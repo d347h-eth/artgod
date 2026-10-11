@@ -1,6 +1,7 @@
 import {
     biddingTraitsMatchToken,
     biddingTraitCriteriaKey,
+    dedupeBiddingTraitCriteria,
 } from "@artgod/shared/trading/offer-trait-criteria";
 import { formatTradingTraitCriterionLabel } from "@artgod/shared/types";
 import { Mutex, Semaphore } from "async-mutex";
@@ -2421,24 +2422,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
     }
 
-    private dedupeTraitTargets(targets: TraitCriterion[]): TraitCriterion[] {
-        const seen = new Set<string>();
-        return targets.filter((target) => {
-            const key = biddingTraitCriteriaKey([target]);
-            if (seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        });
-    }
-
     private matchesExactTraitTargets(
         left: TraitCriterion[],
         right: TraitCriterion[],
     ): boolean {
-        const normalizedLeft = this.dedupeTraitTargets(left);
-        const normalizedRight = this.dedupeTraitTargets(right);
+        const normalizedLeft = dedupeBiddingTraitCriteria(left);
+        const normalizedRight = dedupeBiddingTraitCriteria(right);
 
         if (normalizedLeft.length !== normalizedRight.length) {
             return false;

@@ -207,6 +207,74 @@ describe("SqliteBiddingBidBookProjection", () => {
         assert.equal(rows[0].encoded_token_ids, "1:2");
     });
 
+    it("persists token zero and retains the complete projection after a malformed refresh", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const tokenOffer = makeOpenSeaOffer({
+            orderHash: "token-zero",
+            offerer: OTHER_ADDRESS,
+            priceWei: "300000000000000000",
+            nftItemType: 2,
+            identifierOrCriteria: "0",
+            criteria: undefined,
+        });
+        const snapshot = {
+            collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+            refreshedAt: 1234,
+            offers: [tokenOffer],
+            metrics: createCollectionOfferSnapshotMetrics({ offerCount: 1 }),
+        };
+        await projection.replaceCollectionBidBook(snapshot, "complete");
+        const readRows = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_bid_book_rows WHERE collection_id = ?",
+                )
+                .all(collectionId) as ProjectedRow[];
+        const readState = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_collection_bid_book_state WHERE collection_id = ?",
+                )
+                .get(collectionId);
+        const rowsBefore = readRows();
+        const stateBefore = readState();
+        assert.equal(rowsBefore[0].scope_kind, "token");
+        assert.equal(rowsBefore[0].token_id, "0");
+        assert.equal(rowsBefore[0].scope_label, "#0");
+        for (const criteria of [
+            { traits: [{ type: "Mode", value: "Terrain" }, "malformed"] },
+            {
+                traits: [{ type: "Mode", value: "Terrain" }],
+                numeric_traits: [{ type: "Level", min: 1 }],
+            },
+        ]) {
+            const invalidOffer = makeOpenSeaOffer({
+                orderHash: "malformed-refresh",
+                offerer: OTHER_ADDRESS,
+                priceWei: "300000000000000000",
+                nftItemType: 4,
+                identifierOrCriteria: "123",
+                criteria,
+            });
+            await assert.rejects(() =>
+                projection.replaceCollectionBidBook(
+                    {
+                        ...snapshot,
+                        refreshedAt: 5678,
+                        offers: [tokenOffer, invalidOffer],
+                    },
+                    "malformed refresh",
+                ),
+            );
+            assert.deepEqual(readRows(), rowsBefore);
+            assert.deepEqual(readState(), stateBefore);
+        }
+    });
+
     it("keeps skipped writes unpublished but publishes a valid empty bid book", async () => {
         const missingSlug = "missing-projection-collection";
         const projection = new SqliteBiddingBidBookProjection(

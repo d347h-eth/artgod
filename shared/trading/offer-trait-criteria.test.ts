@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     biddingTraitsMatchToken,
     biddingTraitCriteriaKey,
+    dedupeBiddingTraitCriteria,
     parseBiddingTraitCriteria,
     biddingTraitScopeMatchesFilters,
 } from "./offer-trait-criteria.js";
@@ -10,6 +11,18 @@ import {
 const mode = { type: "Mode", value: "Terrain" };
 const level = { type: "Level", min: 1, max: 2 };
 describe("observed offer trait criteria", () => {
+    it("deduplicates complete criteria without delimiter collisions or losing numeric bounds", () => {
+        const first = { type: "A|B", value: "C" };
+        const second = { type: "A", value: "B|C" };
+        expect(dedupeBiddingTraitCriteria([first, second, first])).toEqual([
+            first,
+            second,
+        ]);
+        const otherLevel = { type: "Level", min: 19, max: 20 };
+        expect(
+            dedupeBiddingTraitCriteria([mode, level, mode, otherLevel, level]),
+        ).toEqual([mode, level, otherLevel]);
+    });
     it("filters whole scopes in AND mode and accepts inclusive integer intersections", () => {
         expect(
             biddingTraitScopeMatchesFilters(

@@ -59,6 +59,19 @@ export function biddingTraitCriteriaKey(
     );
 }
 
+// Preserve criterion order and concrete types while removing only complete duplicates.
+export function dedupeBiddingTraitCriteria<
+    T extends TradingBiddingTraitCriterion,
+>(criteria: readonly T[]): T[] {
+    const seen = new Set<string>();
+    return criteria.filter((criterion) => {
+        const key = biddingTraitCriteriaKey([criterion]);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 // Validate the whole persisted scope: filtering out an invalid constraint would broaden it.
 export function parseBiddingTraitCriteria(
     value: unknown,

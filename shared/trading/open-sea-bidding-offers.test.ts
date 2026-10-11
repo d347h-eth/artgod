@@ -23,6 +23,7 @@ function makeSnapshotOffer(params: {
     priceWei: string;
     criteria: unknown;
     itemType?: number;
+    tokenId?: string;
     collectionAddress?: string;
 }) {
     return {
@@ -40,6 +41,7 @@ function makeSnapshotOffer(params: {
                 consideration: [
                     {
                         itemType: params.itemType ?? 4,
+                        identifierOrCriteria: params.tokenId,
                         token: params.collectionAddress ?? COLLECTION_ADDRESS,
                         startAmount: "1",
                     },
@@ -51,6 +53,135 @@ function makeSnapshotOffer(params: {
 }
 
 describe("OpenSea bidding offer parser", () => {
+    it("rejects an entire string scope when any supplied criterion is malformed", () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        for (const invalid of [
+            null,
+            "malformed",
+            false,
+            {},
+            { type: "Level" },
+            { type: "Level", value: null },
+            { type: "Level", value: { unexpected: 1 } },
+            { type: "Level", value: [1, 2] },
+            { type: "Level", value: NaN },
+            { type: " ", value: "1" },
+            { unexpected: { type: "Level", value: "1" } },
+        ]) {
+            const raw = makeSnapshotOffer({
+                orderHash: "0xmalformed",
+                maker: MAKER_ADDRESS,
+                priceWei: "300000000000000000",
+                criteria: undefined,
+            });
+            assert.throws(() =>
+                parseOpenSeaBiddingOffer({
+                    ...raw,
+                    criteria: { traits: [mode, invalid] },
+                }),
+            );
+            assert.throws(() =>
+                parseOpenSeaBiddingOffer({
+                    ...raw,
+                    trait_criteria: {
+                        trait_type: "Mode",
+                        trait_name: "Terrain",
+                    },
+                    trait_criteria_list: [invalid],
+                }),
+            );
+            if (invalid !== null)
+                assert.throws(
+                    () =>
+                        normalizeOpenSeaOfferTraitCriteria({
+                            trait: invalid,
+                            numeric_traits: [{ type: "Level", min: 1, max: 2 }],
+                        }),
+                    "present malformed trait cannot be hidden by numeric criteria",
+                );
+        }
+        assert.throws(() =>
+            normalizeOpenSeaOfferTraitCriteria({
+                traits: { Mode: "Terrain", Level: null },
+            }),
+        );
+    });
+
+    it("preserves supported exact aliases and all simultaneously supplied constraints", () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        for (const criteria of [
+            mode,
+            { trait_type: "Mode", trait_value: "Terrain" },
+            { traitType: "Mode", traitValue: "Terrain" },
+            { trait_type: "Mode", trait_name: "Terrain" },
+            { Mode: "Terrain" },
+        ])
+            assert.deepEqual(normalizeOpenSeaOfferTraitCriteria(criteria), [
+                mode,
+            ]);
+        const normalized = normalizeOpenSeaOfferTraitCriteria({
+            trait: mode,
+            traits: [{ type: "Biome", value: 81 }, mode],
+            numeric_traits: [{ type: "Level", min: 1, max: 2 }],
+            numericTraits: [{ type: "Chroma", min: 19, max: 20 }],
+        });
+        assert.deepEqual(normalized, [
+            mode,
+            { type: "Biome", value: "81" },
+            { type: "Level", min: 1, max: 2 },
+            { type: "Chroma", min: 19, max: 20 },
+        ]);
+        assert.deepEqual(
+            normalizeOpenSeaOfferTraitCriteria({ traits: normalized }),
+            normalized,
+        );
+        assert.deepEqual(
+            normalizeOpenSeaOfferTraitCriteria({
+                trait: null,
+                traits: [],
+                numeric_traits: null,
+                encoded_token_ids: "*",
+            }),
+            [],
+        );
+    });
+
+    it("keeps token zero distinct from a criteria wildcard in REST and SDK envelopes", () => {
+        const rest = makeSnapshotOffer({
+            orderHash: "0xzero",
+            maker: MAKER_ADDRESS,
+            priceWei: "300000000000000000",
+            criteria: undefined,
+            itemType: 2,
+            tokenId: "0",
+        });
+        const { protocol_data, ...fields } = rest;
+        for (const raw of [rest, { ...fields, protocolData: protocol_data }]) {
+            const parsed = parseOpenSeaBiddingOffer(raw);
+            assert.equal(parsed?.offerScope, "item");
+            assert.equal(
+                parsed?.bidScope.kind,
+                TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            );
+            assert.equal(parsed?.bidScope.tokenId, "0");
+            assert.equal(parsed?.bidScope.label, "#0");
+            assert.equal(isOpenSeaCollectionWideOffer(raw), false);
+        }
+        assert.equal(
+            parseOpenSeaBiddingOffer(
+                makeSnapshotOffer({
+                    orderHash: "0xwildcard",
+                    maker: MAKER_ADDRESS,
+                    priceWei: "300000000000000000",
+                    criteria: undefined,
+                    itemType: 4,
+                    tokenId: "0",
+                }),
+            )?.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+        );
+    });
+
     it("preserves mixed and numeric-only intervals in REST and SDK offers", () => {
         for (const [min, max] of [
             [1, 2],
