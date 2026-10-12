@@ -67,6 +67,7 @@ const AUTOMATIC_SYNC_SCHEMA = new Set([
     "070_sync_work_allocation.sql",
     "071_order_validation_chain_revision.sql",
     "072_pending_canonical_checks.sql",
+    "073_reconcile_legacy_block_headers.sql",
 ]);
 const CONTRACT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
