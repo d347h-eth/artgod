@@ -761,6 +761,34 @@ describe("durable production reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)).toBeNull();
     });
 
+    it("polls an earlier mismatch while retained ancestor proof is deferred", async () => {
+        rpc = new RecoveryRpc(F.Fork - 1);
+        services = reorgRecoveryServices(rpc, { now: () => now, retryDelayMs });
+        const fixture = seedRecoveryHistory();
+        retainCanonicalCheckFixture(services.storage, F.Orphan);
+        expect(await services.recovery.checkDue()).toBe(true);
+        const previous = services.recoveries.getRecovery(1)!;
+        expect(previous).toMatchObject({
+            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
+            checkedBlock: F.Orphan,
+            retryAt: now + retryDelayMs,
+        });
+
+        retainCanonicalCheckFixture(services.storage, F.Fork);
+        expect(await services.recovery.checkDue()).toBe(true);
+        const current = services.recoveries.getRecovery(1)!;
+        expect(current).toMatchObject({
+            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
+            checkedBlock: F.Fork,
+            version: previous.version + 1,
+        });
+        expect(current.recoveryId).not.toBe(previous.recoveryId);
+        expect(revision()).toBe(0);
+        expect(owners(fixture.collectionId)).toEqual([
+            { owner: F.OrphanOwner, amount: "1" },
+        ]);
+    });
+
     it("fences stale proof superseded by an earlier mismatch", async () => {
         const fixture = seedRecoveryHistory();
         rpc.beforeOwnerRead = async () => {

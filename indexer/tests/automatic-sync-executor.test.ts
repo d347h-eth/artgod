@@ -164,6 +164,61 @@ describe("direct automatic sync execution", () => {
         ).toBe(F.Orphan - F.Anchor + 1);
     });
 
+    it("recovers a competing stored fork during retained resync through polling after restart", async () => {
+        const rpc = new RecoveryRpc();
+        let s = services(rpc);
+        const f = seedRecoveryHistory();
+        retain(s, f.collectionId, 101, 102);
+        retainCanonicalCheckFixture(s.storage, F.Orphan);
+        expect(await s.recovery.checkDue()).toBe(true);
+        const previous = pendingRecoveryRange();
+
+        // Another acquisition saves its fork after rollback at the new revision.
+        s.storage.persistSyncResult({
+            checkpoint: s.storage.captureSyncCheckpoint(1),
+            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
+            blocks: [syncBlockFixture(F.Orphan)],
+            data: emptyOnChainData(),
+            collections: [s.registry.getCollection(1, f.collectionId)!],
+        });
+        expect(await s.executor.runDue()).toBe(false);
+        expect(pendingRecoveryRange()).toEqual(previous);
+        expect(
+            s.checks.nextDue({ chainId: 1, now, upperBound: F.Head }),
+        ).toMatchObject({ blockNumber: F.Orphan });
+
+        db.raw.close();
+        setDbPath(dbPath);
+        s = services(rpc);
+        now += 101;
+        await s.recovery.resumeDue();
+        expect(await s.recovery.checkDue()).toBe(true);
+        expect(s.storage.captureSyncCheckpoint(1).revision).toBe(2);
+        expect(pendingRecoveryRange()).toMatchObject({
+            fromBlock: previous.fromBlock,
+            revision: 2,
+        });
+        expect(pendingRecoveryRange().recoveryId).not.toBe(previous.recoveryId);
+
+        for (let pass = 0; pass < 4 && s.recoveries.getRecovery(1); pass++)
+            expect(await s.executor.runDue()).toBe(true);
+        expect(s.recoveries.getRecovery(1)).toBeNull();
+        now += 101;
+        for (let pass = 0; pass < 4; pass++)
+            if (!(await s.executor.runDue())) break;
+        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
+            canonicalRecoveryBlock(F.Orphan).hash,
+        );
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                F.Anchor,
+                F.Orphan,
+            ),
+        ).toBe(F.Orphan - F.Anchor + 1);
+    });
+
     it("keeps acquisition pending when conflict verification cannot be retained", async () => {
         const rpc = new RecoveryRpc(F.Fork, 200),
             s = services(rpc),
