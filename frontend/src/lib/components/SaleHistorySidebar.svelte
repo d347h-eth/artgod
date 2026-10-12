@@ -198,4 +198,11 @@
 		gap: 0.35rem;
 		padding-top: 0.3rem;
 	}
+	@media (max-width: 900px) {
+		.sale-sidebar {
+			border-left: 0;
+			border-top: 1px solid var(--c-blue);
+			padding-left: 0;
+		}
+	}
 </style>

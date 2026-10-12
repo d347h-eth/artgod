@@ -67,6 +67,7 @@
 	const showIndicatorSettings = false;
 	let tokenId = $state<string | undefined>();
 	let root: HTMLElement;
+	let toolbar: HTMLDivElement;
 	let element: HTMLDivElement;
 	let height = $state(600);
 	let salesAboveX = $state<number | null>(null);
@@ -136,12 +137,14 @@
 		const measure = () => {
 			// Document coordinates keep browser scroll anchoring from feeding back
 			// into chart height when the shared facet panel stacks above it.
-			const top = root.getBoundingClientRect().top + window.scrollY;
+			const gap = Number.parseFloat(getComputedStyle(root).rowGap);
+			const top = toolbar.getBoundingClientRect().bottom + window.scrollY + gap;
 			const panel = root.closest('.panel');
 			const bottomMargin = panel ? Number.parseFloat(getComputedStyle(panel).marginBottom) : 0;
+			const bottomPadding = Number.parseFloat(getComputedStyle(root).paddingBottom);
 			height = Math.max(
 				240,
-				(window.visualViewport?.height ?? window.innerHeight) - top - bottomMargin
+				(window.visualViewport?.height ?? window.innerHeight) - top - bottomMargin - bottomPadding
 			);
 		};
 		// Normalize the first request before loading the renderer.
@@ -317,8 +320,8 @@
 	}
 </script>
 
-<section class="realized-price panel-content" bind:this={root} style:height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
-	<div class="price-toolbar">
+<section class="realized-price panel-content" bind:this={root} style:--price-workspace-height={height + 'px'} aria-label={tokenId === undefined ? 'Collection sale prices' : 'Token sale prices'}>
+	<div class="price-toolbar" bind:this={toolbar}>
 		{#if tokenId}<span class="muted">token #{tokenId}</span><button class="facet-panel-action-button facet-reset-button" onclick={() => setQuery(COLLECTION_CHART_TOKEN_QUERY, null)}>all tokens</button>{/if}
 		<label>bucket <select class="bootstrap-control-select" aria-label="Time bucket" value={bucket} disabled={allowedBuckets.length === 1} onchange={(event) => setQuery(PRICE_CHART_QUERY.Bucket, event.currentTarget.value)}>
 			{#each allowedBuckets as value}<option value={value}>{value === PRICE_HISTORY_BUCKET.Day ? '1D' : value}</option>{/each}
@@ -434,7 +437,7 @@
 		display: grid;
 		grid-template-columns: minmax(0, 9fr) minmax(208px, 1fr);
 		gap: 0.4rem;
-		flex: 1;
+		height: var(--price-workspace-height);
 		min-height: 0;
 		min-width: 0;
 	}
@@ -465,5 +468,12 @@
 		padding: 0;
 		border: 0;
 		background: transparent;
+	}
+	@media (max-width: 900px) {
+		.price-workspace {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: var(--price-workspace-height) minmax(0, 20rem);
+			height: auto;
+		}
 	}
 </style>

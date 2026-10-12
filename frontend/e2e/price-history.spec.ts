@@ -78,6 +78,37 @@ async function surface(page: Page, info: TestInfo, name: string, fullPage = true
 const chart = (page: Page) => page.locator('.realized-price');
 const rows = (page: Page) => page.locator('.sale-row[data-sale-id]');
 
+test('collection tabs wrap and the mobile chart uses the full content width above sales', async ({
+	page
+}, info) => {
+	for (const width of [320, 390, 640, 1280]) {
+		await page.setViewportSize({ width, height: 915 });
+		await page.goto('/e2e-harness/collection');
+		const tabs = page.getByLabel('Collection sections', { exact: true });
+		await expect(tabs).toBeVisible();
+		const links = await tabs
+			.locator('a, .runtime-tab-active')
+			.evaluateAll((items) => items.map((item) => item.getBoundingClientRect().toJSON()));
+		expect(links.every((box) => box.x >= 0 && box.right <= width)).toBe(true);
+		await tabs.getByRole('link', { name: 'chart', exact: true }).click();
+		await loaded(page);
+		await chartGutters(page);
+		const plot = (await page.locator('.price-plot').boundingBox())!;
+		const workspace = (await page.locator('.price-workspace').boundingBox())!;
+		const sidebar = (await page.getByRole('complementary', { name: 'Sales' }).boundingBox())!;
+		if (width <= 900) {
+			expect(plot.width).toBeCloseTo(workspace.width, 0);
+			expect(sidebar.width).toBeCloseTo(plot.width, 0);
+			expect(sidebar.y).toBeGreaterThanOrEqual(plot.y + plot.height);
+			expect(plot.height).toBeGreaterThan(300);
+		} else {
+			expect(sidebar.x).toBeGreaterThanOrEqual(plot.x + plot.width);
+			expect(sidebar.y).toBeCloseTo(plot.y, 0);
+		}
+		await surface(page, info, `responsive-chart-${width}`, false);
+	}
+});
+
 test('bundle dots keep quantity-aware volume, exact averages and both selectable NFT items', async ({
 	page
 }, info) => {
@@ -441,7 +472,7 @@ test('dedicated dots page follows Transfers in Asset Events and fills the viewpo
 	await expect(chart(page).locator('.sale-legend')).toHaveCount(0);
 	await expect(page.locator('.runtime-tab-active').filter({ hasText: /^chart$/ })).toBeVisible();
 	await expect(chart(page).getByRole('button', { name: /^(dots|line|candles)$/ })).toHaveCount(0);
-	const bounds = (await chart(page).boundingBox())!;
+	const bounds = (await page.locator('.price-canvas').boundingBox())!;
 	expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 	expect(bounds.height).toBeGreaterThan(page.viewportSize()!.height * 0.55);
 	if (page.viewportSize()!.width > 1500) {

@@ -58,6 +58,10 @@ Within Offers, `CollectionBiddingView.svelte` defines one current query model. F
 
 The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
+Primary collection tabs wrap between groups and within each group's choices as
+the available width narrows. Groups and header controls stay inside the page
+content width.
+
 Top-action rows are page chrome and should stay compact.
 
 Rules:

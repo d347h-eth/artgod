@@ -6,9 +6,11 @@ modes have been removed. The chart plots individual
 sales as dots and supports panning, zooming, fit, and bucket volume.
 The indicators button and settings are hidden for now; the default volume pane remains.
 
-The workspace fills the remaining viewport below collection navigation and its
+The plot fills the remaining viewport below collection navigation and its
 compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
-keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
+keeps a 208px minimum for readable sale rows. At widths up to 900px, the plot uses
+the full content width and the sales sidebar sits below it in a bounded 20rem row.
+Collection tab groups wrap both between and within groups. Range and bucket
 are URL state. Pinned selection resets on a full reload.
 The chart uses the shared collection header, quick jump, help modal, navigation
 shortcuts, and content inset. The plot and sales sidebar stay inside the same
