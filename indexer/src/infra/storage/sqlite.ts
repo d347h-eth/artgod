@@ -513,6 +513,7 @@ export class SqliteStorage
             throw new RangeError(
                 "Rollback block must be a positive safe integer",
             );
+        this.assertRollbackPreservesAnchors(input.chainId, input.fromBlock);
         return {
             checkpoint: this.captureSyncCheckpoint(input.chainId),
             fromBlock: input.fromBlock,
@@ -521,6 +522,21 @@ export class SqliteStorage
                 standard: COLLECTION_STANDARD.Erc721,
             }) as Erc721TokenReference[],
         };
+    }
+
+    private assertRollbackPreservesAnchors(
+        chainId: number,
+        fromBlock: number,
+    ): void {
+        const { anchorBlock } = db
+            .prepare(
+                "SELECT MAX(bootstrap_anchor_block) AS anchorBlock FROM collections WHERE chain_id=?",
+            )
+            .get(chainId) as { anchorBlock: number | null };
+        if (!CollectionRecord.canRollbackFromBlock(anchorBlock, fromBlock))
+            throw new ChainSyncConflict(
+                `Rollback from block ${fromBlock} crosses retained collection bootstrap anchor ${anchorBlock}`,
+            );
     }
 
     rollbackFromBlock({
@@ -534,6 +550,9 @@ export class SqliteStorage
         const fromBlock = plan.fromBlock;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(plan.checkpoint);
+            // Bootstrap can change while ownership RPC is in flight. Recheck
+            // every retained chain anchor before this writer changes any state.
+            this.assertRollbackPreservesAnchors(chainId, fromBlock);
             if (snapshot.block.blockNumber !== fromBlock - 1)
                 throw new ChainSyncConflict(
                     "Rollback ownership snapshot has the wrong block",

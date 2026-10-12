@@ -216,7 +216,10 @@ coordination for already admitted work remains deferred.
 
 - The worker never schedules ranges that start at or below block 0.
 - If no common ancestor is verified, keep recovery pending and warn.
-- Rollback crossing a settled collection bootstrap anchor is refused. Automatic
+- Rollback at or below any retained collection bootstrap anchor is refused,
+  before ownership RPC and again inside the atomic rollback writer. State and
+  revision remain intact; the retained recovery records the refusal for retry.
+  Automatic
   recovery of that case is outside the current contract; purge and rebootstrap
   the affected collection.
 

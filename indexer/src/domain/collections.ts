@@ -146,6 +146,17 @@ export class CollectionRecord {
         return bootstrapAnchorBlock !== null;
     }
 
+    // A fork snapshot below a retained bootstrap anchor cannot be restored by
+    // replay: current-state projection only accepts transfers after that anchor.
+    static canRollbackFromBlock(
+        bootstrapAnchorBlock: number | null,
+        fromBlock: number,
+    ): boolean {
+        return (
+            bootstrapAnchorBlock === null || fromBlock > bootstrapAnchorBlock
+        );
+    }
+
     // Current state only moves forward after the anchor block.
     static canProjectCurrentStateAtBlock(
         bootstrapAnchorBlock: number | null,
