@@ -39,6 +39,9 @@ export function proveReorgAncestor(input: {
     const canonical = new Map(
         canonicalBlocks.map((block) => [block.number, block]),
     );
+    const storedByNumber = new Map(
+        history.headers.map((block) => [block.number, block]),
+    );
     let firstDivergence = history.toBlock;
     for (const stored of history.headers) {
         const current = canonical.get(stored.number);
@@ -51,7 +54,14 @@ export function proveReorgAncestor(input: {
             stored.timestamp !== current.timestamp
         )
             firstDivergence = Math.min(firstDivergence, stored.number);
-        if (stored.number > 0 && stored.parentHash !== current.parentHash)
+        // A stale child's parent metadata cannot disprove the retained parent
+        // when that parent's hash matches fresh RPC. Missing or orphan parents
+        // still expose divergence; every earlier stored orphan is checked above.
+        if (
+            stored.number > 0 &&
+            stored.parentHash !== current.parentHash &&
+            storedByNumber.get(stored.number - 1)?.hash !== current.parentHash
+        )
             firstDivergence = Math.min(firstDivergence, stored.number - 1);
     }
     let fork: SyncBlockHeader | undefined;

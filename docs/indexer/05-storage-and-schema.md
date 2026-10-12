@@ -110,13 +110,14 @@ blocks(chain_id, block_number, block_hash, parent_hash, timestamp)
 
 Migration `073_reconcile_legacy_block_headers.sql` examines broken parent links
 in headers recorded before pending canonical checks were introduced, limited to
-history at or after each chain's earliest retained collection anchor. It prunes
-only unused suspect parent headers and coverage at those exact heights, leaving
-older and newer coverage intact. Facts, ownership/checkpoints, bootstrap anchors,
-retained event publications and active recovery journals protect a header from
-pruning. No other persisted data is deleted. Remaining sides of an inconsistent
-link receive fresh canonical checks; already pending checks keep their backoff.
-Chains with pruned headers advance their sync revision to fence in-flight work.
+history at or after each chain's earliest retained collection anchor. It retains
+fresh checks for both sides, including an unchecked child of an already pending
+parent. Existing pending checks keep their retry deadlines. The migration keeps
+all header identities, coverage, facts, ownership, bootstrap and publication work
+intact and does not advance revisions. A broken parent link cannot establish
+which side is canonical; published work can still reference a header after its
+outbox row is removed. The existing canonical owner verifies identities before
+performing any rollback and cleanup.
 
 ### `collection_sync_blocks`
 
