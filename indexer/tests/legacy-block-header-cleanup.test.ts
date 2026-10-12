@@ -376,12 +376,16 @@ describe("legacy mixed-fork header cleanup", () => {
                 upperBound: F.Head,
             })!;
             await s.recovery.checkBlock(child);
-            expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-                canonicalRecoveryBlock(F.Orphan).hash,
-            );
+            // The child's old parent identity still proves older divergence:
+            // a matching repair island must not hide missing orphan history.
+            expect(s.storage.getBlockHash(1, F.Orphan)).toBeNull();
             expect(s.storage.getBlockHash(1, F.Orphan + 1)).toBeNull();
             expect(s.recoveries.getRecovery(1)?.phase).toBe(
                 REORG_RECOVERY_PHASE.Resync,
+            );
+            expect(await s.executor.runDue()).toBe(true);
+            expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
+                canonicalRecoveryBlock(F.Orphan).hash,
             );
         },
     );
@@ -434,11 +438,25 @@ describe("legacy mixed-fork header cleanup", () => {
         },
     );
 
-    it("recovers a bad child above a freshly verified bootstrap anchor without replacing its snapshot", async () => {
+    it("recovers an explicitly checked child-only fork above a canonical bootstrap anchor", async () => {
         const s = fixture();
         // Both legacy identities are mature enough for the public poller.
         vi.spyOn(s.rpc, "getBlockNumber").mockResolvedValue(F.Head + 3);
         seedCanonicalParent();
+        // This fork shares the canonical anchor; it has no broken parent link.
+        // Its explicit checks model the acquisition conflict handoff.
+        db.prepare(
+            "UPDATE blocks SET parent_hash=? WHERE chain_id=1 AND block_number=?",
+        ).run(canonicalRecoveryBlock(F.Orphan).hash, F.Orphan + 1);
+        for (const blockNumber of [F.Orphan, F.Orphan + 1])
+            expect(
+                s.checks.retain({
+                    chainId: F.ChainId,
+                    blockNumber,
+                    blockHash: s.storage.getBlockHash(F.ChainId, blockNumber)!,
+                    checkpoint: s.storage.captureSyncCheckpoint(F.ChainId),
+                }),
+            ).toBe(true);
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(F.Orphan, s.collectionId);

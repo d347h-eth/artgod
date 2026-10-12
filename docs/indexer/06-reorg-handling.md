@@ -119,9 +119,6 @@ The fork point search (`findCommonAncestor()`):
   the sync pipeline's header acquisition contract.
 - Compares every stored header and parent identity. A parent mismatch can reveal
   divergence at a height whose local header is missing.
-- A stale child's parent metadata does not invalidate a retained parent whose
-  hash agrees with fresh RPC. Earlier stored orphans still lower the boundary;
-  a matching repair island above them cannot authorize an incomplete rollback.
 - Returns the most recent matching stored header below every observed divergence,
   together with its local history evidence. A canonical header inserted by gap
   repair above an earlier orphan cannot authorize an incomplete rollback.
