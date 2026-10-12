@@ -31,9 +31,10 @@ import {
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
-import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
+import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
 import {
     ChainSyncConflict,
+    StoredBlockHashConflict,
     type ChainSyncCheckpoint,
     type SyncBlockHeader,
 } from "../../domain/chain-sync.js";
@@ -383,8 +384,14 @@ export class SqliteStorage
             for (const block of blocks) {
                 const storedHash = this.getBlockHash(chainId, block.number);
                 if (storedHash && storedHash !== block.hash) {
-                    throw new ChainSyncConflict(
-                        `Sync conflicts with stored block ${block.number}; rollback is required`,
+                    throw new StoredBlockHashConflict(
+                        {
+                            chainId,
+                            blockNumber: block.number,
+                            blockHash: storedHash,
+                            checkpoint,
+                        },
+                        block.hash,
                     );
                 }
             }
@@ -506,6 +513,7 @@ export class SqliteStorage
             throw new RangeError(
                 "Rollback block must be a positive safe integer",
             );
+        this.assertRollbackPreservesAnchors(input.chainId, input.fromBlock);
         return {
             checkpoint: this.captureSyncCheckpoint(input.chainId),
             fromBlock: input.fromBlock,
@@ -514,6 +522,21 @@ export class SqliteStorage
                 standard: COLLECTION_STANDARD.Erc721,
             }) as Erc721TokenReference[],
         };
+    }
+
+    private assertRollbackPreservesAnchors(
+        chainId: number,
+        fromBlock: number,
+    ): void {
+        const { anchorBlock } = db
+            .prepare(
+                "SELECT MAX(bootstrap_anchor_block) AS anchorBlock FROM collections WHERE chain_id=?",
+            )
+            .get(chainId) as { anchorBlock: number | null };
+        if (!CollectionRecord.canRollbackFromBlock(anchorBlock, fromBlock))
+            throw new ChainSyncConflict(
+                `Rollback from block ${fromBlock} crosses retained collection bootstrap anchor ${anchorBlock}`,
+            );
     }
 
     rollbackFromBlock({
@@ -527,6 +550,9 @@ export class SqliteStorage
         const fromBlock = plan.fromBlock;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(plan.checkpoint);
+            // Bootstrap can change while ownership RPC is in flight. Recheck
+            // every retained chain anchor before this writer changes any state.
+            this.assertRollbackPreservesAnchors(chainId, fromBlock);
             if (snapshot.block.blockNumber !== fromBlock - 1)
                 throw new ChainSyncConflict(
                     "Rollback ownership snapshot has the wrong block",
@@ -549,20 +575,13 @@ export class SqliteStorage
                 expected: plan.tokens,
                 actual: snapshot.owners,
             });
-            // Invalidate uncertain chain-derived terminal state. An OpenSea
-            // cancellation is independent of this chain rollback and must stay.
-            db.prepare(
-                "DELETE FROM orders WHERE chain_id=? AND source_status<>? AND (source_status=? OR fillability_status IN (?,?))",
-            ).run(
+            // The ordinary order deletion below already covers attributed
+            // orphan rows. Preserve pre-fork and unattributed terminal evidence;
+            // neither proves a same-chain order belongs to this rollback.
+            new SqliteOrderRetirements(db.raw).invalidateFromBlock({
                 chainId,
-                ORDER_SOURCE_STATUS.Cancelled,
-                ORDER_SOURCE_STATUS.Filled,
-                ORDER_STATUS.Filled,
-                ORDER_STATUS.Cancelled,
-            );
-            db.prepare<[number, string]>(
-                "DELETE FROM market_order_retirements WHERE chain_id=? AND reason=?",
-            ).run(chainId, ORDER_RETIREMENT_REASON.Terminal);
+                fromBlock,
+            });
             // The driver disallows writes while a read cursor is open. Close
             // each bounded page before applying deltas, in this same transaction.
             let after: TransferRow | undefined;

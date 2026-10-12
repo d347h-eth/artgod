@@ -108,6 +108,17 @@ blocks(chain_id, block_number, block_hash, parent_hash, timestamp)
 - Primary key: `(chain_id, block_number)`
 - Used for reorg detection and persistence of canonical block metadata
 
+Migration `073_reconcile_legacy_block_headers.sql` examines broken parent links
+in headers recorded before pending canonical checks were introduced, limited to
+history at or after each chain's earliest retained collection anchor. It retains
+fresh checks for both sides, including an unchecked child of an already pending
+parent. Existing pending checks keep their retry deadlines. The migration keeps
+all header identities, coverage, facts, ownership, bootstrap and publication work
+intact and does not advance revisions. A broken parent link cannot establish
+which side is canonical; published work can still reference a header after its
+outbox row is removed. The existing canonical owner verifies identities before
+performing any rollback and cleanup.
+
 ### `collection_sync_blocks`
 
 Defined in `032_collection_sync_blocks.sql`.
@@ -959,8 +970,9 @@ Key operations:
 - `rollbackFromBlock()`
     - reverses balances from orphaned transfers
     - deletes transfers, fills, collection-extension events, activities, transactions, and blocks from the rollback point onward
-    - invalidates uncertain chain-derived market-order retirement markers while
-      preserving explicit OpenSea cancellation evidence
+    - invalidates terminal market-order retirement markers attributed to the
+      rollback range, preserving pre-fork/unattributed records and explicit
+      OpenSea cancellation evidence
 
 ### Collection registry (`indexer/src/infra/collections/sqlite.ts`)
 

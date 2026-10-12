@@ -292,8 +292,12 @@ The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
 - Known expiry is preserved when a full order is removed. Markers whose calculated
   deadline has already passed are not inserted; normal indexed maintenance removes
   expired markers. Natural order expiry also rejects replay directly.
-- Chain rollback invalidates uncertain chain-derived terminal state, but preserves
-  explicit OpenSea cancellations, including their compact removal records. This
+- Chain rollback removes orders and terminal retirement markers attributed to
+  its verified rollback range. Pre-fork records and records without block
+  attribution remain intact: absent attribution is not proof of orphaning.
+  Unattributed terminal evidence follows ordinary source/protocol and retention
+  lifecycle; rollback does not automatically reactivate or delete it.
+  It preserves explicit OpenSea cancellations, including their compact removal records. This
   holds whichever cancellation arrives first, including after chain-derived
   state has been retired. Source-cancelled rows remain ineligible for current
   asks and follow the normal cleanup policy.

@@ -139,6 +139,7 @@ export function createTxDumpRpc(
             );
         },
         readContract: unsupported,
+        readContractAtBlock: unsupported,
         getBalance: unsupported,
     };
 }

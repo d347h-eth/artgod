@@ -30,6 +30,7 @@ import type {
     CollectionScopeResolverPort,
 } from "../ports/collections.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
+import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type { ReorgRecoveryStore } from "./reorg-recovery.js";
 import {
     BACKFILL_EXECUTION_MODE,
@@ -78,6 +79,7 @@ type AutomaticSyncInput = Omit<
     | "collectionScopeResolver"
 > & {
     commit: SyncRangeCommitPort;
+    canonicalChecks: Pick<CanonicalChecksPort, "retain">;
     collectionsPort: Pick<
         CollectionRegistryPort,
         "getCollection" | "listCollectionsForSync"
@@ -388,6 +390,7 @@ export class AutomaticSyncExecutor {
             rpc: this.input.rpc,
             storage: this.input.storage,
             commit: this.input.commit,
+            canonicalChecks: this.input.canonicalChecks,
             collectionExtensions: this.input.collectionExtensions,
             chainId: this.input.chainId,
             reorgDepth: this.input.reorgDepth,

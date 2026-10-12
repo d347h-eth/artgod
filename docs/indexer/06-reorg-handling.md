@@ -29,6 +29,13 @@ inside the same transaction as its facts, coverage and required follow-ups.
 Already mature historical imports need no delayed check. Repeated imports of the
 same hash preserve an unfinished check and never rearm a completed one.
 
+An explicit disagreement with a stored header during sync rearms verification
+even for mature history or a completed check. The shared sync use case retains
+that check outside its failed acquisition transaction, fenced by the stored hash
+and chain revision. An already pending check keeps its retry time. The sync
+request remains pending until the existing reorg worker freshly verifies and,
+when needed, recovers the conflicting history.
+
 The existing depth convention is unchanged: block N becomes eligible when HEAD
 reaches `N + REORG_DEPTH - 1`. This delays only verification; realtime data is
 fetched and saved immediately. Pending rows remain eligible after they age beyond
@@ -72,6 +79,9 @@ A newer mismatch during resync carries the earliest unacquired resync block into
 its replacement workflow. Stale proof cannot commit over a newer recovery or
 chain revision. A changed revision rearms proof while preserving that unfinished
 range rather than retrying a permanently stale checkpoint.
+Due canonical checks continue while recovery is retained, including deferred
+ancestor proof and resync. A conflicting stored identity cannot wait for the
+resync it prevents from completing.
 
 ## Recovery Decision Logs
 
@@ -206,7 +216,10 @@ coordination for already admitted work remains deferred.
 
 - The worker never schedules ranges that start at or below block 0.
 - If no common ancestor is verified, keep recovery pending and warn.
-- Rollback crossing a settled collection bootstrap anchor is refused. Automatic
+- Rollback at or below any retained collection bootstrap anchor is refused,
+  before ownership RPC and again inside the atomic rollback writer. State and
+  revision remain intact; the retained recovery records the refusal for retry.
+  Automatic
   recovery of that case is outside the current contract; purge and rebootstrap
   the affected collection.
 

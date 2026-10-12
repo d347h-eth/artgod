@@ -8,10 +8,13 @@ import { RpcRollbackOwnershipSnapshot } from "../src/infra/ownership/rpc-rollbac
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
+import type { RpcContractRead } from "../src/ports/rpc.js";
+import type { ChainBlockReference } from "../src/domain/chain-sync.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import {
     emptyOnChainData,
+    insertCollection,
     loadCollection,
     selectBalanceOwners,
     selectTransferCount,
@@ -39,16 +42,121 @@ describe("verified reorg ownership rollback", () => {
 
     function rollbackHarness(owner: string) {
         const f = transferFixture();
+        const ownerRead = vi.fn(
+            async (_input: RpcContractRead & { block: ChainBlockReference }) =>
+                owner,
+        );
         const rpc = {
-            getBlock: vi.fn(async (number) => block(number)),
-            readContractAtBlock: vi.fn(async () => owner),
+            getBlock: vi.fn(async (number: number) => block(number)),
+            async readContractAtBlock<T>(
+                input: RpcContractRead & { block: ChainBlockReference },
+            ): Promise<T> {
+                return (await ownerRead(input)) as T;
+            },
         };
         const rollback = new RollbackChainRange(
             f.storage,
             new RpcRollbackOwnershipSnapshot(rpc),
         );
-        return { ...f, rpc, rollback };
+        return { ...f, rpc, ownerRead, rollback };
     }
+
+    function persistedState() {
+        return Object.fromEntries(
+            [
+                "blocks",
+                "nft_transfer_events",
+                "collection_sync_blocks",
+                "nft_balances",
+                "erc721_ownership_checkpoints",
+                "chain_sync_revisions",
+                "collections",
+            ].map((table) => [
+                table,
+                db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+            ]),
+        );
+    }
+
+    it.each([99, 100])(
+        "refuses rollback from %i at or below a snapshot-only anchor without mutation",
+        async (fromBlock) => {
+            const f = rollbackHarness(A);
+            const bootstrap = new SqliteBootstrapStorage();
+            bootstrap.insertSnapshotRows([
+                {
+                    runId: 1,
+                    chainId: 1,
+                    collectionId: f.collectionId,
+                    contract: f.contract,
+                    tokenId: "1",
+                    owner: B,
+                    anchorBlock: 100,
+                },
+            ]);
+            bootstrap.finalizeSnapshot({
+                runId: 1,
+                chainId: 1,
+                collectionId: f.collectionId,
+                contract: f.contract,
+                anchorBlock: 100,
+                anchorHash: block(100).hash,
+                anchorTimestamp: 100,
+            });
+            const before = persistedState();
+            await expect(
+                f.rollback.execute({
+                    ...block(fromBlock - 1),
+                    chainId: 1,
+                }),
+            ).rejects.toThrow(/bootstrap anchor/);
+            expect(f.ownerRead).not.toHaveBeenCalled();
+            expect(persistedState()).toEqual(before);
+        },
+    );
+
+    it("rechecks an anchor changed during ownership RPC before rollback writes", async () => {
+        const f = rollbackHarness(A);
+        f.persist([f.transfer(103, 1, B, C)]);
+        let before: ReturnType<typeof persistedState> | undefined;
+        f.ownerRead.mockImplementationOnce(async () => {
+            db.prepare(
+                "UPDATE collections SET bootstrap_anchor_block=101 WHERE collection_id=?",
+            ).run(f.collectionId);
+            before = persistedState();
+            return A;
+        });
+        await expect(
+            f.rollback.execute({ ...block(100), chainId: 1 }),
+        ).rejects.toThrow(/bootstrap anchor/);
+        expect(before).toBeDefined();
+        expect(persistedState()).toEqual(before);
+    });
+
+    it.each([1, 2])(
+        "protects other anchors on the same chain and ignores chain %i when separate",
+        async (chainId) => {
+            const f = rollbackHarness(A);
+            f.persist([f.transfer(105, 1, B, C)]);
+            insertCollection({
+                chainId,
+                slug: "other-anchor",
+                address: D,
+                anchorBlock: 105,
+            });
+            const before = persistedState();
+            const attempt = f.rollback.execute({ ...block(104), chainId: 1 });
+            if (chainId === 1) {
+                await expect(attempt).rejects.toThrow(/bootstrap anchor/);
+                expect(persistedState()).toEqual(before);
+            } else {
+                await attempt;
+                expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+                    { owner: A, amount: "1" },
+                ]);
+            }
+        },
+    );
 
     it("restores the fork owner despite missing history and an empty canonical resync", async () => {
         const f = rollbackHarness(A);
@@ -73,7 +181,7 @@ describe("verified reorg ownership rollback", () => {
             ),
         ).toBe(3);
         expect(selectTransferCount(1, f.collectionId, "1")).toBe(0);
-        expect(f.rpc.readContractAtBlock).toHaveBeenCalledWith(
+        expect(f.ownerRead).toHaveBeenCalledWith(
             expect.objectContaining({
                 args: [1n],
                 block: {
@@ -166,7 +274,7 @@ describe("verified reorg ownership rollback", () => {
     it("rejects a rollback plan when another affected token appears during RPC reads", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]);
-        f.rpc.readContractAtBlock.mockImplementationOnce(async () => {
+        f.ownerRead.mockImplementationOnce(async () => {
             f.persist([{ ...f.transfer(104, 1, A, D), tokenId: "2" }]);
             return A;
         });
@@ -186,9 +294,7 @@ describe("verified reorg ownership rollback", () => {
             const f = rollbackHarness(A);
             f.persist([f.transfer(103, 1, B, C)]);
             if (failure === "RPC failure")
-                f.rpc.readContractAtBlock.mockRejectedValueOnce(
-                    new Error(failure),
-                );
+                f.ownerRead.mockRejectedValueOnce(new Error(failure));
             else
                 f.rpc.getBlock
                     .mockResolvedValueOnce(block(100))
@@ -273,10 +379,7 @@ describe("verified reorg ownership rollback", () => {
         f.persist([f.transfer(103, 1, B, C)]);
         await f.rollback.execute({ ...block(100), chainId: 1 });
         const bootstrap = new SqliteBootstrapStorage();
-        const contract = f.storage.prepareRollback({
-            chainId: 1,
-            fromBlock: 100,
-        }).tokens[0].contract;
+        const contract = f.contract;
         bootstrap.insertSnapshotRows([
             {
                 runId: 1,

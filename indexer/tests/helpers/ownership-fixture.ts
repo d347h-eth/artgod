@@ -107,7 +107,7 @@ export function transferFixture() {
             collections: [loadCollection(1, collectionId)],
         });
     };
-    return { collectionId, storage, transfer, persist };
+    return { collectionId, storage, contract, transfer, persist };
 }
 
 export function emptyOnChainData(): OnChainData {

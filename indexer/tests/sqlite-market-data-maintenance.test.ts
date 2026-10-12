@@ -500,7 +500,7 @@ describe("in-place SQLite market-data recovery", () => {
         },
     );
 
-    it("invalidates only the reorganized chain's negative market cache when terminal block attribution is unknown", () => {
+    it("preserves terminal evidence without block attribution during chain rollback", () => {
         order("terminal", NOW + 3600, ORDER_STATUS.Cancelled);
         order("live", NOW + 3600);
         db.prepare(
@@ -528,10 +528,11 @@ describe("in-place SQLite market-data recovery", () => {
         expect(db.prepare("SELECT id FROM orders ORDER BY id").all()).toEqual([
             { id: "live" },
             { id: "other" },
+            { id: "terminal" },
         ]);
         expect(
             db.prepare("SELECT order_id FROM market_order_retirements").all(),
-        ).toEqual([{ order_id: "other-retired" }]);
+        ).toEqual([{ order_id: "retired" }, { order_id: "other-retired" }]);
     });
 
     it("preserves valuable rows and user settings while removing receipts, obsolete history and expired payloads", async () => {
