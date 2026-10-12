@@ -79,6 +79,9 @@ A newer mismatch during resync carries the earliest unacquired resync block into
 its replacement workflow. Stale proof cannot commit over a newer recovery or
 chain revision. A changed revision rearms proof while preserving that unfinished
 range rather than retrying a permanently stale checkpoint.
+Due canonical checks continue while recovery is retained, including deferred
+ancestor proof and resync. A conflicting stored identity cannot wait for the
+resync it prevents from completing.
 
 ## Recovery Decision Logs
 

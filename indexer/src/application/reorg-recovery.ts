@@ -118,10 +118,9 @@ export class RecoverChainReorg {
 
     /** Read eligible retained checks even when their blocks aged past today's realtime tail. */
     async checkDue(): Promise<boolean> {
-        if (
-            this.recoveries.getRecovery(this.options.chainId) ||
-            !this.checks.hasPending(this.options.chainId, this.now())
-        )
+        // A new mismatch can block retained resync or supersede an ancestor
+        // proof. Its revision-fenced handoff must run before that recovery ends.
+        if (!this.checks.hasPending(this.options.chainId, this.now()))
             return false;
         const head = await this.rpc.getBlockNumber();
         const check = this.checks.nextDue({
