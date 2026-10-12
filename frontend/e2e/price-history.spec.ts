@@ -109,6 +109,63 @@ test('collection tabs wrap and the mobile chart uses the full content width abov
 	}
 });
 
+// The native separator is the resize target without an axis canvas inside it.
+const volumeDivider = (page: Page) =>
+	page.locator('.price-canvas [style*="ns-resize"]:not(:has(canvas))');
+async function dragVolumeDivider(page: Page, distance: number, touch = false) {
+	const box = (await volumeDivider(page).boundingBox())!;
+	const x = box.x + box.width / 2;
+	const y = box.y + box.height / 2;
+	if (touch) {
+		// Real browser touch input covers the library's hit testing and event routing.
+		const session = await page.context().newCDPSession(page);
+		await session.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+		const point = (y: number) => ({ x, y, radiusX: 1, radiusY: 1, force: 1, id: 0 });
+		await session.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [point(y)]
+		});
+		for (let step = 1; step <= 8; step++) {
+			await session.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [point(y + (distance * step) / 8)]
+			});
+			await page.waitForTimeout(32);
+		}
+		await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+		await session.detach();
+	} else {
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		await page.mouse.move(x, y + distance, { steps: 8 });
+		await page.mouse.up();
+		await page.mouse.move(2, 2);
+	}
+}
+
+for (const touch of [false, true]) {
+	test(`volume divider resizes with ${touch ? 'touch' : 'mouse'} without changing sales`, async ({
+		page
+	}, info) => {
+		await page.setViewportSize({ width: touch ? 390 : 1280, height: 915 });
+		await page.goto(PRICE_HISTORY_E2E.path);
+		await loaded(page);
+		await expect(volumeDivider(page)).toBeVisible();
+		const initial = (await volumeDivider(page).boundingBox())!;
+		const initialRows = await rows(page).first().getAttribute('data-sale-id');
+		await dragVolumeDivider(page, -60, touch);
+		await expect
+			.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+			.toBeCloseTo(initial.y - 60, 0);
+		await dragVolumeDivider(page, 60, touch);
+		await expect
+			.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+			.toBeCloseTo(initial.y, 0);
+		await expect(rows(page).first()).toHaveAttribute('data-sale-id', initialRows!);
+		await surface(page, info, `volume-${touch ? 'touch' : 'mouse'}`, false);
+	});
+}
+
 test('bundle dots keep quantity-aware volume, exact averages and both selectable NFT items', async ({
 	page
 }, info) => {

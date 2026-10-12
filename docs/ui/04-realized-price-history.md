@@ -171,7 +171,11 @@ persisted candle projection, automatic refresh, or historical fetch pagination.
 ## Rendering and indicators
 
 KLineChart 10.0.2 supplies canvas layout, axes, pointer interactions, resizable
-indicator panes, and calculations. A custom drawing callback plots visible sale
+indicator panes, and calculations. A locked Yarn patch on the shipped ESM build
+routes divider touch gestures to the library's existing separator widget. It
+retains the initial divider until release and cancels prior fling scrolling;
+the native pane constraints and resizing logic remain in charge.
+A custom drawing callback plots visible sale
 dots with fractional bucket coordinates, preserving sub-bucket timestamps and
 coincident fills. A spatial map provides hit testing without a DOM node per sale.
 Missing internal OHLC values are NaNs, excluded from ranges and calculations.
