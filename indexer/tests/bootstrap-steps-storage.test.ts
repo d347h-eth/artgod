@@ -417,6 +417,63 @@ describe("bootstrap steps storage", () => {
         );
     });
 
+    it("selects the longest-due runs before newer retries and uses lease expiry for abandoned work", () => {
+        const recentRetry = seedRun(1, 91);
+        const expiredLease = seedRun(1, 92);
+        const firstWaiting = seedRun(1, 93);
+        const secondWaiting = seedRun(1, 94);
+        const steps = new SqliteBootstrapSteps();
+        for (const runId of [
+            recentRetry,
+            expiredLease,
+            firstWaiting,
+            secondWaiting,
+        ]) {
+            seedStep(runId, BOOTSTRAP_STEP_KEY.Metadata);
+            steps.markStepReady(runId, BOOTSTRAP_STEP_KEY.Metadata);
+        }
+        steps.markStepFailedRetry({
+            runId: recentRetry,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            attempts: 1,
+            nextAttemptAt: 900,
+            error: "retry",
+        });
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET status = ?, lease_until = ?, next_attempt_at = 0 WHERE run_id = ?",
+        ).run(BOOTSTRAP_STEP_STATUS.Running, 500, expiredLease);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = 100 WHERE run_id IN (?, ?)",
+        ).run(firstWaiting, secondWaiting);
+        // Multiple due steps still occupy one run slot, ordered by its oldest deadline.
+        seedStep(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        steps.markStepReady(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = 200 WHERE run_id = ? AND step_key = ?",
+        ).run(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        const query = {
+            chainId: 1,
+            stepKeys: [
+                BOOTSTRAP_STEP_KEY.Metadata,
+                BOOTSTRAP_STEP_KEY.Ownership,
+            ],
+            nowMs: 1_000,
+            limit: 3,
+        };
+        expect(steps.listDueStepRunIds(query)).toEqual([
+            firstWaiting,
+            secondWaiting,
+            expiredLease,
+        ]);
+        expect(steps.listDueStepRunIds({ ...query, limit: 4 })).toEqual([
+            firstWaiting,
+            secondWaiting,
+            expiredLease,
+            recentRetry,
+        ]);
+        expect(steps.getNextDueStepAt(query)).toBe(100);
+    });
+
     it("lists due lane runs and reports the next durable deadline", () => {
         const dueRunId = seedRun(1, 95);
         const futureRunId = seedRun(1, 96);

@@ -25,6 +25,7 @@ import type {
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
+import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import {
     COLLECTION_STATUS,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
@@ -48,7 +49,11 @@ import {
     BootstrapDeploymentExecutor,
     type BootstrapDeploymentRpcPort,
 } from "../src/application/bootstrap-deployment-executor.js";
-import { BootstrapStepScheduler } from "../src/application/bootstrap-step-scheduler.js";
+import {
+    BootstrapStepScheduler,
+    BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
+} from "../src/application/bootstrap-step-scheduler.js";
+import { resolveBootstrapLanePollDelayMs } from "../src/application/bootstrap-lane-poller.js";
 import {
     readyStepResult,
     terminalStepResult,
@@ -239,10 +244,18 @@ function seed(
     );
 }
 
-function harness(client = rpc()) {
+function harness(
+    client = rpc(),
+    options: {
+        nowMs?: () => number;
+        pollMinMs?: number;
+        runLimit?: number;
+    } = {},
+) {
+    const nowMs = options.nowMs ?? (() => NOW);
     const runs = new SqliteBootstrapRuns();
-    const steps = new SqliteBootstrapSteps();
-    const store = new SqliteBootstrapDeployment(() => NOW);
+    const steps = new SqliteBootstrapSteps(nowMs);
+    const store = new SqliteBootstrapDeployment(nowMs);
     const executor = new BootstrapDeploymentExecutor(client, store);
     const scheduler = new BootstrapStepScheduler(
         runs,
@@ -255,10 +268,10 @@ function harness(client = rpc()) {
                     reorgDepth: 1,
                 }))
                     ? terminalStepResult()
-                    : readyStepResult(NOW + 100),
+                    : readyStepResult(nowMs() + (options.pollMinMs ?? 100)),
         },
         { wakeBootstrapStep: async () => {} },
-        () => NOW,
+        nowMs,
     );
     return {
         runs,
@@ -277,7 +290,7 @@ function harness(client = rpc()) {
                 maxProgressStaleMs: 20_000,
                 claimLimit: 1,
                 maxIterationsPerRun: 2,
-                runLimit: 10,
+                runLimit: options.runLimit ?? 10,
                 retryPolicy: {
                     maxAttempts: 2,
                     baseDelayMs: 100,
@@ -1077,6 +1090,96 @@ describe("durable optional deployment lookup", () => {
         ).toEqual([DEPLOYMENT, 50, 20]);
         expect(collectionBlock(101)).toBe(30);
     });
+
+    it.each([BOOTSTRAP_STEP_STATUS.Ready, BOOTSTRAP_STEP_STATUS.Paused])(
+        "services later runnable deployment work past multiple windows of %s input waiters",
+        async (waitingStatus) => {
+            const runLimit = BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT;
+            const waitingIds = Array.from(
+                { length: runLimit * 2 + 1 },
+                (_, index) => 1_001 + index,
+            );
+            const runnableIds = [
+                waitingIds.at(-1)! + 1,
+                waitingIds.at(-1)! + 2,
+            ];
+            db.writeTransaction(() => {
+                for (const runId of waitingIds) {
+                    seed(runId);
+                    db.prepare(
+                        "UPDATE bootstrap_runs SET enumeration_mode = ?, manual_token_ids_json = ? WHERE run_id = ?",
+                    ).run(
+                        BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
+                        '["1"]',
+                        runId,
+                    );
+                    db.prepare(
+                        "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+                    ).run(
+                        waitingStatus,
+                        runId,
+                        BOOTSTRAP_STEP_KEY.DeploymentBlock,
+                    );
+                }
+                for (const runId of runnableIds) seed(runId);
+            })();
+            let nowMs = NOW;
+            const pollMinMs = getSettingDefaultNumber(
+                "BOOTSTRAP_SCHEDULER_POLL_MIN_MS",
+            );
+            const pollMaxMs = getSettingDefaultNumber(
+                "BOOTSTRAP_SCHEDULER_POLL_MAX_MS",
+            );
+            const client = rpc();
+            const h = harness(client, {
+                nowMs: () => nowMs,
+                runLimit,
+                pollMinMs,
+            });
+            const passLimit = Math.ceil(
+                (waitingIds.length + runnableIds.length) / runLimit,
+            );
+            for (let pass = 0; pass < passLimit; pass++) {
+                const result = await h.poll();
+                expect(result.runIds.length).toBeLessThanOrEqual(runLimit);
+                if (
+                    waitingStatus === BOOTSTRAP_STEP_STATUS.Paused &&
+                    pass === 0
+                ) {
+                    // Due work stays ahead of the bounded startup fallback,
+                    // even when that fallback contains only earlier idle runs.
+                    expect(result.runIds.slice(0, runnableIds.length)).toEqual(
+                        runnableIds,
+                    );
+                }
+                nowMs += resolveBootstrapLanePollDelayMs({
+                    nextDueAt: result.nextDueAt,
+                    pollMinMs,
+                    pollMaxMs,
+                    nowMs,
+                });
+            }
+            for (const runId of runnableIds) {
+                expect(collectionBlock(runId)).toBe(DEPLOYMENT);
+                expect(
+                    h.steps.getStep(runId, BOOTSTRAP_STEP_KEY.DeploymentBlock)
+                        ?.status,
+                ).toBe(BOOTSTRAP_STEP_STATUS.Succeeded);
+            }
+            for (const runId of waitingIds) {
+                expect(
+                    h.steps.getStep(runId, BOOTSTRAP_STEP_KEY.DeploymentBlock),
+                ).toMatchObject({
+                    status: waitingStatus,
+                    attempts: 0,
+                    resultJson: null,
+                });
+                expect(collectionBlock(runId)).toBeNull();
+            }
+            expect(client.getBytecode).toHaveBeenCalled();
+            expect(client.findFirstLogPage).not.toHaveBeenCalled();
+        },
+    );
 
     it("starts before anchoring and saves the marker without changing the run lifecycle", async () => {
         seed(101);

@@ -34,7 +34,8 @@ export type BootstrapEnumerationConfirmation = {
     anchorHash: string;
 };
 
-// Query shape for finding due bootstrap work scoped to one scheduler lane.
+// Find lane work by oldest due deadline, then run ID. Each run occupies one
+// slot even when several steps are due; rescheduling yields to older due work.
 export type BootstrapDueStepRunQuery = {
     chainId: number;
     stepKeys: readonly BootstrapStepKey[];

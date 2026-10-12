@@ -38,6 +38,11 @@ type BootstrapStepDbRow = {
     last_error: string | null;
 };
 
+// Running work becomes due at lease expiry; ready/retry work at its deadline.
+// Keep run selection and poll timing on the same durable clock.
+const BOOTSTRAP_STEP_DUE_AT_SQL =
+    "CASE WHEN s.status = ? THEN s.lease_until ELSE s.next_attempt_at END";
+
 // SQLite adapter for the durable bootstrap_run_steps orchestration journal.
 export class SqliteBootstrapSteps
     implements BootstrapStepsPort, BootstrapEnumerationStepsPort
@@ -354,17 +359,18 @@ export class SqliteBootstrapSteps
         }
         const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
         const sql =
-            "SELECT DISTINCT s.run_id " +
+            `SELECT s.run_id, MIN(${BOOTSTRAP_STEP_DUE_AT_SQL}) AS next_due_at ` +
             "FROM bootstrap_run_steps s " +
             "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
             `WHERE r.chain_id = ? AND r.status != ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
             "AND (" +
             "(s.status IN (?, ?) AND s.next_attempt_at <= ? AND (s.lease_until IS NULL OR s.lease_until <= ?)) " +
             "OR (s.status = ? AND s.lease_until IS NOT NULL AND s.lease_until <= ?)" +
-            ") ORDER BY s.run_id ASC LIMIT ?";
+            ") GROUP BY s.run_id ORDER BY next_due_at ASC, s.run_id ASC LIMIT ?";
         const rows = db.raw
             .prepare(sql)
             .all(
+                BOOTSTRAP_STEP_STATUS.Running,
                 input.chainId,
                 BOOTSTRAP_RUN_STATUS.Failed,
                 ...input.stepKeys,
@@ -385,7 +391,7 @@ export class SqliteBootstrapSteps
         }
         const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
         const sql =
-            "SELECT MIN(CASE WHEN s.status = ? THEN s.lease_until ELSE s.next_attempt_at END) AS next_due_at " +
+            `SELECT MIN(${BOOTSTRAP_STEP_DUE_AT_SQL}) AS next_due_at ` +
             "FROM bootstrap_run_steps s " +
             "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
             `WHERE r.chain_id = ? AND r.status != ? AND s.step_key IN (${stepKeyPlaceholders}) ` +

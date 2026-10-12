@@ -55,8 +55,12 @@ The bootstrap worker also runs three durable step scheduler lanes:
 Each lane's poller prevents overlap between its own timer callbacks. Queue
 handlers can enter the same lane independently, so there is no process-wide
 one-call-at-a-time lane lock. Each scheduler invocation visits due run ids
-serially, then the orchestrator claims ready steps
-using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
+serially in oldest-due order, with run ID breaking ties. A run occupies one slot
+using its earliest due step; an abandoned running step becomes due at lease
+expiry. Waiting or page-yielding work moves behind older due work when it is
+rescheduled, so the oldest run IDs cannot monopolize the bounded selection.
+Startup-sweep candidates fill only slots left after due work. The orchestrator
+claims ready steps using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
 a lane claims at most one step per run iteration. Step leases are renewed while
 the processor runs only for the unexpired owner, and lease release is fenced by owner. Generic progress and
 terminal-settlement writes do not carry that owner predicate.

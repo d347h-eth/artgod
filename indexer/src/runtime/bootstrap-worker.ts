@@ -41,6 +41,7 @@ import {
 } from "../application/bootstrap-step-orchestrator.js";
 import {
     BootstrapStepScheduler,
+    BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
     type BootstrapStepSchedulerResult,
 } from "../application/bootstrap-step-scheduler.js";
 import { BootstrapStepProgressObserver } from "../application/bootstrap-step-progress-observer.js";
@@ -164,7 +165,6 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;
 const BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE = 500;
-const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 const BOOTSTRAP_STEP_CLAIM_LIMIT = 1;
 const BOOTSTRAP_STEP_MAX_ITERATIONS = 20;

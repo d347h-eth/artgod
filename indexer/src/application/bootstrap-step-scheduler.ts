@@ -10,6 +10,9 @@ import {
     type BootstrapStepWakePort,
 } from "./bootstrap-step-orchestrator.js";
 
+// Shared bound for worker startup reconciliation and each scheduler lane pass.
+export const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
+
 export type BootstrapStepSchedulerInput = {
     chainId: number;
     runId?: number | null;
@@ -34,16 +37,14 @@ export type BootstrapStepSchedulerResult = {
     nextDueAt: number | null;
 };
 
-export interface BootstrapStepSchedulerRunsPort
-    extends BootstrapStepOrchestratorRunsPort {
+export interface BootstrapStepSchedulerRunsPort extends BootstrapStepOrchestratorRunsPort {
     listRunsForStartupSweep(
         chainId: number,
         limit: number,
     ): BootstrapRunDefinition[];
 }
 
-export interface BootstrapStepSchedulerStepsPort
-    extends BootstrapStepOrchestratorStepsPort {
+export interface BootstrapStepSchedulerStepsPort extends BootstrapStepOrchestratorStepsPort {
     listDueStepRunIds(input: {
         chainId: number;
         stepKeys: readonly BootstrapStepKey[];
@@ -140,6 +141,8 @@ export class BootstrapStepScheduler {
         }
 
         if (runIds.size < limit) {
+            // Fill only unused slots: startup candidates cannot displace work
+            // selected by the durable due-age ordering above.
             for (const run of this.runsPort.listRunsForStartupSweep(
                 input.chainId,
                 limit,
