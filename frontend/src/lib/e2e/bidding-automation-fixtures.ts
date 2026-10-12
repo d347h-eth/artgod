@@ -42,7 +42,8 @@ import {
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	isTradingNumericTraitRange
 } from '@artgod/shared/types';
 import {
 	countBiddingBidBookOwnStates,
@@ -121,6 +122,12 @@ export const BIDDING_E2E_SCENARIO = {
 	NumericTraitRanges: 'numeric_trait_ranges',
 	NumericOnlyTraitRanges: 'numeric_only_trait_ranges',
 	RepeatedNumericTraitRanges: 'repeated_numeric_trait_ranges',
+	TraitValueComma: 'trait_value_comma',
+	TraitKeyComma: 'trait_key_comma',
+	TraitKeyColon: 'trait_key_colon',
+	NumericTraitKeyComma: 'numeric_trait_key_comma',
+	NumericTraitKeyColon: 'numeric_trait_key_colon',
+	SafeTraitPunctuation: 'safe_trait_punctuation',
 	CancellationPhases: 'cancellation_phases',
 	AuthorizationRequired: 'authorization_required',
 	UnconfirmedBid: 'unconfirmed_bid',
@@ -137,6 +144,56 @@ export const BIDDING_E2E_SCENARIO = {
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+// One owner for punctuation scopes used by fixture rows, token metadata and UI tests.
+export const BIDDING_E2E_TRAIT_TEXT_SCOPES: ReadonlyArray<{
+	scenario: BiddingE2eScenario;
+	traits: ApiBiddingBidBookRow['scope']['traits'];
+	navigable: boolean;
+}> = [
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitValueComma,
+		traits: [
+			{ type: 'Palette', value: 'Red,Blue' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitKeyComma,
+		traits: [
+			{ type: 'Trait,Kind', value: 'Rare' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitKeyColon,
+		traits: [
+			{ type: 'Trait:Kind', value: 'Rare' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.NumericTraitKeyComma,
+		traits: [{ type: 'Level,Height', min: 1, max: 2 }],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.NumericTraitKeyColon,
+		traits: [{ type: 'Level:Height', min: 1, max: 2 }],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.SafeTraitPunctuation,
+		traits: [
+			{ type: 'Palette & Édition/%+?#', value: 'Red:Blue + 50% & /?# 🟦' },
+			{ type: 'Level & Édition/%+?#', min: 1, max: 2 }
+		],
+		navigable: true
+	}
+];
 
 // One saved order persists across the unauthorized-job cancellation journey.
 export const BIDDING_E2E_UNCONFIRMED_BID = {
@@ -1110,6 +1167,18 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
+	if (traitTextScope) {
+		return [
+			bidRow({
+				orderId: traitTextScope.scenario,
+				scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				maker: MARKET_ADDRESS_A,
+				priceEth: '0.3',
+				traits: traitTextScope.traits
+			})
+		];
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges) {
 		return [
 			bidRow({
@@ -1610,6 +1679,19 @@ function tokenCard(
 
 function tokenCardById(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenCard {
 	const token = TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
+	if (traitTextScope) {
+		return {
+			...token,
+			attributes: [
+				...token.attributes,
+				...traitTextScope.traits.map((criterion) => ({
+					key: criterion.type,
+					value: isTradingNumericTraitRange(criterion) ? String(criterion.min) : criterion.value
+				}))
+			]
+		};
+	}
 	if (
 		scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges ||
 		scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges ||

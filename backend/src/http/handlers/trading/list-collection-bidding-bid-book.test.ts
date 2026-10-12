@@ -5,6 +5,7 @@ import {
     COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRAIT_FILTER_QUERY_PARAMS,
 } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -63,6 +64,49 @@ describe("get collection bidding bid-book span attributes", () => {
 });
 
 describe("ListCollectionBiddingBidBookHttpAdapter", () => {
+    it.each([
+        { key: "Palette", value: "Red:Blue" },
+        { key: "Palette & Édition/%+?#", value: "Red:Blue + 50% & /?# 🟦" },
+    ])(
+        "preserves safe trait punctuation at the HTTP boundary: %j",
+        async (trait) => {
+            let captured: unknown;
+            const adapter = new ListCollectionBiddingBidBookHttpAdapter(
+                {
+                    listCollectionBiddingBidBook: (input) => {
+                        captured = input;
+                        return input as never;
+                    },
+                },
+                true,
+            );
+            const range = {
+                key: "Level & Édition/%+?#",
+                fromValue: "1",
+                toValue: "2",
+            };
+            const query = new URLSearchParams({
+                [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope]:
+                    COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+                [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin]:
+                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                [TRAIT_FILTER_QUERY_PARAMS.Traits]: `${trait.key}:${trait.value}`,
+                [TRAIT_FILTER_QUERY_PARAMS.TraitRanges]: `${range.key}:${range.fromValue}..${range.toValue}`,
+            });
+            await adapter.handle(
+                routeRequest(`/api/ethereum/terraforms/bidding/bids?${query}`),
+            );
+            expect(captured).toEqual(
+                expect.objectContaining({
+                    traits: [trait],
+                    traitRanges: [range],
+                    traitFilterJoinMode:
+                        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                }),
+            );
+        },
+    );
+
     it.each(COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)(
         "maps state filter %s at the HTTP boundary",
         async (state) => {

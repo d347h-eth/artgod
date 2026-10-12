@@ -363,6 +363,9 @@ Own-bid display:
 Ranged bid-book scopes navigate with AND across their complete criteria.
 Identical criteria are deduplicated. Distinct same-key conjunctions omit the
 filter action because browse filters cannot represent them faithfully.
+Scopes whose trait text changes through the existing browse query format also
+omit that action; the complete observed scope remains visible.
+Individual bid-book trait values with unrepresentable text remain plain labels.
 
 Orders fallback mapper:
 

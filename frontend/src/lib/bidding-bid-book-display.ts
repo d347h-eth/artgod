@@ -6,6 +6,7 @@ import {
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import { dedupeBiddingTraitCriteria } from '@artgod/shared/trading/offer-trait-criteria';
+import { canRepresentTraitFilters } from '$lib/trait-filters';
 
 const BID_BOOK_TRAIT_DISPLAY_MAX_LENGTH = 96;
 
@@ -59,6 +60,7 @@ export function bidBookCriteriaToBrowseFilters(criteria: BidBookScopeTraits): {
 			traits.push({ key: criterion.type, value: criterion.value });
 		}
 	}
+	if (!canRepresentTraitFilters(traits, traitRanges)) return null;
 	return {
 		traits,
 		traitRanges,

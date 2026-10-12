@@ -5,7 +5,10 @@ import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE
 } from '@artgod/shared/types';
 import { capturedOpenSeaRangedOfferFixtures } from '@artgod/shared/testing/opensea-offers';
-import { biddingTraitScopeMatchesFilters } from '@artgod/shared/trading/offer-trait-criteria';
+import {
+	biddingTraitScopeMatchesFilters,
+	parseBiddingTraitCriteria
+} from '@artgod/shared/trading/offer-trait-criteria';
 import {
 	buildCollectionBiddingQuery,
 	parseCollectionBiddingTraitFilterJoinMode
@@ -13,6 +16,44 @@ import {
 import { parseSelectedTraits, parseSelectedTraitRanges } from './trait-filters';
 
 describe('bid book criteria navigation', () => {
+	it.each([
+		{ type: 'Palette', value: 'Red,Blue' },
+		{ type: 'Trait:Kind', value: 'Rare' },
+		{ type: 'Trait,Kind', value: 'Rare' },
+		{ type: 'Level,Height', min: 1, max: 2 },
+		{ type: 'Level:Height', min: 1, max: 2 }
+	])('omits navigation when accepted source text cannot round-trip: %j', (criterion) => {
+		const scope = parseBiddingTraitCriteria([criterion, { type: 'Other Level', min: 1, max: 2 }]);
+		expect(scope).toEqual([criterion, { type: 'Other Level', min: 1, max: 2 }]);
+		expect(bidBookCriteriaToBrowseFilters(scope)).toBeNull();
+		expect(bidBookCriteriaToBrowseFilters([...scope].reverse())).toBeNull();
+	});
+	it('round-trips safe punctuation without substituting a different trait bucket', () => {
+		const scope = [
+			{ type: 'Palette', value: 'Red:Blue' },
+			{ type: 'Level & Édition/%+?#', min: 1, max: 2 }
+		];
+		const filters = bidBookCriteriaToBrowseFilters(scope)!;
+		expect(filters).not.toBeNull();
+		const query = buildCollectionBiddingQuery({
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+			selectedTraits: filters.traits,
+			selectedTraitRanges: filters.traitRanges,
+			traitJoinMode: filters.traitJoinMode
+		});
+		const decoded = new URLSearchParams(query.toString());
+		const matching = [scope, [{ type: 'Palette:Red', value: 'Blue' }, scope[1]]].filter(
+			(criteria) =>
+				biddingTraitScopeMatchesFilters(
+					criteria,
+					parseSelectedTraits(decoded),
+					parseSelectedTraitRanges(decoded),
+					parseCollectionBiddingTraitFilterJoinMode(decoded)
+				)
+		);
+		expect(matching).toEqual([scope]);
+	});
+
 	it('preserves exact values and both numeric bounds in the browse filter', () => {
 		expect(
 			bidBookCriteriaToBrowseFilters([

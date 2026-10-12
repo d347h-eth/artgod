@@ -22,7 +22,8 @@ import {
 	TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	isTradingNumericTraitRange
 } from '@artgod/shared/types';
 import type { TradingBiddingBidBookOwnState } from '@artgod/shared/types';
 import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/config/bidding';
@@ -65,6 +66,7 @@ import {
 	buildBiddingE2eCompetitionReapplyFixture,
 	BIDDING_E2E_OWN_STATE_OPPONENT_ORDER_IDS,
 	BIDDING_E2E_SCENARIO,
+	BIDDING_E2E_TRAIT_TEXT_SCOPES,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
 	biddingCompetitionPresetFixture,
 	findBiddingE2eJobForTarget
@@ -2276,6 +2278,83 @@ test.describe('bidding automation fixture harness', () => {
 				await page.screenshot({ path: testInfo.outputPath('repeated-scope.png'), fullPage: true });
 			}
 		});
+	}
+
+	for (const scope of BIDDING_E2E_TRAIT_TEXT_SCOPES) {
+		for (const entry of ['collection', 'token'] as const) {
+			test(`preserves trait punctuation from ${entry} for ${scope.scenario}`, async ({
+				page
+			}, testInfo) => {
+				await rememberUnfilteredBiddingNavigation(page);
+				const api = await installBiddingAutomationApiMock(page);
+				api.setBidBookScenario(scope.scenario);
+				await openHarnessPage(
+					page,
+					`${entry === 'collection' ? BIDDING_PATH : `${COLLECTION_PATH}/101`}?bid_scope=traits&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${scope.scenario}`
+				);
+				const row =
+					entry === 'collection'
+						? page.locator('.bid-book-demand-group-row')
+						: page.locator('.bid-book-table tbody tr');
+				await expect(row).toHaveCount(1);
+				for (const criterion of scope.traits) {
+					await expect(row).toContainText(
+						isTradingNumericTraitRange(criterion)
+							? `${criterion.type} = ${criterion.min}–${criterion.max}`
+							: `${criterion.type} = ${criterion.value}`
+					);
+					if (!isTradingNumericTraitRange(criterion)) {
+						await expect(row.getByRole('link', { name: criterion.value, exact: true })).toHaveCount(
+							scope.navigable ? 1 : 0
+						);
+					}
+				}
+				await row.scrollIntoViewIfNeeded();
+				await page.screenshot({
+					path: testInfo.outputPath('trait-text-scope.png'),
+					fullPage: true
+				});
+				await expect(page.getByTestId(TEST_IDS.BidBookTraitBucketBid)).toHaveCount(0);
+				await expect(page.getByTestId(TEST_IDS.BidBookRowBid)).toHaveCount(0);
+				const action = page.getByTestId(
+					entry === 'collection' ? TEST_IDS.BidBookTraitBucketFilter : TEST_IDS.BidBookRowFilter
+				);
+				if (!scope.navigable) {
+					await expect(action).toHaveCount(0);
+					return;
+				}
+				await expect(action).toHaveCount(1);
+				const destinationRead =
+					entry === 'token'
+						? page.waitForResponse((response) => {
+								const path = new URL(response.url()).pathname;
+								return path.endsWith('/bidding/bids') && !path.endsWith('/101/bidding/bids');
+							})
+						: null;
+				await clickCenterVerifiedAction(action);
+				let query: URLSearchParams;
+				if (destinationRead) {
+					// Inspect the production callback, then replay its query in the fixture route.
+					query = new URL((await destinationRead).url()).searchParams;
+					query.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scope.scenario);
+					await openHarnessPage(page, `${BIDDING_PATH}?${query}`);
+				} else {
+					await expect(page).toHaveURL(/trait_join=and/);
+					query = new URL(page.url()).searchParams;
+				}
+				expect(query.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin)).toBe(
+					COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+				);
+				await expect(page.locator('.bid-book-demand-group-row')).toHaveCount(1);
+				for (const criterion of scope.traits) {
+					await expect(page.locator('.bid-book-demand-group-row')).toContainText(
+						isTradingNumericTraitRange(criterion)
+							? `${criterion.type} = ${criterion.min}–${criterion.max}`
+							: `${criterion.type} = ${criterion.value}`
+					);
+				}
+			});
+		}
 	}
 
 	test('supports trait bucket bid and filter actions independently', async ({ page }, testInfo) => {

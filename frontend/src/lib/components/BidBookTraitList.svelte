@@ -4,6 +4,7 @@
 		BidBookTraitValueHref
 	} from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
+	import { canRepresentTraitFilters } from '$lib/trait-filters';
 	import {
 		formatTradingTraitCriterionValue,
 		isTradingNumericTraitRange
@@ -28,7 +29,7 @@
 			<span class="bid-book-demand-trait">
 				<span class="bid-book-demand-trait-key">{trimBidBookTraitText(trait.type)}</span>
 				<span class="bid-book-demand-trait-equals">=</span>
-				{#if traitValueHref && !isTradingNumericTraitRange(trait)}
+				{#if traitValueHref && !isTradingNumericTraitRange(trait) && canRepresentTraitFilters([{ key: trait.type, value: trait.value }], [])}
 					<a
 						class="bid-book-demand-trait-value-link"
 						href={traitValueHref({
