@@ -29,6 +29,13 @@ inside the same transaction as its facts, coverage and required follow-ups.
 Already mature historical imports need no delayed check. Repeated imports of the
 same hash preserve an unfinished check and never rearm a completed one.
 
+An explicit disagreement with a stored header during sync rearms verification
+even for mature history or a completed check. The shared sync use case retains
+that check outside its failed acquisition transaction, fenced by the stored hash
+and chain revision. An already pending check keeps its retry time. The sync
+request remains pending until the existing reorg worker freshly verifies and,
+when needed, recovers the conflicting history.
+
 The existing depth convention is unchanged: block N becomes eligible when HEAD
 reaches `N + REORG_DEPTH - 1`. This delays only verification; realtime data is
 fetched and saved immediately. Pending rows remain eligible after they age beyond

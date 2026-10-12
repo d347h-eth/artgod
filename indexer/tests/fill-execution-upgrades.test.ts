@@ -759,10 +759,8 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
     const registry = new SqliteCollectionRegistry();
     const outbox = new SqliteQueueOutbox();
     const gaps = new SqliteSyncGapStore();
-    const recoveries = new SqliteReorgRecoveries(
-        storage,
-        new SqliteCanonicalChecks(),
-    );
+    const canonicalChecks = new SqliteCanonicalChecks();
+    const recoveries = new SqliteReorgRecoveries(storage, canonicalChecks);
     const commit = new SqliteSyncRangeCommit({
         storage,
         outbox,
@@ -783,6 +781,7 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
     });
     const handler = createBackfillSyncHandler({
         reorgDepth: 1,
+        canonicalChecks,
         chainId: 1,
         workerCount: 2,
         wethAddress: zeroAddress,
@@ -796,6 +795,7 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
     });
     const executor = new AutomaticSyncExecutor({
         reorgDepth: 1,
+        canonicalChecks,
         chainId: 1,
         batchSize: 2,
         wethAddress: zeroAddress,

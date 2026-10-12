@@ -2,6 +2,10 @@ import type { PendingCanonicalCheck } from "../domain/canonical-check.js";
 
 /** One reorg runtime per chain reads bounded DB-owned work. No broker lease or cursor owns it. */
 export interface CanonicalChecksPort {
+    /** Rearm an explicit conflict only while its stored identity/revision still match.
+     * Existing pending checks keep their retry time. Call after the failed writer exits.
+     */
+    retain(check: PendingCanonicalCheck): boolean;
     hasPending(chainId: number, now: number): boolean;
     nextDue(input: {
         chainId: number;

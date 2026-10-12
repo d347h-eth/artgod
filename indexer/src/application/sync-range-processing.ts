@@ -35,6 +35,8 @@ import type { Hex, RpcBlock, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort, SyncRangeResult } from "../ports/storage.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
 import type { SyncWorkCompletion } from "../domain/sync-work.js";
+import { StoredBlockHashConflict } from "../domain/chain-sync.js";
+import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type {
     CollectionRegistryPort,
     CollectionScopeResolverPort,
@@ -109,6 +111,7 @@ export type SyncRangeInput = Parameters<typeof acquireSyncRange>[0];
 export async function processSyncRange(
     input: SyncRangeInput & {
         commit: SyncRangeCommitPort;
+        canonicalChecks: Pick<CanonicalChecksPort, "retain">;
         sources: readonly DomainSyncSource[];
         mode: DomainSyncMode;
         completion: SyncWorkCompletion;
@@ -133,11 +136,19 @@ export async function processSyncRange(
                     : SYNC_WORK_CLASS.Main,
         },
     }));
-    input.commit.commitSyncRange({
-        result,
-        followUps,
-        completion: input.completion,
-    });
+    try {
+        input.commit.commitSyncRange({
+            result,
+            followUps,
+            completion: input.completion,
+        });
+    } catch (error) {
+        // A failed sync writer cannot retain work inside its rolled-back transaction.
+        // Let the existing reorg owner freshly verify this exact stored identity.
+        if (error instanceof StoredBlockHashConflict)
+            input.canonicalChecks.retain(error.check);
+        throw error;
+    }
     return result;
 }
 

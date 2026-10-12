@@ -116,9 +116,10 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const syncGapStore = new SqliteSyncGapStore();
+        const canonicalChecks = new SqliteCanonicalChecks();
         const reorgRecoveries = new SqliteReorgRecoveries(
             storage,
-            new SqliteCanonicalChecks(),
+            canonicalChecks,
         );
         const outbox = new SqliteQueueOutbox();
         const collectionRegistry = new SqliteCollectionRegistry();
@@ -200,6 +201,7 @@ async function main() {
                     reorgDepth: config.sync.reorgDepth,
                     storage,
                     commit,
+                    canonicalChecks,
                     sources: [domainSyncSource(job)],
                     mode: "realtime",
                     completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
@@ -253,6 +255,7 @@ async function main() {
                 reorgDepth: config.sync.reorgDepth,
                 storage,
                 commit,
+                canonicalChecks,
                 collectionsPort: collectionRegistry,
                 extensions: collectionExtensions,
                 bidderIndex,
@@ -271,6 +274,7 @@ async function main() {
                 rpc: backfillRpc,
                 storage,
                 commit,
+                canonicalChecks,
                 collectionsPort: collectionRegistry,
                 collectionExtensions,
                 bidderIndex,

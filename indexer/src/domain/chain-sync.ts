@@ -1,3 +1,5 @@
+import type { PendingCanonicalCheck } from "./canonical-check.js";
+
 // Capture before RPC work; rollback advances the revision in its write transaction.
 export type ChainSyncCheckpoint = { chainId: number; revision: number };
 
@@ -33,5 +35,17 @@ export class ChainSyncConflict extends Error {
     constructor(message: string) {
         super(message);
         this.name = "ChainSyncConflict";
+    }
+}
+/** A stored header disagreement needs fresh verification after the failed writer exits. */
+export class StoredBlockHashConflict extends ChainSyncConflict {
+    constructor(
+        readonly check: PendingCanonicalCheck,
+        readonly observedHash: string,
+    ) {
+        super(
+            `Sync conflicts with stored block ${check.blockNumber}; rollback is required`,
+        );
+        this.name = "StoredBlockHashConflict";
     }
 }

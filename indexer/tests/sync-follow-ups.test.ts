@@ -193,6 +193,7 @@ describe("atomic sync follow-up retention", () => {
         const outbox = new SqliteQueueOutbox();
         await processSyncRange({
             reorgDepth: 3,
+            canonicalChecks: new SqliteCanonicalChecks(),
             rpc,
             storage: f.storage,
             commit: new SqliteSyncRangeCommit({
