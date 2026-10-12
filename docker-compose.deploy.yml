@@ -69,7 +69,11 @@ services:
             public-edge:
                 aliases:
                     - artgod-frontend
-        command: ["node", "frontend/build-web/index.js"]
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "frontend/build-web/index.js",
+            ]
         environment:
             ARTGOD_WORKSPACE_ROOT: /app
             HOST: 0.0.0.0
