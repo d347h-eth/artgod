@@ -4,6 +4,7 @@ import type {
 } from "@artgod/shared/database";
 import {
     mergeOrderRetirement,
+    ORDER_RETIREMENT_REASON,
     type OrderRetirement,
     type OrderRetirementObservation,
 } from "../../domain/order-retention.js";
@@ -16,6 +17,7 @@ export class SqliteOrderRetirements {
     private readonly select: BetterSqlite3Statement;
     private readonly remove: BetterSqlite3Statement;
     private readonly upsert: BetterSqlite3Statement;
+    private readonly invalidateTerminalRange: BetterSqlite3Statement;
 
     constructor(conn: BetterSqlite3Database) {
         this.select = conn.prepare(
@@ -23,6 +25,9 @@ export class SqliteOrderRetirements {
         );
         this.remove = conn.prepare(
             "DELETE FROM market_order_retirements WHERE chain_id=? AND order_id=?",
+        );
+        this.invalidateTerminalRange = conn.prepare(
+            "DELETE FROM market_order_retirements WHERE chain_id=? AND reason=? AND block_number>=?",
         );
         this.upsert = conn.prepare(
             "INSERT INTO market_order_retirements(chain_id,collection_id,order_id,reason,retired_at,valid_until,expires_at,block_number) VALUES (?,?,?,?,?,?,?,?) " +
@@ -65,5 +70,17 @@ export class SqliteOrderRetirements {
 
     forget(chainId: number, orderId: string): number {
         return this.remove.run(chainId, orderId).changes;
+    }
+
+    /** Caller owns the rollback writer. Only attributed terminal chain evidence
+     * in its verified range is invalidated; absent attribution is not orphan proof.
+     * Source cancellations, expiry and inactivity retain their own lifecycle.
+     */
+    invalidateFromBlock(input: { chainId: number; fromBlock: number }): number {
+        return this.invalidateTerminalRange.run(
+            input.chainId,
+            ORDER_RETIREMENT_REASON.Terminal,
+            input.fromBlock,
+        ).changes;
     }
 }

@@ -31,7 +31,7 @@ import {
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
 import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
-import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
+import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
 import {
     ChainSyncConflict,
     StoredBlockHashConflict,
@@ -575,20 +575,13 @@ export class SqliteStorage
                 expected: plan.tokens,
                 actual: snapshot.owners,
             });
-            // Invalidate uncertain chain-derived terminal state. An OpenSea
-            // cancellation is independent of this chain rollback and must stay.
-            db.prepare(
-                "DELETE FROM orders WHERE chain_id=? AND source_status<>? AND (source_status=? OR fillability_status IN (?,?))",
-            ).run(
+            // The ordinary order deletion below already covers attributed
+            // orphan rows. Preserve pre-fork and unattributed terminal evidence;
+            // neither proves a same-chain order belongs to this rollback.
+            new SqliteOrderRetirements(db.raw).invalidateFromBlock({
                 chainId,
-                ORDER_SOURCE_STATUS.Cancelled,
-                ORDER_SOURCE_STATUS.Filled,
-                ORDER_STATUS.Filled,
-                ORDER_STATUS.Cancelled,
-            );
-            db.prepare<[number, string]>(
-                "DELETE FROM market_order_retirements WHERE chain_id=? AND reason=?",
-            ).run(chainId, ORDER_RETIREMENT_REASON.Terminal);
+                fromBlock,
+            });
             // The driver disallows writes while a read cursor is open. Close
             // each bounded page before applying deltas, in this same transaction.
             let after: TransferRow | undefined;
