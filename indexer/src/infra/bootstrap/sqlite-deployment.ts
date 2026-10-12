@@ -25,7 +25,7 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
     constructor(private readonly nowMs: () => number = Date.now) {}
 
     ownsLease(claim: BootstrapDeploymentClaim): boolean {
-        return (
+        const ownsLease =
             db
                 .prepare(
                     "SELECT 1 FROM bootstrap_run_steps s JOIN bootstrap_runs r ON r.run_id = s.run_id " +
@@ -36,7 +36,14 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
                         "AND r.chain_id = @chainId AND r.collection_id = @collectionId AND lower(r.request_address) = lower(@address) " +
                         "AND lower(c.address) = lower(@address)",
                 )
-                .get(this.params(claim)) !== undefined
+                .get(this.params(claim)) !== undefined;
+        if (!ownsLease || !claim.confirmation) return ownsLease;
+        const current = this.readEnumerationConfirmation(claim);
+        return (
+            current !== null &&
+            current.firstTokenId === claim.confirmation.firstTokenId &&
+            current.anchorBlock === claim.confirmation.anchorBlock &&
+            current.anchorHash === claim.confirmation.anchorHash
         );
     }
 
@@ -56,26 +63,51 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
         return row?.deployment_block ?? null;
     }
 
-    getConfirmedTokenId(run: BootstrapRunDefinition): string | null {
+    getEnumerationConfirmation(
+        run: BootstrapRunDefinition,
+    ): BootstrapEnumerationConfirmation | null {
+        const confirmation = this.readEnumerationConfirmation({
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            address: run.requestAddress,
+        });
+        return confirmation &&
+            confirmation.anchorBlock === run.anchorBlock &&
+            confirmation.anchorHash === run.anchorBlockHash &&
+            bootstrapScopeContainsToken(
+                resolveBootstrapRunScope(run),
+                confirmation.firstTokenId,
+            )
+            ? confirmation
+            : null;
+    }
+
+    private readEnumerationConfirmation(
+        identity: Pick<
+            BootstrapDeploymentClaim,
+            "runId" | "chainId" | "collectionId" | "address"
+        >,
+    ): BootstrapEnumerationConfirmation | null {
         const row = db
             .prepare(
-                "SELECT s.result_json FROM bootstrap_run_steps s JOIN bootstrap_runs r ON r.run_id = s.run_id " +
+                "SELECT s.result_json, r.anchor_block, r.anchor_block_hash FROM bootstrap_run_steps s JOIN bootstrap_runs r ON r.run_id = s.run_id " +
                     "WHERE s.run_id = @runId AND s.step_key = @stepKey AND s.status = @succeeded " +
                     "AND r.status != @failed AND r.chain_id = @chainId AND r.collection_id = @collectionId " +
-                    "AND lower(r.request_address) = lower(@address) " +
-                    "AND r.anchor_block = @anchorBlock AND r.anchor_block_hash = @anchorHash",
+                    "AND lower(r.request_address) = lower(@address)",
             )
             .get({
-                runId: run.runId,
+                ...identity,
                 stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
                 succeeded: BOOTSTRAP_STEP_STATUS.Succeeded,
                 failed: BOOTSTRAP_RUN_STATUS.Failed,
-                chainId: run.chainId,
-                collectionId: run.collectionId,
-                address: run.requestAddress,
-                anchorBlock: run.anchorBlock,
-                anchorHash: run.anchorBlockHash,
-            }) as { result_json: string | null } | undefined;
+            }) as
+            | {
+                  result_json: string | null;
+                  anchor_block: number | null;
+                  anchor_block_hash: string | null;
+              }
+            | undefined;
         if (!row?.result_json) return null;
         try {
             const result = JSON.parse(
@@ -85,16 +117,19 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
             if (
                 !result ||
                 tokenId === null ||
-                result.anchorBlock !== run.anchorBlock ||
-                result.anchorHash !== run.anchorBlockHash
+                !Number.isSafeInteger(result.anchorBlock) ||
+                result.anchorBlock! < 0 ||
+                typeof result.anchorHash !== "string" ||
+                !/^0x[0-9a-fA-F]{64}$/.test(result.anchorHash) ||
+                result.anchorBlock !== row.anchor_block ||
+                result.anchorHash !== row.anchor_block_hash
             )
                 return null;
-            return bootstrapScopeContainsToken(
-                resolveBootstrapRunScope(run),
-                tokenId,
-            )
-                ? tokenId
-                : null;
+            return {
+                firstTokenId: tokenId,
+                anchorBlock: result.anchorBlock,
+                anchorHash: result.anchorHash,
+            };
         } catch {
             return null;
         }
@@ -215,8 +250,8 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
         result: BootstrapDeploymentResult,
     ): boolean {
         return db.writeTransaction(() => {
-            // Failure invalidates in-flight lookups, even while their lease is current.
-            // Check inside the publication transaction so failure cannot race the write.
+            // A changed confirmation invalidates mint work even with a current
+            // deployment lease. Recheck inside the publication transaction.
             if (!this.ownsLease(claim)) return false;
             const collection = db
                 .prepare(
@@ -267,7 +302,11 @@ export class SqliteBootstrapDeployment implements BootstrapDeploymentStorePort {
 
     private params(claim: BootstrapDeploymentClaim) {
         return {
-            ...claim,
+            runId: claim.runId,
+            chainId: claim.chainId,
+            collectionId: claim.collectionId,
+            address: claim.address,
+            leaseOwner: claim.leaseOwner,
             stepKey: BOOTSTRAP_STEP_KEY.DeploymentBlock,
             running: BOOTSTRAP_STEP_STATUS.Running,
             failed: BOOTSTRAP_RUN_STATUS.Failed,

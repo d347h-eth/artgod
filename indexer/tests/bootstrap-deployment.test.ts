@@ -63,6 +63,7 @@ import { createTempDbPath } from "./helpers/test-helpers.js";
 import {
     BootstrapEnumerationExecutor,
     BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME,
+    type BootstrapEnumerationAnchor,
 } from "../src/application/bootstrap-enumeration-executor.js";
 import { resolveTokenIdsForRun } from "../src/application/bootstrap-token-enumeration.js";
 import { Erc721TokenOwnership } from "../src/infra/ownership/erc721-token-ownership.js";
@@ -296,13 +297,18 @@ function collectionBlock(id: number): number | null {
     ).deployment_block;
 }
 
-function claimEnumeration(runId: number) {
-    const runs = new SqliteBootstrapRuns();
-    runs.updateRunAnchor({
-        runId,
+function claimEnumeration(
+    runId: number,
+    anchor: BootstrapEnumerationAnchor = {
         anchorBlock: 100,
         anchorHash: HASH,
         anchorTimestamp: 1_700_000_000,
+    },
+) {
+    const runs = new SqliteBootstrapRuns();
+    runs.updateRunAnchor({
+        runId,
+        ...anchor,
     });
     db.prepare(
         "INSERT INTO bootstrap_run_steps (run_id, step_key, status, blocking) VALUES (?, ?, ?, 1) ON CONFLICT(run_id, step_key) DO UPDATE SET status = excluded.status, lease_owner = NULL, lease_until = NULL",
@@ -318,18 +324,18 @@ function claimEnumeration(runId: number) {
     });
     return {
         run: runs.getRun(runId)!,
-        anchor: {
-            anchorBlock: 100,
-            anchorHash: HASH,
-            anchorTimestamp: 1_700_000_000,
-        },
+        anchor,
         leaseOwner: OWNER,
     };
 }
 
-function recordEnumeration(runId: number, firstTokenId?: string) {
+function recordEnumeration(
+    runId: number,
+    firstTokenId?: string,
+    anchor?: BootstrapEnumerationAnchor,
+) {
     if (firstTokenId !== undefined) {
-        const input = claimEnumeration(runId);
+        const input = claimEnumeration(runId, anchor);
         expect(
             new SqliteBootstrapSteps(() => NOW).completeEnumeration({
                 ...input,
@@ -649,9 +655,9 @@ describe("deployment input produced by anchored enumeration", () => {
                 outcome: BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.LeaseLost,
             });
             expect(
-                new SqliteBootstrapDeployment(() => NOW).getConfirmedTokenId(
-                    enumeration.runs.getRun(101)!,
-                ),
+                new SqliteBootstrapDeployment(
+                    () => NOW,
+                ).getEnumerationConfirmation(enumeration.runs.getRun(101)!),
             ).toBeNull();
             expect(enumeration.storage.getMetadataTaskCounts(101).total).toBe(
                 0,
@@ -835,7 +841,175 @@ describe("durable optional deployment lookup", () => {
         expect(client.findFirstLogPage).toHaveBeenCalledTimes(1);
     });
 
-    it("discards an old scanned prefix when canonical history changes before finding a mint", async () => {
+    it.each(
+        ["anchor", "hash", "replacement", "deletion"].flatMap((change) =>
+            ["code reply", "quota wait", "mint reply", "publication"].map(
+                (boundary) => ({ change, boundary }),
+            ),
+        ),
+    )(
+        "fences a changed enumeration confirmation: $change during $boundary",
+        async ({ change, boundary }) => {
+            seed(101);
+            db.prepare(
+                "UPDATE bootstrap_runs SET enumeration_mode = ?, manual_token_ids_json = ? WHERE run_id = 101",
+            ).run(BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds, '["200", "1"]');
+            recordEnumeration(101, "200");
+            const entered = deferred<void>();
+            const release = deferred<void>();
+            const wait = async () => {
+                entered.resolve();
+                await release.promise;
+            };
+            const client = rpc();
+            const wireRequest = vi.fn();
+            if (boundary === "code reply") {
+                client.getBytecode.mockImplementationOnce(async () => {
+                    await wait();
+                    return "0x1234";
+                });
+            } else if (boundary === "publication") {
+                const getBlock = client.getBlock.getMockImplementation()!;
+                client.getBlock.mockImplementation(async (number) => {
+                    if (client.getBlock.mock.calls.length === 2) await wait();
+                    return getBlock(number);
+                });
+            } else {
+                client.findFirstLogPage.mockImplementationOnce(
+                    async (filter, hooks) => {
+                        await wait();
+                        if (boundary === "quota wait") {
+                            hooks?.beforeRequest?.();
+                            wireRequest();
+                        }
+                        return { log: null, nextBlock: 50 };
+                    },
+                );
+            }
+            const h = harness(client);
+            const polling = h.poll();
+            await entered.promise;
+            const progressBefore = h.steps.getStep(
+                101,
+                BOOTSTRAP_STEP_KEY.DeploymentBlock,
+            )!.resultJson;
+            if (change === "anchor" || change === "hash") {
+                h.runs.updateRunAnchor({
+                    runId: 101,
+                    anchorBlock: change === "anchor" ? 200 : 100,
+                    anchorHash: OTHER_HASH,
+                    anchorTimestamp: 1_700_000_000,
+                });
+            } else if (change === "replacement") {
+                recordEnumeration(101, "1");
+            } else {
+                db.prepare(
+                    "DELETE FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+                ).run(101, BOOTSTRAP_STEP_KEY.Enumeration);
+            }
+            release.resolve();
+            await polling;
+            expect(collectionBlock(101)).toBeNull();
+            expect(h.runs.getRun(101)?.deploymentBlock).toBeNull();
+            expect(
+                h.steps.getStep(101, BOOTSTRAP_STEP_KEY.DeploymentBlock),
+            ).toMatchObject({
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                attempts: 0,
+                resultJson: progressBefore,
+            });
+            expect(wireRequest).not.toHaveBeenCalled();
+        },
+    );
+
+    it("rejects stale mint progress and publication inside the store transaction", () => {
+        seed(101, BOOTSTRAP_RUN_STATUS.Queued, null, 1, true);
+        recordEnumeration(101, "1");
+        const h = harness();
+        h.steps.claimReadySteps({
+            runId: 101,
+            stepKeys: [BOOTSTRAP_STEP_KEY.DeploymentBlock],
+            leaseOwner: OWNER,
+            leaseUntil: NOW + 10_000,
+            nowMs: NOW,
+            limit: 1,
+        });
+        const claim = {
+            runId: 101,
+            chainId: 1,
+            collectionId: 101,
+            address: ADDRESS,
+            leaseOwner: OWNER,
+            confirmation: {
+                firstTokenId: "1",
+                anchorBlock: 100,
+                anchorHash: HASH,
+            },
+        };
+        expect(h.store.ownsLease(claim)).toBe(true);
+        recordEnumeration(101, "2");
+        h.store.recordSearchRange(claim, { fromBlock: 20, toBlock: 100 });
+        expect(h.store.complete(claim, { deploymentBlock: 75 })).toBe(false);
+        expect(collectionBlock(101)).toBeNull();
+        expect(
+            h.steps.getStep(101, BOOTSTRAP_STEP_KEY.DeploymentBlock),
+        ).toMatchObject({
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            leaseOwner: OWNER,
+            resultJson: null,
+        });
+    });
+
+    it.each([100, 200])(
+        "restarts mint progress for the same token confirmed at a new %s/hash",
+        async (anchorBlock) => {
+            seed(101, BOOTSTRAP_RUN_STATUS.Queued, null, 1, true);
+            recordEnumeration(101, "200");
+            const client = rpc();
+            client.findFirstLogPage.mockResolvedValueOnce({
+                log: null,
+                nextBlock: 50,
+            });
+            const h = harness(client);
+            await h.poll();
+            expect(h.store.getSearchProgress(101)?.nextBlock).toBe(50);
+            recordEnumeration(101, "200", {
+                anchorBlock,
+                anchorHash: OTHER_HASH,
+                anchorTimestamp: 1_700_000_000,
+            });
+            client.getBlock.mockImplementation(async (number) => ({
+                number,
+                hash: OTHER_HASH,
+                parentHash: HASH,
+                timestamp: 1_700_000_000,
+                transactions: [],
+            }));
+            client.getBytecode.mockImplementation(async (_address, block) =>
+                block >= 20 ? "0x1234" : null,
+            );
+            client.findFirstLogPage.mockResolvedValueOnce({
+                log: mintLog(30),
+                nextBlock: anchorBlock + 1,
+            });
+            db.prepare(
+                "UPDATE bootstrap_run_steps SET next_attempt_at = 0 WHERE run_id = ? AND step_key = ?",
+            ).run(101, BOOTSTRAP_STEP_KEY.DeploymentBlock);
+            await h.poll();
+            expect(
+                client.findFirstLogPage.mock.calls.map(([filter]) => ({
+                    from: filter.fromBlock,
+                    to: filter.toBlock,
+                })),
+            ).toEqual([
+                { from: DEPLOYMENT, to: 100 },
+                { from: 20, to: anchorBlock },
+            ]);
+            expect(collectionBlock(101)).toBe(30);
+        },
+    );
+
+    it("requires a matching enumeration confirmation after canonical history changes", async () => {
         seed(101);
         db.prepare(
             "UPDATE bootstrap_runs SET enumeration_mode = ?, manual_token_ids_json = ? WHERE run_id = 101",
@@ -863,7 +1037,21 @@ describe("durable optional deployment lookup", () => {
         expect(h.store.getSearchProgress(101)).toMatchObject({
             lowerBlock: null,
             nextBlock: 0,
-            upperBlockHash: OTHER_HASH,
+            upperBlockHash: HASH,
+        });
+        // The same confirmation cannot authorize a retry against the new fork.
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = 0 WHERE run_id = ? AND step_key = ?",
+        ).run(101, BOOTSTRAP_STEP_KEY.DeploymentBlock);
+        const codeReads = client.getBytecode.mock.calls.length;
+        await h.poll();
+        expect(collectionBlock(101)).toBeNull();
+        expect(client.getBytecode).toHaveBeenCalledTimes(codeReads);
+        expect(client.findFirstLogPage).toHaveBeenCalledTimes(2);
+        recordEnumeration(101, "200", {
+            anchorBlock: 100,
+            anchorHash: OTHER_HASH,
+            anchorTimestamp: 1_700_000_000,
         });
         // The new history may deploy the contract and mint the token earlier.
         // Recompute the code boundary instead of trusting the old lower bound.
@@ -875,8 +1063,12 @@ describe("durable optional deployment lookup", () => {
             nextBlock: 101,
         });
         db.prepare(
-            `UPDATE bootstrap_run_steps SET next_attempt_at = 0 WHERE run_id = 101 AND step_key = \'${BOOTSTRAP_STEP_KEY.DeploymentBlock}\'`,
-        ).run();
+            "UPDATE bootstrap_run_steps SET status = ?, attempts = 0, next_attempt_at = 0 WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Ready,
+            101,
+            BOOTSTRAP_STEP_KEY.DeploymentBlock,
+        );
         await h.poll();
         expect(
             client.findFirstLogPage.mock.calls.map(
@@ -1072,7 +1264,9 @@ describe("durable optional deployment lookup", () => {
         seedOwnedToken(101, "2");
         const client = rpc();
         const h = harness(client);
-        expect(h.store.getConfirmedTokenId(h.runs.getRun(101)!)).toBeNull();
+        expect(
+            h.store.getEnumerationConfirmation(h.runs.getRun(101)!),
+        ).toBeNull();
         await h.poll();
         expect(collectionBlock(101)).toBeNull();
         expect(client.getBytecode).not.toHaveBeenCalled();

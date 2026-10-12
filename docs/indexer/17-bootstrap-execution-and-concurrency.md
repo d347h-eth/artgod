@@ -68,7 +68,9 @@ the durable step row, but it is not a complete stale-owner settlement fence.
 
 Deployment enrichment separately fences result settlement by unexpired owner
 lease and collection contract identity, saving the marker and terminal step in
-one write transaction. Its poller runs independently with one search at a time
+one write transaction. Mint requests and writes also recheck enumeration's exact
+token and anchor confirmation; replacing or removing it invalidates the attempt.
+Its poller runs independently with one search at a time
 and one outstanding RPC query. Mint searches perform one bounded successful
 page per pass, starting at the contract deployment block found by the shared
 historical code search. That bound and the verified empty prefix are persisted
@@ -78,7 +80,9 @@ quota deferral or restart resumes its remaining probes for both code markers and
 mint lower bounds, without spending the same successful requests again.
 Retries and restart resume that cursor; rejected or timed-out pages do not
 advance it. A changed pinned hash invalidates the code-search position, bound,
-and mint cursor together.
+and mint cursor together. A mint retry must still match enumeration's confirmed
+history; it cannot replace that hash with the new canonical hash. A confirmation
+for the same token at another anchor starts a fresh search.
 Unavailable code history remains an error rather than falling back to genesis
 event queries. The configured log cap and learned reductions are shared with
 ordinary log acquisition. It shares the bootstrap RPC provider's endpoint

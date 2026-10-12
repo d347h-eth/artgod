@@ -7,6 +7,7 @@ import {
 import { RpcRequestCancelledError } from "@artgod/shared/evm/rpc-errors";
 import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
+import type { BootstrapEnumerationConfirmation } from "../ports/bootstrap-steps.js";
 import { zeroAddress } from "viem";
 import { ERC721_ABI } from "../abi/index.js";
 import type { RpcBlock, RpcFirstLogPort } from "../ports/rpc.js";
@@ -35,6 +36,8 @@ export type BootstrapDeploymentClaim = {
     collectionId: number;
     address: string;
     leaseOwner: string;
+    // Inferred mint work is valid only while this exact run-owned input remains.
+    confirmation?: BootstrapEnumerationConfirmation;
 };
 
 export interface BootstrapDeploymentRpcPort
@@ -52,7 +55,9 @@ export interface BootstrapDeploymentStorePort {
         claim: BootstrapDeploymentClaim,
     ): number | null;
     // Only enumeration's retained, anchor-bound output from this run is input.
-    getConfirmedTokenId(run: BootstrapRunDefinition): string | null;
+    getEnumerationConfirmation(
+        run: BootstrapRunDefinition,
+    ): BootstrapEnumerationConfirmation | null;
     wasSharedContractDetected(runId: number): boolean;
     getSearchProgress(runId: number): BootstrapDeploymentSearchProgress | null;
     saveSearchProgress(
@@ -64,7 +69,8 @@ export interface BootstrapDeploymentStorePort {
         range: { fromBlock: number; toBlock: number },
     ): void;
     // Atomically fill collection/run hints and settle the step, fenced by its
-    // running status, unexpired lease, owner, and collection contract identity.
+    // running status, unexpired lease, owner, collection contract identity and
+    // (for mint searches) the exact enumeration confirmation in the claim.
     complete(
         claim: BootstrapDeploymentClaim,
         result: BootstrapDeploymentResult,
@@ -122,18 +128,24 @@ export class BootstrapDeploymentExecutor {
             const useMintEvents =
                 scope.mode !== BOOTSTRAP_ENUMERATION_MODE.Enumerable ||
                 this.store.wasSharedContractDetected(run.runId);
-            const firstTokenId = useMintEvents
-                ? this.store.getConfirmedTokenId(run)
+            const confirmation = useMintEvents
+                ? this.store.getEnumerationConfirmation(run)
                 : null;
             // All mint methods wait for this run's confirmed token, including
             // lists whose first declared candidate may be absent at the anchor.
-            if (useMintEvents && firstTokenId === null) return false;
+            if (useMintEvents && confirmation === null) return false;
+            if (confirmation) claim.confirmation = confirmation;
+            const firstTokenId = confirmation?.firstTokenId ?? null;
 
             // Start without waiting for the main lane's anchor. Prefer an already
             // selected anchor; otherwise independently select a settled upper bound.
             const savedProgress = this.store.getSearchProgress(run.runId);
             let progress =
-                savedProgress?.firstTokenId === firstTokenId
+                savedProgress?.firstTokenId === firstTokenId &&
+                (!confirmation ||
+                    (savedProgress.upperBlock === confirmation.anchorBlock &&
+                        savedProgress.upperBlockHash ===
+                            confirmation.anchorHash))
                     ? savedProgress
                     : null;
             const upperBlock =
@@ -148,7 +160,10 @@ export class BootstrapDeploymentExecutor {
             if (upperBlock === null)
                 throw new Error("Deployment search upper block is invalid");
             let upperBlockHash = progress?.upperBlockHash;
-            if (!upperBlockHash) {
+            if (
+                !upperBlockHash ||
+                (confirmation && progress?.codeSearch?.presentBlock === null)
+            ) {
                 const before = await read(() =>
                     this.rpc.getBlock(upperBlock, {
                         fresh: true,
@@ -245,12 +260,15 @@ export class BootstrapDeploymentExecutor {
                 }),
             );
             if (upperBlockHash !== after.hash) {
-                // Discard the old empty prefix before retrying against the new
-                // canonical history. A fork may contain an earlier mint.
+                // A fork invalidates the code boundary and empty prefix. Mint
+                // selection still belongs to enumeration's original history:
+                // retry must check that anchor again, never adopt the new hash.
                 if (progress)
                     this.store.saveSearchProgress(claim, {
                         ...progress,
-                        upperBlockHash: after.hash,
+                        upperBlockHash: confirmation
+                            ? progress.upperBlockHash
+                            : after.hash,
                         lowerBlock: null,
                         codeSearch: createContractDeploymentSearchProgress(),
                         nextBlock: 0,

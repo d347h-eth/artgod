@@ -802,7 +802,11 @@ supply it. Count-only restart paths preserve an existing confirmation.
 Successful task cleanup and operational task
 resets retain the small step result, so optional deployment can continue after
 mandatory work completes without retaining the full inventory. A changed anchor
-withholds the old confirmation. Collection purge removes the run and its steps.
+withholds the old confirmation. Mint request admission, progress writes and the
+publication transaction recheck that exact token and anchor confirmation. Saved
+search work is reusable only for the same token, anchor block and hash, even when
+a replacement confirmation selects the same token. Collection purge removes the
+run and its steps.
 Art Blocks collections use the same mint-event method as other shared contracts.
 
 Before requesting mint events, the lookup uses that same historical code search
@@ -828,8 +832,9 @@ at the next unsearched block. A failed request never advances the cursor. The
 selected token and settled upper block/hash remain pinned across pages. Before
 publishing a marker or concluding that no mint exists, a fresh upper-block read
 must match that hash; a changed hash invalidates both the cursor and contract
-bound and code-search position, so the next attempt searches code again before
-requesting events. Code searches check the upper block freshly before their first
+bound and code-search position. Mint lookup cannot adopt the new hash without a
+matching enumeration confirmation; retry checks the confirmed anchor before
+searching code again. Code searches check the upper block freshly before their first
 probe and after their final probe. Unavailable
 RPC history uses the optional step's existing retry policy.
 
