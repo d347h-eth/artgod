@@ -1,13 +1,25 @@
+import {
+    biddingTraitsMatchToken,
+    dedupeBiddingTraitCriteria,
+} from "@artgod/shared/trading/offer-trait-criteria";
+import {
+    formatTradingTraitCriterionLabel,
+    type TradingBiddingTraitCriterion,
+} from "@artgod/shared/types";
 import { formatUnits } from "viem";
 import { matchesTraitCompetition } from "../../domain/market/strategy/trait-competition.js";
+import { dedupeTradingCompetitionSelectors } from "@artgod/shared/trading/trait-competition";
 import {
     getOpenSeaOfferCriteria,
     inferOpenSeaNftSelectionKind,
     isOpenSeaCollectionWideOffer,
     normalizeOpenSeaOfferTraitCriteria,
     parseOpenSeaBiddingOffer,
+    openSeaEncodedTokenIdsContain,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
+import { getOpenSeaOrderHash } from "@artgod/shared/opensea/payload";
+import { asRecord } from "@artgod/shared/offchain/normalizer-utils";
 import {
     roundOpenSeaOfferPriceDown,
     roundOpenSeaOfferPriceUp,
@@ -1055,28 +1067,15 @@ export class OpenSeaBiddingService implements BiddingService {
         return getOpenSeaOfferCriteria(rawOffer);
     }
 
-    private normalizeOfferTraitCriteria(criteria: unknown): TraitTarget[] {
+    private normalizeOfferTraitCriteria(
+        criteria: unknown,
+    ): TradingBiddingTraitCriterion[] {
         return normalizeOpenSeaOfferTraitCriteria(criteria);
-    }
-
-    private matchesTraitSelector(
-        criteriaTrait: TraitSelector,
-        selector: TraitSelector,
-    ): boolean {
-        if (criteriaTrait.type !== selector.type) {
-            return false;
-        }
-
-        if (selector.value === undefined) {
-            return true;
-        }
-
-        return criteriaTrait.value === selector.value;
     }
 
     private getPlacementTraits(job: BidderJob): TraitTarget[] {
         if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
-            return this.dedupeTraitTargets(job.target.traits ?? []);
+            return dedupeBiddingTraitCriteria(job.target.traits ?? []);
         }
         if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             return [job.target.targetTrait];
@@ -1094,16 +1093,7 @@ export class OpenSeaBiddingService implements BiddingService {
             selectors.push(...job.target.competitorTraits);
         }
 
-        const seen = new Set<string>();
-        return selectors.filter((selector) => {
-            const key = `${selector.type}|${selector.value ?? "*"}`;
-            if (seen.has(key)) {
-                return false;
-            }
-
-            seen.add(key);
-            return true;
-        });
+        return dedupeTradingCompetitionSelectors(selectors);
     }
 
     private getRestrictedCriteriaTraitTypes(
@@ -1117,77 +1107,14 @@ export class OpenSeaBiddingService implements BiddingService {
         return new Set(traitTypes);
     }
 
-    private formatTraitTargetsForLog(traits: TraitTarget[]): string {
+    private formatTraitTargetsForLog(
+        traits: TradingBiddingTraitCriterion[],
+    ): string {
         if (traits.length === 0) {
             return "none";
         }
 
-        return traits.map((trait) => `${trait.type}=${trait.value}`).join("|");
-    }
-
-    private encodedTokenIdsContain(
-        encodedTokenIds: string,
-        tokenId: string,
-    ): boolean {
-        if (encodedTokenIds === "*") {
-            return true;
-        }
-        if (encodedTokenIds === "") {
-            return false;
-        }
-
-        let target: bigint;
-        try {
-            target = BigInt(tokenId);
-        } catch {
-            return false;
-        }
-
-        for (const segment of encodedTokenIds.split(",")) {
-            if (segment.length === 0) {
-                continue;
-            }
-
-            if (segment.includes(":")) {
-                const [startRaw, endRaw] = segment.split(":");
-                try {
-                    const start = BigInt(startRaw);
-                    const end = BigInt(endRaw);
-                    if (target >= start && target <= end) {
-                        return true;
-                    }
-                } catch {
-                    log.debug(
-                        "encodedTokenIdsRangeParseFailed",
-                        "Failed to parse encoded token id range",
-                        {
-                            segment,
-                            tokenId,
-                        },
-                    );
-                    return false;
-                }
-                continue;
-            }
-
-            try {
-                if (BigInt(segment) === target) {
-                    return true;
-                }
-            } catch {
-                log.debug(
-                    "encodedTokenIdsValueParseFailed",
-                    "Failed to parse encoded token id value",
-                    {
-                        segment,
-                        tokenId,
-                    },
-                );
-                return false;
-            }
-        }
-
-        return false;
+        return traits.map(formatTradingTraitCriterionLabel).join("|");
     }
 
     private addUniqueOffer(
@@ -1315,7 +1242,10 @@ export class OpenSeaBiddingService implements BiddingService {
                 encodedIds !== "*"
             ) {
                 if (
-                    this.encodedTokenIdsContain(encodedIds, tokenTarget.tokenId)
+                    openSeaEncodedTokenIdsContain(
+                        encodedIds,
+                        tokenTarget.tokenId,
+                    )
                 ) {
                     const parsed = this.parseRawOffer(
                         rawOffer,
@@ -1358,18 +1288,15 @@ export class OpenSeaBiddingService implements BiddingService {
                 continue;
             }
 
-            const matchesToken = criteriaTraits.every((criterion) =>
-                tokenTraits.some(
-                    (tokenTrait) =>
-                        tokenTrait.type === criterion.type &&
-                        tokenTrait.value === criterion.value,
-                ),
+            const matchesToken = biddingTraitsMatchToken(
+                criteriaTraits,
+                tokenTraits,
             );
             if (!matchesToken) {
                 summary.criteriaMismatched!++;
                 if (summary.mismatchSamples!.length < 5) {
                     summary.mismatchSamples!.push(
-                        `${getOrderHash(rawOffer) ?? "unknown"}[${this.formatTraitTargetsForLog(criteriaTraits)}]`,
+                        `${getOpenSeaOrderHash(rawOffer) ?? "unknown"}[${this.formatTraitTargetsForLog(criteriaTraits)}]`,
                     );
                 }
                 continue;
@@ -1431,7 +1358,7 @@ export class OpenSeaBiddingService implements BiddingService {
         const cachedOffers: Order[] = [];
         const targetTraits =
             job.target.type === BIDDER_TARGET_TYPE.Collection
-                ? this.dedupeTraitTargets(job.target.traits ?? [])
+                ? dedupeBiddingTraitCriteria(job.target.traits ?? [])
                 : [];
         const summary: SnapshotScanSummary = {
             collectionWideAdded: 0,
@@ -1530,37 +1457,6 @@ export class OpenSeaBiddingService implements BiddingService {
                 tokenTraits: summary.tokenTraits ?? [],
                 mismatchSamples: summary.mismatchSamples ?? [],
             },
-        );
-    }
-
-    private dedupeTraitTargets(targets: TraitTarget[]): TraitTarget[] {
-        const seen = new Set<string>();
-        return targets.filter((target) => {
-            const key = `${target.type}|${target.value}`;
-            if (seen.has(key)) {
-                return false;
-            }
-
-            seen.add(key);
-            return true;
-        });
-    }
-
-    private matchesExactTraitTargets(
-        criteriaTraits: TraitTarget[],
-        targetTraits: TraitTarget[],
-    ): boolean {
-        const normalizedCriteria = this.dedupeTraitTargets(criteriaTraits);
-        const normalizedTargets = this.dedupeTraitTargets(targetTraits);
-        if (normalizedCriteria.length !== normalizedTargets.length) {
-            return false;
-        }
-
-        const targetKeys = new Set(
-            normalizedTargets.map((target) => `${target.type}|${target.value}`),
-        );
-        return normalizedCriteria.every((criterion) =>
-            targetKeys.has(`${criterion.type}|${criterion.value}`),
         );
     }
 
@@ -1684,7 +1580,9 @@ export class OpenSeaBiddingService implements BiddingService {
         }
 
         const offers: Order[] = [];
-        const targetTraits = this.dedupeTraitTargets(job.target.traits ?? []);
+        const targetTraits = dedupeBiddingTraitCriteria(
+            job.target.traits ?? [],
+        );
 
         rawOffers.forEach((rawOffer) => {
             if (!this.isCollectionWideOffer(rawOffer)) {
@@ -1753,7 +1651,7 @@ export class OpenSeaBiddingService implements BiddingService {
             (selector) => selector.value === undefined,
         );
         if (typeOnlySelectors.length === 0) {
-            return this.dedupeTraitTargets(explicitTargets);
+            return dedupeBiddingTraitCriteria(explicitTargets);
         }
 
         let traitsResponse: unknown;
@@ -1773,7 +1671,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     ...toErrorLogFields(error),
                 },
             );
-            return this.dedupeTraitTargets(explicitTargets);
+            return dedupeBiddingTraitCriteria(explicitTargets);
         }
 
         const counts = asRecord(asRecord(traitsResponse)?.counts);
@@ -1799,7 +1697,7 @@ export class OpenSeaBiddingService implements BiddingService {
             );
         }
 
-        return this.dedupeTraitTargets(explicitTargets);
+        return dedupeBiddingTraitCriteria(explicitTargets);
     }
 
     private parseRawOffer(
@@ -1853,12 +1751,6 @@ function orderLogFields(order: Order): Record<string, unknown> {
     };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
-}
-
 function stringOrUndefined(value: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;
 }
@@ -1873,9 +1765,7 @@ function requirePlacedOrderIdentity(rawOrder: unknown): {
     protocolAddress: string;
 } {
     const order = asRecord(rawOrder);
-    const orderHash =
-        nonEmptyStringOrUndefined(order.orderHash) ??
-        nonEmptyStringOrUndefined(order.order_hash);
+    const orderHash = nonEmptyStringOrUndefined(getOpenSeaOrderHash(order));
     const protocolAddress =
         nonEmptyStringOrUndefined(order.protocolAddress) ??
         nonEmptyStringOrUndefined(order.protocol_address);
@@ -1890,16 +1780,8 @@ function requirePlacedOrderIdentity(rawOrder: unknown): {
     return { orderHash, protocolAddress };
 }
 
-function getOrderHash(rawOrder: unknown): string | undefined {
-    const order = asRecord(rawOrder);
-    return (
-        stringOrUndefined(order.orderHash) ??
-        stringOrUndefined(order.order_hash)
-    );
-}
-
 function matchesOrderHash(rawOrder: unknown, orderHash: string): boolean {
-    return getOrderHash(rawOrder) === orderHash;
+    return getOpenSeaOrderHash(rawOrder) === orderHash;
 }
 
 function isLegacyInactive(rawOrder: unknown): boolean {

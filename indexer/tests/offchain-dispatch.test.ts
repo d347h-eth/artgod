@@ -22,6 +22,12 @@ import {
 } from "../src/domain/activity-jobs.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
 import {
+    OFFCHAIN_ORDER_SOURCE,
+    OFFCHAIN_OBSERVATION_CHANNEL,
+    OPENSEA_REST_EVENT_TYPE,
+} from "../src/domain/offchain-jobs.js";
+import { asRecord } from "@artgod/shared/offchain/normalizer-utils";
+import {
     ORDER_JOB_KIND,
     type OrderUpsertPayload,
     type OrderUpdateByIdPayload,
@@ -128,6 +134,141 @@ describe("offchain dispatch", () => {
         expect(upsert.payload.rawPayload).toEqual(
             buildRestCollectionOfferRecord(),
         );
+    });
+
+    it("persists exact token zero and never publishes a partially parsed trait scope", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const record = buildRestCollectionOfferRecord();
+        record.criteria = null;
+        const parameters = asRecord(asRecord(record.protocol_data).parameters);
+        const consideration = parameters.consideration as Record<
+            string,
+            unknown
+        >[];
+        consideration[0].itemType = 2;
+        consideration[0].identifierOrCriteria = "0";
+        const payload: OffchainOrderRawPayload = {
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: OFFCHAIN_OBSERVATION_CHANNEL.Snapshot,
+            dedupeKey: "token-zero",
+            eventType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
+            orderId: record.order_hash as string,
+            runId: 1,
+            sourceEventAt: Math.floor(Date.now() / 1000),
+            payload: record,
+        };
+        await dispatchOffchainPayload(
+            queue,
+            new SqliteTokenSetRegistry(),
+            payload,
+        );
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.tokenId).toBe("0");
+        expect(upsert.payload.sourceScopeKind).toBe(
+            ORDER_SOURCE_SCOPE_KIND.Token,
+        );
+        const orders = new SqliteOrdersDomain(WETH, async () => {
+            throw new Error("Unexpected validation during order upsert");
+        });
+        await orders.handleOrderUpsert(upsert.payload);
+        expect(
+            db
+                .prepare(
+                    "SELECT token_id, source_scope_kind FROM orders WHERE id = ?",
+                )
+                .get(payload.orderId),
+        ).toEqual({
+            token_id: "0",
+            source_scope_kind: ORDER_SOURCE_SCOPE_KIND.Token,
+        });
+
+        for (const criteria of [
+            { traits: [{ type: "Mode", value: "Terrain" }, "malformed"] },
+            {
+                traits: [{ type: "Mode", value: "Terrain" }],
+                numeric_traits: [{ type: "Level", min: 1 }],
+            },
+            {
+                numeric_traits: [
+                    { type: "Level", min: 1, max: 2, value: "10" },
+                ],
+            },
+            {
+                numericTraits: [
+                    {
+                        type: "Level",
+                        min: 1,
+                        max: 2,
+                        traitValue: { unexpected: 1 },
+                    },
+                ],
+            },
+            { numericTraits: [{ type: "Level", value: [10] }] },
+        ]) {
+            const rejectedQueue = new QueueCapture();
+            await expect(
+                dispatchOffchainPayload(
+                    rejectedQueue,
+                    new SqliteTokenSetRegistry(),
+                    {
+                        ...payload,
+                        eventType: OPENSEA_REST_EVENT_TYPE.TraitOffer,
+                        payload: {
+                            ...buildRestNumericTraitOfferRecord(),
+                            criteria,
+                        },
+                    },
+                ),
+            ).rejects.toThrow();
+            expect(rejectedQueue.published).toHaveLength(0);
+        }
+    });
+
+    it("keeps both string and numeric constraints when dispatching a REST offer", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const record = buildRestNumericTraitOfferRecord();
+        record.criteria = {
+            contract: { address: CONTRACT },
+            traits: [{ type: "Mode", value: "Terrain" }],
+            numeric_traits: [{ type: "Level", min: 1, max: 2 }],
+            encoded_token_ids: "1:2",
+        };
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "snapshot",
+            dedupeKey: "snapshot:test:ranged-trait-offer",
+            eventType: "rest.offer.collection",
+            orderId: String(record.order_hash),
+            runId: 1,
+            sourceEventAt: 1773545938,
+            payload: record,
+        };
+        await dispatchOffchainPayload(
+            queue,
+            new SqliteTokenSetRegistry(),
+            payload,
+        );
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.sourceScopeKind).toBe("attribute");
+        expect(upsert.payload.sourceEncodedTokenIds).toBe("1:2");
+        expect(upsert.payload.sourceSchema).toEqual({
+            kind: "attribute",
+            data: {
+                collection: CONTRACT,
+                attributes: [
+                    { key: "Level", min: 1, max: 2 },
+                    { key: "Mode", value: "Terrain" },
+                ],
+            },
+        });
     });
 
     it("persists REST numeric-trait offers through shared OpenSea bidding parser semantics", async () => {

@@ -12,6 +12,27 @@ export const MAX_COMPETITION_PRESET_TARGET_TRAITS = 2;
 
 export class TraitCompetitionValidationError extends Error {}
 
+// Lookup lists preserve the placement target's order and distinguish a literal
+// value from an all-values selector. Preset normalization adds its own limits
+// and whole-key subsumption after validating the input.
+export function dedupeTradingCompetitionSelectors(
+    selectors: readonly TradingTraitCompetitionSelector[],
+): TradingTraitCompetitionSelector[] {
+    const seen = new Set<string>();
+    return selectors.filter((selector) => {
+        const key = competitionSelectorKey(selector);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function competitionSelectorKey(
+    selector: TradingTraitCompetitionSelector,
+): string {
+    return JSON.stringify([selector.type, selector.value ?? null]);
+}
+
 // Owns validation and canonicalization at UI, API and persisted-state boundaries.
 // Used for preset definitions and the resolved strategy input.
 export function normalizeExtraCompetitionTraits(
@@ -47,18 +68,16 @@ export function normalizeExtraCompetitionTraits(
             .filter((entry) => entry.value === undefined)
             .map((entry) => entry.type),
     );
-    const unique = new Map<string, TradingTraitCompetitionSelector>();
-    for (const selector of selectors) {
-        if (selector.value !== undefined && wholeKeys.has(selector.type))
-            continue;
-        unique.set(
-            JSON.stringify([selector.type, selector.value ?? null]),
-            selector,
-        );
-    }
-    return [...unique.entries()]
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([, selector]) => selector);
+    return dedupeTradingCompetitionSelectors(
+        selectors.filter(
+            (selector) =>
+                selector.value === undefined || !wholeKeys.has(selector.type),
+        ),
+    ).sort((a, b) => {
+        const left = competitionSelectorKey(a);
+        const right = competitionSelectorKey(b);
+        return left < right ? -1 : left > right ? 1 : 0;
+    });
 }
 
 // Concrete marketplace bids always target explicit values in an AND combination.

@@ -86,6 +86,62 @@ describe("token set registry", () => {
         );
     });
 
+    it("resolves mixed numeric ranges with inclusive bounds and canonical metadata only", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = ensureCollection(chainId, contract);
+        const values = ["1", "1.5", "2", "10", "", "0x1", "NaN"];
+        seedAttribute(chainId, collectionId, contract, "Mode", "Terrain");
+        for (const [index, value] of values.entries()) {
+            seedAttribute(chainId, collectionId, contract, "Level", value);
+            linkToken(chainId, collectionId, contract, String(index + 1), [
+                ["Mode", "Terrain"],
+                ["Level", value],
+            ]);
+        }
+        linkToken(chainId, collectionId, contract, "99", [["Mode", "Terrain"]]);
+        linkToken(chainId, collectionId, contract, "99", [["Level", "1"]], {
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Extension,
+            sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+        });
+        const schema: TokenSetSchema = {
+            kind: "attribute",
+            data: {
+                collection: contract,
+                attributes: [
+                    { key: "Mode", value: "Terrain" },
+                    { key: "Level", min: 1, max: 2 },
+                ],
+            },
+        };
+        const registry = new SqliteTokenSetRegistry();
+        const resolved = registry.ensureTokenSet({
+            chainId,
+            collectionId,
+            schema,
+        });
+        expect(resolved?.merkleRoot).toBe(generateMerkleRoot(["1", "2", "3"]));
+        expect(generateSchemaHash(schema)).not.toBe(
+            generateSchemaHash({
+                kind: "attribute",
+                data: {
+                    collection: contract,
+                    attributes: [{ key: "Mode", value: "Terrain" }],
+                },
+            }),
+        );
+        const rows = db
+            .prepare(
+                "SELECT token_id FROM token_sets_tokens WHERE token_set_id = ? ORDER BY token_id",
+            )
+            .all(resolved!.tokenSetId);
+        expect(rows).toEqual([
+            { token_id: "1" },
+            { token_id: "2" },
+            { token_id: "3" },
+        ]);
+    });
+
     it("resolves multi-trait attribute token sets and persists membership", () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
@@ -150,20 +206,11 @@ describe("token set registry", () => {
         const collectionId = ensureCollection(chainId, contract);
 
         seedAttribute(chainId, collectionId, contract, "Zone", "Mori");
-        linkToken(chainId, collectionId, contract, "42", [
-            ["Zone", "Mori"],
-        ]);
-        linkToken(
-            chainId,
-            collectionId,
-            contract,
-            "43",
-            [["Zone", "Mori"]],
-            {
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
-                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
-            },
-        );
+        linkToken(chainId, collectionId, contract, "42", [["Zone", "Mori"]]);
+        linkToken(chainId, collectionId, contract, "43", [["Zone", "Mori"]], {
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+        });
         linkToken(
             chainId,
             collectionId,

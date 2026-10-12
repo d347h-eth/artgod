@@ -70,10 +70,7 @@ export function appendTraitParams(
 	}
 }
 
-export function appendNormalizedTraitParams(
-	params: URLSearchParams,
-	raw: URLSearchParams
-): void {
+export function appendNormalizedTraitParams(params: URLSearchParams, raw: URLSearchParams): void {
 	const values = [...raw.getAll('traits'), ...raw.getAll('trait')];
 	for (const value of values) {
 		for (const segment of value.split(',')) {
@@ -96,6 +93,36 @@ export function appendTraitRangeParams(
 		if (!key || (!fromValue && !toValue)) continue;
 		params.append('trait_ranges', `${key}:${fromValue}..${toValue}`);
 	}
+}
+
+// A whole-scope action must preserve criterion identity through the existing
+// query grammar, including its delimiter splitting and whitespace normalization.
+// Compare the actual round trip so supported punctuation stays navigable.
+export function canRepresentTraitFilters(
+	selectedTraits: ApiTokenAttribute[],
+	selectedRanges: ApiTraitRangeFilter[]
+): boolean {
+	const query = new URLSearchParams();
+	appendTraitParams(query, selectedTraits);
+	appendTraitRangeParams(query, selectedRanges);
+	const decoded = new URLSearchParams(query.toString());
+	const traits = parseSelectedTraits(decoded);
+	const ranges = parseSelectedTraitRanges(decoded);
+	return (
+		traits.length === selectedTraits.length &&
+		selectedTraits.every((selected) =>
+			traits.some((trait) => trait.key === selected.key && trait.value === selected.value)
+		) &&
+		ranges.length === selectedRanges.length &&
+		selectedRanges.every((selected) =>
+			ranges.some(
+				(range) =>
+					range.key === selected.key &&
+					range.fromValue === selected.fromValue &&
+					range.toValue === selected.toValue
+			)
+		)
+	);
 }
 
 export function appendNormalizedTraitRangeParams(

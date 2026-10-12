@@ -8,6 +8,9 @@ import {
     getOpenSeaOrderHash,
     getOpenSeaOrderId,
     getOpenSeaPayload,
+    getOpenSeaProtocolData,
+    getOpenSeaProtocolEnvelope,
+    getOpenSeaProtocolParameters,
     getOpenSeaSourceEventAt,
     OPENSEA_ORDER_HASH_STATUS,
     OPENSEA_STREAM_EVENT_TYPE,
@@ -34,6 +37,42 @@ function sale() {
 }
 
 describe("shared OpenSea payload decoding", () => {
+    it("uses consistent protocol aliases while leaving required validation to callers", () => {
+        const protocol = {
+            parameters: { offerer: SELLER },
+            criteria: { encoded_token_ids: "*" },
+        };
+        for (const raw of [
+            { protocol_data: protocol },
+            { protocolData: protocol },
+            {
+                protocolData: protocol,
+                protocol_data: { parameters: { offerer: CONTRACT } },
+            },
+            { protocolData: null, protocol_data: protocol },
+        ]) {
+            expect(getOpenSeaProtocolData(raw)).toBe(protocol);
+            expect(getOpenSeaProtocolEnvelope(raw)).toBe(protocol);
+            expect(getOpenSeaProtocolParameters(raw)).toBe(protocol.parameters);
+        }
+        for (const value of [null, "malformed", [], 42]) {
+            const raw = { protocol_data: value };
+            expect(getOpenSeaProtocolData(raw)).toBe(value);
+            expect(getOpenSeaProtocolEnvelope(raw)).toBeUndefined();
+            expect(getOpenSeaProtocolParameters(raw)).toEqual({});
+        }
+        expect(
+            getOpenSeaProtocolParameters({ protocolData: { parameters: [] } }),
+        ).toEqual({});
+        // A supplied malformed SDK alias must not silently select different raw terms.
+        expect(
+            getOpenSeaProtocolData({
+                protocolData: "malformed",
+                protocol_data: protocol,
+            }),
+        ).toBe("malformed");
+    });
+
     it.each([false, true])("decodes a sale with wrapped=%s", (wrapped) => {
         const payload = sale();
         const raw = wrapped
@@ -98,6 +137,10 @@ describe("shared OpenSea payload decoding", () => {
         expect(
             getOpenSeaOrderHash({ orderHash: "", order_hash: ORDER_HASH }),
         ).toBe(ORDER_HASH);
+        expect(
+            getOpenSeaOrderHash({ orderHash: "  ", order_hash: ORDER_HASH }),
+        ).toBe(ORDER_HASH);
+        expect(getOpenSeaOrderHash({ order_hash: "  " })).toBeNull();
         expect(parseOpenSeaOrderHash({ orderHash: sdkHash })).toBe(ORDER_HASH);
         expect(() => parseOpenSeaOrderHash({})).toThrow("Invalid order_hash");
         expect(

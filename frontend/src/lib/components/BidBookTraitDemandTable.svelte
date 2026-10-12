@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 	import type { Component, Snippet } from 'svelte';
 	import BidBookFilterTabs from '$lib/components/BidBookFilterTabs.svelte';
 	import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
@@ -61,7 +62,7 @@
 	}
 
 	function groupTraitSignature(group: BidBookDemandTableGroup): string {
-		return group.traits.map((trait) => `${trait.type}=${trait.value}`).join('|');
+		return group.traits.map(formatTradingTraitCriterionLabel).join('|');
 	}
 
 	function hasVisibleRows(group: BidBookDemandTableGroup): boolean {

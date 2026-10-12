@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 	import { BID_BOOK_ROWS_TABLE_SCOPE_KIND, type BidBookRowsTableRow } from '$lib/bid-book-view-models';
 	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
 	import BidBookPriceCell from '$lib/components/BidBookPriceCell.svelte';
@@ -58,7 +59,7 @@
 
 	function rowTraitSignature(row: BidBookRowsTableRow): string {
 		return row.scope.kind === BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits
-			? row.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join('|')
+			? row.scope.traits.map(formatTradingTraitCriterionLabel).join('|')
 			: '';
 	}
 </script>

@@ -17,6 +17,37 @@ const traitScope: BiddingBidBookGroupScope = {
 };
 
 describe("bid-book group identity", () => {
+    it("groups complete numeric scopes separately from broad and other ranged scopes", () => {
+        const ranged: BiddingBidBookGroupScope = {
+            ...traitScope,
+            traits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Level", min: 1, max: 2 },
+            ],
+        };
+        const key = biddingBidBookGroupKey(ranged);
+        expect(key).toBe(
+            biddingBidBookGroupKey({
+                ...ranged,
+                traits: [...ranged.traits].reverse(),
+            }),
+        );
+        expect(key).not.toBe(
+            biddingBidBookGroupKey({
+                ...ranged,
+                traits: [{ type: "Mode", value: "Terrain" }],
+            }),
+        );
+        expect(key).not.toBe(
+            biddingBidBookGroupKey({
+                ...ranged,
+                traits: [
+                    { type: "Mode", value: "Terrain" },
+                    { type: "Level", min: 19, max: 20 },
+                ],
+            }),
+        );
+    });
     it("identifies complete trait combinations regardless of label or criterion order", () => {
         expect(
             biddingBidBookGroupKey({

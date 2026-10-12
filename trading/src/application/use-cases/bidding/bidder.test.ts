@@ -3300,6 +3300,66 @@ describe("Bidder stream refresh", () => {
         }
     });
 
+    it("never adopts or cancels a ranged maker offer as an exact trait job", async () => {
+        const mode = { type: "Mode", value: "Terrain" };
+        const future = Math.floor(Date.now() / 1000) + 3600;
+        for (const traits of [[mode], [mode, { type: "Level", value: "1" }]]) {
+            for (const hasExactOffer of [false, true]) {
+                const service = new FakeBiddingService();
+                service.activeOffers = [
+                    {
+                        id: "own-range",
+                        maker: "0xmaker",
+                        price: 3n,
+                        protocolAddress: "0xprotocol",
+                        expirationTime: future,
+                        offerScope: "trait",
+                        rawOrder: {
+                            criteria: {
+                                traits: [mode],
+                                numeric_traits: [
+                                    { type: "Level", min: 1, max: 2 },
+                                ],
+                            },
+                        },
+                    },
+                    {
+                        id: "competitor",
+                        maker: "other",
+                        price: 6n,
+                        offerScope: "trait",
+                        rawOrder: { criteria: { traits: [mode] } },
+                    },
+                ];
+                if (hasExactOffer)
+                    service.activeOffers.push({
+                        id: "own-exact",
+                        maker: "0xmaker",
+                        price: 3n,
+                        protocolAddress: "0xprotocol",
+                        expirationTime: future,
+                        offerScope: "trait",
+                        rawOrder: { criteria: { traits } },
+                    });
+                const job = makeJob("exact-trait-job", "fixture", {
+                    type: BIDDER_TARGET_TYPE.Collection,
+                    quantity: 1,
+                    traits,
+                });
+                const bidder = new Bidder(service as any, "0xmaker", 1000, {
+                    dryRun: false,
+                });
+                bidder.addJob(job);
+                await bidder.refreshJob(job.id);
+                assert.deepEqual(service.placedAmounts, [7n]);
+                assert.deepEqual(
+                    service.canceledOrderIds,
+                    hasExactOffer ? ["own-exact"] : [],
+                );
+            }
+        }
+    });
+
     it("cancels maker bids when the effective ceiling collapses to zero", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [

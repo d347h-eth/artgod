@@ -1,9 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import {
+	appendTraitParams,
+	appendTraitRangeParams,
+	canRepresentTraitFilters,
 	nextSelectedTraits,
+	parseSelectedTraits,
+	parseSelectedTraitRanges,
 	removeSelectedTrait,
 	removeTraitRangeFilter
 } from '$lib/trait-filters';
+
+describe('trait filter query representability', () => {
+	it.each([
+		{ key: 'Palette', value: 'Red,Blue' },
+		{ key: 'Trait:Kind', value: 'Rare' },
+		{ key: 'Trait,Kind', value: 'Rare' },
+		{ key: 'Palette', value: 'Red,Other:Blue' },
+		{ key: 'Palette ', value: 'Red' },
+		{ key: 'Palette', value: ' Red' },
+		{ key: 'Palette', value: '\ud800' }
+	])('rejects exact identity changed by the query round trip: %j', (trait) => {
+		expect(canRepresentTraitFilters([trait], [])).toBe(false);
+	});
+	it.each(['Level,Height', 'Level:Height', ' Level'])(
+		'rejects a range key changed by the query round trip: %s',
+		(key) => {
+			expect(canRepresentTraitFilters([], [{ key, fromValue: '1', toValue: '2' }])).toBe(false);
+		}
+	);
+	it('preserves supported punctuation and criterion identity regardless of sort order', () => {
+		const traits = [
+			{ key: 'Palette', value: 'Red:Blue' },
+			{ key: 'Art & Édition/%+?#', value: 'Rare + 50% & /? # 🟦' }
+		];
+		const ranges = [{ key: 'Level & Édition/%+?#', fromValue: '1', toValue: '2' }];
+		expect(canRepresentTraitFilters(traits, ranges)).toBe(true);
+		const query = new URLSearchParams();
+		appendTraitParams(query, traits);
+		appendTraitRangeParams(query, ranges);
+		const decoded = new URLSearchParams(query.toString());
+		expect(parseSelectedTraits(decoded)).toEqual([...traits].reverse());
+		expect(parseSelectedTraitRanges(decoded)).toEqual(ranges);
+	});
+});
 
 describe('nextSelectedTraits', () => {
 	it('toggles trait values additively on plain click', () => {

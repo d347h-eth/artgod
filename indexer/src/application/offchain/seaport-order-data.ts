@@ -10,6 +10,7 @@ import {
     parseOptionalString,
     toBigInt,
 } from "@artgod/shared/offchain/normalizer-utils";
+import { getOpenSeaProtocolData } from "@artgod/shared/opensea/payload";
 
 const NFT_ITEM_TYPES = new Set(["2", "3", "4", "5"]);
 const PAYMENT_ITEM_TYPES = new Set(["0", "1"]);
@@ -18,7 +19,7 @@ export function normalizeSeaportOrderData(
     payload: Record<string, unknown>,
 ): SeaportOrderData | null {
     const protocolAddress = payload.protocol_address ?? payload.protocolAddress;
-    const protocolData = payload.protocol_data ?? payload.protocolData;
+    const protocolData = getOpenSeaProtocolData(payload);
     if (!protocolAddress || !protocolData) {
         return null;
     }

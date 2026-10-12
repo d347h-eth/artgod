@@ -1,3 +1,9 @@
+import {
+    biddingTraitsMatchToken,
+    biddingTraitCriteriaKey,
+    dedupeBiddingTraitCriteria,
+} from "@artgod/shared/trading/offer-trait-criteria";
+import { formatTradingTraitCriterionLabel } from "@artgod/shared/types";
 import { Mutex, Semaphore } from "async-mutex";
 import { formatUnits } from "viem";
 import {
@@ -2192,9 +2198,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return "none";
         }
 
-        return criteria
-            .map((criterion) => `${criterion.type}=${criterion.value}`)
-            .join("|");
+        return criteria.map(formatTradingTraitCriterionLabel).join("|");
     }
 
     private async refreshCachedMakerWethBalance(): Promise<boolean> {
@@ -2409,14 +2413,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return false;
         }
 
-        return traitCriteria.every((criterion) => {
-            return tokenTraits.some((tokenTrait) => {
-                return (
-                    tokenTrait.type === criterion.type &&
-                    tokenTrait.value === criterion.value
-                );
-            });
-        });
+        return biddingTraitsMatchToken(traitCriteria, tokenTraits);
     }
 
     private normalizeOrderTraitTargets(order: Order): TraitCriterion[] {
@@ -2425,34 +2422,20 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
     }
 
-    private dedupeTraitTargets(targets: TraitCriterion[]): TraitCriterion[] {
-        const seen = new Set<string>();
-        return targets.filter((target) => {
-            const key = `${target.type}|${target.value}`;
-            if (seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        });
-    }
-
     private matchesExactTraitTargets(
         left: TraitCriterion[],
         right: TraitCriterion[],
     ): boolean {
-        const normalizedLeft = this.dedupeTraitTargets(left);
-        const normalizedRight = this.dedupeTraitTargets(right);
+        const normalizedLeft = dedupeBiddingTraitCriteria(left);
+        const normalizedRight = dedupeBiddingTraitCriteria(right);
 
         if (normalizedLeft.length !== normalizedRight.length) {
             return false;
         }
 
-        const rightKeys = new Set(
-            normalizedRight.map((target) => `${target.type}|${target.value}`),
-        );
-        return normalizedLeft.every((target) =>
-            rightKeys.has(`${target.type}|${target.value}`),
+        return (
+            biddingTraitCriteriaKey(normalizedLeft) ===
+            biddingTraitCriteriaKey(normalizedRight)
         );
     }
 

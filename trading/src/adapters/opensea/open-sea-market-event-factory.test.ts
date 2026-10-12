@@ -29,6 +29,23 @@ function baseEvent(): Record<string, unknown> {
 }
 
 describe("OpenSeaMarketEventFactory", () => {
+    it("preserves every criterion from an event criteria envelope", () => {
+        const event = baseEvent();
+        event.event_type = OPENSEA_STREAM_EVENT_TYPE.TraitOffer;
+        (event.payload as Record<string, unknown>).criteria = {
+            traits: [{ type: "Mode", value: "Terrain" }],
+            numeric_traits: [{ type: "Level", min: 1, max: 2 }],
+        };
+        assert.deepEqual(
+            new OpenSeaMarketEventFactory()
+                .newMarketEvent(event)
+                ?.getTraitCriteria(),
+            [
+                { type: "Mode", value: "Terrain" },
+                { type: "Level", min: 1, max: 2 },
+            ],
+        );
+    });
     it("retains token wake-up hints when a sale has no order hash", () => {
         const event = baseEvent();
         const payload = event.payload as Record<string, unknown>;

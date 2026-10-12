@@ -1,0 +1,203 @@
+{
+    "capturedAt": "2026-10-11T18:24:05.993Z",
+    "orders": [
+        {
+            "payload": {
+                "order_hash": "0x60336f1561e5c5a798ad73fcae2f8331d15f6c24a902730b1c1e867e518b5545",
+                "chain": "ethereum",
+                "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+                "protocol_data": {
+                    "parameters": {
+                        "offerer": "0xdd12ac4cebd0e0552e5f3736b3349293d529b347",
+                        "offer": [
+                            {
+                                "itemType": 1,
+                                "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                                "identifierOrCriteria": "0",
+                                "startAmount": "300000000000000000",
+                                "endAmount": "300000000000000000"
+                            }
+                        ],
+                        "consideration": [
+                            {
+                                "itemType": 4,
+                                "token": "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+                                "identifierOrCriteria": "6005017130526731800728017411206597379826703013360337335898683312482615632293",
+                                "startAmount": "1",
+                                "endAmount": "1",
+                                "recipient": "0xdd12ac4cebd0e0552e5f3736b3349293d529b347"
+                            },
+                            {
+                                "itemType": 1,
+                                "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                                "identifierOrCriteria": "0",
+                                "startAmount": "3000000000000000",
+                                "endAmount": "3000000000000000",
+                                "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+                            }
+                        ],
+                        "startTime": "1791510323",
+                        "endTime": "1792115123",
+                        "orderType": 2,
+                        "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                        "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "salt": "0x3d958fe200000000000000000000000000000000000000004097527825f16ab9",
+                        "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                        "totalOriginalConsiderationItems": 2,
+                        "counter": "174969072711203251670006411236015051762"
+                    }
+                },
+                "asset": {
+                    "identifier": null,
+                    "contract": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                },
+                "remaining_quantity": 1,
+                "order_created_at": 1791510330,
+                "criteria": {
+                    "collection": {
+                        "slug": "terraforms"
+                    },
+                    "contract": {
+                        "address": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                    },
+                    "traits": [
+                        {
+                            "type": "Mode",
+                            "value": "Terrain"
+                        }
+                    ],
+                    "numeric_traits": [
+                        {
+                            "type": "Level",
+                            "min": 1,
+                            "max": 2
+                        }
+                    ],
+                    "encoded_token_ids": "283,507,882,910,985,1285,1395,1500,1594,1755,1855,1896,1980,2267,2305:2306,2433,2511,2684,2889,2929,3052,3080,3133,3138,3594,3652,3935,4008,4020,4723,4826,4911,4945,4966,5268,5455,5475,5530,5927,5990,5992,6302,6740,6994,7105,7225,7248,7578,7689,7846,7891,7979,8170,8349,8366,8404,8407,8430,9126,9158,9201,9415,9451,9538"
+                },
+                "price": {
+                    "currency": "WETH",
+                    "decimals": 18,
+                    "value": "300000000000000000"
+                },
+                "status": "ACTIVE"
+            },
+            "expected": {
+                "traits": [
+                    {
+                        "type": "Mode",
+                        "value": "Terrain"
+                    },
+                    {
+                        "type": "Level",
+                        "min": 1,
+                        "max": 2
+                    }
+                ],
+                "label": "Mode=Terrain + Level=1–2",
+                "unitPriceWei": "300000000000000000",
+                "quantity": "1",
+                "encodedMembershipCount": 65
+            }
+        },
+        {
+            "payload": {
+                "order_hash": "0xe769f1a32c5c76847c9c510134732e91d066561337825124497f7d0d5acaf369",
+                "chain": "ethereum",
+                "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+                "protocol_data": {
+                    "parameters": {
+                        "offerer": "0xdd12ac4cebd0e0552e5f3736b3349293d529b347",
+                        "offer": [
+                            {
+                                "itemType": 1,
+                                "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                                "identifierOrCriteria": "0",
+                                "startAmount": "300000000000000000",
+                                "endAmount": "300000000000000000"
+                            }
+                        ],
+                        "consideration": [
+                            {
+                                "itemType": 4,
+                                "token": "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+                                "identifierOrCriteria": "106946054942160794412804902516288164703173333506817152272326603648213376533818",
+                                "startAmount": "1",
+                                "endAmount": "1",
+                                "recipient": "0xdd12ac4cebd0e0552e5f3736b3349293d529b347"
+                            },
+                            {
+                                "itemType": 1,
+                                "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                                "identifierOrCriteria": "0",
+                                "startAmount": "3000000000000000",
+                                "endAmount": "3000000000000000",
+                                "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+                            }
+                        ],
+                        "startTime": "1791510349",
+                        "endTime": "1792115149",
+                        "orderType": 2,
+                        "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                        "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "salt": "0x3d958fe20000000000000000000000000000000000000000b384a8572b8f6f94",
+                        "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                        "totalOriginalConsiderationItems": 2,
+                        "counter": "174969072711203251670006411236015051762"
+                    }
+                },
+                "asset": {
+                    "identifier": null,
+                    "contract": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                },
+                "remaining_quantity": 1,
+                "order_created_at": 1791510355,
+                "criteria": {
+                    "collection": {
+                        "slug": "terraforms"
+                    },
+                    "contract": {
+                        "address": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                    },
+                    "traits": [
+                        {
+                            "type": "Mode",
+                            "value": "Terrain"
+                        }
+                    ],
+                    "numeric_traits": [
+                        {
+                            "type": "Level",
+                            "min": 19,
+                            "max": 20
+                        }
+                    ],
+                    "encoded_token_ids": "323,333,376,417,480,1170,1276,1610,1683,2156,2186,2290,2356,2453,2464,2637,2639,2698,2833,3326,3655,4768:4769,5043,5284,5428,5825,5841,6091,6339,6612,6651,6698,6775,6777,6861,6982,7308,7399,7508,7751,7961,7986,8047,8263,8369,8403,8429,8772,9153,9189,9315,9369,9705"
+                },
+                "price": {
+                    "currency": "WETH",
+                    "decimals": 18,
+                    "value": "300000000000000000"
+                },
+                "status": "ACTIVE"
+            },
+            "expected": {
+                "traits": [
+                    {
+                        "type": "Mode",
+                        "value": "Terrain"
+                    },
+                    {
+                        "type": "Level",
+                        "min": 19,
+                        "max": 20
+                    }
+                ],
+                "label": "Mode=Terrain + Level=19–20",
+                "unitPriceWei": "300000000000000000",
+                "quantity": "1",
+                "encodedMembershipCount": 54
+            }
+        }
+    ]
+}

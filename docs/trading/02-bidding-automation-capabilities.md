@@ -168,6 +168,17 @@ Trait-job competition:
   criteria are a subset of its target. A `Mode=Terrain` + `Zone=Kairo` job
   therefore considers each single trait as well as that exact pair. A narrower
   or conflicting combination is excluded by default.
+- Observed marketplace offers preserve numeric intervals alongside exact traits.
+  For example, `Mode=Terrain + Level=1–2` and `Mode=Terrain + Level=19–20`
+  are separate demand buckets. A ranged offer competes only when every criterion
+  is satisfied by the job's exact target; a plain `Mode=Terrain` job does not
+  absorb either narrower scope. Standalone extras retain the same matching rule.
+- Ranged offer scopes display their bounds and can navigate to existing unsigned
+  integer browse filters when those filters can represent the complete scope.
+  They do not offer exact-trait job drafting controls. Job declarations remain
+  exact targets.
+- Token bid books use a finite OpenSea encoded-token list when supplied. Otherwise,
+  token metadata must satisfy all exact traits and inclusive numeric intervals.
 - Manage collection-scoped presets in the expandable `extra targets` section
   beside `tiers`, available only in Offers' `traits` view. The form and table
   reuse price-tier controls and armed create/modify/archive actions.
@@ -349,12 +360,22 @@ Own-bid display:
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
+Ranged bid-book scopes navigate with AND across their complete criteria.
+Identical criteria are deduplicated. Distinct same-key conjunctions omit the
+filter action because browse filters cannot represent them faithfully.
+Scopes whose trait text changes through the existing browse query format also
+omit that action; the complete observed scope remains visible.
+Individual bid-book trait values with unrepresentable text remain plain labels.
+
 Orders fallback mapper:
 
 - fallback bid-book reads map normalized `orders` columns into bid-book rows
 - invalid normalized scope rows are logged and skipped
 - raw REST/stream payload columns remain audit/debug-only
 - there is no legacy fallback scope parser on the bid-book path
+- previously flattened numeric scopes are replaced when ordinary OpenSea REST
+  ingestion or reconciliation upserts the order again; no raw-payload fallback
+  or destructive database migration is needed
 
 ## Backend API Surface
 

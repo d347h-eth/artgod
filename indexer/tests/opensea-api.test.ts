@@ -102,6 +102,34 @@ describe("OpenSeaApiAdapter", () => {
         }
     });
 
+    it("uses the same protocol alias for classification and canonical normalization", async () => {
+        const offer = {
+            ...buildItemOfferRecord(),
+            orderHash: "",
+            // The shared reader consistently prefers the supplied SDK envelope.
+            protocolData: buildItemOfferProtocolData(),
+            protocol_data: { parameters: { consideration: [] } },
+        };
+        const adapter = createAdapter();
+        adapter.api = { getAllOffers: async () => ({ offers: [offer] }) };
+        const events: OpenSeaRestRecord[] = [];
+        await adapter.instance.forEachOffer(
+            "test-collection",
+            CONTRACT,
+            async (event) => {
+                events.push(event);
+            },
+        );
+        expect(events).toHaveLength(1);
+        const normalized = normalizeOpenSeaRestOrder(
+            events[0].eventType,
+            events[0].payload,
+        );
+        expect(normalized?.orderId).toBe(offer.order_hash);
+        expect(normalized?.tokenId).toBe("5788");
+        expect(normalized?.seaportData?.offerer).toBe(MAKER);
+    });
+
     it("accepts SDK v11 camelized listing and offer envelopes", async () => {
         const listing = buildSdkV11ListingRecord();
         const traitOffer = buildSdkV11NumericTraitOfferRecord();

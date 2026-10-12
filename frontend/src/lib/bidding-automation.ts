@@ -1,3 +1,4 @@
+import { isTradingNumericTraitRange } from '@artgod/shared/types';
 import type {
 	ApiBiddingBidBookRow,
 	ApiBiddingJob,
@@ -505,9 +506,11 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 		};
 	}
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
+		const traits = bid.scope.traits.filter((trait) => !isTradingNumericTraitRange(trait));
+		if (traits.length !== bid.scope.traits.length) return null;
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
-			traits: bid.scope.traits.map((trait) => ({
+			traits: traits.map((trait) => ({
 				key: trait.type,
 				value: trait.value
 			})),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    dedupeTradingCompetitionSelectors,
     MAX_EXTRA_COMPETITION_TRAITS,
     normalizeExtraCompetitionTraits,
     TraitCompetitionValidationError,
@@ -13,6 +14,23 @@ import {
 } from "./trait-competition.js";
 
 describe("extra competition selectors", () => {
+    it("keeps literal and wildcard selectors distinct without delimiter collisions", () => {
+        const selectors = [
+            { type: "A|B", value: "C" },
+            { type: "A", value: "B|C" },
+            { type: "Mode", value: "*" },
+            { type: "Mode" },
+        ];
+        expect(
+            dedupeTradingCompetitionSelectors([...selectors, selectors[0]]),
+        ).toEqual(selectors);
+        expect(normalizeExtraCompetitionTraits(selectors)).toEqual([
+            selectors[1],
+            selectors[0],
+            selectors[3],
+        ]);
+    });
+
     it("preserves source identity across selector ordering and whitespace", () => {
         expect(() =>
             assertCompetitionPresetSourceUnchanged(

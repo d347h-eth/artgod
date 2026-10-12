@@ -22,10 +22,9 @@ import {
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
-import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
+import { normalizeOpenSeaBuyOrder } from "./opensea-bidding-order-terms.js";
 import {
     getOpenSeaEventIdentifiers,
-    getOpenSeaOrderHash,
     parseOpenSeaOrderHash,
     OPENSEA_STREAM_EVENT_TYPE,
     parseNftId,
@@ -60,17 +59,13 @@ export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
     if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemListed) {
         return normalizeItemListed(payload);
     }
-    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid) {
-        return normalizeItemReceivedBid(payload, eventType);
-    }
-    if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedOffer) {
-        return normalizeItemReceivedBid(payload, eventType);
-    }
-    if (eventType === OPENSEA_STREAM_EVENT_TYPE.CollectionOffer) {
-        return normalizeCollectionOffer(payload);
-    }
-    if (eventType === OPENSEA_STREAM_EVENT_TYPE.TraitOffer) {
-        return normalizeTraitOffer(payload);
+    if (
+        eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedBid ||
+        eventType === OPENSEA_STREAM_EVENT_TYPE.ItemReceivedOffer ||
+        eventType === OPENSEA_STREAM_EVENT_TYPE.CollectionOffer ||
+        eventType === OPENSEA_STREAM_EVENT_TYPE.TraitOffer
+    ) {
+        return normalizeOpenSeaBuyOrder(payload, { eventType });
     }
 
     // This event is not for "order upsert".
@@ -232,109 +227,6 @@ function normalizeItemListed(
         currency,
         validFrom,
         validUntil,
-        seaportData,
-    };
-}
-
-function normalizeItemReceivedBid(
-    payload: Record<string, unknown>,
-    eventType: "item_received_bid" | "item_received_offer",
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse buy-offer order terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            eventType,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
-        seaportData,
-    };
-}
-
-function normalizeCollectionOffer(
-    payload: Record<string, unknown>,
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            eventType: OPENSEA_STREAM_EVENT_TYPE.CollectionOffer,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
-        seaportData,
-    };
-}
-
-function normalizeTraitOffer(
-    payload: Record<string, unknown>,
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse trait offer terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            eventType: OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
         seaportData,
     };
 }

@@ -1,3 +1,4 @@
+import { formatTradingTraitCriterionLabel } from '@artgod/shared/types';
 import { TRADING_BIDDING_BID_BOOK_PRICE_KIND } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
 
@@ -23,7 +24,7 @@ export function bidBookOwnRowFlashKey(bid: ApiBiddingBidBookRow): string {
 		bid.materialization.phase ?? '',
 		bid.scope.kind,
 		bid.scope.tokenId ?? '',
-		bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join('|'),
+		bid.scope.traits.map(formatTradingTraitCriterionLabel).join('|'),
 		bid.price.kind,
 		bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact
 			? bid.price.wei

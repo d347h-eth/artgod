@@ -11,9 +11,9 @@ import {
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
-import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
+import { normalizeOpenSeaBuyOrder } from "./opensea-bidding-order-terms.js";
 import {
-    getOpenSeaOrderHash,
+    getOpenSeaProtocolData,
     parseOpenSeaOrderHash,
 } from "@artgod/shared/opensea/payload";
 
@@ -31,11 +31,9 @@ export function normalizeOpenSeaRestOrder(
         case OPENSEA_REST_EVENT_TYPE.Listing:
             return normalizeRestListing(payload);
         case OPENSEA_REST_EVENT_TYPE.ItemOffer:
-            return normalizeRestItemOffer(payload);
         case OPENSEA_REST_EVENT_TYPE.CollectionOffer:
-            return normalizeRestCollectionOffer(payload);
         case OPENSEA_REST_EVENT_TYPE.TraitOffer:
-            return normalizeRestTraitOffer(payload);
+            return normalizeOpenSeaBuyOrder(payload, { recordType });
         default:
             return null;
     }
@@ -46,7 +44,7 @@ function normalizeRestListing(
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportSellTerms(seaportData);
-    const parameters = parseProtocolParameters(getProtocolData(payload));
+    const parameters = parseProtocolParameters(getOpenSeaProtocolData(payload));
     const nftItem = requireNftItem(parameters.offer, "offer");
     const paymentItem = findPaymentItem(parameters.consideration);
 
@@ -96,108 +94,6 @@ function normalizeRestListing(
     };
 }
 
-function normalizeRestItemOffer(
-    payload: Record<string, unknown>,
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse buy-offer order terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            recordType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
-        seaportData,
-    };
-}
-
-function normalizeRestCollectionOffer(
-    payload: Record<string, unknown>,
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            recordType: OPENSEA_REST_EVENT_TYPE.CollectionOffer,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
-        seaportData,
-    };
-}
-
-function normalizeRestTraitOffer(
-    payload: Record<string, unknown>,
-): RawOrderPayload {
-    const seaportData = normalizeSeaportOrderData(payload);
-    // Parse trait offer order terms through the shared bidder-owned OpenSea parser.
-    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
-        context: {
-            recordType: OPENSEA_REST_EVENT_TYPE.TraitOffer,
-            orderHash: getOpenSeaOrderHash(payload),
-        },
-    });
-
-    return {
-        orderId: terms.orderId,
-        kind: "seaport",
-        side: "buy",
-        maker: terms.maker,
-        taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: terms.contract,
-        tokenId: terms.tokenId,
-        sourceScopeKind: terms.sourceScopeKind,
-        sourceSchema: terms.sourceSchema,
-        sourceCriteriaRoot: terms.sourceCriteriaRoot,
-        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
-        localTokenSetStatus: terms.localTokenSetStatus,
-        quantity: terms.quantity,
-        price: terms.price,
-        currency: terms.currency,
-        validFrom: terms.validFrom,
-        validUntil: terms.validUntil,
-        seaportData,
-    };
-}
-
 function parseProtocolParameters(value: unknown): Record<string, unknown> & {
     offer: unknown;
     consideration: unknown;
@@ -216,10 +112,6 @@ function parseProtocolParameters(value: unknown): Record<string, unknown> & {
         startTime: unknown;
         endTime: unknown;
     };
-}
-
-function getProtocolData(payload: Record<string, unknown>): unknown {
-    return payload.protocol_data ?? payload.protocolData;
 }
 
 function requireNftItem(items: unknown, name: string): Record<string, unknown> {

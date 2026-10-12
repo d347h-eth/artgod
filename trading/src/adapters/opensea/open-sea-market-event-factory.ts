@@ -1,4 +1,8 @@
 import {
+    getOpenSeaOfferCriteria,
+    normalizeOpenSeaOfferTraitCriteria,
+} from "@artgod/shared/trading/open-sea-bidding-offers";
+import {
     MarketEvent,
     Scope,
     TraitCriterion,
@@ -153,54 +157,9 @@ export class OpenSeaMarketEventFactory {
         );
     }
 
-    private normalizeTraitCriteria(criteria: unknown): TraitCriterion[] {
-        if (!criteria) {
-            return [];
-        }
-
-        if (Array.isArray(criteria)) {
-            return criteria.flatMap((entry) =>
-                this.normalizeTraitCriteria(entry),
-            );
-        }
-
-        const record = asRecord(criteria);
-        if (record.trait || record.traits) {
-            return this.normalizeTraitCriteria(record.trait ?? record.traits);
-        }
-
-        const type =
-            stringOrUndefined(record.type) ??
-            stringOrUndefined(record.trait_type);
-        const value = record.value ?? record.trait_value ?? record.trait_name;
-        if (typeof type === "string" && value !== undefined && value !== null) {
-            return [{ type, value: String(value) }];
-        }
-
-        if (typeof criteria === "object" && criteria !== null) {
-            const normalized: TraitCriterion[] = [];
-            for (const [key, rawValue] of Object.entries(
-                criteria as Record<string, unknown>,
-            )) {
-                if (
-                    rawValue === undefined ||
-                    rawValue === null ||
-                    typeof rawValue === "object"
-                ) {
-                    continue;
-                }
-                normalized.push({ type: key, value: String(rawValue) });
-            }
-            return normalized;
-        }
-
-        return [];
-    }
-
     private extractTraitCriteria(event: unknown): TraitCriterion[] {
-        const payload = getPayload(event);
-        return this.normalizeTraitCriteria(
-            payload.trait_criteria_list ?? payload.trait_criteria,
+        return normalizeOpenSeaOfferTraitCriteria(
+            getOpenSeaOfferCriteria(getPayload(event)),
         );
     }
 

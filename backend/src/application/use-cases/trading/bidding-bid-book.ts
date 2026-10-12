@@ -19,6 +19,7 @@ import type {
     TradingBotLifecycleStatus,
     TradingJobStatus,
     TradingTraitCriterion,
+    TradingBiddingTraitCriterion,
     CollectionBiddingBidScopeFilter,
     CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingTraitFilterJoinMode,
@@ -43,7 +44,7 @@ type PersistedBiddingBidBookRowBase = {
     scopeKind: TradingBiddingBidScopeKind;
     scopeLabel: string;
     tokenId: string | null;
-    scopeTraits: TradingTraitCriterion[];
+    scopeTraits: TradingBiddingTraitCriterion[];
     encodedTokenIds: string | null;
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;
@@ -182,7 +183,7 @@ type BiddingBidBookRowViewBase = {
         kind: TradingBiddingBidScopeKind;
         label: string;
         tokenId: string | null;
-        traits: TradingTraitCriterion[];
+        traits: TradingBiddingTraitCriterion[];
     };
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;

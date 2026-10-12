@@ -8,6 +8,7 @@ import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensi
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
 import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
+import { capturedOpenSeaRangedOfferFixtures } from "@artgod/shared/testing/opensea-offers";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
     BIDDING_BID_BOOK_PROJECTION_OUTCOME,
@@ -154,6 +155,186 @@ describe("SqliteBiddingBidBookProjection", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it("projects captured REST range scopes without broadening their criteria", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const offers = capturedOpenSeaRangedOfferFixtures.map(
+            ({ payload }) => payload,
+        );
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "captured-ranges",
+        );
+        const rows = db
+            .prepare(
+                "SELECT order_id, scope_label, scope_traits_json, encoded_token_ids, price_wei FROM trading_bidding_bid_book_rows",
+            )
+            .all() as ProjectedRow[];
+        assert.equal(rows.length, 2);
+        for (const {
+            payload,
+            expected,
+        } of capturedOpenSeaRangedOfferFixtures) {
+            const row = rows.find((row) => row.order_id === payload.order_hash);
+            assert.ok(row);
+            assert.equal(row.scope_label, expected.label);
+            assert.deepEqual(
+                JSON.parse(row.scope_traits_json),
+                expected.traits,
+            );
+            assert.equal(
+                row.encoded_token_ids,
+                payload.criteria.encoded_token_ids,
+            );
+            assert.equal(row.price_wei, expected.unitPriceWei);
+        }
+    });
+
+    it("persists complete numeric scopes from a collection snapshot", async () => {
+        const offers = [
+            [1, 2],
+            [19, 20],
+        ].map(([min, max]) =>
+            makeOpenSeaOffer({
+                orderHash: `range-${min}`,
+                offerer: OTHER_ADDRESS,
+                priceWei: "300000000000000000",
+                nftItemType: 4,
+                identifierOrCriteria: "123",
+                criteria: {
+                    traits: [{ type: "Mode", value: "Terrain" }],
+                    numeric_traits: [{ type: "Level", min, max }],
+                    encoded_token_ids: `${min}:${max}`,
+                },
+            }),
+        );
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const result = await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "range-regression",
+        );
+        assert.equal(result.rowCount, 2);
+        const rows = db
+            .prepare(
+                "SELECT scope_label, scope_traits_json, encoded_token_ids FROM trading_bidding_bid_book_rows ORDER BY order_id",
+            )
+            .all() as ProjectedRow[];
+        assert.deepEqual(
+            rows.map((row) => row.scope_label),
+            ["Mode=Terrain + Level=1–2", "Mode=Terrain + Level=19–20"],
+        );
+        assert.deepEqual(JSON.parse(rows[0].scope_traits_json), [
+            { type: "Mode", value: "Terrain" },
+            { type: "Level", min: 1, max: 2 },
+        ]);
+        assert.equal(rows[0].encoded_token_ids, "1:2");
+    });
+
+    it("persists token zero and retains the complete projection after a malformed refresh", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const tokenOffer = makeOpenSeaOffer({
+            orderHash: "token-zero",
+            offerer: OTHER_ADDRESS,
+            priceWei: "300000000000000000",
+            nftItemType: 2,
+            identifierOrCriteria: "0",
+            criteria: undefined,
+        });
+        const snapshot = {
+            collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+            refreshedAt: 1234,
+            offers: [tokenOffer],
+            metrics: createCollectionOfferSnapshotMetrics({ offerCount: 1 }),
+        };
+        await projection.replaceCollectionBidBook(snapshot, "complete");
+        const readRows = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_bid_book_rows WHERE collection_id = ?",
+                )
+                .all(collectionId) as ProjectedRow[];
+        const readState = () =>
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_collection_bid_book_state WHERE collection_id = ?",
+                )
+                .get(collectionId);
+        const rowsBefore = readRows();
+        const stateBefore = readState();
+        assert.equal(rowsBefore[0].scope_kind, "token");
+        assert.equal(rowsBefore[0].token_id, "0");
+        assert.equal(rowsBefore[0].scope_label, "#0");
+        for (const criteria of [
+            { traits: [{ type: "Mode", value: "Terrain" }, "malformed"] },
+            {
+                traits: [{ type: "Mode", value: "Terrain" }],
+                numeric_traits: [{ type: "Level", min: 1 }],
+            },
+            {
+                numeric_traits: [
+                    { type: "Level", min: 1, max: 2, value: "10" },
+                ],
+            },
+            {
+                numericTraits: [
+                    {
+                        type: "Level",
+                        min: 1,
+                        max: 2,
+                        traitValue: { unexpected: 1 },
+                    },
+                ],
+            },
+            { numericTraits: [{ type: "Level", value: [10] }] },
+        ]) {
+            const invalidOffer = makeOpenSeaOffer({
+                orderHash: "malformed-refresh",
+                offerer: OTHER_ADDRESS,
+                priceWei: "300000000000000000",
+                nftItemType: 4,
+                identifierOrCriteria: "123",
+                criteria,
+            });
+            await assert.rejects(() =>
+                projection.replaceCollectionBidBook(
+                    {
+                        ...snapshot,
+                        refreshedAt: 5678,
+                        offers: [tokenOffer, invalidOffer],
+                    },
+                    "malformed refresh",
+                ),
+            );
+            assert.deepEqual(readRows(), rowsBefore);
+            assert.deepEqual(readState(), stateBefore);
+        }
     });
 
     it("keeps skipped writes unpublished but publishes a valid empty bid book", async () => {

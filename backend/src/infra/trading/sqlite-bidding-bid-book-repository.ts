@@ -1,3 +1,10 @@
+import {
+    biddingTraitsMatchToken,
+    biddingTraitCriteriaKey,
+    parseBiddingTraitCriteria,
+    biddingTraitScopeMatchesFilters,
+} from "@artgod/shared/trading/offer-trait-criteria";
+import { openSeaEncodedTokenIdsContain } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import {
@@ -49,7 +56,7 @@ import {
     type TradingBotRuntimeState,
     type TradingJobStatus,
     type TradingTraitCriterion,
-    tradingTraitCriteriaKey,
+    type TradingBiddingTraitCriterion,
 } from "@artgod/shared/types";
 import type {
     TraitFilter,
@@ -244,7 +251,7 @@ type IndexedOrderBidScope = {
     kind: TradingBiddingBidScopeKind;
     label: string;
     tokenId: string | null;
-    traits: TradingTraitCriterion[];
+    traits: TradingBiddingTraitCriterion[];
     encodedTokenIds: string | null;
 };
 
@@ -2025,7 +2032,7 @@ function resolveJobBidScope(job: BiddingJobSignal): {
     kind: TradingBiddingBidScopeKind;
     label: string;
     tokenId: string | null;
-    traits: TradingTraitCriterion[];
+    traits: TradingBiddingTraitCriterion[];
 } {
     if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
         return {
@@ -2245,16 +2252,16 @@ function jobMatchesBid(
                 (job.targetTraits.length > 0
                     ? TRADING_BIDDING_BID_SCOPE_KIND.Trait
                     : TRADING_BIDDING_BID_SCOPE_KIND.Collection) &&
-            tradingTraitCriteriaKey(bid.scopeTraits) ===
-                tradingTraitCriteriaKey(job.targetTraits)
+            biddingTraitCriteriaKey(bid.scopeTraits) ===
+                biddingTraitCriteriaKey(job.targetTraits)
         );
     }
 
     if (job.targetKind === TRADING_JOB_TARGET_KIND.CompetitiveTrait) {
         return (
             bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait &&
-            tradingTraitCriteriaKey(bid.scopeTraits) ===
-                tradingTraitCriteriaKey(job.targetTraits)
+            biddingTraitCriteriaKey(bid.scopeTraits) ===
+                biddingTraitCriteriaKey(job.targetTraits)
         );
     }
 
@@ -2334,7 +2341,19 @@ function latestIsoTimestamp(values: Array<string | null>): string | null {
 function mapProjectedRow(
     row: ProjectedBidBookRow,
 ): PersistedBiddingBidBookRow[] {
-    const scopeTraits = parseTraitArray(row.scope_traits_json);
+    let scopeTraits: TradingBiddingTraitCriterion[];
+    try {
+        scopeTraits = parseBiddingTraitCriteria(
+            JSON.parse(row.scope_traits_json),
+        );
+    } catch {
+        return [];
+    }
+    if (
+        row.scope_kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait &&
+        scopeTraits.length === 0
+    )
+        return [];
     return [
         {
             orderId: row.order_id,
@@ -2490,7 +2509,7 @@ function resolveIndexedOrderBidScope(
 
 function parseIndexedOrderTraitCriteria(
     sourceSchemaJson: string | null,
-): TradingTraitCriterion[] {
+): TradingBiddingTraitCriterion[] {
     if (!sourceSchemaJson) {
         return [];
     }
@@ -2500,7 +2519,9 @@ function parseIndexedOrderTraitCriteria(
         return isTokenSetAttributeSchema(parsed)
             ? parsed.data.attributes.map((attribute) => ({
                   type: normalizeTradingTraitText(attribute.key),
-                  value: normalizeTradingTraitText(attribute.value),
+                  ...(attribute.value === undefined
+                      ? { min: attribute.min, max: attribute.max }
+                      : { value: normalizeTradingTraitText(attribute.value) }),
               }))
             : [];
     } catch {
@@ -2534,17 +2555,12 @@ function collectionBidMatchesFilters(
         return true;
     }
 
-    return traitFilterJoinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
-        ? traitScopeMatchesAnyFilter(
-              bid.scopeTraits,
-              selectedTraits,
-              selectedTraitRanges,
-          )
-        : traitScopeMatchesAllFilters(
-              bid.scopeTraits,
-              selectedTraits,
-              selectedTraitRanges,
-          );
+    return biddingTraitScopeMatchesFilters(
+        bid.scopeTraits,
+        selectedTraits,
+        selectedTraitRanges,
+        traitFilterJoinMode,
+    );
 }
 
 function makerMatchesFilter(
@@ -2584,147 +2600,21 @@ function tokenBidApplies(
 
     if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet) {
         return bid.encodedTokenIds
-            ? encodedTokenIdsContain(bid.encodedTokenIds, tokenId)
+            ? openSeaEncodedTokenIdsContain(bid.encodedTokenIds, tokenId)
             : false;
     }
 
     if (bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
-        return bid.scopeTraits.every((criterion) =>
-            tokenTraits.some(
-                (trait) =>
-                    trait.type === criterion.type &&
-                    trait.value === criterion.value,
-            ),
+        if (bid.encodedTokenIds !== null && bid.encodedTokenIds !== "*") {
+            return openSeaEncodedTokenIdsContain(bid.encodedTokenIds, tokenId);
+        }
+        return (
+            bid.scopeTraits.length > 0 &&
+            biddingTraitsMatchToken(bid.scopeTraits, tokenTraits)
         );
     }
 
     return false;
-}
-
-function traitScopeMatchesAllFilters(
-    criteria: TradingTraitCriterion[],
-    selectedTraits: TraitFilter[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    if (criteria.length === 0) {
-        return false;
-    }
-
-    return (
-        traitScopeCoveredByFilters(
-            criteria,
-            selectedTraits,
-            selectedTraitRanges,
-        ) &&
-        filtersCoveredByTraitScope(
-            criteria,
-            selectedTraits,
-            selectedTraitRanges,
-        )
-    );
-}
-
-function traitScopeCoveredByFilters(
-    criteria: TradingTraitCriterion[],
-    selectedTraits: TraitFilter[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    for (const criterion of criteria) {
-        const sameTypeSelectedTraits = selectedTraits.filter(
-            (trait) => trait.key === criterion.type,
-        );
-        const exactMatch =
-            sameTypeSelectedTraits.length > 0 &&
-            sameTypeSelectedTraits.some(
-                (trait) => trait.value === criterion.value,
-            );
-        if (sameTypeSelectedTraits.length > 0) {
-            if (!exactMatch) {
-                return false;
-            }
-        }
-
-        const range = selectedTraitRanges.find(
-            (item) => item.key === criterion.type,
-        );
-        const rangeMatch = range
-            ? traitValueWithinRange(criterion.value, range)
-            : false;
-        if (range && !rangeMatch) {
-            return false;
-        }
-
-        if (!exactMatch && !rangeMatch) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-function filtersCoveredByTraitScope(
-    criteria: TradingTraitCriterion[],
-    selectedTraits: TraitFilter[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    const exactTraitsCovered = selectedTraits.every((trait) =>
-        criteria.some(
-            (criterion) =>
-                criterion.type === trait.key && criterion.value === trait.value,
-        ),
-    );
-    if (!exactTraitsCovered) {
-        return false;
-    }
-
-    return selectedTraitRanges.every((range) =>
-        criteria.some(
-            (criterion) =>
-                criterion.type === range.key &&
-                traitValueWithinRange(criterion.value, range),
-        ),
-    );
-}
-
-function traitScopeMatchesAnyFilter(
-    criteria: TradingTraitCriterion[],
-    selectedTraits: TraitFilter[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    if (criteria.length === 0) {
-        return false;
-    }
-
-    return criteria.some(
-        (criterion) =>
-            selectedTraits.some(
-                (trait) =>
-                    trait.key === criterion.type &&
-                    trait.value === criterion.value,
-            ) ||
-            selectedTraitRanges.some(
-                (range) =>
-                    range.key === criterion.type &&
-                    traitValueWithinRange(criterion.value, range),
-            ),
-    );
-}
-
-function traitValueWithinRange(
-    value: string,
-    range: TraitRangeFilter,
-): boolean {
-    if (!/^\d+$/.test(value)) {
-        return false;
-    }
-    const numeric = BigInt(value);
-    if (range.fromValue !== null && numeric < BigInt(range.fromValue)) {
-        return false;
-    }
-    if (range.toValue !== null && numeric > BigInt(range.toValue)) {
-        return false;
-    }
-    return true;
 }
 
 function sortBidsDesc(
@@ -2794,53 +2684,4 @@ function parseRuntimeBidConstraints(
     } catch {
         return [];
     }
-}
-
-function encodedTokenIdsContain(
-    encodedTokenIds: string,
-    tokenId: string,
-): boolean {
-    if (encodedTokenIds === "*") {
-        return true;
-    }
-    if (encodedTokenIds === "") {
-        return false;
-    }
-
-    let target: bigint;
-    try {
-        target = BigInt(tokenId);
-    } catch {
-        return false;
-    }
-
-    for (const segment of encodedTokenIds.split(",")) {
-        if (!segment) {
-            continue;
-        }
-
-        if (segment.includes(":")) {
-            const [startRaw, endRaw] = segment.split(":");
-            try {
-                const start = BigInt(startRaw);
-                const end = BigInt(endRaw);
-                if (target >= start && target <= end) {
-                    return true;
-                }
-            } catch {
-                return false;
-            }
-            continue;
-        }
-
-        try {
-            if (BigInt(segment) === target) {
-                return true;
-            }
-        } catch {
-            return false;
-        }
-    }
-
-    return false;
 }

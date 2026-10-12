@@ -1,3 +1,4 @@
+import { TEST_IDS } from '$lib/test-ids';
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
@@ -59,6 +60,45 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 }
 
 describe('BidBookPanel', () => {
+	it('offers range-only filter navigation without drafting an unsupported trait job', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
+			ownMakerAddress: null,
+			bids: [
+				{
+					...BASE_BID,
+					scope: {
+						kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+						tokenId: null,
+						label: 'Level=1–2',
+						traits: [{ type: 'Level', min: 1, max: 2 }]
+					}
+				}
+			]
+		};
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				onSelectBid: () => {},
+				onFilterTraitDemandGroup: () => {}
+			}
+		});
+		expect(body).toContain('1–2');
+		expect(body).toContain(TEST_IDS.BidBookTraitBucketFilter);
+		expect(body).not.toContain(TEST_IDS.BidBookTraitBucketBid);
+		expect(body).not.toContain(TEST_IDS.BidBookRowBid);
+	});
 	it('renders individual bids under canonical trait-combination buckets', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {

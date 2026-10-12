@@ -1,6 +1,12 @@
+import {
+	biddingTraitsMatchToken,
+	biddingTraitScopeMatchesFilters
+} from '@artgod/shared/trading/offer-trait-criteria';
+import { formatTradingBiddingBidScopeLabel } from '@artgod/shared/types';
 import { LISTING_HISTORY_HARNESS } from './listing-history-contract';
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+	TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_MEDIA_MODE_OPTIONS,
 	TERRAFORMS_MEDIA_MODES,
@@ -36,7 +42,8 @@ import {
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	isTradingNumericTraitRange
 } from '@artgod/shared/types';
 import {
 	countBiddingBidBookOwnStates,
@@ -112,6 +119,15 @@ export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 // Test-owned scenarios that keep the default harness fixture stable.
 export const BIDDING_E2E_SCENARIO = {
 	IncompatibleTierDelta: 'incompatible_tier_delta',
+	NumericTraitRanges: 'numeric_trait_ranges',
+	NumericOnlyTraitRanges: 'numeric_only_trait_ranges',
+	RepeatedNumericTraitRanges: 'repeated_numeric_trait_ranges',
+	TraitValueComma: 'trait_value_comma',
+	TraitKeyComma: 'trait_key_comma',
+	TraitKeyColon: 'trait_key_colon',
+	NumericTraitKeyComma: 'numeric_trait_key_comma',
+	NumericTraitKeyColon: 'numeric_trait_key_colon',
+	SafeTraitPunctuation: 'safe_trait_punctuation',
 	CancellationPhases: 'cancellation_phases',
 	AuthorizationRequired: 'authorization_required',
 	UnconfirmedBid: 'unconfirmed_bid',
@@ -128,6 +144,56 @@ export const BIDDING_E2E_SCENARIO = {
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+// One owner for punctuation scopes used by fixture rows, token metadata and UI tests.
+export const BIDDING_E2E_TRAIT_TEXT_SCOPES: ReadonlyArray<{
+	scenario: BiddingE2eScenario;
+	traits: ApiBiddingBidBookRow['scope']['traits'];
+	navigable: boolean;
+}> = [
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitValueComma,
+		traits: [
+			{ type: 'Palette', value: 'Red,Blue' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitKeyComma,
+		traits: [
+			{ type: 'Trait,Kind', value: 'Rare' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.TraitKeyColon,
+		traits: [
+			{ type: 'Trait:Kind', value: 'Rare' },
+			{ type: 'Level', min: 1, max: 2 }
+		],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.NumericTraitKeyComma,
+		traits: [{ type: 'Level,Height', min: 1, max: 2 }],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.NumericTraitKeyColon,
+		traits: [{ type: 'Level:Height', min: 1, max: 2 }],
+		navigable: false
+	},
+	{
+		scenario: BIDDING_E2E_SCENARIO.SafeTraitPunctuation,
+		traits: [
+			{ type: 'Palette & Édition/%+?#', value: 'Red:Blue + 50% & /?# 🟦' },
+			{ type: 'Level & Édition/%+?#', min: 1, max: 2 }
+		],
+		navigable: true
+	}
+];
 
 // One saved order persists across the unauthorized-job cancellation journey.
 export const BIDDING_E2E_UNCONFIRMED_BID = {
@@ -837,6 +903,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		bidScope,
 		traitJoinMode,
 		selectedTraits,
+		selectedTraitRanges,
 		makerFilter,
 		ownershipFilter,
 		scenario
@@ -901,8 +968,8 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 
 // Builds fixture data for the token-detail bidding harness route.
 export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: URLSearchParams) {
-	const token = tokenDetail(tokenRef);
 	const scenario = parseBiddingE2eScenario(searchParams);
+	const token = tokenDetail(tokenRef, scenario);
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
@@ -1100,6 +1167,60 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
+	if (traitTextScope) {
+		return [
+			bidRow({
+				orderId: traitTextScope.scenario,
+				scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				maker: MARKET_ADDRESS_A,
+				priceEth: '0.3',
+				traits: traitTextScope.traits
+			})
+		];
+	}
+	if (scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges) {
+		return [
+			bidRow({
+				orderId: 'repeated-range',
+				scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				maker: MARKET_ADDRESS_A,
+				priceEth: '0.3',
+				traits: [
+					{ type: TERRAFORMS_MODE_ATTRIBUTE_KEY, value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain },
+					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min: 1, max: 10 },
+					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min: 2, max: 3 }
+				]
+			})
+		];
+	}
+	if (
+		scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges
+	) {
+		return [
+			[1, 2],
+			[19, 20]
+		].map(([min, max]) =>
+			bidRow({
+				orderId: `range-${min}`,
+				scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				maker: MARKET_ADDRESS_A,
+				priceEth: '0.3',
+				traits: [
+					...(scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges
+						? []
+						: [
+								{
+									type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+									value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+								}
+							]),
+					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min, max }
+				]
+			})
+		);
+	}
 	const savedOrderPhase = unconfirmedBidPhase(scenario);
 	if (savedOrderPhase) {
 		const savedOrder = bidRow({
@@ -1370,6 +1491,7 @@ function buildBidBook(params: {
 	bidScope: ApiCollectionBiddingBidScopeFilter;
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
 	makerFilter: string | null;
 	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 	scenario: BiddingE2eScenario | null;
@@ -1386,11 +1508,14 @@ function buildBidBook(params: {
 				return false;
 			}
 			if (
-				params.selectedTraits.length > 0 &&
-				!bidTraitsMatchFilter(row.scope.traits, params.selectedTraits, params.traitJoinMode)
-			) {
+				!biddingTraitScopeMatchesFilters(
+					row.scope.traits,
+					params.selectedTraits,
+					params.selectedTraitRanges,
+					params.traitJoinMode
+				)
+			)
 				return false;
-			}
 		}
 		if (params.bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection) {
 			if (row.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
@@ -1422,7 +1547,7 @@ function buildTokenDetailBidBook(
 	scenario: BiddingE2eScenario | null
 ): ApiBiddingBidBook {
 	const runtime = biddingRuntimeForScenario(scenario);
-	const token = tokenCardById(tokenId);
+	const token = tokenCardById(tokenId, scenario);
 	const bids = bidRowsForScenario(scenario).filter((row) => {
 		if (row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 			return true;
@@ -1431,10 +1556,9 @@ function buildTokenDetailBidBook(
 			return row.scope.tokenId === tokenId;
 		}
 		if (row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
-			return row.scope.traits.every((trait) =>
-				token.attributes.some(
-					(attribute) => attribute.key === trait.type && attribute.value === trait.value
-				)
+			return biddingTraitsMatchToken(
+				row.scope.traits,
+				token.attributes.map((attribute) => ({ type: attribute.key, value: attribute.value }))
 			);
 		}
 		return false;
@@ -1553,12 +1677,42 @@ function tokenCard(
 	};
 }
 
-function tokenCardById(tokenId: string): ApiTokenCard {
-	return TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+function tokenCardById(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenCard {
+	const token = TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
+	if (traitTextScope) {
+		return {
+			...token,
+			attributes: [
+				...token.attributes,
+				...traitTextScope.traits.map((criterion) => ({
+					key: criterion.type,
+					value: isTradingNumericTraitRange(criterion) ? String(criterion.min) : criterion.value
+				}))
+			]
+		};
+	}
+	if (
+		scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges
+	) {
+		return {
+			...token,
+			attributes: [
+				...token.attributes,
+				{
+					key: TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+					value: scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges ? '2' : '1'
+				}
+			]
+		};
+	}
+	return token;
 }
 
-function tokenDetail(tokenId: string): ApiTokenDetail {
-	const token = tokenCardById(tokenId);
+function tokenDetail(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenDetail {
+	const token = tokenCardById(tokenId, scenario);
 	return {
 		tokenId: token.tokenId,
 		marketplaceBiddingSupported: token.marketplaceBiddingSupported,
@@ -1605,7 +1759,7 @@ type BidRowCommonParams = {
 	priceEth: string;
 	ceilingEth?: string;
 	tokenId?: string;
-	traits?: { type: string; value: string }[];
+	traits?: ApiBiddingBidBookRow['scope']['traits'];
 	validUntil?: number | null;
 	placedAt?: string | null;
 	ownStatus?: ApiBiddingBidBookRow['ownStatus'];
@@ -1705,18 +1859,9 @@ function bidRow(params: MarketBidRowParams | OwnJobIntentRowParams): ApiBiddingB
 function scopeLabel(
 	kind: ApiBiddingBidBookRow['scope']['kind'],
 	tokenId: string | null,
-	traits: { type: string; value: string }[]
+	traits: ApiBiddingBidBookRow['scope']['traits']
 ): string {
-	if (kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
-		return 'collection';
-	}
-	if (kind === TRADING_BIDDING_BID_SCOPE_KIND.Token) {
-		return tokenId ? `#${tokenId}` : 'token';
-	}
-	if (kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
-		return traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ');
-	}
-	return kind;
+	return formatTradingBiddingBidScopeLabel({ kind, tokenId, traits });
 }
 
 function biddingJob(params: {
@@ -1803,18 +1948,6 @@ function tokenMatchesTraits(
 	}
 	const matches = (trait: ApiTokenAttribute) =>
 		attributes.some((attribute) => attribute.key === trait.key && attribute.value === trait.value);
-	return joinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
-		? selectedTraits.every(matches)
-		: selectedTraits.some(matches);
-}
-
-function bidTraitsMatchFilter(
-	bidTraits: { type: string; value: string }[],
-	selectedTraits: ApiTokenAttribute[],
-	joinMode: ApiCollectionBiddingTraitFilterJoinMode
-): boolean {
-	const matches = (trait: ApiTokenAttribute) =>
-		bidTraits.some((bidTrait) => bidTrait.type === trait.key && bidTrait.value === trait.value);
 	return joinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		? selectedTraits.every(matches)
 		: selectedTraits.some(matches);

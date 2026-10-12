@@ -3607,6 +3607,23 @@ components:
                 value:
                     type: string
 
+        TradingBiddingTraitCriterion:
+            description: Observed marketplace criteria preserve exact values or inclusive numeric bounds. Declared jobs still use exact TradingTraitCriterion values.
+            oneOf:
+                - $ref: "#/components/schemas/TradingTraitCriterion"
+                - type: object
+                  required: [type, min, max]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                      min:
+                          type: number
+                          description: Inclusive lower bound; must not exceed max.
+                      max:
+                          type: number
+                          description: Inclusive upper bound.
+
         ExtraCompetitionTraits:
             type: array
             maxItems: 64
@@ -4713,7 +4730,7 @@ components:
                         traits:
                             type: array
                             items:
-                                $ref: "#/components/schemas/TradingTraitCriterion"
+                                $ref: "#/components/schemas/TradingBiddingTraitCriterion"
                 maker:
                     description: Marketplace identity when one exists; local job intent remains labeled as You without one.
                     allOf:

@@ -1,4 +1,9 @@
 <script lang="ts">
+	import {
+		formatTradingTraitCriterionLabel,
+		isTradingNumericTraitRange
+	} from '@artgod/shared/types';
+	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { Component, Snippet } from 'svelte';
 	import { BID_BOOK_FILTER_ALL_LABEL } from '$lib/bid-book-view-models';
 	import type {
@@ -316,7 +321,7 @@
 
 	function traitScopeLabel(bid: ApiBiddingBidBookRow): string {
 		return (
-			bid.scope.label || bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ')
+			bid.scope.label || bid.scope.traits.map(formatTradingTraitCriterionLabel).join(' + ')
 		);
 	}
 
@@ -429,7 +434,11 @@
 	function shouldShowTraitFilterAction(
 		traits: ApiBiddingBidBookRow['scope']['traits']
 	): boolean {
-		return !!onFilterTraitDemandGroup && traits.length > 1;
+		return (
+			!!onFilterTraitDemandGroup &&
+			(traits.length > 1 || traits.some(isTradingNumericTraitRange)) &&
+			bidBookCriteriaToBrowseFilters(traits) !== null
+		);
 	}
 
 	function filterTraits(traits: ApiBiddingBidBookRow['scope']['traits'], label: string): void {
@@ -447,7 +456,11 @@
 	}
 
 	function canSelectBidRow(bid: ApiBiddingBidBookRow): boolean {
-		return !!onSelectBid && (canSelectBid?.(bid) ?? true);
+		return (
+			!!onSelectBid &&
+			!bid.scope.traits.some(isTradingNumericTraitRange) &&
+			(canSelectBid?.(bid) ?? true)
+		);
 	}
 
 	function shouldRenderScopeBidControl(bid: ApiBiddingBidBookRow): boolean {
@@ -540,10 +553,7 @@
 		primaryTraitKey: string | null
 	): string {
 		return sortDemandTraitsForDisplay(traits, primaryTraitKey)
-			.map(
-				(trait) =>
-					`${trimBidBookTraitText(trait.type)}=${trimBidBookTraitText(trait.value)}`
-			)
+			.map(formatTradingTraitCriterionLabel)
 			.join(' + ');
 	}
 
@@ -561,7 +571,9 @@
 				return leftPrimary ? -1 : 1;
 			}
 			const typeCompare = left.type.localeCompare(right.type);
-			return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
+			return typeCompare === 0
+				? formatTradingTraitCriterionLabel(left).localeCompare(formatTradingTraitCriterionLabel(right))
+				: typeCompare;
 		});
 	}
 
