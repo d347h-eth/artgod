@@ -970,8 +970,9 @@ Key operations:
 - `rollbackFromBlock()`
     - reverses balances from orphaned transfers
     - deletes transfers, fills, collection-extension events, activities, transactions, and blocks from the rollback point onward
-    - invalidates uncertain chain-derived market-order retirement markers while
-      preserving explicit OpenSea cancellation evidence
+    - invalidates terminal market-order retirement markers attributed to the
+      rollback range, preserving pre-fork/unattributed records and explicit
+      OpenSea cancellation evidence
 
 ### Collection registry (`indexer/src/infra/collections/sqlite.ts`)
 
