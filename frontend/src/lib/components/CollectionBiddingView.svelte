@@ -937,7 +937,7 @@
 		await applyTraitFilters(
 			filters.traits,
 			filters.traitRanges,
-			COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+			filters.traitJoinMode
 		);
 	}
 

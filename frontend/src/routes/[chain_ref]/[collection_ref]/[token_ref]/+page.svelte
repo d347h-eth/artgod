@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
-	import type { ApiTraitRangeFilter } from '$lib/api-types';
+	import type { ApiTraitRangeFilter, ApiCollectionBiddingTraitFilterJoinMode } from '$lib/api-types';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -365,7 +365,7 @@
 	}): Promise<void> {
 		const filters = bidBookCriteriaToBrowseFilters(selection.traits);
 		if (!filters) return;
-		await goto(bidBookTraitsHref(filters.traits, filters.traitRanges));
+		await goto(bidBookTraitsHref(filters.traits, filters.traitRanges, filters.traitJoinMode));
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -564,13 +564,14 @@
 
 	function bidBookTraitsHref(
 		traits: { key: string; value: string }[],
-		traitRanges: ApiTraitRangeFilter[] = []
+		traitRanges: ApiTraitRangeFilter[] = [],
+		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode = COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
 	): string {
 		const query = buildCollectionBiddingQuery({
 			selectedTraits: traits,
 			selectedTraitRanges: traitRanges,
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
-			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+			traitJoinMode,
 			mediaMode: collectionNavigationMediaMode(),
 			mediaPreference: displayedMedia.preference,
 			ownershipFilter: returnBiddingOwnershipFilter(),

@@ -1,6 +1,11 @@
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
-import { isTradingNumericTraitRange } from '@artgod/shared/types';
+import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	isTradingNumericTraitRange,
+	type CollectionBiddingTraitFilterJoinMode
+} from '@artgod/shared/types';
+import { dedupeBiddingTraitCriteria } from '@artgod/shared/trading/offer-trait-criteria';
 
 const BID_BOOK_TRAIT_DISPLAY_MAX_LENGTH = 96;
 
@@ -26,10 +31,17 @@ export type BidBookScopeTraits = ApiBiddingBidBookRow['scope']['traits'];
 export function bidBookCriteriaToBrowseFilters(criteria: BidBookScopeTraits): {
 	traits: ApiTokenAttribute[];
 	traitRanges: ApiTraitRangeFilter[];
+	traitJoinMode: CollectionBiddingTraitFilterJoinMode;
 } | null {
+	const scope = dedupeBiddingTraitCriteria(criteria);
+	const hasRanges = scope.some(isTradingNumericTraitRange);
+	// Browse accepts one range per key and cannot faithfully encode distinct
+	// same-key conjunctions. Do not assume numeric metadata is single-valued.
+	if (hasRanges && new Set(scope.map((criterion) => criterion.type)).size !== scope.length)
+		return null;
 	const traits: ApiTokenAttribute[] = [];
 	const traitRanges: ApiTraitRangeFilter[] = [];
-	for (const criterion of criteria) {
+	for (const criterion of scope) {
 		if (isTradingNumericTraitRange(criterion)) {
 			if (
 				!Number.isSafeInteger(criterion.min) ||
@@ -47,5 +59,11 @@ export function bidBookCriteriaToBrowseFilters(criteria: BidBookScopeTraits): {
 			traits.push({ key: criterion.type, value: criterion.value });
 		}
 	}
-	return { traits, traitRanges };
+	return {
+		traits,
+		traitRanges,
+		traitJoinMode: hasRanges
+			? COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+			: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+	};
 }

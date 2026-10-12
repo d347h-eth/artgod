@@ -360,6 +360,10 @@ Own-bid display:
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
+Ranged bid-book scopes navigate with AND across their complete criteria.
+Identical criteria are deduplicated. Distinct same-key conjunctions omit the
+filter action because browse filters cannot represent them faithfully.
+
 Orders fallback mapper:
 
 - fallback bid-book reads map normalized `orders` columns into bid-book rows

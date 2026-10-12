@@ -2187,8 +2187,96 @@ test.describe('bidding automation fixture harness', () => {
 		);
 		await expect(page).toHaveURL(/traits=Mode%3ATerrain/);
 		await expect(page).toHaveURL(/trait_ranges=Level%3A1\.\.2/);
+		await expect(page).toHaveURL(/trait_join=and/);
+		await expect(groups).toHaveCount(1);
+		await expect(groups.filter({ hasText: /Level\s*=\s*19–20/ })).toHaveCount(0);
 		await expect(page.getByTestId(TEST_IDS.BiddingPanel)).toHaveCount(0);
 	});
+
+	for (const scenario of [
+		BIDDING_E2E_SCENARIO.NumericTraitRanges,
+		BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges
+	]) {
+		for (const entry of ['collection', 'token'] as const) {
+			if (scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges && entry === 'collection') continue;
+			test(`preserves ranged scope navigation from ${entry} for ${scenario}`, async ({
+				page
+			}, testInfo) => {
+				await rememberUnfilteredBiddingNavigation(page);
+				const api = await installBiddingAutomationApiMock(page);
+				api.setBidBookScenario(scenario);
+				const path = entry === 'collection' ? BIDDING_PATH : `${COLLECTION_PATH}/101`;
+				await openHarnessPage(
+					page,
+					`${path}?bid_scope=traits&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${scenario}`
+				);
+				const groups = page.locator('.bid-book-demand-group-row');
+				if (entry === 'token') {
+					await page.getByTestId(TEST_IDS.BidBookRowFilter).scrollIntoViewIfNeeded();
+					await page.screenshot({
+						path: testInfo.outputPath('token-scope-before-filter.png'),
+						fullPage: true
+					});
+				}
+				const destinationRead =
+					entry === 'token'
+						? page.waitForResponse((response) => {
+								const path = new URL(response.url()).pathname;
+								return path.endsWith('/bidding/bids') && !path.endsWith('/101/bidding/bids');
+							})
+						: null;
+				await clickCenterVerifiedAction(
+					entry === 'token'
+						? page.getByTestId(TEST_IDS.BidBookRowFilter)
+						: groups
+								.filter({ hasText: /Level\s*=\s*1–2/ })
+								.getByTestId(TEST_IDS.BidBookTraitBucketFilter)
+				);
+				if (destinationRead) {
+					// Verify the production callback's collection-read query, then render
+					// that query in the fixture route. Native/backend navigation is separate QA.
+					const response = await destinationRead;
+					const query = new URL(response.url()).searchParams;
+					expect(query.get('trait_join')).toBe(COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And);
+					expect(query.get('trait_ranges')).toBe('Level:1..2');
+					query.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scenario);
+					await openHarnessPage(page, `${BIDDING_PATH}?${query}`);
+				}
+				await expect(page).toHaveURL(/trait_join=and/);
+				await expect(page).toHaveURL(/trait_ranges=Level%3A1\.\.2/);
+				await expect(groups).toHaveCount(1);
+				await expect(groups.filter({ hasText: /Level\s*=\s*19–20/ })).toHaveCount(0);
+				await expect(page.getByTestId(TEST_IDS.BiddingPanel)).toHaveCount(0);
+			});
+		}
+	}
+	for (const entry of ['collection', 'token'] as const) {
+		test(`omits unrepresentable repeated-range navigation from ${entry}`, async ({
+			page
+		}, testInfo) => {
+			await rememberUnfilteredBiddingNavigation(page);
+			const api = await installBiddingAutomationApiMock(page);
+			api.setBidBookScenario(BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges);
+			const path = entry === 'collection' ? BIDDING_PATH : `${COLLECTION_PATH}/101`;
+			await openHarnessPage(
+				page,
+				`${path}?bid_scope=traits&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges}`
+			);
+			await expect(
+				entry === 'token'
+					? page.locator('.bid-book-table tbody tr').filter({ hasText: /Level\s*=\s*1–10/ })
+					: page.locator('.bid-book-demand-group-row')
+			).toHaveCount(1);
+			await expect(page.getByTestId(TEST_IDS.BidBookTraitBucketFilter)).toHaveCount(0);
+			await expect(page.getByTestId(TEST_IDS.BidBookRowFilter)).toHaveCount(0);
+			await expect(page.getByTestId(TEST_IDS.BidBookTraitBucketBid)).toHaveCount(0);
+			await expect(page.getByTestId(TEST_IDS.BidBookRowBid)).toHaveCount(0);
+			if (entry === 'token') {
+				await page.locator('.bid-book-table').scrollIntoViewIfNeeded();
+				await page.screenshot({ path: testInfo.outputPath('repeated-scope.png'), fullPage: true });
+			}
+		});
+	}
 
 	test('supports trait bucket bid and filter actions independently', async ({ page }, testInfo) => {
 		await rememberUnfilteredBiddingNavigation(page);

@@ -119,6 +119,8 @@ export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 export const BIDDING_E2E_SCENARIO = {
 	IncompatibleTierDelta: 'incompatible_tier_delta',
 	NumericTraitRanges: 'numeric_trait_ranges',
+	NumericOnlyTraitRanges: 'numeric_only_trait_ranges',
+	RepeatedNumericTraitRanges: 'repeated_numeric_trait_ranges',
 	CancellationPhases: 'cancellation_phases',
 	AuthorizationRequired: 'authorization_required',
 	UnconfirmedBid: 'unconfirmed_bid',
@@ -909,8 +911,8 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 
 // Builds fixture data for the token-detail bidding harness route.
 export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: URLSearchParams) {
-	const token = tokenDetail(tokenRef);
 	const scenario = parseBiddingE2eScenario(searchParams);
+	const token = tokenDetail(tokenRef, scenario);
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
@@ -1108,7 +1110,25 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
-	if (scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges) {
+	if (scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges) {
+		return [
+			bidRow({
+				orderId: 'repeated-range',
+				scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				maker: MARKET_ADDRESS_A,
+				priceEth: '0.3',
+				traits: [
+					{ type: TERRAFORMS_MODE_ATTRIBUTE_KEY, value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain },
+					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min: 1, max: 10 },
+					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min: 2, max: 3 }
+				]
+			})
+		];
+	}
+	if (
+		scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges
+	) {
 		return [
 			[1, 2],
 			[19, 20]
@@ -1119,7 +1139,14 @@ function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidB
 				maker: MARKET_ADDRESS_A,
 				priceEth: '0.3',
 				traits: [
-					{ type: TERRAFORMS_MODE_ATTRIBUTE_KEY, value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain },
+					...(scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges
+						? []
+						: [
+								{
+									type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+									value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+								}
+							]),
 					{ type: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, min, max }
 				]
 			})
@@ -1451,7 +1478,7 @@ function buildTokenDetailBidBook(
 	scenario: BiddingE2eScenario | null
 ): ApiBiddingBidBook {
 	const runtime = biddingRuntimeForScenario(scenario);
-	const token = tokenCardById(tokenId);
+	const token = tokenCardById(tokenId, scenario);
 	const bids = bidRowsForScenario(scenario).filter((row) => {
 		if (row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 			return true;
@@ -1581,12 +1608,29 @@ function tokenCard(
 	};
 }
 
-function tokenCardById(tokenId: string): ApiTokenCard {
-	return TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+function tokenCardById(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenCard {
+	const token = TOKEN_CARDS.find((token) => token.tokenId === tokenId) ?? TOKEN_CARDS[0];
+	if (
+		scenario === BIDDING_E2E_SCENARIO.NumericTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.NumericOnlyTraitRanges ||
+		scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges
+	) {
+		return {
+			...token,
+			attributes: [
+				...token.attributes,
+				{
+					key: TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+					value: scenario === BIDDING_E2E_SCENARIO.RepeatedNumericTraitRanges ? '2' : '1'
+				}
+			]
+		};
+	}
+	return token;
 }
 
-function tokenDetail(tokenId: string): ApiTokenDetail {
-	const token = tokenCardById(tokenId);
+function tokenDetail(tokenId: string, scenario: BiddingE2eScenario | null = null): ApiTokenDetail {
+	const token = tokenCardById(tokenId, scenario);
 	return {
 		tokenId: token.tokenId,
 		marketplaceBiddingSupported: token.marketplaceBiddingSupported,
