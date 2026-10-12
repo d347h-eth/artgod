@@ -108,6 +108,16 @@ blocks(chain_id, block_number, block_hash, parent_hash, timestamp)
 - Primary key: `(chain_id, block_number)`
 - Used for reorg detection and persistence of canonical block metadata
 
+Migration `073_reconcile_legacy_block_headers.sql` examines broken parent links
+in headers recorded before pending canonical checks were introduced, limited to
+history at or after each chain's earliest retained collection anchor. It prunes
+only unused suspect parent headers and coverage at those exact heights, leaving
+older and newer coverage intact. Facts, ownership/checkpoints, bootstrap anchors,
+retained event publications and active recovery journals protect a header from
+pruning. No other persisted data is deleted. Remaining sides of an inconsistent
+link receive fresh canonical checks; already pending checks keep their backoff.
+Chains with pruned headers advance their sync revision to fence in-flight work.
+
 ### `collection_sync_blocks`
 
 Defined in `032_collection_sync_blocks.sql`.
