@@ -30,6 +30,7 @@ import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
+import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { syncBlockFixture } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -759,6 +760,58 @@ describe("durable production reorg recovery", () => {
                 .every(([filter]) => filter.toBlock <= F.Fork),
         ).toBe(true);
         expect(services.recoveries.getRecovery(1)).toBeNull();
+    });
+
+    it("retains unsupported recovery across an orphaned bootstrap anchor without changing ownership", async () => {
+        const fixture = seedRecoveryHistory();
+        db.prepare(
+            "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
+        ).run(F.Orphan, fixture.collectionId);
+        const bootstrap = new SqliteBootstrapStorage();
+        bootstrap.insertSnapshotRows([
+            {
+                runId: 1,
+                chainId: 1,
+                collectionId: fixture.collectionId,
+                contract: fixture.contract,
+                tokenId: "1",
+                owner: F.OrphanOwner,
+                anchorBlock: F.Orphan,
+            },
+        ]);
+        bootstrap.finalizeSnapshot({
+            runId: 1,
+            chainId: 1,
+            collectionId: fixture.collectionId,
+            contract: fixture.contract,
+            anchorBlock: F.Orphan,
+            anchorHash: syncBlockFixture(F.Orphan).hash,
+            anchorTimestamp: F.Orphan,
+        });
+        retainCanonicalCheckFixture(services.storage, F.Orphan);
+        expect(await services.recovery.checkDue()).toBe(true);
+        expect(services.recoveries.getRecovery(1)).toMatchObject({
+            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
+            retryAt: now + retryDelayMs,
+        });
+        db.raw.close();
+        reopen();
+        now += retryDelayMs;
+        await services.recovery.resumeDue();
+        expect(services.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.AwaitingAncestor,
+        );
+        expect(revision()).toBe(0);
+        expect(owners(fixture.collectionId)).toEqual([
+            { owner: F.OrphanOwner, amount: "1" },
+        ]);
+        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(1);
+        expect(services.storage.getBlockHash(1, F.Orphan)).toBe(
+            syncBlockFixture(F.Orphan).hash,
+        );
+        expect(
+            db.prepare("SELECT last_error FROM chain_reorg_recoveries").get(),
+        ).toEqual({ last_error: expect.stringContaining("bootstrap anchor") });
     });
 
     it("polls an earlier mismatch while retained ancestor proof is deferred", async () => {

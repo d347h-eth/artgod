@@ -22,12 +22,14 @@ export type Erc721RollbackSnapshot = {
 };
 
 export interface ReorgRollbackStore {
+    // Refuse crossing retained bootstrap anchors before ownership RPC.
     prepareRollback(input: {
         chainId: number;
         fromBlock: number;
     }): ReorgRollbackPlan;
     // Atomically validate the plan, restore ownership, remove orphaned facts and
-    // coverage, and advance the chain revision. Failed validation writes nothing.
+    // coverage, and advance the chain revision. Recheck bootstrap anchors in the
+    // writer; failed validation writes nothing.
     rollbackFromBlock(input: {
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
