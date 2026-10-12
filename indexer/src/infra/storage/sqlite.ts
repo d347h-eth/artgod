@@ -34,6 +34,7 @@ import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { ORDER_RETIREMENT_REASON } from "../../domain/order-retention.js";
 import {
     ChainSyncConflict,
+    StoredBlockHashConflict,
     type ChainSyncCheckpoint,
     type SyncBlockHeader,
 } from "../../domain/chain-sync.js";
@@ -383,8 +384,14 @@ export class SqliteStorage
             for (const block of blocks) {
                 const storedHash = this.getBlockHash(chainId, block.number);
                 if (storedHash && storedHash !== block.hash) {
-                    throw new ChainSyncConflict(
-                        `Sync conflicts with stored block ${block.number}; rollback is required`,
+                    throw new StoredBlockHashConflict(
+                        {
+                            chainId,
+                            blockNumber: block.number,
+                            blockHash: storedHash,
+                            checkpoint,
+                        },
+                        block.hash,
                     );
                 }
             }

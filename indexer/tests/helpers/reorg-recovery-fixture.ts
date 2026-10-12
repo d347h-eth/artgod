@@ -160,6 +160,7 @@ export function reorgRecoveryServices(
         rpc,
         storage,
         commit,
+        canonicalChecks: checks,
         gaps,
         recoveries,
         collectionsPort: registry,

@@ -550,6 +550,7 @@ describe("isolated broker and process reorg recovery", () => {
             rpc,
             storage: services.storage,
             commit: services.commit,
+            canonicalChecks: services.checks,
             collectionsPort: services.registry,
             extensions: { getInstall: () => null },
             bidderIndex: { isActive: () => false, shouldEmit: () => false },

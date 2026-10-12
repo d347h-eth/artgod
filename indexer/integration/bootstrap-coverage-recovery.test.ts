@@ -36,6 +36,7 @@ import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import type { JobEnvelope, QueuePublication } from "../src/domain/jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import type { BackfillSyncPayload } from "../src/domain/sync-jobs.js";
+import type { RpcLog } from "../src/ports/rpc.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
@@ -172,6 +173,7 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                     rpc,
                     storage: services.storage,
                     commit: services.commit,
+                    canonicalChecks: services.checks,
                     collectionsPort: services.registry,
                     extensions: { getInstall: () => null },
                     bidderIndex: {
@@ -483,7 +485,7 @@ function fixtureRpc() {
         [103, 2n],
     ] as const) {
         const block = syncBlockFixture(blockNumber);
-        const log = {
+        const log: RpcLog = {
             address: CONTRACT,
             blockNumber,
             blockHash: block.hash,
@@ -493,7 +495,7 @@ function fixtureRpc() {
                 abi: ERC1155_ABI,
                 eventName: "TransferSingle",
                 args: { operator: OWNER, from: zeroAddress, to: OWNER },
-            }),
+            }) as RpcLog["topics"],
             data: encodeAbiParameters(
                 [{ type: "uint256" }, { type: "uint256" }],
                 [1n, quantity],

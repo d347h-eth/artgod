@@ -9,6 +9,7 @@ import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
+import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type {
     CollectionRegistryPort,
     CollectionScopeResolverPort,
@@ -39,6 +40,7 @@ export function createBackfillSyncHandler(input: {
     reorgDepth: number;
     storage: StoragePort;
     commit: SyncRangeCommitPort;
+    canonicalChecks: Pick<CanonicalChecksPort, "retain">;
     collectionsPort: Pick<
         CollectionRegistryPort,
         "getCollection" | "listCollectionsForSync"
@@ -81,6 +83,7 @@ export function createBackfillSyncHandler(input: {
                 rpc: input.rpc,
                 storage: input.storage,
                 commit: input.commit,
+                canonicalChecks: input.canonicalChecks,
                 collectionScopeResolver: input.collectionsPort,
                 collectionExtensions: input.extensions,
                 chainId: input.chainId,

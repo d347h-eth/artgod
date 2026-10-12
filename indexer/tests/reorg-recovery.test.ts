@@ -841,6 +841,7 @@ describe("durable production reorg recovery", () => {
             rpc,
             storage: services.storage,
             commit: services.commit,
+            canonicalChecks: services.checks,
             collectionScopeResolver: services.registry,
             collectionExtensions: { getInstall: () => null },
             chainId: 1,

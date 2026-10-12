@@ -704,6 +704,7 @@ async function run(
         rpc,
         storage: h.storage,
         commit: h.commit,
+        canonicalChecks: new SqliteCanonicalChecks(),
         collectionsPort: h.registry,
         collectionExtensions: { getInstall: () => null },
         gaps,

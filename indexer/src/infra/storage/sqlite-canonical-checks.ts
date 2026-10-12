@@ -8,6 +8,23 @@ import {
 } from "./sqlite-chain-revisions.js";
 
 export class SqliteCanonicalChecks implements CanonicalChecksPort {
+    retain(check: PendingCanonicalCheck): boolean {
+        return db.writeTransaction(() => {
+            if (check.chainId !== check.checkpoint.chainId)
+                throw new ChainSyncConflict("Canonical check chain mismatch");
+            assertChainSyncCheckpoint(check.checkpoint);
+            return (
+                db
+                    .prepare(
+                        "UPDATE blocks SET canonical_check_retry_at=CASE WHEN canonical_check_pending=0 THEN 0 ELSE canonical_check_retry_at END,canonical_check_pending=1 " +
+                            "WHERE chain_id=? AND block_number=? AND block_hash=?",
+                    )
+                    .run(check.chainId, check.blockNumber, check.blockHash)
+                    .changes === 1
+            );
+        })();
+    }
+
     hasPending(chainId: number, now: number): boolean {
         return !!db
             .prepare(

@@ -96,6 +96,47 @@ describe("DB-owned canonical hash checks", () => {
         expect(restarted.checks.hasPending(1, now)).toBe(false);
     });
 
+    it("rearms a mature or completed header only for an explicit conflict and preserves pending backoff", () => {
+        const s = setup();
+        s.storage.persistSyncResult(s.result([105], 200));
+        const check = {
+            chainId: 1,
+            blockNumber: 105,
+            blockHash: block(105).hash,
+            checkpoint: s.storage.captureSyncCheckpoint(1),
+        };
+        expect(s.due()).toBeNull();
+        expect(s.checks.retain(check)).toBe(true);
+        expect(s.due()).toEqual(check);
+        s.checks.defer(check, now + 100);
+        expect(s.checks.retain(check)).toBe(true);
+        expect(s.due()).toBeNull();
+        now += 100;
+        expect(s.due()).toEqual(check);
+        expect(s.checks.complete(check)).toBe(true);
+        expect(s.due()).toBeNull();
+        expect(s.checks.retain(check)).toBe(true);
+        expect(s.due()).toEqual(check);
+    });
+
+    it("rejects conflict retention against a replaced hash or rollback revision", () => {
+        const s = setup();
+        s.storage.persistSyncResult(s.result([105], 200));
+        const check = {
+            chainId: 1,
+            blockNumber: 105,
+            blockHash: block(105).hash,
+            checkpoint: s.storage.captureSyncCheckpoint(1),
+        };
+        expect(s.checks.retain({ ...check, blockHash: block(106).hash })).toBe(
+            false,
+        );
+        expect(s.due()).toBeNull();
+        db.writeTransaction(() => advanceChainSyncRevision(1))();
+        expect(() => s.checks.retain(check)).toThrow(ChainSyncConflict);
+        expect(s.due()).toBeNull();
+    });
+
     it("detects and rolls back an interrupted shallow reorg after its check ages beyond the tail", async () => {
         const s = setup();
         s.storage.persistSyncResult(s.result([F.Anchor, F.Fork], 200));
@@ -229,6 +270,7 @@ describe("DB-owned canonical hash checks", () => {
             checkpoint: { ...check.checkpoint, chainId: 2 },
         };
         expect(() => s.checks.complete(wrongChain)).toThrow(ChainSyncConflict);
+        expect(() => s.checks.retain(wrongChain)).toThrow(ChainSyncConflict);
         expect(() => s.checks.defer(wrongChain, now + 100)).toThrow(
             ChainSyncConflict,
         );

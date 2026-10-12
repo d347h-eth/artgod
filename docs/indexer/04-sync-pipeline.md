@@ -310,7 +310,12 @@ orphaned facts after rollback.
 Header reads bypass the RPC block cache. Rechecking the range tip after all
 headers catches a reorg during those reads, including an empty-log range. A
 conflict retries the queue request or defers automatic intent; no acquisition
-progress or required follow-up is committed. Changes after the final RPC check remain the responsibility
+progress or required follow-up is committed. A stored-header hash disagreement
+also retains an explicit canonical check after the failed transaction exits,
+including for mature history or a previously completed check. Ordinary revision,
+range and acquisition-ownership conflicts do not rearm verification. The existing
+reorg worker freshly checks the stored identity and owns any rollback/resync.
+Changes after the final RPC check remain the responsibility
 of the reorg worker; external chain state cannot be frozen by a SQLite transaction.
 
 This is the key ownership invariant for historical backfill:

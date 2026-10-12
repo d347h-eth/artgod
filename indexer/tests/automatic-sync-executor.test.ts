@@ -46,8 +46,10 @@ import {
 describe("direct automatic sync execution", () => {
     loadTestEnv();
     let now: number;
+    let dbPath: string;
     beforeEach(async () => {
-        setDbPath(await createTempDbPath());
+        dbPath = await createTempDbPath();
+        setDbPath(dbPath);
         await createMigrationRunner().runMigrations();
         now = 1000;
     });
@@ -106,6 +108,102 @@ describe("direct automatic sync execution", () => {
                 if (!skip.has(n)) insert.run(collectionId, n);
         })();
     }
+
+    it("hands a mature stored orphan to durable recovery and resumes older gaps after restart", async () => {
+        const rpc = new RecoveryRpc(F.Fork, 200);
+        let s = services(rpc);
+        const f = seedRecoveryHistory();
+        cover(f.collectionId, F.Orphan + 1, 200);
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number<=?",
+        ).run(f.collectionId, F.Orphan);
+        retain(s, f.collectionId, F.Fork, F.Orphan);
+        expect(s.checks.hasPending(1, now)).toBe(false);
+        expect(await s.executor.runDue()).toBe(false);
+        expect(
+            s.checks.nextDue({ chainId: 1, now, upperBound: 200 }),
+        ).toMatchObject({
+            blockNumber: F.Orphan,
+            blockHash: syncBlockFixture(F.Orphan).hash,
+        });
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
+            fromBlock: F.Fork,
+            toBlock: F.Orphan,
+        });
+        expect(
+            db.prepare("SELECT COUNT(*) count FROM queue_outbox").get(),
+        ).toEqual({ count: 0 });
+
+        db.raw.close();
+        setDbPath(dbPath);
+        s = services(rpc);
+        expect(await s.recovery.checkDue()).toBe(true);
+        expect(s.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.Resync,
+        );
+        expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+            { owner: F.Owner, amount: "1" },
+        ]);
+        let passes = 0;
+        while (s.recoveries.getRecovery(1) && passes++ < 100)
+            expect(await s.executor.runDue()).toBe(true);
+        expect(s.recoveries.getRecovery(1)).toBeNull();
+        now += 101;
+        for (let pass = 0; pass < 10; pass++)
+            if (!(await s.executor.runDue())) break;
+        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
+            canonicalRecoveryBlock(F.Orphan).hash,
+        );
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                1,
+                f.collectionId,
+                F.Anchor,
+                F.Orphan,
+            ),
+        ).toBe(F.Orphan - F.Anchor + 1);
+    });
+
+    it("keeps acquisition pending when conflict verification cannot be retained", async () => {
+        const rpc = new RecoveryRpc(F.Fork, 200),
+            s = services(rpc),
+            f = seedRecoveryHistory();
+        cover(f.collectionId, F.Orphan + 1, 200);
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number<=?",
+        ).run(f.collectionId, F.Orphan);
+        retain(s, f.collectionId, F.Fork, F.Orphan);
+        db.exec(
+            "CREATE TEMP TRIGGER fail_conflict_check BEFORE UPDATE OF canonical_check_pending ON blocks WHEN NEW.canonical_check_pending=1 BEGIN SELECT RAISE(ABORT,'verification unavailable'); END;",
+        );
+        expect(await s.executor.runDue()).toBe(false);
+        expect(s.checks.hasPending(1, now)).toBe(false);
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
+            F.Orphan,
+        );
+        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
+            syncBlockFixture(F.Orphan).hash,
+        );
+        db.exec("DROP TRIGGER fail_conflict_check;");
+        now += 101;
+        expect(await s.executor.runDue()).toBe(false);
+        expect(s.checks.hasPending(1, now)).toBe(true);
+    });
+
+    it("does not rearm verification for ordinary acquisition fencing errors", async () => {
+        const s = services(new RecoveryRpc(200)),
+            f = transferFixture();
+        retain(s, f.collectionId, 101, 102);
+        const retainCheck = vi.spyOn(s.checks, "retain");
+        vi.spyOn(s.commit, "commitSyncRange").mockImplementationOnce(() => {
+            throw new ChainSyncConflict("Acquisition revision changed");
+        });
+        expect(await s.executor.runDue()).toBe(false);
+        expect(retainCheck).not.toHaveBeenCalled();
+        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
+            102,
+        );
+    });
 
     it("removes covered suffixes before fetching while retaining every older missing block", async () => {
         const rpc = new RecoveryRpc(200),
@@ -457,6 +555,7 @@ describe("direct automatic sync execution", () => {
             rpc,
             storage: s.storage,
             commit: s.commit,
+            canonicalChecks: s.checks,
             gaps: s.gaps,
             gapWorkEnabled: true,
             workScope: new RpcWorkScope(),
@@ -620,6 +719,7 @@ describe("direct automatic sync execution", () => {
             rpc,
             storage: s.storage,
             commit: s.commit,
+            canonicalChecks: s.checks,
             gaps: s.gaps,
             gapWorkEnabled: true,
             workScope: new RpcWorkScope(),
@@ -736,6 +836,7 @@ describe("direct automatic sync execution", () => {
             rpc,
             storage: s.storage,
             commit: s.commit,
+            canonicalChecks: s.checks,
             gaps: s.gaps,
             gapWorkEnabled: true,
             workScope: new RpcWorkScope(),
@@ -876,6 +977,7 @@ describe("direct automatic sync execution", () => {
             s.commit.commitSyncRange({
                 result: {
                     checkpoint: s.storage.captureSyncCheckpoint(1),
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     blocks: [syncBlockFixture(102)],
                     data: emptyOnChainData(),
                     collections: [s.registry.getCollection(1, f.collectionId)!],
