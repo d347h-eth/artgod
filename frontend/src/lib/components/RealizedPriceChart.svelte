@@ -82,6 +82,7 @@
 		indicatorsOpen = $state(false);
 	let indicators = $state(defaultPriceIndicators()),
 		parameterError = $state('');
+	let volumeCollapsed = $state(false);
 	let movingAverageKind = $state<PriceIndicatorKind>(PRICE_INDICATOR.Sma);
 	let movingAverageNumber = 0;
 	let hoveredSales = $state.raw<RealizedSale[]>([]);
@@ -251,6 +252,7 @@
 	});
 	$effect(() => {
 		controller?.setIndicators(indicators);
+		controller?.setVolumeCollapsed(volumeCollapsed);
 	});
 	$effect(() => {
 		controller?.setSelection([...pinnedSales, ...hoveredSales]);
@@ -331,6 +333,9 @@
 		</select></label>
 		{#if showIndicatorSettings}<button class="facet-panel-action-button" class:facet-collapse-button-active={indicatorsOpen} aria-expanded={indicatorsOpen} onclick={() => indicatorsOpen = !indicatorsOpen}>indicators</button>{/if}
 		<button class="facet-panel-action-button" disabled={!history?.sales.length || !controller} onclick={() => controller?.fit()}>fit</button>
+		<button class="facet-panel-action-button" class:facet-collapse-button-active={!volumeCollapsed}
+			aria-label={volumeCollapsed ? 'Expand volume' : 'Collapse volume'} aria-expanded={!volumeCollapsed}
+			disabled={!history?.sales.length || !controller} onclick={() => volumeCollapsed = !volumeCollapsed}>volume</button>
 		<button class="facet-panel-action-button" disabled={loading} onclick={() => revision++}>refresh</button>
 	</div>
 	{#if showIndicatorSettings && indicatorsOpen}

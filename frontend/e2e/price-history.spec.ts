@@ -106,6 +106,7 @@ test('collection tabs wrap and the mobile chart uses the full content width abov
 			expect(sidebar.y).toBeCloseTo(plot.y, 0);
 		}
 		await surface(page, info, `responsive-chart-${width}`, false);
+		if (width === 320) await surface(page, info, 'mobile-chart-and-sales');
 	}
 });
 
@@ -113,6 +114,7 @@ test('collection tabs wrap and the mobile chart uses the full content width abov
 const volumeDivider = (page: Page) =>
 	page.locator('.price-canvas [style*="ns-resize"]:not(:has(canvas))');
 async function dragVolumeDivider(page: Page, distance: number, touch = false) {
+	await volumeDivider(page).scrollIntoViewIfNeeded();
 	const box = (await volumeDivider(page).boundingBox())!;
 	const x = box.x + box.width / 2;
 	const y = box.y + box.height / 2;
@@ -151,6 +153,7 @@ for (const touch of [false, true]) {
 		await page.goto(PRICE_HISTORY_E2E.path);
 		await loaded(page);
 		await expect(volumeDivider(page)).toBeVisible();
+		await volumeDivider(page).scrollIntoViewIfNeeded();
 		const initial = (await volumeDivider(page).boundingBox())!;
 		const initialRows = await rows(page).first().getAttribute('data-sale-id');
 		await dragVolumeDivider(page, -60, touch);
@@ -165,6 +168,49 @@ for (const touch of [false, true]) {
 		await surface(page, info, `volume-${touch ? 'touch' : 'mouse'}`, false);
 	});
 }
+
+test('volume collapses and restores its resized height through refresh and keyboard activation', async ({
+	page
+}, info) => {
+	await page.setViewportSize({
+		width: info.project.name.includes('480') ? 390 : 1280,
+		height: 915
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await dragVolumeDivider(page, -60, page.viewportSize()!.width <= 900);
+	const resized = (await volumeDivider(page).boundingBox())!;
+	const before = (await pricePaneBounds(page)).main.height;
+	const sales = await rows(page).evaluateAll((items) =>
+		items.map((el) => el.getAttribute('data-sale-id'))
+	);
+	const collapse = page.getByRole('button', { name: 'Collapse volume', exact: true });
+	await collapse.focus();
+	await collapse.press('Enter');
+	const expand = page.getByRole('button', { name: 'Expand volume', exact: true });
+	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	await expect
+		.poll(async () => (await pricePaneBounds(page)).main.height)
+		.toBeGreaterThan(before + 150);
+	const collapsedHeight = (await pricePaneBounds(page)).main.height;
+	await dragVolumeDivider(page, -60, page.viewportSize()!.width <= 900);
+	expect((await pricePaneBounds(page)).main.height).toBeCloseTo(collapsedHeight, 0);
+	await surface(page, info, 'volume-collapsed', false);
+	await chart(page).getByRole('button', { name: 'refresh', exact: true }).click();
+	await loaded(page);
+	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	expect((await pricePaneBounds(page)).main.height).toBeCloseTo(collapsedHeight, 0);
+	await expand.focus();
+	await expand.press('Enter');
+	await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+	await expect
+		.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+		.toBeCloseTo(resized.y, 0);
+	expect(
+		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
+	).toEqual(sales);
+	await surface(page, info, 'volume-expanded', false);
+});
 
 test('bundle dots keep quantity-aware volume, exact averages and both selectable NFT items', async ({
 	page
@@ -888,7 +934,7 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect(page).toHaveURL(new URL(tokenHref!, page.url()).href);
 });
 
-test('price labels use four decimals while close sale prices retain distinct positions and side colors', async ({
+test('price and volume ETH labels use four decimals while close sale prices retain distinct positions and side colors', async ({
 	page
 }, info) => {
 	await page.setViewportSize({ width: 1280, height: 1024 });
@@ -913,6 +959,20 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	}, PRICE_HISTORY_E2E.canvasTextKey);
 	expect(labels.length).toBeGreaterThan(0);
 	expect(labels.every((text) => /^\d+\.\d{4}$/.test(text))).toBe(true);
+	const volumeLabels = await page.locator('.price-canvas').evaluate((element, key) => {
+		const recorded = (window as unknown as Record<string, unknown>)[key] as WeakMap<
+			HTMLCanvasElement,
+			Map<string, number>
+		>;
+		return [...element.querySelectorAll('canvas')].flatMap((canvas) => {
+			const bounds = canvas.getBoundingClientRect();
+			return bounds.height <= 150 && bounds.width > 150
+				? [...(recorded.get(canvas)?.keys() ?? [])]
+				: [];
+		});
+	}, PRICE_HISTORY_E2E.canvasTextKey);
+	expect(volumeLabels).toContain('1.2346');
+	expect(volumeLabels).not.toContain('1.23456789');
 	const positions = await page.locator('.price-canvas').evaluate((element) => {
 		const css = getComputedStyle(element);
 		const sample = document.createElement('canvas').getContext('2d')!;
