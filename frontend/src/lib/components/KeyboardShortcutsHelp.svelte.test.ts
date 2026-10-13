@@ -6,7 +6,7 @@ import {
 	BLOCK_EXPLORER_BASE_URL_ENV_KEY,
 	parseBlockExplorerConfig
 } from '@artgod/shared/config/block-explorer';
-import { APP_VERSION } from '$lib/runtime/app-version';
+import { APP_VERSION_WITH_COMMIT } from '$lib/runtime/app-version';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.svelte';
 import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 
@@ -40,7 +40,7 @@ describe('KeyboardShortcutsHelp', () => {
 
 		expect(body).toContain('keyboard shortcuts');
 		expect(body).toContain('>ABOUT<');
-		expect(body.indexOf(APP_VERSION)).toBeLessThan(
+		expect(body.indexOf(APP_VERSION_WITH_COMMIT)).toBeLessThan(
 			body.indexOf('Token Browser Preview Navigation')
 		);
 		expect(body).toContain(
@@ -54,7 +54,7 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('Token Detail');
 		expect(body).toContain('Collection Navigation');
 		expect(body).toContain('Bidding');
-		expect(body).toContain(APP_VERSION);
+		expect(body).toContain(APP_VERSION_WITH_COMMIT);
 		expect(body).toContain('artgod.network');
 		expect(body).toContain('x.com/artgod_eth');
 		expect(body).toContain('github.com/d347h-eth/artgod');

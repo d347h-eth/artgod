@@ -632,6 +632,9 @@ test('shared header actions preserve media state and help owns shortcuts before 
 	await page.getByRole('button', { name: 'keyboard shortcuts', exact: true }).click();
 	const help = page.getByRole('dialog', { name: 'ABOUT', exact: true });
 	await expect(help).toBeVisible();
+	await expect(help.getByRole('region', { name: 'about ArtGod' }).locator('.muted')).toHaveText(
+		/^v\S+ \([a-f0-9]{7}\)$/
+	);
 	await page.keyboard.press('f');
 	await expect(page.locator('.facet-panel')).toHaveCount(0);
 	await page.keyboard.press('r');

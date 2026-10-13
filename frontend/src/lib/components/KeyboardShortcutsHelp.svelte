@@ -5,7 +5,7 @@
 	} from '@artgod/shared/config/block-explorer';
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { blockExplorerAddressHref as buildBlockExplorerAddressHref } from '$lib/marketplace-links';
-	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { APP_VERSION_WITH_COMMIT } from '$lib/runtime/app-version';
 
 	type ShortcutSection = {
 		title: string;
@@ -199,7 +199,7 @@
 			</header>
 
 			<section class="shortcuts-help-about" aria-label="about ArtGod">
-				<span class="muted">{APP_VERSION}</span>
+				<span class="muted">{APP_VERSION_WITH_COMMIT}</span>
 				<p>{ABOUT_COPY}</p>
 				<p>
 					Donations welcome:
