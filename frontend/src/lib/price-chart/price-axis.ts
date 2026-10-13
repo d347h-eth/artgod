@@ -1,8 +1,8 @@
 import { registerYAxis, type Chart } from 'klinecharts';
+import { PRICE_LABEL_PRECISION, priceLabelText } from './model';
 
 export const CANDLE_PANE = 'candle_pane'; // KLineChart's public price-pane ID.
 export const PRICE_PRECISION = 8;
-const PRICE_LABEL_PRECISION = 4;
 const PRICE_AXIS = 'artgod-sale-price';
 let registered = false;
 
@@ -12,7 +12,7 @@ export function createPriceAxis(chart: Chart, element: HTMLElement) {
 	if (!registered) {
 		registerYAxis({
 			name: PRICE_AXIS,
-			displayValueToText: (value) => value.toFixed(PRICE_LABEL_PRECISION)
+			displayValueToText: priceLabelText
 		});
 		registered = true;
 	}

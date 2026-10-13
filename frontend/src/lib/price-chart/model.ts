@@ -25,6 +25,12 @@ export const PRICE_CHART_QUERY = {
 	Bucket: 'chart_bucket',
 	Range: 'chart_range'
 } as const;
+export const PRICE_LABEL_PRECISION = 4;
+
+/** Price-axis and ETH turnover labels share display precision only. */
+export function priceLabelText(value: number): string {
+	return value.toFixed(PRICE_LABEL_PRECISION);
+}
 export const PRICE_INDICATOR = {
 	Sma: 'MA',
 	Ema: 'EMA',
@@ -77,8 +83,8 @@ export type SaleBar = KLineData & {
 	nftQuantity: string | null;
 };
 
-/** Both values refer to the same UTC bucket. Preserve the exact ETH sum for
- * the readout rather than converting it through canvas floating point values. */
+/** Both values refer to the same UTC bucket. NFT quantity stays exact; the ETH
+ * label rounds for display while turnoverWei retains the full sum. */
 export function saleVolumeTooltip(bar: SaleBar | undefined) {
 	return {
 		name: PRICE_INDICATOR_LABEL.VOL,
@@ -88,7 +94,10 @@ export function saleVolumeTooltip(bar: SaleBar | undefined) {
 			{ title: 'NFTs: ', value: bar?.populated ? bar.nftQuantity! : '—' },
 			{
 				title: 'ETH: ',
-				value: bar?.populated && bar.turnoverWei !== null ? ethText(bar.turnoverWei) : '—'
+				value:
+					bar?.populated && bar.turnoverWei !== null
+						? priceLabelText(ethValue(bar.turnoverWei))
+						: '—'
 			}
 		]
 	};

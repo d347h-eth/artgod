@@ -6,6 +6,6 @@ export const APP_VERSION = rawVersion.startsWith('v') ? rawVersion : `v${rawVers
 // Injected from the checkout HEAD by Vite, then retained inside packaged assets.
 export const APP_COMMIT = typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : '';
 export const APP_SHORT_COMMIT = APP_COMMIT.slice(0, 7);
-export const APP_ADMIN_VERSION = APP_SHORT_COMMIT
+export const APP_VERSION_WITH_COMMIT = APP_SHORT_COMMIT
 	? `${APP_VERSION} (${APP_SHORT_COMMIT})`
 	: APP_VERSION;

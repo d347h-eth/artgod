@@ -78,6 +78,140 @@ async function surface(page: Page, info: TestInfo, name: string, fullPage = true
 const chart = (page: Page) => page.locator('.realized-price');
 const rows = (page: Page) => page.locator('.sale-row[data-sale-id]');
 
+test('collection tabs wrap and the mobile chart uses the full content width above sales', async ({
+	page
+}, info) => {
+	for (const width of [320, 390, 640, 1280]) {
+		await page.setViewportSize({ width, height: 915 });
+		await page.goto('/e2e-harness/collection');
+		const tabs = page.getByLabel('Collection sections', { exact: true });
+		await expect(tabs).toBeVisible();
+		const links = await tabs
+			.locator('a, .runtime-tab-active')
+			.evaluateAll((items) => items.map((item) => item.getBoundingClientRect().toJSON()));
+		expect(links.every((box) => box.x >= 0 && box.right <= width)).toBe(true);
+		await tabs.getByRole('link', { name: 'chart', exact: true }).click();
+		await loaded(page);
+		await chartGutters(page);
+		const plot = (await page.locator('.price-plot').boundingBox())!;
+		const workspace = (await page.locator('.price-workspace').boundingBox())!;
+		const sidebar = (await page.getByRole('complementary', { name: 'Sales' }).boundingBox())!;
+		if (width <= 900) {
+			expect(plot.width).toBeCloseTo(workspace.width, 0);
+			expect(sidebar.width).toBeCloseTo(plot.width, 0);
+			expect(sidebar.y).toBeGreaterThanOrEqual(plot.y + plot.height);
+			expect(plot.height).toBeGreaterThan(300);
+		} else {
+			expect(sidebar.x).toBeGreaterThanOrEqual(plot.x + plot.width);
+			expect(sidebar.y).toBeCloseTo(plot.y, 0);
+		}
+		await surface(page, info, `responsive-chart-${width}`, false);
+		if (width === 320) await surface(page, info, 'mobile-chart-and-sales');
+	}
+});
+
+// The native separator is the resize target without an axis canvas inside it.
+const volumeDivider = (page: Page) =>
+	page.locator('.price-canvas [style*="ns-resize"]:not(:has(canvas))');
+async function dragVolumeDivider(page: Page, distance: number, touch = false) {
+	await volumeDivider(page).scrollIntoViewIfNeeded();
+	const box = (await volumeDivider(page).boundingBox())!;
+	const x = box.x + box.width / 2;
+	const y = box.y + box.height / 2;
+	if (touch) {
+		// Real browser touch input covers the library's hit testing and event routing.
+		const session = await page.context().newCDPSession(page);
+		await session.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+		const point = (y: number) => ({ x, y, radiusX: 1, radiusY: 1, force: 1, id: 0 });
+		await session.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [point(y)]
+		});
+		for (let step = 1; step <= 8; step++) {
+			await session.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [point(y + (distance * step) / 8)]
+			});
+			await page.waitForTimeout(32);
+		}
+		await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+		await session.detach();
+	} else {
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		await page.mouse.move(x, y + distance, { steps: 8 });
+		await page.mouse.up();
+		await page.mouse.move(2, 2);
+	}
+}
+
+for (const touch of [false, true]) {
+	test(`volume divider resizes with ${touch ? 'touch' : 'mouse'} without changing sales`, async ({
+		page
+	}, info) => {
+		await page.setViewportSize({ width: touch ? 390 : 1280, height: 915 });
+		await page.goto(PRICE_HISTORY_E2E.path);
+		await loaded(page);
+		await expect(volumeDivider(page)).toBeVisible();
+		await volumeDivider(page).scrollIntoViewIfNeeded();
+		const initial = (await volumeDivider(page).boundingBox())!;
+		const initialRows = await rows(page).first().getAttribute('data-sale-id');
+		await dragVolumeDivider(page, -60, touch);
+		await expect
+			.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+			.toBeCloseTo(initial.y - 60, 0);
+		await dragVolumeDivider(page, 60, touch);
+		await expect
+			.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+			.toBeCloseTo(initial.y, 0);
+		await expect(rows(page).first()).toHaveAttribute('data-sale-id', initialRows!);
+		await surface(page, info, `volume-${touch ? 'touch' : 'mouse'}`, false);
+	});
+}
+
+test('volume collapses and restores its resized height through refresh and keyboard activation', async ({
+	page
+}, info) => {
+	await page.setViewportSize({
+		width: info.project.name.includes('480') ? 390 : 1280,
+		height: 915
+	});
+	await page.goto(PRICE_HISTORY_E2E.path);
+	await loaded(page);
+	await dragVolumeDivider(page, -60, page.viewportSize()!.width <= 900);
+	const resized = (await volumeDivider(page).boundingBox())!;
+	const before = (await pricePaneBounds(page)).main.height;
+	const sales = await rows(page).evaluateAll((items) =>
+		items.map((el) => el.getAttribute('data-sale-id'))
+	);
+	const collapse = page.getByRole('button', { name: 'Collapse volume', exact: true });
+	await collapse.focus();
+	await collapse.press('Enter');
+	const expand = page.getByRole('button', { name: 'Expand volume', exact: true });
+	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	await expect
+		.poll(async () => (await pricePaneBounds(page)).main.height)
+		.toBeGreaterThan(before + 150);
+	const collapsedHeight = (await pricePaneBounds(page)).main.height;
+	await dragVolumeDivider(page, -60, page.viewportSize()!.width <= 900);
+	expect((await pricePaneBounds(page)).main.height).toBeCloseTo(collapsedHeight, 0);
+	await surface(page, info, 'volume-collapsed', false);
+	await chart(page).getByRole('button', { name: 'refresh', exact: true }).click();
+	await loaded(page);
+	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	expect((await pricePaneBounds(page)).main.height).toBeCloseTo(collapsedHeight, 0);
+	await expand.focus();
+	await expand.press('Enter');
+	await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+	await expect
+		.poll(async () => (await volumeDivider(page).boundingBox())!.y)
+		.toBeCloseTo(resized.y, 0);
+	expect(
+		await rows(page).evaluateAll((items) => items.map((el) => el.getAttribute('data-sale-id')))
+	).toEqual(sales);
+	await surface(page, info, 'volume-expanded', false);
+});
+
 test('bundle dots keep quantity-aware volume, exact averages and both selectable NFT items', async ({
 	page
 }, info) => {
@@ -441,7 +575,7 @@ test('dedicated dots page follows Transfers in Asset Events and fills the viewpo
 	await expect(chart(page).locator('.sale-legend')).toHaveCount(0);
 	await expect(page.locator('.runtime-tab-active').filter({ hasText: /^chart$/ })).toBeVisible();
 	await expect(chart(page).getByRole('button', { name: /^(dots|line|candles)$/ })).toHaveCount(0);
-	const bounds = (await chart(page).boundingBox())!;
+	const bounds = (await page.locator('.price-canvas').boundingBox())!;
 	expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 	expect(bounds.height).toBeGreaterThan(page.viewportSize()!.height * 0.55);
 	if (page.viewportSize()!.width > 1500) {
@@ -498,6 +632,9 @@ test('shared header actions preserve media state and help owns shortcuts before 
 	await page.getByRole('button', { name: 'keyboard shortcuts', exact: true }).click();
 	const help = page.getByRole('dialog', { name: 'ABOUT', exact: true });
 	await expect(help).toBeVisible();
+	await expect(help.getByRole('region', { name: 'about ArtGod' }).locator('.muted')).toHaveText(
+		/^v\S+ \([a-f0-9]{7}\)$/
+	);
 	await page.keyboard.press('f');
 	await expect(page.locator('.facet-panel')).toHaveCount(0);
 	await page.keyboard.press('r');
@@ -800,7 +937,7 @@ test('dot hover is ephemeral, click pins overlapping sales, and row previews and
 	await expect(page).toHaveURL(new URL(tokenHref!, page.url()).href);
 });
 
-test('price labels use four decimals while close sale prices retain distinct positions and side colors', async ({
+test('price and volume ETH labels use four decimals while close sale prices retain distinct positions and side colors', async ({
 	page
 }, info) => {
 	await page.setViewportSize({ width: 1280, height: 1024 });
@@ -825,6 +962,20 @@ test('price labels use four decimals while close sale prices retain distinct pos
 	}, PRICE_HISTORY_E2E.canvasTextKey);
 	expect(labels.length).toBeGreaterThan(0);
 	expect(labels.every((text) => /^\d+\.\d{4}$/.test(text))).toBe(true);
+	const volumeLabels = await page.locator('.price-canvas').evaluate((element, key) => {
+		const recorded = (window as unknown as Record<string, unknown>)[key] as WeakMap<
+			HTMLCanvasElement,
+			Map<string, number>
+		>;
+		return [...element.querySelectorAll('canvas')].flatMap((canvas) => {
+			const bounds = canvas.getBoundingClientRect();
+			return bounds.height <= 150 && bounds.width > 150
+				? [...(recorded.get(canvas)?.keys() ?? [])]
+				: [];
+		});
+	}, PRICE_HISTORY_E2E.canvasTextKey);
+	expect(volumeLabels).toContain('1.2346');
+	expect(volumeLabels).not.toContain('1.23456789');
 	const positions = await page.locator('.price-canvas').evaluate((element) => {
 		const css = getComputedStyle(element);
 		const sample = document.createElement('canvas').getContext('2d')!;

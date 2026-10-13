@@ -1,0 +1,54 @@
+diff --git a/dist/index.esm.js b/dist/index.esm.js
+index d20220f51489f2e22583d97d937fa4a4db1c0c13..dabf37ba10648b88cb4c69516cd38e60d1173c57 100644
+--- a/dist/index.esm.js
++++ b/dist/index.esm.js
+@@ -2224,6 +2224,7 @@ var Event = /** @class */ (function () {
+         // 用来记录捏合缩放的尺寸
+         this._pinchScale = 1;
+         this._mouseDownWidget = null;
++        this._touchDownWidget = null;
+         this._prevYAxisRanges = new Map();
+         this._xAxisStartScaleCoordinate = null;
+         this._xAxisStartScaleDistance = 0;
+@@ -2651,6 +2652,18 @@ var Event = /** @class */ (function () {
+             (_b = event_8.preventDefault) === null || _b === void 0 ? void 0 : _b.call(event_8);
+             var name_8 = widget.getName();
+             switch (name_8) {
++                case WidgetNameConstants.SEPARATOR: {
++                    this._touchDownWidget = widget;
++                    this._startScrollCoordinate = null;
++                    this._touchCoordinate = null;
++                    this._touchCancelCrosshair = true;
++                    if (this._flingScrollAnimation !== null) {
++                        this._flingScrollAnimation.cancel();
++                        this._flingScrollAnimation = null;
++                    }
++                    this._chart.getChartStore().setCrosshair();
++                    return widget.dispatchEvent('touchStartEvent', event_8);
++                }
+                 case WidgetNameConstants.MAIN: {
+                     var chartStore = this._chart.getChartStore();
+                     if (widget.dispatchEvent('mouseDownEvent', event_8)) {
+@@ -2713,6 +2726,10 @@ var Event = /** @class */ (function () {
+         return false;
+     };
+     Event.prototype.touchMoveEvent = function (e) {
++        if (this._touchDownWidget !== null) {
++            if (e.preventDefault) e.preventDefault();
++            return this._touchDownWidget.dispatchEvent('touchMoveEvent', e);
++        }
+         var _a, _b, _c;
+         var _d = this._findWidgetByEvent(e), pane = _d.pane, widget = _d.widget;
+         if (widget !== null) {
+@@ -2748,6 +2765,11 @@ var Event = /** @class */ (function () {
+         return false;
+     };
+     Event.prototype.touchEndEvent = function (e) {
++        if (this._touchDownWidget !== null) {
++            var separator = this._touchDownWidget;
++            this._touchDownWidget = null;
++            return separator.dispatchEvent('touchEndEvent', e);
++        }
+         var _this = this;
+         var widget = this._findWidgetByEvent(e).widget;
+         if (widget !== null) {

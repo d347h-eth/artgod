@@ -5,10 +5,15 @@ There is no chart link on token detail. Inline charts and line/candle display
 modes have been removed. The chart plots individual
 sales as dots and supports panning, zooming, fit, and bucket volume.
 The indicators button and settings are hidden for now; the default volume pane remains.
+The `volume` toolbar button collapses or expands that pane through the native
+pane API. Expansion restores its last dragged height, and refresh preserves the
+collapsed state. The visible divider supports mouse and touch resizing.
 
-The workspace fills the remaining viewport below collection navigation and its
+The plot fills the remaining viewport below collection navigation and its
 compact toolbar. It uses a 90/10 chart/sidebar split on wide screens; the sidebar
-keeps a 208px minimum for readable sale rows at smaller widths. Range and bucket
+keeps a 208px minimum for readable sale rows. At widths up to 900px, the plot uses
+the full content width and the sales sidebar sits below it in a bounded 20rem row.
+Collection tab groups wrap both between and within groups. Range and bucket
 are URL state. Pinned selection resets on a full reload.
 The chart uses the shared collection header, quick jump, help modal, navigation
 shortcuts, and content inset. The plot and sales sidebar stay inside the same
@@ -169,7 +174,11 @@ persisted candle projection, automatic refresh, or historical fetch pagination.
 ## Rendering and indicators
 
 KLineChart 10.0.2 supplies canvas layout, axes, pointer interactions, resizable
-indicator panes, and calculations. A custom drawing callback plots visible sale
+indicator panes, and calculations. A locked Yarn patch on the shipped ESM build
+routes divider touch gestures to the library's existing separator widget. It
+retains the initial divider until release and cancels prior fling scrolling;
+the native pane constraints and resizing logic remain in charge.
+A custom drawing callback plots visible sale
 dots with fractional bucket coordinates, preserving sub-bucket timestamps and
 coincident fills. A spatial map provides hit testing without a DOM node per sale.
 Missing internal OHLC values are NaNs, excluded from ranges and calculations.
@@ -183,7 +192,7 @@ price scaling for the current horizontal window; `fit` returns both axes to the
 loaded period and typical sale distribution. Manual navigation remains available,
 and resizing after a completed fit preserves the user's navigation. Time fitting
 waits until the loading workspace is visible and the axes have been measured.
-The volume pane keeps its library behavior.
+The volume pane can be dragged down to 40px or minimized completely with `volume`.
 
 The retained indicator implementation supports the following, with only volume
 enabled while its settings are hidden:
@@ -192,7 +201,8 @@ enabled while its settings are hidden:
 - MACD defaults to 12/26/9. Its histogram is MACD minus signal.
 - RSI defaults to 14.
 - Volume bars sum NFT quantity. The readout shows both the exact NFT quantity
-  and ETH turnover for the same bucket, using conserved leg totals. Empty buckets
+  and ETH turnover for the same bucket, using conserved leg totals. The ETH label
+  uses the price axis's four-decimal formatter; the underlying turnover remains exact. Empty buckets
   keep blank readouts; ETH/WETH/BETH remain normalized 1:1.
 - Lengths count populated buckets; calculations use all loaded populated history,
   then restore blank gaps on the time grid. Panning does not alter the values.
@@ -278,6 +288,8 @@ The maintained Playwright harness mounts production views with synthetic fills.
 It covers navigation, shared page gutters and header actions, help/preview
 shortcut ownership, media-state preservation, hidden indicator controls,
 default/refresh/fit framing across ranges and buckets, sparse/flat/zero prices,
+mobile tab wrapping and chart/sidebar stacking, mouse/touch pane resizing,
+volume collapse/restore and four-decimal ETH readouts,
 continuous pan/zoom through zero, inverted price-axis wheel gestures,
 pin/unpin, original currencies,
 explorer/owner/token links, compact price formatting and alignment, uninterrupted

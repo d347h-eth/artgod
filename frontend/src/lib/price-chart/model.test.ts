@@ -21,7 +21,8 @@ import {
 	standardMacd,
 	withSaleGaps,
 	validIndicatorParameters,
-	PRICE_INDICATOR
+	PRICE_INDICATOR,
+	type SaleBar
 } from './model';
 
 it('fits individual unit prices through the 95th percentile without changing the sales', () => {
@@ -137,9 +138,34 @@ it('keeps gaps and every same-time sale without fabricating a close', () => {
 	expect(ethText(history.sales[0].unitPrice.numeratorWei)).toBe('1.000000000000000001');
 	expect(saleVolumeTooltip(bars[0]).legends).toEqual([
 		{ title: 'NFTs: ', value: '2' },
-		{ title: 'ETH: ', value: '3.000000000000000001' }
+		{ title: 'ETH: ', value: '3.0000' }
 	]);
 	expect(saleVolumeTooltip(bars[1]).legends.map((legend) => legend.value)).toEqual(['—', '—']);
+});
+
+it.each([
+	['0', '0.0000'],
+	['1', '0.0000'],
+	['100000000000000001', '0.1000'],
+	['1234567890000000000', '1.2346'],
+	['999999999999999999', '1.0000']
+])('rounds volume ETH labels while retaining exact bucket amounts (%s wei)', (wei, expected) => {
+	const bar: SaleBar = {
+		timestamp: 0,
+		open: 0,
+		high: 0,
+		low: 0,
+		close: 0,
+		populated: true,
+		sales: [],
+		nftQuantity: '9007199254740993',
+		turnoverWei: wei
+	};
+	expect(saleVolumeTooltip(bar).legends.map((legend) => legend.value)).toEqual([
+		bar.nftQuantity,
+		expected
+	]);
+	expect(bar.turnoverWei).toBe(wei);
 });
 
 it('calculates on populated buckets and restores blank indicator results', async () => {

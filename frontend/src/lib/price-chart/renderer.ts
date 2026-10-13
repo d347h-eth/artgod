@@ -31,6 +31,7 @@ const PRICE_LAYER = 'artgod-realized-sales';
 const NO_AREA_VALUE = 'artgod_no_area_value';
 const HIT_SIZE = 12;
 const TIME_PADDING = 16;
+const INDICATOR_MIN_HEIGHT = 40;
 type Hit = Coordinate & { sale: RealizedSale };
 type Palette = {
 	bg: string;
@@ -102,7 +103,7 @@ function chartStyles(p: Palette): DeepPartial<Styles> {
 		},
 		xAxis: axis,
 		yAxis: axis,
-		separator: { color: p.blue, activeBackgroundColor: p.orange },
+		separator: { size: 4, color: p.blue, activeBackgroundColor: p.orange },
 		crosshair: { horizontal: crosshair, vertical: crosshair },
 		indicator: {
 			ohlc: { upColor: p.cyan, downColor: p.pink, noChangeColor: p.sand },
@@ -219,7 +220,7 @@ export function createPriceChart(
 		onSalesAboveView
 	};
 	let currentPriceRange: ReturnType<typeof salePriceRange> = null;
-	const active = new Map<string, { id: string; kind: PriceIndicator['kind'] }>();
+	const active = new Map<string, { id: string; paneId: string; kind: PriceIndicator['kind'] }>();
 	chart.setSymbol({ ticker: 'ETH', pricePrecision: PRICE_PRECISION, volumePrecision: 0 });
 	chart.setPeriod({ type: 'day', span: 1 });
 	chart.setOffsetRightDistance(TIME_PADDING);
@@ -351,13 +352,23 @@ export function createPriceChart(
 						chart.setPaneOptions({
 							id: indicator.paneId,
 							height: 110,
-							minHeight: 70,
+							minHeight: INDICATOR_MIN_HEIGHT,
 							dragEnabled: true
 						});
-					found = { id, kind: setting.kind };
+					found = { id, paneId: indicator.paneId, kind: setting.kind };
 					active.set(setting.id, found);
 				}
 				chart.overrideIndicator({ name: setting.kind, id: found.id, calcParams: setting.params });
+			});
+		},
+		setVolumeCollapsed(collapsed: boolean) {
+			const volume = [...active.values()].find((item) => item.kind === PRICE_INDICATOR.Volume);
+			if (!volume) return;
+			// Native minimization remembers the dragged height for expansion.
+			chart.setPaneOptions({
+				id: volume.paneId,
+				state: collapsed ? 'minimize' : 'normal',
+				minHeight: collapsed ? 0 : INDICATOR_MIN_HEIGHT
 			});
 		},
 		fit,
