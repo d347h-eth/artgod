@@ -33,7 +33,7 @@
 	} from '$lib/compact-time-display';
 	import { LIVE_REFRESH_RELATIVE_TIME_TICK_MS } from '$lib/live-refresh';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
-	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { APP_VERSION_WITH_COMMIT } from '$lib/runtime/app-version';
 	import {
 		COLLECTION_STATUS,
 		COLLECTION_STATUSES,
@@ -421,7 +421,7 @@
 
 <section class="panel">
 	<header class="panel-header">
-		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
+		<h1 class="app-title">ArtGod {APP_VERSION_WITH_COMMIT}</h1>
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	</header>
 

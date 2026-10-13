@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import { APP_VERSION } from '$lib/runtime/app-version';
+import { APP_VERSION_WITH_COMMIT } from '$lib/runtime/app-version';
 import {
 	buildCollectionOpenSeaSyncE2ePageData,
 	COLLECTION_OPENSEA_SYNC_E2E_SLUG
@@ -10,7 +10,7 @@ import Page from './+page.svelte';
 describe('/+page.svelte', () => {
 	it('renders collections heading', () => {
 		const { body } = render(Page);
-		expect(body).toContain(`ArtGod ${APP_VERSION}`);
+		expect(body).toContain(`ArtGod ${APP_VERSION_WITH_COMMIT}`);
 	});
 
 	it('forwards root-route OpenSea integration status to collection actions', () => {
