@@ -1267,6 +1267,14 @@ test("Windows test artifacts require admission, a real installer and installed r
     assertStepIsRequired(admission);
     assert.match(admission, /yarn security:yarn:verify/);
     assert.match(admission, /yarn cargo:age-gate/);
+    const nativeFailureGuard =
+        "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }";
+    assert.equal(countOccurrences(admission, nativeFailureGuard), 2);
+    const nativeTests = extractWorkflowStep(
+        job,
+        "Test Windows sensitive process hardening",
+    );
+    assert.equal(countOccurrences(nativeTests, nativeFailureGuard), 2);
     const buildName = "Build unsigned Windows NSIS installer";
     const verificationName = "Verify installed Windows runtime";
     const uploadName = "Upload verified Windows test installer";
@@ -1281,8 +1289,13 @@ test("Windows test artifacts require admission, a real installer and installed r
     assertStepPrecedes(job, "Verify dependency admission", buildName);
     assertStepPrecedes(
         job,
-        buildName,
+        "Prepare Windows secret prompt sidecar",
         "Test Windows sensitive process hardening",
+    );
+    assertStepPrecedes(
+        job,
+        "Test Windows sensitive process hardening",
+        buildName,
     );
     assertStepPrecedes(
         job,

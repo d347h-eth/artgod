@@ -45,7 +45,10 @@ recipient hashes emitted by the Rust release build, checks installed shell and
 prompt bytes, executes SQLite/Sharp operations through each installed package
 tree using bundled Node, and proves installed NATS binds IPv4 loopback. Native
 sensitive-process tests execute the Windows WER/Job Object paths. The installed
-native prompt must exit silently with closed owner input before opening UI. This proof
+native prompt must exit silently with closed owner input before opening UI.
+WER hardening initializes a fresh process when its first query reports no
+registration, preserves existing flags, and still requires the post-install
+query to prove heap exclusion. Other API errors fail startup. This proof
 does not start the desktop UI or place marketplace orders.
 
 ## Download and Windows 11 QA

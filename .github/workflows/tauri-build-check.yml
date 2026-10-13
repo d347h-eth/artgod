@@ -222,23 +222,27 @@ jobs:
             - name: Prepare Windows secret prompt sidecar
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug
 
+            - name: Test Windows sensitive process hardening
+              run: |
+                  cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml --locked
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
             - name: Check Windows sensitive-process hardening
               run: cargo check --manifest-path src-tauri/Cargo.toml --locked --lib
 
             - name: Verify dependency admission
               run: |
                   yarn security:yarn:verify
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                   yarn cargo:age-gate
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
             - name: Build unsigned Windows NSIS installer
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: yarn build:desktop:windows-bundle
-
-            - name: Test Windows sensitive process hardening
-              run: |
-                  cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml --locked
-                  cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked
 
             - name: Verify installed Windows runtime
               run: yarn check:windows-bundled-runtime

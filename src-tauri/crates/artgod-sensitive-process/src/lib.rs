@@ -105,18 +105,28 @@ mod current_process {
 mod current_process {
     use std::io;
 
-    use windows_sys::Win32::System::{
-        ErrorReporting::{WER_FAULT_REPORTING_FLAG_NOHEAP, WerGetFlags, WerSetFlags},
-        Threading::GetCurrentProcess,
+    use windows_sys::Win32::{
+        Foundation::ERROR_NOT_FOUND,
+        System::{
+            ErrorReporting::{WER_FAULT_REPORTING_FLAG_NOHEAP, WerGetFlags, WerSetFlags},
+            Threading::GetCurrentProcess,
+        },
     };
+
+    // WER_E_NOT_FOUND is HRESULT_FROM_WIN32(ERROR_NOT_FOUND) in the Windows SDK.
+    const WER_FLAGS_NOT_INITIALIZED: i32 = (0x8007_0000_u32 | ERROR_NOT_FOUND) as i32;
 
     pub(super) fn harden() -> io::Result<()> {
         let current_process = unsafe { GetCurrentProcess() };
         let mut flags = 0;
-        check_hresult(
-            unsafe { WerGetFlags(current_process, &mut flags) },
-            "WerGetFlags",
-        )?;
+        let read_result = unsafe { WerGetFlags(current_process, &mut flags) };
+        // Fresh processes can have no WER registration yet. Initialize only that
+        // state; every other read error and the post-install read remain fatal.
+        if read_result == WER_FLAGS_NOT_INITIALIZED {
+            flags = 0;
+        } else {
+            check_hresult(read_result, "WerGetFlags")?;
+        }
         check_hresult(
             unsafe { WerSetFlags(flags | WER_FAULT_REPORTING_FLAG_NOHEAP) },
             "WerSetFlags",
@@ -376,6 +386,41 @@ mod tests {
         .expect("current-process hardening test entry starts");
 
         assert!(status.success());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_hardening_preserves_registered_flags_and_is_repeatable() {
+        const ENTRY: &str = "tests::windows_registered_flags_entry";
+        let status = test_entry_command(ENTRY, CURRENT_PROCESS_HARDENING_MODE_ENV)
+            .status()
+            .expect("registered WER flags test entry starts");
+        assert!(status.success());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "subprocess entrypoint for registered Windows WER flags"]
+    fn windows_registered_flags_entry() {
+        use windows_sys::Win32::System::{
+            ErrorReporting::{
+                WER_FAULT_REPORTING_FLAG_NOHEAP, WER_FAULT_REPORTING_FLAG_QUEUE, WerGetFlags,
+                WerSetFlags,
+            },
+            Threading::GetCurrentProcess,
+        };
+
+        if std::env::var_os(CURRENT_PROCESS_HARDENING_MODE_ENV).is_none() {
+            return;
+        }
+        assert_eq!(unsafe { WerSetFlags(WER_FAULT_REPORTING_FLAG_QUEUE) }, 0);
+        for _ in 0..2 {
+            harden_current_process().expect("registered process is hardened");
+            let mut flags = 0;
+            assert_eq!(unsafe { WerGetFlags(GetCurrentProcess(), &mut flags) }, 0);
+            assert_ne!(flags & WER_FAULT_REPORTING_FLAG_NOHEAP, 0);
+            assert_ne!(flags & WER_FAULT_REPORTING_FLAG_QUEUE, 0);
+        }
     }
 
     #[test]
