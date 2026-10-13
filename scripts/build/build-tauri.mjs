@@ -8,10 +8,34 @@ const moduleRequire = createRequire(import.meta.url);
 export const TAURI_BUILD_SCRIPT_NAMES = Object.freeze({
     NoBundle: "build:desktop:no-bundle",
     LinuxBundle: "build:desktop:linux-bundle",
+    WindowsBundle: "build:desktop:windows-bundle",
 });
 export const TAURI_CLI_PACKAGE_NAME = "@tauri-apps/cli";
 export const TAURI_OPERATION = Object.freeze({ Build: "build", Dev: "dev" });
 const tauriCliEntrypointRequest = `${TAURI_CLI_PACKAGE_NAME}/tauri.js`;
+
+// Packaging preparation and verification follow Cargo's configured output root.
+export async function resolveTauriCargoTargetDirectory({
+    environment = process.env,
+    runCommand = runRedactedCommand,
+    projectRoot = rootDir,
+} = {}) {
+    const result = await runCommand(
+        "cargo",
+        ["metadata", "--no-deps", "--format-version", "1", "--locked"],
+        { cwd: path.join(projectRoot, "src-tauri"), env: environment },
+    );
+    const metadata = JSON.parse(result.stdout);
+    if (
+        typeof metadata?.target_directory !== "string" ||
+        !path.isAbsolute(metadata.target_directory)
+    ) {
+        throw new Error(
+            "Cargo metadata must provide an absolute target_directory for Tauri builds.",
+        );
+    }
+    return metadata.target_directory;
+}
 
 // Existing Linux packaging consumers share the same build/development owner.
 export async function buildLockedTauri(args, options) {
@@ -75,6 +99,16 @@ if (
     const operation = Object.values(TAURI_OPERATION).includes(args[0])
         ? args.shift()
         : TAURI_OPERATION.Build;
+    if (
+        process.platform === "win32" &&
+        operation === TAURI_OPERATION.Build &&
+        !args.includes("--no-bundle") &&
+        !args.includes("--help")
+    ) {
+        throw new Error(
+            `Windows bundles require yarn ${TAURI_BUILD_SCRIPT_NAMES.WindowsBundle}.`,
+        );
+    }
     if (
         process.platform === "linux" &&
         operation === TAURI_OPERATION.Build &&

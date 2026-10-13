@@ -1,0 +1,26 @@
+{
+    "schemaVersion": 1,
+    "tauriCliVersion": "2.11.3",
+    "target": "x86_64-pc-windows-msvc",
+    "minimumAgeDays": 30,
+    "tools": [
+        {
+            "fileName": "nsis-3.11.zip",
+            "assetName": "nsis-3.11.zip",
+            "releaseTag": "nsis-3.11",
+            "url": "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/317051073",
+            "publishedAt": "2025-11-16T12:29:02Z",
+            "sizeBytes": 2361546,
+            "sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1"
+        },
+        {
+            "fileName": "nsis_tauri_utils.dll",
+            "assetName": "nsis_tauri_utils.dll",
+            "releaseTag": "nsis_tauri_utils-v0.5.3",
+            "url": "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/345882097",
+            "publishedAt": "2026-01-26T02:39:00Z",
+            "sizeBytes": 34304,
+            "sha256": "5ba143b5db4a87d32d6e7802e033330aae56cbceabe0d1e3ba41948385ad4709"
+        }
+    ]
+}

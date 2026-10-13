@@ -24,11 +24,12 @@ export const NATS_INITIAL_INFO_MAX_BYTES = 4_096;
 // Requires the staged NATS client listener to report and serve numeric IPv4 loopback.
 export async function verifyStagedDesktopNatsLoopbackBinding({
     natsBinaryPath,
+    temporaryDirectory = os.tmpdir(),
 }) {
     await assertRegularFile(natsBinaryPath, "bundled NATS binary");
 
     const temporaryRoot = await mkdtemp(
-        path.join(os.tmpdir(), "artgod-nats-loopback-"),
+        path.join(temporaryDirectory, "artgod-nats-loopback-"),
     );
     const portsDirectory = path.join(temporaryRoot, "ports");
     const storeDirectory = path.join(temporaryRoot, "store");

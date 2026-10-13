@@ -25,6 +25,7 @@ import { GITHUB_METADATA_MEDIA_TYPE } from "./github-api.mjs";
 import { runRedactedCommand } from "./secret-output-redaction.mjs";
 import {
     buildLockedTauri,
+    resolveTauriCargoTargetDirectory,
     TAURI_BUILD_SCRIPT_NAMES,
     TAURI_CLI_PACKAGE_NAME,
 } from "./build-tauri.mjs";
@@ -147,29 +148,8 @@ export async function resolveTauriLocalToolsDirectory(options = {}) {
     );
 }
 
-// Packaging tools and output verification must follow the same Cargo metadata
-// result, including target-dir configuration and CARGO_TARGET_DIR overrides.
-export async function resolveTauriCargoTargetDirectory({
-    environment = process.env,
-    runCommand = runRedactedCommand,
-    projectRoot = rootDir,
-} = {}) {
-    const result = await runCommand(
-        "cargo",
-        ["metadata", "--no-deps", "--format-version", "1", "--locked"],
-        { cwd: path.join(projectRoot, "src-tauri"), env: environment },
-    );
-    const metadata = JSON.parse(result.stdout);
-    if (
-        typeof metadata?.target_directory !== "string" ||
-        !path.isAbsolute(metadata.target_directory)
-    ) {
-        throw new Error(
-            "Cargo metadata must provide an absolute target_directory for Tauri builds.",
-        );
-    }
-    return metadata.target_directory;
-}
+// Retain the existing public import while the shared launcher owns Cargo paths.
+export { resolveTauriCargoTargetDirectory } from "./build-tauri.mjs";
 
 // Tauri mutates linuxdeploy's ELF header. Refresh only our execution copies and
 // adapter before each sequential build, preserving verified originals and other
