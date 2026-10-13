@@ -3,6 +3,9 @@
         "**/.yarn": true,
         "**/.pnp.*": true
     },
+    "files.watcherExclude": {
+        "**/tmp/**": true
+    },
     "typescript.tsdk": ".yarn/sdks/typescript/lib",
     "typescript.enablePromptUseWorkspaceTsdk": true,
     "terminal.integrated.env.linux": {

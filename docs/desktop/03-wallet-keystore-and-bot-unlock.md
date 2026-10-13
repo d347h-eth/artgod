@@ -1195,10 +1195,11 @@ writing, bounded output, timeout, task drop, app exit, stdin owner loss, termina
 races, and export reveal. The bot proof separately launches the built Node bot,
 waits for its real `bot_ready` event, proves graceful `SIGTERM` exit while stdin
 remains open, then hard-kills a nested desktop-parent harness and requires the
-bot PID to disappear. The ordinary build workflow compiles the Windows WER
-no-heap and Job Object paths on a Windows runner; Windows prompt/bot containment
-remains compile-only until an executed Windows proof and public release lane are
-added.
+bot PID to disappear. The ordinary Windows build job executes the native
+WER hardening and Job Object setup/attachment tests, builds an unsigned installer,
+and verifies the installed prompt exits silently on closed owner input. Full
+Windows hard-parent-death prompt/bot proof and a signed public release lane remain
+open. See the [Windows build and test guide](09-windows-build-and-test.md).
 
 ## Crash and Inspection Hardening
 
@@ -1549,7 +1550,7 @@ The current desktop composition includes:
 - independent sensitive-process supervision, bounded Stop, and hard-parent-death
   containment;
 - platform-specific secret-output, packaging, and runtime-boundary coverage
-  described above; Windows prompt/bot containment remains compile-only.
+  described above; full Windows hard-parent-death prompt/bot proof remains open.
 
 ## Current Limits and Future Direction
 

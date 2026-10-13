@@ -430,7 +430,9 @@ Official references:
 ## Windows Signing
 
 Windows release builds are deferred for the first public alpha. The release
-workflow does not build or publish Windows artifacts.
+workflow does not build or publish Windows artifacts. The ordinary build-check
+workflow produces separate unsigned Windows 11 test installers; see the
+[Windows test guide](09-windows-build-and-test.md).
 
 When Windows releases are enabled later, use SSL.com Personal Identity Code
 Signing with eSigner for Code.

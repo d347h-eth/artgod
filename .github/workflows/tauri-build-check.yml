@@ -167,6 +167,7 @@ jobs:
 
     windows-containment-check:
         runs-on: windows-latest
+        timeout-minutes: 75
         env:
             CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
 
@@ -183,6 +184,22 @@ jobs:
 
             - name: Enable Corepack
               run: corepack enable
+
+            - name: Cache Windows build inputs
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+              with:
+                  path: |
+                      .yarn/cache
+                      .yarn/unplugged
+                      .cache/desktop-node-runtime
+                      .cache/desktop-nats-runtime
+                      .cache/desktop-windows-bundler
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      src-tauri/target
+                      src-tauri/sidecars/artgod-secret-prompt/target
+                      src-tauri/crates/artgod-sensitive-process/target
+                  key: windows-desktop-${{ hashFiles('yarn.lock', '.yarnrc.yml', 'src-tauri/**/Cargo.lock', 'config/*inputs.json', 'config/*bundler-tools.json') }}
 
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
@@ -205,5 +222,35 @@ jobs:
             - name: Prepare Windows secret prompt sidecar
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug
 
+            - name: Test Windows sensitive process hardening
+              run: |
+                  cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml --locked
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
             - name: Check Windows sensitive-process hardening
               run: cargo check --manifest-path src-tauri/Cargo.toml --locked --lib
+
+            - name: Verify dependency admission
+              run: |
+                  yarn security:yarn:verify
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  yarn cargo:age-gate
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            - name: Build unsigned Windows NSIS installer
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: yarn build:desktop:windows-bundle
+
+            - name: Verify installed Windows runtime
+              run: yarn check:windows-bundled-runtime
+
+            - name: Upload verified Windows test installer
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+              with:
+                  name: windows-x64-test-${{ github.sha }}
+                  path: tmp/windows-artifact/*
+                  if-no-files-found: error
+                  retention-days: 14

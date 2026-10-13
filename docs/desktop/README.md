@@ -10,6 +10,7 @@ wallet custody, desktop logging, and release packaging.
 3. [Adding a startup recovery task](08-startup-recovery-tasks.md)
 4. [Settings manifest process](04-settings-manifest-process.md)
 5. [Local runtime trust](07-local-runtime-trust.md)
+6. [Windows build and test](09-windows-build-and-test.md)
 
 ## Wallet and Release Security
 

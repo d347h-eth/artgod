@@ -1369,10 +1369,13 @@ Current state:
 - The ordinary Linux build check runs the focused runtime-output reconciliation
   test before its single no-bundle build. The test removes an obsolete runtime
   tree while proving unrelated profile output survives.
-- The ordinary build workflow compiles the Windows WER no-heap and Job Object
-  paths, including the prompt owner, on a Windows runner. That lane is
-  compile-only; Windows release artifacts and an executed Windows prompt/bot
-  containment proof remain deferred.
+- The ordinary Windows build job now produces an unsigned x64 NSIS test installer,
+  executes native sensitive-process tests and verifies the silently installed
+  runtime. The maintained wrapper pins/age-gates NSIS and its plugin and uses
+  OS-managed WebView2 without acquiring a bootstrapper. See the
+  [Windows build and test guide](09-windows-build-and-test.md) for its exact
+  proof and remaining native journey/signing/containment gaps.
+
 - Linux artifacts are GPG-signed (detached armor signatures).
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.
