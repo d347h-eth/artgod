@@ -1256,6 +1256,46 @@ test("compiles the Windows sensitive-process hardening path", async () => {
     assert.doesNotMatch(windowsJob, /^ {8}continue-on-error:/m);
 });
 
+test("Windows test artifacts require admission, a real installer and installed runtime verification", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const job = extractWorkflowJob(workflow, "windows-containment-check");
+    const admission = extractWorkflowStep(job, "Verify dependency admission");
+    assertStepIsRequired(admission);
+    assert.match(admission, /yarn security:yarn:verify/);
+    assert.match(admission, /yarn cargo:age-gate/);
+    const buildName = "Build unsigned Windows NSIS installer";
+    const verificationName = "Verify installed Windows runtime";
+    const uploadName = "Upload verified Windows test installer";
+    for (const [name, command] of [
+        [buildName, `yarn ${TAURI_BUILD_SCRIPT_NAMES.WindowsBundle}`],
+        [verificationName, "yarn check:windows-bundled-runtime"],
+    ]) {
+        const step = extractWorkflowStep(job, name);
+        assertStepRunsCommand(step, command);
+        assertStepIsRequired(step);
+    }
+    assertStepPrecedes(job, "Verify dependency admission", buildName);
+    assertStepPrecedes(
+        job,
+        buildName,
+        "Test Windows sensitive process hardening",
+    );
+    assertStepPrecedes(
+        job,
+        "Test Windows sensitive process hardening",
+        verificationName,
+    );
+    assertStepPrecedes(job, verificationName, uploadName);
+    const upload = extractWorkflowStep(job, uploadName);
+    assertStepIsRequired(upload);
+    assert.match(upload, /if-no-files-found: error/);
+    assert.match(upload, /retention-days: 14/);
+    assert.doesNotMatch(job, /secrets\.|continue-on-error:/);
+});
+
 test("the maintained desktop development alias uses the shared locked owner", async () => {
     const manifest = JSON.parse(await readFile(packageManifestPath, "utf8"));
     assert.equal(

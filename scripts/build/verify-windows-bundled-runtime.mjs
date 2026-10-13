@@ -1,3 +1,4 @@
+import { verifySecretPromptStartup } from "./verify-bundled-secret-prompt.mjs";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
@@ -104,6 +105,7 @@ export async function verifyWindowsBundledRuntime({
                 `Installed executable differs from build output: ${name}`,
             );
     }
+    await verifySecretPromptStartup(path.join(installRoot, executableNames[1]));
     const pkg = JSON.parse(
         await readFile(path.join(projectRoot, "package.json"), "utf8"),
     );
@@ -133,6 +135,7 @@ export async function verifyWindowsBundledRuntime({
                     "SQLite and Sharp imports",
                     "NATS loopback",
                     "shell and prompt bytes",
+                    "prompt exits silently on closed owner input",
                 ],
             },
             null,
