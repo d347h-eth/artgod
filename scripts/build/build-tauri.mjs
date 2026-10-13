@@ -10,6 +10,7 @@ export const TAURI_BUILD_SCRIPT_NAMES = Object.freeze({
     LinuxBundle: "build:desktop:linux-bundle",
     WindowsBundle: "build:desktop:windows-bundle",
 });
+export const TAURI_LOCAL_TOOLS_DIRECTORY_NAME = ".tauri";
 export const TAURI_CLI_PACKAGE_NAME = "@tauri-apps/cli";
 export const TAURI_OPERATION = Object.freeze({ Build: "build", Dev: "dev" });
 const tauriCliEntrypointRequest = `${TAURI_CLI_PACKAGE_NAME}/tauri.js`;

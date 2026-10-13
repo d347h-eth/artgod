@@ -1,10 +1,10 @@
 import {
     copyFile,
+    cp,
     lstat,
     mkdir,
     mkdtemp,
     readFile,
-    rename,
     rm,
 } from "node:fs/promises";
 import path from "node:path";
@@ -18,6 +18,7 @@ import {
 import {
     buildLockedTauri,
     resolveTauriCargoTargetDirectory,
+    TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
     TAURI_CLI_PACKAGE_NAME,
 } from "./build-tauri.mjs";
 import { DESKTOP_RUST_TARGET } from "./native-runtime-dependencies.mjs";
@@ -31,6 +32,7 @@ const manifestPath = path.join(
 );
 export const WINDOWS_NSIS_ARCHIVE = "nsis-3.11.zip";
 export const WINDOWS_NSIS_PLUGIN = "nsis_tauri_utils.dll";
+export const WINDOWS_NSIS_PLUGIN_RELATIVE_PATH = `Plugins/x86-unicode/additional/${WINDOWS_NSIS_PLUGIN}`;
 export const WINDOWS_NSIS_DIRECTORY = "NSIS";
 // Matches the pinned CLI's required-file check, preventing automatic replacement downloads.
 export const WINDOWS_NSIS_REQUIRED_FILES = Object.freeze([
@@ -38,7 +40,7 @@ export const WINDOWS_NSIS_REQUIRED_FILES = Object.freeze([
     "Bin/makensis.exe",
     "Stubs/lzma-x86-unicode",
     "Stubs/lzma_solid-x86-unicode",
-    "Plugins/x86-unicode/additional/nsis_tauri_utils.dll",
+    WINDOWS_NSIS_PLUGIN_RELATIVE_PATH,
     "Include/MUI2.nsh",
     "Include/FileFunc.nsh",
     "Include/x64.nsh",
@@ -161,7 +163,7 @@ export async function preparePinnedTauriWindowsBundlerTools({
         environment,
         runCommand,
     });
-    const toolsRoot = path.join(targetRoot, ".tauri");
+    const toolsRoot = path.join(targetRoot, TAURI_LOCAL_TOOLS_DIRECTORY_NAME);
     await mkdir(toolsRoot, { recursive: true });
     if (!(await lstat(toolsRoot)).isDirectory())
         throw new Error("Windows local tools root must be a real directory.");
@@ -180,7 +182,7 @@ export async function preparePinnedTauriWindowsBundlerTools({
     const freshNsisRoot = path.join(extractedRoot, "nsis-3.11");
     const pluginDestination = path.join(
         freshNsisRoot,
-        WINDOWS_NSIS_REQUIRED_FILES[4],
+        WINDOWS_NSIS_PLUGIN_RELATIVE_PATH,
     );
     await mkdir(path.dirname(pluginDestination), { recursive: true });
     await copyFile(
@@ -194,7 +196,12 @@ export async function preparePinnedTauriWindowsBundlerTools({
     // Replace only this owner's execution directory, preserving unrelated Tauri tools.
     const nsisRoot = path.join(toolsRoot, WINDOWS_NSIS_DIRECTORY);
     await rm(nsisRoot, { recursive: true, force: true });
-    await rename(freshNsisRoot, nsisRoot);
+    // Keep the extracted worktree-local evidence available for inspection.
+    await cp(freshNsisRoot, nsisRoot, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+    });
     return { targetRoot, nsisRoot };
 }
 

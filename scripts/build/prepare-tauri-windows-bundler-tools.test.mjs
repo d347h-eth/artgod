@@ -1,3 +1,4 @@
+import { TAURI_LOCAL_TOOLS_DIRECTORY_NAME } from "./build-tauri.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -6,11 +7,14 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
     preparePinnedTauriWindowsBundlerTools,
+    buildPinnedTauriWindowsBundle,
     validateWindowsToolsManifest,
     WINDOWS_BUNDLE_CONFIG,
     WINDOWS_NSIS_REQUIRED_FILES,
     WINDOWS_NSIS_ARCHIVE,
+    WINDOWS_NSIS_DIRECTORY,
     WINDOWS_NSIS_PLUGIN,
+    WINDOWS_NSIS_PLUGIN_RELATIVE_PATH,
 } from "./prepare-tauri-windows-bundler-tools.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -80,15 +84,36 @@ test("cached bytes are verified and NSIS execution copies are refreshed under Ca
         JSON.stringify(fixtureManifest),
     );
     const targetRoot = path.join(fixtureRoot, "configured target");
-    const previousRoot = path.join(targetRoot, ".tauri", "NSIS");
+    const previousRoot = path.join(
+        targetRoot,
+        TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
+        WINDOWS_NSIS_DIRECTORY,
+    );
     await mkdir(previousRoot, { recursive: true });
     await writeFile(path.join(previousRoot, "unreviewed.exe"), "stale");
+    let builds = 0;
     const options = {
+        platform: "win32",
+        resolveCliEntrypoint: () => "fixture-tauri.js",
         projectRoot: fixtureRoot,
         fetchImplementation() {
             throw new Error("Verified cache must work offline");
         },
         async runCommand(command, args) {
+            if (command === process.execPath) {
+                builds++;
+                assert.equal(
+                    args.filter((arg) => arg === "--locked").length,
+                    1,
+                );
+                assert.ok(args.includes("--no-sign"));
+                assert.equal(args[args.indexOf("--bundles") + 1], "nsis");
+                assert.deepEqual(
+                    JSON.parse(args[args.indexOf("--config") + 1]),
+                    WINDOWS_BUNDLE_CONFIG,
+                );
+                return { stdout: "" };
+            }
             if (command === "cargo")
                 return {
                     stdout: JSON.stringify({ target_directory: targetRoot }),
@@ -115,14 +140,17 @@ test("cached bytes are verified and NSIS execution copies are refreshed under Ca
     });
     assert.equal(
         await readFile(
-            path.join(previousRoot, WINDOWS_NSIS_REQUIRED_FILES[4]),
+            path.join(previousRoot, WINDOWS_NSIS_PLUGIN_RELATIVE_PATH),
             "utf8",
         ),
         `reviewed ${WINDOWS_NSIS_PLUGIN}`,
     );
+    await buildPinnedTauriWindowsBundle(options);
+    assert.equal(builds, 1);
     await writeFile(path.join(cacheRoot, WINDOWS_NSIS_ARCHIVE), "corrupt");
     await assert.rejects(
-        preparePinnedTauriWindowsBundlerTools(options),
+        buildPinnedTauriWindowsBundle(options),
         /request failed before receiving a response/,
     );
+    assert.equal(builds, 1, "A corrupted input never reaches Tauri");
 });

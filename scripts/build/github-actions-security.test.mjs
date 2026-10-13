@@ -1,3 +1,4 @@
+import { WINDOWS_ARTIFACT_DIRECTORY } from "./verify-windows-bundled-runtime.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
@@ -1291,6 +1292,10 @@ test("Windows test artifacts require admission, a real installer and installed r
     assertStepPrecedes(job, verificationName, uploadName);
     const upload = extractWorkflowStep(job, uploadName);
     assertStepIsRequired(upload);
+    assert.match(
+        upload,
+        new RegExp(`path: tmp/${WINDOWS_ARTIFACT_DIRECTORY}/\\*`),
+    );
     assert.match(upload, /if-no-files-found: error/);
     assert.match(upload, /retention-days: 14/);
     assert.doesNotMatch(job, /secrets\.|continue-on-error:/);

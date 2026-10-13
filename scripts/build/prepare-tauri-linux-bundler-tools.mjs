@@ -26,6 +26,7 @@ import { runRedactedCommand } from "./secret-output-redaction.mjs";
 import {
     buildLockedTauri,
     resolveTauriCargoTargetDirectory,
+    TAURI_LOCAL_TOOLS_DIRECTORY_NAME,
     TAURI_BUILD_SCRIPT_NAMES,
     TAURI_CLI_PACKAGE_NAME,
 } from "./build-tauri.mjs";
@@ -54,7 +55,7 @@ const EXECUTABLE_FILE_MODE = 0o755;
 const TOOLS_DIRECTORY_MODE = 0o700;
 const DOWNLOAD_UMASK = 0o077;
 const TAURI_TOOLS_CACHE_DIRECTORY_NAME = "tauri";
-export const TAURI_LOCAL_TOOLS_DIRECTORY_NAME = ".tauri";
+export { TAURI_LOCAL_TOOLS_DIRECTORY_NAME } from "./build-tauri.mjs";
 
 // The output plugin forwards this path to appimagetool's --runtime-file option.
 export const TAURI_LINUX_APPIMAGE_RUNTIME_ENV_KEY = "LDAI_RUNTIME_FILE";
