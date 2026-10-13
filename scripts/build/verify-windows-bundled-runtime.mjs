@@ -26,6 +26,47 @@ import { runRedactedCommand } from "./secret-output-redaction.mjs";
 const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 export const WINDOWS_ARTIFACT_DIRECTORY = "windows-artifact";
 
+// The pinned Tauri 2.11.3 bundler patches only the first bundle-type marker for
+// NSIS, then restores Cargo's original executable. Hash that exact wire change;
+// every other byte remains protected, without buffering the whole PE file.
+// See crates/tauri-bundler/src/bundle.rs at upstream tag tauri-cli-v2.11.3.
+const tauriUnknownBundleMarker = Buffer.from("__TAURI_BUNDLE_TYPE_VAR_UNK");
+const tauriNsisBundleMarker = Buffer.from("__TAURI_BUNDLE_TYPE_VAR_NSS");
+export async function hashExpectedNsisShell(chunks) {
+    const hash = createHash("sha256");
+    let pending = Buffer.alloc(0);
+    let found = false;
+    for await (const chunk of chunks) {
+        if (found) {
+            hash.update(chunk);
+            continue;
+        }
+        const bytes = Buffer.concat([pending, chunk]);
+        const markerOffset = bytes.indexOf(tauriUnknownBundleMarker);
+        if (markerOffset !== -1) {
+            hash.update(bytes.subarray(0, markerOffset));
+            hash.update(tauriNsisBundleMarker);
+            hash.update(
+                bytes.subarray(markerOffset + tauriUnknownBundleMarker.length),
+            );
+            pending = Buffer.alloc(0);
+            found = true;
+        } else {
+            const safeLength = Math.max(
+                0,
+                bytes.length - tauriUnknownBundleMarker.length + 1,
+            );
+            hash.update(bytes.subarray(0, safeLength));
+            pending = bytes.subarray(safeLength);
+        }
+    }
+    if (!found)
+        throw new Error(
+            "Cargo shell lacks the reviewed Tauri bundle-type marker.",
+        );
+    return hash.digest("hex");
+}
+
 // Silent installation exercises the actual NSIS payload without driving host GUI.
 // Native import/loopback probes use the same owners as Linux/macOS packaging.
 export async function verifyWindowsBundledRuntime({
@@ -97,10 +138,11 @@ export async function verifyWindowsBundledRuntime({
                       "binaries",
                       `artgod-secret-prompt-${DESKTOP_RUST_TARGET.WindowsX64}.exe`,
                   );
-        if (
-            (await hashFile(builtPath)) !==
-            (await hashFile(path.join(installRoot, name)))
-        )
+        const expectedHash =
+            name === executableNames[0]
+                ? await hashExpectedNsisShell(createReadStream(builtPath))
+                : await hashFile(builtPath);
+        if (expectedHash !== (await hashFile(path.join(installRoot, name))))
             throw new Error(
                 `Installed executable differs from build output: ${name}`,
             );

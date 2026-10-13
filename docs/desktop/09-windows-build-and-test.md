@@ -42,7 +42,8 @@ See [Tauri's installer modes](https://v2.tauri.app/distribute/windows-installer/
 CI silently installs the actual NSIS payload into an isolated worktree `tmp/`
 directory. It compares all runtime files with staging and with the wallet
 recipient hashes emitted by the Rust release build, checks installed shell and
-prompt bytes, executes SQLite/Sharp operations through each installed package
+prompt bytes (the shell comparison permits only Tauri's reviewed NSIS bundle-type
+marker substitution), executes SQLite/Sharp operations through each installed package
 tree using bundled Node, and proves installed NATS binds IPv4 loopback. Native
 sensitive-process tests execute the Windows WER/Job Object paths. The installed
 native prompt must exit silently with closed owner input before opening UI.
