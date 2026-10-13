@@ -96,8 +96,9 @@ resources bundle both official macOS Sharp/libvips package pairs, and Sharp
 selects the pair matching the Node process architecture. Required Apple silicon
 and Intel release gates execute the same mounted DMG. See
 `docs/desktop/01-tauri-build-and-runtime.md` for the complete contract.
-Windows can be built from source, but signed Windows release artifacts remain
-deferred.
+Unsigned Windows x64 installers for Windows 11 testing are available from
+build-check CI artifacts. See the [Windows test guide](docs/desktop/09-windows-build-and-test.md).
+Signed Windows release artifacts remain deferred.
 
 Each release includes `SHA256SUMS.txt`, its detached OpenPGP signature,
 detached signatures for the Linux bundles, the public release key, and GitHub
