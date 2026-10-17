@@ -1,3 +1,4 @@
+import { capturedOpenSeaNumericStreamOffer } from "@artgod/shared/testing/opensea-offers";
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { Scope } from "../../domain/market/event.js";
@@ -29,6 +30,13 @@ function baseEvent(): Record<string, unknown> {
 }
 
 describe("OpenSeaMarketEventFactory", () => {
+    it("preserves the captured numeric stream interval for trait competition", () => {
+        const { event, expected } = capturedOpenSeaNumericStreamOffer;
+        const mapped = new OpenSeaMarketEventFactory().newMarketEvent(event);
+        assert.equal(mapped?.getScope(), Scope.Trait);
+        assert.deepEqual(mapped?.getTraitCriteria(), expected.traits);
+    });
+
     it("preserves every criterion from an event criteria envelope", () => {
         const event = baseEvent();
         event.event_type = OPENSEA_STREAM_EVENT_TYPE.TraitOffer;
