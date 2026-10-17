@@ -1,0 +1,77 @@
+{
+    "name": "Charter #1997",
+    "description": "A document issued by the Crown (or Crown Viceroys), granting the bearer the right to explore the lands of New Cambria and extract the treasures contained wherein.",
+    "image": "https://metadata.cambria.gg/charter_1997.png",
+    "external_url": "https://cambria.gg",
+    "attributes": [
+        {
+            "trait_type": "Standing",
+            "value": "Citizen"
+        },
+        {
+            "trait_type": "Voyage",
+            "value": "Founding (I)"
+        },
+        {
+            "trait_type": "House",
+            "value": "Bloodstone"
+        },
+        {
+            "trait_type": "Home City",
+            "value": "Driftmoor"
+        },
+        {
+            "trait_type": "Race",
+            "value": "Human"
+        },
+        {
+            "trait_type": "Passage",
+            "value": "Mercenary"
+        },
+        {
+            "trait_type": "Affinities",
+            "value": "4"
+        },
+        {
+            "trait_type": "Affinity",
+            "value": "Pugilist"
+        },
+        {
+            "trait_type": "Affinity",
+            "value": "Prospector"
+        },
+        {
+            "trait_type": "Affinity",
+            "value": "Delver"
+        },
+        {
+            "trait_type": "Affinity",
+            "value": "Forager"
+        },
+        {
+            "trait_type": "Top Affinity Score",
+            "value": 98,
+            "display_type": "number",
+            "max_value": 99
+        }
+    ],
+    "affinities": [
+        {
+            "role": "Pugilist",
+            "score": 98
+        },
+        {
+            "role": "Prospector",
+            "score": 86
+        },
+        {
+            "role": "Delver",
+            "score": 76
+        },
+        {
+            "role": "Forager",
+            "score": 63
+        }
+    ],
+    "schema_version": 4
+}

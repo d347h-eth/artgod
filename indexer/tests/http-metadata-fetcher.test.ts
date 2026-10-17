@@ -1,3 +1,4 @@
+import cambriaMetadata from "./fixtures/cambria-charter-1997-metadata.json" with { type: "json" };
 import { describe, expect, it } from "vitest";
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
@@ -13,6 +14,75 @@ const TEST_FEATURE_ATTRIBUTE_KEY_WITH_SPACE = "Brush Style";
 const TEST_FEATURE_ATTRIBUTE_KEY_WITH_PIPE = "Diptych IDs";
 
 describe("HttpMetadataFetcher", () => {
+    it("preserves every attribute in captured Cambria metadata with multiple values for one key", async () => {
+        // Public tokenURI metadata captured on 2026-10-17. Affinity is multivalued.
+        const metadata = await new HttpMetadataFetcher().fetchMetadata(
+            buildMetadataDataUri(cambriaMetadata),
+        );
+        expect(metadata?.attributes).toHaveLength(12);
+        expect(
+            metadata?.attributes
+                .filter((attribute) => attribute.traitType === "Affinity")
+                .map((attribute) => attribute.value),
+        ).toEqual(["Pugilist", "Prospector", "Delver", "Forager"]);
+        expect(metadata?.attributes).toContainEqual({
+            traitType: "Affinities",
+            displayType: undefined,
+            value: "4",
+        });
+        expect(metadata?.attributes).toContainEqual({
+            traitType: "Top Affinity Score",
+            displayType: "number",
+            value: 98,
+        });
+    });
+
+    it("keeps multivalued explicit attributes ahead of fallback containers", async () => {
+        const metadata = await new HttpMetadataFetcher().fetchMetadata(
+            buildMetadataDataUri({
+                [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes]:
+                    cambriaMetadata.attributes,
+                [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features]: {
+                    Palette: "Blue",
+                },
+            }),
+        );
+        expect(metadata?.attributes).toHaveLength(
+            cambriaMetadata.attributes.length,
+        );
+        expect(
+            metadata?.attributes.some(
+                (attribute) => attribute.traitType === "Palette",
+            ),
+        ).toBe(false);
+    });
+
+    it("uses multivalued traits when no usable features map is available", async () => {
+        for (const features of [undefined, {}, { ignored: null }]) {
+            const metadata = await new HttpMetadataFetcher().fetchMetadata(
+                buildMetadataDataUri({
+                    [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits]:
+                        cambriaMetadata.attributes,
+                    [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features]:
+                        features,
+                }),
+            );
+            expect(metadata?.attributes).toHaveLength(
+                cambriaMetadata.attributes.length,
+            );
+        }
+    });
+
+    it("still rejects repeated names in unrecognized heuristic containers", async () => {
+        const metadata = await new HttpMetadataFetcher().fetchMetadata(
+            buildMetadataDataUri({
+                [TEST_EXPLICIT_TRAIT_CONTAINER_FIELD]:
+                    cambriaMetadata.attributes,
+            }),
+        );
+        expect(metadata?.attributes).toEqual([]);
+    });
+
     it("uses generator_url as the animation fallback", async () => {
         const generatorUrl = "https://generator.example/token/1";
         const uri = buildMetadataDataUri({
@@ -102,14 +172,12 @@ describe("HttpMetadataFetcher", () => {
                 {
                     [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitType]:
                         "Metropolis",
-                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]:
-                        "City: Berlin",
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]: "City: Berlin",
                 },
                 {
                     [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitType]:
                         "Metropolis",
-                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]:
-                        "Paper: White",
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]: "Paper: White",
                 },
             ],
             [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features]: {

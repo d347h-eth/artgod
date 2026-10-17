@@ -170,18 +170,28 @@ function normalizeMetadata(
 function normalizeMetadataAttributes(
     data: Record<string, unknown>,
 ): MetadataAttribute[] {
+    const attributes = normalizeAttributes(
+        data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes],
+        { allowGenericTraitKeys: false },
+    );
+    // Standard metadata can legitimately repeat a key for different values.
+    // Keep the complete explicit list; persistence owns exact-pair deduplication.
+    if (attributes) return attributes;
+
+    const traits = normalizeAttributes(
+        data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits],
+        { allowGenericTraitKeys: false },
+    );
+    if (traits && !hasDuplicateTraitType(traits)) return traits;
+
+    // Some generators flatten named features into repeated generic trait labels.
+    // Preserve the richer features fallback, but retain a multivalued traits
+    // list when it is the only declared source of attributes.
     return (
-        normalizeAttributes(
-            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes],
-            { allowGenericTraitKeys: false },
-        ) ??
-        normalizeAttributes(
-            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits],
-            { allowGenericTraitKeys: false },
-        ) ??
         normalizeAttributeObjectMap(
             data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features],
         ) ??
+        traits ??
         normalizeHeuristicAttributes(data)
     );
 }
@@ -208,7 +218,9 @@ function normalizeHeuristicAttributes(
         const attributes = normalizeAttributes(value, {
             allowGenericTraitKeys,
         });
-        if (attributes) {
+        // Unrecognized containers still need unambiguous keys before they can
+        // be inferred as traits; multivalued support belongs to declared lists.
+        if (attributes && !hasDuplicateTraitType(attributes)) {
             return attributes;
         }
     }
@@ -227,7 +239,10 @@ function normalizeAttributes(
         const traitType = asString(
             firstDefined(record, ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY) ??
                 (options.allowGenericTraitKeys
-                    ? firstDefined(record, GENERIC_ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY)
+                    ? firstDefined(
+                          record,
+                          GENERIC_ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY,
+                      )
                     : undefined),
         );
         const displayType = asString(
@@ -247,13 +262,12 @@ function normalizeAttributes(
             value: rawValue as string | number | boolean,
         });
     }
-    if (out.length === 0 || hasDuplicateTraitType(out)) {
-        return null;
-    }
-    return out;
+    return out.length > 0 ? out : null;
 }
 
-function normalizeAttributeObjectMap(value: unknown): MetadataAttribute[] | null {
+function normalizeAttributeObjectMap(
+    value: unknown,
+): MetadataAttribute[] | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         return null;
     }
@@ -278,7 +292,9 @@ function normalizeAttributeObjectMap(value: unknown): MetadataAttribute[] | null
     return out.length > 0 ? out : null;
 }
 
-function hasDuplicateTraitType(attributes: readonly MetadataAttribute[]): boolean {
+function hasDuplicateTraitType(
+    attributes: readonly MetadataAttribute[],
+): boolean {
     const seen = new Set<string>();
     for (const attribute of attributes) {
         const traitType = attribute.traitType?.trim();
