@@ -107,6 +107,19 @@ Metrics are recorded for latency and failures.
   `COMMON_HTTP_FETCH_RETRY_*`.
 - Normalizes attribute structures to a standard shape.
 
+Declared `attributes` arrays may contain several values for one trait name.
+All values are preserved; canonical persistence deduplicates only identical
+key/value pairs. The `traits` fallback also preserves multiple values when no
+usable `features` object map is present. If `traits` repeats a generic label and
+`features` supplies named traits, the existing richer `features` fallback takes
+precedence. Unrecognized containers still require unambiguous trait names
+before heuristic detection accepts them.
+
+Previously missing trait links are restored by the normal token or range
+metadata refresh path. Upgrading the parser does not replay completed refresh
+jobs, and existing order token-set links are not automatically rematerialized;
+see [order token sets](07-domain-orders.md#token-set-materialization).
+
 Results are stored in `token_metadata`, and normalized traits are stored in `token_attributes`.
 Large debug-only metadata fields are controlled separately:
 
