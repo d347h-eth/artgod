@@ -661,6 +661,12 @@ Numeric criteria cannot combine an exact value with interval bounds. Exact
 numeric values must be decimal strings or finite numbers; containers and
 conflicting value aliases reject the whole offer.
 An offer with only numeric criteria is still attribute-scoped.
+Stream `trait_offer` payloads supply numeric constraints in
+`numeric_trait_criteria_list` with `trait_type`, `min_value`, and `max_value`
+(SDK aliases use camelCase). These use the same range validation as REST
+criteria, including when the string-trait fields are null or empty. Supplied
+stream constraints are combined with any criteria envelope; an envelope cannot
+hide them or turn a numeric-only offer into a collection offer.
 
 The token-set registry materializes collection and attribute schemas from the
 canonical local collection state:

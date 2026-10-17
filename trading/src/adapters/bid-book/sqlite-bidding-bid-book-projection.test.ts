@@ -6,9 +6,16 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
+    TRADING_BIDDING_BID_SCOPE_KIND,
+} from "@artgod/shared/types";
 import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
-import { capturedOpenSeaRangedOfferFixtures } from "@artgod/shared/testing/opensea-offers";
+import {
+    capturedOpenSeaRangedOfferFixtures,
+    capturedOpenSeaCambriaRestOffers,
+} from "@artgod/shared/testing/opensea-offers";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
     BIDDING_BID_BOOK_PROJECTION_OUTCOME,
@@ -199,6 +206,50 @@ describe("SqliteBiddingBidBookProjection", () => {
                 payload.criteria.encoded_token_ids,
             );
             assert.equal(row.price_wei, expected.unitPriceWei);
+        }
+    });
+
+    it("projects the five Cambria range bids into trait rows with finite membership", async () => {
+        const offers = capturedOpenSeaCambriaRestOffers.map(
+            ({ payload }) => payload,
+        );
+        db.prepare(
+            "UPDATE collections SET address = ? WHERE collection_id = ?",
+        ).run(offers[0].criteria.contract.address, collectionId);
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const result = await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "captured-cambria",
+        );
+        assert.equal(result.rowCount, offers.length);
+        const rows = db
+            .prepare(
+                "SELECT order_id, scope_kind, scope_traits_json, encoded_token_ids FROM trading_bidding_bid_book_rows",
+            )
+            .all() as ProjectedRow[];
+        for (const { payload, expected } of capturedOpenSeaCambriaRestOffers) {
+            const row = rows.find((row) => row.order_id === payload.order_hash);
+            assert.ok(row);
+            assert.equal(row.scope_kind, TRADING_BIDDING_BID_SCOPE_KIND.Trait);
+            assert.deepEqual(
+                JSON.parse(row.scope_traits_json),
+                expected.traits,
+            );
+            assert.equal(
+                row.encoded_token_ids,
+                payload.criteria.encoded_token_ids,
+            );
         }
     });
 

@@ -1,3 +1,6 @@
+import { capturedOpenSeaNumericStreamOffer } from "@artgod/shared/testing/opensea-offers";
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
+import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
 import fs from "node:fs/promises";
 import {
     afterEach,
@@ -92,6 +95,89 @@ describe("offchain dispatch", () => {
         );
     });
     afterEach(() => vi.useRealTimers());
+
+    it("persists captured numeric stream criteria as an attribute order even without local membership", async () => {
+        const { event, expected } = capturedOpenSeaNumericStreamOffer;
+        vi.setSystemTime(new Date(event.sent_at));
+        const record = event.payload;
+        const contract = record.asset_contract_criteria.address;
+        const collectionId = ensureCollection(1, contract);
+        const queue = new QueueCapture();
+        const payload: OffchainOrderRawPayload = {
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
+            dedupeKey: record.order_hash,
+            eventType: OPENSEA_STREAM_EVENT_TYPE.TraitOffer,
+            orderId: record.order_hash,
+            sourceEventAt: Math.floor(
+                Date.parse(record.event_timestamp) / 1000,
+            ),
+            payload: event,
+        };
+        await dispatchOffchainPayload(
+            queue,
+            new SqliteTokenSetRegistry(),
+            payload,
+        );
+        expect(queue.published).toHaveLength(1);
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.queue).toBe(QUEUE_NAMES.OrdersUpsert);
+        const schema = {
+            kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+            data: {
+                collection: contract,
+                attributes: [
+                    {
+                        key: expected.traits[0].type,
+                        min: expected.traits[0].min,
+                        max: expected.traits[0].max,
+                    },
+                ],
+            },
+        };
+        expect(upsert.payload.sourceScopeKind).toBe(
+            ORDER_SOURCE_SCOPE_KIND.Attribute,
+        );
+        expect(upsert.payload.sourceSchema).toEqual(schema);
+        expect(upsert.payload.localTokenSetStatus).toBe(
+            ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
+        );
+        const orders = new SqliteOrdersDomain(WETH, async () => {
+            throw new Error("Unexpected validation during order upsert");
+        });
+        await orders.handleOrderUpsert(upsert.payload);
+        const row = db
+            .prepare(
+                "SELECT source_scope_kind, source_schema_json, price, source_criteria_root, token_set_id FROM orders WHERE id = ?",
+            )
+            .get(record.order_hash) as {
+            source_scope_kind: string;
+            source_schema_json: string;
+            price: string;
+            source_criteria_root: string;
+            token_set_id: string | null;
+        };
+        expect(row.source_scope_kind).toBe(ORDER_SOURCE_SCOPE_KIND.Attribute);
+        expect(JSON.parse(row.source_schema_json)).toEqual(schema);
+        expect(row.price).toBe(expected.unitPriceWei);
+        expect(row.source_criteria_root).not.toBe(ZERO_BYTES32);
+        expect(row.token_set_id).toBeNull();
+
+        const rejectedQueue = new QueueCapture();
+        const invalidEvent = structuredClone(event);
+        invalidEvent.payload.numeric_trait_criteria_list[0].min_value = 6;
+        await expect(
+            dispatchOffchainPayload(
+                rejectedQueue,
+                new SqliteTokenSetRegistry(),
+                { ...payload, payload: invalidEvent },
+            ),
+        ).rejects.toThrow();
+        expect(rejectedQueue.published).toHaveLength(0);
+    });
 
     it("persists REST collection offers even when source criteria root is zero", async () => {
         const collectionId = ensureCollection(1, CONTRACT);
