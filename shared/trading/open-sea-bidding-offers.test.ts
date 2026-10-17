@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
-import { capturedOpenSeaRangedOfferFixtures } from "../testing/opensea-offers.js";
+import {
+    capturedOpenSeaRangedOfferFixtures,
+    capturedOpenSeaCambriaRestOffers,
+    capturedOpenSeaNumericStreamOffer,
+} from "../testing/opensea-offers.js";
 import {
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_TRAIT_TEXT_MAX_LENGTH,
@@ -54,6 +58,137 @@ function makeSnapshotOffer(params: {
 }
 
 describe("OpenSea bidding offer parser", () => {
+    it("keeps captured Cambria numeric bids trait-scoped in REST and the live stream shape", () => {
+        for (const { payload, expected } of [
+            ...capturedOpenSeaCambriaRestOffers,
+            {
+                payload: capturedOpenSeaNumericStreamOffer.event.payload,
+                expected: capturedOpenSeaNumericStreamOffer.expected,
+            },
+        ]) {
+            const parsed = parseOpenSeaBiddingOffer(payload);
+            assert.ok(parsed);
+            assert.equal(parsed.offerScope, "trait");
+            assert.equal(
+                parsed.bidScope.kind,
+                TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            );
+            assert.deepEqual(parsed.bidScope.traits, expected.traits);
+            assert.equal(parsed.price.toString(), expected.unitPriceWei);
+            assert.equal(isOpenSeaCollectionWideOffer(payload), false);
+        }
+    });
+
+    it("preserves stream numeric aliases, exact values, and mixed constraints", () => {
+        const payload = capturedOpenSeaNumericStreamOffer.event.payload;
+        for (const [field, range] of [
+            [
+                "numeric_trait_criteria_list",
+                { trait_type: "Affinities", min_value: 4, max_value: 5 },
+            ],
+            [
+                "numericTraitCriteriaList",
+                { traitType: "Affinities", minValue: 4, maxValue: 5 },
+            ],
+        ] as const) {
+            const base = {
+                ...payload,
+                numeric_trait_criteria_list: undefined,
+                [field]: [range],
+            };
+            for (const criteria of [
+                undefined,
+                {},
+                { traits: [{ type: "Race", value: "Ghoul" }] },
+            ]) {
+                const raw = {
+                    ...base,
+                    criteria,
+                    trait_criteria: {
+                        trait_type: "Mode",
+                        trait_name: "Terrain",
+                    },
+                };
+                assert.deepEqual(
+                    parseOpenSeaBiddingOffer(raw)?.bidScope.traits,
+                    [
+                        ...(criteria && "traits" in criteria
+                            ? (criteria.traits ?? [])
+                            : []),
+                        { type: "Mode", value: "Terrain" },
+                        { type: "Affinities", min: 4, max: 5 },
+                    ],
+                );
+            }
+            const exact = {
+                ...base,
+                [field]: [{ type: "Affinities", min_value: 4, max_value: 4 }],
+            };
+            assert.deepEqual(parseOpenSeaBiddingOffer(exact)?.bidScope.traits, [
+                { type: "Affinities", value: "4" },
+            ]);
+        }
+    });
+
+    it("rejects malformed stream numeric constraints without broadening the offer", () => {
+        for (const field of [
+            "numeric_trait_criteria_list",
+            "numericTraitCriteriaList",
+        ]) {
+            for (const ranges of [
+                {},
+                [null],
+                [{}],
+                [{ trait_type: "Affinities", min_value: 4 }],
+                [{ trait_type: "Affinities", max_value: 5 }],
+                [{ trait_type: "Affinities", min_value: 5, max_value: 4 }],
+                [{ trait_type: "Affinities", min_value: null, max_value: 5 }],
+                [{ trait_type: "Affinities", min_value: "4", max_value: 5 }],
+                [{ trait_type: "Affinities", min_value: NaN, max_value: 5 }],
+                [
+                    {
+                        trait_type: "Affinities",
+                        min_value: 4,
+                        max_value: Infinity,
+                    },
+                ],
+                [
+                    {
+                        trait_type: "Affinities",
+                        min_value: 4,
+                        max_value: 5,
+                        value: "4",
+                    },
+                ],
+                [
+                    {
+                        trait_type: "Affinities",
+                        min: 3,
+                        min_value: 4,
+                        max_value: 5,
+                    },
+                ],
+                [
+                    {
+                        trait_type: "Affinities",
+                        min_value: 4,
+                        max_value: 5,
+                        maxValue: 6,
+                    },
+                ],
+            ]) {
+                const raw = {
+                    ...capturedOpenSeaNumericStreamOffer.event.payload,
+                    numeric_trait_criteria_list: undefined,
+                    criteria: {},
+                    [field]: ranges,
+                };
+                assert.throws(() => parseOpenSeaBiddingOffer(raw));
+                assert.throws(() => isOpenSeaCollectionWideOffer(raw));
+            }
+        }
+    });
+
     it("preserves strict trait-name aliases in singular and plural stream envelopes", () => {
         for (const [field, criterion] of [
             ["trait_criteria", { trait_type: "Mode", trait_name: "Terrain" }],

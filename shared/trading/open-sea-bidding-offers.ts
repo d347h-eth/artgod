@@ -370,11 +370,19 @@ export function getOpenSeaOfferCriteria(
     rawOffer: unknown,
 ): Record<string, unknown> | undefined {
     const offer = asRecord(rawOffer);
-    return (
+    const criteria =
         recordOrUndefined(offer.criteria) ??
-        recordOrUndefined(getOpenSeaProtocolEnvelope(rawOffer)?.criteria) ??
-        getOpenSeaStreamTraitCriteria(offer)
-    );
+        recordOrUndefined(getOpenSeaProtocolEnvelope(rawOffer)?.criteria);
+    const streamCriteria = getOpenSeaStreamTraitCriteria(offer);
+    if (!streamCriteria) return criteria;
+    // A REST/SDK envelope must not hide additional stream constraints.
+    return {
+        ...criteria,
+        traits: dedupeBiddingTraitCriteria([
+            ...normalizeOpenSeaOfferTraitCriteria(criteria),
+            ...normalizeOpenSeaOfferTraitCriteria(streamCriteria),
+        ]),
+    };
 }
 
 // Infers the bidder's coarse offer scope from raw criteria and NFT item shape.
@@ -622,13 +630,23 @@ function normalizeOpenSeaNumericTraitCriteria(
         const exactValues = ["value", "trait_value", "traitValue"]
             .filter((key) => record[key] !== undefined)
             .map((key) => openSeaTraitValue(record[key]));
-        if (record.min !== undefined || record.max !== undefined) {
+        const min = readOpenSeaNumericTraitBound(record, [
+            "min",
+            "min_value",
+            "minValue",
+        ]);
+        const max = readOpenSeaNumericTraitBound(record, [
+            "max",
+            "max_value",
+            "maxValue",
+        ]);
+        if (min !== undefined || max !== undefined) {
             const [range] = parseBiddingTraitCriteria([
                 {
                     type,
                     value: exactValues[0],
-                    min: record.min,
-                    max: record.max,
+                    min,
+                    max,
                 },
             ]);
             if ("min" in range && range.min === range.max) {
@@ -651,6 +669,20 @@ function normalizeOpenSeaNumericTraitCriteria(
     });
 }
 
+// Stream bounds use min_value/max_value; REST uses min/max. Validate aliases
+// together so one supplied bound cannot conceal a contradictory constraint.
+function readOpenSeaNumericTraitBound(
+    record: Record<string, unknown>,
+    aliases: readonly string[],
+): unknown {
+    const values = aliases
+        .map((key) => record[key])
+        .filter((value) => value !== undefined);
+    if (values.some((value) => value !== values[0]))
+        throw new Error("Conflicting OpenSea numeric trait bounds");
+    return values[0];
+}
+
 function getOpenSeaStreamTraitCriteria(
     offer: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
@@ -661,6 +693,11 @@ function getOpenSeaStreamTraitCriteria(
         ...normalizeOptionalOpenSeaTraitCriteria(
             offer.trait_criteria_list ?? offer.traitCriteriaList,
         ),
+        // Numeric-only trait_offer messages carry empty string-trait fields.
+        ...normalizeOpenSeaNumericTraitCriteria(
+            offer.numeric_trait_criteria_list,
+        ),
+        ...normalizeOpenSeaNumericTraitCriteria(offer.numericTraitCriteriaList),
     ]);
     return traits.length > 0 ? { traits } : undefined;
 }
