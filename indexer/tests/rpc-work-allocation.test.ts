@@ -14,7 +14,7 @@ import {
 } from "../src/application/backfill-execution.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import { ORDER_STATUS } from "../src/domain/orders.js";
+import { ORDER_VALIDATION_REASON, ORDER_STATUS } from "../src/domain/orders.js";
 import type {
     QueuePort,
     QueueMessage,
@@ -54,7 +54,10 @@ describe("pipeline work allocation", () => {
                 readCounts: () => ({ shared: 0, perOrder: 0, other: 0 }),
                 validate: async () => {
                     classes.push(scope.current());
-                    return { status: ORDER_STATUS.Fillable, reason: "fixture" };
+                    return {
+                        status: ORDER_STATUS.Fillable,
+                        reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+                    };
                 },
                 finish: async () => {
                     classes.push(scope.current());

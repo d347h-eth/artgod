@@ -26,6 +26,7 @@ import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
 } from "../src/domain/order-validation-demand.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_STATUS,
@@ -50,7 +51,10 @@ const request = {
     requiredAt: now - 1_000,
     minimumBlock: HEAVY_MAKER.blockNumber,
 };
-const fillable = { status: ORDER_STATUS.Fillable, reason: "fixture" };
+const fillable = {
+    status: ORDER_STATUS.Fillable,
+    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+};
 const proof = {
     observedAt: now,
     blockNumber: HEAVY_MAKER.blockNumber,

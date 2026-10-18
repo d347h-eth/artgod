@@ -7,6 +7,7 @@ import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data
 import { ORDER_RETIREMENT_REASON } from "../src/domain/order-retention.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_STATUS,
@@ -38,7 +39,10 @@ describe("orders raw source selection", () => {
     it("replaces a previously flattened scope when REST refreshes the same active order", async () => {
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "unused" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Approved,
+            }),
         );
         const payload = buildOrderUpsert("rest", {});
         ensureCollection(
@@ -108,7 +112,7 @@ describe("orders raw source selection", () => {
                 validatedOrder = order;
                 return {
                     status: ORDER_STATUS.Fillable,
-                    reason: "validated-canonical-seaport-data",
+                    reason: ORDER_VALIDATION_REASON.Approved,
                 };
             },
         );
@@ -136,7 +140,10 @@ describe("orders raw source selection", () => {
         let now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -173,7 +180,7 @@ describe("orders raw source selection", () => {
                 "0xweth",
                 async () => ({
                     status: ORDER_STATUS.Fillable,
-                    reason: "fixture",
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                 }),
                 undefined,
                 () => now,
@@ -277,7 +284,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -314,7 +324,7 @@ describe("orders raw source selection", () => {
                 "0xweth",
                 async () => ({
                     status: ORDER_STATUS.Fillable,
-                    reason: "fixture",
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                 }),
                 undefined,
                 () => now,
@@ -373,7 +383,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -417,7 +430,7 @@ describe("orders raw source selection", () => {
                 "0xweth",
                 async () => ({
                     status: ORDER_STATUS.Fillable,
-                    reason: "fixture",
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                 }),
                 undefined,
                 () => now,
@@ -462,7 +475,10 @@ describe("orders raw source selection", () => {
         let now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -493,7 +509,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -541,7 +560,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -577,7 +599,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -605,7 +630,10 @@ describe("orders raw source selection", () => {
         const first = now;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -635,7 +663,10 @@ describe("orders raw source selection", () => {
         const now = 1_790_000_000;
         const domain = new SqliteOrdersDomain(
             "0xweth",
-            async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            }),
             undefined,
             () => now,
         );
@@ -680,7 +711,10 @@ describe("orders raw source selection", () => {
         });
         const domain = new SqliteOrdersDomain("0xweth", async () => {
             await pending;
-            return { status: ORDER_STATUS.Fillable, reason: "fixture" };
+            return {
+                status: ORDER_STATUS.Fillable,
+                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            };
         });
         const payload = buildOrderUpsert("rest", {});
         ensureCollection(1, 1, payload.contract);
@@ -706,7 +740,7 @@ describe("orders raw source selection", () => {
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async () => ({
                 status: ORDER_STATUS.Fillable,
-                reason: "unused",
+                reason: ORDER_VALIDATION_REASON.Approved,
             }),
         );
         const payload = buildOrderUpsert("rest", {
@@ -732,7 +766,7 @@ describe("orders raw source selection", () => {
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async () => ({
                 status: ORDER_STATUS.Fillable,
-                reason: "unused",
+                reason: ORDER_VALIDATION_REASON.Approved,
             }),
             { persistRawDebugPayloads: true },
         );
@@ -763,7 +797,7 @@ describe("orders raw source selection", () => {
                 validatedOrder = order;
                 return {
                     status: ORDER_STATUS.Fillable,
-                    reason: "validated-canonical-seaport-data",
+                    reason: ORDER_VALIDATION_REASON.Approved,
                 };
             },
         );
@@ -806,7 +840,7 @@ describe("orders raw source selection", () => {
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async () => ({
                 status: ORDER_STATUS.Cancelled,
-                reason: "should-not-run-before-anchor",
+                reason: ORDER_VALIDATION_REASON.CounterMismatch,
             }),
         );
         const payload = buildOrderUpsert("stream", {

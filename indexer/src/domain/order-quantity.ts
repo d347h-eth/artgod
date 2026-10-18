@@ -117,7 +117,9 @@ export function declaredOrderQuantity(
 }
 
 /** Terminal protocol state establishes zero capacity independently of shape. */
-export function validatedQuantityUpdate(result: OrderValidationResult): {
+export function validatedQuantityUpdate(
+    result: Pick<OrderValidationResult, "status" | "quantities">,
+): {
     original: string | null;
     remaining: string | null;
     fillable: string | null;

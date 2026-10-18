@@ -3,7 +3,11 @@ import { logger } from "@artgod/shared/utils";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { OrderValidationSnapshotUnavailable } from "../src/domain/order-validation-failure.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../src/domain/order-validation-policy.js";
-import { ORDER_STATUS, type OrderRecord } from "../src/domain/orders.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_STATUS,
+    type OrderRecord,
+} from "../src/domain/orders.js";
 import {
     RPC_CONTRACT_BATCH_MAX_CALLS,
     type RpcProviderPort,
@@ -96,7 +100,7 @@ describe("Seaport status aggregates", () => {
         );
         expect(await snapshot.validate(wrongHash)).toMatchObject({
             status: ORDER_STATUS.Invalid,
-            reason: "order-hash-mismatch",
+            reason: ORDER_VALIDATION_REASON.OrderHashMismatch,
         });
         expect(rpc.batches).toHaveLength(0);
         await snapshot.validate(original);

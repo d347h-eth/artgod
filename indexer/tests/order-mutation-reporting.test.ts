@@ -25,6 +25,7 @@ import {
     type OrderUpsertPayload,
 } from "../src/domain/order-jobs.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
@@ -294,7 +295,10 @@ function createDomain(
 ) {
     return new SqliteOrdersDomain(
         HEAVY_MAKER.weth,
-        async () => ({ status: ORDER_STATUS.Fillable, reason: "fixture" }),
+        async () => ({
+            status: ORDER_STATUS.Fillable,
+            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+        }),
         undefined,
         () => HEAVY_MAKER.now,
         undefined,

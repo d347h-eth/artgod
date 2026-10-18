@@ -20,7 +20,11 @@ import {
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
-import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_SOURCE_STATUS,
+    ORDER_STATUS,
+} from "../src/domain/orders.js";
 import {
     makerUpdateQueue,
     orderUpdateQueue,
@@ -133,7 +137,7 @@ describe("order processing boundaries", () => {
         const { sale, small } = seedHeavyMaker(1);
         const validate = vi.fn(async () => ({
             status: ORDER_STATUS.Fillable,
-            reason: "fixture",
+            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
         }));
         const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validate);
         const store = new SqliteOrderValidationDemand(domain);

@@ -153,8 +153,45 @@ export type OrderQuantities = {
     remaining: string;
     fillable: string;
 };
+/** Bounded explanations of a protocol validation result, shared by validators,
+ * callers and reporting. These are not order-update commands or source events. */
+export const ORDER_VALIDATION_REASON = {
+    MissingProtocol: "missing-protocol",
+    ProtocolError: "protocol-error",
+    OrderHashMismatch: "order-hash-mismatch",
+    BadSignature: "bad-signature",
+    SignatureError: "signature-error",
+    NotActive: "not-active",
+    Expired: "expired",
+    Cancelled: "cancelled",
+    Filled: "filled",
+    CounterMismatch: "counter-mismatch",
+    UnsupportedConduit: "unsupported-conduit",
+    UnsupportedConduitChannel: "unsupported-conduit-channel",
+    MissingPrice: "missing-price",
+    InvalidFillFraction: "invalid-fill-fraction",
+    UnknownSide: "unknown-side",
+    MissingTokenId: "missing-token-id",
+    OwnerMismatch: "owner-mismatch",
+    Approved: "approved",
+    MissingApproval: "missing-approval",
+    NoBalance: "no-balance",
+    NoAllowance: "no-allowance",
+    NativeFundsAvailable: "native-ok",
+    Erc20FundsAvailable: "erc20-ok",
+} as const;
+
+export type OrderValidationReason =
+    (typeof ORDER_VALIDATION_REASON)[keyof typeof ORDER_VALIDATION_REASON];
+
 export type OrderValidationResult = {
+    /** Drives fillability/quantity projection; strict snapshot read failures throw
+     * instead of supplying a result to commit. */
     status: OrderStatus;
-    reason: string;
+    /** Explains the result for diagnostics and bounded summary counts. It does
+     * not independently select lifecycle transitions, queue routing or retries. */
+    reason: OrderValidationReason;
+    /** Unbounded diagnostic detail, kept separate from the semantic reason. */
+    error?: string;
     quantities?: OrderQuantities;
 };

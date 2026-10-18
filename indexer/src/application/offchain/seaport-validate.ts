@@ -7,7 +7,6 @@ import {
     fundedOrderQuantity,
     remainingOrderQuantity,
 } from "../../domain/order-quantity.js";
-import type { OrderValidationResult } from "../../domain/orders.js";
 import { zeroAddress } from "viem";
 import { logger } from "@artgod/shared/utils";
 import { ERC20_ABI, ERC721_APPROVAL_ABI } from "../../abi/index.js";
@@ -15,10 +14,13 @@ import { SEAPORT_VALIDATION_ABI as SEAPORT_ABI } from "../../abi/seaport-validat
 import {
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_STATUS,
-    type OrderStatus,
+    ORDER_SIDE,
+    ORDER_VALIDATION_REASON,
+    type OrderRecord,
+    type OrderValidationReason,
+    type OrderValidationResult,
     type SeaportOrderData,
 } from "../../domain/orders.js";
-import type { OrderRecord } from "../../domain/orders.js";
 import type { ConduitRegistryPort } from "../../ports/conduits.js";
 import type { RpcProviderPort, Hex } from "../../ports/rpc.js";
 import {
@@ -100,14 +102,15 @@ export async function validateSeaportOrder(
     try {
         parsed = parseProtocolData(order.seaportData);
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "parseProtocolData",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (!parsed) {
-        const reason = "missing-protocol";
+        const reason = ORDER_VALIDATION_REASON.MissingProtocol;
         logInvalidValidation(order, reason, {
             phase: "parseProtocolData",
         });
@@ -118,7 +121,7 @@ export async function validateSeaportOrder(
     try {
         orderHash = computeSeaportOrderHash(order.seaportData!) as Hex;
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport local order hash computation failed", {
             component: "SeaportOrderValidation",
             action: "validateSeaportOrder",
@@ -128,13 +131,14 @@ export async function validateSeaportOrder(
             phase: "computeOrderHash",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "computeOrderHash",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
 
     if (orderHash.toLowerCase() !== order.id.toLowerCase()) {
-        const reason = "order-hash-mismatch";
+        const reason = ORDER_VALIDATION_REASON.OrderHashMismatch;
         logInvalidValidation(order, reason, {
             phase: "compareOrderHash",
             computedOrderHash: orderHash,
@@ -149,7 +153,7 @@ export async function validateSeaportOrder(
                 order.seaportData!,
             );
             if (recovered.toLowerCase() !== order.maker.toLowerCase()) {
-                const reason = "bad-signature";
+                const reason = ORDER_VALIDATION_REASON.BadSignature;
                 logInvalidValidation(order, reason, {
                     phase: "recoverTypedDataAddress",
                     recovered,
@@ -157,7 +161,7 @@ export async function validateSeaportOrder(
                 return invalidValidationResult(reason);
             }
         } catch (error) {
-            const reason = `signature-error:${String(error)}`;
+            const reason = ORDER_VALIDATION_REASON.SignatureError;
             logger.error("Seaport signature verification failed", {
                 component: "SeaportOrderValidation",
                 action: "validateSeaportOrder",
@@ -167,9 +171,10 @@ export async function validateSeaportOrder(
                 phase: "recoverTypedDataAddress",
             });
             logInvalidValidation(order, reason, {
+                error: String(error),
                 phase: "recoverTypedDataAddress",
             });
-            return invalidValidationResult(reason);
+            return invalidValidationResult(reason, error);
         }
     } else if (
         order.seaportDataSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Stream
@@ -185,10 +190,16 @@ export async function validateSeaportOrder(
 
     const now = Math.floor(Date.now() / 1000);
     if (now < Number(parsed.parameters.startTime)) {
-        return { status: ORDER_STATUS.Expired, reason: "not-active" };
+        return {
+            status: ORDER_STATUS.Expired,
+            reason: ORDER_VALIDATION_REASON.NotActive,
+        };
     }
     if (now > Number(parsed.parameters.endTime)) {
-        return { status: ORDER_STATUS.Expired, reason: "expired" };
+        return {
+            status: ORDER_STATUS.Expired,
+            reason: ORDER_VALIDATION_REASON.Expired,
+        };
     }
 
     let orderStatusResult: SeaportProtocolStatus | undefined;
@@ -202,7 +213,7 @@ export async function validateSeaportOrder(
         if (!isSeaportProtocolStatus(orderStatusResult))
             throw new Error("Invalid Seaport order status response");
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport getOrderStatus RPC failed", {
             component: "SeaportOrderValidation",
             action: "validateSeaportOrder",
@@ -212,21 +223,25 @@ export async function validateSeaportOrder(
             phase: "getOrderStatus",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "getOrderStatus",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     const [_isValidated, isCancelled, totalFilled, totalSize] =
         orderStatusResult;
 
     if (isCancelled) {
-        return { status: ORDER_STATUS.Cancelled, reason: "cancelled" };
+        return {
+            status: ORDER_STATUS.Cancelled,
+            reason: ORDER_VALIDATION_REASON.Cancelled,
+        };
     }
     if (totalFilled >= totalSize && totalSize > 0n) {
         const original = partialBuyOriginalQuantity(order);
         return {
             status: ORDER_STATUS.Filled,
-            reason: "filled",
+            reason: ORDER_VALIDATION_REASON.Filled,
             ...(original === null
                 ? {}
                 : {
@@ -248,7 +263,7 @@ export async function validateSeaportOrder(
             args: [parsed.parameters.offerer as Hex],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport getCounter RPC failed", {
             component: "SeaportOrderValidation",
             action: "validateSeaportOrder",
@@ -258,12 +273,16 @@ export async function validateSeaportOrder(
             phase: "getCounter",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "getCounter",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (counter !== parsed.parameters.counter) {
-        return { status: ORDER_STATUS.Cancelled, reason: "counter-mismatch" };
+        return {
+            status: ORDER_STATUS.Cancelled,
+            reason: ORDER_VALIDATION_REASON.CounterMismatch,
+        };
     }
 
     let approvalTarget: string | null;
@@ -278,15 +297,16 @@ export async function validateSeaportOrder(
             parsed.parameters.conduitKey,
         );
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "resolveConduit",
             conduitKey: parsed.parameters.conduitKey,
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (!approvalTarget) {
-        const reason = "unsupported-conduit";
+        const reason = ORDER_VALIDATION_REASON.UnsupportedConduit;
         logInvalidValidation(order, reason, {
             phase: "resolveConduit",
             conduitKey: parsed.parameters.conduitKey,
@@ -306,16 +326,17 @@ export async function validateSeaportOrder(
             parsed.protocolAddress,
         );
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "ensureConduitChannel",
             approvalTarget,
             protocolAddress: parsed.protocolAddress,
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (!channelOk) {
-        const reason = "unsupported-conduit-channel";
+        const reason = ORDER_VALIDATION_REASON.UnsupportedConduitChannel;
         logInvalidValidation(order, reason, {
             phase: "ensureConduitChannel",
             approvalTarget,
@@ -326,7 +347,7 @@ export async function validateSeaportOrder(
 
     const price = order.price ? BigInt(order.price) : null;
     if (!price || price <= 0n) {
-        const reason = "missing-price";
+        const reason = ORDER_VALIDATION_REASON.MissingPrice;
         logInvalidValidation(order, reason, {
             phase: "priceCheck",
             price: order.price,
@@ -334,11 +355,11 @@ export async function validateSeaportOrder(
         return invalidValidationResult(reason);
     }
 
-    if (order.side === "sell") {
+    if (order.side === ORDER_SIDE.Sell) {
         return validateSellOrder(rpc, order, approvalTarget);
     }
 
-    if (order.side === "buy") {
+    if (order.side === ORDER_SIDE.Buy) {
         const original = partialBuyOriginalQuantity(order);
         let remaining: bigint | null = null;
         if (original !== null) {
@@ -349,32 +370,31 @@ export async function validateSeaportOrder(
                     totalSize,
                 );
             } catch {
-                return invalidValidationResult("invalid-fill-fraction");
+                return invalidValidationResult(
+                    ORDER_VALIDATION_REASON.InvalidFillFraction,
+                );
             }
         }
-        const result = await validateBuyOrder(
+        const { capacity, ...result } = await validateBuyOrder(
             rpc,
             order,
             approvalTarget,
             price,
             remaining,
         );
-        return original !== null &&
-            remaining !== null &&
-            result.capacity !== undefined
+        return original !== null && remaining !== null && capacity !== undefined
             ? {
-                  status: result.status,
-                  reason: result.reason,
+                  ...result,
                   quantities: {
                       original: original.toString(),
                       remaining: remaining.toString(),
-                      fillable: result.capacity.toString(),
+                      fillable: capacity.toString(),
                   },
               }
-            : { status: result.status, reason: result.reason };
+            : result;
     }
 
-    const reason = "unknown-side";
+    const reason = ORDER_VALIDATION_REASON.UnknownSide;
     logInvalidValidation(order, reason, {
         phase: "sideCheck",
         side: order.side,
@@ -388,7 +408,7 @@ async function validateSellOrder(
     approvalTarget: string,
 ): Promise<OrderValidationResult> {
     if (!order.tokenId) {
-        const reason = "missing-token-id";
+        const reason = ORDER_VALIDATION_REASON.MissingTokenId;
         logInvalidValidation(order, reason, {
             phase: "sellTokenCheck",
         });
@@ -403,7 +423,7 @@ async function validateSellOrder(
             args: [BigInt(order.tokenId)],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport sell order owner lookup failed", {
             component: "SeaportOrderValidation",
             action: "validateSellOrder",
@@ -413,12 +433,16 @@ async function validateSellOrder(
             phase: "ownerOf",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "ownerOf",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (owner.toLowerCase() !== order.maker.toLowerCase()) {
-        return { status: ORDER_STATUS.NoBalance, reason: "owner-mismatch" };
+        return {
+            status: ORDER_STATUS.NoBalance,
+            reason: ORDER_VALIDATION_REASON.OwnerMismatch,
+        };
     }
 
     let approvedForAll = false;
@@ -430,7 +454,7 @@ async function validateSellOrder(
             args: [order.maker as Hex, approvalTarget as Hex],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport sell order approval-for-all lookup failed", {
             component: "SeaportOrderValidation",
             action: "validateSellOrder",
@@ -440,12 +464,16 @@ async function validateSellOrder(
             phase: "isApprovedForAll",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "isApprovedForAll",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (approvedForAll) {
-        return { status: ORDER_STATUS.Fillable, reason: "approved" };
+        return {
+            status: ORDER_STATUS.Fillable,
+            reason: ORDER_VALIDATION_REASON.Approved,
+        };
     }
 
     let approved: string;
@@ -457,7 +485,7 @@ async function validateSellOrder(
             args: [BigInt(order.tokenId)],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport sell order approval lookup failed", {
             component: "SeaportOrderValidation",
             action: "validateSellOrder",
@@ -467,15 +495,22 @@ async function validateSellOrder(
             phase: "getApproved",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "getApproved",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (approved.toLowerCase() === approvalTarget.toLowerCase()) {
-        return { status: ORDER_STATUS.Fillable, reason: "approved" };
+        return {
+            status: ORDER_STATUS.Fillable,
+            reason: ORDER_VALIDATION_REASON.Approved,
+        };
     }
 
-    return { status: ORDER_STATUS.NoApproval, reason: "missing-approval" };
+    return {
+        status: ORDER_STATUS.NoApproval,
+        reason: ORDER_VALIDATION_REASON.MissingApproval,
+    };
 }
 
 async function validateBuyOrder(
@@ -491,7 +526,7 @@ async function validateBuyOrder(
         try {
             balance = await rpc.getBalance(order.maker as Hex);
         } catch (error) {
-            const reason = `protocol-error:${String(error)}`;
+            const reason = ORDER_VALIDATION_REASON.ProtocolError;
             logger.error("Seaport buy order native balance lookup failed", {
                 component: "SeaportOrderValidation",
                 action: "validateBuyOrder",
@@ -501,20 +536,21 @@ async function validateBuyOrder(
                 phase: "getBalance",
             });
             logInvalidValidation(order, reason, {
+                error: String(error),
                 phase: "getBalance",
             });
-            return invalidValidationResult(reason);
+            return invalidValidationResult(reason, error);
         }
         if (balance < price) {
             return {
                 status: ORDER_STATUS.NoBalance,
-                reason: "no-balance",
+                reason: ORDER_VALIDATION_REASON.NoBalance,
                 capacity: 0n,
             };
         }
         return {
             status: ORDER_STATUS.Fillable,
-            reason: "native-ok",
+            reason: ORDER_VALIDATION_REASON.NativeFundsAvailable,
             capacity:
                 remaining === null
                     ? undefined
@@ -531,7 +567,7 @@ async function validateBuyOrder(
             args: [order.maker as Hex, approvalTarget as Hex],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport buy order allowance lookup failed", {
             component: "SeaportOrderValidation",
             action: "validateBuyOrder",
@@ -541,14 +577,15 @@ async function validateBuyOrder(
             phase: "allowance",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "allowance",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (allowance < price) {
         return {
             status: ORDER_STATUS.NoApproval,
-            reason: "no-allowance",
+            reason: ORDER_VALIDATION_REASON.NoAllowance,
             capacity: 0n,
         };
     }
@@ -562,7 +599,7 @@ async function validateBuyOrder(
             args: [order.maker as Hex],
         });
     } catch (error) {
-        const reason = `protocol-error:${String(error)}`;
+        const reason = ORDER_VALIDATION_REASON.ProtocolError;
         logger.error("Seaport buy order ERC20 balance lookup failed", {
             component: "SeaportOrderValidation",
             action: "validateBuyOrder",
@@ -572,21 +609,22 @@ async function validateBuyOrder(
             phase: "balanceOf",
         });
         logInvalidValidation(order, reason, {
+            error: String(error),
             phase: "balanceOf",
         });
-        return invalidValidationResult(reason);
+        return invalidValidationResult(reason, error);
     }
     if (balance < price) {
         return {
             status: ORDER_STATUS.NoBalance,
-            reason: "no-balance",
+            reason: ORDER_VALIDATION_REASON.NoBalance,
             capacity: 0n,
         };
     }
 
     return {
         status: ORDER_STATUS.Fillable,
-        reason: "erc20-ok",
+        reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
         capacity:
             remaining === null
                 ? undefined
@@ -596,7 +634,7 @@ async function validateBuyOrder(
 
 function logInvalidValidation(
     order: OrderRecord,
-    reason: string,
+    reason: OrderValidationReason,
     details: Record<string, unknown> = {},
 ): void {
     logger.debug("Seaport order validation marked order invalid", {
@@ -610,13 +648,14 @@ function logInvalidValidation(
     });
 }
 
-function invalidValidationResult(reason: string): {
-    status: OrderStatus;
-    reason: string;
-} {
+function invalidValidationResult(
+    reason: OrderValidationReason,
+    error?: unknown,
+): OrderValidationResult {
     return {
         status: ORDER_STATUS.Invalid,
         reason,
+        ...(error === undefined ? {} : { error: String(error) }),
     };
 }
 

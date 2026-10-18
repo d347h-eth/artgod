@@ -11,7 +11,11 @@ import {
     OrderValidationReadUnavailable,
 } from "../src/domain/order-validation-failure.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../src/domain/order-validation-policy.js";
-import { ORDER_STATUS, type OrderRecord } from "../src/domain/orders.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_STATUS,
+    type OrderRecord,
+} from "../src/domain/orders.js";
 import type { ConduitRegistryPort } from "../src/ports/conduits.js";
 import {
     HEAVY_MAKER,
@@ -249,13 +253,13 @@ describe("bounded Seaport validation snapshots", () => {
             ),
         ).toMatchObject({
             status: ORDER_STATUS.Invalid,
-            reason: "order-hash-mismatch",
+            reason: ORDER_VALIDATION_REASON.OrderHashMismatch,
         });
         expect(rpc.reads).toEqual({});
         rpc.counter = 1n;
         expect(await batch.validate(heavyMakerOrder(1))).toMatchObject({
             status: ORDER_STATUS.Cancelled,
-            reason: "counter-mismatch",
+            reason: ORDER_VALIDATION_REASON.CounterMismatch,
         });
         await batch.finish();
         expect(rpc.reads).toEqual({ getOrderStatus: 1, getCounter: 1 });

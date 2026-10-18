@@ -6,7 +6,10 @@ import {
     fillExecutionNeedsValidation,
 } from "../../domain/order-quantity.js";
 import { eventValidationRequest } from "../../domain/order-validation-demand.js";
-import type { OrderValidationResult } from "../../domain/orders.js";
+import type {
+    OrderValidationReason,
+    OrderValidationResult,
+} from "../../domain/orders.js";
 import type { OrderMutationObserver } from "../../application/orders/observability.js";
 import { observeBestEffort } from "../../application/processing-observability.js";
 import { ORDER_DOMAIN_LOG_COMPONENT } from "./orders-reporting.js";
@@ -209,7 +212,7 @@ type OrderRowsProfile = {
 
 type ValidationSummary = {
     statuses: Record<string, number>;
-    reasons: Record<string, number>;
+    reasons: Partial<Record<OrderValidationReason, number>>;
     slowest: SlowOrderValidation[];
 };
 
@@ -221,7 +224,8 @@ type SlowOrderValidation = {
     fillabilityStatus: string;
     durationMs: number;
     status: OrderStatus;
-    reason: string;
+    reason: OrderValidationReason;
+    error?: string;
 };
 
 type TimedOrderValidation = OrderValidationResult & {
@@ -552,7 +556,7 @@ export class SqliteOrdersDomain
     ): { changes: number } {
         const result =
             typeof validation === "string"
-                ? { status: validation, reason: "" }
+                ? { status: validation }
                 : validation;
         // Current result attribution belongs to the order, not to demand's reusable
         // coverage cache. Cleanup and retirement must preserve its rollback boundary.
@@ -742,6 +746,9 @@ export class SqliteOrdersDomain
                     chainId: orderRow.chain_id,
                     status: validation.status,
                     reason: validation.reason,
+                    ...(validation.error === undefined
+                        ? {}
+                        : { error: validation.error }),
                 });
             } else if (orderRow.kind === "seaport") {
                 finalStatus = ORDER_STATUS.Invalid;
@@ -1539,6 +1546,7 @@ function recordValidation(
         durationMs: validation.durationMs,
         status: validation.status,
         reason: validation.reason,
+        ...(validation.error === undefined ? {} : { error: validation.error }),
     });
     summary.slowest.sort((left, right) => right.durationMs - left.durationMs);
     if (

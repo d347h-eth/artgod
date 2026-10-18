@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_LOCAL_TOKEN_SET_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
@@ -135,7 +136,10 @@ describe("address normalization at indexer write boundaries", () => {
         ).run();
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            async () => ({ status: "fillable", reason: "test" }),
+            async () => ({
+                status: "fillable",
+                reason: ORDER_VALIDATION_REASON.Approved,
+            }),
         );
 
         await domain.handleOrderUpsert({

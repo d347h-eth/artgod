@@ -34,6 +34,7 @@ import {
 import { JobDeferred } from "../src/domain/job-deferred.js";
 import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
@@ -841,7 +842,7 @@ describe("durable maker checkpoints", () => {
                 candidate,
                 validation: {
                     status: ORDER_STATUS.Fillable,
-                    reason: "fixture committed before death",
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                 },
             })),
             false,
@@ -1137,7 +1138,7 @@ describe("durable maker checkpoints", () => {
             candidate,
             validation: {
                 status: ORDER_STATUS.NoBalance,
-                reason: "fixture",
+                reason: ORDER_VALIDATION_REASON.NoBalance,
             },
         }));
         expect(() =>

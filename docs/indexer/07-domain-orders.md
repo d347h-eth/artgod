@@ -461,6 +461,15 @@ No schema or persisted payload change is required for existing alpha queues.
 
 The Seaport validator lives in `indexer/src/application/offchain/seaport-validate.ts` and runs from canonical `seaport_data_json`.
 
+`OrderValidationResult` and `ORDER_VALIDATION_REASON` are owned by
+`indexer/src/domain/orders.ts`. `status` and the quantity snapshot drive the
+projected order state. `reason` is a closed domain vocabulary explaining that
+result for logs and bounded summary counts; it does not route jobs, select
+lifecycle transitions or schedule retries. Exception details belong in the
+separate optional `error` field, never in a reason code. Runtime snapshot read
+failures still throw through the existing failure boundary before any result
+can commit. Tests and validators consume the same exported reason constants.
+
 Current validation flow:
 
 1. Parse canonical Seaport data from the order row.

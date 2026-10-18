@@ -17,6 +17,7 @@ import { validateSeaportOrder } from "../src/application/offchain/seaport-valida
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
@@ -108,7 +109,7 @@ describe.each(["scalar", "snapshot"] as const)(
             const read = vi.spyOn(rpc, "readContract");
             expect(await validate(order, rpc)).toEqual({
                 status: ORDER_STATUS.Fillable,
-                reason: "approved",
+                reason: ORDER_VALIDATION_REASON.Approved,
             });
             expect(rpc.reads).toEqual({
                 getOrderStatus: 1,
@@ -165,7 +166,7 @@ describe.each(["scalar", "snapshot"] as const)(
             const rpc = new BulkListingRpc();
             expect(await validate(order, rpc)).toEqual({
                 status: ORDER_STATUS.Invalid,
-                reason: "bad-signature",
+                reason: ORDER_VALIDATION_REASON.BadSignature,
             });
             expect(rpc.reads).toEqual({});
         });
@@ -227,7 +228,8 @@ describe("stored bulk listing recovery", () => {
                     claim,
                     result: {
                         status: ORDER_STATUS.Invalid,
-                        reason: "signature-error:Error: invalid signature length",
+                        reason: ORDER_VALIDATION_REASON.SignatureError,
+                        error: "Error: invalid signature length",
                     },
                 },
             ],

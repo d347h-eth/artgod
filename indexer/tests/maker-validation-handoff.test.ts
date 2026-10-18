@@ -20,7 +20,11 @@ import {
 } from "../src/domain/maker-revalidation.js";
 import { ORDER_VALIDATION_DEMAND_POLICY as DEMAND_POLICY } from "../src/domain/order-validation-demand.js";
 import { OrderValidationReadUnavailable } from "../src/domain/order-validation-failure.js";
-import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_SOURCE_STATUS,
+    ORDER_STATUS,
+} from "../src/domain/orders.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
@@ -411,7 +415,7 @@ describe("maker scan handoff to durable order validation", () => {
                         claim,
                         result: {
                             status: ORDER_STATUS.Fillable,
-                            reason: "stale executor",
+                            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                         },
                     },
                 ],

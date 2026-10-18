@@ -16,6 +16,7 @@ import { createSeaportValidationBatchFactory } from "../src/application/offchain
 import { ORDER_VALIDATION_BATCH_POLICY } from "../src/domain/order-validation-policy.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
     type OrderRecord,
@@ -256,7 +257,10 @@ describe("heavy-maker workload", () => {
                 if (visited.length === 500)
                     throw new Error("simulated interruption");
                 visited.push(order.id);
-                return { status: ORDER_STATUS.Fillable, reason: "fixture" };
+                return {
+                    status: ORDER_STATUS.Fillable,
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+                };
             },
         );
         await expect(
@@ -267,7 +271,10 @@ describe("heavy-maker workload", () => {
             HEAVY_MAKER.weth,
             async (order: OrderRecord) => {
                 resumed.push(order.id);
-                return { status: ORDER_STATUS.Fillable, reason: "fixture" };
+                return {
+                    status: ORDER_STATUS.Fillable,
+                    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+                };
             },
         );
         await restarted.handleOrderUpdateByMaker(heavyMakerHint());

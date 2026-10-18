@@ -18,11 +18,13 @@ import {
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../src/domain/maker-triggers.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
     type OrderRecord,
     type OrderSourceStatus,
     type OrderStatus,
+    type OrderValidationResult,
 } from "../src/domain/orders.js";
 import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
 import { normalizeOffchainOrder } from "../src/application/offchain/normalize.js";
@@ -72,7 +74,7 @@ describe("orders update by maker", () => {
                 validatedOrderIds.push(candidate.id);
                 return {
                     status: ORDER_STATUS.Fillable,
-                    reason: "owner-and-approval-still-valid",
+                    reason: ORDER_VALIDATION_REASON.Approved,
                 };
             },
         );
@@ -115,7 +117,7 @@ describe("orders update by maker", () => {
                 validatedOrderIds.push(candidate.id);
                 return {
                     status: ORDER_STATUS.Fillable,
-                    reason: "owner-and-approval-still-valid",
+                    reason: ORDER_VALIDATION_REASON.Approved,
                 };
             },
         );
@@ -175,7 +177,7 @@ describe("orders update by maker", () => {
                 validatedOrderIds.push(candidate.id);
                 return {
                     status: ORDER_STATUS.Fillable,
-                    reason: "approval-state-refreshed",
+                    reason: ORDER_VALIDATION_REASON.Approved,
                 };
             },
         );
@@ -283,18 +285,18 @@ describe("orders update by maker", () => {
                 ) {
                     return {
                         status: ORDER_STATUS.Invalid,
-                        reason: "unexpected-order-selection",
+                        reason: ORDER_VALIDATION_REASON.MissingProtocol,
                     };
                 }
                 if (candidate.id === underfundedBuyOrder.orderId) {
                     return {
                         status: ORDER_STATUS.Fillable,
-                        reason: "weth-balance-restored",
+                        reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                     };
                 }
                 return {
                     status: ORDER_STATUS.NoBalance,
-                    reason: "weth-balance-dropped",
+                    reason: ORDER_VALIDATION_REASON.NoBalance,
                 };
             },
         );
@@ -354,12 +356,12 @@ describe("orders update by maker", () => {
                 if (candidate.id === firstOrder.orderId) {
                     return {
                         status: ORDER_STATUS.Fillable,
-                        reason: "still-fillable",
+                        reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
                     };
                 }
                 return {
                     status: ORDER_STATUS.NoBalance,
-                    reason: "balance-dropped",
+                    reason: ORDER_VALIDATION_REASON.NoBalance,
                 };
             },
         );
@@ -438,8 +440,8 @@ describe("orders update by maker", () => {
             [ORDER_STATUS.NoBalance]: 1,
         });
         expect(validation.reasons).toMatchObject({
-            "still-fillable": 1,
-            "balance-dropped": 1,
+            [ORDER_VALIDATION_REASON.Erc20FundsAvailable]: 1,
+            [ORDER_VALIDATION_REASON.NoBalance]: 1,
         });
         expect(validation.slowest).toHaveLength(2);
         expect(getFillabilityStatus(secondOrder.orderId)).toBe(
@@ -472,7 +474,7 @@ describe("orders update by maker", () => {
                 validatedOrderIds.push(candidate.id);
                 return {
                     status: ORDER_STATUS.Cancelled,
-                    reason: "counter-mismatch",
+                    reason: ORDER_VALIDATION_REASON.CounterMismatch,
                 };
             },
         );
@@ -515,7 +517,7 @@ describe("orders update by maker", () => {
                 validatedOrderIds.push(candidate.id);
                 return {
                     status: ORDER_STATUS.Cancelled,
-                    reason: "should-not-run-before-anchor",
+                    reason: ORDER_VALIDATION_REASON.CounterMismatch,
                 };
             },
         );
@@ -651,11 +653,9 @@ function setOrderStatuses(
 }
 
 function createUnusedValidator() {
-    return async (
-        _order: OrderRecord,
-    ): Promise<{ status: OrderStatus; reason: string }> => ({
+    return async (_order: OrderRecord): Promise<OrderValidationResult> => ({
         status: ORDER_STATUS.Fillable,
-        reason: "unused-in-upsert-only-test",
+        reason: ORDER_VALIDATION_REASON.Approved,
     });
 }
 
