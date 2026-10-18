@@ -1,6 +1,9 @@
 import type { ChainSyncCheckpoint } from "../../domain/chain-sync.js";
 import type { OrderExecutionBlockPort } from "./execution-block.js";
-import type { OrderUpdateByIdPayload } from "../../domain/order-jobs.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
+} from "../../domain/order-jobs.js";
 import { orderUpdateQueue } from "../../domain/order-processing.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
@@ -26,7 +29,10 @@ export class ApplyOrderUpdate {
                 AdmitOrderValidation,
                 "execute" | "captureSyncCheckpoint" | "needsValidation"
             >;
-            lifecycle: Pick<OrdersDomainPort, "handleOrderUpdateById">;
+            lifecycle: Pick<
+                OrdersDomainPort,
+                "handleOrderUpdateById" | "applySourceExecution"
+            >;
             observability?: OrderProcessingObservability;
         },
     ) {}
@@ -37,6 +43,12 @@ export class ApplyOrderUpdate {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
         if (orderUpdateQueue(payload) === QUEUE_NAMES.OrdersUpdateById) {
+            if (
+                payload.reason === ORDER_UPDATE_REASON.SourceExecution &&
+                !this.deps.lifecycle.applySourceExecution(payload)
+                    .validationNeeded
+            )
+                return;
             let request = observedOrderValidationRequest(
                 payload.chainId,
                 payload.orderId,
@@ -44,14 +56,16 @@ export class ApplyOrderUpdate {
             );
             let checkpoint: ChainSyncCheckpoint | undefined;
             const executionHash = payload.executionTransactionHash;
-            if (executionHash !== undefined) {
+            if (payload.reason === ORDER_UPDATE_REASON.SourceExecution) {
                 // No receipt dependency remains for a terminal/source-ineligible order.
                 // Admission rechecks eligibility after RPC, so cancellation still wins.
                 if (!this.deps.validation.needsValidation(request)) return;
                 checkpoint = this.deps.validation.captureSyncCheckpoint();
                 // Local observation time cannot prove source execution inclusion. RPC
                 // stays outside the writer; failure retains the original delivery.
-                const block = await this.resolveExecutionBlock(executionHash);
+                const block = await this.resolveExecutionBlock(
+                    executionHash ?? null,
+                );
                 request = sourceExecutionValidationRequest(
                     payload.chainId,
                     payload.orderId,

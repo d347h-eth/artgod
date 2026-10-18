@@ -347,10 +347,12 @@ result remains intact. The existing executors then recompute the new chain state
 without waiting for any source observation; independent source cancellation
 remains definitive.
 
-An OpenSea sale is an observation hint, not a canonical exhaustion fact. It uses
-the ordinary by-ID validation input with a verified transaction-block requirement,
-without setting source `filled`; canonical
-chain fills and explicit cancellations retain their lifecycle path. Shared
+An OpenSea sale uses the source-execution handling category. The orders domain
+checks retained signed terms: known full-only orders apply source `filled`
+immediately without RPC, including buy and sell orders. Partial or unknown
+Seaport terms retain current state and require verified transaction inclusion
+before admitting block-scoped validation. Canonical chain fills and explicit
+cancellations retain their lifecycle path. Shared
 Seaport enum definitions own protocol values used by order normalization,
 execution facts, quantity calculation and signing policy.
 

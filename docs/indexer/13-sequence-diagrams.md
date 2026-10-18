@@ -213,12 +213,17 @@ sequenceDiagram
     NATS-->>Consumer: Deliver upsert, validation hint or lifecycle fact
     alt Upsert
         Consumer->>DB: Commit canonical changes and needed demand together
-    else By-ID validation hint
-        opt Source execution transaction
+    else Source execution observation
+        Consumer->>DB: Classify retained signed terms
+        alt Full-only order
+            Consumer->>DB: Apply guarded source-filled observation without RPC
+        else Partial or unknown Seaport order
             Consumer->>DB: Capture canonical revision
             Consumer->>RPC: Fresh receipt and block; verify transaction inclusion
             Note over Consumer,NATS: Failure retains original delivery; no observation-time substitute
+            Consumer->>DB: Admit execution-block requirement with captured revision
         end
+    else By-ID validation hint
         Consumer->>DB: Coalesce current requirement with execution block/revision fence, or resolve unnecessary work
     else Canonical partial-order execution
         Consumer->>DB: Admit block-scoped demand, preserve validated order state

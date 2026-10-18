@@ -231,7 +231,10 @@ describe("order processing boundaries", () => {
             needsValidation: vi.fn(),
             captureSyncCheckpoint: vi.fn(),
         };
-        const lifecycle = { handleOrderUpdateById: vi.fn() };
+        const lifecycle = {
+            handleOrderUpdateById: vi.fn(),
+            applySourceExecution: vi.fn(),
+        };
         const processor = new ApplyOrderUpdate({
             chainId: 1,
             validation,

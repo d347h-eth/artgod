@@ -21,6 +21,7 @@ export const ORDER_JOB_KIND = {
 } as const;
 export const ORDER_UPDATE_REASON = {
     Validation: "order",
+    SourceExecution: "source-execution",
     Fill: "fill",
     Cancel: "cancel",
 } as const;
@@ -82,9 +83,11 @@ export type OrderUpdateByIdPayload = {
     /**
      * Domain handling category from ORDER_UPDATE_REASON, not the upstream event name.
      * Without sourceStatus, runtime handling is:
-     * - Validation: establish any source execution transaction coverage, then admit
-     *   durable full validation; preserve current state until its
+     * - Validation: admit durable full validation; preserve current state until its
      *   result updates fillability and quantities.
+     * - SourceExecution: inspect the retained signed terms. Full-only orders apply
+     *   the source-filled observation immediately, without RPC. Partial or unknown
+     *   Seaport terms require canonical execution coverage and durable validation.
      * - Fill: apply a canonical execution. Full-only orders become filled with zero
      *   remaining capacity; partial or unknown Seaport terms require block-scoped
      *   validation to establish cumulative remaining quantity and fillability.
@@ -92,8 +95,8 @@ export type OrderUpdateByIdPayload = {
      * With sourceStatus, the source-observation lifecycle path takes precedence:
      * apply that source status and its retention protection instead of deriving
      * protocol fillability from reason.
-     * An OpenSea item_sold observation therefore requests Validation: a sale alone
-     * does not establish that the entire order is filled.
+     * OpenSea item_sold uses SourceExecution; normalization alone cannot decide
+     * whether the retained signed order permits partial fulfillment.
      */
     reason: string;
     /** Source sale inclusion to resolve before coalescing validation. Null means

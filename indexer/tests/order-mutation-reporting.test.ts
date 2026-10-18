@@ -64,6 +64,11 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
         ORDER_UPDATE_REASON.Validation,
     );
     report.sourceUpdated(
+        true,
+        ORDER_SOURCE_STATUS.Filled,
+        ORDER_UPDATE_REASON.SourceExecution,
+    );
+    report.sourceUpdated(
         false,
         "unsupported" as OrderSourceStatus,
         "__proto__",
@@ -80,8 +85,8 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
         windowMs: POLICY.intervalMs,
         upserts: { processed: 100_000, changed: 50_000, unchanged: 50_000 },
         sourceUpdates: {
-            processed: 1002,
-            changed: 500,
+            processed: 1003,
+            changed: 501,
             unchanged: 502,
             statuses: Object.fromEntries(
                 Object.values(ORDER_SOURCE_STATUS).map((status) => [
@@ -89,6 +94,7 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
                     status === ORDER_SOURCE_STATUS.Active
                         ? 1000
                         : status === ORDER_SOURCE_STATUS.Inactive ||
+                            status === ORDER_SOURCE_STATUS.Filled ||
                             status === ORDER_SOURCE_STATUS.Unknown
                           ? 1
                           : 0,
@@ -96,6 +102,7 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
             ),
             reasons: {
                 [ORDER_UPDATE_REASON.Validation]: 1,
+                [ORDER_UPDATE_REASON.SourceExecution]: 1,
                 [ORDER_UPDATE_REASON.Fill]: 0,
                 [ORDER_UPDATE_REASON.Cancel]: 0,
                 [BUCKET.OtherReason]: 1001,

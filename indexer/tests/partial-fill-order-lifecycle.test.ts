@@ -24,6 +24,7 @@ import { SEAPORT_ORDER_TYPE } from "@artgod/shared/market-data/seaport";
 import { ORDER_PROCESSING_POLICY } from "../src/domain/order-processing.js";
 import {
     ORDER_SOURCE_STATUS,
+    ORDER_SIDE,
     ORDER_STATUS,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
 } from "../src/domain/orders.js";
@@ -871,6 +872,74 @@ describe("canonical partial fill quantity progression", () => {
             payload: { ...update, chainId: 1, collectionId, observedAt: NOW },
         };
     }
+
+    it.each(
+        [
+            SEAPORT_ORDER_TYPE.FullOpen,
+            SEAPORT_ORDER_TYPE.FullRestricted,
+        ].flatMap((type) =>
+            [ORDER_SIDE.Buy, ORDER_SIDE.Sell].map((side) => ({ type, side })),
+        ),
+    )(
+        "applies a full-only $side source sale immediately without RPC (type=$type)",
+        async ({ type, side }) => {
+            const work = workflow();
+            const order = heavyMakerOrder(0, {
+                collectionId,
+                contract: terms.contract,
+                validFrom: terms.validFrom,
+                validUntil: terms.validUntil,
+                side,
+            });
+            order.seaportData!.orderType = String(type);
+            order.id = computeSeaportOrderHash(order.seaportData!);
+            await work.domain.handleOrderUpsert(
+                upsert({
+                    orderId: order.id,
+                    side,
+                    tokenId: order.tokenId,
+                    sourceScopeKind: order.sourceScopeKind,
+                    seaportData: order.seaportData,
+                    price: order.price,
+                    quantity: "1",
+                    originalQuantity: "1",
+                }),
+            );
+            const source = sourceExecution(work);
+            await source.apply.execute(
+                {
+                    ...source.payload,
+                    orderId: order.id,
+                    executionTransactionHash: null,
+                },
+                NOW * 1000,
+            );
+            expect(stored(order.id)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Filled,
+            });
+            expect(source.receipt).not.toHaveBeenCalled();
+            expect(source.block).not.toHaveBeenCalled();
+            await work.processor.executeBatch();
+            expect(work.rpc.reads.getOrderStatus).toBeUndefined();
+            expect(work.store.get(1, order.id)?.pending).toBe(false);
+
+            await work.domain.handleOrderUpdateById({
+                chainId: 1,
+                orderId: order.id,
+                reason: ORDER_UPDATE_REASON.Cancel,
+                sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                observedAt: NOW,
+            });
+            await source.apply.execute(
+                { ...source.payload, orderId: order.id },
+                NOW * 1000,
+            );
+            expect(stored(order.id)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Cancelled,
+            });
+            expect(source.receipt).not.toHaveBeenCalled();
+        },
+    );
 
     it("source sale cannot consume a retained pre-sale proof or complete against a lagging head", async () => {
         const work = workflow();

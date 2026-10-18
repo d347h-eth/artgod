@@ -602,6 +602,42 @@ export class SqliteOrdersDomain
         })();
     }
 
+    applySourceExecution(payload: OrderUpdateByIdPayload): {
+        validationNeeded: boolean;
+    } {
+        const outcome = db.writeTransaction(() => {
+            const row = this.selectOrderById.get({
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            }) as OrderRow | undefined;
+            if (!row) return { validationNeeded: false, changes: 0 };
+            if (fillExecutionNeedsValidation(mapOrderRow(row)))
+                return { validationNeeded: true, changes: 0 };
+            // Full-only signed terms establish source exhaustion from one sale.
+            // Keep the existing source-observation guards and cancellation priority.
+            const result = this.applySourceObservation({
+                ...payload,
+                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+            });
+            if (result.changes)
+                this.listingPrices.refreshOrder(
+                    payload.chainId,
+                    payload.orderId,
+                    this.nowSeconds(),
+                );
+            return { validationNeeded: false, changes: result.changes };
+        })();
+        if (!outcome.validationNeeded)
+            observeBestEffort(() =>
+                this.mutations?.sourceUpdated(
+                    outcome.changes > 0,
+                    ORDER_SOURCE_STATUS.Filled,
+                    ORDER_UPDATE_REASON.SourceExecution,
+                ),
+            );
+        return { validationNeeded: outcome.validationNeeded };
+    }
+
     async handleOrderUpdateById(
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {

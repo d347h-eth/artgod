@@ -143,7 +143,7 @@ describe("incomplete OpenSea sales", () => {
             expect.objectContaining({
                 payload: expect.objectContaining({
                     orderId: ORDER_HASH,
-                    reason: ORDER_UPDATE_REASON.Validation,
+                    reason: ORDER_UPDATE_REASON.SourceExecution,
                     sourceStatus: undefined,
                 }),
             }),

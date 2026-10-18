@@ -114,7 +114,7 @@ export function normalizeOpenSeaOrderUpdate(
         return {
             orderId,
             executionTransactionHash: transactionHash,
-            reason: ORDER_UPDATE_REASON.Validation,
+            reason: ORDER_UPDATE_REASON.SourceExecution,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };
     }
