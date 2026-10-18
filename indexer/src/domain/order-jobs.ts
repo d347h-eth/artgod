@@ -70,7 +70,7 @@ export type OrderUpdateByMakerPayload =
     | CollectionScopedOrderUpdateByMakerPayload
     | GlobalOrderUpdateByMakerPayload;
 
-// Order update by id = explicit fill/cancel/on-chain order create for a single order.
+// An order-specific update carrying a source observation, protocol fact or validation request.
 export type OrderUpdateByIdPayload = {
     chainId: number;
     /** Present on source updates, including cancellation before its create arrives. */
@@ -79,6 +79,21 @@ export type OrderUpdateByIdPayload = {
     /** Original order expiry supplied by a source update, when available. */
     validUntil?: number | null;
     orderId: string;
+    /**
+     * Domain handling category from ORDER_UPDATE_REASON, not the upstream event name.
+     * Without sourceStatus, runtime handling is:
+     * - Validation: admit durable full validation; preserve current state until its
+     *   result updates fillability and quantities.
+     * - Fill: apply a canonical execution. Full-only orders become filled with zero
+     *   remaining capacity; partial or unknown Seaport terms require block-scoped
+     *   validation to establish cumulative remaining quantity and fillability.
+     * - Cancel: apply protocol cancellation.
+     * With sourceStatus, the source-observation lifecycle path takes precedence:
+     * apply that source status and its retention protection instead of deriving
+     * protocol fillability from reason.
+     * An OpenSea item_sold observation therefore requests Validation: a sale alone
+     * does not establish that the entire order is filled.
+     */
     reason: string;
     sourceStatus?: OrderSourceStatus | null;
     blockNumber?: number | null;
