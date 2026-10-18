@@ -48,8 +48,14 @@ import {
 } from './helpers/bootstrap-run-detail-api';
 import {
 	BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID,
-	buildBootstrapRunDetailE2eDetail
+	buildBootstrapRunDetailE2eDetail,
+	BOOTSTRAP_RUN_DETAIL_E2E_DEPLOYMENT_BLOCK,
+	BOOTSTRAP_RUN_DETAIL_E2E_EXPLORER_URL,
+	BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO,
+	BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM
 } from '../src/lib/e2e/bootstrap-run-detail-fixtures';
+import { BOOTSTRAP_FLOW_ROW } from '../src/lib/bootstrap-flow';
+import { BOOTSTRAP_STEP_STATUS } from '@artgod/shared/bootstrap/pipeline';
 import {
 	COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH,
 	installCollectionOpenSeaSyncApiMock
@@ -841,6 +847,28 @@ test.describe('bootstrap setup', () => {
 		expect(api.probeRequests).toEqual([]);
 	});
 
+	for (const changeAddress of [false, true]) {
+		test(`carries the shared-contract finding only for the probed address: changed=${changeAddress}`, async ({
+			page
+		}) => {
+			const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+			await probeButton(page).click();
+			await expect(formRow(page, 'Token scope')).toContainText('Likely shared contract.');
+			await page
+				.locator('#bootstrap-scope-mode')
+				.selectOption(BOOTSTRAP_ENUMERATION_MODE.Enumerable);
+			if (changeAddress)
+				await page.locator('#bootstrap-address').fill(BOOTSTRAP_PROBE_CONTRACTS.Aeon);
+			await expect(queueButton(page)).toBeEnabled();
+			await queueButton(page).click();
+			await expect.poll(() => api.mutations.length).toBe(1);
+			expect(api.mutations[0].body).toMatchObject({
+				scope: { mode: BOOTSTRAP_ENUMERATION_MODE.Enumerable },
+				sharedContract: !changeAddress
+			});
+		});
+	}
+
 	test('queues a complete manual definition without probes, sample or estimate', async ({
 		page
 	}, info) => {
@@ -854,6 +882,7 @@ test.describe('bootstrap setup', () => {
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0].body).toMatchObject({
 			scope: { mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange, startTokenId: '1', tokenCount: 999 },
+			sharedContract: false,
 			imageSourceField: 'image'
 		});
 		expect(api.probeRequests).toEqual([]);
@@ -2386,6 +2415,215 @@ async function expectFormLocked(page: Page) {
 	await expect(contractAddressSafetyAcknowledgement(page)).toBeEnabled();
 }
 test.describe('bootstrap run detail UI', () => {
+	test('keeps extension progress in the optional row', async ({ page }, info) => {
+		await page.goto(
+			`${BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH}?${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM}=${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Extension}`
+		);
+		const optional = page.getByRole('list', { name: BOOTSTRAP_FLOW_ROW.Optional, exact: true });
+		await expect(optional.getByRole('listitem')).toHaveCount(3);
+		const extension = optional.getByRole('listitem').filter({ hasText: 'extension artifacts' });
+		await expect(extension.getByText('128 / 1000', { exact: true })).toBeVisible();
+		await page.screenshot({ path: info.outputPath('bootstrap-extension.png'), fullPage: true });
+	});
+
+	for (const scenario of [
+		BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.CustomExplorer,
+		BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.InvalidExplorer
+	])
+		test(`renders block numbers with ${scenario}`, async ({ page }, info) => {
+			await page.goto(
+				`${BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH}?${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM}=${scenario}`
+			);
+			const flow = page.getByRole('group', { name: 'bootstrap flow' });
+			for (const block of [24500000, BOOTSTRAP_RUN_DETAIL_E2E_DEPLOYMENT_BLOCK]) {
+				await expect(flow.getByText(String(block), { exact: true })).toBeVisible();
+				const link = flow.getByRole('link', { name: String(block), exact: true });
+				if (scenario === BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.CustomExplorer)
+					await expect(link).toHaveAttribute(
+						'href',
+						`${BOOTSTRAP_RUN_DETAIL_E2E_EXPLORER_URL}/block/${block}`
+					);
+				else await expect(link).toHaveCount(0);
+			}
+			await page.screenshot({ path: info.outputPath(`${scenario}.png`), fullPage: true });
+		});
+
+	test('separates required, OpenSea, and optional work and links the anchor', async ({
+		page
+	}, info) => {
+		await installBootstrapRunDetailApiMock(page);
+		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
+		const flow = page.getByRole('group', { name: 'bootstrap flow' });
+		const rows = flow.getByRole('list');
+		await expect(rows).toHaveCount(3);
+		const required = flow.getByRole('list', { name: BOOTSTRAP_FLOW_ROW.Required, exact: true });
+		const opensea = flow.getByRole('list', { name: BOOTSTRAP_FLOW_ROW.OpenSea, exact: true });
+		const optional = flow.getByRole('list', { name: BOOTSTRAP_FLOW_ROW.Optional, exact: true });
+		await expect(required.getByRole('listitem')).toHaveCount(6);
+		await expect(opensea.getByRole('listitem')).toHaveCount(3);
+		await expect(optional.getByRole('listitem')).toHaveCount(2);
+		await expect(optional.getByText('image cache', { exact: true })).toBeVisible();
+		await expect(optional.getByText('deployment block', { exact: true })).toBeVisible();
+		await expect(flow.getByText('queued', { exact: true })).toHaveCount(0);
+		const anchor = required
+			.getByRole('listitem')
+			.filter({ has: page.getByText('anchor', { exact: true }) });
+		await expect(anchor.getByRole('link', { name: '24500000', exact: true })).toHaveAttribute(
+			'href',
+			'https://etherscan.io/block/24500000'
+		);
+		await expect(anchor.getByRole('link')).toHaveAttribute('target', '_blank');
+		for (const label of [
+			'anchor',
+			'collection live',
+			'opensea identity',
+			'opensea snapshot',
+			'opensea ready',
+			'deployment block'
+		]) {
+			const chip = flow
+				.getByRole('listitem')
+				.filter({ has: page.getByText(label, { exact: true }) });
+			await expect(chip.getByText(/^\d+\s*\/\s*\d+$/)).toHaveCount(0);
+			await expect(chip.getByText(/^\d+%$/)).toHaveCount(0);
+		}
+		const boxes = await Promise.all([
+			required.boundingBox(),
+			opensea.boundingBox(),
+			optional.boundingBox()
+		]);
+		expect(boxes[0]!.y).toBeLessThan(boxes[1]!.y);
+		expect(boxes[1]!.y).toBeLessThan(boxes[2]!.y);
+		expect(boxes[0]!.x).toBe(boxes[1]!.x);
+		expect(boxes[0]!.x).toBe(boxes[2]!.x);
+		await page.screenshot({ path: info.outputPath('bootstrap-rows.png'), fullPage: true });
+		if (page.viewportSize()!.width < 600) {
+			await required.evaluate((element) => {
+				element.scrollLeft = element.scrollWidth;
+			});
+			await expect(required.getByText('collection live', { exact: true })).toBeVisible();
+			await expect(optional.getByRole('button', { name: 'pause image cache' })).toBeVisible();
+			expect((await optional.boundingBox())!.x).toBe(boxes[2]!.x);
+			await page.screenshot({
+				path: info.outputPath('bootstrap-rows-scrolled.png'),
+				fullPage: true
+			});
+		}
+	});
+
+	test('pauses, resumes, and shows deployment completion after the collection is live', async ({
+		page
+	}, info) => {
+		const api = await installBootstrapRunDetailApiMock(page);
+		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
+		const chip = page
+			.getByRole('listitem')
+			.filter({ has: page.getByText('deployment block', { exact: true }) });
+		await expect(chip.getByText('pending', { exact: true })).toBeVisible();
+		await expect(page.getByText('completed', { exact: true })).toBeVisible();
+		await chip.getByRole('button', { name: 'pause deployment block' }).click();
+		await expect(chip.getByText('paused', { exact: true })).toBeVisible();
+		await page.screenshot({ path: info.outputPath('deployment-paused.png'), fullPage: true });
+		await chip.getByRole('button', { name: 'resume deployment block' }).click();
+		await expect(chip.getByText('pending', { exact: true })).toBeVisible();
+		expect(api.actions.map(({ stepKey, action }) => ({ stepKey, action }))).toEqual([
+			{ stepKey: BOOTSTRAP_STEP_KEY.DeploymentBlock, action: BOOTSTRAP_STEP_ACTION.Pause },
+			{ stepKey: BOOTSTRAP_STEP_KEY.DeploymentBlock, action: BOOTSTRAP_STEP_ACTION.Resume }
+		]);
+		api.completeDeployment();
+		await expect(chip.getByText('done', { exact: true })).toBeVisible();
+		await expect(
+			chip.getByRole('link', { name: String(BOOTSTRAP_RUN_DETAIL_E2E_DEPLOYMENT_BLOCK) })
+		).toHaveAttribute(
+			'href',
+			`https://etherscan.io/block/${BOOTSTRAP_RUN_DETAIL_E2E_DEPLOYMENT_BLOCK}`
+		);
+		await expect(chip.getByRole('button')).toHaveCount(0);
+		await page.screenshot({ path: info.outputPath('deployment-done.png'), fullPage: true });
+	});
+
+	test('retries a failed deployment lookup while the live collection stays completed', async ({
+		page
+	}, info) => {
+		const api = await installBootstrapRunDetailApiMock(page, BOOTSTRAP_STEP_STATUS.FailedTerminal);
+		await page.goto(
+			`${BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH}?${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM}=${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Failed}`
+		);
+		const chip = page
+			.getByRole('listitem')
+			.filter({ has: page.getByText('deployment block', { exact: true }) });
+		await expect(chip.getByText('failed', { exact: true })).toBeVisible();
+		await page.screenshot({ path: info.outputPath('deployment-failed.png'), fullPage: true });
+		await chip.getByRole('button', { name: 'retry deployment block' }).click();
+		await expect(chip.getByText('pending', { exact: true })).toBeVisible();
+		await expect(page.getByText('completed', { exact: true })).toBeVisible();
+		expect(api.actions[0]).toMatchObject({
+			stepKey: BOOTSTRAP_STEP_KEY.DeploymentBlock,
+			action: BOOTSTRAP_STEP_ACTION.Retry
+		});
+	});
+
+	test('shows no deployment lookup controls while its bootstrap run is failed', async ({
+		page
+	}, info) => {
+		const api = await installBootstrapRunDetailApiMock(
+			page,
+			BOOTSTRAP_STEP_STATUS.Ready,
+			BOOTSTRAP_RUN_STATUS.Failed
+		);
+		await page.goto(
+			`${BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH}?${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM}=${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.RunFailed}`
+		);
+		const chip = page
+			.getByRole('listitem')
+			.filter({ has: page.getByText('deployment block', { exact: true }) });
+		await expect(
+			page.getByText(BOOTSTRAP_RUN_STATUS.Failed, { exact: true }).first()
+		).toBeVisible();
+		await expect(chip.getByText('pending', { exact: true })).toBeVisible();
+		await expect(chip.getByRole('button')).toHaveCount(0);
+		await page.waitForTimeout(5_200);
+		expect(api.detailRequests).toBe(0);
+		await expect(chip.getByRole('button')).toHaveCount(0);
+		expect(api.actions).toEqual([]);
+		await page.screenshot({ path: info.outputPath('bootstrap-run-failed.png'), fullPage: true });
+	});
+
+	test('renders pending, completed, OpenSea-disabled, and missing-run states', async ({
+		page
+	}, info) => {
+		await installBootstrapRunDetailApiMock(page);
+		for (const scenario of [
+			BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Pending,
+			BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Completed,
+			BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.NoOpenSea,
+			BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Missing
+		]) {
+			await page.goto(
+				`${BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH}?${BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO_QUERY_PARAM}=${scenario}`
+			);
+			const flow = page.getByRole('group', { name: 'bootstrap flow' });
+			if (scenario === BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Missing) {
+				await expect(page.getByText('run not found', { exact: true })).toBeVisible();
+				await expect(flow).toHaveCount(0);
+			} else {
+				await expect(flow).toBeVisible();
+				if (scenario === BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.NoOpenSea)
+					await expect(flow.getByRole('list')).toHaveCount(2);
+				if (scenario === BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Pending) {
+					const anchor = flow
+						.getByRole('listitem')
+						.filter({ has: page.getByText('anchor', { exact: true }) });
+					await expect(anchor.getByText('pending', { exact: true })).toBeVisible();
+					await expect(anchor.getByRole('link')).toHaveCount(0);
+				}
+				if (scenario === BOOTSTRAP_RUN_DETAIL_E2E_SCENARIO.Completed)
+					await expect(flow.getByRole('button')).toHaveCount(0);
+			}
+			await page.screenshot({ path: info.outputPath(`bootstrap-${scenario}.png`), fullPage: true });
+		}
+	});
+
 	test('refreshes enumeration in one-percent increments', async ({ page }, info) => {
 		let completed = 100;
 		const total = 10_000;
@@ -2414,13 +2652,17 @@ test.describe('bootstrap run detail UI', () => {
 					progress: null,
 					availableActions: []
 				}));
-				detail.flow.steps.unshift({
-					...detail.flow.steps[0],
-					key: BOOTSTRAP_STEP_KEY.Enumeration,
-					label: 'enumeration',
-					state: finished ? BOOTSTRAP_FLOW_STEP_STATE.Completed : BOOTSTRAP_FLOW_STEP_STATE.Active,
-					progress: { completed, total }
-				});
+				detail.flow.steps = detail.flow.steps.map((step) =>
+					step.key === BOOTSTRAP_STEP_KEY.Enumeration
+						? {
+								...step,
+								state: finished
+									? BOOTSTRAP_FLOW_STEP_STATE.Completed
+									: BOOTSTRAP_FLOW_STEP_STATE.Active,
+								progress: { completed, total }
+							}
+						: step
+				);
 				await route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail) });
 			}
 		);
@@ -2440,10 +2682,10 @@ test.describe('bootstrap run detail UI', () => {
 		const api = await installBootstrapRunDetailApiMock(page);
 		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
 
-		const flow = page.getByRole('list', { name: 'bootstrap flow' });
+		const flow = page.getByRole('group', { name: 'bootstrap flow' });
 		await expect(flow).toBeVisible();
 		await expect(flow.getByText('metadata', { exact: true })).toBeVisible();
-		await expect(page.getByText('1000 / 1000')).toHaveCount(2);
+		await expect(page.getByText('1000 / 1000')).toHaveCount(3);
 		await expect(page.getByText('600 / 1000')).toBeVisible();
 		await expect(page.getByText('60%')).toBeVisible();
 		await expect(page.getByText('collection live')).toBeVisible();
@@ -2451,7 +2693,7 @@ test.describe('bootstrap run detail UI', () => {
 		await expect(page.getByRole('button', { name: 'refresh' })).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'retry failed' })).toHaveCount(0);
 		await expect(page.getByText('metadata mode')).toHaveCount(0);
-		await expect(page.getByText('enumeration')).toHaveCount(0);
+		await expect(page.getByText('enumeration', { exact: true })).toBeVisible();
 		await expect(page.getByText('anchor block')).toHaveCount(0);
 		await page.waitForTimeout(1200);
 		expect(api.detailRequests).toBe(0);

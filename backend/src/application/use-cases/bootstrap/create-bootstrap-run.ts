@@ -6,6 +6,7 @@ import {
 } from "@artgod/shared/bootstrap/scope";
 import {
     BootstrapConflictError,
+    BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
     BootstrapValidationError,
     type CreateBootstrapRunInput,
     type CreateBootstrapRunOutput,
@@ -33,7 +34,6 @@ import { planBootstrapRunSteps } from "./bootstrap-pipeline-planner.js";
 import {
     BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_ENUMERATION_MODE,
-    BOOTSTRAP_RUN_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
     IMAGE_CACHE_MODE,
@@ -140,6 +140,17 @@ export class CreateBootstrapRunUseCase {
                 "Slug already belongs to a different contract address",
             );
         }
+        if (
+            existing &&
+            this.bootstrapRunsPort.hasNonFailedRun(
+                chain.publicChainId,
+                existing.collectionId,
+            )
+        ) {
+            throw new BootstrapConflictError(
+                BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
+            );
+        }
 
         const siblingCollections = this.bootstrapRunsPort
             .listCollectionsByAddress(chain.publicChainId, address)
@@ -177,17 +188,6 @@ export class CreateBootstrapRunUseCase {
             deploymentBlock: input.deploymentBlock ?? null,
         });
 
-        if (
-            this.bootstrapRunsPort.hasActiveRun(
-                chain.publicChainId,
-                collection.collectionId,
-            )
-        ) {
-            throw new BootstrapConflictError(
-                "Collection already bootstrapping",
-            );
-        }
-
         assertImageCacheSourceMatchesExtension(
             requestImageCache.selectedSource,
             requestExtensionKey,
@@ -202,6 +202,7 @@ export class CreateBootstrapRunUseCase {
             openseaSlug,
             openseaIntegration: this.openseaIntegration,
             requestExtensionKey,
+            sharedContract: input.sharedContract,
         });
         if (
             requestImageCache.selectedSource ===
@@ -257,26 +258,25 @@ export class CreateBootstrapRunUseCase {
             collectionId: run.collectionId,
         });
 
-        this.bootstrapRunsPort.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Queued,
-        );
-        this.bootstrapRunsPort.appendRunEvent({
+        // The indexer may have progressed or failed this run while publication was pending.
+        this.bootstrapRunsPort.queueRequestedRun({
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
-            eventLevel: "info",
-            message: "Bootstrap run queued",
-            payloadJson: null,
+            queuedEvent: {
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
+                eventLevel: "info",
+                message: "Bootstrap run queued",
+                payloadJson: null,
+            },
         });
 
-        const queued = this.bootstrapRunsPort.getLatestRun(
+        const currentRun = this.bootstrapRunsPort.getRunById(
             run.chainId,
-            run.collectionId,
+            run.runId,
         );
-        const createdAt = queued?.createdAt ?? run.createdAt;
-        const status = queued?.status ?? BOOTSTRAP_RUN_STATUS.Queued;
+        const createdAt = currentRun?.createdAt ?? run.createdAt;
+        const status = currentRun?.status ?? run.status;
         report?.({
             step: Step.Queue,
             status: Status.Succeeded,

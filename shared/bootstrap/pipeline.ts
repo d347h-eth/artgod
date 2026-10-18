@@ -63,6 +63,7 @@ export const BOOTSTRAP_STEP_KEY = {
     Backfill: "backfill",
     CollectionLive: "collection_live",
     ImageCache: "image_cache",
+    DeploymentBlock: "deployment_block",
     OpenSeaIdentity: "opensea_identity",
     OpenSeaSnapshot: "opensea_snapshot",
     OpenSeaReady: "opensea_ready",
@@ -71,6 +72,24 @@ export const BOOTSTRAP_STEP_KEY = {
 
 export type BootstrapStepKey =
     (typeof BOOTSTRAP_STEP_KEY)[keyof typeof BOOTSTRAP_STEP_KEY];
+
+// Labels shared by the run-detail projection and its frontend fixtures.
+export const BOOTSTRAP_STEP_LABEL: Readonly<Record<BootstrapStepKey, string>> =
+    {
+        [BOOTSTRAP_STEP_KEY.Anchor]: "anchor",
+        [BOOTSTRAP_STEP_KEY.Enumeration]: "enumeration",
+        [BOOTSTRAP_STEP_KEY.Metadata]: "metadata",
+        [BOOTSTRAP_STEP_KEY.Ownership]: "ownership",
+        [BOOTSTRAP_STEP_KEY.Backfill]: "backfill",
+        [BOOTSTRAP_STEP_KEY.CollectionLive]: "collection live",
+        [BOOTSTRAP_STEP_KEY.ImageCache]: "image cache",
+        [BOOTSTRAP_STEP_KEY.DeploymentBlock]: "deployment block",
+        [BOOTSTRAP_STEP_KEY.OpenSeaIdentity]: "opensea identity",
+        [BOOTSTRAP_STEP_KEY.OpenSeaSnapshot]: "opensea snapshot",
+        [BOOTSTRAP_STEP_KEY.OpenSeaReady]: "opensea ready",
+        [BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts]:
+            "extension artifacts",
+    };
 
 // Step statuses drive durable orchestration, retries, pause/resume, and read-model progress.
 export const BOOTSTRAP_STEP_STATUS = {
@@ -122,6 +141,7 @@ export const BOOTSTRAP_PAUSABLE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Metadata,
     BOOTSTRAP_STEP_KEY.Ownership,
     BOOTSTRAP_STEP_KEY.ImageCache,
+    BOOTSTRAP_STEP_KEY.DeploymentBlock,
 ] as const;
 
 // Steps listed here support explicit operator recovery from terminal failure.
@@ -133,6 +153,7 @@ export const BOOTSTRAP_TERMINAL_RETRY_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Backfill,
     BOOTSTRAP_STEP_KEY.CollectionLive,
     BOOTSTRAP_STEP_KEY.ImageCache,
+    BOOTSTRAP_STEP_KEY.DeploymentBlock,
     BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
     BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
     BOOTSTRAP_STEP_KEY.OpenSeaReady,
@@ -164,24 +185,37 @@ export const BOOTSTRAP_DUE_TASK_STATUSES = [
     BOOTSTRAP_TASK_STATUS.Retry,
 ] as const;
 
-// Flow step keys include the current queue marker plus durable pipeline steps.
+// Flow step keys represent pipeline work; queue state remains a run status.
 export const BOOTSTRAP_FLOW_STEP_KEY = {
-    Queued: "queued",
     Anchor: BOOTSTRAP_STEP_KEY.Anchor,
     Enumeration: BOOTSTRAP_STEP_KEY.Enumeration,
     Metadata: BOOTSTRAP_STEP_KEY.Metadata,
     ImageCache: BOOTSTRAP_STEP_KEY.ImageCache,
+    DeploymentBlock: BOOTSTRAP_STEP_KEY.DeploymentBlock,
     Ownership: BOOTSTRAP_STEP_KEY.Ownership,
     Backfill: BOOTSTRAP_STEP_KEY.Backfill,
     CollectionLive: BOOTSTRAP_STEP_KEY.CollectionLive,
     OpenSeaIdentity: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
     OpenSeaSnapshot: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
     OpenSeaReady: BOOTSTRAP_STEP_KEY.OpenSeaReady,
-    CollectionExtensionArtifacts: BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+    CollectionExtensionArtifacts:
+        BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
 } as const;
 
 export type BootstrapFlowStepKey =
     (typeof BOOTSTRAP_FLOW_STEP_KEY)[keyof typeof BOOTSTRAP_FLOW_STEP_KEY];
+
+// Single operations show task state rather than a synthetic 1/1 progress ratio.
+export function isBootstrapSingleTaskStep(key: BootstrapFlowStepKey): boolean {
+    return (
+        key === BOOTSTRAP_STEP_KEY.Anchor ||
+        key === BOOTSTRAP_STEP_KEY.CollectionLive ||
+        key === BOOTSTRAP_STEP_KEY.DeploymentBlock ||
+        key === BOOTSTRAP_STEP_KEY.OpenSeaIdentity ||
+        key === BOOTSTRAP_STEP_KEY.OpenSeaSnapshot ||
+        key === BOOTSTRAP_STEP_KEY.OpenSeaReady
+    );
+}
 
 // Flow step states are the compact UI read-model projection of durable step status.
 export const BOOTSTRAP_FLOW_STEP_STATE = {
@@ -219,6 +253,12 @@ export type BootstrapRunStepPlan = {
     dependsOn: readonly BootstrapStepKey[];
     progressTotal: number | null;
     config: Record<string, unknown> | null;
+};
+
+// Preserve the positive setup-probe finding for the background lookup and restarts.
+// Manual scopes select mint events independently of this finding.
+export type BootstrapDeploymentStepConfig = {
+    sharedContract: boolean;
 };
 
 // Creates an empty count bucket for bootstrap fan-out task read models.

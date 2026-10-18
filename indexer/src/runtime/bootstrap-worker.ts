@@ -16,7 +16,6 @@ import {
     BOOTSTRAP_STEP_KEY,
     isBootstrapStepTerminalStatus,
     BOOTSTRAP_ENUMERATION_MODE,
-    type BootstrapEnumerationMode,
     type BootstrapStepKey,
     type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -42,6 +41,7 @@ import {
 } from "../application/bootstrap-step-orchestrator.js";
 import {
     BootstrapStepScheduler,
+    BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
     type BootstrapStepSchedulerResult,
 } from "../application/bootstrap-step-scheduler.js";
 import { BootstrapStepProgressObserver } from "../application/bootstrap-step-progress-observer.js";
@@ -73,12 +73,13 @@ import {
     BootstrapAnchorExecutor,
     type BootstrapAnchorExecutorResult,
 } from "../application/bootstrap-anchor-executor.js";
-import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
 import {
-    resolveEnumerableBootstrapTokenIds,
-    resolveManualBootstrapTokenIds,
-    resolvePresentBootstrapTokenIds,
-} from "../application/bootstrap-token-enumeration.js";
+    BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME,
+    BootstrapEnumerationExecutor,
+} from "../application/bootstrap-enumeration-executor.js";
+import { BootstrapDeploymentExecutor } from "../application/bootstrap-deployment-executor.js";
+import { SqliteBootstrapDeployment } from "../infra/bootstrap/sqlite-deployment.js";
+import { resolveTokenIdsForRun } from "../application/bootstrap-token-enumeration.js";
 import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
 import {
     ChainSyncConflict,
@@ -164,12 +165,12 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;
 const BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE = 500;
-const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 const BOOTSTRAP_STEP_CLAIM_LIMIT = 1;
 const BOOTSTRAP_STEP_MAX_ITERATIONS = 20;
 const BOOTSTRAP_MAIN_STEP_LEASE_OWNER = "bootstrap-worker:main";
 const BOOTSTRAP_IMAGE_CACHE_STEP_LEASE_OWNER = "bootstrap-worker:image-cache";
+const BOOTSTRAP_DEPLOYMENT_STEP_LEASE_OWNER = "bootstrap-worker:deployment";
 const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Anchor,
     BOOTSTRAP_STEP_KEY.Enumeration,
@@ -185,9 +186,13 @@ const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
 const BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.ImageCache,
 ] as const;
+const BOOTSTRAP_DEPLOYMENT_LANE_STEP_KEYS = [
+    BOOTSTRAP_STEP_KEY.DeploymentBlock,
+] as const;
 const BOOTSTRAP_LANE_NAME = {
     Main: "main",
     ImageCache: "image_cache",
+    Deployment: "deployment",
 } as const;
 const BOOTSTRAP_LANE_POLL_TRACE_PREFIX = "bootstrap:lane-poll";
 
@@ -282,6 +287,10 @@ async function main() {
             bootstrapRuns,
             bootstrapSteps,
             collections,
+        );
+        const bootstrapDeploymentExecutor = new BootstrapDeploymentExecutor(
+            rpc,
+            new SqliteBootstrapDeployment(),
         );
         const tokenOwnership = new Erc721TokenOwnership(rpc);
         const bootstrapEnumerationExecutor = new BootstrapEnumerationExecutor(
@@ -413,6 +422,45 @@ async function main() {
                 traceId: input.traceId,
             });
 
+        const deploymentScheduler = new BootstrapStepScheduler(
+            bootstrapRuns,
+            bootstrapSteps,
+            {
+                processClaimedStep: async ({ run, leaseOwner }) =>
+                    (await bootstrapDeploymentExecutor.search({
+                        run,
+                        leaseOwner,
+                        reorgDepth: config.sync.reorgDepth,
+                    }))
+                        ? terminalStepResult()
+                        : readyStepResult(
+                              Date.now() + config.bootstrap.schedulerPollMinMs,
+                          ),
+            },
+            {
+                wakeBootstrapStep: async ({ run, stepKey, traceId }) =>
+                    wakeBootstrapStep(queue, run, stepKey, traceId),
+            },
+            Date.now,
+            bootstrapStepProgressObserver,
+        );
+        const runDeploymentLane = async ({ traceId }: { traceId: string }) =>
+            deploymentScheduler.runOnce({
+                chainId: config.chainId,
+                traceId,
+                laneName: BOOTSTRAP_LANE_NAME.Deployment,
+                laneStepKeys: BOOTSTRAP_DEPLOYMENT_LANE_STEP_KEYS,
+                leaseOwner: buildBootstrapStepLeaseOwner(
+                    BOOTSTRAP_DEPLOYMENT_STEP_LEASE_OWNER,
+                ),
+                leaseMs: config.bootstrap.stepLeaseMs,
+                maxProgressStaleMs: config.bootstrap.stepProgressStaleMs,
+                claimLimit: BOOTSTRAP_STEP_CLAIM_LIMIT,
+                maxIterationsPerRun: BOOTSTRAP_STEP_MAX_ITERATIONS,
+                runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
+                retryPolicy: config.bootstrap.metadataRetryPolicy,
+            });
+
         await reconcileActiveBootstrapRuns(
             queue,
             bootstrapRuns,
@@ -440,6 +488,16 @@ async function main() {
             run: runImageCacheLane,
             hooks: createBootstrapLanePollerHooks(
                 BOOTSTRAP_LANE_NAME.ImageCache,
+            ),
+        });
+        const stopDeploymentLanePoller = startBootstrapLanePoller({
+            laneName: BOOTSTRAP_LANE_NAME.Deployment,
+            traceIdPrefix: BOOTSTRAP_LANE_POLL_TRACE_PREFIX,
+            pollMinMs: config.bootstrap.schedulerPollMinMs,
+            pollMaxMs: config.bootstrap.schedulerPollMaxMs,
+            run: runDeploymentLane,
+            hooks: createBootstrapLanePollerHooks(
+                BOOTSTRAP_LANE_NAME.Deployment,
             ),
         });
 
@@ -626,6 +684,7 @@ async function main() {
             });
             await stopMainLanePoller();
             await stopImageCacheLanePoller();
+            await stopDeploymentLanePoller();
             await stopBootstrap();
             await stopImageCache();
             flushPendingLogReports();
@@ -827,6 +886,8 @@ async function wakeBootstrapStep(
     stepKey: BootstrapStepKey,
     traceId: string,
 ): Promise<void> {
+    // This lane starts before anchoring and polls its own persisted ready rows.
+    if (stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock) return;
     if (
         (BOOTSTRAP_MAIN_LANE_STEP_KEYS as readonly BootstrapStepKey[]).includes(
             stepKey,
@@ -1229,8 +1290,9 @@ async function processBootstrapMainClaimedStep(
                 Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
             );
         }
-        await input.bootstrapEnumerationExecutor.execute({
+        const result = await input.bootstrapEnumerationExecutor.execute({
             run: input.run,
+            leaseOwner: input.leaseOwner,
             anchor: {
                 anchorBlock: anchoredRun.anchorBlock,
                 anchorHash: anchoredRun.anchorBlockHash as Hex,
@@ -1239,7 +1301,10 @@ async function processBootstrapMainClaimedStep(
             metadataBatchSize: input.metadataBatchSize,
             traceId: input.traceId,
         });
-        return terminalStepResult();
+        return result.outcome ===
+            BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.LeaseLost
+            ? readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS)
+            : terminalStepResult();
     }
 
     if (input.step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
@@ -2898,58 +2963,6 @@ async function scheduleOpenSeaBootstrap(
         collectionId: payload.collectionId,
     };
     await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, job);
-}
-
-async function resolveTokenIdsForRun(
-    rpc: RpcProviderPort,
-    tokenOwnership: Erc721TokenOwnership,
-    run: {
-        chainId: number;
-        anchorBlockHash: string | null;
-        requestAddress: string;
-        enumerationMode: BootstrapEnumerationMode;
-        manualTokenIdsJson: string | null;
-        manualRangeStartTokenId: string | null;
-        manualRangeTotalSupply: number | null;
-    },
-    anchorBlock: number,
-    onProgress?: (progress: { resolved: number; total: number | null }) => void,
-): Promise<string[]> {
-    if (run.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
-        return resolveEnumerableBootstrapTokenIds(
-            rpc,
-            run.requestAddress as Hex,
-            anchorBlock,
-            onProgress,
-        );
-    }
-
-    const tokenIds = resolveManualBootstrapTokenIds(run);
-    if (tokenIds) {
-        if (!run.anchorBlockHash)
-            throw new ChainSyncConflict("Missing bootstrap anchor hash");
-        const block = {
-            chainId: run.chainId,
-            blockNumber: anchorBlock,
-            blockHash: run.anchorBlockHash,
-        };
-        // Check only the user-approved interval at the anchor, skipping proven nonexistent IDs.
-        return resolvePresentBootstrapTokenIds(
-            tokenIds,
-            (tokenId) =>
-                tokenOwnership.readOwner({
-                    contract: run.requestAddress,
-                    tokenId,
-                    block,
-                }),
-            onProgress,
-            run.manualRangeTotalSupply,
-        );
-    }
-
-    throw new Error(
-        `Unsupported enumeration mode: ${String(run.enumerationMode)}`,
-    );
 }
 
 async function mapWithConcurrency<T>(

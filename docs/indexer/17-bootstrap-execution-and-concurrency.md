@@ -22,6 +22,8 @@ runs, scheduler entry points, or processes.
 - Queue runtime: `indexer/src/application/worker-runner.ts`, `indexer/src/infra/queue/nats.ts`
 - Bootstrap step scheduler: `indexer/src/application/bootstrap-step-scheduler.ts`, `indexer/src/application/bootstrap-step-orchestrator.ts`
 - Bootstrap step planner: `backend/src/application/use-cases/bootstrap/bootstrap-pipeline-planner.ts`
+- Deployment search: `shared/evm/contract-deployment.ts`
+- Deployment enrichment: `indexer/src/application/bootstrap-deployment-executor.ts`, `indexer/src/infra/bootstrap/sqlite-deployment.ts`
 - Bootstrap storage adapter: `indexer/src/infra/bootstrap/sqlite.ts`
 
 ## Current Configured Values
@@ -44,22 +46,53 @@ There is no dedicated OpenSea bootstrap concurrency setting. The OpenSea bootstr
 
 Queue workers use NATS JetStream durable consumers. `runWorker` forwards each worker's `maxInFlight` into the queue adapter, and the NATS adapter enforces it both as `maxAckPending` on the durable consumer and as an in-process limiter.
 
-The bootstrap worker also runs two durable step scheduler lanes:
+The bootstrap worker also runs three durable step scheduler lanes:
 
 - main lane: anchor, enumeration, metadata, ownership, backfill, collection live, collection-extension artifact step coordination, and OpenSea step coordination
 - image-cache lane: image-cache step only
+- deployment lane: deployment-block enrichment only, starting when the necessary lookup input is available
 
 Each lane's poller prevents overlap between its own timer callbacks. Queue
 handlers can enter the same lane independently, so there is no process-wide
 one-call-at-a-time lane lock. Each scheduler invocation visits due run ids
-serially, then the orchestrator claims ready steps
-using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
+serially in oldest-due order, with run ID breaking ties. A run occupies one slot
+using its earliest due step; an abandoned running step becomes due at lease
+expiry. Waiting or page-yielding work moves behind older due work when it is
+rescheduled, so the oldest run IDs cannot monopolize the bounded selection.
+Startup-sweep candidates fill only slots left after due work. The orchestrator
+claims ready steps using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
 a lane claims at most one step per run iteration. Step leases are renewed while
-the processor runs, and lease release is fenced by owner. Generic progress and
+the processor runs only for the unexpired owner, and lease release is fenced by owner. Generic progress and
 terminal-settlement writes do not carry that owner predicate.
+Temporary shared-RPC allocation deferrals release the step back to ready at the
+allocator's retry time, preserving its failure allowance and saved progress.
 
 This coordinates the normal duplicate-delivery and repeated-poll path through
 the durable step row, but it is not a complete stale-owner settlement fence.
+
+Deployment enrichment separately fences result settlement by unexpired owner
+lease and collection contract identity, saving the marker and terminal step in
+one write transaction. Mint requests and writes also recheck enumeration's exact
+token and anchor confirmation; replacing or removing it invalidates the attempt.
+Its poller runs independently with one search at a time
+and one outstanding RPC query. Mint searches perform one bounded successful
+page per pass, starting at the contract deployment block found by the shared
+historical code search. That bound and the verified empty prefix are persisted
+before releasing the lease; each page does not repeat the code search.
+The code search checkpoints every successful binary-search probe too. Shared
+quota deferral or restart resumes its remaining probes for both code markers and
+mint lower bounds, without spending the same successful requests again.
+Retries and restart resume that cursor; rejected or timed-out pages do not
+advance it. A changed pinned hash invalidates the code-search position, bound,
+and mint cursor together. A mint retry must still match enumeration's confirmed
+history; it cannot replace that hash with the new canonical hash. A confirmation
+for the same token at another anchor starts a fresh search.
+Unavailable code history remains an error rather than falling back to genesis
+event queries. The configured log cap and learned reductions are shared with
+ordinary log acquisition. It shares the bootstrap RPC provider's endpoint
+budget and resilience policy. Neither collection liveness
+nor run completion depends on its result; pause/retry and restart recovery use
+the existing durable-step controls.
 
 ## Pipeline Steps
 
@@ -71,14 +104,24 @@ Typed runtime config: no.
 
 Current model:
 
-- Backend use case validates the request, resolves embedded extension eligibility, upserts the collection, checks for an active run, creates a bootstrap run plus planned steps, then publishes one `bootstrap.collection.start` job.
-- The application check rejects an already-active run. The database partial
-  unique index also rejects concurrent `requested`, `queued`, `metadata`,
-  `ownership`, or `backfill` rows for one collection, but it does not include
-  the later-added `image_cache` run status.
+- Backend use case validates the request, resolves embedded extension eligibility,
+  checks for any non-failed prior run before changing the collection definition,
+  upserts the collection, creates a bootstrap run plus planned steps, then
+  publishes one `bootstrap.collection.start` job.
+- Any non-failed run, including `completed`, prevents creating another run for
+  that collection. The SQLite adapter repeats the check inside the definition
+  and run-creation write transactions; prepared startup uses the same rule.
+  The existing partial unique index covers only legacy active statuses, so the
+  transaction check enforces the broader admission rule.
 - The queue publish uses a start scope plus timestamp. JetStream deduplicates
   only an exactly reused generated job id; a fresh publication gets a fresh id.
   Run creation and queue publication are not one transactional boundary.
+- Startup acknowledgement changes a run from `requested` to `queued` and records
+  its queued event in one conditional transaction. If the indexer has already
+  progressed, failed or completed the run, the acknowledgement preserves that
+  state and records no queued event. The response reads the requested run's
+  status, even if a newer attempt exists. Prepared startup uses the same
+  conditional transition before publishing.
 
 Scaling boundary:
 
@@ -147,6 +190,11 @@ Current model:
   reported too. Run events retain their 1,000-token checkpoints, and heartbeat
   logging is unchanged. Run-detail chips display whole percentages and poll
   every five seconds, so fast checkpoints can be combined in one visible update.
+- Enumeration retains its first confirmed token and anchor in the enumeration
+  step result for deployment lookup. Completion, output, and the completion
+  event are written atomically under the current lease and run identity. Task
+  cleanup/reset does not remove that small result; count-only restart paths
+  preserve it without deriving a token from task rows or current inventory.
 - Manual ranges generate candidates lazily. The confirmed-present token list
   remains in memory for the existing metadata seeding boundary. Anchored owners
   are currently read again by ownership tasks; durable enumeration pages/owner
@@ -479,9 +527,6 @@ task workers as the only acceptable design.
 - Metadata and image caching are bounded local pools, not independently claimed
   task pools. Scaling must preserve per-run step ownership or introduce
   exclusive ownership of individual tasks, including stale-owner fencing.
-- The active-run partial unique index does not include `image_cache`; the
-  application-level check covers the normal path, but the database invariant
-  should be extended to cover every active run status.
 - OpenSea bootstrap is serialized at the collection snapshot boundary. Safe
   collection-level concurrency must fence missing-order reconciliation by the
   owning run and share API rate limits.

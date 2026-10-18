@@ -1,6 +1,14 @@
 import { RPC_RATE_LIMIT_MODE } from "@artgod/shared/evm/rpc-resilience";
+import { RpcRequestTimeoutError } from "@artgod/shared/evm/rpc-resilience";
+import { RpcRequestCancelledError } from "@artgod/shared/evm/rpc-errors";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BaseError, ResponseBodyTooLargeError } from "viem";
+import {
+    BaseError,
+    ResponseBodyTooLargeError,
+    encodeEventTopics,
+    zeroAddress,
+} from "viem";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { logger } from "@artgod/shared/utils/logger";
 import {
@@ -11,8 +19,18 @@ import {
     type ViemRpcClientFactory,
     ViemRpcProvider,
 } from "../src/infra/rpc/viem.js";
+import { ERC721_ABI, ERC721_EVENT_NAME } from "../src/abi/index.js";
+
+const MINT_FILTER = {
+    address: "0x1111111111111111111111111111111111111111" as const,
+    event: ERC721_ABI[0],
+    args: { from: zeroAddress, tokenId: 52_000_000n },
+    fromBlock: 0,
+    toBlock: 100,
+};
 
 const TEST_RPC_URL = "https://rpc.example";
+const TEST_BACKUP_RPC_URL = "https://rpc-backup.example";
 const TEST_ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const TEST_HASH = `0x${"ab".repeat(32)}`;
 const TEST_RESPONSE_LIMIT_BYTES =
@@ -83,6 +101,234 @@ describe("RPC log response-size recovery", () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it("filters the mint sender and exact token on the RPC wire and returns the earliest mint even after a remint", async () => {
+        const topics = encodeEventTopics({
+            abi: ERC721_ABI,
+            eventName: ERC721_EVENT_NAME.Transfer,
+            args: {
+                from: zeroAddress,
+                to: TEST_ADDRESS,
+                tokenId: MINT_FILTER.args.tokenId,
+            },
+        });
+        let request: any;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (_url, init) => {
+                request = JSON.parse(init.body);
+                return new Response(
+                    JSON.stringify({
+                        jsonrpc: "2.0",
+                        id: request.id,
+                        result: [rawLog(15), rawLog(12)].map((log) => ({
+                            ...log,
+                            topics,
+                        })),
+                    }),
+                    { headers: { "Content-Type": "application/json" } },
+                );
+            }),
+        );
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_URL, weight: 1 }],
+            logChunkSize: 20,
+            retryPolicy: TEST_RETRY_POLICY,
+            resilience: TEST_RESILIENCE,
+        });
+        expect(
+            (await provider.findFirstLogPage(MINT_FILTER)).log?.blockNumber,
+        ).toBe(12);
+        expect(request.method).toBe("eth_getLogs");
+        expect(request.params[0]).toEqual({
+            address: TEST_ADDRESS,
+            fromBlock: "0x0",
+            toBlock: "0x13",
+            topics: [topics[0], topics[1], null, topics[3]],
+        });
+    });
+
+    it("subdivides a rejected interval, visits pages in order, and stops at the first page containing the token's mint", async () => {
+        const requests: number[][] = [];
+        const provider = providerWith(async (params) => {
+            const from = Number(params.fromBlock);
+            const to = Number(params.toBlock);
+            requests.push([from, to]);
+            if (to - from + 1 > 2) throw new Error("block range is too wide");
+            return [9, 5]
+                .filter((block) => block >= from && block <= to)
+                .map((block) => ({
+                    ...rawLog(block),
+                    blockNumber: BigInt(block),
+                    logIndex: 0n,
+                }));
+        });
+        const ranges: number[][] = [];
+        let nextBlock = 0;
+        let mintBlock: number | undefined;
+        while (mintBlock === undefined) {
+            const page = await provider.findFirstLogPage(
+                { ...MINT_FILTER, fromBlock: nextBlock, toBlock: 10 },
+                {
+                    onRequest: (range) =>
+                        ranges.push([range.fromBlock, range.toBlock]),
+                },
+            );
+            nextBlock = page.nextBlock;
+            mintBlock = page.log?.blockNumber;
+        }
+        expect(mintBlock).toBe(5);
+        expect(requests).toEqual([
+            [0, 7],
+            [0, 3],
+            [0, 1],
+            [2, 3],
+            [4, 5],
+        ]);
+        expect(ranges).toEqual(requests);
+    });
+
+    it("returns an empty bounded page with the next cursor", async () => {
+        expect(
+            await providerWith(async () => []).findFirstLogPage(MINT_FILTER),
+        ).toEqual({ log: null, nextBlock: 8 });
+    });
+
+    it("checks cancellation before each smaller interval", async () => {
+        const requests: number[][] = [];
+        const stopped = new RpcRequestCancelledError();
+        const provider = providerWith(async ({ fromBlock, toBlock }) => {
+            requests.push([Number(fromBlock), Number(toBlock)]);
+            throw new Error("block range is too wide");
+        });
+        await expect(
+            provider.findFirstLogPage(MINT_FILTER, {
+                onRequest: ({ toBlock }) => {
+                    if (toBlock < 7) throw stopped;
+                },
+            }),
+        ).rejects.toBe(stopped);
+        expect(requests).toEqual([[0, 7]]);
+    });
+
+    it("halves timed-out pages immediately and retains the learned cap", async () => {
+        const requests: number[][] = [];
+        const provider = providerWith(async ({ fromBlock, toBlock }) => {
+            requests.push([Number(fromBlock), Number(toBlock)]);
+            if (toBlock - fromBlock + 1n > 2n)
+                throw new BaseError("getLogs failed", {
+                    cause: new RpcRequestTimeoutError(10),
+                });
+            return [];
+        });
+        expect(await provider.findFirstLogPage(MINT_FILTER)).toEqual({
+            log: null,
+            nextBlock: 2,
+        });
+        expect(
+            await provider.findFirstLogPage({ ...MINT_FILTER, fromBlock: 2 }),
+        ).toEqual({ log: null, nextBlock: 4 });
+        await expect(
+            provider.getLogs({ ...MINT_FILTER, fromBlock: 4, toBlock: 7 }),
+        ).resolves.toEqual([]);
+        // failureThreshold is one: a healthy endpoint must not be demoted or
+        // circuit-opened by the requests this caller can recover by resizing.
+        expect(requests).toEqual([
+            [0, 7],
+            [0, 3],
+            [0, 1],
+            [2, 3],
+            [4, 5],
+            [6, 7],
+        ]);
+    });
+
+    it("retains endpoint failover when a single-block mint page times out", async () => {
+        const requests: Array<{
+            url: string;
+            fromBlock: bigint;
+            toBlock: bigint;
+        }> = [];
+        const provider = new ViemRpcProvider({
+            endpoints: [
+                { url: TEST_RPC_URL, weight: 1 },
+                { url: TEST_BACKUP_RPC_URL, weight: 1 },
+            ],
+            logChunkSize: 8,
+            resilience: TEST_RESILIENCE,
+            retryPolicy: TEST_RETRY_POLICY,
+            createClient: (url) =>
+                ({
+                    getLogs: async ({ fromBlock, toBlock }: LogRequest) => {
+                        requests.push({ url, fromBlock, toBlock });
+                        if (url === TEST_RPC_URL)
+                            throw new RpcRequestTimeoutError(10);
+                        return [];
+                    },
+                }) as unknown as ReturnType<ViemRpcClientFactory>,
+        });
+        await expect(
+            provider.findFirstLogPage({ ...MINT_FILTER, toBlock: 0 }),
+        ).resolves.toEqual({ log: null, nextBlock: 1 });
+        expect(requests).toEqual([
+            { url: TEST_RPC_URL, fromBlock: 0n, toBlock: 0n },
+            { url: TEST_BACKUP_RPC_URL, fromBlock: 0n, toBlock: 0n },
+        ]);
+    });
+
+    it("rechecks cancellation after quota admission and sends no request", async () => {
+        const getLogs = vi.fn(async () => []);
+        let active = true;
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_URL, weight: 1 }],
+            logChunkSize: 8,
+            resilience: TEST_RESILIENCE,
+            retryPolicy: TEST_RETRY_POLICY,
+            createClient: () =>
+                ({ getLogs }) as unknown as ReturnType<ViemRpcClientFactory>,
+            requestBudget: {
+                budget: {
+                    run: async (_input, run) => {
+                        active = false;
+                        return run();
+                    },
+                },
+                workClass: () => SYNC_WORK_CLASS.Main,
+            },
+        });
+        await expect(
+            provider.findFirstLogPage(MINT_FILTER, {
+                beforeRequest: () => {
+                    if (!active) throw new RpcRequestCancelledError();
+                },
+            }),
+        ).rejects.toBeInstanceOf(RpcRequestCancelledError);
+        expect(getLogs).not.toHaveBeenCalled();
+    });
+
+    it("stops a retry when the caller loses ownership after the first request", async () => {
+        let active = true;
+        const getLogs = vi.fn(async () => {
+            active = false;
+            throw new Error("connection lost");
+        });
+        await expect(
+            providerWith(getLogs).findFirstLogPage(MINT_FILTER, {
+                beforeRequest: () => {
+                    if (!active) throw new RpcRequestCancelledError();
+                },
+            }),
+        ).rejects.toBeInstanceOf(RpcRequestCancelledError);
+        expect(getLogs).toHaveBeenCalledTimes(1);
+    });
+
+    it("propagates unavailable log history without treating it as an empty interval", async () => {
+        await expect(
+            providerWith(async () => {
+                throw new Error("historical logs unavailable");
+            }).findFirstLogPage(MINT_FILTER),
+        ).rejects.toThrow();
     });
 
     it.each([

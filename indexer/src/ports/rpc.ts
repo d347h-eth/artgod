@@ -30,7 +30,29 @@ export type RpcLogFilter = {
     toBlock: number;
     address?: Hex | Hex[];
     events?: readonly RpcEvent[];
+    event?: RpcEvent;
+    args?: Readonly<Record<string, unknown>>;
 };
+
+export type RpcFirstLogPage = {
+    log: RpcLog | null;
+    // Only a successfully fetched page advances the durable search cursor.
+    nextBlock: number;
+};
+
+export type RpcLogRequestHooks = {
+    // Checked before retry/circuit admission and again after quota waiting.
+    beforeRequest?: () => void;
+    onRequest?: (range: { fromBlock: number; toBlock: number }) => void;
+};
+
+// Search one bounded page. Callers own the durable cursor and yield between pages.
+export interface RpcFirstLogPort {
+    findFirstLogPage(
+        filter: RpcLogFilter & { address: Hex; event: RpcEvent },
+        hooks?: RpcLogRequestHooks,
+    ): Promise<RpcFirstLogPage>;
+}
 
 export type RpcBlock = {
     number: number;
@@ -63,10 +85,10 @@ export type RpcLog = {
 };
 
 export interface RpcProviderPort {
-    getBlockNumber(): Promise<number>;
+    getBlockNumber(beforeRequest?: () => void): Promise<number>;
     getBlock(
         blockNumber: number,
-        options?: { fresh: boolean },
+        options?: { fresh: boolean; beforeRequest?: () => void },
     ): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;

@@ -4,6 +4,7 @@ import {
     classifiedRpcErrorClassName,
     getRpcResponseBodySizeLimit,
     isRpcDeterministicContractError,
+    isRpcLogRangeLimitError,
     isRpcProviderHeadLagError,
     isRpcProviderStateUnavailableError,
     isRpcProviderZeroDataError,
@@ -19,9 +20,12 @@ import {
     RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES,
     RPC_PROVIDER_ZERO_DATA_ERROR_TEXT,
     RPC_RESPONSE_BODY_TOO_LARGE_ERROR_CLASS_NAME,
+    RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME,
     RpcProviderHeadLagError,
     shouldPenalizeRpcEndpointFailure,
     shouldRetryRpcError,
+    isRpcRequestTimeoutError,
+    RpcRequestCancelledError,
 } from "./rpc-errors.js";
 
 const VIEM_INVALID_PARAMS_ERROR_CLASS = "InvalidParamsRpcError";
@@ -35,6 +39,60 @@ const TEST_HISTORICAL_STATE_HASH =
     "93464b2e97c8769fdac473ec89de5b5b624be67595f76deff24a09b876253381";
 
 describe("RPC error classification", () => {
+    it("lets an opted-in log caller resize a wrapped timeout while other requests retain failover", () => {
+        const error = new BaseError("RPC read failed", {
+            cause: Object.assign(new Error(TEST_TIMEOUT_MESSAGE), {
+                name: TEST_TIMEOUT_ERROR_CLASS,
+            }),
+        });
+        expect(isRpcRequestTimeoutError(error)).toBe(true);
+        expect(shouldRetryRpcError(error)).toBe(true);
+        expect(shouldPenalizeRpcEndpointFailure(error)).toBe(true);
+        expect(
+            shouldRetryRpcError(error, { reduceLogRangeOnTimeout: true }),
+        ).toBe(false);
+        expect(
+            shouldPenalizeRpcEndpointFailure(error, {
+                reduceLogRangeOnTimeout: true,
+            }),
+        ).toBe(false);
+    });
+
+    it("never retries or penalizes caller cancellation, even through an SDK wrapper", () => {
+        const error = new BaseError("RPC stopped", {
+            cause: new RpcRequestCancelledError(),
+        });
+        expect(shouldRetryRpcError(error)).toBe(false);
+        expect(shouldPenalizeRpcEndpointFailure(error)).toBe(false);
+    });
+    it.each([
+        "block range is too wide",
+        "exceeds maximum block range of 1000",
+        "query returned more than 10000 results",
+        "eth_getLogs is limited to a 10000 blocks range",
+        "ranges over 10000 blocks are not supported on free plan",
+    ])("recognizes provider log interval limits: %s", (message) => {
+        const error = new BaseError("RPC request failed", {
+            cause: new Error(message),
+        });
+        expect(isRpcLogRangeLimitError(error)).toBe(true);
+        expect(classifiedRpcErrorClassName(error)).toBe(
+            RPC_LOG_RANGE_LIMIT_ERROR_CLASS_NAME,
+        );
+        expect(shouldRetryRpcError(error)).toBe(false);
+        expect(shouldPenalizeRpcEndpointFailure(error)).toBe(false);
+    });
+
+    it.each([
+        "rate limit exceeded",
+        "eth_getLogs exceeded maximum requests per second",
+        "historical logs unavailable",
+        "network timeout",
+    ])("does not treat %s as a log interval limit", (message) => {
+        const error = new Error(message);
+        expect(isRpcLogRangeLimitError(error)).toBe(false);
+        expect(shouldRetryRpcError(error)).toBe(true);
+    });
     it("recognizes wrapped viem response-size limits without retrying or penalizing the endpoint", () => {
         const limit = {
             maxSize: TEST_RESPONSE_LIMIT_BYTES,

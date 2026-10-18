@@ -1,4 +1,7 @@
-import { shouldRetryRpcError } from "./rpc-errors.js";
+import {
+    RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME,
+    shouldRetryRpcError,
+} from "./rpc-errors.js";
 
 // Policy values that configure JSON-RPC retry attempts.
 export type RpcRetryPolicy = {
@@ -89,7 +92,7 @@ export class CircuitOpenError extends Error {
 export class RpcRequestTimeoutError extends Error {
     constructor(timeoutMs: number, cause?: unknown) {
         super(`${RPC_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`);
-        this.name = "RpcRequestTimeoutError";
+        this.name = RPC_REQUEST_TIMEOUT_ERROR_CLASS_NAME;
         this.cause = cause;
     }
 }

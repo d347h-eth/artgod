@@ -1,4 +1,7 @@
-import { parseBootstrapScope } from "@artgod/shared/bootstrap/scope";
+import {
+    parseBootstrapScope,
+    type BootstrapScope,
+} from "@artgod/shared/bootstrap/scope";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     type BootstrapEnumerationMode,
@@ -6,6 +9,64 @@ import {
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
 import { BOOTSTRAP_ENUMERATION_PROGRESS_EVENT_STEP } from "./bootstrap-enumeration-executor.js";
+import {
+    ChainSyncConflict,
+    type ChainBlockReference,
+} from "../domain/chain-sync.js";
+
+export interface BootstrapTokenOwnershipPort {
+    readOwner(input: {
+        contract: string;
+        tokenId: string;
+        block: ChainBlockReference;
+    }): Promise<string | null>;
+}
+
+// Both production composition and integration tests use this same anchored
+// resolution boundary; declared manual candidates are never confirmed inputs.
+export async function resolveTokenIdsForRun(
+    rpc: Pick<RpcProviderPort, "readContract">,
+    tokenOwnership: BootstrapTokenOwnershipPort,
+    run: BootstrapManualTokenEnumerationInput & {
+        chainId: number;
+        anchorBlockHash: string | null;
+        requestAddress: string;
+    },
+    anchorBlock: number,
+    onProgress?: (progress: { resolved: number; total: number | null }) => void,
+): Promise<string[]> {
+    if (run.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
+        return resolveEnumerableBootstrapTokenIds(
+            rpc,
+            run.requestAddress as Hex,
+            anchorBlock,
+            onProgress,
+        );
+    }
+    const tokenIds = resolveManualBootstrapTokenIds(run);
+    if (!tokenIds)
+        throw new Error(
+            `Unsupported enumeration mode: ${String(run.enumerationMode)}`,
+        );
+    if (!run.anchorBlockHash)
+        throw new ChainSyncConflict("Missing bootstrap anchor hash");
+    const block = {
+        chainId: run.chainId,
+        blockNumber: anchorBlock,
+        blockHash: run.anchorBlockHash,
+    };
+    return resolvePresentBootstrapTokenIds(
+        tokenIds,
+        (tokenId) =>
+            tokenOwnership.readOwner({
+                contract: run.requestAddress,
+                tokenId,
+                block,
+            }),
+        onProgress,
+        run.manualRangeTotalSupply,
+    );
+}
 
 // Enumerates the contract at one anchor while reporting at least each whole percent.
 export async function resolveEnumerableBootstrapTokenIds(
@@ -62,11 +123,11 @@ export type BootstrapManualTokenEnumerationInput = {
     manualRangeTotalSupply: number | null;
 };
 
-// Resolves local/manual token scopes; enumerable mode remains RPC-driven.
-export function resolveManualBootstrapTokenIds(
+// Translate the immutable run scope once for candidate enumeration and consumers.
+export function resolveBootstrapRunScope(
     input: BootstrapManualTokenEnumerationInput,
-): Iterable<string> | null {
-    const scope = parseBootstrapScope(
+): BootstrapScope {
+    return parseBootstrapScope(
         input.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
             ? {
                   mode: input.enumerationMode,
@@ -83,6 +144,13 @@ export function resolveManualBootstrapTokenIds(
                 }
               : { mode: input.enumerationMode },
     );
+}
+
+// Resolves local/manual token scopes; enumerable mode remains RPC-driven.
+export function resolveManualBootstrapTokenIds(
+    input: BootstrapManualTokenEnumerationInput,
+): Iterable<string> | null {
+    const scope = resolveBootstrapRunScope(input);
     switch (scope.mode) {
         case BOOTSTRAP_ENUMERATION_MODE.Enumerable:
             return null;

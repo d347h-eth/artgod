@@ -99,6 +99,14 @@ export type PreparedCollectionRunAbortInput = {
     event: BootstrapRunEventCreateInput;
 };
 
+// Startup acknowledgement may queue only a still-requested run; its event is atomic with the transition.
+export type RequestedBootstrapRunQueueInput = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    queuedEvent: BootstrapRunEventCreateInput;
+};
+
 export interface BootstrapRunsWritePort {
     findCollectionBySlug(
         chainId: number,
@@ -136,12 +144,14 @@ export interface BootstrapRunsWritePort {
         chainId: number,
         collectionId: number,
     ): CollectionBootstrapState | null;
-    hasActiveRun(chainId: number, collectionId: number): boolean;
+    // A new run is allowed only when all previous runs for this collection failed.
+    hasNonFailedRun(chainId: number, collectionId: number): boolean;
     createRun(input: BootstrapRunCreateInput): BootstrapRunRow;
     createPreparedCollectionRun(
         input: PreparedCollectionRunCreateInput,
     ): BootstrapRunRow;
     abortPreparedCollectionRun(input: PreparedCollectionRunAbortInput): void;
+    queueRequestedRun(input: RequestedBootstrapRunQueueInput): boolean;
     updateRunStatus(
         runId: number,
         status: string,

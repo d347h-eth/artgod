@@ -1,9 +1,11 @@
 import {
     BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_RUN_STATUS,
     isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import { logger } from "@artgod/shared/utils";
+import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../ports/bootstrap-steps.js";
@@ -20,6 +22,8 @@ export const BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION = {
     StepClaimed: "step_claimed",
     LeaseRenewalProgressStale: "lease_renewal_progress_stale",
     LeaseRenewalObserveFailed: "lease_renewal_observe_failed",
+    LeaseRenewalFailed: "lease_renewal_failed",
+    RpcBudgetDeferred: "rpc_budget_deferred",
     StepReleasedReady: "step_released_ready",
     StepDelegated: "step_delegated",
     StepPausedObserved: "step_paused_observed",
@@ -168,9 +172,10 @@ export interface BootstrapStepOrchestratorLoggerPort {
     error(message: string, meta?: Record<string, unknown>): void;
 }
 
-const NOOP_BOOTSTRAP_STEP_PROGRESS_OBSERVER: BootstrapStepProgressObserverPort = {
-    observeStepProgress: () => null,
-};
+const NOOP_BOOTSTRAP_STEP_PROGRESS_OBSERVER: BootstrapStepProgressObserverPort =
+    {
+        observeStepProgress: () => null,
+    };
 
 // Reconciles dependencies, claims due steps with leases, and executes bounded processors.
 export class BootstrapStepOrchestrator {
@@ -196,7 +201,7 @@ export class BootstrapStepOrchestrator {
             iteration += 1
         ) {
             const run = this.runsPort.getRun(input.runId);
-            if (!run) {
+            if (!run || run.status === BOOTSTRAP_RUN_STATUS.Failed) {
                 break;
             }
 
@@ -218,6 +223,12 @@ export class BootstrapStepOrchestrator {
             }
 
             for (const step of claimedSteps) {
+                if (
+                    this.runsPort.getRun(run.runId)?.status ===
+                    BOOTSTRAP_RUN_STATUS.Failed
+                ) {
+                    break;
+                }
                 claimedStepKeys.push(step.stepKey);
                 this.logDebug(
                     input,
@@ -290,18 +301,48 @@ export class BootstrapStepOrchestrator {
                 traceId: input.traceId,
             });
         } catch (error) {
+            if (
+                this.runsPort.getRun(run.runId)?.status ===
+                BOOTSTRAP_RUN_STATUS.Failed
+            ) {
+                return;
+            }
+            const deferral = getRpcBudgetDeferral(error);
+            if (deferral) {
+                // Waiting for shared local capacity is not an RPC failure. Keep
+                // the saved cursor and retry allowance while yielding this lease.
+                const nextAttemptAt =
+                    this.nowMs() + Math.max(1, deferral.retryAfterMs);
+                this.stepsPort.releaseStepLease({
+                    runId: run.runId,
+                    stepKey: step.stepKey,
+                    leaseOwner: input.leaseOwner,
+                    nextAttemptAt,
+                });
+                this.logDebug(
+                    input,
+                    run,
+                    step.stepKey,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.RpcBudgetDeferred,
+                    { nextAttemptAt },
+                );
+                return;
+            }
             this.markProcessorException(run, step, input, error);
             return;
         } finally {
             stopLeaseRenewal();
         }
+        if (
+            this.runsPort.getRun(run.runId)?.status ===
+            BOOTSTRAP_RUN_STATUS.Failed
+        ) {
+            return;
+        }
         const currentStep = this.stepsPort
             .listRunSteps(run.runId)
             .find((candidate) => candidate.stepKey === step.stepKey);
-        if (
-            currentStep &&
-            isBootstrapStepTerminalStatus(currentStep.status)
-        ) {
+        if (currentStep && isBootstrapStepTerminalStatus(currentStep.status)) {
             this.logDebug(
                 input,
                 run,
@@ -398,10 +439,7 @@ export class BootstrapStepOrchestrator {
     ): () => void {
         const leaseMs = Math.max(1, input.leaseMs);
         const intervalMs = Math.max(1, Math.floor(leaseMs / 3));
-        const maxProgressStaleMs = Math.max(
-            leaseMs,
-            input.maxProgressStaleMs,
-        );
+        const maxProgressStaleMs = Math.max(leaseMs, input.maxProgressStaleMs);
         let stopped = false;
         let lastProgressAt = this.nowMs();
         let lastProgressFingerprint = this.observeProgressFingerprint(
@@ -411,6 +449,14 @@ export class BootstrapStepOrchestrator {
         );
         const renew = (): void => {
             if (stopped) {
+                return;
+            }
+            if (
+                this.runsPort.getRun(run.runId)?.status ===
+                BOOTSTRAP_RUN_STATUS.Failed
+            ) {
+                stopped = true;
+                clearInterval(timer);
                 return;
             }
             const nowMs = this.nowMs();
@@ -431,8 +477,7 @@ export class BootstrapStepOrchestrator {
                     input,
                     run,
                     step.stepKey,
-                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                        .LeaseRenewalProgressStale,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalProgressStale,
                     {
                         lastProgressAt,
                         staleMs,
@@ -449,7 +494,24 @@ export class BootstrapStepOrchestrator {
                 leaseUntil: nowMs + leaseMs,
             });
         };
-        const timer = setInterval(renew, intervalMs);
+        const timer = setInterval(() => {
+            try {
+                renew();
+            } catch (error) {
+                // Exhausted local persistence retries must not crash every lane
+                // in this worker. Stop renewing; expiry and owner-fenced writes
+                // govern recovery of any still-running deployment request.
+                stopped = true;
+                clearInterval(timer);
+                this.logWarn(
+                    input,
+                    run,
+                    step.stepKey,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalFailed,
+                    { error: String(error) },
+                );
+            }
+        }, intervalMs);
         timer.unref?.();
         return () => {
             stopped = true;
@@ -474,8 +536,7 @@ export class BootstrapStepOrchestrator {
                 input,
                 run,
                 step.stepKey,
-                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
-                    .LeaseRenewalObserveFailed,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.LeaseRenewalObserveFailed,
                 {
                     error: String(error),
                 },

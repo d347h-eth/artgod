@@ -42,9 +42,7 @@ describe("bootstrap steps storage", () => {
             completed: 5,
             total: 10,
         });
-        expect(
-            steps.getStep(91, BOOTSTRAP_STEP_KEY.Metadata),
-        ).toEqual(
+        expect(steps.getStep(91, BOOTSTRAP_STEP_KEY.Metadata)).toEqual(
             expect.objectContaining({
                 runId: 91,
                 stepKey: BOOTSTRAP_STEP_KEY.Metadata,
@@ -58,9 +56,7 @@ describe("bootstrap steps storage", () => {
             completed: 10,
             total: 10,
         });
-        expect(
-            steps.getStep(91, BOOTSTRAP_STEP_KEY.Metadata),
-        ).toEqual(
+        expect(steps.getStep(91, BOOTSTRAP_STEP_KEY.Metadata)).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.Succeeded,
                 progressCompleted: 10,
@@ -74,9 +70,9 @@ describe("bootstrap steps storage", () => {
             BOOTSTRAP_STEP_KEY.ImageCache,
             "no image cache tasks",
         );
-        expect(
-            steps.getStep(91, BOOTSTRAP_STEP_KEY.ImageCache)?.status,
-        ).toBe(BOOTSTRAP_STEP_STATUS.Skipped);
+        expect(steps.getStep(91, BOOTSTRAP_STEP_KEY.ImageCache)?.status).toBe(
+            BOOTSTRAP_STEP_STATUS.Skipped,
+        );
 
         steps.markStepFailedRetry({
             runId: 91,
@@ -85,9 +81,7 @@ describe("bootstrap steps storage", () => {
             nextAttemptAt: 123,
             error: "coverage incomplete",
         });
-        expect(
-            steps.getStep(91, BOOTSTRAP_STEP_KEY.Backfill),
-        ).toEqual(
+        expect(steps.getStep(91, BOOTSTRAP_STEP_KEY.Backfill)).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.FailedRetry,
                 attempts: 1,
@@ -101,9 +95,7 @@ describe("bootstrap steps storage", () => {
             attempts: 2,
             error: "coverage failed",
         });
-        expect(
-            steps.getStep(91, BOOTSTRAP_STEP_KEY.Backfill),
-        ).toEqual(
+        expect(steps.getStep(91, BOOTSTRAP_STEP_KEY.Backfill)).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.FailedTerminal,
                 attempts: 2,
@@ -137,9 +129,7 @@ describe("bootstrap steps storage", () => {
 
         steps.markStepReady(92, BOOTSTRAP_STEP_KEY.Enumeration);
 
-        expect(
-            steps.getStep(92, BOOTSTRAP_STEP_KEY.Enumeration),
-        ).toEqual(
+        expect(steps.getStep(92, BOOTSTRAP_STEP_KEY.Enumeration)).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.Ready,
                 dependsOn: [BOOTSTRAP_STEP_KEY.Anchor],
@@ -228,9 +218,10 @@ describe("bootstrap steps storage", () => {
         ]);
     });
 
-    it("renews a running lease only for the current owner", () => {
+    it("renews a running lease only for the current unexpired owner", () => {
         seedStep(90, BOOTSTRAP_STEP_KEY.Enumeration);
-        const steps = new SqliteBootstrapSteps();
+        let nowMs = 1_000;
+        const steps = new SqliteBootstrapSteps(() => nowMs);
         steps.markStepReady(90, BOOTSTRAP_STEP_KEY.Enumeration);
         steps.claimReadySteps({
             runId: 90,
@@ -260,6 +251,16 @@ describe("bootstrap steps storage", () => {
         expect(
             steps.getStep(90, BOOTSTRAP_STEP_KEY.Enumeration)?.leaseUntil,
         ).toBe(4_000);
+        nowMs = 4_000;
+        steps.renewStepLease({
+            runId: 90,
+            stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+            leaseOwner: "current-lease",
+            leaseUntil: 5_000,
+        });
+        expect(
+            steps.getStep(90, BOOTSTRAP_STEP_KEY.Enumeration)?.leaseUntil,
+        ).toBe(4_000);
     });
 
     it("tracks delegated running steps with a durable health-check deadline", () => {
@@ -272,9 +273,7 @@ describe("bootstrap steps storage", () => {
             healthCheckAt: 5_000,
         });
 
-        expect(
-            steps.getStep(98, BOOTSTRAP_STEP_KEY.OpenSeaSnapshot),
-        ).toEqual(
+        expect(steps.getStep(98, BOOTSTRAP_STEP_KEY.OpenSeaSnapshot)).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.Running,
                 nextAttemptAt: 5_000,
@@ -385,11 +384,7 @@ describe("bootstrap steps storage", () => {
         steps.markStepRunning(101, BOOTSTRAP_STEP_KEY.Ownership);
         db.prepare(
             "UPDATE bootstrap_run_steps SET status = ?, lease_owner = NULL, lease_until = NULL WHERE run_id = ? AND step_key = ?",
-        ).run(
-            BOOTSTRAP_STEP_STATUS.Paused,
-            101,
-            BOOTSTRAP_STEP_KEY.Ownership,
-        );
+        ).run(BOOTSTRAP_STEP_STATUS.Paused, 101, BOOTSTRAP_STEP_KEY.Ownership);
 
         steps.markStepRunning(101, BOOTSTRAP_STEP_KEY.Ownership);
         steps.updateStepProgress(101, BOOTSTRAP_STEP_KEY.Ownership, {
@@ -420,6 +415,63 @@ describe("bootstrap steps storage", () => {
                 lastError: null,
             }),
         );
+    });
+
+    it("selects the longest-due runs before newer retries and uses lease expiry for abandoned work", () => {
+        const recentRetry = seedRun(1, 91);
+        const expiredLease = seedRun(1, 92);
+        const firstWaiting = seedRun(1, 93);
+        const secondWaiting = seedRun(1, 94);
+        const steps = new SqliteBootstrapSteps();
+        for (const runId of [
+            recentRetry,
+            expiredLease,
+            firstWaiting,
+            secondWaiting,
+        ]) {
+            seedStep(runId, BOOTSTRAP_STEP_KEY.Metadata);
+            steps.markStepReady(runId, BOOTSTRAP_STEP_KEY.Metadata);
+        }
+        steps.markStepFailedRetry({
+            runId: recentRetry,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            attempts: 1,
+            nextAttemptAt: 900,
+            error: "retry",
+        });
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET status = ?, lease_until = ?, next_attempt_at = 0 WHERE run_id = ?",
+        ).run(BOOTSTRAP_STEP_STATUS.Running, 500, expiredLease);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = 100 WHERE run_id IN (?, ?)",
+        ).run(firstWaiting, secondWaiting);
+        // Multiple due steps still occupy one run slot, ordered by its oldest deadline.
+        seedStep(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        steps.markStepReady(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = 200 WHERE run_id = ? AND step_key = ?",
+        ).run(secondWaiting, BOOTSTRAP_STEP_KEY.Ownership);
+        const query = {
+            chainId: 1,
+            stepKeys: [
+                BOOTSTRAP_STEP_KEY.Metadata,
+                BOOTSTRAP_STEP_KEY.Ownership,
+            ],
+            nowMs: 1_000,
+            limit: 3,
+        };
+        expect(steps.listDueStepRunIds(query)).toEqual([
+            firstWaiting,
+            secondWaiting,
+            expiredLease,
+        ]);
+        expect(steps.listDueStepRunIds({ ...query, limit: 4 })).toEqual([
+            firstWaiting,
+            secondWaiting,
+            expiredLease,
+            recentRetry,
+        ]);
+        expect(steps.getNextDueStepAt(query)).toBe(100);
     });
 
     it("lists due lane runs and reports the next durable deadline", () => {
@@ -473,22 +525,29 @@ describe("bootstrap steps storage", () => {
     });
 });
 
-function seedRun(chainId: number, collectionId: number): number {
-    const result = db.prepare(
-        "INSERT INTO bootstrap_runs " +
-            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-        chainId,
-        collectionId,
-        `collection-${collectionId}`,
-        "0x0000000000000000000000000000000000000001",
-        COLLECTION_STANDARD.Erc721,
-        BOOTSTRAP_METADATA_MODE.BestEffort,
-        BOOTSTRAP_ENUMERATION_MODE.Enumerable,
-        IMAGE_CACHE_MODE.Off,
-        BOOTSTRAP_RUN_STATUS.Metadata,
-    );
+function seedRun(
+    chainId: number,
+    collectionId: number,
+    runId: number | null = null,
+): number {
+    const result = db
+        .prepare(
+            "INSERT INTO bootstrap_runs " +
+                "(run_id, chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+            runId,
+            chainId,
+            collectionId,
+            `collection-${collectionId}`,
+            "0x0000000000000000000000000000000000000001",
+            COLLECTION_STANDARD.Erc721,
+            BOOTSTRAP_METADATA_MODE.BestEffort,
+            BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+            IMAGE_CACHE_MODE.Off,
+            BOOTSTRAP_RUN_STATUS.Metadata,
+        );
     return Number(result.lastInsertRowid);
 }
 
@@ -497,6 +556,11 @@ function seedStep(
     stepKey: BootstrapStepKey,
     dependsOn: BootstrapStepKey[] = [],
 ): void {
+    if (
+        !db.prepare("SELECT 1 FROM bootstrap_runs WHERE run_id = ?").get(runId)
+    ) {
+        seedRun(1, runId, runId);
+    }
     db.prepare(
         "INSERT INTO bootstrap_run_steps " +
             "(run_id, step_key, status, blocking, depends_on_json) " +

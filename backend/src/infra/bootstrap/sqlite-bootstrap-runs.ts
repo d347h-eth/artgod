@@ -36,14 +36,17 @@ import type {
     CollectionBootstrapState,
     PreparedCollectionRunAbortInput,
     PreparedCollectionRunCreateInput,
+    RequestedBootstrapRunQueueInput,
 } from "../../application/use-cases/bootstrap/ports.js";
-import type {
-    BootstrapRunEventRecord,
-    BootstrapMetadataTaskListItem,
-    BootstrapMetadataTaskStatus,
-    BootstrapRunRow,
-    BootstrapRunStepRecord,
-    BootstrapRunTaskCounts,
+import {
+    BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
+    BootstrapConflictError,
+    type BootstrapRunEventRecord,
+    type BootstrapMetadataTaskListItem,
+    type BootstrapMetadataTaskStatus,
+    type BootstrapRunRow,
+    type BootstrapRunStepRecord,
+    type BootstrapRunTaskCounts,
 } from "../../application/use-cases/bootstrap/types.js";
 
 type CollectionRow = {
@@ -238,19 +241,14 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         "SELECT token_id FROM collection_scope_tokens WHERE chain_id = @chainId AND collection_id = @collectionId ORDER BY token_id ASC",
     );
 
-    private selectActiveRunCount = db.prepare<{
+    private selectNonFailedRunCount = db.prepare<{
         chainId: number;
         collectionId: number;
-        requestedStatus: BootstrapRunStatus;
-        queuedStatus: BootstrapRunStatus;
-        metadataStatus: BootstrapRunStatus;
-        imageCacheStatus: BootstrapRunStatus;
-        ownershipStatus: BootstrapRunStatus;
-        backfillStatus: BootstrapRunStatus;
+        failedStatus: BootstrapRunStatus;
     }>(
         "SELECT COUNT(*) AS count FROM bootstrap_runs " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND status IN (@requestedStatus, @queuedStatus, @metadataStatus, @imageCacheStatus, @ownershipStatus, @backfillStatus)",
+            "AND status != @failedStatus",
     );
 
     private insertRun = db.prepare<{
@@ -303,6 +301,19 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectRunById = db.prepare<{ chainId: number; runId: number }>(
         `SELECT ${BOOTSTRAP_RUN_SELECT_COLUMNS} ` +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND run_id = @runId LIMIT 1",
+    );
+
+    private queueRequestedRunStmt = db.prepare<{
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        requestedStatus: BootstrapRunStatus;
+        queuedStatus: BootstrapRunStatus;
+    }>(
+        "UPDATE bootstrap_runs SET status = @queuedStatus, error_code = NULL, error_message = NULL, " +
+            "finished_at = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND chain_id = @chainId AND collection_id = @collectionId " +
+            "AND status = @requestedStatus",
     );
 
     private updateRunStatusStmt = db.prepare<{
@@ -563,6 +574,13 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         deploymentBlock: number | null;
     }): CollectionBootstrapState {
         const run = db.writeTransaction(() => {
+            const existing = this.findCollectionBySlug(
+                input.chainId,
+                input.slug,
+            );
+            if (existing) {
+                this.assertNoNonFailedRun(input.chainId, existing.collectionId);
+            }
             this.upsertCollectionBySlug.run({
                 chainId: input.chainId,
                 slug: input.slug,
@@ -617,16 +635,11 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return this.getCollectionById(chainId, collectionId);
     }
 
-    hasActiveRun(chainId: number, collectionId: number): boolean {
-        const row = this.selectActiveRunCount.get({
+    hasNonFailedRun(chainId: number, collectionId: number): boolean {
+        const row = this.selectNonFailedRunCount.get({
             chainId,
             collectionId,
-            requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
-            queuedStatus: BOOTSTRAP_RUN_STATUS.Queued,
-            metadataStatus: BOOTSTRAP_RUN_STATUS.Metadata,
-            imageCacheStatus: BOOTSTRAP_RUN_STATUS.ImageCache,
-            ownershipStatus: BOOTSTRAP_RUN_STATUS.Ownership,
-            backfillStatus: BOOTSTRAP_RUN_STATUS.Backfill,
+            failedStatus: BOOTSTRAP_RUN_STATUS.Failed,
         }) as { count: number } | undefined;
         return (row?.count ?? 0) > 0;
     }
@@ -684,6 +697,26 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
                 collectionId: input.collectionId,
                 status: COLLECTION_STATUS.Prepared,
             });
+        })();
+    }
+
+    queueRequestedRun(input: RequestedBootstrapRunQueueInput): boolean {
+        return db.writeTransaction(() => {
+            const updated = this.queueRequestedRunStmt.run({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+                queuedStatus: BOOTSTRAP_RUN_STATUS.Queued,
+            });
+            if (updated.changes === 0) return false;
+            this.insertRunEventStmt.run({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                ...input.queuedEvent,
+            });
+            return true;
         })();
     }
 
@@ -753,6 +786,8 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private insertBootstrapRun(
         input: BootstrapRunCreateInput,
     ): BootstrapRunRow {
+        // Both creation paths check admission and insert in the same write transaction.
+        this.assertNoNonFailedRun(input.chainId, input.collectionId);
         this.insertRun.run({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -794,6 +829,14 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             });
         }
         return mapRun(row);
+    }
+
+    private assertNoNonFailedRun(chainId: number, collectionId: number): void {
+        if (this.hasNonFailedRun(chainId, collectionId)) {
+            throw new BootstrapConflictError(
+                BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
+            );
+        }
     }
 
     isLatestRunForCollection(

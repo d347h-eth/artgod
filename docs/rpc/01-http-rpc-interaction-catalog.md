@@ -241,14 +241,34 @@ oversized response remains an explicit failure. See
 
 - Runtime: `indexer/src/runtime/bootstrap-worker.ts`.
 - Main use cases: collection bootstrap, anchor-block reads, metadata task
-  seeding, token enumeration, and ownership snapshots.
+  seeding, token enumeration, ownership snapshots, and optional deployment-block
+  enrichment.
 - HTTP lane: `bootstrap-http-rpc`.
 - RPC method paths: block reads, current head reads, `totalSupply`,
-  enumerable token ids, and owner reads.
+  enumerable token ids, owner reads, and historical `eth_getCode` through
+  `getBytecode` for contract deployment lookup. Recognized shared contracts and
+  manual scopes use `eth_getLogs` with indexed mint-sender and token-ID filters;
+  their historical code lookup first establishes the inclusive lower bound for
+  those mint pages. All other scopes use code deployment as the marker.
 - Resilience: full indexer HTTP adapter coverage for the main bootstrap RPC
   provider.
 - Separate metadata lane: metadata URI resolution uses `metadata-rpc`, covered
   below.
+- Deployment lookup is a separate scheduler lane using the same HTTP provider;
+  it does not hold the main bootstrap lane. Code searches cover the full block
+  range logically. Mint queries begin at the discovered contract code block and
+  send one bounded page per
+  scheduler pass, capped by `LOG_CHUNK_SIZE` and the HTTP adapter's learned cap.
+  Successful empty pages persist a cursor; errors leave that cursor unchanged.
+  Range/response-size rejections and multi-block mint-page timeouts reduce the
+  request interval. Each retry checks run/step ownership before sending,
+  including after waiting for shared quota. Unavailable history remains an error.
+  The contract lower bound is persisted alongside the mint cursor, reused on
+  restart and retry, and invalidated with the cursor when the pinned hash changes.
+  Missing code history never starts an automatic genesis mint scan.
+  Code queries checkpoint their confirmed binary-search boundaries after each
+  successful probe. Quota deferral, retry, and restart resume unconfirmed probes;
+  the stored pinned upper block/hash is verified before marker publication.
 
 ### Metadata URI Resolution
 

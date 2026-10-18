@@ -36,6 +36,10 @@ export interface BootstrapRunsPort {
         chainId: number,
         limit: number,
     ): BootstrapRunDefinition[];
+    /**
+     * Automatic transitions must atomically preserve a failed run. Recovery is
+     * an explicit backend retry, never a late worker's status update.
+     */
     updateRunStatus(
         runId: number,
         status: BootstrapRunStatus,

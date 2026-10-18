@@ -77,6 +77,15 @@ export class ApplyBootstrapRunStepActionUseCase {
             throw new ReadModelNotFoundError("Unknown bootstrap run step");
         }
 
+        if (
+            run.status === BOOTSTRAP_RUN_STATUS.Failed &&
+            step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock
+        ) {
+            throw new BootstrapConflictError(
+                "Run failed; retry the failed bootstrap step first",
+            );
+        }
+
         if (input.action === BOOTSTRAP_STEP_ACTION.Retry) {
             return this.retryStep(run, step);
         }
@@ -128,9 +137,14 @@ export class ApplyBootstrapRunStepActionUseCase {
         if (runStatus) {
             this.bootstrapRunsPort.updateRunStatus(run.runId, runStatus);
         }
-        this.appendStepActionEvent(run, step.stepKey, BOOTSTRAP_STEP_ACTION.Retry, {
-            taskUpdatedCount: retry.taskUpdatedCount,
-        });
+        this.appendStepActionEvent(
+            run,
+            step.stepKey,
+            BOOTSTRAP_STEP_ACTION.Retry,
+            {
+                taskUpdatedCount: retry.taskUpdatedCount,
+            },
+        );
         await this.publishStepWork(run, step.stepKey);
         return buildOutput(
             run.runId,
@@ -162,7 +176,11 @@ export class ApplyBootstrapRunStepActionUseCase {
                 "Bootstrap step pause lost the state race",
             );
         }
-        this.appendStepActionEvent(run, step.stepKey, BOOTSTRAP_STEP_ACTION.Pause);
+        this.appendStepActionEvent(
+            run,
+            step.stepKey,
+            BOOTSTRAP_STEP_ACTION.Pause,
+        );
         return buildOutput(
             run.runId,
             step.stepKey,
@@ -237,6 +255,8 @@ export class ApplyBootstrapRunStepActionUseCase {
         run: BootstrapRunRow,
         stepKey: BootstrapStepKey,
     ): Promise<void> {
+        // The independent deployment lane discovers durable ready steps itself.
+        if (stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock) return;
         if (stepKey !== BOOTSTRAP_STEP_KEY.ImageCache) {
             await this.bootstrapQueuePort.publishBootstrapStart({
                 chainId: run.chainId,
@@ -253,9 +273,10 @@ export class ApplyBootstrapRunStepActionUseCase {
     }
 }
 
-function resolveStepActionEvent(
-    action: BootstrapStepAction,
-): { code: string; message: string } {
+function resolveStepActionEvent(action: BootstrapStepAction): {
+    code: string;
+    message: string;
+} {
     if (action === BOOTSTRAP_STEP_ACTION.Pause) {
         return {
             code: BOOTSTRAP_RUN_EVENT_CODE.StepPaused,
@@ -278,6 +299,7 @@ function resolveRunStatusAfterTerminalRetry(
     run: BootstrapRunRow,
     step: BootstrapRunStepRecord,
 ): BootstrapRunStatus | null {
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock) return null;
     if (!step.blocking && run.status === BOOTSTRAP_RUN_STATUS.Completed) {
         return null;
     }

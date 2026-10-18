@@ -14,10 +14,15 @@ import {
 } from '@artgod/shared/bootstrap/pipeline';
 import type { ApiBootstrapFlowStep } from '$lib/api-types';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
+import { buildBootstrapRunDetailE2eDetail } from '$lib/e2e/bootstrap-run-detail-fixtures';
+import { BOOTSTRAP_FLOW_ROWS } from '$lib/bootstrap-flow';
+import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 
 function flowStep(
 	input: Omit<ApiBootstrapFlowStep, 'blocking' | 'pausable' | 'paused' | 'availableActions'>,
-	overrides: Partial<Pick<ApiBootstrapFlowStep, 'blocking' | 'pausable' | 'paused' | 'availableActions'>> = {}
+	overrides: Partial<
+		Pick<ApiBootstrapFlowStep, 'blocking' | 'pausable' | 'paused' | 'availableActions'>
+	> = {}
 ): ApiBootstrapFlowStep {
 	return {
 		...input,
@@ -30,6 +35,24 @@ function flowStep(
 }
 
 describe('BootstrapRunDetailView', () => {
+	it('groups the flow and links block numbers through the configured explorer', () => {
+		const initialDetail = buildBootstrapRunDetailE2eDetail({ imageCachePaused: false });
+		const { body } = render(BootstrapRunDetailView, {
+			props: {
+				chainRef: 'ethereum',
+				runId: 77,
+				initialDetail,
+				blockExplorer: { ...getDefaultBlockExplorerConfig(), baseUrl: 'https://explorer.example' }
+			}
+		});
+		for (const label of BOOTSTRAP_FLOW_ROWS) expect(body).toContain(`aria-label="${label}"`);
+		expect(body).toContain('href="https://explorer.example/block/24500000"');
+		expect(body).not.toContain('1 / 1');
+		expect(body).not.toMatch(/\b0 \/ 1\b/);
+		expect(body).toContain('pending');
+		expect(body).toContain('done');
+		expect(body).toContain('600 / 1000');
+	});
 	it('renders the flow strip with metadata progress', () => {
 		const { body } = render(BootstrapRunDetailView, {
 			props: {

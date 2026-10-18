@@ -940,6 +940,7 @@ export async function createBootstrapRun(
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
 		scope: BootstrapScope;
+		sharedContract?: boolean;
 		imageCache?: {
 			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;

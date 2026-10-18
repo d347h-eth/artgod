@@ -10,7 +10,6 @@ import {
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
-    BOOTSTRAP_RUN_STATUS,
     type BootstrapEnumerationMode,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
@@ -28,6 +27,7 @@ import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/toke
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BootstrapConflictError,
+    BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
     BootstrapValidationError,
     type CreateBootstrapRunOutput,
 } from "./types.js";
@@ -120,13 +120,13 @@ export class StartPreparedCollectionBootstrapUseCase {
             throw new BootstrapValidationError("Only ERC-721 is supported");
         }
         if (
-            this.bootstrapRunsPort.hasActiveRun(
+            this.bootstrapRunsPort.hasNonFailedRun(
                 chain.publicChainId,
                 collection.collectionId,
             )
         ) {
             throw new BootstrapConflictError(
-                "Collection already bootstrapping",
+                BOOTSTRAP_NON_FAILED_RUN_CONFLICT_MESSAGE,
             );
         }
 
@@ -137,8 +137,7 @@ export class StartPreparedCollectionBootstrapUseCase {
         const siblingCollections = this.bootstrapRunsPort
             .listCollectionsByAddress(chain.publicChainId, collection.address)
             .filter(
-                (sibling) =>
-                    sibling.collectionId !== collection.collectionId,
+                (sibling) => sibling.collectionId !== collection.collectionId,
             );
         assertCollectionScopeDoesNotOverlap(
             chain.publicChainId,
@@ -190,7 +189,8 @@ export class StartPreparedCollectionBootstrapUseCase {
             requestAddress: collection.address,
             requestStandard: collection.standard,
             imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-            animationSourceField: TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
+            animationSourceField:
+                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
             requestExtensionKey,
             metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
             enumerationMode: enumeration.mode,
@@ -210,18 +210,16 @@ export class StartPreparedCollectionBootstrapUseCase {
         });
 
         try {
-            this.bootstrapRunsPort.updateRunStatus(
-                run.runId,
-                BOOTSTRAP_RUN_STATUS.Queued,
-            );
-            this.bootstrapRunsPort.appendRunEvent({
+            this.bootstrapRunsPort.queueRequestedRun({
                 runId: run.runId,
                 chainId: run.chainId,
                 collectionId: run.collectionId,
-                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
-                eventLevel: "info",
-                message: "Bootstrap run queued",
-                payloadJson: null,
+                queuedEvent: {
+                    eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
+                    eventLevel: "info",
+                    message: "Bootstrap run queued",
+                    payloadJson: null,
+                },
             });
             await this.bootstrapQueuePort.publishBootstrapStart({
                 chainId: run.chainId,
@@ -247,15 +245,15 @@ export class StartPreparedCollectionBootstrapUseCase {
             throw cause;
         }
 
-        const queued = this.bootstrapRunsPort.getLatestRun(
+        const currentRun = this.bootstrapRunsPort.getRunById(
             run.chainId,
-            run.collectionId,
+            run.runId,
         );
         return {
             runId: run.runId,
             collectionId: run.collectionId,
-            status: queued?.status ?? BOOTSTRAP_RUN_STATUS.Queued,
-            createdAt: queued?.createdAt ?? run.createdAt,
+            status: currentRun?.status ?? run.status,
+            createdAt: currentRun?.createdAt ?? run.createdAt,
         };
     }
 }

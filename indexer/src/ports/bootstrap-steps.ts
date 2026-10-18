@@ -26,7 +26,16 @@ export type BootstrapStepProgress = {
     total: number | null;
 };
 
-// Query shape for finding due bootstrap work scoped to one scheduler lane.
+// Enumeration's retained output for dependent optional work. It stays with the
+// run after successful task rows are cleaned and belongs to exactly one anchor.
+export type BootstrapEnumerationConfirmation = {
+    firstTokenId: string;
+    anchorBlock: number;
+    anchorHash: string;
+};
+
+// Find lane work by oldest due deadline, then run ID. Each run occupies one
+// slot even when several steps are due; rescheduling yields to older due work.
 export type BootstrapDueStepRunQuery = {
     chainId: number;
     stepKeys: readonly BootstrapStepKey[];
@@ -42,7 +51,10 @@ export type BootstrapNextDueStepQuery = {
 
 // Port for mutating durable bootstrap step state without coupling executors to SQLite.
 export interface BootstrapStepsPort {
-    getStep(runId: number, stepKey: BootstrapStepKey): BootstrapStepRecord | null;
+    getStep(
+        runId: number,
+        stepKey: BootstrapStepKey,
+    ): BootstrapStepRecord | null;
     listRunSteps(runId: number): BootstrapStepRecord[];
     listDueStepRunIds(input: BootstrapDueStepRunQuery): number[];
     getNextDueStepAt(input: BootstrapNextDueStepQuery): number | null;

@@ -11,7 +11,8 @@ import {
 	BOOTSTRAP_STEP_STATUS,
 	BOOTSTRAP_RUN_STATUS,
 	type BootstrapStepAction,
-	type BootstrapStepKey
+	type BootstrapStepKey,
+	type BootstrapRunStatus
 } from '@artgod/shared/bootstrap/pipeline';
 
 export { BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH };
@@ -25,15 +26,19 @@ export type CapturedBootstrapStepAction = {
 export type BootstrapRunDetailApiMock = {
 	actions: CapturedBootstrapStepAction[];
 	detailRequests: number;
+	completeDeployment(): void;
 };
 
 // Returns deterministic run-detail responses while capturing step action calls.
 export async function installBootstrapRunDetailApiMock(
-	page: Page
+	page: Page,
+	initialDeploymentStatus = BOOTSTRAP_STEP_STATUS.Ready as (typeof BOOTSTRAP_STEP_STATUS)[keyof typeof BOOTSTRAP_STEP_STATUS],
+	runStatus: BootstrapRunStatus = BOOTSTRAP_RUN_STATUS.Completed
 ): Promise<BootstrapRunDetailApiMock> {
 	const actions: CapturedBootstrapStepAction[] = [];
 	let detailRequests = 0;
 	let imageCachePaused = false;
+	let deploymentStatus = initialDeploymentStatus;
 	const detailPath = `/api/${BOOTSTRAP_PROBE_E2E_CHAIN.slug}/bootstrap-runs/${BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID}`;
 
 	await page.route('**/api/**', async (route) => {
@@ -47,13 +52,16 @@ export async function installBootstrapRunDetailApiMock(
 
 		if (request.method() === 'GET' && url.pathname === detailPath) {
 			detailRequests += 1;
-			await fulfillJson(route, buildBootstrapRunDetailE2eDetail({ imageCachePaused }));
+			await fulfillJson(
+				route,
+				buildBootstrapRunDetailE2eDetail({ imageCachePaused, deploymentStatus, runStatus })
+			);
 			return;
 		}
 
 		if (request.method() === 'POST' && url.pathname.startsWith(`${detailPath}/steps/`)) {
-			const action = parseImageCacheAction(url.pathname, detailPath);
-			if (!action) {
+			const stepAction = parseStepAction(url.pathname, detailPath);
+			if (!stepAction) {
 				await fulfillJson(
 					route,
 					{ error: `Unhandled bootstrap step action path: ${url.pathname}` },
@@ -61,18 +69,28 @@ export async function installBootstrapRunDetailApiMock(
 				);
 				return;
 			}
-			imageCachePaused = action === BOOTSTRAP_STEP_ACTION.Pause;
+			const { stepKey, action } = stepAction;
+			if (stepKey === BOOTSTRAP_STEP_KEY.ImageCache)
+				imageCachePaused = action === BOOTSTRAP_STEP_ACTION.Pause;
+			else
+				deploymentStatus =
+					action === BOOTSTRAP_STEP_ACTION.Pause
+						? BOOTSTRAP_STEP_STATUS.Paused
+						: BOOTSTRAP_STEP_STATUS.Ready;
 			actions.push({
-				stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+				stepKey,
 				action,
 				body: requestBody(request)
 			});
 			await fulfillJson(route, {
 				runId: BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID,
-				stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
-				status: imageCachePaused
-					? BOOTSTRAP_STEP_STATUS.Paused
-					: BOOTSTRAP_STEP_STATUS.Ready
+				stepKey,
+				status:
+					stepKey === BOOTSTRAP_STEP_KEY.DeploymentBlock
+						? deploymentStatus
+						: imageCachePaused
+							? BOOTSTRAP_STEP_STATUS.Paused
+							: BOOTSTRAP_STEP_STATUS.Ready
 			});
 			return;
 		}
@@ -86,28 +104,32 @@ export async function installBootstrapRunDetailApiMock(
 			return;
 		}
 
-		await fulfillJson(route, { error: `Unhandled bootstrap detail API path: ${url.pathname}` }, 500);
+		await fulfillJson(
+			route,
+			{ error: `Unhandled bootstrap detail API path: ${url.pathname}` },
+			500
+		);
 	});
 
 	return {
 		actions,
+		completeDeployment: () => {
+			deploymentStatus = BOOTSTRAP_STEP_STATUS.Succeeded;
+		},
 		get detailRequests() {
 			return detailRequests;
 		}
 	};
 }
 
-function parseImageCacheAction(
+function parseStepAction(
 	pathname: string,
 	detailPath: string
-): BootstrapStepAction | null {
-	const pausePath = `${detailPath}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Pause}`;
-	if (pathname === pausePath) {
-		return BOOTSTRAP_STEP_ACTION.Pause;
-	}
-	const resumePath = `${detailPath}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Resume}`;
-	if (pathname === resumePath) {
-		return BOOTSTRAP_STEP_ACTION.Resume;
+): { stepKey: BootstrapStepKey; action: BootstrapStepAction } | null {
+	for (const stepKey of [BOOTSTRAP_STEP_KEY.ImageCache, BOOTSTRAP_STEP_KEY.DeploymentBlock]) {
+		for (const action of Object.values(BOOTSTRAP_STEP_ACTION)) {
+			if (pathname === `${detailPath}/steps/${stepKey}/${action}`) return { stepKey, action };
+		}
 	}
 	return null;
 }
