@@ -238,6 +238,10 @@ type IndexedOrderRow = {
     maker: string;
     price: string | null;
     quantity: string;
+    original_quantity: string | null;
+    fillable_quantity: string | null;
+    validation_pending: number;
+    validated_at: number;
     currency: string | null;
     valid_from: number | null;
     valid_until: number | null;
@@ -523,10 +527,10 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             collectionId: number;
             nowSeconds: number;
         }>(
-            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_from, valid_until, seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at, " +
-                "COALESCE(datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0), 'unixepoch'),updated_at) AS updated_at " +
-                "FROM orders " +
-                "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, original_quantity, fillable_quantity, COALESCE(CASE WHEN d.proof_revision=state_revision THEN d.proof_at/1000 END,NULLIF(validated_at,0)) AS validated_at, COALESCE(d.pending,0) AS validation_pending, currency, valid_from, valid_until, seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at, " +
+                "COALESCE(datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0), 'unixepoch'),orders.updated_at) AS updated_at " +
+                "FROM orders LEFT JOIN order_validation_demand d ON d.chain_id=orders.chain_id AND d.order_id=orders.id " +
+                "WHERE orders.chain_id = @chainId AND collection_id = @collectionId " +
                 "AND side = 'buy' AND source_status = 'active' AND fillability_status = 'fillable' " +
                 "AND price IS NOT NULL AND price != '' " +
                 "AND (valid_from IS NULL OR valid_from <= @nowSeconds) " +
@@ -2405,6 +2409,10 @@ function mapIndexedOrderRow(
                 price: exactBidBookRowPrice(row.price),
                 bidLimits: null,
                 quantity: row.quantity,
+                originalQuantity: row.original_quantity,
+                fillableQuantity: row.fillable_quantity,
+                validationPending: row.validation_pending === 1,
+                validatedAt: row.validated_at || null,
                 currencyAddress: row.currency,
                 currencySymbol: null,
                 protocolAddress: row.protocol_address,

@@ -528,8 +528,10 @@ Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new f
   ERC-20 conversion and token-specific bundle valuation remain out of scope.
 - Router payment-path details are not persisted as first-class context yet.
 - Financing context such as loan emission/repayment is not modeled in `fills` yet.
-- Partial order quantity progression and marketplace/royalty fee
-  classification are not persisted beside raw fills.
+- Marketplace/royalty fee classification is not persisted beside raw fills.
+  Current fixed-amount Seaport buy-order quantity progression belongs to the
+  [orders projection](07-domain-orders.md#partial-fills-and-quantities), not raw
+  execution facts. Partial sell inventory and basket quantities remain unsupported.
 - Blur execution logs from unknown exchange emitters remain unsupported.
 - Wyvern calls through unknown wrappers, NFT targets, or packed formats remain
   unsupported. Interpreted calls with ambiguous execution context are skipped.

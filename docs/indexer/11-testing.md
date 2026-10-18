@@ -350,6 +350,13 @@ Current focused coverage includes:
 - offchain dispatch and token-set mismatch persistence (`tests/offchain-dispatch.test.ts`)
 - canonical order raw-source precedence and Seaport data usage (`tests/orders-raw-source.test.ts`)
 - Seaport validation (`tests/seaport-validate.test.ts`)
+- captured 100-unit partial collection offer, signed unit price, protocol fraction
+  conversion, remaining/funded capacity, partial-fill replay without source
+  reconciliation, immediate full-only exhaustion without RPC, source cancellation,
+  RPC failure, changed snapshot hash, chain-revision fencing, actual rollback of partial and full-only
+  results, source-cancellation preservation, and atomic rollback/demand failure
+  (`tests/partial-fill-order-lifecycle.test.ts`); parser and backend projection
+  coverage verify 100 original / 45 remaining / 10 funded units independently
 - ordinary and bulk signature recovery, positional proofs, compact/standard
   encodings, malformed inputs and domain binding
   (`tests/seaport-protocol.test.ts`)
@@ -490,8 +497,9 @@ opens app-data storage. It proves that small-maker and token work completes
 after the heavy maker's first 100 validations, all 9,339 finish without consuming
 failure attempts, and 200 additional old maker hints add no validation pass or
 run rows. At most one outbox continuation exists for the run. It
-also holds both shared validation permits on RPC, applies a lifecycle fill while
-they are held, and verifies targeted token work finishes before the broad sweep.
+also holds both shared validation permits on RPC, applies a canonical full-only
+execution immediately, and verifies targeted token work finishes before the broad
+sweep. The stale in-flight validation cannot revive the filled order.
 The maximum stays at two active validations. It
 then kills its child while the second context is awaiting RPC, restarts NATS
 against the same synthetic store, and resumes the remaining 410 of 510 orders.
@@ -513,10 +521,13 @@ rendered fixture for sold-token asks and retained daily history. That fixture is
 separate from native/live queue qualification.
 
 The same `test:orders:queues` command runs `integration/order-backlog.test.ts`:
-10,002 legacy envelopes (7,719 validation hints, 2,281 cancellations and two fill
-facts), plus 1,000 arriving hints across 50 additional orders. It uses the actual
+10,002 envelopes (7,719 validation hints, 2,281 cancellations, one source sale
+validation hint and one canonical execution), plus 1,000 arriving hints across
+50 additional orders. It uses the actual
 paced legacy handler, stops and resumes its child, verifies committed domain
-state and bounds demand rows without a per-envelope outbox. Malformed bytes and
+state and bounds demand rows without a per-envelope outbox. The current bound
+includes the source sale's one validation identity, alongside the 200 legacy and
+50 arriving validation identities. Malformed bytes and
 an unsupported future update remain stored through broker restart. Its concise
 result and bounded progress samples are under `tmp/order-backlog-nats/`.
 

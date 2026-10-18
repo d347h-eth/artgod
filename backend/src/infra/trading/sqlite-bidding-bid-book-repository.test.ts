@@ -36,6 +36,7 @@ import {
 } from "@artgod/shared/types";
 import {
     exactBidBookRowPrice,
+    mapPersistedBidRowsToView,
     persistedBidBookRowEffectiveWei,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
@@ -122,6 +123,47 @@ describe("SqliteBiddingBidBookRepository", () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it("returns remaining units separately from original size and funded capacity", () => {
+        insertIndexedOrder({
+            collectionId,
+            id: "partial-order",
+            updatedAt: INDEXED_ORDER_PLACED_AT,
+        });
+        db.prepare(
+            "UPDATE orders SET quantity='45',original_quantity='100',fillable_quantity='10' WHERE id='partial-order'",
+        ).run();
+        const repository = new SqliteBiddingBidBookRepository();
+        const book = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "1997",
+            tokenTraits: [],
+            includeOwnJobContext: false,
+        });
+        assert.equal(book.bids.length, 1);
+        assert.equal(book.bids[0].quantity, "45");
+        assert.equal(book.bids[0].originalQuantity, "100");
+        assert.equal(book.bids[0].fillableQuantity, "10");
+        const [view] = mapPersistedBidRowsToView(book.bids);
+        assert.equal(view.quantity, "45");
+        assert.equal(view.originalQuantity, "100");
+        assert.equal(view.fillableQuantity, "10");
+        assert.equal(view.validationPending, false);
+        db.prepare(
+            "INSERT INTO order_validation_demand(order_id,chain_id,revision,required_at,updated_at) VALUES ('partial-order',1,0,0,0)",
+        ).run();
+        const pending = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "1997",
+            tokenTraits: [],
+            includeOwnJobContext: false,
+        });
+        assert.equal(pending.bids.length, 1);
+        assert.equal(pending.bids[0].validationPending, true);
+        assert.equal(pending.bids[0].quantity, "45");
     });
 
     for (const source of [

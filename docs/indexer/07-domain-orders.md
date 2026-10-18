@@ -74,6 +74,7 @@ alongside broker counts. See [recovery](18-order-queue-recovery.md),
 - source criteria root + normalized source schema
 - local token-set linkage status (`none`, `resolved`, `unresolved`, `mismatch`)
 - price, currency, validity window
+- original signed quantity and source-reported remaining quantity
 - canonical Seaport protocol payload (`seaportData`)
 - raw source kind (`stream` or `rest`)
 - raw audit payload
@@ -94,6 +95,7 @@ The domain tracks two distinct statuses.
 
 Protocol/onchain executability:
 
+- `unvalidated` — no current protocol result is established
 - `fillable`
 - `filled`
 - `cancelled`
@@ -140,9 +142,16 @@ context; the complete parsed criteria determine the persisted scope.
 5. The application-owned demand worker performs full validation asynchronously
    from current canonical data, with a fenced lease and captured generation.
 
-`orders.upsert` writes optimistic defaults:
+New Seaport orders awaiting requested validation start as `unvalidated`. Their
+source activity and observed quantities are retained independently. Explicit
+`validateAfterUpsert=false` callers keep the existing optimistic `fillable`
+behavior. Refreshing an already validated order preserves its last protocol
+state while the new obligation is pending. Both maker scans and per-order demand
+can validate an `unvalidated` order.
 
-- `fillability_status = fillable`
+Other initial defaults are:
+
+- `fillability_status = fillable` for other kinds or explicit optimistic admission
 - `source_status = active` (unless explicitly overridden)
 
 The demand executor corrects `fillability_status` after protocol checks run.
@@ -229,8 +238,9 @@ event adapter use that owner. Generic normalization helpers live in
 have one decoder for the exact `chain/contract/uint256` format. Queue recovery
 decisions and job diagnostic formatting remain in the indexer.
 
-An OpenSea `item_sold` event normally produces an exact-order filled update and
-a seller/token revalidation hint. The
+An OpenSea `item_sold` event normally produces an exact-order validation hint and
+a seller/token revalidation hint. Seaport executions request protocol validation;
+a sale alone does not prove the order is exhausted. The
 [locked Stream SDK contract](https://github.com/ProjectOpenSea/stream-js/blob/v0.4.0/src/types.ts)
 requires `order_hash`, but ingest also handles incomplete events:
 
@@ -261,6 +271,56 @@ signatures, metadata and arbitrary URLs; raw-payload persistence stays opt-in.
 Exact historical recovery requires retained token/transaction identifiers and
 matching canonical transfer/fill or order-validation evidence. General queue
 drainage or reconciliation completion does not establish that recovery.
+
+## Partial fills and quantities
+
+Signed size, remaining inventory and funded capacity are separate facts.
+For fixed-amount Seaport buy orders in one collection, `original_quantity` holds
+signed NFT units, `quantity` holds the last observed remainder, and
+`fillable_quantity` holds the units covered by balance and allowance at the last
+validation. Funding capacity is per order, not a wallet reservation across offers.
+The bid-book read model exposes `validatedAt` and the existing validation demand's
+`validationPending` flag, so pending work is distinct from protocol invalidity.
+
+The shared offer parser calculates unit price using the original signed size,
+then reads the source remainder separately. For a signed 6 WETH offer on 100 NFTs,
+45 remaining and 0.6 WETH balance mean 0.06 WETH per NFT and capacity for at most
+10 units, further capped by allowance. Zero source remainder excludes the offer;
+malformed and oversized remainders are rejected. Source ingestion remains an
+independent observation path and does not own chain lifecycle transitions.
+
+The orders domain classifies canonical Seaport executions from signed order type:
+
+- Full-only orders become `filled` with zero remaining quantity immediately,
+  through the lifecycle transaction. They consume no validation permit or RPC.
+- Partial orders retain their last validated state and quantities. Their execution
+  admits a block-scoped obligation to the existing durable validation demand.
+  The lifecycle consumer ACKs after admission, without waiting on RPC or marking
+  the order `invalid`. A covered execution or replay adds no new work.
+- Unknown signed terms cannot establish exhaustion; they also require validation.
+
+The existing demand executors read the cumulative protocol fraction at a pinned
+block at least as recent as the execution. Its denominator need not equal NFT
+units: 11/20 filled out of an original 100 leaves 45. Validation commits original,
+remaining and funded units together with fillability and coverage. Only a full
+fraction marks a partial order `filled`. Dependency failures leave valid state
+intact and keep the obligation pending; newer events, cancellations and chain
+revision changes retain the existing commit guards. No REST reconciliation is
+needed for this progression.
+
+Verified rollback preserves signed Seaport declarations. Results proved on an
+orphaned block become `unvalidated`, clear funded capacity, and receive durable
+validation demand in the rollback transaction. Pending requirements from the
+orphaned range are rebound to the fork boundary. A still-canonical pre-fork
+result remains intact. The existing executors then recompute the new chain state
+without waiting for any source observation; independent source cancellation
+remains definitive.
+
+An OpenSea sale is an observation hint, not a canonical exhaustion fact. It uses
+the ordinary by-ID validation input without setting source `filled`; canonical
+chain fills and explicit cancellations retain their lifecycle path. Shared
+Seaport enum definitions own protocol values used by order normalization,
+execution facts, quantity calculation and signing policy.
 
 ## Current-State Retention and Replay
 
@@ -758,8 +818,9 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - Raw audit payloads are not runtime input. The backend's indexed-orders
   bid-book fallback uses normalized order columns and canonical source-schema
   JSON, not the optional raw debug payload.
-- Partial fill quantity progression is not modeled; fills can make an order
-  terminal, but the order row does not expose a remaining-quantity state machine.
+- Quantity/capacity projection is limited to fixed-amount Seaport buy orders in
+  one collection. Baskets, changing amounts and partial sell inventory do not
+  yet expose validated quantity/capacity fields.
 - Ingest fails closed on local criteria linkage: empty membership is
   `unresolved`, a root difference is `mismatch`, and neither state attaches a
   local token-set id. There is no automatic redrive that rematerializes those
@@ -773,7 +834,9 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 Automatic repair imports missing chain history under the background RPC allowance.
 An event hint still passes canonical block identity, collection anchor, scope,
 source activity, expiry and protocol-terminal checks before requiring validation.
-Fills and cancellations apply lifecycle facts without validation RPC.
+Cancellations and full-only order executions apply definitive lifecycle facts
+without validation RPC. Partial-order executions admit block-scoped validation
+demand while preserving the last validated state.
 
 `eventValidationRequest` requires a full validation at or after the event block.
 Its eventual delivery time is not a new source observation.

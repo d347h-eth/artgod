@@ -167,6 +167,13 @@ can. This keeps ownership correct even when the rollback encountered missing
 history and canonical resync produces no transfer events. Bootstrap finalization
 replaces the collection's checkpoints along with its ownership snapshot.
 
+Signed Seaport declarations are retained when their protocol result is orphaned.
+The rollback writer marks those results `unvalidated`, removes their funded
+capacity and retains validation demand against the new fork. It also rebinds
+pending orphaned block requirements. The ordinary demand executors revalidate
+them without REST reconciliation; source cancellations remain unchanged. See
+[order quantities](07-domain-orders.md#partial-fills-and-quantities).
+
 ## Resync After Rollback
 
 Rollback captures the current head and starts resync over:

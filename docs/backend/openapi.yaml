@@ -4743,6 +4743,22 @@ components:
                         - $ref: "#/components/schemas/NullValue"
                 quantity:
                     type: string
+                    description: Remaining NFT units for observed market orders.
+                originalQuantity:
+                    type: string
+                    nullable: true
+                    description: Original signed NFT units when known for an indexed order.
+                fillableQuantity:
+                    type: string
+                    nullable: true
+                    description: Remaining units covered by balance and allowance at the last validation; not a wallet reservation.
+                validationPending:
+                    type: boolean
+                    description: Newer validation is pending; indexed quantities remain the last observed values.
+                validatedAt:
+                    type: integer
+                    nullable: true
+                    description: Epoch seconds of the last successful indexed-order validation.
                 currencyAddress:
                     type: string
                     nullable: true

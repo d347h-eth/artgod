@@ -215,7 +215,9 @@ sequenceDiagram
         Consumer->>DB: Commit canonical changes and needed demand together
     else By-ID validation hint
         Consumer->>DB: Coalesce current requirement or resolve unnecessary work
-    else Fill, cancel or source observation
+    else Canonical partial-order execution
+        Consumer->>DB: Admit block-scoped demand, preserve validated order state
+    else Full-only execution, cancel or source observation
         Consumer->>DB: Apply guarded lifecycle effects without RPC
     end
     Consumer-->>NATS: ACK after committed effects or durable admission
@@ -228,7 +230,7 @@ sequenceDiagram
             Demand->>RPC: Verify block hash, head and snapshot lifetime
             alt Snapshot verified
                 Demand->>DB: Atomically apply guarded results and captured coverage
-                Note over DB: Newer or changed requirements stay pending
+                Note over DB: Newer or changed requirements stay pending; canonical partial fills retain last validated state
             else Dependency or snapshot failure
                 Demand->>DB: Retain unfinished demand with retry state
             end

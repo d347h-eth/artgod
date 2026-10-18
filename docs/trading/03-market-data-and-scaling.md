@@ -31,7 +31,9 @@ display state meet.
 
 OpenSea envelope, order identity and protocol alias readers live in
 `shared/opensea/payload.ts`. The shared offer parser owns WETH unit price and
-complete scope classification; indexer ingestion, bidder reads and bid-book
+complete scope classification. It keeps signed original size separate from the
+source remainder, so partial-fill unit price always divides by original units.
+Indexer ingestion, bidder reads and bid-book
 projection use those same semantics. Generic trait matching and deduplication
 live in `shared/trading/offer-trait-criteria.ts`. Every string and numeric
 constraint participates in matching and scope identity. Malformed constraints
@@ -185,6 +187,15 @@ their existing collection endpoint paths. This does not introduce another
 background polling lane or change snapshot freshness and stream scheduling.
 
 ## Bid-Book Display Selection
+
+Market-row `quantity` represents remaining NFT units. For indexed fixed-amount
+Seaport buy orders, the read API also returns nullable `originalQuantity` and
+`fillableQuantity`: original signed units and remaining units covered by balance
+and allowance at validation. Capacity is not reserved across offers. Bot snapshot
+rows carry source remainder without claiming a validated funding capacity.
+Indexed rows expose `validatedAt` and `validationPending` from the existing demand
+owner. A pending partial-order refresh retains its last validated values and
+fillability until a new protocol snapshot commits.
 
 After a successful snapshot, the projection sidecar writes parsed offer rows and
 snapshot metadata to SQLite. Backend reads use that source only when all of
