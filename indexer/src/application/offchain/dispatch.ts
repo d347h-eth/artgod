@@ -162,6 +162,7 @@ export async function dispatchOffchainPayload(
                 tokenSetId,
                 tokenSetSchemaHash,
                 quantity: normalized.quantity ?? "1",
+                originalQuantity: normalized.originalQuantity ?? null,
                 price: normalized.price ?? null,
                 currency: normalized.currency ?? null,
                 validFrom: normalized.validFrom ?? null,
@@ -186,7 +187,7 @@ export async function dispatchOffchainPayload(
     const updateById = normalizeOffchainOrderUpdateById(payload);
     if (updateById) {
         const updateJob: JobEnvelope<OrderUpdateByIdPayload> = {
-            jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus}`,
+            jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus ?? updateById.reason}`,
             kind: ORDER_JOB_KIND.UpdateById,
             queue: orderUpdateQueue(updateById),
             payload: {

@@ -683,7 +683,7 @@ describe("offchain dispatch", () => {
                     queue.published.find(
                         (job) => job.kind === ORDER_JOB_KIND.UpdateById,
                     )?.queue,
-                ).toBe(QUEUE_NAMES.OrderLifecycle);
+                ).toBe(QUEUE_NAMES.OrdersUpdateById);
         },
     );
 });

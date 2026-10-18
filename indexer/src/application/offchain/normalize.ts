@@ -56,6 +56,7 @@ export type RawOrderPayload = {
     sourceCriteriaRoot?: string | null;
     localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -75,7 +76,7 @@ export type NormalizedOffchainOrderUpdateById = {
     source: string;
     orderId: string;
     reason: OrderUpdateReason;
-    sourceStatus: OrderSourceStatus;
+    sourceStatus?: OrderSourceStatus;
     validUntil?: number | null;
 };
 
@@ -144,6 +145,10 @@ export function normalizeOffchainOrder(
         sourceCriteriaRoot: order.sourceCriteriaRoot ?? null,
         localTokenSetStatus: order.localTokenSetStatus ?? null,
         quantity: normalizeOrderQuantity(order.quantity),
+        originalQuantity:
+            order.originalQuantity == null
+                ? null
+                : normalizeOrderQuantity(order.originalQuantity),
         price: order.price ?? null,
         currency: parseOptionalAddress(order.currency, "currency"),
         validFrom: order.validFrom ?? null,
@@ -168,6 +173,10 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         contract: assertString(value.contract, "contract"),
         tokenId: parseOptionalString(value.tokenId, "tokenId"),
         quantity: parseOptionalString(value.quantity, "quantity"),
+        originalQuantity: parseOptionalString(
+            value.originalQuantity,
+            "originalQuantity",
+        ),
         price: parseOptionalString(value.price, "price"),
         currency: parseOptionalString(value.currency, "currency"),
         sourceScopeKind: "token",

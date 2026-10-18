@@ -78,6 +78,30 @@ describe("validateSeaportOrder", () => {
         warnSpy.mockRestore();
     });
 
+    it.each([null, undefined])(
+        "rejects a missing protocol status instead of assuming unfilled (%s)",
+        async (missing) => {
+            const rpc = new MockRpc();
+            vi.spyOn(rpc, "readContract").mockResolvedValueOnce(missing);
+            const result = await validateSeaportOrder(
+                rpc,
+                new MemoryConduitRegistry(),
+                {
+                    conduitController:
+                        "0x00000000f9490004c11cef243f5400493c00ad63",
+                },
+                buildOrderRecord({
+                    seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
+                }),
+            );
+            expect(result.status).toBe(ORDER_STATUS.Invalid);
+            expect(result.reason).toContain(
+                "Invalid Seaport order status response",
+            );
+            expect(result.quantities).toBeUndefined();
+        },
+    );
+
     it("warns when a stream-derived order is missing a signature", async () => {
         const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
         const rpc = new MockRpc();
@@ -211,6 +235,7 @@ describe("validateSeaportOrder", () => {
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
             reason: "erc20-ok",
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(rpc.calledFunctions).toEqual([
             "getOrderStatus",

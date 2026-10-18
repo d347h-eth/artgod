@@ -29,7 +29,9 @@ export interface ReorgRollbackStore {
     }): ReorgRollbackPlan;
     // Atomically validate the plan, restore ownership, remove orphaned facts and
     // coverage, and advance the chain revision. Recheck bootstrap anchors in the
-    // writer; failed validation writes nothing.
+    // writer; failed validation writes nothing. Retain signed order declarations,
+    // discard orphaned protocol results, and admit their validation in this same
+    // transaction; source reconciliation is not a rollback dependency.
     rollbackFromBlock(input: {
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;

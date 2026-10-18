@@ -204,8 +204,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 chainId: 1,
                 collectionId: sale.collectionId,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Fill,
-                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                reason: ORDER_UPDATE_REASON.Validation,
                 observedAt: HEAVY_MAKER.now,
             },
             oldTime,
@@ -280,13 +279,15 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         expect(arrivalCount).toBe(1000);
         const final = second.latest()!;
         expect(summaries[0]!.handled + final.handled).toBe(11002);
-        expect(summaries[0]!.terminalFacts + final.terminalFacts).toBe(2283);
-        expect(final.demandRows).toBeLessThanOrEqual(250);
+        expect(summaries[0]!.terminalFacts + final.terminalFacts).toBe(2282);
+        // Original validation identities plus fifty arrivals and one source sale hint.
+        const maximumDemandIdentities = 200 + 50 + 1;
+        expect(final.demandRows).toBeLessThanOrEqual(maximumDemandIdentities);
         expect(final.oldestDemandAgeMs).toBe(0);
         expect(snapshots.every((sample) => sample.outboxRows === 0)).toBe(true);
         expect(
             Math.max(...snapshots.map((s) => s.demandRows)),
-        ).toBeLessThanOrEqual(250);
+        ).toBeLessThanOrEqual(maximumDemandIdentities);
         expect(completionMs).toBeGreaterThan(
             11000 * LEGACY_ORDER_ADMISSION_POLICY.intervalMs - 1000,
         );
@@ -364,7 +365,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 )
                 .get(sale.id),
         ).toEqual({
-            source_status: ORDER_SOURCE_STATUS.Filled,
+            source_status: ORDER_SOURCE_STATUS.Active,
             fillability_status: ORDER_STATUS.Filled,
         });
         expect(
@@ -379,7 +380,8 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 initialEnvelopes: 10002,
                 legacyValidationHints: 7719,
                 legacyCancellations: 2281,
-                fillFacts: 2,
+                fillFacts: 1,
+                saleValidationHints: 1,
                 liveOrders: HEAVY_MAKER.count + 2,
                 arrivingEnvelopes: arrivalCount,
                 arrivingDistinctOrders: 50,

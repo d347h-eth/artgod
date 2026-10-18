@@ -129,7 +129,7 @@ describe("incomplete OpenSea sales", () => {
         },
     );
 
-    it("preserves exact fill and token fanout when the hash is valid", async () => {
+    it("preserves exact validation hints and token fanout when the hash is valid", async () => {
         const { queue, publish } = queueCapture();
         await dispatchOffchainPayload(
             queue,
@@ -139,12 +139,12 @@ describe("incomplete OpenSea sales", () => {
         expect(publish).toHaveBeenCalledTimes(2);
         expect(publish).toHaveBeenNthCalledWith(
             1,
-            QUEUE_NAMES.OrderLifecycle,
+            QUEUE_NAMES.OrdersUpdateById,
             expect.objectContaining({
                 payload: expect.objectContaining({
                     orderId: ORDER_HASH,
-                    reason: ORDER_UPDATE_REASON.Fill,
-                    sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                    reason: ORDER_UPDATE_REASON.Validation,
+                    sourceStatus: undefined,
                 }),
             }),
         );

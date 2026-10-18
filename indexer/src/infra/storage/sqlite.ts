@@ -1,3 +1,4 @@
+import { invalidateOrderValidationFromBlock } from "../orders/sqlite-order-validation-demand.js";
 import { db } from "@artgod/shared/database";
 import {
     captureChainSyncCheckpoint,
@@ -638,6 +639,9 @@ export class SqliteStorage
             });
             this.deleteActivitiesFromBlock.run(chainId, fromBlock);
             this.deleteMetadataFromBlock.run(chainId, fromBlock);
+            // Roll back protocol observations while retaining signed declarations.
+            // This also fences quantity results whose proof lies on the old fork.
+            invalidateOrderValidationFromBlock(chainId, fromBlock, Date.now());
             this.deleteOrdersFromBlock.run(chainId, fromBlock);
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);

@@ -1,3 +1,11 @@
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
+import {
+    declaredOrderQuantity,
+    validatedQuantityUpdate,
+    fillExecutionNeedsValidation,
+} from "../../domain/order-quantity.js";
+import { eventValidationRequest } from "../../domain/order-validation-demand.js";
+import type { OrderValidationResult } from "../../domain/orders.js";
 import type { OrderMutationObserver } from "../../application/orders/observability.js";
 import { observeBestEffort } from "../../application/processing-observability.js";
 import { ORDER_DOMAIN_LOG_COMPONENT } from "./orders-reporting.js";
@@ -99,6 +107,8 @@ type OrderRow = {
     token_set_id: string | null;
     token_set_schema_hash: string | null;
     quantity: string | null;
+    original_quantity: string | null;
+    fillable_quantity: string | null;
     price: string | null;
     currency: string | null;
     valid_from: number | null;
@@ -164,6 +174,7 @@ type ActiveRevalidatableOrderParams = {
     fillableStatus: OrderStatus;
     noBalanceStatus: OrderStatus;
     noApprovalStatus: OrderStatus;
+    unvalidatedStatus: OrderStatus;
 };
 
 type OrderUpdateByMakerLogContext = {
@@ -212,14 +223,12 @@ type SlowOrderValidation = {
     reason: string;
 };
 
-type TimedOrderValidation = {
-    status: OrderStatus;
-    reason: string;
+type TimedOrderValidation = OrderValidationResult & {
     durationMs: number;
 };
 
 const SELECT_ORDER_FIELDS =
-    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
+    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, original_quantity, fillable_quantity, price, currency, " +
     "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index, observed_at, validated_at, state_revision " +
     "FROM orders ";
 
@@ -227,7 +236,7 @@ const ACTIVE_REVALIDATABLE_ORDER_FILTER =
     "AND source_status = @sourceStatus " +
     "AND (valid_until IS NULL OR valid_until > @nowSeconds) AND id > @afterId " +
     "AND id <= @upperOrderId AND rowid <= @upperRowId " +
-    "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
+    "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus, @unvalidatedStatus) ";
 
 export class SqliteOrdersDomain
     implements
@@ -246,7 +255,7 @@ export class SqliteOrdersDomain
                 "WHERE chain_id = @chainId AND id = @orderId AND fillability_status IS NOT @fillabilityStatus",
         );
     private selectOrderById = db.prepare<OrderIdentityParams>(
-        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
+        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, original_quantity, fillable_quantity, price, currency, " +
             "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index, observed_at, validated_at, state_revision " +
             "FROM orders WHERE chain_id = @chainId AND id = @orderId",
     );
@@ -301,6 +310,7 @@ export class SqliteOrdersDomain
         tokenSetId: string | null;
         tokenSetSchemaHash: string | null;
         quantity: string;
+        originalQuantity: string | null;
         price: string | null;
         currency: string | null;
         validFrom: number | null;
@@ -315,8 +325,8 @@ export class SqliteOrdersDomain
         protocolAddress: string | null;
         expectedRevision: number;
     }>(
-        "INSERT INTO orders (id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data, observed_at, protocol_address) " +
-            "VALUES (@id, @chainId, @collectionId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceEncodedTokenIds, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @quantity, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData, @observedAt, @protocolAddress) " +
+        "INSERT INTO orders (id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, original_quantity, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data, observed_at, protocol_address) " +
+            "VALUES (@id, @chainId, @collectionId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceEncodedTokenIds, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @quantity, @originalQuantity, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData, @observedAt, @protocolAddress) " +
             "ON CONFLICT(id) DO UPDATE SET " +
             "collection_id = excluded.collection_id, " +
             "kind = excluded.kind, " +
@@ -333,7 +343,7 @@ export class SqliteOrdersDomain
             "local_token_set_status = excluded.local_token_set_status, " +
             "token_set_id = excluded.token_set_id, " +
             "token_set_schema_hash = excluded.token_set_schema_hash, " +
-            "quantity = excluded.quantity, " +
+            "quantity = excluded.quantity, original_quantity=COALESCE(excluded.original_quantity,orders.original_quantity), fillable_quantity=NULL, " +
             "price = excluded.price, " +
             "currency = excluded.currency, " +
             "valid_from = excluded.valid_from, " +
@@ -348,8 +358,8 @@ export class SqliteOrdersDomain
             // Invalidating it with the revision keeps a failed publish retryable.
             "state_revision = state_revision + 1, validated_at = 0, updated_at = CURRENT_TIMESTAMP " +
             "WHERE orders.chain_id=excluded.chain_id AND orders.state_revision=@expectedRevision AND " +
-            "(kind,side,source,maker,taker,contract_address,token_id,source_scope_kind,source_criteria_root,source_encoded_token_ids,source_schema_json,local_token_set_status,token_set_id,token_set_schema_hash,quantity,price,currency,valid_from,valid_until,source_status,seaport_data_json,seaport_data_source_kind,raw_rest_data,raw_stream_data) IS NOT " +
-            "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,excluded.quantity,excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
+            "(kind,side,source,maker,taker,contract_address,token_id,source_scope_kind,source_criteria_root,source_encoded_token_ids,source_schema_json,local_token_set_status,token_set_id,token_set_schema_hash,quantity,original_quantity,price,currency,valid_from,valid_until,source_status,seaport_data_json,seaport_data_source_kind,raw_rest_data,raw_stream_data) IS NOT " +
+            "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,excluded.quantity,COALESCE(excluded.original_quantity,orders.original_quantity),excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
     );
 
     constructor(
@@ -444,7 +454,10 @@ export class SqliteOrdersDomain
         let lastProgressLogAt = startedAt;
         const validationSummary = createValidationSummary();
         let batch: MakerValidationBatch | undefined;
-        let pending: Array<{ row: OrderRow; status: OrderStatus }> = [];
+        let pending: Array<{
+            row: OrderRow;
+            validation: OrderValidationResult;
+        }> = [];
         const flush = async () => {
             if (!batch) return;
             // No transaction or pinned SQLite reader spans these remote checks.
@@ -461,7 +474,7 @@ export class SqliteOrdersDomain
                     ) {
                         changes += this.applyValidation(
                             result.row,
-                            result.status,
+                            result.validation,
                         ).changes;
                     }
                 }
@@ -491,9 +504,8 @@ export class SqliteOrdersDomain
                 startedAt,
                 batch?.validate,
             );
-            if (batch) pending.push({ row, status: validation.status });
-            else
-                updated += this.applyValidation(row, validation.status).changes;
+            if (batch) pending.push({ row, validation });
+            else updated += this.applyValidation(row, validation).changes;
             validatedOrders += 1;
             recordValidation(validationSummary, row, validation);
 
@@ -534,8 +546,14 @@ export class SqliteOrdersDomain
 
     private applyValidation(
         row: OrderRow,
-        status: OrderStatus,
+        validation: OrderValidationResult | OrderStatus,
     ): { changes: number } {
+        const result =
+            typeof validation === "string"
+                ? { status: validation, reason: "" }
+                : validation;
+        const quantities = validatedQuantityUpdate(result);
+        const status = result.status;
         const now = this.nowSeconds();
         return db.writeTransaction(() => {
             const result = db
@@ -547,11 +565,15 @@ export class SqliteOrdersDomain
                     now: number;
                     stale: number;
                     active: string;
+                    original: string | null;
+                    remaining: string | null;
+                    fillable: string | null;
                 }>(
-                    "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN fillability_status IS NOT @status THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
-                        "state_revision=state_revision+CASE WHEN fillability_status IS NOT @status THEN 1 ELSE 0 END,fillability_status=@status " +
+                    "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
+                        "state_revision=state_revision+CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN 1 ELSE 0 END, fillability_status=@status, " +
+                        "original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable " +
                         "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
-                        "AND (fillability_status IS NOT @status OR validated_at<=@stale)",
+                        "AND (fillability_status IS NOT @status OR original_quantity IS NOT COALESCE(@original,original_quantity) OR quantity IS NOT COALESCE(@remaining,quantity) OR fillable_quantity IS NOT @fillable OR validated_at<=@stale)",
                 )
                 .run({
                     chainId: row.chain_id,
@@ -561,6 +583,9 @@ export class SqliteOrdersDomain
                     now,
                     stale: now - STORAGE_POLICY.orderRevalidationSeconds,
                     active: ORDER_SOURCE_STATUS.Active,
+                    original: quantities.original,
+                    remaining: quantities.remaining,
+                    fillable: quantities.fillable,
                 });
             if (result.changes)
                 this.listingPrices.refreshOrder(row.chain_id, row.id, now);
@@ -592,6 +617,38 @@ export class SqliteOrdersDomain
                 ),
             );
             return;
+        }
+
+        if (payload.reason === ORDER_UPDATE_REASON.Fill) {
+            const row = this.selectOrderById.get({
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            }) as OrderRow | undefined;
+            if (row && fillExecutionNeedsValidation(mapOrderRow(row))) {
+                if (payload.blockNumber == null)
+                    throw new Error(
+                        "Canonical partial fill requires its block number",
+                    );
+                if (
+                    this.canMutateCurrentStateForCollection(
+                        row.chain_id,
+                        row.collection_id,
+                        payload.blockNumber,
+                    )
+                ) {
+                    // Durable demand owns freshness independently of the last
+                    // validated order state. An execution does not prove invalidity.
+                    this.validationDemand.admit(
+                        eventValidationRequest(
+                            row.chain_id,
+                            row.id,
+                            payload.blockNumber,
+                        ),
+                        this.nowSeconds() * 1_000,
+                    );
+                }
+                return;
+            }
         }
 
         // Order updates by id handle explicit cancels/fills or on-chain order creation.
@@ -644,6 +701,7 @@ export class SqliteOrdersDomain
         }
 
         let finalStatus: OrderStatus = status;
+        let validationResult: OrderValidationResult | undefined;
         if (payload.reason === ORDER_UPDATE_REASON.Validation) {
             const orderRow =
                 row ??
@@ -670,6 +728,7 @@ export class SqliteOrdersDomain
             if (orderRow.kind === "seaport" && hasSeaportData(order)) {
                 const validation = await this.validateOrder(order);
                 finalStatus = validation.status;
+                validationResult = validation;
                 logger.debug("Orders validation result", {
                     component: ORDER_DOMAIN_LOG_COMPONENT,
                     action: "handleOrderUpdateById",
@@ -690,7 +749,7 @@ export class SqliteOrdersDomain
                     },
                 );
             }
-            this.applyValidation(orderRow, finalStatus);
+            this.applyValidation(orderRow, validationResult ?? finalStatus);
             return;
         }
 
@@ -700,6 +759,10 @@ export class SqliteOrdersDomain
                 chainId: payload.chainId,
                 orderId: payload.orderId,
             });
+            if (applied.changes && finalStatus === ORDER_STATUS.Filled)
+                db.prepare<[number, string]>(
+                    "UPDATE orders SET quantity='0',fillable_quantity='0' WHERE chain_id=? AND id=?",
+                ).run(payload.chainId, payload.orderId);
             if (applied.changes && payload.blockNumber != null)
                 db.prepare<[number, number, string]>(
                     "UPDATE orders SET block_number=? WHERE chain_id=? AND id=?",
@@ -1004,11 +1067,19 @@ export class SqliteOrdersDomain
             tokenSetId: payload.tokenSetId ?? null,
             tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
             quantity: payload.quantity ?? "1",
+            originalQuantity:
+                payload.originalQuantity ??
+                declaredOrderQuantity(payload) ??
+                null,
             price: payload.price ?? null,
             currency,
             validFrom: payload.validFrom ?? null,
             validUntil: payload.validUntil ?? null,
-            fillabilityStatus: ORDER_STATUS.Fillable,
+            fillabilityStatus:
+                payload.kind === FILL_KIND.Seaport &&
+                payload.validateAfterUpsert
+                    ? ORDER_STATUS.Unvalidated
+                    : ORDER_STATUS.Fillable,
             sourceStatus: payload.sourceStatus ?? ORDER_SOURCE_STATUS.Active,
             seaportDataJson,
             seaportDataSourceKind,
@@ -1143,7 +1214,7 @@ export class SqliteOrdersDomain
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
         }) as OrderRow;
-        this.applyValidation(row, result.status);
+        this.applyValidation(row, result);
         const updated = this.selectOrderById.get({
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
@@ -1215,7 +1286,7 @@ export class SqliteOrdersDomain
                 "Maker validation revision changed",
             );
         }
-        this.applyValidation(row, resolution.validation.status);
+        this.applyValidation(row, resolution.validation);
         return (
             this.selectOrderById.get({
                 chainId: payload.chainId,
@@ -1271,7 +1342,7 @@ export class SqliteOrdersDomain
 
     private async revalidateSeaportOrder(
         row: OrderRow,
-    ): Promise<{ status: OrderStatus; reason: string }> {
+    ): Promise<OrderValidationResult> {
         return this.validateOrder(mapOrderRow(row));
     }
 
@@ -1336,6 +1407,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         tokenSetId: row.token_set_id,
         tokenSetSchemaHash: row.token_set_schema_hash,
         quantity: row.quantity,
+        originalQuantity: row.original_quantity,
         price: row.price,
         currency: row.currency,
         validFrom: row.valid_from,
@@ -1366,6 +1438,7 @@ function activeRevalidatableOrderParams(): Omit<
         fillableStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.Fillable,
         noBalanceStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.NoBalance,
         noApprovalStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.NoApproval,
+        unvalidatedStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.Unvalidated,
     };
 }
 

@@ -269,7 +269,7 @@ it("services small work between real-broker steps and recovers after killing a w
             collectionId: mixed.small.collectionId,
             orderId: mixed.small.id,
             reason: ORDER_UPDATE_REASON.Fill,
-            sourceStatus: ORDER_SOURCE_STATUS.Filled,
+            blockNumber: HEAVY_MAKER.blockNumber,
             observedAt: HEAVY_MAKER.now,
         });
         const tokenPayload = tokenSaleHint(mixed.sale);
@@ -326,7 +326,14 @@ it("services small work between real-broker steps and recovers after killing a w
             db
                 .prepare("SELECT source_status FROM orders WHERE id=?")
                 .get(mixed.small.id),
-        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Filled });
+        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Active });
+        expect(
+            db
+                .prepare(
+                    "SELECT fillability_status,quantity FROM orders WHERE id=?",
+                )
+                .get(mixed.small.id),
+        ).toEqual({ fillability_status: ORDER_STATUS.Filled, quantity: "0" });
         expect(
             db
                 .prepare("SELECT fillability_status FROM orders WHERE id=?")

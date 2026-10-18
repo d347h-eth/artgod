@@ -220,14 +220,20 @@ describe("heavy-maker workload", () => {
             chainId: sale.chainId,
             orderId: sale.id,
             reason: "fill",
-            sourceStatus: ORDER_SOURCE_STATUS.Filled,
+            blockNumber: HEAVY_MAKER.blockNumber,
             observedAt: HEAVY_MAKER.now,
         });
         expect(
             db
-                .prepare("SELECT source_status FROM orders WHERE id=?")
+                .prepare(
+                    "SELECT source_status,fillability_status,quantity FROM orders WHERE id=?",
+                )
                 .get(sale.id),
-        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Filled });
+        ).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+            fillability_status: ORDER_STATUS.Filled,
+            quantity: "0",
+        });
         process.stdout.write(
             JSON.stringify({
                 scenario: "heavy-maker-baseline-fake-rpc",

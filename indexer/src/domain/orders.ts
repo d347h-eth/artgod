@@ -18,6 +18,7 @@ export {
 
 // Fillability states that maker balance, approval, ownership, or counter changes can still transition.
 export const ORDER_REVALIDATABLE_FILLABILITY_STATUS = {
+    Unvalidated: ORDER_STATUS.Unvalidated,
     Fillable: ORDER_STATUS.Fillable,
     NoBalance: ORDER_STATUS.NoBalance,
     NoApproval: ORDER_STATUS.NoApproval,
@@ -129,6 +130,7 @@ export type OrderRecord = {
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -142,4 +144,15 @@ export type OrderRecord = {
     logIndex?: number | null;
 };
 
-export type OrderValidationResult = { status: OrderStatus; reason: string };
+/** Quantities are one snapshot: original signed units, protocol remainder and
+ * independently funded/approved capacity. Capacity is not a wallet reservation. */
+export type OrderQuantities = {
+    original: string;
+    remaining: string;
+    fillable: string;
+};
+export type OrderValidationResult = {
+    status: OrderStatus;
+    reason: string;
+    quantities?: OrderQuantities;
+};

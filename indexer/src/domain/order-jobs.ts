@@ -107,6 +107,7 @@ export type OrderUpsertPayload = {
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;

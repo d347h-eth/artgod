@@ -1,3 +1,5 @@
+import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import { db } from "@artgod/shared/database";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
@@ -384,5 +386,73 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             current.leaseVersion === claim.demand.leaseVersion &&
             current.leaseUntil > now
         );
+    }
+}
+
+/** Shares the verified rollback writer. Signed declarations survive a fork;
+ * orphaned protocol results become unvalidated and use the normal demand owner.
+ * Bounded pages close their reader before issuing writes on this connection. */
+export function invalidateOrderValidationFromBlock(
+    chainId: number,
+    fromBlock: number,
+    now: number,
+): void {
+    const orphanedState =
+        "(o.block_number>=@fromBlock OR (d.proof_block>=@fromBlock AND (o.block_number IS NULL OR o.fillability_status NOT IN (@filled,@cancelled))))";
+    const select = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+        afterId: string;
+        limit: number;
+        kind: string;
+        sourceCancelled: string;
+        filled: string;
+        cancelled: string;
+    }>(
+        "SELECT o.id,COALESCE(" +
+            orphanedState +
+            ",0) AS orphaned FROM orders o LEFT JOIN order_validation_demand d ON d.order_id=o.id AND d.chain_id=o.chain_id " +
+            "WHERE o.chain_id=@chainId AND o.id>@afterId AND o.kind=@kind AND o.seaport_data_json IS NOT NULL AND o.source_status<>@sourceCancelled AND " +
+            "(" +
+            orphanedState +
+            " OR (d.pending=1 AND d.minimum_block>=@fromBlock)) " +
+            "ORDER BY o.id LIMIT @limit",
+    );
+    const reset = db.prepare<{ chainId: number; id: string; status: string }>(
+        "UPDATE orders SET fillability_status=@status,quantity=COALESCE(original_quantity,quantity),fillable_quantity=NULL,validated_at=0,state_revision=state_revision+1,block_number=NULL,block_hash=NULL,tx_hash=NULL,log_index=NULL,updated_at=CURRENT_TIMESTAMP WHERE chain_id=@chainId AND id=@id",
+    );
+    const admit = db.prepare<{
+        chainId: number;
+        id: string;
+        fromBlock: number;
+        now: number;
+    }>(
+        "INSERT INTO order_validation_demand(order_id,chain_id,revision,required_at,minimum_block,anchor_independent,updated_at) " +
+            "SELECT id,chain_id,state_revision,0,@fromBlock,1,@now FROM orders WHERE chain_id=@chainId AND id=@id " +
+            "ON CONFLICT(order_id) DO UPDATE SET generation=generation+1,revision=excluded.revision,required_at=0,minimum_block=excluded.minimum_block,anchor_independent=1,pending=1,proof_revision=NULL,proof_at=NULL,proof_block=NULL,proof_chain_revision=NULL,lease_owner=NULL,lease_until=0,failures=0,last_error=NULL,next_attempt_at=0,updated_at=excluded.updated_at",
+    );
+    let afterId = "";
+    while (true) {
+        const rows = select.all({
+            chainId,
+            fromBlock,
+            afterId,
+            limit: POLICY.batchOrders,
+            kind: FILL_KIND.Seaport,
+            sourceCancelled: ORDER_SOURCE_STATUS.Cancelled,
+            filled: ORDER_STATUS.Filled,
+            cancelled: ORDER_STATUS.Cancelled,
+        }) as { id: string; orphaned: number }[];
+        if (!rows.length) return;
+        for (const row of rows) {
+            if (row.orphaned)
+                reset.run({
+                    chainId,
+                    id: row.id,
+                    status: ORDER_STATUS.Unvalidated,
+                });
+            admit.run({ chainId, id: row.id, fromBlock, now });
+        }
+        afterId = rows[rows.length - 1]!.id;
     }
 }

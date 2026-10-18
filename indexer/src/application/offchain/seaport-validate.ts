@@ -1,3 +1,13 @@
+import {
+    isSeaportProtocolStatus,
+    type SeaportProtocolStatus,
+} from "./seaport-status-reader.js";
+import {
+    partialBuyOriginalQuantity,
+    fundedOrderQuantity,
+    remainingOrderQuantity,
+} from "../../domain/order-quantity.js";
+import type { OrderValidationResult } from "../../domain/orders.js";
 import { zeroAddress } from "viem";
 import { logger } from "@artgod/shared/utils";
 import { ERC20_ABI, ERC721_APPROVAL_ABI } from "../../abi/index.js";
@@ -85,7 +95,7 @@ export async function validateSeaportOrder(
     conduits: ConduitRegistryPort,
     config: SeaportValidationConfig,
     order: OrderRecord,
-): Promise<{ status: OrderStatus; reason: string }> {
+): Promise<OrderValidationResult> {
     let parsed: ParsedProtocol | null = null;
     try {
         parsed = parseProtocolData(order.seaportData);
@@ -181,18 +191,16 @@ export async function validateSeaportOrder(
         return { status: ORDER_STATUS.Expired, reason: "expired" };
     }
 
-    let orderStatusResult:
-        | readonly [boolean, boolean, bigint, bigint]
-        | undefined;
+    let orderStatusResult: SeaportProtocolStatus | undefined;
     try {
-        orderStatusResult = (await rpc.readContract<
-            readonly [boolean, boolean, bigint, bigint]
-        >({
+        orderStatusResult = await rpc.readContract<SeaportProtocolStatus>({
             address: parsed.protocolAddress as Hex,
             abi: SEAPORT_ABI,
             functionName: "getOrderStatus",
             args: [orderHash as Hex],
-        })) ?? [false, false, 0n, 1n];
+        });
+        if (!isSeaportProtocolStatus(orderStatusResult))
+            throw new Error("Invalid Seaport order status response");
     } catch (error) {
         const reason = `protocol-error:${String(error)}`;
         logger.error("Seaport getOrderStatus RPC failed", {
@@ -215,7 +223,20 @@ export async function validateSeaportOrder(
         return { status: ORDER_STATUS.Cancelled, reason: "cancelled" };
     }
     if (totalFilled >= totalSize && totalSize > 0n) {
-        return { status: ORDER_STATUS.Filled, reason: "filled" };
+        const original = partialBuyOriginalQuantity(order);
+        return {
+            status: ORDER_STATUS.Filled,
+            reason: "filled",
+            ...(original === null
+                ? {}
+                : {
+                      quantities: {
+                          original: original.toString(),
+                          remaining: "0",
+                          fillable: "0",
+                      },
+                  }),
+        };
     }
 
     let counter: bigint;
@@ -318,7 +339,39 @@ export async function validateSeaportOrder(
     }
 
     if (order.side === "buy") {
-        return validateBuyOrder(rpc, order, approvalTarget, price);
+        const original = partialBuyOriginalQuantity(order);
+        let remaining: bigint | null = null;
+        if (original !== null) {
+            try {
+                remaining = remainingOrderQuantity(
+                    original,
+                    totalFilled,
+                    totalSize,
+                );
+            } catch {
+                return invalidValidationResult("invalid-fill-fraction");
+            }
+        }
+        const result = await validateBuyOrder(
+            rpc,
+            order,
+            approvalTarget,
+            price,
+            remaining,
+        );
+        return original !== null &&
+            remaining !== null &&
+            result.capacity !== undefined
+            ? {
+                  status: result.status,
+                  reason: result.reason,
+                  quantities: {
+                      original: original.toString(),
+                      remaining: remaining.toString(),
+                      fillable: result.capacity.toString(),
+                  },
+              }
+            : { status: result.status, reason: result.reason };
     }
 
     const reason = "unknown-side";
@@ -333,7 +386,7 @@ async function validateSellOrder(
     rpc: RpcProviderPort,
     order: OrderRecord,
     approvalTarget: string,
-): Promise<{ status: OrderStatus; reason: string }> {
+): Promise<OrderValidationResult> {
     if (!order.tokenId) {
         const reason = "missing-token-id";
         logInvalidValidation(order, reason, {
@@ -430,7 +483,8 @@ async function validateBuyOrder(
     order: OrderRecord,
     approvalTarget: string,
     price: bigint,
-): Promise<{ status: OrderStatus; reason: string }> {
+    remaining: bigint | null,
+): Promise<OrderValidationResult & { capacity?: bigint }> {
     const currency = order.currency ?? zeroAddress;
     if (currency.toLowerCase() === zeroAddress.toLowerCase()) {
         let balance: bigint;
@@ -452,9 +506,20 @@ async function validateBuyOrder(
             return invalidValidationResult(reason);
         }
         if (balance < price) {
-            return { status: ORDER_STATUS.NoBalance, reason: "no-balance" };
+            return {
+                status: ORDER_STATUS.NoBalance,
+                reason: "no-balance",
+                capacity: 0n,
+            };
         }
-        return { status: ORDER_STATUS.Fillable, reason: "native-ok" };
+        return {
+            status: ORDER_STATUS.Fillable,
+            reason: "native-ok",
+            capacity:
+                remaining === null
+                    ? undefined
+                    : fundedOrderQuantity(remaining, price, balance),
+        };
     }
 
     let allowance: bigint;
@@ -481,7 +546,11 @@ async function validateBuyOrder(
         return invalidValidationResult(reason);
     }
     if (allowance < price) {
-        return { status: ORDER_STATUS.NoApproval, reason: "no-allowance" };
+        return {
+            status: ORDER_STATUS.NoApproval,
+            reason: "no-allowance",
+            capacity: 0n,
+        };
     }
 
     let balance: bigint;
@@ -508,10 +577,21 @@ async function validateBuyOrder(
         return invalidValidationResult(reason);
     }
     if (balance < price) {
-        return { status: ORDER_STATUS.NoBalance, reason: "no-balance" };
+        return {
+            status: ORDER_STATUS.NoBalance,
+            reason: "no-balance",
+            capacity: 0n,
+        };
     }
 
-    return { status: ORDER_STATUS.Fillable, reason: "erc20-ok" };
+    return {
+        status: ORDER_STATUS.Fillable,
+        reason: "erc20-ok",
+        capacity:
+            remaining === null
+                ? undefined
+                : fundedOrderQuantity(remaining, price, balance, allowance),
+    };
 }
 
 function logInvalidValidation(

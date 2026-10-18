@@ -1,3 +1,4 @@
+import { heavyMakerOrder } from "./fixtures/heavy-maker.js";
 import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -253,6 +254,7 @@ describe("in-place SQLite market-data recovery", () => {
                 fillableStatus: ORDER_STATUS.Fillable,
                 noBalanceStatus: ORDER_STATUS.NoBalance,
                 noApprovalStatus: ORDER_STATUS.NoApproval,
+                unvalidatedStatus: ORDER_STATUS.Unvalidated,
             }) as { detail: string }[];
             expect(
                 plan.some((row) => row.detail.includes("TEMP B-TREE")),
@@ -349,7 +351,11 @@ describe("in-place SQLite market-data recovery", () => {
                         side: ORDER_SIDE.Sell,
                         source: "opensea",
                         rawSourceKind: "stream",
-                        validateAfterUpsert: true,
+                        // This retention fixture admits an already actionable full-only ask.
+                        validateAfterUpsert: false,
+                        seaportData: heavyMakerOrder(0, {
+                            side: ORDER_SIDE.Sell,
+                        }).seaportData,
                         maker: "maker",
                         contract: "0xcollection",
                         tokenId: "1",

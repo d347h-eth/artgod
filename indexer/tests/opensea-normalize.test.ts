@@ -370,14 +370,13 @@ describe("opensea normalizer", () => {
         });
     });
 
-    it("normalizes item_sold into a source filled update", async () => {
+    it("normalizes item_sold into a validation hint without claiming exhaustion", async () => {
         const fixture = await readFixture("item_sold.json");
         const normalized = normalizeOpenSeaOrderUpdate(fixture);
         expect(normalized).toEqual({
             orderId:
                 "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
-            reason: "fill",
-            sourceStatus: "filled",
+            reason: "order",
             validUntil: null,
         });
     });
