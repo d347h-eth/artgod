@@ -10,5 +10,8 @@
 - [SQLite storage investigation](04-sqlite-wal-activities-storage-investigation.md)
   preserves the August–September measurements, data-use assessment, index
   analysis, recovery benchmarks and their limitations.
+- [Order reorg rollback investigation](05-order-reorg-rollback-investigation.md)
+  preserves the October order-volume stress test, writer timeout, correctness
+  constraints, and deferred reset/fencing designs.
 
 Remaining work is tracked in the [unified backlog](../planning/01-unified-backlog.md).

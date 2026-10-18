@@ -259,3 +259,18 @@ one exact fork identity, absence/error classification, plan/revision fencing,
 and an atomic checkpoint/rollback commit without RPC inside the writer. Durable
 check/recovery ownership and conditional commits are correctness requirements
 independent of throughput.
+
+### Deferred Order Rollback Scaling
+
+The order invalidation helper pages results inside the atomic rollback writer;
+those pages bound memory, not writer duration. A local copied-instance workload
+with 237,620 retained orders took 6.88–8.71 seconds for staged bulk invalidation.
+At fourfold volume, rollback through commit took 45.48 seconds and a competing
+ordinary writer exhausted its retry budget after 15.05 seconds. State assertions
+passed; the reproduced limitation is writer availability.
+
+The user deferred the redesign under `BKL-073`. See the
+[investigation record](../development/05-order-reorg-rollback-investigation.md)
+for all measurements, workload boundaries, preserved evidence, and the coarse
+reset, whole-chain generation, and selective-fence alternatives. These are
+proposals; current rollback semantics above remain implemented.
