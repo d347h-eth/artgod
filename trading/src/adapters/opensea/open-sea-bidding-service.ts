@@ -622,6 +622,31 @@ export class OpenSeaBiddingService implements BiddingService {
             };
         }
 
+        // Identity is established by the direct lookup above. Terminal orders
+        // need no active-offer price or remaining quantity to complete recovery.
+        const status = stringOrUndefined(
+            asRecord(foundOrder)?.status,
+        )?.toLowerCase();
+        if (status && status !== "active") {
+            log.debug(
+                "recoveredOrderInactive",
+                "Recovered order is not active",
+                { orderHash, status },
+            );
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+            };
+        }
+
+        if (!status && isLegacyInactive(foundOrder)) {
+            log.debug(
+                "recoveredOrderLegacyInactive",
+                "Recovered order is not active by legacy checks",
+                { orderHash },
+            );
+            return { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing };
+        }
+
         const parsed = this.parseRawOffer(
             foundOrder,
             collectionAddress,
@@ -633,43 +658,11 @@ export class OpenSeaBiddingService implements BiddingService {
                 reason: BIDDING_ORDER_RECOVERY_REASON.ParseFailed,
             };
         }
-
-        const status = stringOrUndefined(
-            asRecord(foundOrder)?.status,
-        )?.toLowerCase();
-        if (status) {
-            if (status !== "active") {
-                log.debug(
-                    "recoveredOrderInactive",
-                    "Recovered order is not active",
-                    {
-                        orderHash,
-                        status,
-                    },
-                );
-                return {
-                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
-                };
-            }
-
+        if (status)
             log.debug("orderRecovered", "Successfully recovered order", {
                 orderHash,
                 status,
             });
-            return {
-                status: BIDDING_ORDER_RECOVERY_STATUS.Active,
-                order: parsed,
-            };
-        }
-
-        if (isLegacyInactive(foundOrder)) {
-            log.debug(
-                "recoveredOrderLegacyInactive",
-                "Recovered order is not active by legacy checks",
-                { orderHash },
-            );
-            return { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing };
-        }
 
         return {
             status: BIDDING_ORDER_RECOVERY_STATUS.Active,

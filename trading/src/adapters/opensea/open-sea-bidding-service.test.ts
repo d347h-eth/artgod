@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { parseEther } from "viem";
+import { capturedOpenSeaPartialCollectionOffer } from "@artgod/shared/testing/opensea-offers";
 import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
@@ -10,6 +11,10 @@ import {
     type BidderJob,
 } from "../../domain/market/strategy/job.js";
 import { Bidder } from "../../application/use-cases/bidding/bidder.js";
+import {
+    FailedOfferCancellationReconciler,
+    type CompletedOfferCancellation,
+} from "../../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
 import {
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
@@ -1103,6 +1108,145 @@ describe("OpenSeaBiddingService", () => {
             BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
         );
     });
+
+    it.each([
+        {
+            name: "filled REST order with zero remaining_quantity",
+            response: {
+                ...capturedOpenSeaPartialCollectionOffer,
+                status: "FILLED",
+                remaining_quantity: 0,
+            },
+        },
+        {
+            name: "filled SDK order with zero remainingQuantity",
+            response: {
+                ...capturedOpenSeaPartialCollectionOffer,
+                status: "FILLED",
+                remaining_quantity: undefined,
+                remainingQuantity: 0,
+            },
+        },
+        { name: "filled order without terms", response: { status: "FILLED" } },
+        {
+            name: "cancelled order without terms",
+            response: { status: "CANCELLED" },
+        },
+        { name: "legacy cancellation", response: { cancelled: true } },
+        { name: "legacy completion", response: { finalized: true } },
+        { name: "legacy invalidation", response: { markedInvalid: true } },
+        { name: "legacy expiry", response: { expirationTime: 1 } },
+    ])(
+        "clears tracked and failed-cancellation state for $name",
+        async ({ response }) => {
+            const sdk = new MockOpenSeaSdk();
+            sdk.api.getOrderByHash = async () => ({
+                ...response,
+                order_hash: orderHash,
+            });
+            let cancellationCalls = 0;
+            sdk.offchainCancelOrder = async () => {
+                cancellationCalls++;
+            };
+            const service = new OpenSeaBiddingService(sdk, makerAddress, {
+                retryPolicy: TEST_RETRY_POLICY,
+            });
+            assert.deepEqual(
+                await service.getOrder(
+                    orderHash,
+                    protocolAddress,
+                    collectionAddress,
+                ),
+                { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing },
+            );
+
+            const job: BidderJob = {
+                id: "terminal-recovery",
+                revision: 1,
+                network: "eth",
+                collectionId: 1,
+                collectionSlug,
+                collectionAddress,
+                target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                config: { floor: 1n, ceiling: 2n, delta: 1n },
+                state: {
+                    activeOrderId: orderHash,
+                    activeProtocolAddress: protocolAddress,
+                    currentPrice: 1n,
+                },
+            };
+            const bidder = new Bidder(service, makerAddress, 1000, {
+                dryRun: false,
+            });
+            assert.equal(await bidder.cancelActiveOffersForJob(job), 0);
+            assert.equal(job.state.activeOrderId, undefined);
+            assert.equal(job.state.activeProtocolAddress, undefined);
+
+            const completed: CompletedOfferCancellation[] = [];
+            const reconciler = new FailedOfferCancellationReconciler(
+                {
+                    listRecoverableOfferCancellations: () => [
+                        {
+                            jobId: job.id,
+                            orderId: orderHash,
+                            protocolAddress,
+                            placedAt: null,
+                            expirationTimeMs: null,
+                            collectionAddress,
+                            collectionSlug,
+                            tokenId: "123",
+                            cancellationError: "OpenSea unavailable",
+                            terminalCommandError: null,
+                            hasTerminalCommand: false,
+                        },
+                    ],
+                    markOfferCancellationCompleted: (record) => {
+                        completed.push(record);
+                    },
+                    markOfferCancellationFailed: () => {
+                        assert.fail(
+                            "Terminal order must complete cancellation",
+                        );
+                    },
+                },
+                service,
+                {
+                    chainId: 1,
+                    batchSize: 1,
+                    cancellationRetryMs: 300_000,
+                    dryRun: false,
+                },
+            );
+            assert.equal(await reconciler.reconcileFailedCancellations(), 1);
+            assert.equal(completed[0]?.jobId, job.id);
+            assert.equal(completed[0]?.orderId, orderHash);
+            assert.ok(completed[0]?.completedAt);
+            assert.equal(cancellationCalls, 0);
+        },
+    );
+
+    it.each(["ACTIVE", undefined])(
+        "keeps an unpriceable nonterminal lookup inconclusive (%s)",
+        async (status) => {
+            const sdk = new MockOpenSeaSdk();
+            sdk.api.getOrderByHash = async () => ({
+                order_hash: orderHash,
+                status,
+            });
+            const service = new OpenSeaBiddingService(sdk, makerAddress);
+            assert.deepEqual(
+                await service.getOrder(
+                    orderHash,
+                    protocolAddress,
+                    collectionAddress,
+                ),
+                {
+                    status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                    reason: BIDDING_ORDER_RECOVERY_REASON.ParseFailed,
+                },
+            );
+        },
+    );
 
     it("returns inconclusive order recovery when direct lookup fails without scanning collection offers", async () => {
         const sdk = new MockOpenSeaSdk();

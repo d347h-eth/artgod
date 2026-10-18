@@ -42,6 +42,13 @@ reject the offer instead of leaving a broader scope, and exact NFT identifier
 Declared competitor selectors reuse `shared/trading/trait-competition.ts`,
 which keeps literal values separate from all-values selectors during lookup.
 
+Direct recovery of a tracked order checks its matching identity and source
+status before parsing active-offer terms. Terminal responses, including legacy
+inactive flags when status is absent, can complete bidder and failed-cancellation
+recovery even when the offer has zero remainder or no priceable terms. Active
+records still require the shared parser; malformed active responses leave
+recovery inconclusive.
+
 ## Collection Snapshot Traversal
 
 `OpenSeaCollectionOfferSource` walks `getAllOffers(collectionSlug, limit, next)`
