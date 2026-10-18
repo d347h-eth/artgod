@@ -144,16 +144,24 @@ context; the complete parsed criteria determine the persisted scope.
 5. The application-owned demand worker performs full validation asynchronously
    from current canonical data, with a fenced lease and captured generation.
 
-New Seaport orders awaiting requested validation start as `unvalidated`. Their
-source activity and observed quantities are retained independently. Explicit
-`validateAfterUpsert=false` callers keep the existing optimistic `fillable`
-behavior. Refreshing an already validated order preserves its last protocol
-state while the new obligation is pending. Both maker scans and per-order demand
-can validate an `unvalidated` order.
+New orders start optimistically as `fillable`, including Seaport orders with
+`validateAfterUpsert=true`. Requested validation demand is committed in the same
+transaction as admission; the existing executors later correct fillability and
+quantities. The pending flag does not suppress provisional book visibility.
+RPC failure preserves that provisional state and durable pending demand. There
+is no guaranteed validation completion deadline: workers drain continuously,
+idle polling waits one second, and retry backoff is capped at 60 seconds.
+`validateAfterUpsert=false` skips requesting validation from this upsert; current
+production publishers always set it to true.
 
-Other initial defaults are:
+Refreshing an existing order preserves its fillability status while the new
+obligation is pending. `unvalidated` remains the state for a discarded orphaned
+protocol result after rollback; both maker scans and per-order demand can
+validate it.
 
-- `fillability_status = fillable` for other kinds or explicit optimistic admission
+Initial status defaults are:
+
+- `fillability_status = fillable`
 - `source_status = active` (unless explicitly overridden)
 
 The demand executor corrects `fillability_status` after protocol checks run.

@@ -1,5 +1,4 @@
 import type { OrderValidationEvidence } from "../../domain/order-validation-demand.js";
-import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import {
     declaredOrderQuantity,
     validatedQuantityUpdate,
@@ -1088,11 +1087,9 @@ export class SqliteOrdersDomain
             currency,
             validFrom: payload.validFrom ?? null,
             validUntil: payload.validUntil ?? null,
-            fillabilityStatus:
-                payload.kind === FILL_KIND.Seaport &&
-                payload.validateAfterUpsert
-                    ? ORDER_STATUS.Unvalidated
-                    : ORDER_STATUS.Fillable,
+            // New source observations are provisionally fillable. Requested
+            // validation is admitted atomically above and corrects this state.
+            fillabilityStatus: ORDER_STATUS.Fillable,
             sourceStatus: payload.sourceStatus ?? ORDER_SOURCE_STATUS.Active,
             seaportDataJson,
             seaportDataSourceKind,

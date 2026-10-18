@@ -32,7 +32,10 @@ import {
     ORDER_UPDATE_REASON,
     type OrderUpsertPayload,
 } from "../src/domain/order-jobs.js";
-import { eventValidationRequest } from "../src/domain/order-validation-demand.js";
+import {
+    eventValidationRequest,
+    ORDER_VALIDATION_DEMAND_POLICY,
+} from "../src/domain/order-validation-demand.js";
 import { remainingOrderQuantity } from "../src/domain/order-quantity.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
@@ -161,11 +164,11 @@ describe("canonical partial fill quantity progression", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    it("keeps newly admitted orders unvalidated and discoverable by maker triggers", async () => {
+    it("admits new orders optimistically and validates their remaining and funded quantities", async () => {
         const work = workflow();
         await work.domain.handleOrderUpsert(upsert());
         expect(stored()).toMatchObject({
-            fillability_status: ORDER_STATUS.Unvalidated,
+            fillability_status: ORDER_STATUS.Fillable,
             source_status: ORDER_SOURCE_STATUS.Active,
             original_quantity: "100",
             quantity: "45",
@@ -188,6 +191,34 @@ describe("canonical partial fill quantity progression", () => {
             fillability_status: ORDER_STATUS.Filled,
         });
         expect(await bidders.load(1)).not.toContain(terms.maker);
+    });
+
+    it("retains optimistic admission and durable demand through an RPC failure, then applies validation", async () => {
+        const work = workflow();
+        await work.domain.handleOrderUpsert(upsert());
+        const admitted = stored();
+        expect(admitted).toMatchObject({
+            fillability_status: ORDER_STATUS.Fillable,
+        });
+        work.rpc.failStatus = true;
+        await work.processor.executeBatch();
+        expect(stored()).toEqual(admitted);
+        const pending = work.store.get(1, ID)!;
+        expect(pending).toMatchObject({ pending: true, failures: 1 });
+
+        vi.spyOn(Date, "now").mockReturnValue(
+            NOW * 1000 + ORDER_VALIDATION_DEMAND_POLICY.retryBaseMs,
+        );
+        work.rpc.failStatus = false;
+        work.rpc.balance = 0n;
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.NoBalance,
+            original_quantity: "100",
+            quantity: "45",
+            fillable_quantity: "0",
+        });
+        expect(work.store.get(1, ID)?.pending).toBe(false);
     });
 
     it("keeps the last validated bid active and advances quantity without another source observation", async () => {
