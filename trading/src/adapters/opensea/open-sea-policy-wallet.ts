@@ -1,3 +1,7 @@
+import {
+    SEAPORT_ITEM_TYPE,
+    SEAPORT_ORDER_TYPE,
+} from "@artgod/shared/market-data/seaport";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
     getAddress,
@@ -39,18 +43,6 @@ const OPEN_SEA_SIGNATURE_STATE = {
 const SEAPORT_PRIMARY_TYPE = {
     OrderComponents: "OrderComponents",
     OrderHash: "OrderHash",
-} as const;
-
-const SEAPORT_ITEM_TYPE = {
-    Erc20: 1n,
-    Erc721: 2n,
-    Erc1155: 3n,
-    Erc721WithCriteria: 4n,
-    Erc1155WithCriteria: 5n,
-} as const;
-
-const SEAPORT_ORDER_TYPE = {
-    PartialRestricted: 3n,
 } as const;
 
 const SEAPORT_ORDER_TYPES = {
@@ -323,8 +315,7 @@ export class OpenSeaPolicyWallet {
             );
         if (
             requiresSignedZoneTrust &&
-            !this.biddingMandate.startPolicy
-                .trustOpenSeaSignedZoneTraitOffers
+            !this.biddingMandate.startPolicy.trustOpenSeaSignedZoneTraitOffers
         ) {
             throw new OpenSeaPolicyViolationError(
                 "trait offer requires explicit OpenSea SignedZone trust",
@@ -427,7 +418,7 @@ export class OpenSeaPolicyWallet {
         );
         assertUintEquals(
             order.orderType,
-            SEAPORT_ORDER_TYPE.PartialRestricted,
+            BigInt(SEAPORT_ORDER_TYPE.PartialRestricted),
             "order type",
         );
         const startTime = requireUint(order.startTime, "order start time");
@@ -469,7 +460,7 @@ export class OpenSeaPolicyWallet {
         const item = requireRecord(items[0], "WETH offer item");
         assertUintEquals(
             item.itemType,
-            SEAPORT_ITEM_TYPE.Erc20,
+            BigInt(SEAPORT_ITEM_TYPE.Erc20),
             "WETH offer item type",
         );
         assertAddressEquals(
@@ -542,7 +533,10 @@ export class OpenSeaPolicyWallet {
         if (expectation.tokenId !== null) {
             assertOneOfUint(
                 item.itemType,
-                [SEAPORT_ITEM_TYPE.Erc721, SEAPORT_ITEM_TYPE.Erc1155],
+                [
+                    BigInt(SEAPORT_ITEM_TYPE.Erc721),
+                    BigInt(SEAPORT_ITEM_TYPE.Erc1155),
+                ],
                 "target NFT item type",
             );
             assertUintEquals(
@@ -557,8 +551,8 @@ export class OpenSeaPolicyWallet {
         assertOneOfUint(
             item.itemType,
             [
-                SEAPORT_ITEM_TYPE.Erc721WithCriteria,
-                SEAPORT_ITEM_TYPE.Erc1155WithCriteria,
+                BigInt(SEAPORT_ITEM_TYPE.Criteria721),
+                BigInt(SEAPORT_ITEM_TYPE.Criteria1155),
             ],
             "target NFT criteria item type",
         );
@@ -581,7 +575,7 @@ export class OpenSeaPolicyWallet {
     private assertWethFeeItem(item: Record<string, unknown>): bigint {
         assertUintEquals(
             item.itemType,
-            SEAPORT_ITEM_TYPE.Erc20,
+            BigInt(SEAPORT_ITEM_TYPE.Erc20),
             "fee item type",
         );
         assertAddressEquals(

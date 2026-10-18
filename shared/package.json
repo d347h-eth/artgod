@@ -116,6 +116,8 @@
         "./database": "./database/db.ts",
         "./database/current-asks": "./database/current-asks.ts",
         "./database/storage-policy": "./database/storage-policy.ts",
+        "./market-data/seaport": "./market-data/seaport.ts",
+        "./market-data/seaport-quantity": "./market-data/seaport-quantity.ts",
         "./market-data/orders": "./market-data/orders.ts",
         "./market-data/fills": "./market-data/fills.ts",
         "./types/price-history": "./types/price-history.ts",

@@ -1,3 +1,7 @@
+import {
+    seaportIsNftItem,
+    seaportIsPaymentItem,
+} from "@artgod/shared/market-data/seaport";
 import type {
     SeaportConsiderationItem,
     SeaportOrderData,
@@ -11,9 +15,6 @@ import {
     toBigInt,
 } from "@artgod/shared/offchain/normalizer-utils";
 import { getOpenSeaProtocolData } from "@artgod/shared/opensea/payload";
-
-const NFT_ITEM_TYPES = new Set(["2", "3", "4", "5"]);
-const PAYMENT_ITEM_TYPES = new Set(["0", "1"]);
 
 export function normalizeSeaportOrderData(
     payload: Record<string, unknown>,
@@ -132,7 +133,7 @@ function normalizeUint(value: unknown, name: string): string {
 function findSingleNftItem(
     items: SeaportOrderItem[] | SeaportConsiderationItem[],
 ): SeaportOrderItem | SeaportConsiderationItem | null {
-    const nftItems = items.filter((item) => NFT_ITEM_TYPES.has(item.itemType));
+    const nftItems = items.filter((item) => seaportIsNftItem(item.itemType));
     if (nftItems.length !== 1) {
         return null;
     }
@@ -143,7 +144,7 @@ function sumFixedCurrencyItems(
     items: SeaportOrderItem[] | SeaportConsiderationItem[],
 ): { currency: string; amount: string } | null {
     const paymentItems = items.filter((item) =>
-        PAYMENT_ITEM_TYPES.has(item.itemType),
+        seaportIsPaymentItem(item.itemType),
     );
     if (paymentItems.length === 0) {
         return null;

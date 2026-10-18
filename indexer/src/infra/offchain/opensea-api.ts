@@ -1,3 +1,4 @@
+import { seaportIsNftItem } from "@artgod/shared/market-data/seaport";
 import { Chain, OpenSeaAPI } from "@opensea/sdk";
 import { normalizeOpenSeaOfferTraitCriteria } from "@artgod/shared/trading/open-sea-bidding-offers";
 import {
@@ -39,7 +40,6 @@ type OfferRecord = Record<string, unknown>;
 
 // Logger component label emitted by the indexer OpenSea REST adapter.
 const OPENSEA_API_ADAPTER_LOG_COMPONENT = "OpenSeaApiAdapter";
-const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
 
 export class OpenSeaApiAdapter {
     private readonly api: OpenSeaAPI;
@@ -227,7 +227,7 @@ function findNftItem(
 ): Record<string, unknown> | null {
     for (const item of items) {
         const itemType = Number(item.itemType);
-        if (!Number.isFinite(itemType) || !NFT_ITEM_TYPES.has(itemType)) {
+        if (!Number.isFinite(itemType) || !seaportIsNftItem(itemType)) {
             continue;
         }
         return item;

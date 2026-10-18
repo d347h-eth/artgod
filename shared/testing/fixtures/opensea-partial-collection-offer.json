@@ -1,0 +1,74 @@
+{
+    "order_hash": "0x2b4027aa9a2e6ca8588ebcb60761e78357d62fdeb113be6d239a5a9d4d5d07f1",
+    "chain": "ethereum",
+    "protocol_data": {
+        "parameters": {
+            "offerer": "0x4555bd75d2a51fc33f760a55096027e71e99aa77",
+            "offer": [
+                {
+                    "itemType": 1,
+                    "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                    "identifierOrCriteria": "0",
+                    "startAmount": "6000000000000000000",
+                    "endAmount": "6000000000000000000"
+                }
+            ],
+            "consideration": [
+                {
+                    "itemType": 4,
+                    "token": "0xc627a912171a92bdfe33419f3c9be073e522cb9c",
+                    "identifierOrCriteria": "0",
+                    "startAmount": "100",
+                    "endAmount": "100",
+                    "recipient": "0x4555bd75d2a51fc33f760a55096027e71e99aa77"
+                },
+                {
+                    "itemType": 1,
+                    "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                    "identifierOrCriteria": "0",
+                    "startAmount": "60000000000000000",
+                    "endAmount": "60000000000000000",
+                    "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+                }
+            ],
+            "startTime": "1791480258",
+            "endTime": "1799256258",
+            "orderType": 3,
+            "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+            "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "salt": "0x3d958fe2000000000000000000000000000000000000000097c2350f8784fb13",
+            "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+            "totalOriginalConsiderationItems": 2,
+            "counter": "0"
+        }
+    },
+    "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+    "asset": {
+        "identifier": null,
+        "contract": "0xc627a912171a92bdfe33419f3c9be073e522cb9c"
+    },
+    "remaining_quantity": 45,
+    "order_created_at": 1791480279,
+    "criteria": {
+        "collection": {
+            "slug": "cambria-charters"
+        },
+        "contract": {
+            "address": "0xc627a912171a92bdfe33419f3c9be073e522cb9c"
+        },
+        "traits": null,
+        "numeric_traits": null,
+        "encoded_token_ids": "*"
+    },
+    "price": {
+        "currency": "WETH",
+        "decimals": 18,
+        "value": "6000000000000000000"
+    },
+    "price_per_item": {
+        "currency": "WETH",
+        "decimals": 18,
+        "value": "60000000000000000"
+    },
+    "status": "ACTIVE"
+}

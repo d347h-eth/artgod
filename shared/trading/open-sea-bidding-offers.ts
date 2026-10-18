@@ -1,4 +1,14 @@
 import {
+    seaportAllowsPartialFills,
+    seaportIsConcreteNftItem,
+    seaportIsCriteriaItem,
+    seaportIsNftItem,
+} from "../market-data/seaport.js";
+import {
+    seaportNftQuantity,
+    seaportItemAmount,
+} from "../market-data/seaport-quantity.js";
+import {
     TRADING_BIDDING_BID_SCOPE_KIND,
     formatTradingBiddingBidScopeLabel,
     type TradingBiddingBidScopeKind,
@@ -34,7 +44,9 @@ export type OpenSeaBiddingOfferDiscoverySource =
 export type OpenSeaBiddingPriceExtraction = {
     price: bigint;
     source: string;
+    /** Source-reported remainder, or original units when no remainder is supplied. */
     quantity: bigint;
+    originalQuantity: bigint;
     currencyAddress: string;
 };
 
@@ -62,7 +74,9 @@ export type ParsedOpenSeaBiddingOffer = {
     discoverySource: OpenSeaBiddingOfferDiscoverySource;
     priceSource: string;
     source: string;
+    /** Source-reported remainder, or original units when no remainder is supplied. */
     quantity: bigint;
+    originalQuantity: bigint;
     bidScope: OpenSeaBiddingOfferBidScope;
 };
 
@@ -118,7 +132,7 @@ export function parseOpenSeaBiddingOffer(
     }
 
     const extracted = extractOpenSeaWethUnitPrice(rawOffer, options);
-    if (!extracted) {
+    if (!extracted || extracted.quantity === 0n) {
         return null;
     }
 
@@ -185,6 +199,7 @@ export function parseOpenSeaBiddingOffer(
         priceSource: extracted.source,
         source: extracted.source,
         quantity: extracted.quantity,
+        originalQuantity: extracted.originalQuantity,
         bidScope: resolveOpenSeaBiddingOfferBidScope(
             rawOffer,
             options.collectionAddress,
@@ -210,11 +225,11 @@ export function extractOpenSeaWethUnitPrice(
             parameters.consideration,
             wethAddress,
         );
-        const nftUnitsFromConsideration = sumNftUnits(
+        const nftUnitsFromConsideration = seaportNftQuantity(
             parameters.consideration,
             options.collectionAddress,
         );
-        const nftUnitsFromOffer = sumNftUnits(
+        const nftUnitsFromOffer = seaportNftQuantity(
             parameters.offer,
             options.collectionAddress,
         );
@@ -226,10 +241,26 @@ export function extractOpenSeaWethUnitPrice(
         const remainingQuantityRaw =
             asRecord(rawOrder).remainingQuantity ??
             asRecord(rawOrder).remaining_quantity;
-        const remainingQuantity = tryParseNumber(remainingQuantityRaw);
+        const remainingQuantity =
+            remainingQuantityRaw == null
+                ? null
+                : (typeof remainingQuantityRaw === "string" &&
+                        /^\d+$/.test(remainingQuantityRaw)) ||
+                    (typeof remainingQuantityRaw === "number" &&
+                        Number.isSafeInteger(remainingQuantityRaw))
+                  ? tryParseBigInt(remainingQuantityRaw)
+                  : null;
+        // A malformed or impossible remainder cannot become a full-size bid.
+        if (
+            remainingQuantityRaw != null &&
+            (remainingQuantity === null ||
+                remainingQuantity < 0n ||
+                (nftUnits > 0n && remainingQuantity > nftUnits))
+        )
+            return null;
         const isPartial =
-            isPartialOrderType(orderType) ||
-            (remainingQuantity !== null && remainingQuantity > 1);
+            seaportAllowsPartialFills(orderType) ||
+            (remainingQuantity !== null && remainingQuantity > 1n);
 
         if (offerSum > 0n || considerationSum > 0n) {
             const total =
@@ -240,12 +271,14 @@ export function extractOpenSeaWethUnitPrice(
                           source: "protocol.consideration",
                       };
 
-            const quantity = nftUnits > 0n ? nftUnits : 1n;
-            if (isPartial && quantity > 1n) {
+            const originalQuantity = nftUnits > 0n ? nftUnits : 1n;
+            const quantity = remainingQuantity ?? originalQuantity;
+            if (isPartial && originalQuantity > 1n) {
                 return {
-                    price: divCeil(total.value, quantity),
+                    price: divCeil(total.value, originalQuantity),
                     source: `${total.source}/unit`,
                     quantity,
+                    originalQuantity,
                     currencyAddress: wethAddress,
                 };
             }
@@ -254,6 +287,7 @@ export function extractOpenSeaWethUnitPrice(
                 price: total.value,
                 source: total.source,
                 quantity,
+                originalQuantity,
                 currencyAddress: wethAddress,
             };
         }
@@ -271,6 +305,7 @@ export function extractOpenSeaWethUnitPrice(
             price: priceValue,
             source: "price.value",
             quantity: 1n,
+            originalQuantity: 1n,
             currencyAddress: wethAddress,
         };
     }
@@ -287,6 +322,7 @@ export function extractOpenSeaWethUnitPrice(
             price: currentPrice,
             source: "currentPrice",
             quantity: 1n,
+            originalQuantity: 1n,
             currencyAddress: wethAddress,
         };
     }
@@ -551,14 +587,14 @@ export function inferOpenSeaNftSelectionKind(
     }
 
     const hasExplicitItem = nftItems.some((item) =>
-        [2, 3].includes(readItemType(item)),
+        seaportIsConcreteNftItem(readItemType(item)),
     );
     if (hasExplicitItem) {
         return "item";
     }
 
     const hasCriteriaItem = nftItems.some((item) =>
-        [4, 5].includes(readItemType(item)),
+        seaportIsCriteriaItem(readItemType(item)),
     );
     if (hasCriteriaItem) {
         return "criteria";
@@ -605,7 +641,7 @@ export function getOpenSeaCriteriaRoot(
     collectionAddress?: string,
 ): string | null {
     for (const item of getOpenSeaNftItems(rawOffer, collectionAddress)) {
-        if (![4, 5].includes(readItemType(item))) {
+        if (!seaportIsCriteriaItem(readItemType(item))) {
             continue;
         }
         return readIdentifierOrCriteria(item) ?? null;
@@ -707,7 +743,7 @@ function getExplicitTokenId(
     collectionAddress?: string,
 ): string | null {
     for (const item of getOpenSeaNftItems(rawOffer, collectionAddress)) {
-        if (![2, 3].includes(readItemType(item))) {
+        if (!seaportIsConcreteNftItem(readItemType(item))) {
             continue;
         }
         const tokenId = readIdentifierOrCriteria(item);
@@ -723,7 +759,7 @@ function hasCriteriaNftItem(
     collectionAddress?: string,
 ): boolean {
     return getOpenSeaNftItems(rawOffer, collectionAddress).some((item) =>
-        [4, 5].includes(readItemType(item)),
+        seaportIsCriteriaItem(readItemType(item)),
     );
 }
 
@@ -740,7 +776,7 @@ function getOpenSeaNftItems(
     for (const items of candidateBuckets) {
         const nftItems = items.filter((item) => {
             const itemType = readItemType(item);
-            if (![2, 3, 4, 5].includes(itemType)) {
+            if (!seaportIsNftItem(itemType)) {
                 return false;
             }
 
@@ -812,7 +848,7 @@ function sumTokenItems(items: unknown, tokenAddress: string): bigint {
             continue;
         }
 
-        const amount = tryParseBigInt(readAmount(item));
+        const amount = seaportItemAmount(item);
         if (amount === null) {
             continue;
         }
@@ -821,49 +857,6 @@ function sumTokenItems(items: unknown, tokenAddress: string): bigint {
     }
 
     return sum;
-}
-
-function sumNftUnits(items: unknown, collectionAddress?: string): bigint {
-    if (!Array.isArray(items)) {
-        return 0n;
-    }
-
-    let sum = 0n;
-    for (const item of items) {
-        const itemType = readItemType(item);
-        if (![2, 3, 4, 5].includes(itemType)) {
-            continue;
-        }
-
-        const token = stringOrUndefined(asRecord(item).token);
-        if (
-            collectionAddress &&
-            token &&
-            token.toLowerCase() !== collectionAddress.toLowerCase()
-        ) {
-            continue;
-        }
-
-        const amount = tryParseBigInt(readAmount(item));
-        if (amount === null) {
-            continue;
-        }
-
-        sum += amount;
-    }
-
-    return sum;
-}
-
-function isPartialOrderType(orderType: unknown): boolean {
-    if (typeof orderType === "number") {
-        return orderType === 1 || orderType === 3;
-    }
-    if (typeof orderType === "string") {
-        const upper = orderType.toUpperCase();
-        return upper.includes("PARTIAL") || upper === "1" || upper === "3";
-    }
-    return false;
 }
 
 function getEncodedTokenIds(
@@ -896,14 +889,6 @@ function readIdentifierOrCriteria(item: unknown): string | undefined {
     return (
         stringOrUndefined(asRecord(item).identifierOrCriteria) ??
         stringOrUndefined(asRecord(item).identifier_or_criteria)
-    );
-}
-
-function readAmount(item: unknown): unknown {
-    return (
-        asRecord(item).startAmount ??
-        asRecord(item).start_amount ??
-        asRecord(item).amount
     );
 }
 
