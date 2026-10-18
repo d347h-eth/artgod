@@ -436,8 +436,19 @@ export function invalidateOrderValidationFromBlock(
             " OR (d.pending=1 AND d.minimum_block>=@fromBlock)) " +
             "ORDER BY o.id LIMIT @limit",
     );
-    const reset = db.prepare<{ chainId: number; id: string; status: string }>(
-        "UPDATE orders SET fillability_status=@status,quantity=COALESCE(original_quantity,quantity),fillable_quantity=NULL,validated_at=0,state_revision=state_revision+1,block_number=NULL,block_hash=NULL,tx_hash=NULL,log_index=NULL,updated_at=CURRENT_TIMESTAMP WHERE chain_id=@chainId AND id=@id",
+    // A source sale may arrive before the canonical full-only fill. When that
+    // filled result is orphaned, its source completion must not veto recovery.
+    // Other source states keep their own lifecycle, including cancellation.
+    const reset = db.prepare<{
+        chainId: number;
+        id: string;
+        status: string;
+        filled: string;
+        sourceFilled: string;
+        sourceActive: string;
+    }>(
+        "UPDATE orders SET source_status=CASE WHEN fillability_status=@filled AND source_status=@sourceFilled THEN @sourceActive ELSE source_status END," +
+            "fillability_status=@status,quantity=COALESCE(original_quantity,quantity),fillable_quantity=NULL,validated_at=0,state_revision=state_revision+1,block_number=NULL,block_hash=NULL,tx_hash=NULL,log_index=NULL,updated_at=CURRENT_TIMESTAMP WHERE chain_id=@chainId AND id=@id",
     );
     const admit = db.prepare<{
         chainId: number;
@@ -466,6 +477,9 @@ export function invalidateOrderValidationFromBlock(
                     chainId,
                     id: row.id,
                     status: ORDER_STATUS.Unvalidated,
+                    filled: ORDER_STATUS.Filled,
+                    sourceFilled: ORDER_SOURCE_STATUS.Filled,
+                    sourceActive: ORDER_SOURCE_STATUS.Active,
                 });
             admit.run({ chainId, id: row.id, fromBlock, now });
         }

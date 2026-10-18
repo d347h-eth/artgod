@@ -363,9 +363,12 @@ Verified rollback preserves signed Seaport declarations. Results proved on an
 orphaned block become `unvalidated`, clear funded capacity, and receive durable
 validation demand in the rollback transaction. Pending requirements from the
 orphaned range are rebound to the fork boundary. A still-canonical pre-fork
-result remains intact. The existing executors then recompute the new chain state
-without waiting for any source observation; independent source cancellation
-remains definitive.
+result remains intact. If a source sale already marked the order `filled`,
+rolling back its canonical `filled` result also restores source `active` so that
+completion cannot veto revalidation. Source completion alone, without an
+orphaned canonical filled result, is unchanged. The existing executors then
+recompute the new chain state without waiting for any source observation;
+independent source cancellation remains definitive.
 
 An OpenSea sale uses the source-execution handling category on
 `order-lifecycle-updates`. The orders domain

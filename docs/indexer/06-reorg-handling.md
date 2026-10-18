@@ -171,7 +171,9 @@ Signed Seaport declarations are retained when their protocol result is orphaned.
 The rollback writer marks those results `unvalidated`, removes their funded
 capacity and retains validation demand against the new fork. It also rebinds
 pending orphaned block requirements. The ordinary demand executors revalidate
-them without REST reconciliation; source cancellations remain unchanged. See
+them without REST reconciliation. An orphaned canonical `filled` result also
+clears its source `filled` blocker back to `active`; source cancellations remain
+unchanged. See
 [order quantities](07-domain-orders.md#partial-fills-and-quantities).
 
 ## Resync After Rollback

@@ -33,6 +33,7 @@ import {
     ORDER_SIDE,
     ORDER_STATUS,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
+    type OrderSide,
 } from "../src/domain/orders.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import {
@@ -67,6 +68,12 @@ const NOW = 1_792_400_000;
 const BLOCK = 26_214_320;
 const terms = normalizeOpenSeaBuyOrder(captured, {});
 const ID = captured.order_hash;
+const FULL_ONLY_ORDERS = [
+    SEAPORT_ORDER_TYPE.FullOpen,
+    SEAPORT_ORDER_TYPE.FullRestricted,
+].flatMap((type) =>
+    [ORDER_SIDE.Buy, ORDER_SIDE.Sell].map((side) => ({ type, side })),
+);
 let collectionId: number;
 class PartialRpc extends HeavyMakerRpc {
     filled = 55n;
@@ -133,6 +140,31 @@ function stored(id = ID) {
             "SELECT fillability_status,source_status,quantity,original_quantity,fillable_quantity,state_revision FROM orders WHERE id=?",
         )
         .get(id);
+}
+function fullOnlyUpsert(type: number, side: OrderSide): OrderUpsertPayload {
+    const order = heavyMakerOrder(0, {
+        collectionId,
+        contract: terms.contract,
+        maker: HEAVY_MAKER.smallMaker,
+        side,
+    });
+    const data = order.seaportData!;
+    data.orderType = String(type);
+    data.startTime = String(NOW - 3600);
+    data.endTime = String(NOW + 86400);
+    return upsert({
+        orderId: computeSeaportOrderHash(data),
+        maker: order.maker,
+        side,
+        tokenId: order.tokenId,
+        sourceScopeKind: order.sourceScopeKind ?? undefined,
+        seaportData: data,
+        price: order.price,
+        quantity: "1",
+        originalQuantity: "1",
+        validFrom: Number(data.startTime),
+        validUntil: Number(data.endTime),
+    });
 }
 async function fill(work: ReturnType<typeof workflow>, block = BLOCK) {
     await work.domain.handleOrderUpdateById({
@@ -1001,68 +1033,247 @@ describe("canonical partial fill quantity progression", () => {
         };
     }
 
+    async function fullOnlyExecution(
+        work: ReturnType<typeof workflow>,
+        payload: OrderUpsertPayload,
+        sourceFirst: boolean,
+    ) {
+        work.rpc.filled = 0n;
+        work.rpc.size = 0n;
+        work.rpc.blockNumber = BLOCK - 1;
+        await work.domain.handleOrderUpsert(payload);
+        expect((await work.processor.executeBatch())?.validated).toBe(1);
+        expect(stored(payload.orderId)).toMatchObject({
+            source_status: ORDER_SOURCE_STATUS.Active,
+            fillability_status: ORDER_STATUS.Fillable,
+        });
+        const source = sourceExecution(work);
+        const sale = () =>
+            source.execute(
+                { ...source.payload, orderId: payload.orderId },
+                NOW * 1000,
+            );
+        const canonical = () =>
+            work.domain.handleOrderUpdateById({
+                chainId: 1,
+                orderId: payload.orderId,
+                reason: ORDER_UPDATE_REASON.Fill,
+                blockNumber: BLOCK,
+            });
+        const executions = sourceFirst ? [sale, canonical] : [canonical, sale];
+        for (const execute of executions) await execute();
+        const completed = stored(payload.orderId);
+        // Repeated deliveries before rollback must not add RPC or change state.
+        for (const execute of executions) await execute();
+        expect(stored(payload.orderId)).toEqual(completed);
+        expect(completed).toMatchObject({
+            fillability_status: ORDER_STATUS.Filled,
+            source_status: sourceFirst
+                ? ORDER_SOURCE_STATUS.Filled
+                : ORDER_SOURCE_STATUS.Active,
+            quantity: "0",
+        });
+        expect(source.receipt).not.toHaveBeenCalled();
+        expect(work.rpc.reads.getOrderStatus).toBe(1);
+        work.rpc.blockNumber = BLOCK;
+    }
+
     it.each(
-        [
-            SEAPORT_ORDER_TYPE.FullOpen,
-            SEAPORT_ORDER_TYPE.FullRestricted,
-        ].flatMap((type) =>
-            [ORDER_SIDE.Buy, ORDER_SIDE.Sell].map((side) => ({ type, side })),
+        FULL_ONLY_ORDERS.flatMap((order) =>
+            [false, true].flatMap((sourceFirst) =>
+                [false, true].map((refresh) => ({
+                    ...order,
+                    sourceFirst,
+                    refresh,
+                })),
+            ),
         ),
     )(
+        "recovers a full-only $side after rollback (type=$type, sourceFirst=$sourceFirst, refresh=$refresh)",
+        async ({ type, side, sourceFirst, refresh }) => {
+            const work = workflow();
+            const payload = fullOnlyUpsert(type, side);
+            await fullOnlyExecution(work, payload, sourceFirst);
+            rollbackResult(work, BLOCK);
+            work.rpc.blockHash = `0x${"cd".repeat(32)}`;
+            expect(stored(payload.orderId)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Active,
+                fillability_status: ORDER_STATUS.Unvalidated,
+                quantity: "1",
+                fillable_quantity: null,
+            });
+            expect(work.store.get(1, payload.orderId)).toMatchObject({
+                pending: true,
+                minimumBlock: BLOCK,
+            });
+            if (refresh) {
+                const refreshed = await work.domain.handleOrderUpsert(payload);
+                expect(refreshed.validationNeeded).toBe(true);
+            }
+            const afterGrace =
+                NOW + MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds + 1;
+            // Make the row eligible by age, so this checks lifecycle protection.
+            db.prepare(
+                "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+            ).run(NOW, payload.orderId);
+            new SqliteMarketDataMaintenance(db).maintainBatch(afterGrace);
+            expect(stored(payload.orderId)).toBeDefined();
+            expect((await work.processor.executeBatch())?.validated).toBe(1);
+            expect(stored(payload.orderId)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Active,
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "1",
+            });
+            expect(work.store.get(1, payload.orderId)?.pending).toBe(false);
+            expect(work.rpc.reads.getOrderStatus).toBe(2);
+        },
+    );
+
+    it("preserves source-only completion when no canonical filled result is orphaned", async () => {
+        const work = workflow();
+        const payload = fullOnlyUpsert(
+            SEAPORT_ORDER_TYPE.FullOpen,
+            ORDER_SIDE.Buy,
+        );
+        work.rpc.blockNumber = BLOCK - 1;
+        work.rpc.filled = 0n;
+        work.rpc.size = 0n;
+        await work.domain.handleOrderUpsert(payload);
+        await work.processor.executeBatch();
+        const source = sourceExecution(work);
+        await source.execute(
+            { ...source.payload, orderId: payload.orderId },
+            NOW * 1000,
+        );
+        const before = stored(payload.orderId);
+        expect(before).toMatchObject({
+            source_status: ORDER_SOURCE_STATUS.Filled,
+            fillability_status: ORDER_STATUS.Fillable,
+        });
+        rollbackResult(work, BLOCK);
+        expect(stored(payload.orderId)).toEqual(before);
+        expect(work.store.get(1, payload.orderId)?.pending).toBe(false);
+        expect(await work.processor.executeBatch()).toBeUndefined();
+        expect(work.rpc.reads.getOrderStatus).toBe(1);
+    });
+
+    it.each(
+        [false, true].flatMap((retireFirst) =>
+            [false, true].map((sourceCancelled) => ({
+                retireFirst,
+                sourceCancelled,
+            })),
+        ),
+    )(
+        "keeps full-only rollback and retirement compatible (retireFirst=$retireFirst, sourceCancelled=$sourceCancelled)",
+        async ({ retireFirst, sourceCancelled }) => {
+            const work = workflow();
+            const payload = fullOnlyUpsert(
+                SEAPORT_ORDER_TYPE.FullOpen,
+                ORDER_SIDE.Buy,
+            );
+            await fullOnlyExecution(work, payload, true);
+            if (sourceCancelled)
+                await work.domain.handleOrderUpdateById({
+                    chainId: 1,
+                    orderId: payload.orderId,
+                    reason: ORDER_UPDATE_REASON.Cancel,
+                    sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                    observedAt: NOW,
+                });
+            const afterGrace =
+                NOW + MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds + 1;
+            vi.spyOn(Date, "now").mockReturnValue(afterGrace * 1000);
+            const maintain = () => {
+                db.prepare(
+                    "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+                ).run(NOW, payload.orderId);
+                new SqliteMarketDataMaintenance(db).maintainBatch(afterGrace);
+            };
+            if (retireFirst) {
+                maintain();
+                expect(stored(payload.orderId)).toBeUndefined();
+                expect(
+                    db
+                        .prepare(
+                            "SELECT block_number FROM market_order_retirements WHERE order_id=?",
+                        )
+                        .get(payload.orderId),
+                ).toEqual({ block_number: BLOCK });
+            }
+            rollbackResult(work, BLOCK);
+            work.rpc.blockHash = `0x${"cd".repeat(32)}`;
+            maintain();
+            expect(
+                !!db
+                    .prepare(
+                        "SELECT 1 FROM market_order_retirements WHERE order_id=?",
+                    )
+                    .get(payload.orderId),
+            ).toBe(sourceCancelled);
+            if (sourceCancelled) {
+                const refresh = await work.domain.handleOrderUpsert({
+                    ...payload,
+                    observedAt: afterGrace,
+                });
+                expect(refresh.validationNeeded).toBe(false);
+                expect(stored(payload.orderId)).toBeUndefined();
+                expect(await work.processor.executeBatch()).toBeUndefined();
+            } else {
+                if (retireFirst)
+                    await work.domain.handleOrderUpsert({
+                        ...payload,
+                        observedAt: afterGrace,
+                    });
+                work.rpc.blockTimestamp = afterGrace;
+                expect((await work.processor.executeBatch())?.validated).toBe(
+                    1,
+                );
+                expect(stored(payload.orderId)).toMatchObject({
+                    source_status: ORDER_SOURCE_STATUS.Active,
+                    fillability_status: ORDER_STATUS.Fillable,
+                    quantity: "1",
+                });
+            }
+        },
+    );
+
+    it.each(FULL_ONLY_ORDERS)(
         "applies a full-only $side source sale immediately without RPC (type=$type)",
         async ({ type, side }) => {
             const work = workflow();
-            const order = heavyMakerOrder(0, {
-                collectionId,
-                contract: terms.contract,
-                validFrom: terms.validFrom,
-                validUntil: terms.validUntil,
-                side,
-            });
-            order.seaportData!.orderType = String(type);
-            order.id = computeSeaportOrderHash(order.seaportData!);
-            await work.domain.handleOrderUpsert(
-                upsert({
-                    orderId: order.id,
-                    side,
-                    tokenId: order.tokenId,
-                    sourceScopeKind: order.sourceScopeKind,
-                    seaportData: order.seaportData,
-                    price: order.price,
-                    quantity: "1",
-                    originalQuantity: "1",
-                }),
-            );
+            const order = fullOnlyUpsert(type, side);
+            await work.domain.handleOrderUpsert(order);
             const source = sourceExecution(work);
             await source.execute(
                 {
                     ...source.payload,
-                    orderId: order.id,
+                    orderId: order.orderId,
                     executionTransactionHash: null,
                 },
                 NOW * 1000,
             );
-            expect(stored(order.id)).toMatchObject({
+            expect(stored(order.orderId)).toMatchObject({
                 source_status: ORDER_SOURCE_STATUS.Filled,
             });
             expect(source.receipt).not.toHaveBeenCalled();
             expect(source.block).not.toHaveBeenCalled();
             await work.processor.executeBatch();
             expect(work.rpc.reads.getOrderStatus).toBeUndefined();
-            expect(work.store.get(1, order.id)?.pending).toBe(false);
+            expect(work.store.get(1, order.orderId)?.pending).toBe(false);
 
             await work.domain.handleOrderUpdateById({
                 chainId: 1,
-                orderId: order.id,
+                orderId: order.orderId,
                 reason: ORDER_UPDATE_REASON.Cancel,
                 sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
                 observedAt: NOW,
             });
             await source.execute(
-                { ...source.payload, orderId: order.id },
+                { ...source.payload, orderId: order.orderId },
                 NOW * 1000,
             );
-            expect(stored(order.id)).toMatchObject({
+            expect(stored(order.orderId)).toMatchObject({
                 source_status: ORDER_SOURCE_STATUS.Cancelled,
             });
             expect(source.receipt).not.toHaveBeenCalled();
@@ -1134,26 +1345,11 @@ describe("canonical partial fill quantity progression", () => {
     it("applies a full-only source sale while a partial-sale receipt lookup is blocked", async () => {
         const work = workflow();
         await initialSnapshot(work);
-        const order = heavyMakerOrder(0, {
-            collectionId,
-            contract: terms.contract,
-            validFrom: terms.validFrom,
-            validUntil: terms.validUntil,
-        });
-        order.seaportData!.orderType = String(SEAPORT_ORDER_TYPE.FullOpen);
-        order.id = computeSeaportOrderHash(order.seaportData!);
-        await work.domain.handleOrderUpsert(
-            upsert({
-                orderId: order.id,
-                side: order.side,
-                tokenId: order.tokenId,
-                sourceScopeKind: order.sourceScopeKind,
-                seaportData: order.seaportData,
-                price: order.price,
-                quantity: "1",
-                originalQuantity: "1",
-            }),
+        const order = fullOnlyUpsert(
+            SEAPORT_ORDER_TYPE.FullOpen,
+            ORDER_SIDE.Buy,
         );
+        await work.domain.handleOrderUpsert(order);
         const source = sourceExecution(work);
         const started = Promise.withResolvers<void>();
         const unblock = Promise.withResolvers<void>();
@@ -1168,10 +1364,10 @@ describe("canonical partial fill quantity progression", () => {
         await started.promise;
         try {
             await source.apply.execute(
-                { ...source.payload, orderId: order.id },
+                { ...source.payload, orderId: order.orderId },
                 NOW * 1000,
             );
-            expect(stored(order.id)).toMatchObject({
+            expect(stored(order.orderId)).toMatchObject({
                 source_status: ORDER_SOURCE_STATUS.Filled,
             });
             expect(source.receipt).toHaveBeenCalledOnce();

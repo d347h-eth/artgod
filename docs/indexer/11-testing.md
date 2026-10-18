@@ -354,7 +354,9 @@ Current focused coverage includes:
   conversion, remaining/funded capacity, partial-fill replay without source
   reconciliation, immediate full-only exhaustion without RPC, source cancellation,
   RPC failure, changed snapshot hash, chain-revision fencing, actual rollback of partial and full-only
-  results, source-cancellation preservation, and atomic rollback/demand failure
+  results, source-first full-only completion followed by rollback and demand
+  recovery, fresh source admission, retirement before/after rollback,
+  source-cancellation preservation, and atomic rollback/demand failure
   (`tests/partial-fill-order-lifecycle.test.ts`); parser and backend projection
   coverage verify 100 original / 45 remaining / 10 funded units independently
 - ordinary and bulk signature recovery, positional proofs, compact/standard
