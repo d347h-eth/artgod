@@ -155,7 +155,11 @@ idle polling waits one second, and retry backoff is capped at 60 seconds.
 production publishers always set it to true.
 
 Refreshing an existing order preserves its fillability status while the new
-obligation is pending. `unvalidated` remains the state for a discarded orphaned
+obligation is pending. For supported fixed-amount partial buys, source quantity
+seeds a new order only; refreshes cannot replace its remaining quantity or funded
+capacity. Protocol validation owns those existing-order values. Other order
+shapes retain source-quantity updates. Repeated source quantities do not bypass the
+existing five-minute ordinary revalidation interval. `unvalidated` remains the state for a discarded orphaned
 protocol result after rollback; both maker scans and per-order demand can
 validate it.
 
@@ -331,7 +335,10 @@ units: 11/20 filled out of an original 100 leaves 45. Validation commits origina
 remaining and funded units together with fillability, coverage and the result's
 block attribution in `orders.block_number`. This attribution belongs to the
 materialized result and survives demand cleanup; it is replaced atomically with
-that result. Retirement copies it into the marker before cascading away the order
+that result when status or quantities change. An unchanged result retains its
+earlier proof block; newer validation coverage belongs to demand and does not
+force an order write. Ordinary validation timestamp refresh still follows the
+five-minute interval. Retirement copies result attribution into its marker before cascading away the order
 and its demand. Rollback can therefore clear attributed orphan terminal markers,
 while source cancellation remains independently protected. Only a full
 fraction marks a partial order `filled`. Dependency failures leave valid state

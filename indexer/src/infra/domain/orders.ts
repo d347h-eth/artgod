@@ -1,8 +1,10 @@
 import type { OrderValidationEvidence } from "../../domain/order-validation-demand.js";
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import {
     declaredOrderQuantity,
     validatedQuantityUpdate,
     fillExecutionNeedsValidation,
+    partialBuyOriginalQuantity,
 } from "../../domain/order-quantity.js";
 import { eventValidationRequest } from "../../domain/order-validation-demand.js";
 import type {
@@ -315,6 +317,7 @@ export class SqliteOrdersDomain
         tokenSetSchemaHash: string | null;
         quantity: string;
         originalQuantity: string | null;
+        quantityOwnedByProtocol: number;
         price: string | null;
         currency: string | null;
         validFrom: number | null;
@@ -347,7 +350,10 @@ export class SqliteOrdersDomain
             "local_token_set_status = excluded.local_token_set_status, " +
             "token_set_id = excluded.token_set_id, " +
             "token_set_schema_hash = excluded.token_set_schema_hash, " +
-            "quantity = excluded.quantity, original_quantity=COALESCE(excluded.original_quantity,orders.original_quantity), fillable_quantity=NULL, " +
+            // Supported partial buys retain protocol-owned remaining inventory.
+            // Other shapes keep their established source-quantity behavior.
+            "quantity=CASE WHEN @quantityOwnedByProtocol=1 THEN orders.quantity ELSE excluded.quantity END, " +
+            "original_quantity=COALESCE(excluded.original_quantity,orders.original_quantity), " +
             "price = excluded.price, " +
             "currency = excluded.currency, " +
             "valid_from = excluded.valid_from, " +
@@ -363,7 +369,7 @@ export class SqliteOrdersDomain
             "state_revision = state_revision + 1, validated_at = 0, updated_at = CURRENT_TIMESTAMP " +
             "WHERE orders.chain_id=excluded.chain_id AND orders.state_revision=@expectedRevision AND " +
             "(kind,side,source,maker,taker,contract_address,token_id,source_scope_kind,source_criteria_root,source_encoded_token_ids,source_schema_json,local_token_set_status,token_set_id,token_set_schema_hash,quantity,original_quantity,price,currency,valid_from,valid_until,source_status,seaport_data_json,seaport_data_source_kind,raw_rest_data,raw_stream_data) IS NOT " +
-            "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,excluded.quantity,COALESCE(excluded.original_quantity,orders.original_quantity),excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
+            "(excluded.kind,excluded.side,excluded.source,excluded.maker,excluded.taker,excluded.contract_address,excluded.token_id,excluded.source_scope_kind,excluded.source_criteria_root,excluded.source_encoded_token_ids,excluded.source_schema_json,excluded.local_token_set_status,excluded.token_set_id,excluded.token_set_schema_hash,CASE WHEN @quantityOwnedByProtocol=1 THEN orders.quantity ELSE excluded.quantity END,COALESCE(excluded.original_quantity,orders.original_quantity),excluded.price,excluded.currency,excluded.valid_from,excluded.valid_until,excluded.source_status,COALESCE(excluded.seaport_data_json,orders.seaport_data_json),COALESCE(excluded.seaport_data_source_kind,orders.seaport_data_source_kind),COALESCE(excluded.raw_rest_data,orders.raw_rest_data),COALESCE(excluded.raw_stream_data,orders.raw_stream_data))",
     );
 
     constructor(
@@ -562,6 +568,11 @@ export class SqliteOrdersDomain
         const quantities = validatedQuantityUpdate(result);
         const status = result.status;
         const now = this.nowSeconds();
+        const changedResult =
+            "(fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable)";
+        // The earlier proof still establishes an unchanged result. Newer coverage
+        // belongs to demand; a block advance alone must not rewrite the order.
+        const replaceAttribution = `(${changedResult} OR (block_number IS NULL AND @blockNumber IS NOT NULL))`;
         return db.writeTransaction(() => {
             const result = db
                 .prepare<{
@@ -577,11 +588,12 @@ export class SqliteOrdersDomain
                     fillable: string | null;
                     blockNumber: number | null;
                 }>(
-                    "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
-                        "state_revision=state_revision+CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN 1 ELSE 0 END, fillability_status=@status, " +
-                        "original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable, block_number=@blockNumber, block_hash=NULL, tx_hash=NULL, log_index=NULL " +
+                    `UPDATE orders SET validated_at=@now, updated_at=CASE WHEN ${changedResult} THEN CURRENT_TIMESTAMP ELSE updated_at END, ` +
+                        `state_revision=state_revision+CASE WHEN ${changedResult} THEN 1 ELSE 0 END, fillability_status=@status, ` +
+                        `original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable, block_number=CASE WHEN ${changedResult} THEN @blockNumber ELSE COALESCE(block_number,@blockNumber) END, ` +
+                        `block_hash=CASE WHEN ${replaceAttribution} THEN NULL ELSE block_hash END, tx_hash=CASE WHEN ${replaceAttribution} THEN NULL ELSE tx_hash END, log_index=CASE WHEN ${replaceAttribution} THEN NULL ELSE log_index END ` +
                         "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
-                        "AND (fillability_status IS NOT @status OR original_quantity IS NOT COALESCE(@original,original_quantity) OR quantity IS NOT COALESCE(@remaining,quantity) OR fillable_quantity IS NOT @fillable OR validated_at<=@stale OR block_number IS NOT @blockNumber)",
+                        `AND (${replaceAttribution} OR validated_at<=@stale)`,
                 )
                 .run({
                     chainId: row.chain_id,
@@ -1115,6 +1127,14 @@ export class SqliteOrdersDomain
             tokenSetId: payload.tokenSetId ?? null,
             tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
             quantity: payload.quantity ?? "1",
+            quantityOwnedByProtocol:
+                payload.kind === FILL_KIND.Seaport &&
+                partialBuyOriginalQuantity({
+                    ...payload,
+                    seaportData: mergedSeaportData,
+                }) !== null
+                    ? 1
+                    : 0,
             originalQuantity:
                 payload.originalQuantity ??
                 declaredOrderQuantity(payload) ??

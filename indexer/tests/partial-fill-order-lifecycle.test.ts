@@ -5,6 +5,7 @@ import { CanonicalOrderExecutionBlock } from "../src/application/orders/executio
 import { normalizeOpenSeaOrderUpdate } from "../src/application/offchain/opensea-normalize.js";
 import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
 import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
+import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import { SqliteBidderIndex } from "../src/infra/bidder-index/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import {
@@ -220,6 +221,106 @@ describe("canonical partial fill quantity progression", () => {
             fillable_quantity: "0",
         });
         expect(work.store.get(1, ID)?.pending).toBe(false);
+    });
+
+    it("preserves chain quantities through repeated source refreshes and keeps periodic validation", async () => {
+        const work = workflow();
+        work.rpc.filled = 56n;
+        await work.domain.handleOrderUpsert(upsert());
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: "45",
+        });
+        await work.processor.executeBatch();
+        const validated = stored();
+        expect(validated).toMatchObject({
+            quantity: "44",
+            fillable_quantity: "10",
+        });
+        const reads = work.rpc.reads.getOrderStatus;
+        for (const offset of [1, 2]) {
+            vi.spyOn(Date, "now").mockReturnValue((NOW + offset) * 1000);
+            await work.domain.handleOrderUpsert(
+                upsert({ observedAt: NOW + offset }),
+            );
+            expect(stored()).toEqual(validated);
+            expect(work.store.get(1, ID)?.pending).toBe(false);
+            await work.processor.executeBatch();
+        }
+        expect(work.rpc.reads.getOrderStatus).toBe(reads);
+        const nextObservation =
+            NOW + MARKET_DATA_STORAGE_POLICY.orderRevalidationSeconds + 1;
+        vi.spyOn(Date, "now").mockReturnValue(nextObservation * 1000);
+        work.rpc.blockTimestamp = nextObservation;
+        work.rpc.blockNumber++;
+        await work.domain.handleOrderUpsert(
+            upsert({ observedAt: nextObservation }),
+        );
+        expect(stored()).toEqual(validated);
+        expect(work.store.get(1, ID)?.pending).toBe(true);
+        await work.processor.executeBatch();
+        expect(stored()).toEqual(validated);
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+        expect(work.rpc.reads.getOrderStatus).toBeGreaterThan(reads!);
+    });
+
+    it("keeps source quantity updates for orders outside the protocol quantity model", async () => {
+        const work = workflow();
+        const sourceOrder = upsert({
+            kind: FILL_KIND.BlurV2,
+            seaportData: null,
+            quantity: "2",
+        });
+        await work.domain.handleOrderUpsert(sourceOrder);
+        await work.domain.handleOrderUpsert({ ...sourceOrder, quantity: "1" });
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: "1",
+        });
+        expect(work.store.get(1, ID)).toBeNull();
+    });
+
+    it("keeps unchanged result proof without rewriting the order at newer validation blocks", async () => {
+        const work = workflow();
+        await work.domain.handleOrderUpsert(upsert());
+        await work.processor.executeBatch();
+        const validated = stored();
+        db.exec(
+            "CREATE TEMP TRIGGER reject_unchanged_result_write BEFORE UPDATE ON orders BEGIN SELECT RAISE(ABORT,'unchanged result rewritten'); END;",
+        );
+        try {
+            work.rpc.blockNumber++;
+            work.store.admit(
+                eventValidationRequest(1, ID, work.rpc.blockNumber),
+                Date.now(),
+            );
+            await work.processor.executeBatch();
+            expect(work.store.get(1, ID)).toMatchObject({
+                pending: false,
+                proofBlock: BLOCK + 1,
+            });
+            expect(stored()).toEqual(validated);
+            expect(
+                db
+                    .prepare("SELECT block_number FROM orders WHERE id=?")
+                    .get(ID),
+            ).toEqual({ block_number: BLOCK });
+        } finally {
+            db.exec("DROP TRIGGER reject_unchanged_result_write;");
+        }
+        rollbackResult(work, BLOCK + 1);
+        expect(stored()).toEqual(validated);
+        const request = eventValidationRequest(1, ID, BLOCK);
+        expect(
+            work.store.isCovered(
+                request,
+                work.domain.validationCandidate(request)!.revision,
+            ),
+        ).toBe(false);
+        rollbackResult(work, BLOCK);
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.Unvalidated,
+        });
     });
 
     it("keeps the last validated bid active and advances quantity without another source observation", async () => {

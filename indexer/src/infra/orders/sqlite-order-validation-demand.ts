@@ -415,8 +415,10 @@ export function invalidateOrderValidationFromBlock(
     fromBlock: number,
     now: number,
 ): void {
+    // Result provenance takes precedence over newer reusable demand coverage.
+    // An unchanged result can still be proved by a canonical pre-fork block.
     const orphanedState =
-        "(o.block_number>=@fromBlock OR (d.proof_block>=@fromBlock AND (o.block_number IS NULL OR o.fillability_status NOT IN (@filled,@cancelled))))";
+        "(o.block_number>=@fromBlock OR (o.block_number IS NULL AND d.proof_block>=@fromBlock))";
     const select = db.prepare<{
         chainId: number;
         fromBlock: number;
@@ -424,8 +426,6 @@ export function invalidateOrderValidationFromBlock(
         limit: number;
         kind: string;
         sourceCancelled: string;
-        filled: string;
-        cancelled: string;
     }>(
         "SELECT o.id,COALESCE(" +
             orphanedState +
@@ -458,8 +458,6 @@ export function invalidateOrderValidationFromBlock(
             limit: POLICY.batchOrders,
             kind: FILL_KIND.Seaport,
             sourceCancelled: ORDER_SOURCE_STATUS.Cancelled,
-            filled: ORDER_STATUS.Filled,
-            cancelled: ORDER_STATUS.Cancelled,
         }) as { id: string; orphaned: number }[];
         if (!rows.length) return;
         for (const row of rows) {
