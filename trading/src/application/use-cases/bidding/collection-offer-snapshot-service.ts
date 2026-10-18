@@ -1,3 +1,4 @@
+import { seaportIsConcreteNftItem } from "@artgod/shared/market-data/seaport";
 import {
     BIDDING_LOG_COMPONENT,
     createBiddingComponentLogger,
@@ -1003,7 +1004,7 @@ export class CollectionOfferSnapshotService
                 ...(Array.isArray(parsedOffer.protocol_data?.parameters?.offer)
                     ? parsedOffer.protocol_data.parameters.offer
                     : []),
-            ].filter((item) => [2, 3].includes(Number(item.itemType)));
+            ].filter((item) => seaportIsConcreteNftItem(item.itemType));
 
             if (nftItems.length > 0) {
                 explicitItemOffers++;
