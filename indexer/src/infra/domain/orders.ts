@@ -622,6 +622,8 @@ export class SqliteOrdersDomain
                 chainId: payload.chainId,
                 orderId: payload.orderId,
             }) as OrderRow | undefined;
+            // No signed terms means no exhaustion decision. A later upsert keeps
+            // its normal optimistic admission and validation; retain no sale history.
             if (!row) return { validationNeeded: false, changes: 0 };
             if (fillExecutionNeedsValidation(mapOrderRow(row)))
                 return { validationNeeded: true, changes: 0 };

@@ -48,9 +48,10 @@ export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
     switch (payload.reason) {
         case ORDER_UPDATE_REASON.Fill:
         case ORDER_UPDATE_REASON.Cancel:
+        case ORDER_UPDATE_REASON.SourceExecution:
             return QUEUE_NAMES.OrderLifecycle;
         case ORDER_UPDATE_REASON.Validation:
-        case ORDER_UPDATE_REASON.SourceExecution:
+        case ORDER_UPDATE_REASON.SourceExecutionValidation:
             return QUEUE_NAMES.OrdersUpdateById;
         default:
             throw new UnsupportedJob("Unsupported order update reason");

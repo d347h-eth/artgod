@@ -1,9 +1,28 @@
 import { tryParseHash } from "@artgod/shared/offchain/normalizer-utils";
 import type { RpcProviderPort } from "../../ports/rpc.js";
 
+export const ORDER_EXECUTION_LOG = {
+    Component: "OrderExecution",
+    MissingTransactionHash:
+        "Ignoring source execution validation without a valid transaction hash",
+} as const;
+
+/** Publish partial/unknown-order checks durably before acknowledging a source sale.
+ * No receipt RPC runs in the order-lifecycle-updates consumer. */
+export interface SourceExecutionValidationPort {
+    request(input: {
+        chainId: number;
+        orderId: string;
+        transactionHash: string;
+        /** Original observation time in milliseconds identifies handoff retries;
+         * canonical transaction inclusion, not this clock, defines validation coverage. */
+        requiredAt: number;
+    }): Promise<void>;
+}
+
 /** A source execution becomes a block requirement only after checking its current
- * canonical inclusion. The original queue delivery owns the obligation until this
- * succeeds and ordinary validation demand has been admitted. */
+ * canonical inclusion. The order-updates-by-id delivery owns the obligation until
+ * this succeeds and ordinary validation demand has been admitted. */
 export interface OrderExecutionBlockPort {
     resolve(transactionHash: string): Promise<number>;
 }

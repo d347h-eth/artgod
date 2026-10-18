@@ -218,9 +218,18 @@ sequenceDiagram
         alt Full-only order
             Consumer->>DB: Apply guarded source-filled observation without RPC
         else Partial or unknown Seaport order
+            Consumer->>NATS: Publish source-execution-validation to order-updates-by-id
+            Note over Consumer,NATS: ACK source observation only after publication; no receipt RPC here
+        else Order not stored
+            Note over Consumer,DB: Ignore; later upsert retains optimistic admission and validation
+        end
+    else Source execution validation on order-updates-by-id
+        alt Missing or malformed transaction hash
+            Note over Consumer,NATS: Log and discard; no observation-time substitute
+        else Valid transaction hash
             Consumer->>DB: Capture canonical revision
             Consumer->>RPC: Fresh receipt and block; verify transaction inclusion
-            Note over Consumer,NATS: Failure retains original delivery; no observation-time substitute
+            Note over Consumer,NATS: Unavailable/noncanonical receipt retains validation delivery
             Consumer->>DB: Admit execution-block requirement with captured revision
         end
     else By-ID validation hint
@@ -230,7 +239,7 @@ sequenceDiagram
     else Full-only execution, cancel or source observation
         Consumer->>DB: Apply guarded lifecycle effects without RPC
     end
-    Consumer-->>NATS: ACK after committed effects or durable admission
+    Consumer-->>NATS: ACK after committed effects, durable handoff or explicit no-work decision
 
     loop Poll due demand and resume expired leases
         Demand->>Demand: Acquire shared FIFO permit

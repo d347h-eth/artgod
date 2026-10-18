@@ -22,6 +22,7 @@ export const ORDER_JOB_KIND = {
 export const ORDER_UPDATE_REASON = {
     Validation: "order",
     SourceExecution: "source-execution",
+    SourceExecutionValidation: "source-execution-validation",
     Fill: "fill",
     Cancel: "cancel",
 } as const;
@@ -87,7 +88,11 @@ export type OrderUpdateByIdPayload = {
      *   result updates fillability and quantities.
      * - SourceExecution: inspect the retained signed terms. Full-only orders apply
      *   the source-filled observation immediately, without RPC. Partial or unknown
-     *   Seaport terms require canonical execution coverage and durable validation.
+     *   Seaport terms hand off to SourceExecutionValidation without waiting on RPC.
+     *   Missing orders are ignored; later upserts retain optimistic admission.
+     * - SourceExecutionValidation: resolve canonical transaction inclusion on
+     *   order-updates-by-id, then admit block-scoped durable validation. Missing or
+     *   malformed transaction hashes are discarded; unavailable receipts retry.
      * - Fill: apply a canonical execution. Full-only orders become filled with zero
      *   remaining capacity; partial or unknown Seaport terms require block-scoped
      *   validation to establish cumulative remaining quantity and fillability.
@@ -99,8 +104,8 @@ export type OrderUpdateByIdPayload = {
      * whether the retained signed order permits partial fulfillment.
      */
     reason: string;
-    /** Source sale inclusion to resolve before coalescing validation. Null means
-     * the source omitted required evidence; never treat that as ordinary freshness. */
+    /** Source sale inclusion to resolve before coalescing validation. Missing or
+     * malformed evidence cannot request partial-order execution validation. */
     executionTransactionHash?: string | null;
     sourceStatus?: OrderSourceStatus | null;
     blockNumber?: number | null;

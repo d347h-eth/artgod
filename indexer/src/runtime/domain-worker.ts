@@ -69,6 +69,7 @@ import { OrderValidationDemandProgress } from "../infra/orders/order-validation-
 import { DomainProcessingMetrics } from "../infra/observability/domain-processing-metrics.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
+import { QueuedSourceExecutionValidation } from "../infra/queue/source-execution-validation.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
@@ -208,6 +209,7 @@ async function main() {
             processingObservability,
         );
         const applyOrderUpdate = new ApplyOrderUpdate({
+            executionValidation: new QueuedSourceExecutionValidation(queue),
             executionBlock: new CanonicalOrderExecutionBlock(rpc),
             chainId: config.chainId,
             validation: admitOrderValidation,

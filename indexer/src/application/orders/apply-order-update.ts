@@ -1,5 +1,11 @@
 import type { ChainSyncCheckpoint } from "../../domain/chain-sync.js";
-import type { OrderExecutionBlockPort } from "./execution-block.js";
+import {
+    ORDER_EXECUTION_LOG,
+    type OrderExecutionBlockPort,
+    type SourceExecutionValidationPort,
+} from "./execution-block.js";
+import { tryParseHash } from "@artgod/shared/offchain/normalizer-utils";
+import { logger } from "@artgod/shared/utils";
 import {
     ORDER_UPDATE_REASON,
     type OrderUpdateByIdPayload,
@@ -25,6 +31,7 @@ export class ApplyOrderUpdate {
         private readonly deps: {
             chainId: number;
             executionBlock?: OrderExecutionBlockPort;
+            executionValidation: SourceExecutionValidationPort;
             validation: Pick<
                 AdmitOrderValidation,
                 "execute" | "captureSyncCheckpoint" | "needsValidation"
@@ -42,30 +49,57 @@ export class ApplyOrderUpdate {
     ): Promise<void> {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
-        if (orderUpdateQueue(payload) === QUEUE_NAMES.OrdersUpdateById) {
+        const queue = orderUpdateQueue(payload);
+        if (
+            payload.sourceStatus == null &&
+            payload.reason === ORDER_UPDATE_REASON.SourceExecution
+        ) {
             if (
-                payload.reason === ORDER_UPDATE_REASON.SourceExecution &&
                 !this.deps.lifecycle.applySourceExecution(payload)
                     .validationNeeded
             )
                 return;
+            if (
+                !this.deps.validation.needsValidation(
+                    observedOrderValidationRequest(
+                        payload.chainId,
+                        payload.orderId,
+                        requiredAt,
+                    ),
+                )
+            )
+                return;
+            const transactionHash = this.executionHash(payload);
+            if (!transactionHash) return;
+            // Await broker persistence before ACK. Partial classification changes no
+            // order state, so a failed publication safely retries this source delivery.
+            await this.deps.executionValidation.request({
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+                transactionHash,
+                requiredAt,
+            });
+            return;
+        }
+        if (queue === QUEUE_NAMES.OrdersUpdateById) {
             let request = observedOrderValidationRequest(
                 payload.chainId,
                 payload.orderId,
                 requiredAt,
             );
             let checkpoint: ChainSyncCheckpoint | undefined;
-            const executionHash = payload.executionTransactionHash;
-            if (payload.reason === ORDER_UPDATE_REASON.SourceExecution) {
+            if (
+                payload.reason === ORDER_UPDATE_REASON.SourceExecutionValidation
+            ) {
                 // No receipt dependency remains for a terminal/source-ineligible order.
                 // Admission rechecks eligibility after RPC, so cancellation still wins.
                 if (!this.deps.validation.needsValidation(request)) return;
+                const executionHash = this.executionHash(payload);
+                if (!executionHash) return;
                 checkpoint = this.deps.validation.captureSyncCheckpoint();
                 // Local observation time cannot prove source execution inclusion. RPC
                 // stays outside the writer; failure retains the original delivery.
-                const block = await this.resolveExecutionBlock(
-                    executionHash ?? null,
-                );
+                const block = await this.resolveExecutionBlock(executionHash);
                 request = sourceExecutionValidationRequest(
                     payload.chainId,
                     payload.orderId,
@@ -87,8 +121,18 @@ export class ApplyOrderUpdate {
                 () => this.deps.lifecycle.handleOrderUpdateById(payload),
             );
     }
-    private resolveExecutionBlock(hash: string | null): Promise<number> {
-        if (!hash || !this.deps.executionBlock)
+    private executionHash(payload: OrderUpdateByIdPayload): string | null {
+        const hash = tryParseHash(payload.executionTransactionHash);
+        if (!hash)
+            logger.warn(ORDER_EXECUTION_LOG.MissingTransactionHash, {
+                component: ORDER_EXECUTION_LOG.Component,
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            });
+        return hash;
+    }
+    private resolveExecutionBlock(hash: string): Promise<number> {
+        if (!this.deps.executionBlock)
             throw new Error(
                 "Source execution requires canonical transaction coverage",
             );

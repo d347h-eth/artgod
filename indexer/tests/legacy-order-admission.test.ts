@@ -82,6 +82,7 @@ describe("legacy queue durable admission", () => {
         });
         const store = new SqliteOrderValidationDemand(domain);
         const apply = new ApplyOrderUpdate({
+            executionValidation: { request: vi.fn(async () => {}) },
             chainId: 1,
             validation: new AdmitOrderValidation(1, store),
             lifecycle: domain,

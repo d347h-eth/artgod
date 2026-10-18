@@ -129,28 +129,35 @@ describe("incomplete OpenSea sales", () => {
         },
     );
 
-    it("preserves exact validation hints and token fanout when the hash is valid", async () => {
-        const { queue, publish } = queueCapture();
-        await dispatchOffchainPayload(
-            queue,
-            tokenSets,
-            observation(sale({ order_hash: ORDER_HASH })),
-        );
-        expect(publish).toHaveBeenCalledTimes(2);
-        expect(publish).toHaveBeenNthCalledWith(
-            1,
-            QUEUE_NAMES.OrdersUpdateById,
-            expect.objectContaining({
-                payload: expect.objectContaining({
-                    orderId: ORDER_HASH,
-                    reason: ORDER_UPDATE_REASON.SourceExecution,
-                    sourceStatus: undefined,
+    it.each([TX_HASH, null, "malformed"])(
+        "preserves source-sale handling and token fanout with transaction hash %s",
+        async (hash) => {
+            const { queue, publish } = queueCapture();
+            await dispatchOffchainPayload(
+                queue,
+                tokenSets,
+                observation(
+                    sale({ order_hash: ORDER_HASH, transaction: { hash } }),
+                ),
+            );
+            expect(publish).toHaveBeenCalledTimes(2);
+            expect(publish).toHaveBeenNthCalledWith(
+                1,
+                QUEUE_NAMES.OrderLifecycle,
+                expect.objectContaining({
+                    payload: expect.objectContaining({
+                        orderId: ORDER_HASH,
+                        reason: ORDER_UPDATE_REASON.SourceExecution,
+                        sourceStatus: undefined,
+                    }),
                 }),
-            }),
-        );
-        expect(publish.mock.calls[1]![0]).toBe(QUEUE_NAMES.OrdersUpdateByToken);
-        expect(logger.warn).not.toHaveBeenCalled();
-    });
+            );
+            expect(publish.mock.calls[1]![0]).toBe(
+                QUEUE_NAMES.OrdersUpdateByToken,
+            );
+            expect(logger.warn).not.toHaveBeenCalled();
+        },
+    );
 
     it.each([
         { maker: null },

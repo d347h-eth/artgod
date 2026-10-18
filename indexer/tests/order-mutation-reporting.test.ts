@@ -103,6 +103,7 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
             reasons: {
                 [ORDER_UPDATE_REASON.Validation]: 1,
                 [ORDER_UPDATE_REASON.SourceExecution]: 1,
+                [ORDER_UPDATE_REASON.SourceExecutionValidation]: 0,
                 [ORDER_UPDATE_REASON.Fill]: 0,
                 [ORDER_UPDATE_REASON.Cancel]: 0,
                 [BUCKET.OtherReason]: 1001,

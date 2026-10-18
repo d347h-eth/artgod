@@ -252,9 +252,13 @@ event adapter use that owner. Generic normalization helpers live in
 have one decoder for the exact `chain/contract/uint256` format. Queue recovery
 decisions and job diagnostic formatting remain in the indexer.
 
-An OpenSea `item_sold` event normally produces an exact-order validation hint and
-a seller/token revalidation hint. The exact hint retains the transaction hash.
-Before coalescing that hint, the by-ID application handler reads its receipt and
+An OpenSea `item_sold` event normally produces a source execution observation on
+`order-lifecycle-updates` and a seller/token revalidation hint. Known full-only
+orders apply source completion without RPC. Partial or unknown retained Seaport
+orders publish a transaction-bearing validation request to `order-updates-by-id`
+before acknowledging the source observation. Failed publication retries that
+observation; the lifecycle consumer performs no receipt RPC.
+Before coalescing the validation request, the by-ID application handler reads its receipt and
 canonical block fresh, verifies transaction inclusion and admits validation with
 that minimum block, independent of source delivery clocks. Admission checks the canonical revision captured before the
 RPC reads inside its writer transaction. A provider behind the sale cannot satisfy
@@ -273,11 +277,16 @@ requires `order_hash`, but ingest also handles incomplete events:
   fillability. The hint alone cannot mark an unknown order filled or create a
   sale activity. Onchain fill/activity recovery follows
   [Fill Decoding](15-fill-decoding.md).
-- Missing transaction evidence or unavailable/noncanonical receipt inclusion keeps
-  the exact-order queue delivery unacknowledged; it must not degrade into an
-  observation-time-only request. The separately published seller/token hint remains
-  independent. Receipt resolution uses the existing RPC port and by-ID worker;
-  there is no new queue, polling service or REST reconciliation dependency.
+- A missing or malformed transaction hash logs and discards the partial/unknown
+  order's execution hint. Full-only source completion does not need that hash.
+  The separately published seller/token hint remains independent. Valid hashes
+  with unavailable/noncanonical receipts retain the by-ID validation delivery
+  for retry; they must not degrade into observation-time-only validation.
+  Receipt resolution uses the existing RPC port and by-ID worker; there is no
+  new queue, polling service or REST reconciliation dependency.
+- An observation for an order not stored locally is ignored without a retirement
+  marker or pending history. A later upsert keeps normal optimistic admission
+  and durable validation.
 - Current source execution requirements bypass the historical bootstrap projection
   gate while still requiring their minimum chain block. Canonical historical fill
   triggers retain their existing anchor policy.
@@ -358,11 +367,13 @@ result remains intact. The existing executors then recompute the new chain state
 without waiting for any source observation; independent source cancellation
 remains definitive.
 
-An OpenSea sale uses the source-execution handling category. The orders domain
+An OpenSea sale uses the source-execution handling category on
+`order-lifecycle-updates`. The orders domain
 checks retained signed terms: known full-only orders apply source `filled`
 immediately without RPC, including buy and sell orders. Partial or unknown
-Seaport terms retain current state and require verified transaction inclusion
-before admitting block-scoped validation. Canonical chain fills and explicit
+Seaport terms retain current state and publish source-execution-validation work
+to `order-updates-by-id`, which verifies transaction inclusion before admitting
+block-scoped validation. Canonical chain fills and explicit
 cancellations retain their lifecycle path. Shared
 Seaport enum definitions own protocol values used by order normalization,
 execution facts, quantity calculation and signing policy.

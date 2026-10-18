@@ -111,6 +111,7 @@ describe("order processing boundaries", () => {
         for (const reason of [
             ORDER_UPDATE_REASON.Fill,
             ORDER_UPDATE_REASON.Cancel,
+            ORDER_UPDATE_REASON.SourceExecution,
         ])
             expect(
                 orderUpdateQueue({ chainId: 1, orderId: sale.id, reason }),
@@ -120,6 +121,13 @@ describe("order processing boundaries", () => {
                 chainId: 1,
                 orderId: sale.id,
                 reason: ORDER_UPDATE_REASON.Validation,
+            }),
+        ).toBe(QUEUE_NAMES.OrdersUpdateById);
+        expect(
+            orderUpdateQueue({
+                chainId: 1,
+                orderId: sale.id,
+                reason: ORDER_UPDATE_REASON.SourceExecutionValidation,
             }),
         ).toBe(QUEUE_NAMES.OrdersUpdateById);
         expect(
@@ -142,6 +150,7 @@ describe("order processing boundaries", () => {
         const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validate);
         const store = new SqliteOrderValidationDemand(domain);
         const processor = new ApplyOrderUpdate({
+            executionValidation: { request: vi.fn(async () => {}) },
             chainId: 1,
             validation: new AdmitOrderValidation(1, store, telemetry.hooks),
             lifecycle: domain,
@@ -236,6 +245,7 @@ describe("order processing boundaries", () => {
             applySourceExecution: vi.fn(),
         };
         const processor = new ApplyOrderUpdate({
+            executionValidation: { request: vi.fn(async () => {}) },
             chainId: 1,
             validation,
             lifecycle,

@@ -1,3 +1,4 @@
+import { QueuedSourceExecutionValidation } from "../../src/infra/queue/source-execution-validation.js";
 import { CanonicalOrderExecutionBlock } from "../../src/application/orders/execution-block.js";
 // Maintained child-process fixture: explicit synthetic DB, fake RPC, private test broker.
 import { readFile } from "node:fs/promises";
@@ -230,6 +231,7 @@ for (const subscription of makerQueues)
         ),
     );
 const applyUpdate = new ApplyOrderUpdate({
+    executionValidation: new QueuedSourceExecutionValidation(queue),
     executionBlock: new CanonicalOrderExecutionBlock({
         getTransactionReceipt: async (hash) => ({
             transactionHash: hash as `0x${string}`,
@@ -312,7 +314,9 @@ for (const queueName of [
                 await handleUpdate(job);
                 handled++;
                 if (
-                    job.payload.reason === ORDER_UPDATE_REASON.Validation &&
+                    (job.payload.reason === ORDER_UPDATE_REASON.Validation ||
+                        job.payload.reason ===
+                            ORDER_UPDATE_REASON.SourceExecutionValidation) &&
                     !job.payload.sourceStatus
                 )
                     validationHints++;

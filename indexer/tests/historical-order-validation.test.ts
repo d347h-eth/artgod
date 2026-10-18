@@ -77,6 +77,7 @@ function workflow(rpc = new HeavyMakerRpc(), scope = new RpcWorkScope()) {
             admission,
         }),
         update: new ApplyOrderUpdate({
+            executionValidation: { request: vi.fn(async () => {}) },
             chainId: F.chainId,
             validation: new AdmitOrderValidation(F.chainId, demand),
             lifecycle: orders,

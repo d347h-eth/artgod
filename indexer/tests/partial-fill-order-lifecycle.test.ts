@@ -1,4 +1,9 @@
 import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
+import { QueuedSourceExecutionValidation } from "../src/infra/queue/source-execution-validation.js";
+import type { JobEnvelope } from "../src/domain/jobs.js";
+import type { OrderUpdateByIdPayload } from "../src/domain/order-jobs.js";
+import type { QueuePort } from "../src/ports/queue.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
 import { AdmitOrderValidation } from "../src/application/orders/validate-order-demand.js";
 import { CanonicalOrderExecutionBlock } from "../src/application/orders/execution-block.js";
@@ -953,7 +958,15 @@ describe("canonical partial fill quantity progression", () => {
                 transactions: [txHash],
             }),
         );
+        const pending: JobEnvelope<OrderUpdateByIdPayload>[] = [];
+        const publish = vi.fn<QueuePort["publish"]>(async (queue, job) => {
+            expect(queue).toBe(QUEUE_NAMES.OrdersUpdateById);
+            pending.push(job as JobEnvelope<OrderUpdateByIdPayload>);
+        });
         const apply = new ApplyOrderUpdate({
+            executionValidation: new QueuedSourceExecutionValidation({
+                publish,
+            }),
             chainId: 1,
             lifecycle: work.domain,
             validation: new AdmitOrderValidation(1, work.store),
@@ -966,8 +979,22 @@ describe("canonical partial fill quantity progression", () => {
             event_type: OPENSEA_STREAM_EVENT_TYPE.ItemSold,
             payload: { order_hash: ID, transaction: { hash: txHash } },
         })!;
+        async function validate() {
+            while (pending.length) {
+                const job = pending[0]!;
+                await apply.execute(job.payload, job.scheduledAt);
+                pending.shift();
+            }
+        }
         return {
             apply,
+            publish,
+            pending,
+            async execute(payload: OrderUpdateByIdPayload, requiredAt: number) {
+                await apply.execute(payload, requiredAt);
+                await validate();
+            },
+            validate,
             receipt,
             block,
             payload: { ...update, chainId: 1, collectionId, observedAt: NOW },
@@ -1007,7 +1034,7 @@ describe("canonical partial fill quantity progression", () => {
                 }),
             );
             const source = sourceExecution(work);
-            await source.apply.execute(
+            await source.execute(
                 {
                     ...source.payload,
                     orderId: order.id,
@@ -1031,7 +1058,7 @@ describe("canonical partial fill quantity progression", () => {
                 sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
                 observedAt: NOW,
             });
-            await source.apply.execute(
+            await source.execute(
                 { ...source.payload, orderId: order.id },
                 NOW * 1000,
             );
@@ -1042,11 +1069,124 @@ describe("canonical partial fill quantity progression", () => {
         },
     );
 
+    it("ignores a source sale before its order and preserves later optimistic admission with validation", async () => {
+        const work = workflow();
+        const source = sourceExecution(work);
+        await source.apply.execute(source.payload, NOW * 1000);
+        expect(source.publish).not.toHaveBeenCalled();
+        expect(source.receipt).not.toHaveBeenCalled();
+        expect(work.store.get(1, ID)).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT 1 FROM market_order_retirements WHERE order_id=?",
+                )
+                .get(ID),
+        ).toBeUndefined();
+
+        await work.domain.handleOrderUpsert(upsert());
+        expect(stored()).toMatchObject({
+            source_status: ORDER_SOURCE_STATUS.Active,
+            fillability_status: ORDER_STATUS.Fillable,
+        });
+        expect(work.store.get(1, ID)?.pending).toBe(true);
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({
+            quantity: "45",
+            fillable_quantity: "10",
+        });
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+    });
+
+    it("publishes partial-sale checks before ACK without receipt RPC, and retries failed publication", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work);
+        source.publish.mockRejectedValueOnce(new Error("broker unavailable"));
+        await expect(
+            source.apply.execute(source.payload, NOW * 1000),
+        ).rejects.toThrow("broker unavailable");
+        expect(source.receipt).not.toHaveBeenCalled();
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+
+        await source.apply.execute(source.payload, NOW * 1000);
+        expect(source.pending).toHaveLength(1);
+        expect(source.publish.mock.calls[0]![1].jobId).toBe(
+            source.publish.mock.calls[1]![1].jobId,
+        );
+        expect(source.pending[0]).toMatchObject({
+            queue: QUEUE_NAMES.OrdersUpdateById,
+            scheduledAt: NOW * 1000,
+            payload: {
+                reason: ORDER_UPDATE_REASON.SourceExecutionValidation,
+                executionTransactionHash:
+                    source.payload.executionTransactionHash,
+            },
+        });
+        expect(source.receipt).not.toHaveBeenCalled();
+        await source.validate();
+        expect(work.store.get(1, ID)).toMatchObject({
+            pending: true,
+            minimumBlock: BLOCK,
+        });
+    });
+
+    it("applies a full-only source sale while a partial-sale receipt lookup is blocked", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const order = heavyMakerOrder(0, {
+            collectionId,
+            contract: terms.contract,
+            validFrom: terms.validFrom,
+            validUntil: terms.validUntil,
+        });
+        order.seaportData!.orderType = String(SEAPORT_ORDER_TYPE.FullOpen);
+        order.id = computeSeaportOrderHash(order.seaportData!);
+        await work.domain.handleOrderUpsert(
+            upsert({
+                orderId: order.id,
+                side: order.side,
+                tokenId: order.tokenId,
+                sourceScopeKind: order.sourceScopeKind,
+                seaportData: order.seaportData,
+                price: order.price,
+                quantity: "1",
+                originalQuantity: "1",
+            }),
+        );
+        const source = sourceExecution(work);
+        const started = Promise.withResolvers<void>();
+        const unblock = Promise.withResolvers<void>();
+        const receipt = source.receipt.getMockImplementation()!;
+        source.receipt.mockImplementationOnce(async (...args) => {
+            started.resolve();
+            await unblock.promise;
+            return receipt(...args);
+        });
+        await source.apply.execute(source.payload, NOW * 1000);
+        const validating = source.validate();
+        await started.promise;
+        try {
+            await source.apply.execute(
+                { ...source.payload, orderId: order.id },
+                NOW * 1000,
+            );
+            expect(stored(order.id)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Filled,
+            });
+            expect(source.receipt).toHaveBeenCalledOnce();
+            expect(source.publish).toHaveBeenCalledOnce();
+        } finally {
+            unblock.resolve();
+            await validating;
+        }
+    });
+
     it("source sale cannot consume a retained pre-sale proof or complete against a lagging head", async () => {
         const work = workflow();
         await initialSnapshot(work);
         const source = sourceExecution(work);
-        await source.apply.execute(source.payload, NOW * 1000);
+        await source.execute(source.payload, NOW * 1000);
         expect(work.store.get(1, ID)).toMatchObject({
             pending: true,
             minimumBlock: BLOCK,
@@ -1064,24 +1204,27 @@ describe("canonical partial fill quantity progression", () => {
         });
         expect(work.store.get(1, ID)?.pending).toBe(false);
         const reads = work.rpc.reads.getOrderStatus;
-        await source.apply.execute(source.payload, NOW * 1000);
+        await source.execute(source.payload, NOW * 1000);
         await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(reads);
         expect(source.receipt.mock.calls[0]?.[1]).toEqual({ fresh: true });
         expect(source.block.mock.calls[0]?.[1]).toEqual({ fresh: true });
     });
 
-    it("receipt failure retains the source delivery and source cancellation cannot be revived on retry", async () => {
+    it("receipt failure retains the validation delivery and source cancellation cannot be revived on retry", async () => {
         const work = workflow();
         await initialSnapshot(work);
         const source = sourceExecution(work);
         source.receipt.mockRejectedValueOnce(new Error("receipt unavailable"));
-        await expect(
-            source.apply.execute(source.payload, NOW * 1000),
-        ).rejects.toThrow("receipt unavailable");
+        await source.apply.execute(source.payload, NOW * 1000);
+        await expect(source.validate()).rejects.toThrow("receipt unavailable");
+        expect(source.pending).toHaveLength(1);
+        expect(source.publish).toHaveBeenCalledOnce();
         expect(work.store.get(1, ID)?.pending).toBe(false);
         expect(stored()).toMatchObject({ quantity: "100" });
-        await source.apply.execute(source.payload, NOW * 1000);
+        await source.validate();
+        expect(source.pending).toHaveLength(0);
+        expect(source.publish).toHaveBeenCalledOnce();
         await work.domain.handleOrderUpdateById({
             chainId: 1,
             collectionId,
@@ -1094,7 +1237,7 @@ describe("canonical partial fill quantity progression", () => {
         await work.processor.executeBatch();
         source.receipt.mockRejectedValue(new Error("still unavailable"));
         const receiptReads = source.receipt.mock.calls.length;
-        await source.apply.execute(source.payload, NOW * 1000);
+        await source.execute(source.payload, NOW * 1000);
         expect(source.receipt.mock.calls.length).toBe(receiptReads);
         expect(stored()).toMatchObject({
             source_status: ORDER_SOURCE_STATUS.Cancelled,
@@ -1111,7 +1254,7 @@ describe("canonical partial fill quantity progression", () => {
             },
         });
         await expect(
-            source.apply.execute(source.payload, NOW * 1000),
+            source.execute(source.payload, NOW * 1000),
         ).rejects.toThrow();
         expect(work.store.get(1, ID)?.pending).toBe(false);
         expect(stored()).toMatchObject({ quantity: "100" });
@@ -1124,7 +1267,7 @@ describe("canonical partial fill quantity progression", () => {
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(BLOCK + 1, collectionId);
         const source = sourceExecution(work);
-        await source.apply.execute(source.payload, NOW * 1000);
+        await source.execute(source.payload, NOW * 1000);
         expect(work.store.get(1, ID)).toMatchObject({
             pending: true,
             minimumBlock: BLOCK,
@@ -1141,10 +1284,11 @@ describe("canonical partial fill quantity progression", () => {
         await initialSnapshot(work);
         const source = sourceExecution(work);
         const skewed = NOW + MARKET_DATA_STORAGE_POLICY.utcDaySeconds;
-        await source.apply.execute(
+        await source.execute(
             { ...source.payload, observedAt: skewed },
             skewed * 1000,
         );
+        expect(source.publish.mock.calls[0]![1].scheduledAt).toBe(NOW * 1000);
         expect(work.store.get(1, ID)).toMatchObject({
             pending: true,
             minimumBlock: BLOCK,
@@ -1156,17 +1300,41 @@ describe("canonical partial fill quantity progression", () => {
         expect(work.store.get(1, ID)?.pending).toBe(false);
     });
 
-    it("never downgrades a source sale without transaction evidence into observation-time validation", async () => {
-        const work = workflow();
-        await initialSnapshot(work);
-        const source = sourceExecution(work);
-        await expect(
-            source.apply.execute(
-                { ...source.payload, executionTransactionHash: null },
+    it.each([null, "", "malformed"])(
+        "discards a partial source sale with unusable transaction evidence (%s)",
+        async (hash) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            const source = sourceExecution(work);
+            await source.execute(
+                { ...source.payload, executionTransactionHash: hash },
                 NOW * 1000,
-            ),
-        ).rejects.toThrow("canonical transaction coverage");
-        expect(source.receipt).not.toHaveBeenCalled();
-        expect(work.store.get(1, ID)?.pending).toBe(false);
-    });
+            );
+            expect(source.publish).not.toHaveBeenCalled();
+            expect(logger.warn).toHaveBeenCalled();
+            expect(source.receipt).not.toHaveBeenCalled();
+            expect(work.store.get(1, ID)?.pending).toBe(false);
+        },
+    );
+
+    it.each([null, "", "malformed"])(
+        "discards unusable transaction evidence in a validation delivery (%s)",
+        async (hash) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            const source = sourceExecution(work);
+            await source.apply.execute(
+                {
+                    ...source.payload,
+                    reason: ORDER_UPDATE_REASON.SourceExecutionValidation,
+                    executionTransactionHash: hash,
+                },
+                NOW * 1000,
+            );
+            expect(source.receipt).not.toHaveBeenCalled();
+            expect(source.publish).not.toHaveBeenCalled();
+            expect(work.store.get(1, ID)?.pending).toBe(false);
+            expect(logger.warn).toHaveBeenCalled();
+        },
+    );
 });
