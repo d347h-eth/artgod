@@ -15,6 +15,7 @@ import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
 import {
     capturedOpenSeaRangedOfferFixtures,
     capturedOpenSeaCambriaRestOffers,
+    capturedOpenSeaPartialCollectionOffer as partialOffer,
 } from "@artgod/shared/testing/opensea-offers";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
@@ -162,6 +163,70 @@ describe("SqliteBiddingBidBookProjection", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it("excludes exhausted and malformed thin offers on both price paths from the snapshot projection", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        db.prepare(
+            "UPDATE collections SET address=? WHERE collection_id=?",
+        ).run(partialOffer.criteria.contract.address, collectionId);
+        const {
+            protocol_data: _,
+            remaining_quantity: __,
+            price,
+            ...thin
+        } = partialOffer;
+        const base = {
+            ...thin,
+            maker: partialOffer.protocol_data.parameters.offerer,
+        };
+        const offers: unknown[] = [];
+        let id = 0;
+        for (const alias of ["remaining_quantity", "remainingQuantity"]) {
+            for (const value of [0, -1, "malformed"]) {
+                for (const path of [
+                    { price },
+                    { currentPrice: price.value, paymentToken: WETH_ADDRESS },
+                ]) {
+                    offers.push({
+                        ...base,
+                        ...path,
+                        [alias]: value,
+                        order_hash: `0x${String(++id).padStart(64, "0")}`,
+                    });
+                }
+            }
+        }
+        const validId = `0x${String(++id).padStart(64, "0")}`;
+        offers.push({
+            ...base,
+            price,
+            remaining_quantity: 1,
+            order_hash: validId,
+        });
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "thin-record-regression",
+        );
+        assert.deepEqual(
+            db
+                .prepare(
+                    "SELECT order_id,quantity FROM trading_bidding_bid_book_rows",
+                )
+                .all(),
+            [{ order_id: validId, quantity: "1" }],
+        );
     });
 
     it("projects captured REST range scopes without broadening their criteria", async () => {

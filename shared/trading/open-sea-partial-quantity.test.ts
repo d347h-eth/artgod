@@ -38,4 +38,52 @@ describe("OpenSea partial offer quantity", () => {
             parseOpenSeaBiddingOffer({ ...stream, remainingQuantity: "45" }),
         ).toMatchObject({ quantity: 45n });
     });
+
+    describe.each(["price.value", "currentPrice"])(
+        "thin %s records",
+        (pricePath) => {
+            function thin(remaining: unknown, alias = "remaining_quantity") {
+                const { protocol_data: _, price, ...record } = captured;
+                return {
+                    ...record,
+                    maker: captured.protocol_data.parameters.offerer,
+                    ...(pricePath === "price.value"
+                        ? { price }
+                        : {
+                              currentPrice: price.value,
+                              paymentToken:
+                                  captured.protocol_data.parameters.offer[0]
+                                      .token,
+                          }),
+                    [alias]: remaining,
+                };
+            }
+            it.each([0, -1, "-1", "invalid", "1.5", 2])(
+                "rejects unsupported remainder %s on both aliases",
+                (remaining) => {
+                    for (const alias of [
+                        "remaining_quantity",
+                        "remainingQuantity",
+                    ]) {
+                        expect(
+                            parseOpenSeaBiddingOffer(thin(remaining, alias)),
+                        ).toBeNull();
+                    }
+                },
+            );
+            it("retains supported single-unit prices without inventing signed size", () => {
+                expect(parseOpenSeaBiddingOffer(thin(1))).toMatchObject({
+                    quantity: 1n,
+                    originalQuantity: null,
+                    price: BigInt(captured.price.value),
+                });
+                const record = thin(1);
+                delete (record as Record<string, unknown>).remaining_quantity;
+                expect(parseOpenSeaBiddingOffer(record)).toMatchObject({
+                    quantity: 1n,
+                    originalQuantity: null,
+                });
+            });
+        },
+    );
 });

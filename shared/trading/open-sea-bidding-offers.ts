@@ -46,7 +46,8 @@ export type OpenSeaBiddingPriceExtraction = {
     source: string;
     /** Source-reported remainder, or original units when no remainder is supplied. */
     quantity: bigint;
-    originalQuantity: bigint;
+    /** Null when a thin record supplies no signed NFT count. */
+    originalQuantity: bigint | null;
     currencyAddress: string;
 };
 
@@ -76,7 +77,8 @@ export type ParsedOpenSeaBiddingOffer = {
     source: string;
     /** Source-reported remainder, or original units when no remainder is supplied. */
     quantity: bigint;
-    originalQuantity: bigint;
+    /** Null when a thin record supplies no signed NFT count. */
+    originalQuantity: bigint | null;
     bidScope: OpenSeaBiddingOfferBidScope;
 };
 
@@ -218,6 +220,24 @@ export function extractOpenSeaWethUnitPrice(
     const wethAddress =
         options.wethAddress?.toLowerCase() ??
         OPENSEA_MAINNET_SECURITY_POLICY.wethAddress.toLowerCase();
+    const remainingRaw =
+        asRecord(rawOrder).remainingQuantity ??
+        asRecord(rawOrder).remaining_quantity;
+    const remainingQuantity =
+        remainingRaw == null
+            ? null
+            : (typeof remainingRaw === "string" &&
+                    /^\d+$/.test(remainingRaw)) ||
+                (typeof remainingRaw === "number" &&
+                    Number.isSafeInteger(remainingRaw))
+              ? tryParseBigInt(remainingRaw)
+              : null;
+    // Source exhaustion/malformed size applies to every price representation.
+    if (
+        remainingRaw != null &&
+        (remainingQuantity === null || remainingQuantity <= 0n)
+    )
+        return null;
     const parameters = getOpenSeaProtocolParameters(rawOrder);
     if (getOpenSeaProtocolEnvelope(rawOrder)?.parameters) {
         const offerSum = sumTokenItems(parameters.offer, wethAddress);
@@ -238,24 +258,10 @@ export function extractOpenSeaWethUnitPrice(
                 ? nftUnitsFromConsideration
                 : nftUnitsFromOffer;
         const orderType = parameters.orderType ?? parameters.order_type;
-        const remainingQuantityRaw =
-            asRecord(rawOrder).remainingQuantity ??
-            asRecord(rawOrder).remaining_quantity;
-        const remainingQuantity =
-            remainingQuantityRaw == null
-                ? null
-                : (typeof remainingQuantityRaw === "string" &&
-                        /^\d+$/.test(remainingQuantityRaw)) ||
-                    (typeof remainingQuantityRaw === "number" &&
-                        Number.isSafeInteger(remainingQuantityRaw))
-                  ? tryParseBigInt(remainingQuantityRaw)
-                  : null;
-        // A malformed or impossible remainder cannot become a full-size bid.
         if (
-            remainingQuantityRaw != null &&
-            (remainingQuantity === null ||
-                remainingQuantity < 0n ||
-                (nftUnits > 0n && remainingQuantity > nftUnits))
+            remainingQuantity !== null &&
+            nftUnits > 0n &&
+            remainingQuantity > nftUnits
         )
             return null;
         const isPartial =
@@ -271,9 +277,14 @@ export function extractOpenSeaWethUnitPrice(
                           source: "protocol.consideration",
                       };
 
-            const originalQuantity = nftUnits > 0n ? nftUnits : 1n;
-            const quantity = remainingQuantity ?? originalQuantity;
-            if (isPartial && originalQuantity > 1n) {
+            const originalQuantity = nftUnits > 0n ? nftUnits : null;
+            const quantity = remainingQuantity ?? originalQuantity ?? 1n;
+            if (originalQuantity === null && quantity > 1n) return null;
+            if (
+                isPartial &&
+                originalQuantity !== null &&
+                originalQuantity > 1n
+            ) {
                 return {
                     price: divCeil(total.value, originalQuantity),
                     source: `${total.source}/unit`,
@@ -293,6 +304,8 @@ export function extractOpenSeaWethUnitPrice(
         }
     }
 
+    // Thin price records support a single unit; their signed size is unknown.
+    if (remainingQuantity !== null && remainingQuantity !== 1n) return null;
     const priceRecord = asRecord(asRecord(rawOrder).price);
     const priceValue = tryParseBigInt(priceRecord.value);
     const priceCurrency = stringOrUndefined(priceRecord.currency);
@@ -305,7 +318,7 @@ export function extractOpenSeaWethUnitPrice(
             price: priceValue,
             source: "price.value",
             quantity: 1n,
-            originalQuantity: 1n,
+            originalQuantity: null,
             currencyAddress: wethAddress,
         };
     }
@@ -322,7 +335,7 @@ export function extractOpenSeaWethUnitPrice(
             price: currentPrice,
             source: "currentPrice",
             quantity: 1n,
-            originalQuantity: 1n,
+            originalQuantity: null,
             currencyAddress: wethAddress,
         };
     }
