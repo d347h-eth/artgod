@@ -214,7 +214,12 @@ sequenceDiagram
     alt Upsert
         Consumer->>DB: Commit canonical changes and needed demand together
     else By-ID validation hint
-        Consumer->>DB: Coalesce current requirement or resolve unnecessary work
+        opt Source execution transaction
+            Consumer->>DB: Capture canonical revision
+            Consumer->>RPC: Fresh receipt and block; verify transaction inclusion
+            Note over Consumer,NATS: Failure retains original delivery; no observation-time substitute
+        end
+        Consumer->>DB: Coalesce current requirement with execution block/revision fence, or resolve unnecessary work
     else Canonical partial-order execution
         Consumer->>DB: Admit block-scoped demand, preserve validated order state
     else Full-only execution, cancel or source observation
@@ -229,7 +234,7 @@ sequenceDiagram
             Demand->>RPC: Full validations at a fresh pinned block
             Demand->>RPC: Verify block hash, head and snapshot lifetime
             alt Snapshot verified
-                Demand->>DB: Atomically apply guarded results and captured coverage
+                Demand->>DB: Atomically apply guarded results, retained block attribution and captured coverage
                 Note over DB: Newer or changed requirements stay pending; canonical partial fills retain last validated state
             else Dependency or snapshot failure
                 Demand->>DB: Retain unfinished demand with retry state

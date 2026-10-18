@@ -23,6 +23,7 @@ export interface MakerOrderProjectionPort {
     applyMakerResolution(
         payload: OrderUpdateByMakerPayload,
         resolution: MakerValidationResolution,
+        proof: OrderValidationEvidence | null,
     ): number | null;
 }
 

@@ -1,3 +1,4 @@
+import { CanonicalOrderExecutionBlock } from "../application/orders/execution-block.js";
 import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
@@ -207,6 +208,7 @@ async function main() {
             processingObservability,
         );
         const applyOrderUpdate = new ApplyOrderUpdate({
+            executionBlock: new CanonicalOrderExecutionBlock(rpc),
             chainId: config.chainId,
             validation: admitOrderValidation,
             lifecycle: ordersDomain,

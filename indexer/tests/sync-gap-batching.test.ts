@@ -760,6 +760,10 @@ function testRpc(logs: RpcLog[] = [], head = 110) {
         getTransactionReceipt: vi.fn<RpcProviderPort["getTransactionReceipt"]>(
             async (hash) => ({
                 transactionHash: hash as Hex,
+                blockNumber: logs.find((log) => log.transactionHash === hash)!
+                    .blockNumber,
+                blockHash: logs.find((log) => log.transactionHash === hash)!
+                    .blockHash,
                 logs: logs.filter((log) => log.transactionHash === hash),
             }),
         ),

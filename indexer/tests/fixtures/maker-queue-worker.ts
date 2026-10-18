@@ -1,3 +1,4 @@
+import { CanonicalOrderExecutionBlock } from "../../src/application/orders/execution-block.js";
 // Maintained child-process fixture: explicit synthetic DB, fake RPC, private test broker.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -229,6 +230,18 @@ for (const subscription of makerQueues)
         ),
     );
 const applyUpdate = new ApplyOrderUpdate({
+    executionBlock: new CanonicalOrderExecutionBlock({
+        getTransactionReceipt: async (hash) => ({
+            transactionHash: hash as `0x${string}`,
+            blockNumber: rpc.blockNumber,
+            blockHash: rpc.blockHash,
+            logs: [],
+        }),
+        getBlock: async (number) => ({
+            ...(await rpc.getBlock(number)),
+            transactions: [HEAVY_MAKER.saleTransactionHash],
+        }),
+    }),
     chainId: HEAVY_MAKER.chainId,
     validation: new AdmitOrderValidation(HEAVY_MAKER.chainId, demandStore),
     lifecycle: domain,

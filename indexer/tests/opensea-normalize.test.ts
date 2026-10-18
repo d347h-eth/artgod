@@ -377,6 +377,8 @@ describe("opensea normalizer", () => {
             orderId:
                 "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
             reason: "order",
+            executionTransactionHash:
+                "0xe0066ad18c4678c965bb311720562aec6ae9ccac8c2a2175f0a51bb169a9cdc2",
             validUntil: null,
         });
     });

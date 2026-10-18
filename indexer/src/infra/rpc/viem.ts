@@ -249,6 +249,8 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
 
         const mapped: RpcTransactionReceipt = {
             transactionHash: receipt.transactionHash as Hex,
+            blockNumber: Number(receipt.blockNumber),
+            blockHash: receipt.blockHash as Hex,
             logs: receipt.logs.map(mapLog),
         };
 

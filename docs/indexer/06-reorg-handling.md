@@ -230,6 +230,13 @@ coordination for already admitted work remains deferred.
   recovery of that case is outside the current contract; purge and rebootstrap
   the affected collection.
 
+Current order results retain their verified block in `orders.block_number`,
+independently of demand reuse/lease cleanup. A trigger-only rollback may clear
+request coverage while retaining a pre-fork result; a later deeper rollback must
+still invalidate that result from its own attribution. Terminal retirement copies
+this attribution into its marker before deleting the order and demand. Independent
+source cancellation markers remain protected by their source reason.
+
 ## Current Limits and Future Direction
 
 Pending checks provide one delayed verification for blocks saved before maturity.

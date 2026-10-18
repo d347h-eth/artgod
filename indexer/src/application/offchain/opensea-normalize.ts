@@ -33,6 +33,7 @@ import {
 import { TOKEN_SCOPED_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
 
 export type OpenSeaOrderUpdate = {
+    executionTransactionHash?: string | null;
     orderId: string;
     reason: OrderUpdateReason;
     sourceStatus?: OrderSourceStatus;
@@ -106,12 +107,13 @@ export function normalizeOpenSeaOrderUpdate(
         };
     }
     if (eventType === OPENSEA_STREAM_EVENT_TYPE.ItemSold) {
-        const { orderId } = getOpenSeaEventIdentifiers(raw);
+        const { orderId, transactionHash } = getOpenSeaEventIdentifiers(raw);
         // An incomplete sale can still trigger token revalidation, but cannot
         // identify an order to revalidate. Do not derive an id from other terms.
         if (!orderId) return null;
         return {
             orderId,
+            executionTransactionHash: transactionHash,
             reason: ORDER_UPDATE_REASON.Validation,
             validUntil: parseOrderUpdateExpiry(payload.expiration_date),
         };

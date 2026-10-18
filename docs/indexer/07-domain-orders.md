@@ -41,17 +41,19 @@ Even so, the orders domain now enforces the bootstrap-anchor contract for onchai
 
 The consumers and validation/recovery loops below share one domain-worker process
 per chain. Queue admission, validation completion and receipt cleanup are separate
-operations with different durable owners:
+operations with different durable owners. Source sale hints additionally resolve
+fresh canonical transaction inclusion before coalescing; receipt failure retains
+the original by-ID delivery, while full validation remains in the demand executor:
 
-| Component                                  | Durable responsibility                                                                                                 | Completion and cleanup                                                                                                                                                          |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upsert and by-ID validation-hint consumers | Admit current order requirements into `order_validation_demand`; upserts commit canonical changes and demand together. | ACK after admission or an explicit current-state no-work decision. They do not wait for the RPC validation.                                                                     |
-| Lifecycle consumer                         | Apply fill/cancel/source observations through the orders domain, including its replay and retirement rules.            | ACK after domain effects commit; no validation permit is required. Older lifecycle envelopes still reach the same behavior through the by-ID consumer.                          |
-| Broad-maker and token consumers            | `maker_order_revalidation_runs` owns the finite scan, cursor, generations, isolation target and lease.                 | Commit effects or durable per-order handoff with the cursor and next continuation before ACK. A completed scan may still have pending demand.                                   |
-| Per-order demand executors                 | Poll `order_validation_demand`, claim due rows and validate captured revisions/generations.                            | Commit results and coverage together; retry or release unfinished work. Completed rows retain reusable coverage while their orders exist.                                       |
-| Outbox publisher                           | Publish committed maker continuation intent from `queue_outbox` and record publication receipts.                       | A sent row proves publication, not execution. Maker checkpoints replace the previous continuation row.                                                                          |
-| Maker recovery and receipt cleanup         | Restore missing continuations and maintain `maker_validation_delivery_origins` replay proof.                           | Remove completed maker receipts only after the required broker ACK floors, and retain coalesced scopes while eligible candidates remain. Deferred demand survives this cleanup. |
-| Market-data maintenance                    | Retire canonical orders and replay-protection markers under domain retention rules.                                    | Deleting an order cascades to its demand row. Maintenance does not perform pending RPC validation.                                                                              |
+| Component                                  | Durable responsibility                                                                                                 | Completion and cleanup                                                                                                                                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upsert and by-ID validation-hint consumers | Admit current order requirements into `order_validation_demand`; upserts commit canonical changes and demand together. | ACK after admission or an explicit current-state no-work decision. They do not wait for the RPC validation.                                                                                        |
+| Lifecycle consumer                         | Apply fill/cancel/source observations through the orders domain, including its replay and retirement rules.            | ACK after domain effects commit; no validation permit is required. Older lifecycle envelopes still reach the same behavior through the by-ID consumer.                                             |
+| Broad-maker and token consumers            | `maker_order_revalidation_runs` owns the finite scan, cursor, generations, isolation target and lease.                 | Commit effects or durable per-order handoff with the cursor and next continuation before ACK. A completed scan may still have pending demand.                                                      |
+| Per-order demand executors                 | Poll `order_validation_demand`, claim due rows and validate captured revisions/generations.                            | Commit results and coverage together; retry or release unfinished work. Eligible completed rows may retain reusable coverage; current-result block attribution remains on the order independently. |
+| Outbox publisher                           | Publish committed maker continuation intent from `queue_outbox` and record publication receipts.                       | A sent row proves publication, not execution. Maker checkpoints replace the previous continuation row.                                                                                             |
+| Maker recovery and receipt cleanup         | Restore missing continuations and maintain `maker_validation_delivery_origins` replay proof.                           | Remove completed maker receipts only after the required broker ACK floors, and retain coalesced scopes while eligible candidates remain. Deferred demand survives this cleanup.                    |
+| Market-data maintenance                    | Retire canonical orders and replay-protection markers under domain retention rules.                                    | Deleting an order cascades to its demand row. Maintenance does not perform pending RPC validation.                                                                                                 |
 
 The demand row is also its own durable wakeup: startup polling can resume it
 without another broker envelope or per-order outbox copy. Its revision and
@@ -239,8 +241,13 @@ have one decoder for the exact `chain/contract/uint256` format. Queue recovery
 decisions and job diagnostic formatting remain in the indexer.
 
 An OpenSea `item_sold` event normally produces an exact-order validation hint and
-a seller/token revalidation hint. Seaport executions request protocol validation;
-a sale alone does not prove the order is exhausted. The
+a seller/token revalidation hint. The exact hint retains the transaction hash.
+Before coalescing that hint, the by-ID application handler reads its receipt and
+canonical block fresh, verifies transaction inclusion and admits validation with
+that minimum block, independent of source delivery clocks. Admission checks the canonical revision captured before the
+RPC reads inside its writer transaction. A provider behind the sale cannot satisfy
+the obligation through wall-clock freshness or a retained pre-sale proof. A sale
+alone does not prove the order is exhausted. The
 [locked Stream SDK contract](https://github.com/ProjectOpenSea/stream-js/blob/v0.4.0/src/types.ts)
 requires `order_hash`, but ingest also handles incomplete events:
 
@@ -254,6 +261,14 @@ requires `order_hash`, but ingest also handles incomplete events:
   fillability. The hint alone cannot mark an unknown order filled or create a
   sale activity. Onchain fill/activity recovery follows
   [Fill Decoding](15-fill-decoding.md).
+- Missing transaction evidence or unavailable/noncanonical receipt inclusion keeps
+  the exact-order queue delivery unacknowledged; it must not degrade into an
+  observation-time-only request. The separately published seller/token hint remains
+  independent. Receipt resolution uses the existing RPC port and by-ID worker;
+  there is no new queue, polling service or REST reconciliation dependency.
+- Current source execution requirements bypass the historical bootstrap projection
+  gate while still requiring their minimum chain block. Canonical historical fill
+  triggers retain their existing anchor policy.
 - Missing or invalid seller/NFT identifiers still fail ingestion. Failed queue
   publication still retries. Cancellation and other exact-order events retain
   their required hash.
@@ -286,7 +301,10 @@ The shared offer parser calculates unit price using the original signed size,
 then reads the source remainder separately. For a signed 6 WETH offer on 100 NFTs,
 45 remaining and 0.6 WETH balance mean 0.06 WETH per NFT and capacity for at most
 10 units, further capped by allowance. Zero source remainder excludes the offer;
-malformed and oversized remainders are rejected. Source ingestion remains an
+malformed and oversized remainders are rejected on every pricing path. Thin
+`price.value`/`currentPrice` records support only a single unit and report unknown
+original signed size as null; multi-unit unit pricing requires signed terms.
+Source ingestion remains an
 independent observation path and does not own chain lifecycle transitions.
 
 The orders domain classifies canonical Seaport executions from signed order type:
@@ -302,7 +320,12 @@ The orders domain classifies canonical Seaport executions from signed order type
 The existing demand executors read the cumulative protocol fraction at a pinned
 block at least as recent as the execution. Its denominator need not equal NFT
 units: 11/20 filled out of an original 100 leaves 45. Validation commits original,
-remaining and funded units together with fillability and coverage. Only a full
+remaining and funded units together with fillability, coverage and the result's
+block attribution in `orders.block_number`. This attribution belongs to the
+materialized result and survives demand cleanup; it is replaced atomically with
+that result. Retirement copies it into the marker before cascading away the order
+and its demand. Rollback can therefore clear attributed orphan terminal markers,
+while source cancellation remains independently protected. Only a full
 fraction marks a partial order `filled`. Dependency failures leave valid state
 intact and keep the obligation pending; newer events, cancellations and chain
 revision changes retain the existing commit guards. No REST reconciliation is
@@ -317,7 +340,8 @@ without waiting for any source observation; independent source cancellation
 remains definitive.
 
 An OpenSea sale is an observation hint, not a canonical exhaustion fact. It uses
-the ordinary by-ID validation input without setting source `filled`; canonical
+the ordinary by-ID validation input with a verified transaction-block requirement,
+without setting source `filled`; canonical
 chain fills and explicit cancellations retain their lifecycle path. Shared
 Seaport enum definitions own protocol values used by order normalization,
 execution facts, quantity calculation and signing policy.

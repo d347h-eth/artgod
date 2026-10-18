@@ -37,6 +37,9 @@ export type OrderValidationRequest = {
      * delivery/retry time is never a new source observation. */
     requiredAt: number;
     minimumBlock: number | null;
+    /** Current source observations still require chain coverage, but are not
+     * historical projection triggers subject to the collection bootstrap anchor. */
+    anchorIndependent?: boolean;
 };
 export type OrderValidationCandidate = { order: OrderRecord; revision: number };
 export type OrderValidationDemand = OrderValidationRequest & {
@@ -70,6 +73,19 @@ export function eventValidationRequest(
     blockNumber: number,
 ): OrderValidationRequest {
     return { chainId, orderId, requiredAt: 0, minimumBlock: blockNumber };
+}
+
+/** A source execution is covered by canonical inclusion, independently of source
+ * delivery clocks or the historical bootstrap projection gate. */
+export function sourceExecutionValidationRequest(
+    chainId: number,
+    orderId: string,
+    blockNumber: number,
+): OrderValidationRequest {
+    return {
+        ...eventValidationRequest(chainId, orderId, blockNumber),
+        anchorIndependent: true,
+    };
 }
 
 /** A new source observation requires a validation observed at/after that time. */
@@ -153,7 +169,9 @@ export function advancesValidationDemand(
     return (
         !current.pending ||
         current.revision !== revision ||
-        (request.minimumBlock === null && !current.anchorIndependent) ||
+        ((request.minimumBlock === null ||
+            request.anchorIndependent === true) &&
+            !current.anchorIndependent) ||
         request.requiredAt > current.requiredAt ||
         (request.minimumBlock !== null &&
             (current.minimumBlock === null ||
@@ -170,6 +188,8 @@ export function assertOrderValidationRequest(
         !request.orderId ||
         !Number.isSafeInteger(request.requiredAt) ||
         request.requiredAt < 0 ||
+        (request.anchorIndependent !== undefined &&
+            typeof request.anchorIndependent !== "boolean") ||
         (request.minimumBlock !== null &&
             (!Number.isSafeInteger(request.minimumBlock) ||
                 request.minimumBlock < 0))

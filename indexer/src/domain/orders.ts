@@ -139,6 +139,8 @@ export type OrderRecord = {
     sourceStatus: OrderSourceStatus;
     seaportData?: SeaportOrderData | null;
     seaportDataSourceKind?: OrderSeaportDataSourceKind | null;
+    /** Block of the current protocol result (execution or verified snapshot).
+     * Retained independently of disposable demand coverage for rollback/retirement. */
     blockNumber?: number | null;
     txHash?: string | null;
     logIndex?: number | null;

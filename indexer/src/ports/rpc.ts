@@ -71,6 +71,8 @@ export type RpcTransaction = {
 
 export type RpcTransactionReceipt = {
     transactionHash: Hex;
+    blockNumber: number;
+    blockHash: Hex;
     logs: RpcLog[];
 };
 

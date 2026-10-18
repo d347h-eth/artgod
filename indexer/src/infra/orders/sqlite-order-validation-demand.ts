@@ -1,3 +1,4 @@
+import type { ChainSyncCheckpoint } from "../../domain/chain-sync.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import { db } from "@artgod/shared/database";
@@ -37,6 +38,9 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
     constructor(private readonly orders: OrderValidationProjectionPort) {}
 
     captureSyncCheckpoint = captureChainSyncCheckpoint;
+    needsValidation(request: OrderValidationRequest): boolean {
+        return this.orders.validationCandidate(request) !== null;
+    }
 
     isCovered(request: OrderValidationRequest, revision: number): boolean {
         if (this.orders.validationCandidate(request)?.revision !== revision)
@@ -75,7 +79,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             revision,
             request.requiredAt,
             request.minimumBlock,
-            request.minimumBlock === null ? 1 : 0,
+            request.minimumBlock === null || request.anchorIndependent ? 1 : 0,
             pending ? 1 : 0,
             revision,
             evidence.observedAt,
@@ -98,9 +102,18 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             : null;
     }
 
-    admit(request: OrderValidationRequest, now: number) {
+    admit(
+        request: OrderValidationRequest,
+        now: number,
+        checkpoint?: ChainSyncCheckpoint,
+    ) {
         assertOrderValidationRequest(request);
         return db.writeTransaction(() => {
+            if (checkpoint) {
+                if (checkpoint.chainId !== request.chainId)
+                    throw new Error("Execution coverage chain mismatch");
+                assertChainSyncCheckpoint(checkpoint);
+            }
             const candidate = this.orders.validationCandidate(request);
             if (!candidate) return OUTCOME.Unneeded;
             const current = this.get(request.chainId, request.orderId);
@@ -115,7 +128,9 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     candidate.revision,
                     request.requiredAt,
                     request.minimumBlock,
-                    request.minimumBlock === null ? 1 : 0,
+                    request.minimumBlock === null || request.anchorIndependent
+                        ? 1
+                        : 0,
                     now,
                 );
             } else if (
@@ -130,6 +145,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     request.minimumBlock,
                     request.minimumBlock,
                     request.minimumBlock === null ||
+                        request.anchorIndependent ||
                         (current.pending && current.anchorIndependent)
                         ? 1
                         : 0,
@@ -197,6 +213,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             for (const row of rows) {
                 const candidate = this.orders.validationCandidate({
                     ...row,
+                    anchorIndependent: row.anchorIndependent === 1,
                     minimumBlock: row.anchorIndependent
                         ? null
                         : row.minimumBlock,
@@ -277,6 +294,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                 const revision = this.orders.applyDemandValidation(
                     claim,
                     result,
+                    proof,
                 );
                 // A terminal source/expiry/anchor change can resolve this obligation now.
                 // A changed but still actionable revision or generation must remain pending.

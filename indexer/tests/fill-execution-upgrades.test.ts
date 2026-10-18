@@ -882,6 +882,8 @@ function bundleRpc(
         }),
         getTransactionReceipt: async () => ({
             transactionHash: tx.txHash as Hex,
+            blockNumber: tx.blockNumber,
+            blockHash: tx.blockHash as Hex,
             logs: tx.receiptLogs,
         }),
         readContract: unexpected,

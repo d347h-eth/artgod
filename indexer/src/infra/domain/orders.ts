@@ -1,3 +1,4 @@
+import type { OrderValidationEvidence } from "../../domain/order-validation-demand.js";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import {
     declaredOrderQuantity,
@@ -547,11 +548,14 @@ export class SqliteOrdersDomain
     private applyValidation(
         row: OrderRow,
         validation: OrderValidationResult | OrderStatus,
+        blockNumber: number | null = null,
     ): { changes: number } {
         const result =
             typeof validation === "string"
                 ? { status: validation, reason: "" }
                 : validation;
+        // Current result attribution belongs to the order, not to demand's reusable
+        // coverage cache. Cleanup and retirement must preserve its rollback boundary.
         const quantities = validatedQuantityUpdate(result);
         const status = result.status;
         const now = this.nowSeconds();
@@ -568,12 +572,13 @@ export class SqliteOrdersDomain
                     original: string | null;
                     remaining: string | null;
                     fillable: string | null;
+                    blockNumber: number | null;
                 }>(
                     "UPDATE orders SET validated_at=@now, updated_at=CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN CURRENT_TIMESTAMP ELSE updated_at END, " +
                         "state_revision=state_revision+CASE WHEN (fillability_status,original_quantity,quantity,fillable_quantity) IS NOT (@status,COALESCE(@original,original_quantity),COALESCE(@remaining,quantity),@fillable) THEN 1 ELSE 0 END, fillability_status=@status, " +
-                        "original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable " +
+                        "original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable, block_number=@blockNumber, block_hash=NULL, tx_hash=NULL, log_index=NULL " +
                         "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
-                        "AND (fillability_status IS NOT @status OR original_quantity IS NOT COALESCE(@original,original_quantity) OR quantity IS NOT COALESCE(@remaining,quantity) OR fillable_quantity IS NOT @fillable OR validated_at<=@stale)",
+                        "AND (fillability_status IS NOT @status OR original_quantity IS NOT COALESCE(@original,original_quantity) OR quantity IS NOT COALESCE(@remaining,quantity) OR fillable_quantity IS NOT @fillable OR validated_at<=@stale OR block_number IS NOT @blockNumber)",
                 )
                 .run({
                     chainId: row.chain_id,
@@ -586,6 +591,7 @@ export class SqliteOrdersDomain
                     original: quantities.original,
                     remaining: quantities.remaining,
                     fillable: quantities.fillable,
+                    blockNumber,
                 });
             if (result.changes)
                 this.listingPrices.refreshOrder(row.chain_id, row.id, now);
@@ -1191,7 +1197,7 @@ export class SqliteOrdersDomain
             !this.canMutateCurrentStateForCollection(
                 row.chain_id,
                 row.collection_id,
-                request.minimumBlock,
+                request.anchorIndependent ? null : request.minimumBlock,
             )
         )
             return null;
@@ -1201,6 +1207,7 @@ export class SqliteOrdersDomain
     applyDemandValidation(
         claim: ClaimedOrderValidation,
         result: Awaited<ReturnType<OrderValidator>>,
+        proof: OrderValidationEvidence,
     ): number | null {
         const current = this.validationCandidate({
             ...claim.demand,
@@ -1214,7 +1221,7 @@ export class SqliteOrdersDomain
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
         }) as OrderRow;
-        this.applyValidation(row, result);
+        this.applyValidation(row, result, proof.blockNumber);
         const updated = this.selectOrderById.get({
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
@@ -1256,6 +1263,7 @@ export class SqliteOrdersDomain
     applyMakerResolution(
         payload: OrderUpdateByMakerPayload,
         resolution: MakerValidationResolution,
+        proof: OrderValidationEvidence | null,
     ): number | null {
         const row = this.selectOrderById.get({
             chainId: payload.chainId,
@@ -1286,7 +1294,11 @@ export class SqliteOrdersDomain
                 "Maker validation revision changed",
             );
         }
-        this.applyValidation(row, resolution.validation);
+        if (!proof)
+            throw new MakerRevalidationConflict(
+                "Maker validation requires block attribution",
+            );
+        this.applyValidation(row, resolution.validation, proof.blockNumber);
         return (
             this.selectOrderById.get({
                 chainId: payload.chainId,

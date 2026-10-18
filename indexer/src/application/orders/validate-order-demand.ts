@@ -1,3 +1,4 @@
+import type { ChainSyncCheckpoint } from "../../domain/chain-sync.js";
 import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
 import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
@@ -32,14 +33,20 @@ export class AdmitOrderValidation {
         private readonly store: OrderValidationDemandPort,
         private readonly observability?: OrderProcessingObservability,
     ) {}
-    execute(request: OrderValidationRequest) {
+    needsValidation(request: OrderValidationRequest): boolean {
+        return this.store.needsValidation(request);
+    }
+    captureSyncCheckpoint(): ChainSyncCheckpoint {
+        return this.store.captureSyncCheckpoint(this.chainId);
+    }
+    execute(request: OrderValidationRequest, checkpoint?: ChainSyncCheckpoint) {
         if (request.chainId !== this.chainId)
             throw new Error("Order validation demand chain mismatch");
         return observeSyncProcessing(
             this.observability,
             OPERATION.DemandAdmit,
             { chainId: this.chainId },
-            () => this.store.admit(request, Date.now()),
+            () => this.store.admit(request, Date.now(), checkpoint),
         );
     }
 }

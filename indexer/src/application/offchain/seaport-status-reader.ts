@@ -134,6 +134,7 @@ export function isSeaportProtocolStatus(
         typeof value[2] === "bigint" &&
         value[2] >= 0n &&
         typeof value[3] === "bigint" &&
-        value[3] >= 0n
+        value[3] >= 0n &&
+        value[2] <= value[3]
     );
 }

@@ -82,7 +82,8 @@ export type OrderUpdateByIdPayload = {
     /**
      * Domain handling category from ORDER_UPDATE_REASON, not the upstream event name.
      * Without sourceStatus, runtime handling is:
-     * - Validation: admit durable full validation; preserve current state until its
+     * - Validation: establish any source execution transaction coverage, then admit
+     *   durable full validation; preserve current state until its
      *   result updates fillability and quantities.
      * - Fill: apply a canonical execution. Full-only orders become filled with zero
      *   remaining capacity; partial or unknown Seaport terms require block-scoped
@@ -95,6 +96,9 @@ export type OrderUpdateByIdPayload = {
      * does not establish that the entire order is filled.
      */
     reason: string;
+    /** Source sale inclusion to resolve before coalescing validation. Null means
+     * the source omitted required evidence; never treat that as ordinary freshness. */
+    executionTransactionHash?: string | null;
     sourceStatus?: OrderSourceStatus | null;
     blockNumber?: number | null;
     blockHash?: string | null;

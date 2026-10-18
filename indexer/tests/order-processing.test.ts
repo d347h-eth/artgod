@@ -222,7 +222,11 @@ describe("order processing boundaries", () => {
     });
 
     it("preserves unsupported and wrong-chain updates for retry instead of acknowledging a no-op", async () => {
-        const validation = { execute: vi.fn() };
+        const validation = {
+            execute: vi.fn(),
+            needsValidation: vi.fn(),
+            captureSyncCheckpoint: vi.fn(),
+        };
         const lifecycle = { handleOrderUpdateById: vi.fn() };
         const processor = new ApplyOrderUpdate({
             chainId: 1,

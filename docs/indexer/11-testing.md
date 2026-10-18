@@ -791,3 +791,11 @@ screenshots in a project-local task-artifact directory without secrets.
 - The DB-backed project intentionally owns migration and repository behavior;
   adding an in-memory mock for those tests would hide the contracts they exist
   to verify.
+
+The partial-fill lifecycle regressions also cover terminal-demand cleanup followed
+by rollback, successive forks, retirement attribution and source cancellation,
+impossible cumulative fractions, source receipt resolution, retained pre-sale
+proofs and lagging providers catching up without another source message.
+`order-execution-block.test.ts` verifies fresh receipt/block inclusion and rejected
+canonicality evidence. Shared thin-price parser and snapshot projection tests
+exclude exhausted/malformed remainders on both fallback paths.

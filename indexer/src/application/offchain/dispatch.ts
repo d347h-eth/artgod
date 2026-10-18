@@ -197,6 +197,7 @@ export async function dispatchOffchainPayload(
                 validUntil: updateById.validUntil,
                 orderId: updateById.orderId,
                 reason: updateById.reason,
+                executionTransactionHash: updateById.executionTransactionHash,
                 sourceStatus: updateById.sourceStatus,
             },
             attempt: 0,

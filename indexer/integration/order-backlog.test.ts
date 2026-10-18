@@ -205,6 +205,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 collectionId: sale.collectionId,
                 orderId: sale.id,
                 reason: ORDER_UPDATE_REASON.Validation,
+                executionTransactionHash: HEAVY_MAKER.saleTransactionHash,
                 observedAt: HEAVY_MAKER.now,
             },
             oldTime,

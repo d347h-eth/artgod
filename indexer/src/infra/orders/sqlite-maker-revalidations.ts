@@ -342,6 +342,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     const revision = this.orders.applyMakerResolution(
                         run.payload,
                         resolution,
+                        evidence,
                     );
                     if (revision !== null && evidence)
                         this.validation.recordValidation(

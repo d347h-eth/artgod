@@ -1,3 +1,10 @@
+import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
+import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
+import { AdmitOrderValidation } from "../src/application/orders/validate-order-demand.js";
+import { CanonicalOrderExecutionBlock } from "../src/application/orders/execution-block.js";
+import { normalizeOpenSeaOrderUpdate } from "../src/application/offchain/opensea-normalize.js";
+import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
+import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
 import { SqliteBidderIndex } from "../src/infra/bidder-index/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import {
@@ -143,7 +150,7 @@ describe("canonical partial fill quantity progression", () => {
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
         db.exec(
-            "DELETE FROM orders;DELETE FROM chain_sync_revisions;DELETE FROM collections;",
+            "DELETE FROM market_order_retirements;DELETE FROM orders;DELETE FROM chain_sync_revisions;DELETE FROM collections;",
         );
         collectionId = insertCollection({
             chainId: 1,
@@ -622,5 +629,343 @@ describe("canonical partial fill quantity progression", () => {
         expect(() => remainingOrderQuantity(100n, 1n, 3n)).toThrow(
             "Non-integral",
         );
+    });
+    function rollbackResult(
+        work: ReturnType<typeof workflow>,
+        fromBlock: number,
+    ) {
+        const storage = new SqliteStorage();
+        storage.rollbackFromBlock({
+            plan: storage.prepareRollback({ chainId: 1, fromBlock }),
+            snapshot: {
+                block: {
+                    blockNumber: fromBlock - 1,
+                    blockHash: work.rpc.blockHash,
+                    parentHash: work.rpc.blockHash,
+                    blockTimestamp: NOW,
+                },
+                owners: [],
+            },
+        });
+    }
+
+    it.each([ORDER_STATUS.Filled, ORDER_STATUS.Cancelled])(
+        "retains %s result attribution after newer unneeded demand is drained",
+        async (status) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            work.rpc.blockNumber = BLOCK;
+            work.rpc.filled = status === ORDER_STATUS.Filled ? 100n : 55n;
+            work.rpc.cancelled = status === ORDER_STATUS.Cancelled;
+            await fill(work);
+            let once = true;
+            work.rpc.onRead = async () => {
+                if (!once) return;
+                once = false;
+                work.store.admit(
+                    eventValidationRequest(1, ID, BLOCK + 1),
+                    Date.now(),
+                );
+            };
+            await work.processor.executeBatch();
+            work.rpc.onRead = undefined;
+            expect(stored()).toMatchObject({ fillability_status: status });
+            await work.processor.executeBatch();
+            expect(work.store.get(1, ID)).toMatchObject({
+                pending: false,
+                proofBlock: null,
+            });
+            expect(
+                db
+                    .prepare("SELECT block_number FROM orders WHERE id=?")
+                    .get(ID),
+            ).toEqual({ block_number: BLOCK });
+            rollbackResult(work, BLOCK);
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Unvalidated,
+            });
+            work.rpc.filled = 0n;
+            work.rpc.cancelled = false;
+            await work.processor.executeBatch();
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "100",
+            });
+        },
+    );
+
+    it.each([55n, 100n])(
+        "retains %s-filled result attribution across a trigger-only fork and a deeper fork",
+        async (filled) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            work.rpc.blockNumber = BLOCK;
+            work.rpc.filled = filled;
+            await fill(work);
+            let once = true;
+            work.rpc.onRead = async () => {
+                if (!once) return;
+                once = false;
+                work.store.admit(
+                    eventValidationRequest(1, ID, BLOCK + 2),
+                    Date.now(),
+                );
+            };
+            await work.processor.executeBatch();
+            work.rpc.onRead = undefined;
+            rollbackResult(work, BLOCK + 1);
+            expect(stored()).toMatchObject({
+                quantity: filled === 100n ? "0" : "45",
+            });
+            rollbackResult(work, BLOCK);
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Unvalidated,
+            });
+            work.rpc.filled = 0n;
+            await work.processor.executeBatch();
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "100",
+            });
+        },
+    );
+
+    it.each([false, true])(
+        "retirement carries terminal validation attribution while source cancellation remains independent (%s)",
+        async (sourceCancelled) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            work.rpc.blockNumber = BLOCK;
+            work.rpc.filled = 100n;
+            await fill(work);
+            await work.processor.executeBatch();
+            if (sourceCancelled)
+                await work.domain.handleOrderUpdateById({
+                    chainId: 1,
+                    collectionId,
+                    orderId: ID,
+                    reason: ORDER_UPDATE_REASON.Cancel,
+                    sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                    observedAt: NOW,
+                });
+            const afterGrace =
+                NOW + MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds + 1;
+            db.prepare(
+                "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+            ).run(NOW, ID);
+            vi.spyOn(Date, "now").mockReturnValue(afterGrace * 1000);
+            new SqliteMarketDataMaintenance(db).maintainBatch(afterGrace);
+            expect(stored()).toBeUndefined();
+            expect(
+                db
+                    .prepare(
+                        "SELECT block_number FROM market_order_retirements WHERE order_id=?",
+                    )
+                    .get(ID),
+            ).toEqual({ block_number: BLOCK });
+            rollbackResult(work, BLOCK);
+            const marker = db
+                .prepare(
+                    "SELECT order_id FROM market_order_retirements WHERE order_id=?",
+                )
+                .get(ID);
+            expect(!!marker).toBe(sourceCancelled);
+            const admitted = await work.domain.handleOrderUpsert(
+                upsert({ observedAt: afterGrace, quantity: "100" }),
+            );
+            expect(admitted.validationNeeded).toBe(!sourceCancelled);
+        },
+    );
+
+    it.each([
+        [101n, 100n],
+        [1n, 0n],
+    ])(
+        "retries impossible protocol fractions %s/%s without replacing current state",
+        async (filled, size) => {
+            const work = workflow();
+            await initialSnapshot(work);
+            work.rpc.blockNumber = BLOCK;
+            work.rpc.filled = filled;
+            work.rpc.size = size;
+            await fill(work);
+            await work.processor.executeBatch();
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "100",
+            });
+            expect(work.store.get(1, ID)?.pending).toBe(true);
+        },
+    );
+
+    function sourceExecution(
+        work: ReturnType<typeof workflow>,
+        hooks: { beforeReceipt?: () => void } = {},
+    ) {
+        const txHash = `0x${"31".repeat(32)}` as const;
+        const receipt = vi.fn<RpcProviderPort["getTransactionReceipt"]>(
+            async () => {
+                hooks.beforeReceipt?.();
+                return {
+                    transactionHash: txHash,
+                    blockNumber: BLOCK,
+                    blockHash: work.rpc.blockHash,
+                    logs: [],
+                };
+            },
+        );
+        const block = vi.fn<RpcProviderPort["getBlock"]>(
+            async (number: number) => ({
+                ...(await work.rpc.getBlock(number)),
+                transactions: [txHash],
+            }),
+        );
+        const apply = new ApplyOrderUpdate({
+            chainId: 1,
+            lifecycle: work.domain,
+            validation: new AdmitOrderValidation(1, work.store),
+            executionBlock: new CanonicalOrderExecutionBlock({
+                getTransactionReceipt: receipt,
+                getBlock: block,
+            }),
+        });
+        const update = normalizeOpenSeaOrderUpdate({
+            event_type: OPENSEA_STREAM_EVENT_TYPE.ItemSold,
+            payload: { order_hash: ID, transaction: { hash: txHash } },
+        })!;
+        return {
+            apply,
+            receipt,
+            block,
+            payload: { ...update, chainId: 1, collectionId, observedAt: NOW },
+        };
+    }
+
+    it("source sale cannot consume a retained pre-sale proof or complete against a lagging head", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work);
+        await source.apply.execute(source.payload, NOW * 1000);
+        expect(work.store.get(1, ID)).toMatchObject({
+            pending: true,
+            minimumBlock: BLOCK,
+        });
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({ quantity: "100" });
+        expect(work.store.get(1, ID)?.pending).toBe(true);
+        work.rpc.blockNumber = BLOCK;
+        work.rpc.filled = 55n;
+        vi.spyOn(Date, "now").mockReturnValue((NOW + 2) * 1000);
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({
+            quantity: "45",
+            fillable_quantity: "10",
+        });
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+        const reads = work.rpc.reads.getOrderStatus;
+        await source.apply.execute(source.payload, NOW * 1000);
+        await work.processor.executeBatch();
+        expect(work.rpc.reads.getOrderStatus).toBe(reads);
+        expect(source.receipt.mock.calls[0]?.[1]).toEqual({ fresh: true });
+        expect(source.block.mock.calls[0]?.[1]).toEqual({ fresh: true });
+    });
+
+    it("receipt failure retains the source delivery and source cancellation cannot be revived on retry", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work);
+        source.receipt.mockRejectedValueOnce(new Error("receipt unavailable"));
+        await expect(
+            source.apply.execute(source.payload, NOW * 1000),
+        ).rejects.toThrow("receipt unavailable");
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+        expect(stored()).toMatchObject({ quantity: "100" });
+        await source.apply.execute(source.payload, NOW * 1000);
+        await work.domain.handleOrderUpdateById({
+            chainId: 1,
+            collectionId,
+            orderId: ID,
+            reason: ORDER_UPDATE_REASON.Cancel,
+            sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+            observedAt: NOW,
+        });
+        work.rpc.blockNumber = BLOCK;
+        await work.processor.executeBatch();
+        source.receipt.mockRejectedValue(new Error("still unavailable"));
+        const receiptReads = source.receipt.mock.calls.length;
+        await source.apply.execute(source.payload, NOW * 1000);
+        expect(source.receipt.mock.calls.length).toBe(receiptReads);
+        expect(stored()).toMatchObject({
+            source_status: ORDER_SOURCE_STATUS.Cancelled,
+        });
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+    });
+
+    it("rejects a source inclusion whose canonical revision changed before admission", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work, {
+            beforeReceipt: () => {
+                advanceChainSyncRevision(1);
+            },
+        });
+        await expect(
+            source.apply.execute(source.payload, NOW * 1000),
+        ).rejects.toThrow();
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+        expect(stored()).toMatchObject({ quantity: "100" });
+    });
+
+    it("keeps current source execution coverage independent of the bootstrap projection anchor", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        db.prepare(
+            "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
+        ).run(BLOCK + 1, collectionId);
+        const source = sourceExecution(work);
+        await source.apply.execute(source.payload, NOW * 1000);
+        expect(work.store.get(1, ID)).toMatchObject({
+            pending: true,
+            minimumBlock: BLOCK,
+            anchorIndependent: true,
+        });
+        work.rpc.blockNumber = BLOCK;
+        work.rpc.filled = 55n;
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({ quantity: "45" });
+    });
+
+    it("uses verified execution inclusion rather than an unrelated source delivery clock", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work);
+        const skewed = NOW + MARKET_DATA_STORAGE_POLICY.utcDaySeconds;
+        await source.apply.execute(
+            { ...source.payload, observedAt: skewed },
+            skewed * 1000,
+        );
+        expect(work.store.get(1, ID)).toMatchObject({
+            pending: true,
+            minimumBlock: BLOCK,
+        });
+        work.rpc.blockNumber = BLOCK;
+        work.rpc.filled = 55n;
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({ quantity: "45" });
+        expect(work.store.get(1, ID)?.pending).toBe(false);
+    });
+
+    it("never downgrades a source sale without transaction evidence into observation-time validation", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        const source = sourceExecution(work);
+        await expect(
+            source.apply.execute(
+                { ...source.payload, executionTransactionHash: null },
+                NOW * 1000,
+            ),
+        ).rejects.toThrow("canonical transaction coverage");
+        expect(source.receipt).not.toHaveBeenCalled();
+        expect(work.store.get(1, ID)?.pending).toBe(false);
     });
 });

@@ -72,6 +72,7 @@ export type NormalizedOffchainOrder = RawOrderPayload & {
 };
 
 export type NormalizedOffchainOrderUpdateById = {
+    executionTransactionHash?: string | null;
     chainId: number;
     source: string;
     orderId: string;
@@ -226,6 +227,7 @@ export function normalizeOffchainOrderUpdateById(
         source: raw.source,
         orderId: update.orderId,
         reason: update.reason,
+        executionTransactionHash: update.executionTransactionHash,
         sourceStatus: update.sourceStatus,
         validUntil: update.validUntil,
     };

@@ -17,15 +17,19 @@ export interface OrderValidationProjectionPort {
     validationCandidate(
         request: OrderValidationRequest,
     ): OrderValidationCandidate | null;
-    /** Returns the resulting revision, or null when newer/current-state policy rejected it. */
+    /** Atomically applies the result and its durable block attribution. Returns the
+     * resulting revision, or null when newer/current-state policy rejected it. */
     applyDemandValidation(
         claim: ClaimedOrderValidation,
         result: OrderValidationResult,
+        proof: OrderValidationEvidence,
     ): number | null;
 }
 
 export interface OrderValidationDemandPort {
     captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
+    /** Current eligibility only; does not admit work or consume coverage. */
+    needsValidation(request: OrderValidationRequest): boolean;
     /** Same-order, same-canonical-history validation; does not consume pending newer demand. */
     isCovered(request: OrderValidationRequest, revision: number): boolean;
     /** Shares the maker checkpoint transaction. Keep newer unmet observations pending. */
@@ -35,10 +39,12 @@ export interface OrderValidationDemandPort {
         evidence: OrderValidationEvidence,
         now: number,
     ): void;
-    /** Needed current-order work is always main, irrespective of the hint's work class. */
+    /** Needed current-order work is always main, irrespective of the hint's work class.
+     * A supplied checkpoint fences transaction inclusion resolved before admission. */
     admit(
         request: OrderValidationRequest,
         now: number,
+        checkpoint?: ChainSyncCheckpoint,
     ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
     /** Admit a known failed order with isolated retry/backoff, without recording proof.
      * Participates in the caller's checkpoint transaction on the same database. */

@@ -237,6 +237,8 @@ describe("ViemRpcProvider RPC resilience", () => {
         let blockHash = `0x${"cd".repeat(32)}`;
         const getTransactionReceipt = vi.fn(async () => ({
             transactionHash: txHash,
+            blockNumber: BigInt(TEST_BLOCK_NUMBER),
+            blockHash,
             logs: [
                 {
                     address: "0x1111111111111111111111111111111111111111",
@@ -261,6 +263,10 @@ describe("ViemRpcProvider RPC resilience", () => {
                 }) as unknown as ReturnType<ViemRpcClientFactory>,
         });
         const original = await provider.getTransactionReceipt(txHash);
+        expect(original).toMatchObject({
+            blockNumber: TEST_BLOCK_NUMBER,
+            blockHash,
+        });
         blockHash = `0x${"ef".repeat(32)}`;
         expect(await provider.getTransactionReceipt(txHash)).toEqual(original);
         const fresh = await provider.getTransactionReceipt(txHash, {

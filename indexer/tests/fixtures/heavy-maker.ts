@@ -39,6 +39,7 @@ export const HEAVY_MAKER = {
     conduitKey: `0x${"01".repeat(32)}`,
     now: 1_790_208_000,
     blockNumber: 1_000,
+    saleTransactionHash: `0x${"de".repeat(32)}` as const,
 } as const;
 
 export function heavyMakerOrder(
@@ -256,6 +257,9 @@ export class HeavyMakerRpc implements RpcProviderPort {
     }
     async getTransaction(): Promise<never> {
         throw new Error("Unexpected getTransaction");
+    }
+    async readContractAtBlock<T>(): Promise<T> {
+        throw new Error("Unexpected exact-block read");
     }
     async getTransactionReceipt(): Promise<never> {
         throw new Error("Unexpected getTransactionReceipt");
