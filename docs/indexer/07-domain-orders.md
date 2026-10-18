@@ -316,6 +316,10 @@ then reads the source remainder separately. For a signed 6 WETH offer on 100 NFT
 malformed and oversized remainders are rejected on every pricing path. Thin
 `price.value`/`currentPrice` records support only a single unit and report unknown
 original signed size as null; multi-unit unit pricing requires signed terms.
+Incomplete NFT/payment items and unrecognized signed order types are rejected
+instead of falling back to an aggregate amount as a single-unit price. Known
+multi-unit NFT terms also prevent thin price fallback when their signed payment
+is absent. Valid single-unit thin records retain their existing fallback paths.
 Source ingestion remains an
 independent observation path and does not own chain lifecycle transitions.
 

@@ -50,7 +50,8 @@ export function partialBuyOriginalQuantity(
     const quantity = seaportNftQuantity(nfts, order.contract);
     // Each NFT unit must be a valid Seaport fraction of every signed item.
     // Otherwise the minimum executable lot can exceed one NFT.
-    return quantity > 0n &&
+    return quantity !== null &&
+        quantity > 0n &&
         items.every((item) => BigInt(item.startAmount) % quantity === 0n)
         ? quantity
         : null;
@@ -113,7 +114,7 @@ export function declaredOrderQuantity(
               ? data.offer
               : [];
     const quantity = seaportNftQuantity(items, order.contract);
-    return quantity > 0n ? quantity.toString() : null;
+    return quantity !== null && quantity > 0n ? quantity.toString() : null;
 }
 
 /** Terminal protocol state establishes zero capacity independently of shape. */

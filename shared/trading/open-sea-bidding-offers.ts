@@ -1,5 +1,6 @@
 import {
     seaportAllowsPartialFills,
+    seaportOrderType,
     seaportIsConcreteNftItem,
     seaportIsCriteriaItem,
     seaportIsNftItem,
@@ -239,6 +240,7 @@ export function extractOpenSeaWethUnitPrice(
     )
         return null;
     const parameters = getOpenSeaProtocolParameters(rawOrder);
+    let protocolNftQuantity: bigint | null = null;
     if (getOpenSeaProtocolEnvelope(rawOrder)?.parameters) {
         const offerSum = sumTokenItems(parameters.offer, wethAddress);
         const considerationSum = sumTokenItems(
@@ -253,11 +255,31 @@ export function extractOpenSeaWethUnitPrice(
             parameters.offer,
             options.collectionAddress,
         );
+        // Incomplete signed items must not turn a bundle total into a unit price
+        // or escape through a thin-record fallback.
+        if (
+            offerSum === null ||
+            considerationSum === null ||
+            nftUnitsFromConsideration === null ||
+            nftUnitsFromOffer === null
+        )
+            return null;
         const nftUnits =
             nftUnitsFromConsideration > 0n
                 ? nftUnitsFromConsideration
                 : nftUnitsFromOffer;
-        const orderType = parameters.orderType ?? parameters.order_type;
+        protocolNftQuantity = nftUnits > 0n ? nftUnits : null;
+        // Fees on the NFT side cannot establish the price of a multi-unit order
+        // whose opposite-side signed payment is missing.
+        if (
+            nftUnits > 1n &&
+            ((nftUnitsFromConsideration > 0n && offerSum === 0n) ||
+                (nftUnitsFromOffer > 0n && considerationSum === 0n))
+        )
+            return null;
+        const rawOrderType = parameters.orderType ?? parameters.order_type;
+        const orderType = seaportOrderType(rawOrderType);
+        if (rawOrderType != null && orderType === null) return null;
         if (
             remainingQuantity !== null &&
             nftUnits > 0n &&
@@ -267,6 +289,11 @@ export function extractOpenSeaWethUnitPrice(
         const isPartial =
             seaportAllowsPartialFills(orderType) ||
             (remainingQuantity !== null && remainingQuantity > 1n);
+        if (
+            (isPartial && protocolNftQuantity === null) ||
+            (nftUnits > 1n && orderType === null && !isPartial)
+        )
+            return null;
 
         if (offerSum > 0n || considerationSum > 0n) {
             const total =
@@ -305,7 +332,11 @@ export function extractOpenSeaWethUnitPrice(
     }
 
     // Thin price records support a single unit; their signed size is unknown.
-    if (remainingQuantity !== null && remainingQuantity !== 1n) return null;
+    if (
+        (remainingQuantity !== null && remainingQuantity !== 1n) ||
+        (protocolNftQuantity !== null && protocolNftQuantity > 1n)
+    )
+        return null;
     const priceRecord = asRecord(asRecord(rawOrder).price);
     const priceValue = tryParseBigInt(priceRecord.value);
     const priceCurrency = stringOrUndefined(priceRecord.currency);
@@ -849,7 +880,7 @@ function isWethCurrency(currency: string, wethAddress: string): boolean {
     return normalized === wethAddress || normalized === "weth";
 }
 
-function sumTokenItems(items: unknown, tokenAddress: string): bigint {
+function sumTokenItems(items: unknown, tokenAddress: string): bigint | null {
     if (!Array.isArray(items)) {
         return 0n;
     }
@@ -862,9 +893,7 @@ function sumTokenItems(items: unknown, tokenAddress: string): bigint {
         }
 
         const amount = seaportItemAmount(item);
-        if (amount === null) {
-            continue;
-        }
+        if (amount === null) return null;
 
         sum += amount;
     }
