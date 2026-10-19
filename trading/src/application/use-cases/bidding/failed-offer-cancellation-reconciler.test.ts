@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -12,6 +12,7 @@ import {
     FailedOfferCancellationReconciler,
     UNSETTLED_TERMINAL_CANCELLATION_ERROR,
     type CompletedOfferCancellation,
+    type OfferCancellationCheck,
     type RecoverableOfferCancellationRecord,
     type FailedOfferCancellationRepositoryPort,
 } from "./failed-offer-cancellation-reconciler.js";
@@ -34,6 +35,8 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
     completed: CompletedOfferCancellation[] = [];
     listCalls = 0;
     listGate: Promise<void> | undefined;
+    checks: OfferCancellationCheck[] = [];
+    admitCheck = true;
 
     constructor(
         private readonly records: RecoverableOfferCancellationRecord[],
@@ -55,6 +58,11 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
         cancellation: CompletedOfferCancellation,
     ): void {
         this.completed.push(cancellation);
+    }
+
+    beginOfferCancellationCheck(check: OfferCancellationCheck): boolean {
+        this.checks.push(check);
+        return this.admitCheck;
     }
 
     markOfferCancellationFailed(_failure: {
@@ -155,6 +163,24 @@ function createReconciler(
 }
 
 describe("FailedOfferCancellationReconciler", () => {
+    it("does not look up a row that completed or was deferred after batch selection", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            FAILED_CANCELLATION_RECORD,
+        ]);
+        repository.admitCheck = false;
+        const service = new FakeBiddingService();
+        assert.equal(
+            await createReconciler(
+                repository,
+                service,
+                false,
+            ).reconcileFailedCancellations(),
+            0,
+        );
+        assert.deepEqual(service.lookups, []);
+        assert.deepEqual(repository.completed, []);
+    });
+
     it("does not read a batch after admission closes", async () => {
         const repository = new FakeFailedCancellationRepository([
             FAILED_CANCELLATION_RECORD,
@@ -217,8 +243,7 @@ describe("FailedOfferCancellationReconciler", () => {
         const reconciler = createReconciler(repository, biddingService, false);
 
         const reconciliation = reconciler.reconcileFailedCancellations();
-        await Promise.resolve();
-        assert.equal(biddingService.lookups.length, 1);
+        await vi.waitFor(() => assert.equal(biddingService.lookups.length, 1));
         reconciler.closeAdmission();
         releaseLookup();
 

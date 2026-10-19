@@ -358,6 +358,7 @@ Command effects:
 - unavailable or inactive orders retain the cancellation obligation; cancellation uses the saved order id and protocol without requiring active market terms
 - terminal cancellation failures are written back to `trading_bidding_order_cancellations` so the bid book renders `cancel failed` instead of leaving an unresolved `canceling` row
 - failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after a successful cancellation or explicit terminal evidence
+- each admitted recovery check advances its durable `reconciliation_retry_at` before lookup, including checks that skip cancellation or fail; due records rotate through bounded batches across restarts without changing cancellation outcome or display freshness
 - dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order terminal, but it never places a live offer or emits a cancellation signature; a nonterminal or unresolved remote order remains tracked
 
 Skipping a command leaves its saved declaration unchanged. At a later authorized

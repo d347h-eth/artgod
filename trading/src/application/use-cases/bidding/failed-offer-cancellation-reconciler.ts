@@ -30,14 +30,27 @@ export type CompletedOfferCancellation = {
     completedAt: string;
 };
 
+export type OfferCancellationCheck = {
+    jobId: string;
+    orderId: string;
+    now: number;
+    retryAt: number;
+};
+
 export interface FailedOfferCancellationRepositoryPort {
     listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
+        now: number;
         retryCutoff: string;
     }):
         | Promise<RecoverableOfferCancellationRecord[]>
         | RecoverableOfferCancellationRecord[];
+    // Advance scheduling before lookup, without changing outcome or display freshness.
+    // False means another check already deferred this row, or it completed meanwhile.
+    beginOfferCancellationCheck(
+        check: OfferCancellationCheck,
+    ): Promise<boolean> | boolean;
     markOfferCancellationCompleted(
         cancellation: CompletedOfferCancellation,
     ): Promise<void> | void;
@@ -98,6 +111,7 @@ export class FailedOfferCancellationReconciler {
             {
                 chainId: this.config.chainId,
                 limit: this.config.batchSize,
+                now: Date.now(),
                 retryCutoff: new Date(
                     Date.now() - this.config.cancellationRetryMs,
                 ).toISOString(),
@@ -110,6 +124,16 @@ export class FailedOfferCancellationReconciler {
             if (!this.acceptingRecords) break;
 
             try {
+                const now = Date.now();
+                if (
+                    !(await this.repository.beginOfferCancellationCheck({
+                        jobId: record.jobId,
+                        orderId: record.orderId,
+                        now,
+                        retryAt: now + this.config.cancellationRetryMs,
+                    }))
+                )
+                    continue;
                 // Recover remote state before deciding whether local completion or a live retry is safe.
                 const result = await this.biddingService.getOrder(
                     record.orderId,

@@ -1183,6 +1183,7 @@ describe("OpenSeaBiddingService", () => {
             const completed: CompletedOfferCancellation[] = [];
             const reconciler = new FailedOfferCancellationReconciler(
                 {
+                    beginOfferCancellationCheck: () => true,
                     listRecoverableOfferCancellations: () => [
                         {
                             jobId: job.id,
@@ -1278,6 +1279,7 @@ describe("OpenSeaBiddingService", () => {
             const completed: CompletedOfferCancellation[] = [];
             const failures: unknown[] = [];
             const repository = {
+                beginOfferCancellationCheck: () => true,
                 listRecoverableOfferCancellations: () => [
                     {
                         jobId: "unresolved",

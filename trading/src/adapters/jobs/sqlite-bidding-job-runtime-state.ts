@@ -17,6 +17,7 @@ import type {
 } from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
 import type {
     CompletedOfferCancellation,
+    OfferCancellationCheck,
     RecoverableOfferCancellationRecord,
     FailedOfferCancellationRepositoryPort,
 } from "../../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
@@ -37,6 +38,7 @@ type MarkOfferCancellationFailedParams = BiddingOfferCancellationFailure & {
 type ListRecoverableOfferCancellationsParams = {
     chainId: number;
     limit: number;
+    now: number;
     retryCutoff: string;
     botKind: typeof TRADING_BOT_KIND.Bidding;
     cancelCommandKind: typeof TRADING_JOB_COMMAND_KIND.CancelActiveOffer;
@@ -73,6 +75,7 @@ export class SqliteBiddingJobRuntimeState
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
     private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
     private readonly selectRecoverableOfferCancellations: BetterSqlite3NamedStatement<ListRecoverableOfferCancellationsParams>;
+    private readonly beginOfferCancellationCheckStatement: BetterSqlite3NamedStatement<OfferCancellationCheck>;
     private readonly markOfferCancellationFailedStatement: BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
     private readonly markOfferCancellationCompletedStatement: BetterSqlite3NamedStatement<CompletedOfferCancellation>;
     private readonly invalidateEnabledActiveOrderVerificationStatement: BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
@@ -141,6 +144,14 @@ export class SqliteBiddingJobRuntimeState
                     "WHERE job_id = @jobId AND order_id = @orderId",
             ) as BetterSqlite3NamedStatement<CompletedOfferCancellation>;
 
+        this.beginOfferCancellationCheckStatement =
+            db.prepare<OfferCancellationCheck>(
+                "UPDATE trading_bidding_order_cancellations " +
+                    "SET reconciliation_retry_at = @retryAt " +
+                    "WHERE job_id = @jobId AND order_id = @orderId " +
+                    "AND completed_at IS NULL AND reconciliation_retry_at <= @now",
+            ) as BetterSqlite3NamedStatement<OfferCancellationCheck>;
+
         this.selectRecoverableOfferCancellations =
             db.prepare<ListRecoverableOfferCancellationsParams>(
                 "SELECT c.job_id, c.order_id, c.protocol_address, " +
@@ -169,6 +180,7 @@ export class SqliteBiddingJobRuntimeState
                     "JOIN trading_jobs j ON j.job_id = c.job_id " +
                     "WHERE c.chain_id = @chainId " +
                     "AND c.completed_at IS NULL " +
+                    "AND c.reconciliation_retry_at <= @now " +
                     "AND (" +
                     "(c.cancellation_error IS NOT NULL AND datetime(c.updated_at) <= datetime(@retryCutoff)) " +
                     "OR (c.cancellation_error IS NULL AND EXISTS (" +
@@ -180,7 +192,7 @@ export class SqliteBiddingJobRuntimeState
                     "AND commands.status IN (@completedStatus, @failedTerminalStatus)" +
                     "))" +
                     ") " +
-                    "ORDER BY c.updated_at ASC, c.requested_at ASC " +
+                    "ORDER BY c.reconciliation_retry_at ASC, c.updated_at ASC, c.requested_at ASC, c.order_id ASC " +
                     "LIMIT @limit",
             ) as BetterSqlite3NamedStatement<ListRecoverableOfferCancellationsParams>;
 
@@ -239,6 +251,7 @@ export class SqliteBiddingJobRuntimeState
     listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
+        now: number;
         retryCutoff: string;
     }): RecoverableOfferCancellationRecord[] {
         // Load unresolved rows that either failed already or have a terminal cancel command to audit.
@@ -262,6 +275,12 @@ export class SqliteBiddingJobRuntimeState
             terminalCommandError: row.terminal_command_error,
             hasTerminalCommand: Boolean(row.has_terminal_command),
         }));
+    }
+
+    beginOfferCancellationCheck(check: OfferCancellationCheck): boolean {
+        return (
+            this.beginOfferCancellationCheckStatement.run(check).changes === 1
+        );
     }
 
     invalidateEnabledActiveOrderVerification(params: {
