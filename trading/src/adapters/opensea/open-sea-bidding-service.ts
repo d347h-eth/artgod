@@ -33,6 +33,7 @@ import {
     BiddingServiceRequestContext,
     OfferDiscoverySource,
     Order,
+    OrderCancellation,
 } from "../../application/use-cases/bidding/bidding-service.js";
 import {
     CollectionOfferSnapshot,
@@ -557,7 +558,6 @@ export class OpenSeaBiddingService implements BiddingService {
         context: BiddingServiceRequestContext = {},
     ): Promise<BiddingOrderRecoveryResult> {
         let foundOrder: unknown = null;
-        let directLookupInconclusive = false;
 
         if (protocolAddress) {
             try {
@@ -575,7 +575,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     () =>
                         this.sdk.api.getOrderByHash(orderHash, protocolAddress),
                     context,
-                    isDirectOrderAbsentError,
+                    isDirectOrderUnavailableError,
                 );
 
                 if (matchesOrderHash(response, orderHash)) {
@@ -599,7 +599,6 @@ export class OpenSeaBiddingService implements BiddingService {
                         ...toErrorLogFields(error),
                     },
                 );
-                directLookupInconclusive = !isDirectOrderAbsentError(error);
             }
         }
 
@@ -607,13 +606,7 @@ export class OpenSeaBiddingService implements BiddingService {
             log.debug("orderNotFound", "Order not found in market", {
                 orderHash,
                 collectionSlug: collectionSlug ?? null,
-                directLookupInconclusive,
             });
-            if (!directLookupInconclusive) {
-                return {
-                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
-                };
-            }
             return {
                 status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
                 reason: protocolAddress
@@ -626,25 +619,18 @@ export class OpenSeaBiddingService implements BiddingService {
         // need no active-offer price or remaining quantity to complete recovery.
         const status = stringOrUndefined(
             asRecord(foundOrder)?.status,
-        )?.toLowerCase();
-        if (status && status !== "active") {
-            log.debug(
-                "recoveredOrderInactive",
-                "Recovered order is not active",
-                { orderHash, status },
-            );
-            return {
-                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
-            };
+        )?.toUpperCase();
+        if (isTerminalOrder(foundOrder, status)) {
+            return { status: BIDDING_ORDER_RECOVERY_STATUS.Terminal };
         }
-
-        if (!status && isLegacyInactive(foundOrder)) {
-            log.debug(
-                "recoveredOrderLegacyInactive",
-                "Recovered order is not active by legacy checks",
-                { orderHash },
-            );
-            return { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing };
+        if (
+            (status && status !== OPENSEA_ORDER_STATUS.Active) ||
+            asRecord(foundOrder).markedInvalid
+        ) {
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                reason: BIDDING_ORDER_RECOVERY_REASON.NotActive,
+            };
         }
 
         const parsed = this.parseRawOffer(
@@ -813,21 +799,21 @@ export class OpenSeaBiddingService implements BiddingService {
 
     public async cancelOffer(
         _job: BidderJob,
-        order: Order,
+        order: OrderCancellation,
         context: BiddingServiceRequestContext = {},
     ): Promise<void> {
         await this.cancelOrder(order, context);
     }
 
     public async cancelRecoveredOrder(
-        order: Order,
+        order: OrderCancellation,
         context: BiddingServiceRequestContext = {},
     ): Promise<void> {
         await this.cancelOrder(order, context);
     }
 
     private async cancelOrder(
-        order: Order,
+        order: OrderCancellation,
         context: BiddingServiceRequestContext,
     ): Promise<void> {
         try {
@@ -878,7 +864,8 @@ export class OpenSeaBiddingService implements BiddingService {
                 "offerCancelFailed",
                 "Failed to cancel offer after retries",
                 {
-                    ...orderLogFields(order),
+                    orderId: order.id,
+                    protocolAddress: order.protocolAddress ?? null,
                     ...toErrorLogFields(error),
                 },
             );
@@ -1777,16 +1764,34 @@ function matchesOrderHash(rawOrder: unknown, orderHash: string): boolean {
     return getOpenSeaOrderHash(rawOrder) === orderHash;
 }
 
-function isLegacyInactive(rawOrder: unknown): boolean {
+// OpenSea's availability status is distinct from irreversible completion.
+export const OPENSEA_ORDER_STATUS = {
+    Active: "ACTIVE",
+    Inactive: "INACTIVE",
+    Fulfilled: "FULFILLED",
+    Expired: "EXPIRED",
+    Cancelled: "CANCELLED",
+} as const;
+
+function isTerminalOrder(
+    rawOrder: unknown,
+    status: string | undefined,
+): boolean {
+    if (status) {
+        return (
+            status === OPENSEA_ORDER_STATUS.Fulfilled ||
+            status === OPENSEA_ORDER_STATUS.Expired ||
+            status === OPENSEA_ORDER_STATUS.Cancelled
+        );
+    }
     const order = asRecord(rawOrder);
     const expirationTime = Number(order.expirationTime);
-    const isExpired =
-        Number.isFinite(expirationTime) &&
-        expirationTime > 0 &&
-        expirationTime < Date.now() / 1000;
-
-    return Boolean(
-        order.cancelled || order.finalized || order.markedInvalid || isExpired,
+    return (
+        order.cancelled === true ||
+        order.finalized === true ||
+        (Number.isFinite(expirationTime) &&
+            expirationTime > 0 &&
+            expirationTime <= Date.now() / 1000)
     );
 }
 
@@ -1806,7 +1811,7 @@ function isNotFoundError(error: unknown): boolean {
     return message.includes("404") || status === 404;
 }
 
-function isDirectOrderAbsentError(error: unknown): boolean {
+function isDirectOrderUnavailableError(error: unknown): boolean {
     if (isNotFoundError(error)) {
         return true;
     }

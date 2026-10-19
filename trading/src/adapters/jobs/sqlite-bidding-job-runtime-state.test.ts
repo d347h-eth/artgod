@@ -287,7 +287,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
     });
 
-    it("lists recoverable offer cancellations and marks proven-absent rows completed", () => {
+    it("lists recoverable offer cancellations and marks terminal rows completed", () => {
         const runtimeState = new SqliteBiddingJobRuntimeState();
 
         runtimeState.recordJobOfferCancellation({

@@ -43,11 +43,13 @@ Declared competitor selectors reuse `shared/trading/trait-competition.ts`,
 which keeps literal values separate from all-values selectors during lookup.
 
 Direct recovery of a tracked order checks its matching identity and source
-status before parsing active-offer terms. Terminal responses, including legacy
-inactive flags when status is absent, can complete bidder and failed-cancellation
-recovery even when the offer has zero remainder or no priceable terms. Active
-records still require the shared parser; malformed active responses leave
-recovery inconclusive.
+status before parsing active-offer terms. Only explicit `FULFILLED`, `EXPIRED`, or `CANCELLED` responses (or legacy
+cancellation, finalization, or expiry evidence when status is absent) complete
+recovery without a cancellation. `INACTIVE`, unknown statuses, `markedInvalid`,
+missing records, and lookup failures do not prove terminality. Active records
+still require the shared parser. Cancellation uses the saved order identity and
+protocol independently of priceability; ordinary bidder recovery retains an
+unresolved order instead of replacing it.
 
 ## Collection Snapshot Traversal
 

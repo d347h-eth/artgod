@@ -232,7 +232,7 @@ export class SqliteBiddingJobRuntimeState
     markOfferCancellationCompleted(
         cancellation: CompletedOfferCancellation,
     ): void {
-        // Mark proven-absent cancellations complete so bid-book reads can suppress stale indexed echoes.
+        // Mark terminal cancellations complete so bid-book reads can suppress stale indexed echoes.
         this.markOfferCancellationCompletedStatement.run(cancellation);
     }
 

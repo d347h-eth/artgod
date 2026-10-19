@@ -354,11 +354,11 @@ Command effects:
 - `job_paused` / `job_archived`: remove the job from scheduling and request active-offer cancellation
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
 - `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
-- `cancel_active_offer` is also idempotent when OpenSea active-offer discovery and direct order recovery prove the tracked order id is already absent; the bot records the cancellation as completed and clears runtime state
-- inconclusive direct order recovery keeps the command retryable because the bot cannot prove whether the order is still live
+- `cancel_active_offer` is also idempotent when direct order recovery proves the tracked order is terminal; the bot records the cancellation as completed and clears runtime state
+- unavailable or inactive orders retain the cancellation obligation; cancellation uses the saved order id and protocol without requiring active market terms
 - terminal cancellation failures are written back to `trading_bidding_order_cancellations` so the bid book renders `cancel failed` instead of leaving an unresolved `canceling` row
-- failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
-- dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order absent, but it never places a live offer or emits a cancellation signature; an active remote order remains unresolved
+- failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after a successful cancellation or explicit terminal evidence
+- dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order terminal, but it never places a live offer or emits a cancellation signature; a nonterminal or unresolved remote order remains tracked
 
 Skipping a command leaves its saved declaration unchanged. At a later authorized
 boot, startup loads the latest enabled spec without depending on replay of the

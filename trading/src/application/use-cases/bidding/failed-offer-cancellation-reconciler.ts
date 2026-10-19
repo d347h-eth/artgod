@@ -2,7 +2,7 @@ import {
     BIDDING_SERVICE_REQUEST_PRIORITY,
     BIDDING_ORDER_RECOVERY_STATUS,
     BiddingService,
-    type Order,
+    type OrderCancellation,
 } from "./bidding-service.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -72,12 +72,11 @@ export const FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION = {
     RetrySkippedExpired: "failedCancellationRetrySkippedExpired",
     RetryStarted: "failedCancellationRetryStarted",
     RetrySucceeded: "failedCancellationRetrySucceeded",
-    StillActive: "failedCancellationStillActive",
-    Inconclusive: "failedCancellationRecoveryInconclusive",
+    Unresolved: "failedCancellationUnresolved",
     Failed: "failedCancellationRecoveryFailed",
 } as const;
 
-// FailedOfferCancellationReconciler heals failed cancellation rows only after OpenSea proves the order is gone.
+// Completion requires terminal evidence or a successful cancellation; availability is insufficient.
 export class FailedOfferCancellationReconciler {
     private acceptingRecords = true;
 
@@ -120,10 +119,7 @@ export class FailedOfferCancellationReconciler {
                     record.collectionSlug,
                 );
 
-                if (
-                    result.status ===
-                    BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing
-                ) {
+                if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Terminal) {
                     const completedAt = new Date().toISOString();
                     await this.repository.markOfferCancellationCompleted({
                         jobId: record.jobId,
@@ -143,62 +139,49 @@ export class FailedOfferCancellationReconciler {
                     continue;
                 }
 
-                if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
-                    if (this.config.dryRun) {
-                        await this.restoreTerminalFailureIfAvailable(record);
-                        log.debug(
-                            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedDryRun,
-                            "Skipping failed cancellation retry in dry-run mode",
-                            {
-                                jobId: record.jobId,
-                                orderId: record.orderId,
-                                collectionSlug: record.collectionSlug,
-                            },
-                        );
-                    } else if (this.shouldRetryCancellation(record)) {
-                        const didComplete = await this.retryActiveCancellation(
-                            record,
-                            result.order,
-                        );
-                        if (didComplete) {
-                            completedCount += 1;
-                        }
-                        continue;
-                    } else {
-                        await this.restoreTerminalFailureIfAvailable(record);
-                        log.debug(
-                            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedExpired,
-                            "Skipping failed cancellation retry because the offer is past its stored expiration",
-                            {
-                                jobId: record.jobId,
-                                orderId: record.orderId,
-                                collectionSlug: record.collectionSlug,
-                                expirationTimeMs: record.expirationTimeMs,
-                            },
-                        );
-                    }
-
+                if (this.config.dryRun) {
+                    await this.restoreTerminalFailureIfAvailable(record);
                     log.debug(
-                        FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.StillActive,
-                        "Failed offer cancellation still has an active order",
+                        FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedDryRun,
+                        "Skipping failed cancellation retry in dry-run mode",
                         {
                             jobId: record.jobId,
                             orderId: record.orderId,
                             collectionSlug: record.collectionSlug,
                         },
                     );
+                } else if (this.shouldRetryCancellation(record)) {
+                    const didComplete = await this.retryCancellation(
+                        record,
+                        result.status === BIDDING_ORDER_RECOVERY_STATUS.Active
+                            ? result.order
+                            : { id: record.orderId },
+                    );
+                    if (didComplete) {
+                        completedCount += 1;
+                    }
                     continue;
+                } else {
+                    await this.restoreTerminalFailureIfAvailable(record);
+                    log.debug(
+                        FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedExpired,
+                        "Skipping failed cancellation retry because the offer is past its stored expiration",
+                        {
+                            jobId: record.jobId,
+                            orderId: record.orderId,
+                            collectionSlug: record.collectionSlug,
+                            expirationTimeMs: record.expirationTimeMs,
+                        },
+                    );
                 }
 
-                await this.restoreTerminalFailureIfAvailable(record);
                 log.debug(
-                    FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.Inconclusive,
-                    "Failed offer cancellation recovery was inconclusive",
+                    FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.Unresolved,
+                    "Offer cancellation remains unresolved",
                     {
                         jobId: record.jobId,
                         orderId: record.orderId,
                         collectionSlug: record.collectionSlug,
-                        reason: result.reason,
                     },
                 );
             } catch (error) {
@@ -227,9 +210,9 @@ export class FailedOfferCancellationReconciler {
         );
     }
 
-    private async retryActiveCancellation(
+    private async retryCancellation(
         record: RecoverableOfferCancellationRecord,
-        recoveredOrder: Order,
+        recoveredOrder: OrderCancellation,
     ): Promise<boolean> {
         const order = this.mergeRecoveredOrder(record, recoveredOrder);
         log.info(
@@ -244,7 +227,7 @@ export class FailedOfferCancellationReconciler {
         );
 
         try {
-            // Retry only in live mode after OpenSea proved the tracked order is active.
+            // A saved cancellation obligation does not depend on present funding or API availability.
             await this.biddingService.cancelRecoveredOrder(order, {
                 priority: BIDDING_SERVICE_REQUEST_PRIORITY.Background,
             });
@@ -288,8 +271,8 @@ export class FailedOfferCancellationReconciler {
 
     private mergeRecoveredOrder(
         record: RecoverableOfferCancellationRecord,
-        recoveredOrder: Order,
-    ): Order {
+        recoveredOrder: OrderCancellation,
+    ): OrderCancellation {
         return {
             ...recoveredOrder,
             protocolAddress:

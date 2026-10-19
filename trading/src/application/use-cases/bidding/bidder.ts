@@ -49,6 +49,8 @@ import {
     BiddingService,
     type BiddingServiceRequestContext,
     Order,
+    type OrderCancellation,
+    type BiddingOrderRecoveryResult,
 } from "./bidding-service.js";
 import { MakerWethBalanceService } from "./maker-weth-balance-service.js";
 
@@ -341,7 +343,6 @@ const BIDDER_LOG_ACTION = {
     CurrentPriceBootstrapComplete: "currentPriceBootstrapComplete",
     OfferCancellationPersistFailed: "offerCancellationPersistFailed",
     RuntimeStatePersistFailed: "runtimeStatePersistFailed",
-    TrackedActiveOfferAlreadyAbsent: "trackedActiveOfferAlreadyAbsent",
 } as const;
 
 // Bidder is the pure bidding core ported from the production bot with mechanical renames only.
@@ -477,48 +478,55 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
             const offers = await this.readActiveOffers(job, requestContext);
             const trackedOrderId = job.state.activeOrderId;
-            const trackedOrder = await this.resolveTrackedActiveOrder(
-                job,
-                offers,
-                jobRef,
-                false,
-                requestContext,
-            );
-            const cancellationCandidates =
-                trackedOrder &&
-                !offers.some((offer) => offer.id === trackedOrder.id)
-                    ? [...offers, trackedOrder]
-                    : offers;
             const makerAddress = this.makerAddress.toLowerCase();
-            const makerOffers = cancellationCandidates.filter(
+            const makerOffers: OrderCancellation[] = offers.filter(
                 (offer) =>
                     offer.maker.toLowerCase() === makerAddress &&
                     (this.isOfferManagedByJob(job, offer) ||
                         offer.id === trackedOrderId),
             );
-            if (makerOffers.length === 0) {
-                if (trackedOrderId) {
+            if (
+                trackedOrderId &&
+                !makerOffers.some((offer) => offer.id === trackedOrderId)
+            ) {
+                const recovered = await this.recoverTrackedOrder(
+                    job,
+                    jobRef,
+                    requestContext,
+                );
+                if (
+                    recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Terminal
+                ) {
                     const completedAt = new Date().toISOString();
-                    log.info(
-                        BIDDER_LOG_ACTION.TrackedActiveOfferAlreadyAbsent,
-                        "Tracked active offer is already absent; treating cancellation as complete",
-                        {
-                            jobId: job.id,
-                            jobRef,
-                            collectionSlug: job.collectionSlug,
-                            targetType: job.target.type,
-                            orderId: trackedOrderId,
-                        },
-                    );
                     this.recordTrackedOrderCancellation(job, {
                         requestedAt: completedAt,
                         completedAt,
                         cancellationError: null,
                     });
                     this.clearTrackedOrder(job);
-                    return 0;
+                } else {
+                    // Cancellation uses the saved identity even when current terms
+                    // cannot be priced, the order is unfunded, or lookup is unavailable.
+                    makerOffers.push({
+                        id: trackedOrderId,
+                        protocolAddress:
+                            job.state.activeProtocolAddress ??
+                            (recovered.status ===
+                            BIDDING_ORDER_RECOVERY_STATUS.Active
+                                ? recovered.order.protocolAddress
+                                : undefined),
+                        price: job.state.currentPrice,
+                        placedAt: job.state.activeOrderPlacedAt,
+                        expirationTime:
+                            job.state.activeExpirationTimeMs === undefined
+                                ? undefined
+                                : Math.floor(
+                                      job.state.activeExpirationTimeMs / 1000,
+                                  ),
+                    });
                 }
-
+            }
+            if (makerOffers.length === 0) {
                 log.info(
                     "noActiveMakerOffersForCancellation",
                     "No active maker offers found for cancellation",
@@ -550,7 +558,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 undefined,
                 requestContext,
             );
-            this.clearTrackedOrder(job);
+            if (!this.isDryRun()) this.clearTrackedOrder(job);
             return makerOffers.length;
         });
     }
@@ -2606,7 +2614,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private async cancelAndTrack(
         job: BidderJob,
-        order: Order,
+        order: OrderCancellation,
         requestContext: BiddingServiceRequestContext = {},
     ): Promise<void> {
         const startedAt = Date.now();
@@ -2635,7 +2643,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private async performCancelAndTrack(
         job: BidderJob,
-        order: Order,
+        order: OrderCancellation,
         requestContext: BiddingServiceRequestContext = {},
     ): Promise<void> {
         const jobRef = formatBidderJobReference(job);
@@ -2652,11 +2660,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             jobId: job.id,
             jobRef,
             orderId: order.id,
-            offerScope: order.offerScope ?? null,
-            priceWei: order.price.toString(),
-            priceEth: formatUnits(order.price, 18),
-            priceSource: order.priceSource ?? order.source ?? null,
-            quantity: order.quantity?.toString() ?? "1",
+            priceWei: order.price?.toString() ?? null,
         });
         const requestedAt = new Date().toISOString();
         this.recordJobOfferCancellation(job, order, {
@@ -2719,11 +2723,45 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         this.persistJobRuntimeState(job);
     }
 
+    private async recoverTrackedOrder(
+        job: BidderJob,
+        jobRef: string,
+        requestContext: BiddingServiceRequestContext,
+    ): Promise<BiddingOrderRecoveryResult> {
+        const activeId = job.state.activeOrderId!;
+        log.debug(
+            "activeBidMissingFromMarket",
+            "Tracked active bid was not found in market offers; checking directly",
+            {
+                jobId: job.id,
+                jobRef,
+                orderId: activeId,
+            },
+        );
+        const tokenId =
+            job.target.type === BIDDER_TARGET_TYPE.Token
+                ? job.target.tokenId
+                : undefined;
+        return await observeBiddingWork(
+            this.observability,
+            BIDDING_WORK_STAGE.OrderRecovery,
+            () =>
+                this.biddingService.getOrder(
+                    activeId,
+                    job.state.activeProtocolAddress,
+                    job.collectionAddress,
+                    tokenId,
+                    job.collectionSlug,
+                    requestContext,
+                ),
+        );
+    }
+
     private async resolveTrackedActiveOrder(
         job: BidderJob,
         offers: Order[],
         jobRef: string,
-        clearMissing: boolean,
+        clearTerminal: boolean,
         requestContext: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
         const activeId = job.state.activeOrderId;
@@ -2742,31 +2780,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return foundInMarket;
         }
 
-        log.debug(
-            "activeBidMissingFromMarket",
-            "Tracked active bid was not found in market offers; checking directly",
-            {
-                jobId: job.id,
-                jobRef,
-                orderId: activeId,
-            },
-        );
-        const tokenId =
-            job.target.type === BIDDER_TARGET_TYPE.Token
-                ? job.target.tokenId
-                : undefined;
-        const recovered = await observeBiddingWork(
-            this.observability,
-            BIDDING_WORK_STAGE.OrderRecovery,
-            () =>
-                this.biddingService.getOrder(
-                    activeId,
-                    job.state.activeProtocolAddress,
-                    job.collectionAddress,
-                    tokenId,
-                    job.collectionSlug,
-                    requestContext,
-                ),
+        const recovered = await this.recoverTrackedOrder(
+            job,
+            jobRef,
+            requestContext,
         );
 
         if (recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
@@ -2796,10 +2813,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
         }
 
-        if (clearMissing) {
+        if (clearTerminal) {
             log.info(
                 "activeBidInvalid",
-                "Tracked active bid is invalid or missing; clearing state",
+                "Tracked bid is terminal; clearing state",
                 {
                     jobId: job.id,
                     jobRef,
@@ -2884,7 +2901,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private recordJobOfferCancellation(
         job: BidderJob,
-        order: Order,
+        order: OrderCancellation,
         state: {
             requestedAt: string;
             completedAt: string | null;
@@ -2901,7 +2918,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 jobId: job.id,
                 jobRevision: job.revision,
                 orderId: order.id,
-                priceWei: order.price.toString(),
+                priceWei: order.price?.toString() ?? null,
                 protocolAddress: order.protocolAddress ?? null,
                 placedAt: order.placedAt ?? null,
                 expirationTimeMs:
@@ -2938,7 +2955,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         try {
-            // Settle a tracked order that OpenSea already reports absent from active offers.
+            // Settle a tracked order only after explicit terminal evidence.
             this.runtimeStatePort.recordJobOfferCancellation({
                 jobId: job.id,
                 jobRevision: job.revision,
@@ -3033,7 +3050,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private async cancelMakerOffers(
         job: BidderJob,
-        myOffers: Order[],
+        myOffers: OrderCancellation[],
         keepOrderId?: string,
         requestContext: BiddingServiceRequestContext = {},
     ): Promise<void> {

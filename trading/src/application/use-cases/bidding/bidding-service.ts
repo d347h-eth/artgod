@@ -38,10 +38,17 @@ export interface Order {
     quantity?: bigint;
 }
 
+// Cancellation needs a saved identity, never an executable offer or current price.
+// Optional historical metadata is retained for cancellation records.
+export type OrderCancellation = Pick<
+    Order,
+    "id" | "protocolAddress" | "placedAt" | "expirationTime"
+> & { price?: bigint };
+
 // BiddingOrderRecoveryStatus is the order lookup proof state used for cancellation safety.
 export const BIDDING_ORDER_RECOVERY_STATUS = {
     Active: "active",
-    InactiveOrMissing: "inactive_or_missing",
+    Terminal: "terminal",
     Inconclusive: "inconclusive",
 } as const;
 
@@ -53,6 +60,7 @@ export const BIDDING_ORDER_RECOVERY_REASON = {
     DirectLookupFailed: "direct_lookup_failed",
     LookupUnavailable: "lookup_unavailable",
     ParseFailed: "parse_failed",
+    NotActive: "not_active",
 } as const;
 
 export type BiddingOrderRecoveryReason =
@@ -64,7 +72,7 @@ export type BiddingOrderRecoveryResult =
           order: Order;
       }
     | {
-          status: typeof BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing;
+          status: typeof BIDDING_ORDER_RECOVERY_STATUS.Terminal;
       }
     | {
           status: typeof BIDDING_ORDER_RECOVERY_STATUS.Inconclusive;
@@ -106,12 +114,12 @@ export interface BiddingService {
     }>;
     cancelOffer(
         job: BidderJob,
-        order: Order,
+        order: OrderCancellation,
         context?: BiddingServiceRequestContext,
     ): Promise<void>;
     // Cancels a recovered order when no active job declaration should be rehydrated.
     cancelRecoveredOrder(
-        order: Order,
+        order: OrderCancellation,
         context?: BiddingServiceRequestContext,
     ): Promise<void>;
 }

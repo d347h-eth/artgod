@@ -415,7 +415,7 @@ describe("SqliteBiddingJobSource", () => {
                 return null;
             },
             getOrder: async () => ({
-                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
             }),
             placeOffer: async () => {
                 throw new Error("Unexpected placement");

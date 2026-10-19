@@ -6,6 +6,7 @@ import {
     type BiddingOrderRecoveryResult,
     type BiddingService,
     type Order,
+    type OrderCancellation,
 } from "./bidding-service.js";
 import {
     FailedOfferCancellationReconciler,
@@ -76,11 +77,11 @@ class FakeBiddingService implements BiddingService {
 
     lookups: RecoverableOfferCancellationRecord[] = [];
     result: BiddingOrderRecoveryResult = {
-        status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
     };
     error: Error | null = null;
     cancelError: Error | null = null;
-    cancelledOrders: Order[] = [];
+    cancelledOrders: OrderCancellation[] = [];
     lookupGate: Promise<void> | undefined;
 
     async getActiveOffers(): Promise<Order[]> {
@@ -132,7 +133,7 @@ class FakeBiddingService implements BiddingService {
         throw new Error("unused");
     }
 
-    async cancelRecoveredOrder(order: Order): Promise<void> {
+    async cancelRecoveredOrder(order: OrderCancellation): Promise<void> {
         this.cancelledOrders.push(order);
         if (this.cancelError) {
             throw this.cancelError;
@@ -490,7 +491,7 @@ describe("FailedOfferCancellationReconciler", () => {
         assert.deepEqual(repository.completed, []);
     });
 
-    it("continues after one failed lookup and completes later proven-absent rows", async () => {
+    it("continues after one failed lookup and completes later terminal rows", async () => {
         const records = [
             { ...FAILED_CANCELLATION_RECORD, orderId: "0xfirst" },
             { ...FAILED_CANCELLATION_RECORD, orderId: "0xsecond" },
@@ -504,7 +505,7 @@ describe("FailedOfferCancellationReconciler", () => {
                 throw new Error("OpenSea unavailable");
             }
             return {
-                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
             };
         };
         const reconciler = createReconciler(repository, biddingService, true);
