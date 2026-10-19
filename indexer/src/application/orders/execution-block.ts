@@ -7,8 +7,8 @@ export const ORDER_EXECUTION_LOG = {
         "Ignoring source execution validation without a valid transaction hash",
 } as const;
 
-/** Publish partial/unknown-order checks durably before acknowledging a source sale.
- * No receipt RPC runs in the order-lifecycle-updates consumer. */
+/** Retain partial/unknown-order checks durably before acknowledging a source sale.
+ * No receipt RPC runs in either order-update consumer. */
 export interface SourceExecutionValidationPort {
     request(input: {
         chainId: number;
@@ -21,8 +21,8 @@ export interface SourceExecutionValidationPort {
 }
 
 /** A source execution becomes a block requirement only after checking its current
- * canonical inclusion. The order-updates-by-id delivery owns the obligation until
- * this succeeds and ordinary validation demand has been admitted. */
+ * canonical inclusion. Persisted receipt work owns the obligation until this
+ * succeeds and ordinary validation demand has been admitted. */
 export interface OrderExecutionBlockPort {
     resolve(transactionHash: string): Promise<number>;
 }

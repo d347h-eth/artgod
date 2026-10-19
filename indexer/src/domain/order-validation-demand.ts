@@ -11,6 +11,7 @@ export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     leaseMs: 120_000,
     renewEveryMs: 30_000,
     pollMs: 1_000,
+    receiptExecutors: 1,
     batchOrders: ORDER_VALIDATION_BATCH_POLICY.maxOrders,
     retryBaseMs: 1_000,
     retryMaxMs: 60_000,
@@ -195,4 +196,13 @@ export function assertOrderValidationRequest(
                 request.minimumBlock < 0))
     )
         throw new Error("Invalid order validation demand");
+}
+
+/** Shared bounded backoff for validation and its prerequisite receipt work. */
+export function orderValidationRetryDelay(failures: number): number {
+    return Math.min(
+        ORDER_VALIDATION_DEMAND_POLICY.retryMaxMs,
+        ORDER_VALIDATION_DEMAND_POLICY.retryBaseMs *
+            2 ** Math.min(Math.max(0, failures - 1), 16),
+    );
 }

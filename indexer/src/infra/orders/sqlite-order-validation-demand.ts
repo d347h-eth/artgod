@@ -9,6 +9,7 @@ import {
     validationProofCovers,
     advancesValidationDemand,
     validationProofSatisfies,
+    orderValidationRetryDelay,
     type ClaimedOrderValidation,
     type OrderValidationDemand,
     type OrderValidationEvidence,
@@ -372,10 +373,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         now: number,
     ): number {
         const failures = claim.demand.failures + 1;
-        const retryMs = Math.min(
-            POLICY.retryMaxMs,
-            POLICY.retryBaseMs * 2 ** Math.min(failures - 1, 16),
-        );
+        const retryMs = orderValidationRetryDelay(failures);
         return db
             .prepare(
                 "UPDATE order_validation_demand SET lease_owner=NULL,lease_until=0,failures=failures+1,last_error=?,next_attempt_at=?,updated_at=? WHERE order_id=? AND chain_id=? AND lease_owner=? AND lease_version=? AND lease_until>?",

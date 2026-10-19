@@ -276,9 +276,12 @@ export class ValidateOrderDemand {
     }
 }
 
-export function startOrderValidationDemand(
-    processor: Pick<ValidateOrderDemand, "executeBatch">,
-    reporter?: OrderValidationDemandReporter,
+export function startOrderValidationDemand<
+    T extends { claimed: number; released: number },
+>(
+    processor: { executeBatch(signal?: AbortSignal): Promise<T | undefined> },
+    reporter?: { record(report: T | undefined): void; flush(): void },
+    concurrency: number = ORDER_PROCESSING_POLICY.concurrentValidations,
 ): () => Promise<void> {
     const controller = new AbortController();
     const waits = new Set<() => void>();
@@ -316,10 +319,7 @@ export function startOrderValidationDemand(
     };
     // Both current-order executors use main capacity. Historical hints are
     // filtered/coalesced before becoming validation demand.
-    const active = Array.from(
-        { length: ORDER_PROCESSING_POLICY.concurrentValidations },
-        () => run(),
-    );
+    const active = Array.from({ length: concurrency }, () => run());
     return async () => {
         controller.abort();
         for (const resume of waits) resume();

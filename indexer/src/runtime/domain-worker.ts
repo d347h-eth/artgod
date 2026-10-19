@@ -69,7 +69,9 @@ import { OrderValidationDemandProgress } from "../infra/orders/order-validation-
 import { DomainProcessingMetrics } from "../infra/observability/domain-processing-metrics.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
-import { QueuedSourceExecutionValidation } from "../infra/queue/source-execution-validation.js";
+import { SqliteOrderExecutionRequirements } from "../infra/orders/sqlite-order-execution-requirements.js";
+import { ResolveOrderExecutions } from "../application/orders/resolve-order-executions.js";
+import { ORDER_VALIDATION_DEMAND_POLICY } from "../domain/order-validation-demand.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
@@ -208,9 +210,17 @@ async function main() {
             ORDER_PROCESSING_POLICY.concurrentValidations,
             processingObservability,
         );
-        const applyOrderUpdate = new ApplyOrderUpdate({
-            executionValidation: new QueuedSourceExecutionValidation(queue),
+        const executionRequirements = new SqliteOrderExecutionRequirements(
+            orderValidationStore,
+        );
+        const executionResolver = new ResolveOrderExecutions({
+            chainId: config.chainId,
+            store: executionRequirements,
             executionBlock: new CanonicalOrderExecutionBlock(rpc),
+            admission: validationAdmission,
+        });
+        const applyOrderUpdate = new ApplyOrderUpdate({
+            executionValidation: executionRequirements,
             chainId: config.chainId,
             validation: admitOrderValidation,
             lifecycle: ordersDomain,
@@ -431,6 +441,13 @@ async function main() {
                 ),
             );
 
+        // A single receipt executor shares fair capacity with ordinary validation;
+        // unavailable receipts never consume both permits or a broker ACK slot.
+        const stopExecutionResolution = startOrderValidationDemand(
+            executionResolver,
+            undefined,
+            ORDER_VALIDATION_DEMAND_POLICY.receiptExecutors,
+        );
         const stopOrderValidation = startOrderValidationDemand(
             orderValidation,
             new OrderValidationDemandProgress(config.chainId),
@@ -756,6 +773,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopMakerRecovery();
+            await stopExecutionResolution();
             await stopOrderValidation();
             await stopOrders();
             for (const stop of stopMakerConsumers) await stop();

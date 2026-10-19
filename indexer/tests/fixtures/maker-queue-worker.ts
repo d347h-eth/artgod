@@ -1,4 +1,5 @@
-import { QueuedSourceExecutionValidation } from "../../src/infra/queue/source-execution-validation.js";
+import { SqliteOrderExecutionRequirements } from "../../src/infra/orders/sqlite-order-execution-requirements.js";
+import { ResolveOrderExecutions } from "../../src/application/orders/resolve-order-executions.js";
 import { CanonicalOrderExecutionBlock } from "../../src/application/orders/execution-block.js";
 // Maintained child-process fixture: explicit synthetic DB, fake RPC, private test broker.
 import { readFile } from "node:fs/promises";
@@ -230,8 +231,11 @@ for (const subscription of makerQueues)
             },
         ),
     );
-const applyUpdate = new ApplyOrderUpdate({
-    executionValidation: new QueuedSourceExecutionValidation(queue),
+const executionRequirements = new SqliteOrderExecutionRequirements(demandStore);
+const executionResolver = new ResolveOrderExecutions({
+    chainId: HEAVY_MAKER.chainId,
+    store: executionRequirements,
+    admission,
     executionBlock: new CanonicalOrderExecutionBlock({
         getTransactionReceipt: async (hash) => ({
             transactionHash: hash as `0x${string}`,
@@ -244,6 +248,9 @@ const applyUpdate = new ApplyOrderUpdate({
             transactions: [HEAVY_MAKER.saleTransactionHash],
         }),
     }),
+});
+const applyUpdate = new ApplyOrderUpdate({
+    executionValidation: executionRequirements,
     chainId: HEAVY_MAKER.chainId,
     validation: new AdmitOrderValidation(HEAVY_MAKER.chainId, demandStore),
     lifecycle: domain,
@@ -340,6 +347,11 @@ for (const queueName of [
         ),
     );
 }
+const stopExecutionResolution = startOrderValidationDemand(
+    executionResolver,
+    undefined,
+    1,
+);
 const stopValidation = startOrderValidationDemand(
     new ValidateOrderDemand({
         chainId: HEAVY_MAKER.chainId,
@@ -381,6 +393,7 @@ process.on("message", (message) => {
     stopping = true;
     void (async () => {
         await stopRecovery();
+        await stopExecutionResolution();
         await stopValidation();
         for (const stop of stopWorkers) await stop();
         await stopOutbox();
