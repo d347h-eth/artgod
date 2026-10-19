@@ -44,6 +44,36 @@ Migrations are applied at runtime startup via `createMigrationRunner()`:
 
 The migration runner is invoked by the onchain workers and the OpenSea workers.
 
+### Applied checkpoint storage
+
+Migration `077_coordinated_chain_progress.sql` introduces explicit applied
+evidence, implemented by `SqliteChainProgress`. It does not backfill readiness
+from existing `blocks` or `collection_sync_blocks` rows.
+
+- `chain_sync_progress` retains the shared protocol base, applied identity,
+  rollback revision and immediate dispute gate.
+- `collection_ownership_bases` records an installed bootstrap ownership base.
+  Choosing an anchor alone cannot establish this evidence.
+- `collection_sync_progress` retains the accepted base and contiguous applied
+  identity for each collection. A joining collection does not lower another
+  collection's usable checkpoint.
+- `chain_sync_targets` retains remote scheduling observations separately from
+  canonical membership. `chain_head_samples` freezes the first successful target
+  for a captured local admission watermark; sampling cannot cover an observation
+  admitted after that remote read began.
+
+The progress adapter requires exact expected predecessors and connected headers.
+Its advance operations participate in the existing range writer, after core
+effects and critical invalidations. Validation only reads a checkpoint covered
+by both shared and collection progress, checks its exact retained identity, and
+rejects it while recovery is retained. A later applied tip does not by itself
+invalidate an older still-canonical proof.
+
+These storage contracts are covered by `chain-sync-progress.test.ts` and
+`coordinated-chain-progress.test.ts`. They are the foundation for the coordinated
+runtime cutover; storage tests alone do not establish end-to-end pipeline
+integration.
+
 ## Order validation recovery
 
 Migrations 056–061 introduce durable maker scans, continuation publication,
