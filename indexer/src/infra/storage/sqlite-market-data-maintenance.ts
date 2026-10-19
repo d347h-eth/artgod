@@ -18,6 +18,7 @@ import type {
 import type { MarketDataCompactionPort } from "../../application/storage/compact-market-data.js";
 import {
     ORDER_RETIREMENT_REASON,
+    orderRetirementBlockNumber,
     orderRetirementReason,
 } from "../../domain/order-retention.js";
 import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
@@ -399,10 +400,12 @@ export class SqliteMarketDataMaintenance
                     orderId: String(row.id),
                     validUntil: input.validUntil,
                     retiredAt: input.lastObservedAt,
-                    blockNumber:
+                    blockNumber: orderRetirementBlockNumber(
+                        input,
                         row.block_number === null
                             ? null
                             : Number(row.block_number),
+                    ),
                     reason:
                         row.source_status === ORDER_SOURCE_STATUS.Cancelled
                             ? ORDER_RETIREMENT_REASON.SourceCancelled

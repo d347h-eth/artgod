@@ -351,9 +351,15 @@ materialized result and survives demand cleanup; it is replaced atomically with
 that result when status or quantities change. An unchanged result retains its
 earlier proof block; newer validation coverage belongs to demand and does not
 force an order write. Ordinary validation timestamp refresh still follows the
-five-minute interval. Retirement copies result attribution into its marker before cascading away the order
-and its demand. Rollback can therefore clear attributed orphan terminal markers,
-while source cancellation remains independently protected. Only a full
+five-minute interval. Retirement copies result attribution into its marker only
+when the terminal conclusion depends on that protocol result. A source sale with
+an earlier nonterminal result retains an unattributed marker; rolling back that
+result must not erase source completion. The same applies when a later canonical
+cancellation is rolled back while independent source completion remains.
+Canonical `filled` results, and canonical `cancelled` results without source
+completion, retain their block attribution through retirement. Rollback can
+therefore clear their orphan terminal markers, while source cancellation remains
+independently protected. Only a full
 fraction marks a partial order `filled`. Dependency failures leave valid state
 intact and keep the obligation pending; newer events, cancellations and chain
 revision changes retain the existing commit guards. No REST reconciliation is

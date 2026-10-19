@@ -564,7 +564,7 @@ export class SqliteOrdersDomain
                 ? { status: validation }
                 : validation;
         // Current result attribution belongs to the order, not to demand's reusable
-        // coverage cache. Cleanup and retirement must preserve its rollback boundary.
+        // coverage cache. Retirement uses it only when the result proves terminality.
         const quantities = validatedQuantityUpdate(result);
         const status = result.status;
         const now = this.nowSeconds();

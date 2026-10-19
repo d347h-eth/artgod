@@ -900,13 +900,21 @@ describe("canonical partial fill quantity progression", () => {
         },
     );
 
-    it.each([false, true])(
-        "retirement carries terminal validation attribution while source cancellation remains independent (%s)",
-        async (sourceCancelled) => {
+    it.each(
+        [ORDER_STATUS.Filled, ORDER_STATUS.Cancelled].flatMap((status) =>
+            [false, true].map((sourceCancelled) => ({
+                status,
+                sourceCancelled,
+            })),
+        ),
+    )(
+        "retirement carries $status validation attribution while source cancellation remains independent (sourceCancelled=$sourceCancelled)",
+        async ({ status, sourceCancelled }) => {
             const work = workflow();
             await initialSnapshot(work);
             work.rpc.blockNumber = BLOCK;
-            work.rpc.filled = 100n;
+            work.rpc.filled = status === ORDER_STATUS.Filled ? 100n : 55n;
+            work.rpc.cancelled = status === ORDER_STATUS.Cancelled;
             await fill(work);
             await work.processor.executeBatch();
             if (sourceCancelled)
@@ -1156,6 +1164,117 @@ describe("canonical partial fill quantity progression", () => {
         expect(await work.processor.executeBatch()).toBeUndefined();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
     });
+
+    it.each(FULL_ONLY_ORDERS)(
+        "retains signed size for a new full-only $side without an explicit original quantity (type=$type)",
+        async ({ type, side }) => {
+            const work = workflow();
+            const payload = {
+                ...fullOnlyUpsert(type, side),
+                originalQuantity: undefined,
+            };
+            await fullOnlyExecution(work, payload, true);
+            expect(stored(payload.orderId)).toMatchObject({
+                original_quantity: "1",
+                quantity: "0",
+            });
+            rollbackResult(work, BLOCK);
+            expect((await work.processor.executeBatch())?.validated).toBe(1);
+            expect(stored(payload.orderId)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Active,
+                fillability_status: ORDER_STATUS.Fillable,
+                original_quantity: "1",
+                quantity: "1",
+            });
+        },
+    );
+
+    it.each(
+        FULL_ONLY_ORDERS.flatMap((order) =>
+            [false, true].flatMap((retireFirst) =>
+                [false, true].map((chainCancelled) => ({
+                    ...order,
+                    retireFirst,
+                    chainCancelled,
+                })),
+            ),
+        ),
+    )(
+        "preserves source completion across rollback of unrelated protocol evidence ($side, type=$type, retireFirst=$retireFirst, chainCancelled=$chainCancelled)",
+        async ({ type, side, retireFirst, chainCancelled }) => {
+            const work = workflow();
+            const payload = fullOnlyUpsert(type, side);
+            work.rpc.filled = 0n;
+            work.rpc.size = 0n;
+            await work.domain.handleOrderUpsert(payload);
+            expect((await work.processor.executeBatch())?.validated).toBe(1);
+            expect(
+                db
+                    .prepare("SELECT block_number FROM orders WHERE id=?")
+                    .get(payload.orderId),
+            ).toEqual({ block_number: BLOCK });
+            const source = sourceExecution(work);
+            await source.execute(
+                { ...source.payload, orderId: payload.orderId },
+                NOW * 1000,
+            );
+            if (chainCancelled)
+                await work.domain.handleOrderUpdateById({
+                    chainId: 1,
+                    orderId: payload.orderId,
+                    reason: ORDER_UPDATE_REASON.Cancel,
+                    blockNumber: BLOCK + 1,
+                });
+            expect(stored(payload.orderId)).toMatchObject({
+                source_status: ORDER_SOURCE_STATUS.Filled,
+                fillability_status: chainCancelled
+                    ? ORDER_STATUS.Cancelled
+                    : ORDER_STATUS.Fillable,
+            });
+
+            const afterGrace =
+                NOW + MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds + 1;
+            vi.spyOn(Date, "now").mockReturnValue(afterGrace * 1000);
+            const retirement = () =>
+                db
+                    .prepare(
+                        "SELECT block_number FROM market_order_retirements WHERE order_id=?",
+                    )
+                    .get(payload.orderId);
+            const maintain = () => {
+                db.prepare(
+                    "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+                ).run(NOW, payload.orderId);
+                new SqliteMarketDataMaintenance(db).maintainBatch(afterGrace);
+                expect(stored(payload.orderId)).toBeUndefined();
+            };
+            if (retireFirst) maintain();
+            rollbackResult(work, BLOCK);
+            if (retireFirst) {
+                expect(retirement()).toEqual({ block_number: null });
+            } else {
+                expect(stored(payload.orderId)).toMatchObject({
+                    source_status: ORDER_SOURCE_STATUS.Filled,
+                    fillability_status: ORDER_STATUS.Unvalidated,
+                });
+            }
+            // Both delayed delivery and a freshly received active snapshot must
+            // remain blocked by the independent source completion.
+            for (const observedAt of [NOW, afterGrace]) {
+                const refresh = await work.domain.handleOrderUpsert({
+                    ...payload,
+                    observedAt,
+                });
+                expect(refresh.validationNeeded).toBe(false);
+            }
+            if (!retireFirst) maintain();
+            expect(retirement()).toEqual({ block_number: null });
+            expect(stored(payload.orderId)).toBeUndefined();
+            expect(await work.processor.executeBatch()).toBeUndefined();
+            expect(work.rpc.reads.getOrderStatus).toBe(1);
+            expect(source.receipt).not.toHaveBeenCalled();
+        },
+    );
 
     it.each(
         [false, true].flatMap((retireFirst) =>

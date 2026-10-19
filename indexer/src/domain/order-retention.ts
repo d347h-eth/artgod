@@ -90,6 +90,23 @@ export function orderRetirementReason(
     return null;
 }
 
+/** Retirement can depend on a chain block only when that result proves
+ * terminality. Source completion survives rollback unless a canonical filled
+ * result is orphaned; a fillable or cancelled result does not prove that sale.
+ * Independent source cancellation stays protected by its retirement reason. */
+export function orderRetirementBlockNumber(
+    order: Pick<OrderRetentionInput, "sourceStatus" | "fillabilityStatus">,
+    resultBlockNumber: number | null,
+): number | null {
+    if (
+        order.fillabilityStatus === ORDER_STATUS.Filled ||
+        (order.fillabilityStatus === ORDER_STATUS.Cancelled &&
+            order.sourceStatus !== ORDER_SOURCE_STATUS.Filled)
+    )
+        return resultBlockNumber;
+    return null;
+}
+
 /** Keep one order-level fence, not a receipt for every delivery. New expiry
  * evidence can replace an unknown-expiry fallback in either direction. */
 export function mergeOrderRetirement(
