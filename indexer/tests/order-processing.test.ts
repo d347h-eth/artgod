@@ -42,6 +42,7 @@ import {
 } from "../src/infra/observability/domain-processing-metric-contract.js";
 import {
     HEAVY_MAKER,
+    heavyMakerBlock,
     seedHeavyMaker,
     heavyMakerHint,
     tokenSaleHint,
@@ -183,7 +184,7 @@ describe("order processing boundaries", () => {
                     readCounts: () => ({ perOrder: 0, shared: 0, other: 0 }),
                     proof: {
                         observedAt: HEAVY_MAKER.now * 1_000,
-                        blockNumber: HEAVY_MAKER.blockNumber,
+                        block: heavyMakerBlock(),
                     },
                 };
             },

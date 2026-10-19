@@ -144,7 +144,9 @@ describe("bounded demand validation batches", () => {
         vi.spyOn(Date, "now").mockReturnValue(now);
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
-        db.exec("DELETE FROM orders; DELETE FROM collections;");
+        db.exec(
+            "DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections;",
+        );
     });
     afterEach(() => vi.restoreAllMocks());
 

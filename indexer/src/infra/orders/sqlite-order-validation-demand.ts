@@ -1,3 +1,4 @@
+import { writeWithCanonicalBlock } from "../storage/sqlite-canonical-headers.js";
 import type { ChainSyncCheckpoint } from "../../domain/chain-sync.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
@@ -84,7 +85,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
             pending ? 1 : 0,
             revision,
             evidence.observedAt,
-            evidence.blockNumber,
+            evidence.block.number,
             evidence.checkpoint.revision,
             now,
         );
@@ -268,7 +269,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
         now: number,
     ): OrderValidationCompletionCounts {
         // One bounded commit follows snapshot verification; RPC never holds this transaction.
-        return db.writeTransaction(() => {
+        return writeWithCanonicalBlock(proof, () => {
             assertChainSyncCheckpoint(proof.checkpoint);
             const counts: OrderValidationCompletionCounts = {
                 applied: 0,
@@ -318,7 +319,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                     revision,
                     revision,
                     revision === null ? null : proof.observedAt,
-                    revision === null ? null : proof.blockNumber,
+                    revision === null ? null : proof.block.number,
                     revision === null ? null : proof.checkpoint.revision,
                     now,
                     claim.demand.orderId,
@@ -329,7 +330,7 @@ export class SqliteOrderValidationDemand implements OrderValidationDemandPort {
                 else counts.covered++;
             }
             return counts;
-        })();
+        });
     }
 
     release(claims: readonly ClaimedOrderValidation[], now: number): number {

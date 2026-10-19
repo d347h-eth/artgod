@@ -1,3 +1,4 @@
+import type { SyncBlockHeader } from "../../domain/chain-sync.js";
 import type { OrderValidationEvidence } from "../../domain/order-validation-demand.js";
 import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import {
@@ -557,7 +558,7 @@ export class SqliteOrdersDomain
     private applyValidation(
         row: OrderRow,
         validation: OrderValidationResult | OrderStatus,
-        blockNumber: number | null = null,
+        block: SyncBlockHeader | null = null,
     ): { changes: number } {
         const result =
             typeof validation === "string"
@@ -587,11 +588,12 @@ export class SqliteOrdersDomain
                     remaining: string | null;
                     fillable: string | null;
                     blockNumber: number | null;
+                    blockHash: string | null;
                 }>(
                     `UPDATE orders SET validated_at=@now, updated_at=CASE WHEN ${changedResult} THEN CURRENT_TIMESTAMP ELSE updated_at END, ` +
                         `state_revision=state_revision+CASE WHEN ${changedResult} THEN 1 ELSE 0 END, fillability_status=@status, ` +
                         `original_quantity=COALESCE(@original,original_quantity), quantity=COALESCE(@remaining,quantity), fillable_quantity=@fillable, block_number=CASE WHEN ${changedResult} THEN @blockNumber ELSE COALESCE(block_number,@blockNumber) END, ` +
-                        `block_hash=CASE WHEN ${replaceAttribution} THEN NULL ELSE block_hash END, tx_hash=CASE WHEN ${replaceAttribution} THEN NULL ELSE tx_hash END, log_index=CASE WHEN ${replaceAttribution} THEN NULL ELSE log_index END ` +
+                        `block_hash=CASE WHEN ${replaceAttribution} THEN @blockHash ELSE block_hash END, tx_hash=CASE WHEN ${replaceAttribution} THEN NULL ELSE tx_hash END, log_index=CASE WHEN ${replaceAttribution} THEN NULL ELSE log_index END ` +
                         "WHERE chain_id=@chainId AND id=@orderId AND state_revision=@revision AND source_status=@active " +
                         `AND (${replaceAttribution} OR validated_at<=@stale)`,
                 )
@@ -606,7 +608,8 @@ export class SqliteOrdersDomain
                     original: quantities.original,
                     remaining: quantities.remaining,
                     fillable: quantities.fillable,
-                    blockNumber,
+                    blockNumber: block?.number ?? null,
+                    blockHash: block?.hash ?? null,
                 });
             if (result.changes)
                 this.listingPrices.refreshOrder(row.chain_id, row.id, now);
@@ -1283,7 +1286,7 @@ export class SqliteOrdersDomain
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
         }) as OrderRow;
-        this.applyValidation(row, result, proof.blockNumber);
+        this.applyValidation(row, result, proof.block);
         const updated = this.selectOrderById.get({
             chainId: claim.demand.chainId,
             orderId: claim.demand.orderId,
@@ -1360,7 +1363,7 @@ export class SqliteOrdersDomain
             throw new MakerRevalidationConflict(
                 "Maker validation requires block attribution",
             );
-        this.applyValidation(row, resolution.validation, proof.blockNumber);
+        this.applyValidation(row, resolution.validation, proof.block);
         return (
             this.selectOrderById.get({
                 chainId: payload.chainId,

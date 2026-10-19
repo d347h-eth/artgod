@@ -51,6 +51,7 @@ import type {
 } from "../src/ports/queue.js";
 import {
     HEAVY_MAKER,
+    heavyMakerBlock,
     HeavyMakerRpc,
     BatchedHeavyMakerRpc,
     heavyMakerHint,
@@ -156,7 +157,7 @@ describe("durable maker checkpoints", () => {
         vi.spyOn(logger, "info").mockImplementation(() => {});
         vi.spyOn(logger, "error").mockImplementation(() => {});
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections;",
         );
     });
     afterEach(() => vi.restoreAllMocks());
@@ -849,7 +850,7 @@ describe("durable maker checkpoints", () => {
             now,
             {
                 observedAt: now,
-                blockNumber: HEAVY_MAKER.blockNumber,
+                block: heavyMakerBlock(),
                 checkpoint: { chainId: 1, revision: 0 },
             },
         );

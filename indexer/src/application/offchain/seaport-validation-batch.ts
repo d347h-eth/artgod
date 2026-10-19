@@ -69,7 +69,10 @@ function createValidationSnapshotFactory(
                 now() - startedAt > POLICY.snapshotLifetimeMs ||
                 now() / 1_000 - block.timestamp > POLICY.maxBlockAgeSeconds ||
                 block.number !== number ||
-                !/^0x[0-9a-f]{64}$/i.test(block.hash)
+                !/^0x[0-9a-f]{64}$/i.test(block.hash) ||
+                !/^0x[0-9a-f]{64}$/i.test(block.parentHash) ||
+                !Number.isSafeInteger(block.timestamp) ||
+                block.timestamp < 0
             ) {
                 throw new OrderValidationSnapshotUnavailable(
                     "Validation snapshot is stale or unavailable",
@@ -217,7 +220,15 @@ function createValidationSnapshotFactory(
             now() - startedAt < POLICY.admissionBudgetMs;
         return {
             canAccept,
-            proof: { observedAt: startedAt, blockNumber: number },
+            proof: {
+                observedAt: startedAt,
+                block: {
+                    number,
+                    hash: block.hash,
+                    parentHash: block.parentHash,
+                    timestamp: block.timestamp,
+                },
+            },
             readCounts: () => ({ ...counts }),
             async validate(order: OrderRecord) {
                 if (closed || failure || orders >= POLICY.maxOrders)
@@ -256,7 +267,10 @@ function createValidationSnapshotFactory(
                 const head = await rpc.getBlockNumber();
                 checkLifetime();
                 if (
+                    canonical.number !== number ||
                     canonical.hash !== block.hash ||
+                    canonical.parentHash !== block.parentHash ||
+                    canonical.timestamp !== block.timestamp ||
                     head < number ||
                     head - number > POLICY.maxHeadAdvance
                 ) {

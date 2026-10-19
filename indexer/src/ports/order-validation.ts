@@ -1,3 +1,4 @@
+import type { OrderValidationProof } from "../domain/order-validation-demand.js";
 import type { OrderRecord, OrderValidationResult } from "../domain/orders.js";
 import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
 export type { OrderValidationResult } from "../domain/orders.js";
@@ -36,6 +37,6 @@ export type OrderValidationSnapshotFactory = (
     input: ValidationSnapshotInput,
 ) => Promise<
     MakerValidationBatch & {
-        proof: { observedAt: number; blockNumber: number };
+        proof: OrderValidationProof;
     }
 >;

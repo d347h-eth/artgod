@@ -1,3 +1,4 @@
+import { syncBlockFixture } from "./helpers/chain-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import {
     SYNC_WORK_CLASS as CLASS,
@@ -49,7 +50,7 @@ describe("pipeline work allocation", () => {
         const factory = bindRpcValidationFactory(scope, async () => {
             classes.push(scope.current());
             return {
-                proof: { observedAt: 1, blockNumber: 1 },
+                proof: { observedAt: 1, block: syncBlockFixture(1) },
                 canAccept: () => true,
                 readCounts: () => ({ shared: 0, perOrder: 0, other: 0 }),
                 validate: async () => {

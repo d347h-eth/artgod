@@ -5,7 +5,7 @@ import {
     type OrderValidationResult,
 } from "./orders.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "./order-validation-policy.js";
-import type { ChainSyncCheckpoint } from "./chain-sync.js";
+import type { ChainSyncCheckpoint, SyncBlockHeader } from "./chain-sync.js";
 
 export const ORDER_VALIDATION_DEMAND_POLICY = Object.freeze({
     leaseMs: 120_000,
@@ -62,7 +62,10 @@ export type ClaimedOrderValidation = {
     demand: OrderValidationDemand;
     candidate: OrderValidationCandidate;
 };
-export type OrderValidationProof = { observedAt: number; blockNumber: number };
+export type OrderValidationProof = {
+    observedAt: number;
+    block: SyncBlockHeader;
+};
 export type OrderValidationEvidence = OrderValidationProof & {
     checkpoint: ChainSyncCheckpoint;
 };
@@ -125,7 +128,7 @@ export function validationProofSatisfies(
     return (
         proof.observedAt >= request.requiredAt &&
         (request.minimumBlock === null ||
-            proof.blockNumber >= request.minimumBlock)
+            proof.block.number >= request.minimumBlock)
     );
 }
 

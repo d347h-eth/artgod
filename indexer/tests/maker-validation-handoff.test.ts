@@ -32,6 +32,7 @@ import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validatio
 import { inspectOrderProcessing } from "../scripts/order-processing-inspection.js";
 import {
     HEAVY_MAKER,
+    heavyMakerBlock,
     HeavyMakerRpc,
     heavyMakerHint,
     seedHeavyMaker,
@@ -164,7 +165,7 @@ describe("maker scan handoff to durable order validation", () => {
         for (const level of ["debug", "info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections;",
         );
     });
     afterEach(() => vi.restoreAllMocks());
@@ -421,7 +422,7 @@ describe("maker scan handoff to durable order validation", () => {
                 ],
                 {
                     observedAt: newer.requiredAt,
-                    blockNumber: newer.minimumBlock,
+                    block: heavyMakerBlock(newer.minimumBlock!),
                     checkpoint: { chainId: 1, revision: 0 },
                 },
                 now,

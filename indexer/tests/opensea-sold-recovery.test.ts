@@ -73,7 +73,7 @@ describe("hashless sale recovery", () => {
         for (const level of ["debug", "info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections;",
         );
     });
     afterEach(() => vi.restoreAllMocks());

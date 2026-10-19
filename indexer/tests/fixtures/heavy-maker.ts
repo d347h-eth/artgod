@@ -39,8 +39,17 @@ export const HEAVY_MAKER = {
     conduitKey: `0x${"01".repeat(32)}`,
     now: 1_790_208_000,
     blockNumber: 1_000,
+    blockHash: `0x${"ab".repeat(32)}` as const,
     saleTransactionHash: `0x${"de".repeat(32)}` as const,
 } as const;
+
+export function heavyMakerBlock(
+    number: number = HEAVY_MAKER.blockNumber,
+    hash: `0x${string}` = HEAVY_MAKER.blockHash,
+    timestamp: number = HEAVY_MAKER.now,
+): RpcBlock {
+    return { number, hash, parentHash: hash, timestamp, transactions: [] };
+}
 
 export function heavyMakerOrder(
     index: number,
@@ -211,7 +220,7 @@ export class HeavyMakerRpc implements RpcProviderPort {
     counter = 0n;
     blockNumber: number = HEAVY_MAKER.blockNumber;
     blockTimestamp: number = HEAVY_MAKER.now;
-    blockHash: `0x${string}` = `0x${"ab".repeat(32)}`;
+    blockHash: `0x${string}` = HEAVY_MAKER.blockHash;
     onRead?: (
         params: Parameters<RpcProviderPort["readContract"]>[0],
     ) => void | Promise<void>;
@@ -241,14 +250,9 @@ export class HeavyMakerRpc implements RpcProviderPort {
         return this.blockNumber;
     }
     async getBlock(number: number): Promise<RpcBlock> {
-        return {
-            number,
-            hash: this.blockHash,
-            parentHash: this.blockHash,
-            timestamp: this.blockTimestamp,
-            transactions: [],
-        };
+        return heavyMakerBlock(number, this.blockHash, this.blockTimestamp);
     }
+
     async getBalance() {
         return this.balance;
     }

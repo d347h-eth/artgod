@@ -1,3 +1,4 @@
+import { writeWithCanonicalBlock } from "../storage/sqlite-canonical-headers.js";
 import { decodeSyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
@@ -270,7 +271,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
         now: number,
         evidence: OrderValidationEvidence | null,
     ): MakerRevalidationRun {
-        return db.writeTransaction(() => {
+        return writeWithCanonicalBlock(evidence, () => {
             const current = this.get(run.runId);
             if (
                 !current ||
@@ -385,7 +386,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
             const updated = this.get(run.runId)!;
             this.replaceWakeup(updated, now);
             return this.get(run.runId)!;
-        })();
+        });
     }
 
     private replaceWakeup(run: MakerRevalidationRun, now: number): void {

@@ -61,6 +61,19 @@ import {
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { insertCollection } from "./helpers/ownership-fixture.js";
+import { emptyOnChainData } from "./helpers/ownership-fixture.js";
+import {
+    syncBlockFixture,
+    FINALIZED_SYNC_CHECK_POLICY,
+} from "./helpers/chain-fixture.js";
+import {
+    RecoveryRpc,
+    reorgRecoveryServices,
+} from "./helpers/reorg-recovery-fixture.js";
+import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
+import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
+import { heavyMakerHint } from "./fixtures/heavy-maker.js";
+import { StoredBlockHashConflict } from "../src/domain/chain-sync.js";
 
 const NOW = 1_792_400_000;
 const BLOCK = 26_214_320;
@@ -190,7 +203,7 @@ describe("canonical partial fill quantity progression", () => {
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
         db.exec(
-            "DELETE FROM market_order_retirements;DELETE FROM orders;DELETE FROM chain_sync_revisions;DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs;DELETE FROM queue_outbox;DELETE FROM chain_reorg_recoveries;DELETE FROM blocks;DELETE FROM market_order_retirements;DELETE FROM orders;DELETE FROM chain_sync_revisions;DELETE FROM collections;",
         );
         collectionId = insertCollection({
             chainId: 1,
@@ -200,6 +213,229 @@ describe("canonical partial fill quantity progression", () => {
         });
     });
     afterEach(() => vi.restoreAllMocks());
+
+    it.each([
+        { maker: false, retire: false },
+        { maker: true, retire: false },
+        { maker: false, retire: true },
+        { maker: true, retire: true },
+    ])(
+        "discovers a validation-only fork and restores the remaining unit (maker=$maker, retirement=$retire)",
+        async ({ maker, retire }) => {
+            const work = workflow();
+            let forked = false;
+            const header = (number: number) => {
+                const hash = (n: number) =>
+                    syncBlockFixture(forked && n >= BLOCK ? n + 10_000 : n)
+                        .hash;
+                return {
+                    ...syncBlockFixture(number),
+                    hash: hash(number),
+                    parentHash: hash(number - 1),
+                    timestamp: NOW,
+                };
+            };
+            vi.spyOn(work.rpc, "getBlock").mockImplementation(async (number) =>
+                header(number),
+            );
+            await initialSnapshot(work);
+            work.rpc.blockNumber = BLOCK;
+            work.rpc.filled = 100n;
+            if (maker) {
+                const processor = new RevalidateMakerOrders({
+                    store: new SqliteMakerRevalidations(
+                        work.domain,
+                        work.store,
+                    ),
+                    admission: new FairOrderValidationAdmission(2),
+                    createSnapshot: createSeaportOrderValidationFactory({
+                        chainId: 1,
+                        rpc: work.rpc,
+                        conduits: warmConduits,
+                        conduitController: HEAVY_MAKER.controller,
+                    }),
+                });
+                await processor.execute({
+                    jobId: "validation-only-fork",
+                    payload: {
+                        ...heavyMakerHint(terms.maker),
+                        blockNumber: BLOCK,
+                    },
+                });
+            } else {
+                await fill(work);
+                await work.processor.executeBatch();
+            }
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Filled,
+                quantity: "0",
+            });
+            const original = header(BLOCK);
+            expect(
+                db
+                    .prepare(
+                        "SELECT block_number,block_hash FROM orders WHERE id=?",
+                    )
+                    .get(ID),
+            ).toEqual({ block_number: BLOCK, block_hash: original.hash });
+            expect(
+                db
+                    .prepare(
+                        "SELECT block_hash,canonical_check_pending FROM blocks WHERE chain_id=1 AND block_number=?",
+                    )
+                    .get(BLOCK),
+            ).toEqual({
+                block_hash: original.hash,
+                canonical_check_pending: 1,
+            });
+            expect(
+                db
+                    .prepare(
+                        "SELECT 1 FROM collection_sync_blocks WHERE block_number=?",
+                    )
+                    .get(BLOCK),
+            ).toBeUndefined();
+            // Reorg discovery must survive the disposable coverage cache and order row.
+            db.prepare(
+                "DELETE FROM order_validation_demand WHERE order_id=?",
+            ).run(ID);
+            if (retire) {
+                const afterGrace =
+                    NOW + MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds + 1;
+                db.prepare(
+                    "UPDATE orders SET updated_at=datetime(?,'unixepoch') WHERE id=?",
+                ).run(NOW, ID);
+                new SqliteMarketDataMaintenance(db).maintainBatch(afterGrace);
+                expect(stored()).toBeUndefined();
+                expect(
+                    db
+                        .prepare(
+                            "SELECT block_number FROM market_order_retirements WHERE order_id=?",
+                        )
+                        .get(ID),
+                ).toEqual({ block_number: BLOCK });
+            }
+            forked = true;
+            const recoveryRpc = new RecoveryRpc(BLOCK - 1, BLOCK + 2);
+            vi.spyOn(recoveryRpc, "getBlock").mockImplementation(
+                async (number) => header(number),
+            );
+            // Fresh service objects simulate a restart; no check is manually enqueued.
+            const recovery = reorgRecoveryServices(recoveryRpc);
+            expect(() =>
+                recovery.storage.persistSyncResult({
+                    checkpoint: recovery.storage.captureSyncCheckpoint(1),
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
+                    blocks: [header(BLOCK)],
+                    collections: [],
+                    data: emptyOnChainData(),
+                }),
+            ).toThrow(StoredBlockHashConflict);
+            expect(recovery.storage.getBlockHash(1, BLOCK)).toBe(original.hash);
+            for (
+                let attempts = 0;
+                attempts < 3 &&
+                recovery.storage.captureSyncCheckpoint(1).revision === 0;
+                attempts++
+            ) {
+                expect(await recovery.recovery.checkDue()).toBe(true);
+            }
+            expect(recovery.storage.captureSyncCheckpoint(1).revision).toBe(1);
+            expect(
+                db
+                    .prepare(
+                        "SELECT 1 FROM market_order_retirements WHERE order_id=?",
+                    )
+                    .get(ID),
+            ).toBeUndefined();
+            if (retire) await work.domain.handleOrderUpsert(upsert());
+            else
+                expect(stored()).toMatchObject({
+                    fillability_status: ORDER_STATUS.Unvalidated,
+                    quantity: "100",
+                });
+            work.rpc.blockNumber = BLOCK + 2;
+            work.rpc.filled = 99n;
+            expect((await work.processor.executeBatch())?.applied).toBe(1);
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "1",
+                fillable_quantity: "1",
+            });
+        },
+    );
+
+    it("rejects a validation whose height was committed on another fork after snapshot finish", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        work.rpc.blockNumber = BLOCK;
+        work.rpc.filled = 100n;
+        await fill(work);
+        const replacement = { ...syncBlockFixture(BLOCK), timestamp: NOW };
+        const complete = work.store.completeBatch.bind(work.store);
+        vi.spyOn(work.store, "completeBatch").mockImplementationOnce(
+            (completions, proof, now) => {
+                new SqliteStorage().persistSyncResult({
+                    checkpoint: proof.checkpoint,
+                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
+                    blocks: [replacement],
+                    collections: [],
+                    data: emptyOnChainData(),
+                });
+                return complete(completions, proof, now);
+            },
+        );
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: "100",
+        });
+        expect(work.store.get(1, ID)).toMatchObject({
+            pending: true,
+            failures: 1,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT block_hash,canonical_check_pending FROM blocks WHERE chain_id=1 AND block_number=?",
+                )
+                .get(BLOCK),
+        ).toEqual({ block_hash: replacement.hash, canonical_check_pending: 1 });
+        work.rpc.filled = 99n;
+        vi.spyOn(work.rpc, "getBlock").mockResolvedValue(replacement);
+        vi.spyOn(Date, "now").mockReturnValue((NOW + 2) * 1000);
+        await work.processor.executeBatch();
+        expect(stored()).toMatchObject({
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: "1",
+        });
+    });
+
+    it("rolls back header registration when validation effects fail to commit", async () => {
+        const work = workflow();
+        await initialSnapshot(work);
+        work.rpc.blockNumber = BLOCK;
+        work.rpc.filled = 100n;
+        await fill(work);
+        db.exec(
+            "CREATE TEMP TRIGGER reject_validation_effect BEFORE UPDATE ON orders BEGIN SELECT RAISE(ABORT,'validation writer failed'); END;",
+        );
+        try {
+            await work.processor.executeBatch();
+            expect(new SqliteStorage().getBlockHash(1, BLOCK)).toBeNull();
+            expect(stored()).toMatchObject({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "100",
+            });
+            expect(work.store.get(1, ID)).toMatchObject({
+                pending: true,
+                failures: 1,
+                proofBlock: BLOCK - 1,
+            });
+        } finally {
+            db.exec("DROP TRIGGER reject_validation_effect;");
+        }
+    });
 
     it("admits new orders optimistically and validates their remaining and funded quantities", async () => {
         const work = workflow();

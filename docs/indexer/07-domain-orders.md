@@ -572,6 +572,14 @@ they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
 decisions still apply. Writes retain revision, active-source and bootstrap-anchor
 guards, with no SQLite transaction spanning RPC calls.
 
+Successful snapshot proof retains the complete block header, not just its height.
+Demand and maker commits register that header with the existing canonical-check
+owner in the result transaction, even when sync has not reached it. Conflicting
+stored hashes reject the commit and rearm canonical verification. Result
+attribution stores both height and hash on the order; reusable demand cleanup
+and terminal retirement cannot erase the pending block check. Header registration
+does not imply collection sync coverage or delay validation until confirmation.
+
 Runtime snapshots cover sell and non-WETH orders too, including pinned native
 balances. Standalone legacy callers retain their existing singleton path.
 

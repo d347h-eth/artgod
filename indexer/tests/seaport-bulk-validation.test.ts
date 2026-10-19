@@ -235,7 +235,7 @@ describe("stored bulk listing recovery", () => {
             ],
             {
                 observedAt: oldTime * 1_000,
-                blockNumber: rpc.blockNumber,
+                block: await rpc.getBlock(rpc.blockNumber),
                 checkpoint: store.captureSyncCheckpoint(order.chainId),
             },
             oldTime * 1_000,

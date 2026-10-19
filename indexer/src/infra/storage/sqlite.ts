@@ -1,3 +1,4 @@
+import { persistCanonicalBlocks } from "./sqlite-canonical-headers.js";
 import { invalidateOrderValidationFromBlock } from "../orders/sqlite-order-validation-demand.js";
 import { db } from "@artgod/shared/database";
 import {
@@ -35,7 +36,6 @@ import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
 import {
     ChainSyncConflict,
-    StoredBlockHashConflict,
     type ChainSyncCheckpoint,
     type SyncBlockHeader,
 } from "../../domain/chain-sync.js";
@@ -138,13 +138,6 @@ export class SqliteStorage
             ") t JOIN collections c ON c.collection_id = t.collection_id " +
             "WHERE c.chain_id = @chainId AND c.standard = @standard AND c.bootstrap_anchor_block IS NOT NULL " +
             "ORDER BY c.collection_id, t.token_id",
-    );
-    private insertBlock = db.prepare<
-        [number, number, string, string, number, number]
-    >(
-        "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp, canonical_check_pending) VALUES (?, ?, ?, ?, ?, ?) " +
-            "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
-            "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
     );
     private upsertCollectionSyncBlock = db.prepare<{
         chainId: number;
@@ -382,25 +375,11 @@ export class SqliteStorage
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(checkpoint);
             assertSyncResultMatchesBlocks({ blocks, data });
-            for (const block of blocks) {
-                const storedHash = this.getBlockHash(chainId, block.number);
-                if (storedHash && storedHash !== block.hash) {
-                    throw new StoredBlockHashConflict(
-                        {
-                            chainId,
-                            blockNumber: block.number,
-                            blockHash: storedHash,
-                            checkpoint,
-                        },
-                        block.hash,
-                    );
-                }
-            }
             const blockMeta = buildBlockMeta(blocks);
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
             );
-            this.persistBlocks(chainId, blocks, canonicalCheck);
+            this.persistBlocks(checkpoint, blocks, canonicalCheck);
             this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
@@ -654,7 +633,7 @@ export class SqliteStorage
             // Retain the verified fork header even when its transfer facts were
             // missing, so later reorg checks can invalidate this checkpoint.
             this.persistBlocks(
-                chainId,
+                plan.checkpoint,
                 [
                     {
                         number: snapshot.block.blockNumber,
@@ -671,24 +650,17 @@ export class SqliteStorage
     }
 
     private persistBlocks(
-        chainId: number,
+        checkpoint: ChainSyncCheckpoint,
         blocks: readonly SyncBlockHeader[],
         canonicalCheck: CanonicalCheckPolicy | null,
     ): void {
-        // Store block metadata for reorg checks and future gap detection.
-        for (const block of blocks) {
-            this.insertBlock.run(
-                chainId,
-                block.number,
-                block.hash,
-                block.parentHash,
-                block.timestamp,
-                canonicalCheck &&
-                    needsDelayedCanonicalCheck(block.number, canonicalCheck)
-                    ? 1
-                    : 0,
-            );
-        }
+        persistCanonicalBlocks(
+            checkpoint,
+            blocks,
+            (block) =>
+                canonicalCheck !== null &&
+                needsDelayedCanonicalCheck(block.number, canonicalCheck),
+        );
     }
 
     private persistCollectionSyncBlocks(

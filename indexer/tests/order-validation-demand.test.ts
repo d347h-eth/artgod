@@ -35,6 +35,7 @@ import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
 import type { ConduitRegistryPort } from "../src/ports/conduits.js";
 import {
     HEAVY_MAKER,
+    heavyMakerBlock,
     HeavyMakerRpc,
     heavyMakerOrder,
     seedHeavyMaker,
@@ -57,7 +58,7 @@ const fillable = {
 };
 const proof = {
     observedAt: now,
-    blockNumber: HEAVY_MAKER.blockNumber,
+    block: heavyMakerBlock(),
     checkpoint: { chainId: HEAVY_MAKER.chainId, revision: 0 },
 };
 
@@ -117,7 +118,9 @@ describe("durable ordinary validation demand", () => {
         vi.spyOn(Date, "now").mockReturnValue(now);
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
-        db.exec("DELETE FROM orders; DELETE FROM collections;");
+        db.exec(
+            "DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections;",
+        );
         seedHeavyMaker(1);
     });
     afterEach(() => vi.restoreAllMocks());

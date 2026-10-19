@@ -137,7 +137,12 @@ describe("bounded Seaport validation snapshots", () => {
         await context.finish();
         expect(context.proof).toEqual({
             observedAt: HEAVY_MAKER.now * 1_000,
-            blockNumber: HEAVY_MAKER.blockNumber,
+            block: {
+                number: HEAVY_MAKER.blockNumber,
+                hash: rpc.blockHash,
+                parentHash: rpc.blockHash,
+                timestamp: HEAVY_MAKER.now,
+            },
         });
         getBalance.mockRejectedValueOnce(new Error("native RPC unavailable"));
         const failed = await create(scope);

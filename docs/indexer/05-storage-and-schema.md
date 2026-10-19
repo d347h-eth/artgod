@@ -119,6 +119,12 @@ which side is canonical; published work can still reference a header after its
 outbox row is removed. The existing canonical owner verifies identities before
 performing any rollback and cleanup.
 
+Validation snapshots also retain their full headers here, with pending canonical
+checks in the same transaction as maker or by-ID results. A validation header
+never marks collection sync coverage. Sync, rollback and validation use one
+header writer that rejects a different hash at an occupied height; the reorg
+owner must resolve that disagreement first.
+
 ### `collection_sync_blocks`
 
 Defined in `032_collection_sync_blocks.sql`.

@@ -13,6 +13,7 @@ Supporting files:
 - `indexer/src/domain/canonical-check.ts`
 - `indexer/src/ports/canonical-checks.ts`
 - `indexer/src/infra/storage/sqlite-canonical-checks.ts`
+- `indexer/src/infra/storage/sqlite-canonical-headers.ts`
 - `indexer/src/application/reorg-fork.ts`
 - `indexer/src/application/reorg-rollback.ts`
 - `indexer/src/application/reorg-recovery.ts`
@@ -29,9 +30,15 @@ inside the same transaction as its facts, coverage and required follow-ups.
 Already mature historical imports need no delayed check. Repeated imports of the
 same hash preserve an unfinished check and never rearm a completed one.
 
-An explicit disagreement with a stored header during sync rearms verification
-even for mature history or a completed check. The shared sync use case retains
-that check outside its failed acquisition transaction, fenced by the stored hash
+Order validation can observe a head before range sync. Both demand and maker
+commits retain the complete verified header and its pending check in `blocks`
+atomically with their results. This records no `collection_sync_blocks` coverage.
+Checks survive demand cleanup and order retirement, so replacing an unsynced
+validation head still triggers the ordinary rollback path.
+
+An explicit disagreement with a stored header during sync or validation rearms verification
+even for mature history or a completed check. The owning commit boundary retains
+that check outside its failed writer transaction, fenced by the stored hash
 and chain revision. An already pending check keeps its retry time. The sync
 request remains pending until the existing reorg worker freshly verifies and,
 when needed, recovers the conflicting history.
