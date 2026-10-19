@@ -1,5 +1,10 @@
 import { db } from "@artgod/shared/database";
 import {
+    ChainSyncConflict,
+    type ValidationCheckpoint,
+} from "../../domain/chain-sync.js";
+import { SqliteChainProgress } from "../storage/sqlite-chain-progress.js";
+import {
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
     OPENSEA_STREAM_INGESTION_STATUS,
@@ -436,14 +441,27 @@ export class SqliteCollectionRegistry
         chainId: number,
         collectionId: number,
         lastSyncedBlock: number,
+        checkpoint: ValidationCheckpoint,
     ): boolean {
-        const result = this.markFinished.run({
-            chainId,
-            collectionId,
-            lastSyncedBlock,
-            status: COLLECTION_STATUS.Live,
-        });
-        return result.changes > 0;
+        return db.writeTransaction(() => {
+            if (
+                checkpoint.chainId !== chainId ||
+                checkpoint.collectionId !== collectionId ||
+                checkpoint.block.number < lastSyncedBlock
+            )
+                throw new ChainSyncConflict(
+                    "Bootstrap completion lacks applied collection coverage",
+                );
+            new SqliteChainProgress().assertValidationCheckpoint(checkpoint);
+            return (
+                this.markFinished.run({
+                    chainId,
+                    collectionId,
+                    lastSyncedBlock,
+                    status: COLLECTION_STATUS.Live,
+                }).changes > 0
+            );
+        })();
     }
 
     markOpenSeaPending(chainId: number, collectionId: number): boolean {

@@ -1,10 +1,19 @@
 import { db } from "@artgod/shared/database";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     mapBootstrapTaskStatusCounts,
     type BootstrapTaskStatusCountRow,
 } from "@artgod/shared/bootstrap/pipeline";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    ChainSyncConflict,
+    type ChainBlockReference,
+} from "../../domain/chain-sync.js";
+import { assertChainSyncCheckpoint } from "../storage/sqlite-chain-revisions.js";
 import type {
     BootstrapCollectionExtensionArtifactTask,
     BootstrapCollectionExtensionArtifactTaskCounts,
@@ -94,6 +103,8 @@ type BootstrapCollectionExtensionArtifactTaskDbRow = {
 };
 
 export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
+    constructor(private readonly now: () => number = Date.now) {}
+
     private deleteOwnershipCheckpointsStmt = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -563,6 +574,50 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     finalizeSnapshot(input: SnapshotFinalizeInput): void {
         const finalize = db.writeTransaction(
             (params: SnapshotFinalizeInput) => {
+                this.assertSnapshotInstallationCurrent(params);
+                const installed = db
+                    .prepare(
+                        "SELECT run_id, anchor_block, anchor_hash FROM collection_ownership_bases WHERE chain_id=? AND collection_id=?",
+                    )
+                    .get(params.chainId, params.collectionId) as
+                    | {
+                          run_id: number;
+                          anchor_block: number;
+                          anchor_hash: string;
+                      }
+                    | undefined;
+                if (installed) {
+                    if (
+                        installed.run_id !== params.runId ||
+                        installed.anchor_block !== params.anchorBlock ||
+                        installed.anchor_hash !== params.anchorHash
+                    )
+                        throw new ChainSyncConflict(
+                            "A different bootstrap ownership base is already installed",
+                        );
+                    // A lost installation reply may be retried after sync has
+                    // advanced. Existing base evidence makes that retry a no-op.
+                    // Before acceptance, a newly verified identical anchor can
+                    // follow a harmless rollback above it into the new revision.
+                    db.prepare(
+                        "UPDATE collection_ownership_bases SET revision=? WHERE chain_id=? AND collection_id=? AND NOT EXISTS (SELECT 1 FROM collection_sync_progress p WHERE p.chain_id=collection_ownership_bases.chain_id AND p.collection_id=collection_ownership_bases.collection_id)",
+                    ).run(
+                        params.checkpoint.revision,
+                        params.chainId,
+                        params.collectionId,
+                    );
+                    return;
+                }
+                if (
+                    db
+                        .prepare(
+                            "SELECT 1 FROM collection_sync_progress WHERE chain_id=? AND collection_id=?",
+                        )
+                        .get(params.chainId, params.collectionId)
+                )
+                    throw new ChainSyncConflict(
+                        "Bootstrap cannot replace an applied collection snapshot",
+                    );
                 this.deleteBalancesStmt.run({
                     chainId: params.chainId,
                     collectionId: params.collectionId,
@@ -578,9 +633,104 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
                     anchorTimestamp: params.anchorTimestamp,
                     zeroHash: ZERO_HASH,
                 });
+                db.prepare(
+                    "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
+                ).run(
+                    params.chainId,
+                    params.collectionId,
+                    params.runId,
+                    params.checkpoint.revision,
+                    params.anchorBlock,
+                    params.anchorHash,
+                );
             },
         );
         finalize(input);
+    }
+
+    private assertSnapshotInstallationCurrent(
+        input: SnapshotFinalizeInput,
+    ): void {
+        if (input.checkpoint.chainId !== input.chainId)
+            throw new ChainSyncConflict(
+                "Bootstrap snapshot checkpoint chain differs",
+            );
+        assertChainSyncCheckpoint(input.checkpoint);
+        if (
+            db
+                .prepare(
+                    "SELECT 1 FROM chain_reorg_recoveries WHERE chain_id=? UNION ALL SELECT 1 FROM chain_sync_progress WHERE chain_id=? AND disputed_from IS NOT NULL LIMIT 1",
+                )
+                .get(input.chainId, input.chainId)
+        )
+            throw new ChainSyncConflict(
+                "Bootstrap snapshot waits for chain recovery",
+            );
+        const owned = db
+            .prepare(
+                "SELECT 1 FROM bootstrap_runs r JOIN bootstrap_run_steps s ON s.run_id=r.run_id JOIN collections c ON c.collection_id=r.collection_id AND c.chain_id=r.chain_id " +
+                    "WHERE r.run_id=@runId AND r.chain_id=@chainId AND r.collection_id=@collectionId AND lower(r.request_address)=lower(@contract) " +
+                    "AND r.anchor_block=@anchorBlock AND r.anchor_block_hash=@anchorHash AND r.anchor_block_timestamp=@anchorTimestamp " +
+                    "AND r.status NOT IN (@failed,@completed) AND c.status=@bootstrapping AND c.bootstrap_anchor_block=@anchorBlock " +
+                    "AND lower(c.address)=lower(@contract) AND s.step_key=@stepKey AND s.status=@running AND s.lease_owner=@leaseOwner AND s.lease_until>@now",
+            )
+            .get({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contract: input.contract,
+                anchorBlock: input.anchorBlock,
+                anchorHash: input.anchorHash,
+                anchorTimestamp: input.anchorTimestamp,
+                leaseOwner: input.leaseOwner,
+                failed: BOOTSTRAP_RUN_STATUS.Failed,
+                completed: BOOTSTRAP_RUN_STATUS.Completed,
+                bootstrapping: COLLECTION_STATUS.Bootstrapping,
+                stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+                running: BOOTSTRAP_STEP_STATUS.Running,
+                now: this.now(),
+            });
+        if (!owned)
+            throw new ChainSyncConflict(
+                "Bootstrap ownership installation lost its run or lease",
+            );
+        const tasks = db
+            .prepare(
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN status=@succeeded AND chain_id=@chainId AND collection_id=@collectionId AND lower(contract_address)=lower(@contract) " +
+                    "AND anchor_block=@anchorBlock AND anchor_block_hash=@anchorHash AND anchor_block_timestamp=@anchorTimestamp THEN 1 ELSE 0 END) AS complete " +
+                    "FROM bootstrap_ownership_snapshot_tasks WHERE run_id=@runId",
+            )
+            .get({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contract: input.contract,
+                anchorBlock: input.anchorBlock,
+                anchorHash: input.anchorHash,
+                anchorTimestamp: input.anchorTimestamp,
+                succeeded: BOOTSTRAP_TASK_STATUS.Succeeded,
+            }) as { total: number; complete: number | null };
+        const snapshots = db
+            .prepare(
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN n.chain_id=@chainId AND n.collection_id=@collectionId AND lower(n.contract_address)=lower(@contract) " +
+                    "AND n.anchor_block=@anchorBlock AND EXISTS (SELECT 1 FROM bootstrap_ownership_snapshot_tasks t WHERE t.run_id=n.run_id AND t.token_id=n.token_id) THEN 1 ELSE 0 END) AS matching FROM nft_balance_snapshots n WHERE n.run_id=@runId",
+            )
+            .get({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contract: input.contract,
+                anchorBlock: input.anchorBlock,
+            }) as { total: number; matching: number | null };
+        if (
+            tasks.total === 0 ||
+            tasks.complete !== tasks.total ||
+            snapshots.total !== tasks.total ||
+            snapshots.matching !== tasks.total
+        )
+            throw new ChainSyncConflict(
+                "Bootstrap ownership snapshot is incomplete",
+            );
     }
 
     deleteRunTemporaryData(runId: number): void {
@@ -826,8 +976,23 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         tokenId: string;
         attempts: number;
         owner: string;
-    }): void {
+        block: ChainBlockReference;
+    }): boolean {
         const applySuccess = db.writeTransaction((params: typeof input) => {
+            if (
+                !db
+                    .prepare(
+                        "SELECT 1 FROM bootstrap_ownership_snapshot_tasks WHERE run_id=? AND token_id=? AND chain_id=? AND anchor_block=? AND anchor_block_hash=?",
+                    )
+                    .get(
+                        params.runId,
+                        params.tokenId,
+                        params.block.chainId,
+                        params.block.blockNumber,
+                        params.block.blockHash,
+                    )
+            )
+                return false;
             this.deleteSnapshotTokenStmt.run({
                 runId: params.runId,
                 tokenId: params.tokenId,
@@ -843,8 +1008,9 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
                 attempts: params.attempts,
                 succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
             });
+            return true;
         });
-        applySuccess(input);
+        return applySuccess(input);
     }
 
     markOwnershipTaskRetry(input: {

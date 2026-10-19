@@ -47,6 +47,7 @@ import {
 import { BootstrapStepProgressObserver } from "../application/bootstrap-step-progress-observer.js";
 import { startBootstrapLanePoller } from "../application/bootstrap-lane-poller.js";
 import {
+    BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME,
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveQueuePort,
 } from "../application/bootstrap-collection-live-executor.js";
@@ -81,6 +82,7 @@ import { BootstrapDeploymentExecutor } from "../application/bootstrap-deployment
 import { SqliteBootstrapDeployment } from "../infra/bootstrap/sqlite-deployment.js";
 import { resolveTokenIdsForRun } from "../application/bootstrap-token-enumeration.js";
 import { Erc721TokenOwnership } from "../infra/ownership/erc721-token-ownership.js";
+import { InstallBootstrapOwnershipSnapshot } from "../application/bootstrap-ownership-installation.js";
 import {
     ChainSyncConflict,
     type ChainBlockReference,
@@ -159,7 +161,7 @@ import {
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
-import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
+import { SqliteChainProgress } from "../infra/storage/sqlite-chain-progress.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
@@ -220,9 +222,6 @@ const BOOTSTRAP_METADATA_SKIP_REASON = {
 const BOOTSTRAP_OWNERSHIP_FAILURE_CODE = {
     SnapshotFailed: "ownership_snapshot_failed",
 } as const;
-const BOOTSTRAP_OWNERSHIP_SKIP_REASON = {
-    SnapshotAlreadyCurrent: "snapshot already current",
-} as const;
 
 async function main() {
     try {
@@ -282,6 +281,12 @@ async function main() {
             bootstrapStorage,
         );
         const storage = new SqliteStorage();
+        const bootstrapOwnershipInstaller =
+            new InstallBootstrapOwnershipSnapshot(
+                rpc,
+                storage,
+                bootstrapStorage,
+            );
         const bootstrapAnchorExecutor = new BootstrapAnchorExecutor(
             rpc,
             bootstrapRuns,
@@ -309,14 +314,14 @@ async function main() {
             bootstrapSteps,
             TOKEN_ENUMERATION_HEARTBEAT_MS,
         );
+        const chainProgress = new SqliteChainProgress();
         const bootstrapBackfillExecutor = new BootstrapBackfillExecutor(
             rpc,
-            storage,
+            chainProgress,
             collections,
             bootstrapRuns,
             bootstrapSteps,
             createBootstrapBackfillQueuePort(queue),
-            new SqliteSyncGapStore(),
         );
         const bootstrapCollectionLiveExecutor =
             new BootstrapCollectionLiveExecutor(
@@ -327,6 +332,7 @@ async function main() {
                 createBootstrapCollectionLiveQueuePort(
                     metadataRefreshFollowups,
                 ),
+                chainProgress,
             );
         const bootstrapLiveRunCompletionReconciler =
             new BootstrapLiveRunCompletionReconciler(
@@ -378,13 +384,13 @@ async function main() {
                 bootstrapStepProgressObserver,
                 bootstrapAnchorExecutor,
                 bootstrapEnumerationExecutor,
+                bootstrapOwnershipInstaller,
                 bootstrapBackfillExecutor,
                 bootstrapCollectionLiveExecutor,
                 bootstrapLiveRunCompletionReconciler,
                 rpc,
                 metadataDomain,
                 reorgDepth: config.sync.reorgDepth,
-                backfillBatchSize: config.sync.backfillBatchSize,
                 snapshotBatchSize: config.bootstrap.snapshotBatchSize,
                 metadataBatchSize: config.bootstrap.metadataBatchSize,
                 metadataConcurrency: config.bootstrap.metadataConcurrency,
@@ -1086,13 +1092,13 @@ type BootstrapMainStepLoopInput = {
     bootstrapStepProgressObserver: BootstrapStepProgressObserverPort;
     bootstrapAnchorExecutor: BootstrapAnchorExecutor;
     bootstrapEnumerationExecutor: BootstrapEnumerationExecutor;
+    bootstrapOwnershipInstaller: InstallBootstrapOwnershipSnapshot;
     bootstrapBackfillExecutor: BootstrapBackfillExecutor;
     bootstrapCollectionLiveExecutor: BootstrapCollectionLiveExecutor;
     bootstrapLiveRunCompletionReconciler: BootstrapLiveRunCompletionReconciler;
     rpc: RpcProviderPort;
     metadataDomain: SqliteMetadataDomain;
     reorgDepth: number;
-    backfillBatchSize: number;
     snapshotBatchSize: number;
     metadataBatchSize: number;
     metadataConcurrency: number;
@@ -1342,6 +1348,8 @@ async function processBootstrapMainClaimedStep(
         }
         return processBootstrapOwnershipStep({
             rpc: input.rpc,
+            installer: input.bootstrapOwnershipInstaller,
+            leaseOwner: input.leaseOwner,
             collections: input.collections,
             bootstrapStorage: input.bootstrapStorage,
             bootstrapRuns: input.bootstrapRuns,
@@ -1364,7 +1372,6 @@ async function processBootstrapMainClaimedStep(
             backfillExecutor: input.bootstrapBackfillExecutor,
             payload: buildOwnershipProcessPayload(anchoredRun),
             backfillCheckPayload: input.backfillCheckPayload ?? null,
-            backfillBatchSize: input.backfillBatchSize,
             openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
@@ -2427,6 +2434,8 @@ function ensureOwnershipTasksSeeded(
 
 async function processBootstrapOwnershipStep(input: {
     rpc: RpcProviderPort;
+    installer: InstallBootstrapOwnershipSnapshot;
+    leaseOwner: string;
     collections: CollectionRegistryPort;
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
@@ -2437,6 +2446,8 @@ async function processBootstrapOwnershipStep(input: {
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const {
         rpc,
+        installer,
+        leaseOwner,
         collections,
         bootstrapStorage,
         bootstrapRuns,
@@ -2473,18 +2484,6 @@ async function processBootstrapOwnershipStep(input: {
             collectionId: payload.collectionId,
             stepStatus: ownershipStep.status,
         });
-        return terminalStepResult();
-    }
-
-    if (
-        collection.bootstrapLastSyncedBlock !== null &&
-        collection.bootstrapLastSyncedBlock >= payload.anchorBlock
-    ) {
-        bootstrapSteps.markStepSkipped(
-            payload.runId,
-            BOOTSTRAP_STEP_KEY.Ownership,
-            BOOTSTRAP_OWNERSHIP_SKIP_REASON.SnapshotAlreadyCurrent,
-        );
         return terminalStepResult();
     }
 
@@ -2574,7 +2573,7 @@ async function processBootstrapOwnershipStep(input: {
         return terminalStepResult();
     }
 
-    bootstrapStorage.finalizeSnapshot({
+    await installer.execute({
         runId: payload.runId,
         chainId: payload.chainId,
         collectionId: payload.collectionId,
@@ -2582,6 +2581,7 @@ async function processBootstrapOwnershipStep(input: {
         anchorBlock: payload.anchorBlock,
         anchorHash: payload.anchorHash as Hex,
         anchorTimestamp: payload.anchorTimestamp,
+        leaseOwner,
     });
     collections.markBootstrapSnapshotProgress(
         payload.chainId,
@@ -2662,6 +2662,7 @@ async function processSingleOwnershipTask(
             tokenId: task.tokenId,
             attempts,
             owner: owner.toLowerCase(),
+            block,
         });
     } catch (error) {
         markOwnershipTaskFailed(
@@ -2678,7 +2679,6 @@ async function processBootstrapBackfillStep(input: {
     backfillExecutor: BootstrapBackfillExecutor;
     payload: BootstrapOwnershipProcessPayload;
     backfillCheckPayload: BootstrapBackfillCheckPayload | null;
-    backfillBatchSize: number;
     openSeaIntegration: OpenSeaIntegrationStatus;
     traceId: string;
     sourceJobId: string;
@@ -2690,7 +2690,7 @@ async function processBootstrapBackfillStep(input: {
             collectionId: input.payload.collectionId,
             address: input.payload.address,
             anchorBlock: input.payload.anchorBlock,
-            backfillBatchSize: input.backfillBatchSize,
+            anchorHash: input.payload.anchorHash,
             openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
@@ -2739,7 +2739,10 @@ async function processBootstrapCollectionLiveStep(input: {
         sourceJobId: input.sourceJobId,
     });
     logBootstrapTemporaryDataCleanup(result.cleanup);
-    return terminalStepResult();
+    return result.outcome ===
+        BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress
+        ? runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS)
+        : terminalStepResult();
 }
 
 function logBootstrapBackfillScheduleResult(

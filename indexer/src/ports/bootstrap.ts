@@ -1,4 +1,8 @@
 import type { Hex } from "./rpc.js";
+import type {
+    ChainBlockReference,
+    ChainSyncCheckpoint,
+} from "../domain/chain-sync.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type {
     BootstrapTaskCounts,
@@ -23,6 +27,8 @@ export type SnapshotFinalizeInput = {
     anchorBlock: number;
     anchorHash: Hex;
     anchorTimestamp: number;
+    checkpoint: ChainSyncCheckpoint;
+    leaseOwner: string;
 };
 
 export type BootstrapMetadataTaskStatus = BootstrapTaskStatus;
@@ -123,6 +129,8 @@ export type BootstrapCollectionExtensionArtifactTaskCounts =
 export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
+    // Install the run-owned, exact-anchor snapshot and its base identity in one
+    // revision/lease-fenced writer. Never reset an already applied scope.
     finalizeSnapshot(input: SnapshotFinalizeInput): void;
     deleteRunTemporaryData(runId: number): void;
     deleteSnapshotRows(runId: number): number;
@@ -190,12 +198,14 @@ export interface BootstrapSnapshotPort {
         nowMs: number,
         limit: number,
     ): BootstrapOwnershipTask[];
+    // A response for a replaced task anchor writes nothing and returns false.
     markOwnershipTaskSucceeded(input: {
         runId: number;
         tokenId: string;
         attempts: number;
         owner: string;
-    }): void;
+        block: ChainBlockReference;
+    }): boolean;
     markOwnershipTaskRetry(input: {
         runId: number;
         tokenId: string;
