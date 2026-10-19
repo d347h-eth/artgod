@@ -1,5 +1,6 @@
 import {
     ChainSyncConflict,
+    StoredBlockHashConflict,
     type AppliedChainProgress,
     type SyncBlockHeader,
 } from "./chain-sync.js";
@@ -57,7 +58,8 @@ export function assertAppliedSyncRange(
             progress.applied.hash !== progress.anchor.hash)
     )
         throw new ChainSyncConflict("Applied progress contradicts its anchor");
-    assertSyncBlockHeaders([progress.anchor, progress.applied, ...blocks]);
+    assertSyncBlockHeaders([progress.anchor, progress.applied]);
+    assertSyncBlockHeaders(blocks);
     for (const block of [progress.anchor, progress.applied, ...blocks]) {
         if (
             !block.hash ||
@@ -70,7 +72,6 @@ export function assertAppliedSyncRange(
             );
     }
     if (
-        blocks[0].parentHash !== progress.applied.hash ||
         blocks.some(
             (block, index) =>
                 block.number !== progress.applied.number + index + 1,
@@ -78,6 +79,16 @@ export function assertAppliedSyncRange(
     )
         throw new ChainSyncConflict(
             "Applied sync range does not extend its expected predecessor",
+        );
+    if (blocks[0].parentHash !== progress.applied.hash)
+        throw new StoredBlockHashConflict(
+            {
+                chainId: progress.checkpoint.chainId,
+                blockNumber: progress.applied.number,
+                blockHash: progress.applied.hash,
+                checkpoint: progress.checkpoint,
+            },
+            blocks[0].parentHash,
         );
 }
 

@@ -59,3 +59,32 @@ export interface ChainProgressPort extends ValidationCheckpointPort {
     ): ChainHeadSample | null;
     retainDispute(check: PendingCanonicalCheck): void;
 }
+
+/** Range acceptance and effects share one writer. Checking only header presence
+ * is insufficient to authorize a projection or publish applied progress. */
+export interface AppliedRangeProgressPort {
+    assertAcceptedRange(
+        checkpoint: ChainSyncCheckpoint,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+    assertChainRange(
+        expected: AppliedChainProgress,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+    advanceChain(
+        expected: AppliedChainProgress,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+    assertCollectionRange(
+        expected: CollectionAppliedProgress,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+    advanceCollection(
+        expected: CollectionAppliedProgress,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+    assertHistoricalRange(
+        checkpoint: ChainSyncCheckpoint,
+        blocks: readonly SyncBlockHeader[],
+    ): void;
+}

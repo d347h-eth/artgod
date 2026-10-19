@@ -6,6 +6,8 @@ import {
     type SyncBlockHeader,
 } from "../src/domain/chain-sync.js";
 import { SqliteChainProgress } from "../src/infra/storage/sqlite-chain-progress.js";
+import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
+import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
 import { persistCanonicalBlocks } from "../src/infra/storage/sqlite-canonical-headers.js";
 import {
     advanceChainSyncRevision,
@@ -289,6 +291,246 @@ describe("durable coordinated chain progress", () => {
         ).toThrow(ChainSyncConflict);
     });
 
+    it("gates a late conflicting sample until fresh confirmation repairs its barrier", () => {
+        readyBase();
+        admissionSequence(1);
+        const request = progress.captureHeadSample(CHAIN_ID);
+        commitChain([block(901)]);
+        commitCollection(collectionId, [block(901)]);
+        progress.recordHeadSample(
+            request,
+            { ...block(901), hash: `0x${"ab".repeat(32)}` },
+            10,
+        );
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId),
+        ).toBeNull();
+        expect(() => commitChain([block(902)])).toThrow(ChainSyncConflict);
+        const checks = new SqliteCanonicalChecks();
+        const claim = checks.nextDue({
+            chainId: CHAIN_ID,
+            now: 11,
+            upperBound: 0,
+        })!;
+        expect(claim).toMatchObject({ blockNumber: 901, generation: 1 });
+        // A successful later sample cannot move the frozen finishing line.
+        progress.recordHeadSample(request, block(902), 11);
+        expect(progress.admissionBarrier(CHAIN_ID, 1)?.blockHash).not.toBe(
+            block(901).hash,
+        );
+        expect(checks.confirmCanonicalBlock(claim)).toBe(true);
+        expect(progress.admissionBarrier(CHAIN_ID, 1)).toMatchObject({
+            blockNumber: 901,
+            blockHash: block(901).hash,
+        });
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                progress.admissionBarrier(CHAIN_ID, 1),
+            )?.block.number,
+        ).toBe(901);
+        commitChain([block(902)]);
+    });
+
+    it("cannot clear a newer dispute with an older confirmation or retry", () => {
+        readyBase();
+        commitChain([block(901)]);
+        commitCollection(collectionId, [block(901)]);
+        const check = {
+            chainId: CHAIN_ID,
+            checkpoint: checkpoint(),
+            blockNumber: 901,
+            blockHash: block(901).hash,
+        };
+        progress.retainDispute(check);
+        const checks = new SqliteCanonicalChecks();
+        const old = checks.nextDue({
+            chainId: CHAIN_ID,
+            now: 10,
+            upperBound: 0,
+        })!;
+        progress.retainDispute(check);
+        expect(checks.confirmCanonicalBlock(old)).toBe(false);
+        checks.defer(old, 1000);
+        const current = checks.nextDue({
+            chainId: CHAIN_ID,
+            now: 10,
+            upperBound: 0,
+        })!;
+        expect(current.generation).toBe(2);
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId),
+        ).toBeNull();
+        expect(checks.confirmCanonicalBlock(current)).toBe(true);
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId)?.block.number,
+        ).toBe(901);
+    });
+
+    it("clears only the confirmed dispute while other heights remain gated", () => {
+        readyBase();
+        commitChain(headers(901, 902));
+        commitCollection(collectionId, headers(901, 902));
+        for (const number of [901, 902])
+            progress.retainDispute({
+                chainId: CHAIN_ID,
+                checkpoint: checkpoint(),
+                blockNumber: number,
+                blockHash: block(number).hash,
+            });
+        const checks = new SqliteCanonicalChecks();
+        expect(
+            checks.confirmCanonicalBlock(
+                checks.nextDue({ chainId: CHAIN_ID, now: 10, upperBound: 0 })!,
+            ),
+        ).toBe(true);
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId),
+        ).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT disputed_from FROM chain_sync_progress WHERE chain_id=1",
+                )
+                .get(),
+        ).toEqual({ disputed_from: 902 });
+        expect(
+            checks.confirmCanonicalBlock(
+                checks.nextDue({ chainId: CHAIN_ID, now: 10, upperBound: 0 })!,
+            ),
+        ).toBe(true);
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId)?.block.number,
+        ).toBe(902);
+    });
+
+    it("rejects a lagging below-base sample without freezing its admission mapping", () => {
+        readyBase();
+        admissionSequence(1);
+        const request = progress.captureHeadSample(CHAIN_ID);
+        expect(() =>
+            progress.recordHeadSample(request, block(899), 10),
+        ).toThrow(ChainSyncConflict);
+        expect(progress.admissionBarrier(CHAIN_ID, 1)).toBeNull();
+        progress.recordHeadSample(request, block(900), 11);
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                progress.admissionBarrier(CHAIN_ID, 1),
+            )?.block.number,
+        ).toBe(900);
+    });
+
+    it("discards below-base mappings retained before explicit initialization", () => {
+        admissionSequence(1);
+        const request = progress.captureHeadSample(CHAIN_ID);
+        progress.recordHeadSample(request, block(899), 10);
+        readyBase();
+        expect(progress.admissionBarrier(CHAIN_ID, 1)).toBeNull();
+        expect(progress.headTarget(CHAIN_ID)).toBeNull();
+        progress.recordHeadSample(request, block(900), 11);
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                progress.admissionBarrier(CHAIN_ID, 1),
+            )?.block.number,
+        ).toBe(900);
+    });
+
+    it("retains a dispute when initialization overtakes a conflicting anchor sample", () => {
+        admissionSequence(1);
+        progress.recordHeadSample(
+            progress.captureHeadSample(CHAIN_ID),
+            { ...block(900), hash: `0x${"ab".repeat(32)}` },
+            10,
+        );
+        initialize();
+        installedBase();
+        expect(() =>
+            progress.acceptCollectionBase(
+                checkpoint(),
+                collectionId,
+                block(900),
+            ),
+        ).toThrow(ChainSyncConflict);
+        const checks = new SqliteCanonicalChecks();
+        checks.confirmCanonicalBlock(
+            checks.nextDue({ chainId: CHAIN_ID, now: 11, upperBound: 0 })!,
+        );
+        progress.acceptCollectionBase(checkpoint(), collectionId, block(900));
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                progress.admissionBarrier(CHAIN_ID, 1),
+            )?.block.number,
+        ).toBe(900);
+    });
+
+    it("ignores a late smaller watermark instead of remapping covered admissions", () => {
+        readyBase();
+        admissionSequence(1);
+        const earlier = progress.captureHeadSample(CHAIN_ID);
+        admissionSequence(2);
+        progress.recordHeadSample(
+            progress.captureHeadSample(CHAIN_ID),
+            block(901),
+            10,
+        );
+        progress.recordHeadSample(earlier, block(902), 11);
+        expect(progress.admissionBarrier(CHAIN_ID, 1)).toMatchObject({
+            blockNumber: 901,
+            sampledAt: 10,
+        });
+        expect(progress.admissionBarrier(CHAIN_ID, 2)).toMatchObject({
+            blockNumber: 901,
+            sampledAt: 10,
+        });
+        expect(progress.headTarget(CHAIN_ID)?.blockNumber).toBe(901);
+    });
+
+    it("indexes sample rebinding by the one accepted block", () => {
+        const plan = db
+            .prepare(
+                "EXPLAIN QUERY PLAN UPDATE chain_head_samples SET block_hash=? WHERE chain_id=? AND revision=? AND block_number=? AND block_hash<>?",
+            )
+            .all(block(901).hash, CHAIN_ID, 0, 901, block(901).hash) as Array<{
+            detail: string;
+        }>;
+        expect(
+            plan.some(
+                (row) =>
+                    row.detail.includes("chain_head_samples_block") &&
+                    row.detail.includes("block_number=?"),
+            ),
+        ).toBe(true);
+    });
+
+    it("allows exact accepted collection replay during resync while history remains gated", () => {
+        readyBase();
+        commitChain([block(901)]);
+        db.prepare(
+            "INSERT INTO chain_reorg_recoveries(chain_id,recovery_id,version,revision,checked_block,stored_hash,observed_hash,phase,retry_at,range_from,range_to,target_block) VALUES (1,'replay',0,0,901,'old','new',?,0,901,901,901)",
+        ).run(REORG_RECOVERY_PHASE.Resync);
+        expect(() =>
+            progress.assertAcceptedRange(checkpoint(), [block(901)]),
+        ).not.toThrow();
+        expect(() =>
+            progress.assertHistoricalRange(checkpoint(), [block(901)]),
+        ).toThrow(ChainSyncConflict);
+        expect(() =>
+            progress.assertAcceptedRange(checkpoint(), [block(902)]),
+        ).toThrow(ChainSyncConflict);
+        expect(() =>
+            progress.assertAcceptedRange(checkpoint(), [
+                { ...block(901), hash: "other" },
+            ]),
+        ).toThrow(ChainSyncConflict);
+    });
+
     it("cannot publish applied progress outside the core effects writer", () => {
         readyBase();
         const expected = progress.chainProgress(CHAIN_ID)!;
@@ -380,6 +622,56 @@ describe("durable coordinated chain progress", () => {
         expect(
             progress.validationCheckpoint(CHAIN_ID, collectionId),
         ).toBeNull();
+    });
+
+    it("binds an unaccepted sampled target to the replacement branch without moving its height", () => {
+        readyBase();
+        admissionSequence(1);
+        progress.recordHeadSample(
+            progress.captureHeadSample(CHAIN_ID),
+            block(901),
+            10,
+        );
+        const originalBarrier = progress.admissionBarrier(CHAIN_ID, 1)!;
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                originalBarrier,
+            ),
+        ).toBeNull();
+        const replacement = { ...block(901), hash: block(1901).hash };
+        commitChain([replacement]);
+        commitCollection(collectionId, [replacement]);
+        const rebound = progress.admissionBarrier(CHAIN_ID, 1)!;
+        expect(rebound).toMatchObject({
+            blockNumber: 901,
+            blockHash: replacement.hash,
+            revision: 0,
+        });
+        expect(
+            progress.validationCheckpoint(CHAIN_ID, collectionId, rebound)
+                ?.block,
+        ).toEqual({
+            number: replacement.number,
+            hash: replacement.hash,
+            parentHash: replacement.parentHash,
+            timestamp: replacement.timestamp,
+        });
+        expect(
+            progress.validationCheckpoint(
+                CHAIN_ID,
+                collectionId,
+                originalBarrier,
+            ),
+        ).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT 1 FROM blocks WHERE chain_id=? AND block_hash=?",
+                )
+                .get(CHAIN_ID, originalBarrier.blockHash),
+        ).toBeUndefined();
     });
 
     it("retains applied progress and admission barriers across a closed connection", () => {

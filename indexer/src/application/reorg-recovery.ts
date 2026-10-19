@@ -155,7 +155,7 @@ export class RecoverChainReorg {
                     "Block check RPC returned the wrong block",
                 );
             if (block.hash === storedHash) {
-                this.checks.complete(check);
+                this.checks.confirmCanonicalBlock(check);
                 return;
             }
             const retained = this.recoveries.retainMismatch({

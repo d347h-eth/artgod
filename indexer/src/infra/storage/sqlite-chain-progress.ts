@@ -25,6 +25,7 @@ import {
     captureChainSyncCheckpoint,
 } from "./sqlite-chain-revisions.js";
 import { persistCanonicalBlocks } from "./sqlite-canonical-headers.js";
+import { SqliteCanonicalChecks } from "./sqlite-canonical-checks.js";
 
 type ProgressRow = {
     chain_id: number;
@@ -92,6 +93,32 @@ export class SqliteChainProgress implements ChainProgressPort {
                 anchor.number,
                 anchor.hash,
             );
+            // Samples from before initialization can name history deliberately
+            // outside this base. Leave those admissions unbound for a later
+            // healthy sample instead of requiring nonexistent local ancestry.
+            db.prepare(
+                "DELETE FROM chain_head_samples WHERE chain_id=? AND revision=? AND block_number<?",
+            ).run(checkpoint.chainId, checkpoint.revision, anchor.number);
+            db.prepare(
+                "DELETE FROM chain_sync_targets WHERE chain_id=? AND revision=? AND block_number<?",
+            ).run(checkpoint.chainId, checkpoint.revision, anchor.number);
+            const conflictingAnchorSample = db
+                .prepare(
+                    "SELECT 1 FROM chain_head_samples WHERE chain_id=? AND revision=? AND block_number=? AND block_hash<>? LIMIT 1",
+                )
+                .get(
+                    checkpoint.chainId,
+                    checkpoint.revision,
+                    anchor.number,
+                    anchor.hash,
+                );
+            if (conflictingAnchorSample)
+                this.retainDispute({
+                    chainId: checkpoint.chainId,
+                    checkpoint,
+                    blockNumber: anchor.number,
+                    blockHash: anchor.hash,
+                });
         })();
     }
 
@@ -179,6 +206,35 @@ export class SqliteChainProgress implements ChainProgressPort {
             assertChainSyncCheckpoint(request.checkpoint);
             assertSyncBlockHeaders([head]);
             const { chainId, revision } = request.checkpoint;
+            const chain = this.chainProgress(chainId);
+            if (chain && head.number < chain.anchor.number)
+                throw new ChainSyncConflict(
+                    "Head sample predates the accepted chain base",
+                );
+            if (chain && head.number <= chain.applied.number) {
+                const accepted = this.header(chainId, head.number);
+                if (!accepted)
+                    throw new ChainSyncConflict(
+                        "Head sample has lost applied lineage",
+                    );
+                if (accepted.hash !== head.hash)
+                    this.retainDispute({
+                        chainId,
+                        checkpoint: request.checkpoint,
+                        blockNumber: head.number,
+                        blockHash: accepted.hash,
+                    });
+            }
+            // Overlapping pre-restart work must not remap admissions already
+            // covered by an earlier successful sample with a larger watermark.
+            if (
+                db
+                    .prepare(
+                        "SELECT 1 FROM chain_head_samples WHERE chain_id=? AND revision=? AND admission_watermark>? LIMIT 1",
+                    )
+                    .get(chainId, revision, request.admissionWatermark)
+            )
+                return;
             // Freeze the first successful sample for this watermark. Later HEAD
             // movement cannot move an admitted generation's finishing line.
             db.prepare(
@@ -302,6 +358,46 @@ export class SqliteChainProgress implements ChainProgressPort {
         assertAppliedSyncRange(expected, blocks);
     }
 
+    /** History may enrich older facts, but cannot install a future header before
+     * the coordinator reaches it. Waiting history never owns current catch-up. */
+    assertHistoricalRange(
+        checkpoint: ChainSyncCheckpoint,
+        blocks: readonly SyncBlockHeader[],
+    ): void {
+        this.assertAvailable(checkpoint);
+        const chain = this.requireChain(checkpoint.chainId);
+        assertSyncBlockHeaders(blocks);
+        for (const block of blocks) {
+            if (block.number > chain.applied.number)
+                throw new ChainSyncConflict(
+                    "Historical import awaits applied chain progress",
+                );
+            if (block.number >= chain.anchor.number)
+                this.assertMember(checkpoint.chainId, block);
+        }
+    }
+
+    /** Collection catch-up replays already accepted shared history, including
+     * recovery resync; it cannot admit a new header or outrun shared effects. */
+    assertAcceptedRange(
+        checkpoint: ChainSyncCheckpoint,
+        blocks: readonly SyncBlockHeader[],
+    ): void {
+        this.assertAvailable(checkpoint, true);
+        const chain = this.requireChain(checkpoint.chainId);
+        assertSyncBlockHeaders(blocks);
+        for (const block of blocks) {
+            if (
+                block.number < chain.anchor.number ||
+                block.number > chain.applied.number
+            )
+                throw new ChainSyncConflict(
+                    "Collection replay is outside applied shared history",
+                );
+            this.assertMember(checkpoint.chainId, block);
+        }
+    }
+
     /** Called after core effects and invalidations, in that same transaction. */
     advanceChain(
         expected: AppliedChainProgress,
@@ -378,18 +474,10 @@ export class SqliteChainProgress implements ChainProgressPort {
 
     retainDispute(check: PendingCanonicalCheck): void {
         db.writeTransaction(() => {
-            assertChainSyncCheckpoint(check.checkpoint);
-            if (
-                check.chainId !== check.checkpoint.chainId ||
-                this.header(check.chainId, check.blockNumber)?.hash !==
-                    check.blockHash
-            )
+            if (!new SqliteCanonicalChecks().retain(check, { disputed: true }))
                 throw new ChainSyncConflict(
                     "Dispute no longer identifies retained chain history",
                 );
-            db.prepare(
-                "UPDATE chain_sync_progress SET disputed_from=CASE WHEN disputed_from IS NULL THEN ? ELSE MIN(disputed_from,?) END WHERE chain_id=?",
-            ).run(check.blockNumber, check.blockNumber, check.chainId);
         })();
     }
 
@@ -418,12 +506,13 @@ export class SqliteChainProgress implements ChainProgressPort {
             );
         this.assertMember(chainId, ancestor);
         db.prepare(
-            "UPDATE chain_sync_progress SET revision=?,applied_block=MIN(applied_block,?),applied_hash=CASE WHEN applied_block>? THEN ? ELSE applied_hash END,disputed_from=NULL WHERE chain_id=?",
+            "UPDATE chain_sync_progress SET revision=?,applied_block=MIN(applied_block,?),applied_hash=CASE WHEN applied_block>? THEN ? ELSE applied_hash END,disputed_from=(SELECT MIN(block_number) FROM blocks WHERE chain_id=? AND canonical_check_disputed=1) WHERE chain_id=?",
         ).run(
             checkpoint.revision,
             ancestor.number,
             ancestor.number,
             ancestor.hash,
+            chainId,
             chainId,
         );
         db.prepare(
