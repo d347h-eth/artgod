@@ -14,14 +14,11 @@ import { acquireSyncRange } from "../src/application/sync-range-processing.js";
 import {
     planSyncGapRepairBatches,
     remainingSyncGapRepairRange,
+    type SyncGapRepairTarget,
 } from "../src/domain/sync-gap-repair.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    type SyncGapRepairTarget,
-} from "../src/domain/sync-jobs.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../src/ports/rpc.js";
 import type { QueuePort } from "../src/ports/queue.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
@@ -235,8 +232,6 @@ describe("shared collection gap acquisition", () => {
                 range: { fromBlock: 101, toBlock: 109 },
                 application: { kind: SYNC_APPLICATION_KIND.Historical },
                 wethAddress: CONTRACTS[0],
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             });
             h.applied.commit(covered);
             rpc.getBlock.mockClear();

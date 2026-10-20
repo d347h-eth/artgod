@@ -5,7 +5,6 @@ import { logger } from "@artgod/shared/utils";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY as POLICY,
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
@@ -72,7 +71,6 @@ describe("backfill ingress under coordinated authority", () => {
                 source: BACKFILL_SOURCE.BootstrapCatchup,
                 fromBlock: 902,
                 toBlock: 902,
-                orderMaintenancePolicy: POLICY.CurrentState,
             },
             s.collections[0]!.id,
         );
@@ -88,42 +86,26 @@ describe("backfill ingress under coordinated authority", () => {
         expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
     });
 
-    it.each([
-        BACKFILL_SOURCE.GapRepair,
-        BACKFILL_SOURCE.ReorgRecovery,
-    ] as const)(
-        "acknowledges %s envelopes without competing with their durable owner",
+    it.each(["gap_repair", "reorg_recovery", "unknown"])(
+        "rejects unsupported source %s without acquisition or wakeup",
         async (source) => {
             const s = fixture();
-            const payload: BackfillSyncPayload =
-                source === BACKFILL_SOURCE.GapRepair
-                    ? {
-                          source,
-                          fromBlock: 901,
-                          toBlock: 902,
-                          orderMaintenancePolicy: POLICY.CurrentState,
-                      }
-                    : {
-                          source,
-                          fromBlock: 901,
-                          toBlock: 902,
-                          orderMaintenancePolicy: POLICY.CurrentState,
-                          recovery: {
-                              recoveryId: "retained-owner",
-                              revision: 0,
-                          },
-                      };
-            await s.handler(
-                job(
-                    payload,
-                    source === BACKFILL_SOURCE.GapRepair
-                        ? s.collections[0]!.id
-                        : undefined,
-                ),
-            );
+            const incoming = job({
+                source: BACKFILL_SOURCE.ManualHistorical,
+                fromBlock: 901,
+                toBlock: 902,
+            });
+            await s.handler({
+                ...incoming,
+                payload: { ...incoming.payload, source },
+            });
             expect(s.historical.state.blockReads).toEqual([]);
             expect(s.historical.state.logReads).toEqual([]);
             expect(s.wake).not.toHaveBeenCalled();
+            expect(logger.warn).toHaveBeenCalledWith(
+                "Invalid backfill sync job",
+                expect.objectContaining({ jobId: incoming.jobId }),
+            );
             expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(
                 900,
             );
@@ -142,7 +124,6 @@ describe("backfill ingress under coordinated authority", () => {
                     source: BACKFILL_SOURCE.ManualHistorical,
                     fromBlock: 900,
                     toBlock: 900,
-                    orderMaintenancePolicy: POLICY.SkipGlobalMakerRevalidation,
                 },
                 s.collections[0]!.id,
             ),
@@ -171,8 +152,6 @@ describe("backfill ingress under coordinated authority", () => {
                         source: BACKFILL_SOURCE.ManualHistorical,
                         fromBlock: 902,
                         toBlock: 902,
-                        orderMaintenancePolicy:
-                            POLICY.SkipGlobalMakerRevalidation,
                     },
                     s.collections[0]!.id,
                 ),
@@ -211,8 +190,6 @@ describe("backfill ingress under coordinated authority", () => {
                         source: BACKFILL_SOURCE.ManualHistorical,
                         fromBlock: 900,
                         toBlock: 900,
-                        orderMaintenancePolicy:
-                            POLICY.SkipGlobalMakerRevalidation,
                     },
                     s.collections[0]!.id,
                 ),
@@ -247,7 +224,6 @@ describe("backfill ingress under coordinated authority", () => {
                 source: BACKFILL_SOURCE.BootstrapCatchup,
                 fromBlock: 901,
                 toBlock: 902,
-                orderMaintenancePolicy: POLICY.CurrentState,
             },
             s.collections[0]!.id,
         );

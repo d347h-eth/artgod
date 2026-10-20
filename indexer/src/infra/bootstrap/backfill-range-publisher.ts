@@ -3,7 +3,6 @@ import { BOOTSTRAP_BACKFILL_JOB_ID_SCOPE } from "../../domain/bootstrap-jobs.js"
 import type { JobEnvelope } from "../../domain/jobs.js";
 import { QUEUE_NAMES } from "../../domain/queues.js";
 import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
@@ -24,8 +23,6 @@ export async function publishBootstrapBackfillRange(
             fromBlock: input.fromBlock,
             toBlock: input.toBlock,
             source: BACKFILL_SOURCE.BootstrapCatchup,
-            orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
         },
         attempt: 0,
         scheduledAt: Date.now(),

@@ -22,7 +22,6 @@ import {
     MAKER_TRIGGER_SCOPE,
     ORDER_UPDATE_REASON,
 } from "../src/domain/order-jobs.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import { RetainCanonicalOrderEffects } from "../src/application/orders/retain-canonical-order-effects.js";
 import type { MakerRevalidationStore } from "../src/ports/maker-revalidation.js";
 import { emptyOnChainData } from "./helpers/ownership-fixture.js";
@@ -32,7 +31,6 @@ const CHAIN = 1;
 const COLLECTION = 7;
 const CONTRACT = "0x0000000000000000000000000000000000000007";
 const MAKER = "0x00000000000000000000000000000000000000aa";
-const CURRENT = BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState;
 
 function collection(anchor = 900) {
     return CollectionRecord.fromPersistence({
@@ -121,7 +119,6 @@ function fixture() {
         chainId: CHAIN,
         collections: [collection()],
         data,
-        orderMaintenancePolicy: CURRENT,
         applyingShared: true,
     };
 }
@@ -160,15 +157,8 @@ describe("canonical order effects before applied progress", () => {
         );
     });
 
-    it("creates no current effects for historical policy, unselected scopes or pre-anchor facts", () => {
+    it("creates no current effects for unselected scopes or pre-anchor facts", () => {
         const input = fixture();
-        expect(
-            buildCanonicalOrderEffects({
-                ...input,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-            }),
-        ).toEqual([]);
         expect(
             buildCanonicalOrderEffects({
                 ...input,

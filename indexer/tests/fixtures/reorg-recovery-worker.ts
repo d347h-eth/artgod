@@ -10,7 +10,6 @@ import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drai
 import { runWorker } from "../../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
-import type { BackfillSyncPayload } from "../../src/domain/sync-jobs.js";
 import type {
     QueuePort,
     QueueMessage,

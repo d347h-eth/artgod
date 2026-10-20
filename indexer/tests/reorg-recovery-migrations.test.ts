@@ -8,11 +8,7 @@ import { resolveProjectPath } from "@artgod/shared/utils/paths";
 import { SqliteCollectionPurgeRepository } from "../../backend/src/infra/collections/sqlite-collection-purge-repository.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
-import {
-    BACKFILL_SOURCE,
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    SYNC_JOB_KIND,
-} from "../src/domain/sync-jobs.js";
+import { BACKFILL_SOURCE, SYNC_JOB_KIND } from "../src/domain/sync-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import {
     QUEUE_OUTBOX_RETRY_POLICY,
@@ -104,7 +100,7 @@ describe("integrated reorg recovery migration upgrades", () => {
                 "VALUES(1, ?, ?, 103, 'old-gap', 105, 106, 9999999999999)",
         ).run(collectionId, F.Anchor);
         for (const source of [
-            BACKFILL_SOURCE.ReorgRecovery,
+            "reorg_recovery",
             BACKFILL_SOURCE.ManualHistorical,
         ]) {
             const job = {
@@ -119,8 +115,8 @@ describe("integrated reorg recovery migration upgrades", () => {
                     source,
                     orderMaintenancePolicy:
                         source === BACKFILL_SOURCE.ManualHistorical
-                            ? BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation
-                            : BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                            ? "skip_global_maker_revalidation"
+                            : "current_state",
                 },
             };
             db.prepare(

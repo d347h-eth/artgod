@@ -9,10 +9,7 @@ import {
     type MetadataRefreshRangePayload,
 } from "../../src/domain/domain-jobs.js";
 import { SYNC_WORK_COMPLETION } from "../../src/domain/sync-work.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    SYNC_JOB_KIND,
-} from "../../src/domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../../src/domain/sync-jobs.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { QueuePort } from "../../src/ports/queue.js";
 import { SqliteMetadataDomain } from "../../src/infra/domain/metadata.js";

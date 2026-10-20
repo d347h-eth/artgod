@@ -8,10 +8,6 @@ import {
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
 } from "./order-jobs.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    type BackfillOrderMaintenancePolicy,
-} from "./sync-jobs.js";
 
 /** Only accepted chain events enter this contract. Source observations use their
  * own admission path and cannot supply these protocol effects. */
@@ -41,21 +37,15 @@ export type CanonicalOrderEffectsInput = {
 
 /** The coordinator supplies only collections whose current prefix it is applying.
  * Anchor checks remain domain-owned; acquired historical facts alone never
- * create current order effects. The same classification drives optional fanout. */
+ * create current order effects. The sync writer retains these effects directly. */
 export function buildCanonicalOrderEffects(input: {
     chainId: number;
     collections: readonly CollectionRecord[];
     data: OnChainData;
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
     /** Shared protocol effects belong to shared advancement, independently of
      * collection readiness. Collection-only catch-up cannot replay them. */
     applyingShared: boolean;
 }): CanonicalOrderEffect[] {
-    if (
-        input.orderMaintenancePolicy !==
-        BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState
-    )
-        return [];
     const { chainId, data } = input;
     const currentCollections = input.collections.filter(
         (collection) => collection.chainId === chainId,
@@ -129,8 +119,8 @@ export function buildCanonicalOrderEffects(input: {
     return effects;
 }
 
-/** Stable identity lets direct durable admission and a replayed optional wakeup
- * refer to the same effect, including after a lost publication reply. */
+/** Stable event identity preserves durable admission idempotency when canonical
+ * work replays. Maker continuation identity belongs to the admitted run. */
 export function canonicalOrderEffectId(effect: CanonicalOrderEffect): string {
     if (effect.kind === ORDER_JOB_KIND.UpdateById) {
         const payload = effect.payload;

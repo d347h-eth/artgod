@@ -14,7 +14,6 @@ import {
     SYNC_APPLICATION_KIND,
     SYNC_WORK_COMPLETION,
 } from "../../domain/sync-work.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../../domain/sync-jobs.js";
 import type {
     SyncRangeCommit,
     SyncRangeCommitPort,
@@ -78,8 +77,6 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
                             selectedCollections.has(collection.id),
                         ),
                         data: result.data,
-                        orderMaintenancePolicy:
-                            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                         applyingShared: application.chain !== null,
                     }),
                     now: (this.ports.now ?? Date.now)(),

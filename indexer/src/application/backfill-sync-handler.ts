@@ -27,9 +27,8 @@ import {
 export const SYNC_WORKER_LOG_COMPONENT = "IndexerSyncWorker";
 const BACKFILL_SYNC_LOG_ACTION = "backfillRange";
 
-// Broker ranges now serve manual and bootstrap requests. Old automatic hints
-// are acknowledged without acquisition: their retained SQLite owner is executed
-// by AutomaticSyncExecutor, including work pending when the app was upgraded.
+// Broker ranges serve manual history requests and bootstrap wakeups. Automatic
+// gap and recovery work is selected directly by the retained SQLite owner.
 export function createBackfillSyncHandler(input: {
     chainId: number;
     workerCount: number;
@@ -58,12 +57,7 @@ export function createBackfillSyncHandler(input: {
             });
             return;
         }
-        if (
-            job.chainId !== input.chainId ||
-            job.payload.source === BACKFILL_SOURCE.GapRepair ||
-            job.payload.source === BACKFILL_SOURCE.ReorgRecovery
-        )
-            return;
+        if (job.chainId !== input.chainId) return;
         if (job.payload.source === BACKFILL_SOURCE.BootstrapCatchup) {
             // The installed base and sampled target already retain this work.
             // A broker hint never grants permission to apply out of order.
@@ -102,7 +96,6 @@ export function createBackfillSyncHandler(input: {
             action: BACKFILL_SYNC_LOG_ACTION,
             ...range,
             source: job.payload.source,
-            orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
             collectionIds: collections.map((collection) => collection.id),
             backfillWorkerCount: input.workerCount,
             blocks: blocks.length,

@@ -83,6 +83,38 @@ describe("canonical maker admission owns its continuation", () => {
         expect(f.progress.chainProgress(1)?.applied.number).toBe(101);
     });
 
+    it("keeps historical maker and cancel facts out of current order state and demand", () => {
+        const f = fixture(true);
+        f.commit(f.range(101, []));
+        const result = f.range(101);
+        result.data.global.cancelEvents.push({
+            orderId: "fixture-bid",
+            blockNumber: 101,
+            blockHash: block(101).hash,
+            txHash: block(101).hash,
+            logIndex: 1,
+        });
+        const before = db
+            .prepare("SELECT * FROM orders WHERE id='fixture-bid'")
+            .get();
+        f.commit(
+            f.historical({
+                blocks: result.blocks,
+                data: result.data,
+                collectionIds: result.collections.map(
+                    (collection) => collection.id,
+                ),
+            }),
+        );
+        expect(
+            db.prepare("SELECT * FROM orders WHERE id='fixture-bid'").get(),
+        ).toEqual(before);
+        expect(count("maker_order_revalidation_runs")).toBe(0);
+        expect(count("order_validation_demand")).toBe(0);
+        expect(count("queue_outbox")).toBe(0);
+        expect(f.progress.chainProgress(1)?.applied.number).toBe(101);
+    });
+
     it("retains one continuation for an eligible scope and coalesces later events without duplicate publications", () => {
         const f = fixture(true);
         f.commit(f.range(101, [MAKER, OTHER]));
