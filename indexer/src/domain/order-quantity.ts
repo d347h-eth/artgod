@@ -1,3 +1,4 @@
+import { zeroAddress } from "viem";
 import {
     seaportAllowsPartialFills,
     seaportRequiresFullFill,
@@ -5,7 +6,6 @@ import {
     SEAPORT_ITEM_TYPE,
 } from "@artgod/shared/market-data/seaport";
 import { seaportNftQuantity } from "@artgod/shared/market-data/seaport-quantity";
-import { FILL_KIND } from "@artgod/shared/market-data/fills";
 import {
     ORDER_SIDE,
     ORDER_STATUS,
@@ -13,48 +13,80 @@ import {
     type OrderValidationResult,
 } from "./orders.js";
 
-/** The current buy-order model supports one collection and a fixed unit price.
- * Do not publish quantity estimates for baskets or changing signed amounts. */
-export function partialBuyOriginalQuantity(
-    order: Pick<OrderRecord, "side" | "contract" | "seaportData" | "currency">,
+/** One fixed NFT item has an unambiguous signed size on either order side.
+ * Baskets and changing amounts remain unknown. Partial quantities require every
+ * signed amount to permit a one-NFT fraction, matching the unit-capacity model. */
+export function fixedOrderOriginalQuantity(
+    order: Pick<OrderRecord, "side" | "contract" | "seaportData">,
 ): bigint | null {
     const data = order.seaportData;
     if (
-        order.side !== ORDER_SIDE.Buy ||
         !data ||
-        !seaportAllowsPartialFills(data.orderType)
+        (!seaportAllowsPartialFills(data.orderType) &&
+            !seaportRequiresFullFill(data.orderType))
     )
         return null;
-    const nfts = data.consideration.filter((item) =>
-        seaportIsNftItem(item.itemType),
-    );
-    if (
-        nfts.length !== 1 ||
-        nfts.some(
-            (item) =>
-                item.token.toLowerCase() !== order.contract.toLowerCase() ||
-                item.startAmount !== item.endAmount,
-        )
-    )
-        return null;
+    const nftItems = (
+        order.side === ORDER_SIDE.Buy
+            ? data.consideration
+            : order.side === ORDER_SIDE.Sell
+              ? data.offer
+              : []
+    ).filter((item) => seaportIsNftItem(item.itemType));
     const items = [...data.offer, ...data.consideration];
     if (
-        data.offer.length !== 1 ||
-        Number(data.offer[0]?.itemType) !== SEAPORT_ITEM_TYPE.Erc20 ||
-        (order.currency &&
-            data.offer[0].token.toLowerCase() !==
-                order.currency.toLowerCase()) ||
+        nftItems.length !== 1 ||
+        nftItems[0]!.token.toLowerCase() !== order.contract.toLowerCase() ||
         items.some((item) => item.startAmount !== item.endAmount)
     )
         return null;
-    const quantity = seaportNftQuantity(nfts, order.contract);
-    // Each NFT unit must be a valid Seaport fraction of every signed item.
-    // Otherwise the minimum executable lot can exceed one NFT.
-    return quantity !== null &&
-        quantity > 0n &&
-        items.every((item) => BigInt(item.startAmount) % quantity === 0n)
-        ? quantity
-        : null;
+    const declared = declaredOrderQuantity(order);
+    if (declared === null) return null;
+    const quantity = BigInt(declared);
+    if (
+        seaportAllowsPartialFills(data.orderType) &&
+        items.some((item) => BigInt(item.startAmount) % quantity !== 0n)
+    )
+        return null;
+    return quantity;
+}
+
+/** Signed payment required by the supported single-currency buy shape. A full
+ * order requires its entire payment even if a normalized unit price is smaller. */
+export function buyOrderFundingRequirement(
+    order: Pick<OrderRecord, "side" | "seaportData">,
+    original: bigint | null,
+): { currency: string; minimumFunds: bigint; partial: boolean } | null {
+    const data = order.seaportData;
+    const payment = data?.offer[0];
+    if (
+        order.side !== ORDER_SIDE.Buy ||
+        !data ||
+        data.offer.length !== 1 ||
+        !payment ||
+        ![SEAPORT_ITEM_TYPE.Native, SEAPORT_ITEM_TYPE.Erc20].some(
+            (type) => type === Number(payment.itemType),
+        ) ||
+        payment.startAmount !== payment.endAmount
+    )
+        return null;
+    const total = BigInt(payment.startAmount);
+    if (total <= 0n) return null;
+    const partial =
+        original !== null && seaportAllowsPartialFills(data.orderType);
+    if (
+        original !== null &&
+        (original <= 0n || (partial && total % original !== 0n))
+    )
+        return null;
+    return {
+        currency:
+            Number(payment.itemType) === SEAPORT_ITEM_TYPE.Native
+                ? zeroAddress
+                : payment.token.toLowerCase(),
+        minimumFunds: partial ? total / original! : total,
+        partial,
+    };
 }
 
 /** getOrderStatus stores a fraction, whose denominator need not equal NFT units. */
@@ -75,16 +107,6 @@ export function remainingOrderQuantity(
     if (numerator % size !== 0n)
         throw new Error("Non-integral Seaport NFT remainder");
     return numerator / size;
-}
-
-/** Full-only signed orders are exhausted by one canonical execution.
- * Partial or unknown Seaport terms need a current protocol fraction; the
- * execution alone cannot establish cumulative remaining inventory. */
-export function fillExecutionNeedsValidation(order: OrderRecord): boolean {
-    return (
-        order.kind === FILL_KIND.Seaport &&
-        !seaportRequiresFullFill(order.seaportData?.orderType)
-    );
 }
 
 /** Per-order capacity at one snapshot. This does not reserve funds across offers. */

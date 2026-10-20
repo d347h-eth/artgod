@@ -186,6 +186,144 @@ describe("ViemRpcProvider RPC resilience", () => {
         }
     });
 
+    it.each(["contract", "aggregate", "balance"] as const)(
+        "keeps the supplied hash through %s endpoint retries without numeric fallback",
+        async (kind) => {
+            const block = {
+                chainId: 1,
+                blockNumber: TEST_BLOCK_NUMBER,
+                blockHash: `0x${"cd".repeat(32)}`,
+            };
+            const status = encodeFunctionResult({
+                abi: SEAPORT_VALIDATION_ABI,
+                functionName: "getOrderStatus",
+                result: [false, false, 0n, 1n],
+            });
+            const result =
+                kind === "contract"
+                    ? status
+                    : kind === "balance"
+                      ? "0x2a"
+                      : encodeFunctionResult({
+                            abi: multicall3Abi,
+                            functionName: "aggregate3",
+                            result: [{ success: true, returnData: status }],
+                        });
+            const calls: Array<{ url: string; body: any }> = [];
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(async (url, init) => {
+                    const body = JSON.parse(init.body);
+                    calls.push({ url: String(url), body });
+                    if (calls.length === 1)
+                        return new Response(TEST_HTTP_FAILURE_RESPONSE_BODY, {
+                            status: TEST_HTTP_FAILURE_STATUS,
+                        });
+                    return new Response(
+                        JSON.stringify({ jsonrpc: "2.0", id: body.id, result }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                        },
+                    );
+                }),
+            );
+            const provider = new ViemRpcProvider({
+                endpoints: [
+                    { url: TEST_RPC_ENDPOINT_A_URL, weight: 1 },
+                    { url: TEST_RPC_ENDPOINT_B_URL, weight: 1 },
+                ],
+                logChunkSize: TEST_LOG_CHUNK_SIZE,
+                retryPolicy: TEST_RETRY_POLICY,
+                resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+            });
+            if (kind === "contract")
+                expect(
+                    await provider.readContractAtBlock({
+                        ...statusContract,
+                        block,
+                    }),
+                ).toEqual([false, false, 0n, 1n]);
+            else if (kind === "aggregate")
+                expect(
+                    await provider.readContractsAtBlock({
+                        contracts: [statusContract],
+                        block,
+                    }),
+                ).toEqual([{ value: [false, false, 0n, 1n] }]);
+            else
+                expect(
+                    await provider.getBalanceAtBlock(
+                        statusContract.address,
+                        block,
+                    ),
+                ).toBe(42n);
+            expect(calls).toHaveLength(2);
+            expect(calls.map((call) => new URL(call.url).origin)).toEqual([
+                TEST_RPC_ENDPOINT_A_URL,
+                TEST_RPC_ENDPOINT_B_URL,
+            ]);
+            for (const { body } of calls) {
+                expect(body.method).toBe(
+                    kind === "balance" ? "eth_getBalance" : "eth_call",
+                );
+                expect(body.params[1]).toEqual({
+                    blockHash: block.blockHash,
+                    requireCanonical: true,
+                });
+            }
+        },
+    );
+
+    it("preserves unavailable exact-hash state instead of retrying at a numeric height", async () => {
+        const calls: any[] = [];
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (_url, init) => {
+                const body = JSON.parse(init.body);
+                calls.push(body);
+                return new Response(
+                    JSON.stringify({
+                        jsonrpc: "2.0",
+                        id: body.id,
+                        error: { code: -32000, message: "header not found" },
+                    }),
+                    { headers: { "Content-Type": "application/json" } },
+                );
+            }),
+        );
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+        });
+        const block = {
+            chainId: 1,
+            blockNumber: TEST_BLOCK_NUMBER,
+            blockHash: `0x${"cd".repeat(32)}`,
+        };
+        await expect(
+            provider.readContractAtBlock({ ...statusContract, block }),
+        ).rejects.toThrow();
+        await expect(
+            provider.getBalanceAtBlock(statusContract.address, block),
+        ).rejects.toThrow();
+        await expect(
+            provider.readContractsAtBlock({
+                contracts: [statusContract],
+                block,
+            }),
+        ).rejects.toThrow();
+        expect(calls).toHaveLength(3);
+        expect(
+            calls.every(
+                (call) =>
+                    call.params[1].blockHash === block.blockHash &&
+                    call.params[1].requireCanonical === true,
+            ),
+        ).toBe(true);
+    });
+
     it("forwards a native balance snapshot block without changing unpinned callers", async () => {
         const getBalance = vi.fn(async () => 1n);
         const provider = new ViemRpcProvider({

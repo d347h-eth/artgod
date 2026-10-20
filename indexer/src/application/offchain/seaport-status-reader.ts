@@ -1,3 +1,4 @@
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { SEAPORT_VALIDATION_ABI } from "../../abi/seaport-validation.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../domain/order-validation-policy.js";
@@ -14,8 +15,7 @@ export type SeaportProtocolStatus = readonly [boolean, boolean, bigint, bigint];
 /** Context-local lookahead: bounded status aggregates never replace full validation. */
 export function createSeaportStatusReader(input: {
     rpc: RpcProviderPort;
-    chainId: number;
-    blockNumber: number;
+    block: ChainBlockReference;
     candidates: readonly OrderRecord[];
     canBatch: () => boolean;
     batchFailed: () => void;
@@ -30,7 +30,7 @@ export function createSeaportStatusReader(input: {
     )) {
         const protocol = order.seaportData?.protocolAddress;
         if (
-            order.chainId !== input.chainId ||
+            order.chainId !== input.block.chainId ||
             order.kind !== "seaport" ||
             !protocol ||
             !/^0x[0-9a-f]{40}$/i.test(protocol) ||
@@ -50,9 +50,9 @@ export function createSeaportStatusReader(input: {
         input.counts.perOrder += contracts.length;
         input.counts.statusBatches++;
         try {
-            const results = await input.rpc.readContracts!({
+            const results = await input.rpc.readContractsAtBlock!({
                 contracts,
-                blockNumber: input.blockNumber,
+                block: input.block,
             });
             if (results.length !== contracts.length)
                 throw new Error("Contract batch result count mismatch");
@@ -77,7 +77,7 @@ export function createSeaportStatusReader(input: {
         if (
             !prefetched.has(key) &&
             !singles.has(key) &&
-            input.rpc.readContracts &&
+            input.rpc.readContractsAtBlock &&
             input.canBatch()
         ) {
             const chunk = [contract];
@@ -103,7 +103,7 @@ export function createSeaportStatusReader(input: {
         if (!single) {
             input.counts.perOrder++;
             single = input.rpc
-                .readContract({ ...contract, blockNumber: input.blockNumber })
+                .readContractAtBlock({ ...contract, block: input.block })
                 .then((result) => {
                     if (!isSeaportProtocolStatus(result))
                         throw new Error(

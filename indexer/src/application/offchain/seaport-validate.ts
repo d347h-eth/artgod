@@ -3,11 +3,13 @@ import {
     type SeaportProtocolStatus,
 } from "./seaport-status-reader.js";
 import {
-    partialBuyOriginalQuantity,
+    fixedOrderOriginalQuantity,
+    buyOrderFundingRequirement,
     fundedOrderQuantity,
     remainingOrderQuantity,
 } from "../../domain/order-quantity.js";
 import { zeroAddress } from "viem";
+import { seaportRequiresFullFill } from "@artgod/shared/market-data/seaport";
 import { logger } from "@artgod/shared/utils";
 import { ERC20_ABI, ERC721_APPROVAL_ABI } from "../../abi/index.js";
 import { SEAPORT_VALIDATION_ABI as SEAPORT_ABI } from "../../abi/seaport-validation.js";
@@ -32,7 +34,7 @@ import {
 import {
     computeSeaportOrderHash,
     recoverSeaportSigner,
-} from "./seaport-protocol.js";
+} from "../../domain/seaport-protocol.js";
 
 const CONDUIT_CONTROLLER_ABI = [
     {
@@ -93,7 +95,7 @@ type ParsedProtocol = {
 };
 
 export async function validateSeaportOrder(
-    rpc: RpcProviderPort,
+    rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     conduits: ConduitRegistryPort,
     config: SeaportValidationConfig,
     order: OrderRecord,
@@ -231,27 +233,53 @@ export async function validateSeaportOrder(
     const [_isValidated, isCancelled, totalFilled, totalSize] =
         orderStatusResult;
 
+    if (
+        seaportRequiresFullFill(order.seaportData?.orderType) &&
+        totalFilled > 0n &&
+        totalFilled < totalSize
+    )
+        throw new Error(
+            "A full-only Seaport order cannot have a partial filled fraction",
+        );
+    const original = fixedOrderOriginalQuantity(order);
+    // A nonintegral fraction contradicts the signed fixed-size declaration.
+    // It is uncertain RPC evidence, not a new terminal order result.
+    const remaining =
+        original === null
+            ? null
+            : remainingOrderQuantity(original, totalFilled, totalSize);
+    const withQuantities = (
+        result: OrderValidationResult,
+        capacity?: bigint,
+    ): OrderValidationResult =>
+        original !== null && remaining !== null && capacity !== undefined
+            ? {
+                  ...result,
+                  quantities: {
+                      original: original.toString(),
+                      remaining: remaining.toString(),
+                      fillable: capacity.toString(),
+                  },
+              }
+            : result;
+
     if (isCancelled) {
-        return {
-            status: ORDER_STATUS.Cancelled,
-            reason: ORDER_VALIDATION_REASON.Cancelled,
-        };
+        return withQuantities(
+            {
+                status: ORDER_STATUS.Cancelled,
+                reason: ORDER_VALIDATION_REASON.Cancelled,
+            },
+            0n,
+        );
     }
     if (totalFilled >= totalSize && totalSize > 0n) {
-        const original = partialBuyOriginalQuantity(order);
-        return {
-            status: ORDER_STATUS.Filled,
-            reason: ORDER_VALIDATION_REASON.Filled,
-            ...(original === null
-                ? {}
-                : {
-                      quantities: {
-                          original: original.toString(),
-                          remaining: "0",
-                          fillable: "0",
-                      },
-                  }),
-        };
+        return withQuantities(
+            {
+                status: ORDER_STATUS.Filled,
+                reason: ORDER_VALIDATION_REASON.Filled,
+            },
+            0n,
+        );
     }
 
     let counter: bigint;
@@ -279,10 +307,13 @@ export async function validateSeaportOrder(
         return invalidValidationResult(reason, error);
     }
     if (counter !== parsed.parameters.counter) {
-        return {
-            status: ORDER_STATUS.Cancelled,
-            reason: ORDER_VALIDATION_REASON.CounterMismatch,
-        };
+        return withQuantities(
+            {
+                status: ORDER_STATUS.Cancelled,
+                reason: ORDER_VALIDATION_REASON.CounterMismatch,
+            },
+            0n,
+        );
     }
 
     let approvalTarget: string | null;
@@ -345,53 +376,46 @@ export async function validateSeaportOrder(
         return invalidValidationResult(reason);
     }
 
-    const price = order.price ? BigInt(order.price) : null;
-    if (!price || price <= 0n) {
-        const reason = ORDER_VALIDATION_REASON.MissingPrice;
-        logInvalidValidation(order, reason, {
-            phase: "priceCheck",
-            price: order.price,
-        });
-        return invalidValidationResult(reason);
-    }
-
     if (order.side === ORDER_SIDE.Sell) {
-        return validateSellOrder(rpc, order, approvalTarget);
+        const price = order.price ? BigInt(order.price) : null;
+        if (!price || price <= 0n) {
+            const reason = ORDER_VALIDATION_REASON.MissingPrice;
+            logInvalidValidation(order, reason, {
+                phase: "priceCheck",
+                price: order.price,
+            });
+            return invalidValidationResult(reason);
+        }
+
+        const result = await validateSellOrder(rpc, order, approvalTarget);
+        return withQuantities(
+            result,
+            result.status === ORDER_STATUS.Fillable
+                ? (remaining ?? undefined)
+                : [ORDER_STATUS.NoBalance, ORDER_STATUS.NoApproval].some(
+                        (status) => status === result.status,
+                    )
+                  ? 0n
+                  : undefined,
+        );
     }
 
     if (order.side === ORDER_SIDE.Buy) {
-        const original = partialBuyOriginalQuantity(order);
-        let remaining: bigint | null = null;
-        if (original !== null) {
-            try {
-                remaining = remainingOrderQuantity(
-                    original,
-                    totalFilled,
-                    totalSize,
-                );
-            } catch {
-                return invalidValidationResult(
-                    ORDER_VALIDATION_REASON.InvalidFillFraction,
-                );
-            }
-        }
+        const funding = buyOrderFundingRequirement(order, original);
+        if (!funding)
+            return invalidValidationResult(
+                ORDER_VALIDATION_REASON.UnsupportedPayment,
+            );
         const { capacity, ...result } = await validateBuyOrder(
             rpc,
             order,
             approvalTarget,
-            price,
+            funding.currency,
+            funding.minimumFunds,
             remaining,
+            funding.partial,
         );
-        return original !== null && remaining !== null && capacity !== undefined
-            ? {
-                  ...result,
-                  quantities: {
-                      original: original.toString(),
-                      remaining: remaining.toString(),
-                      fillable: capacity.toString(),
-                  },
-              }
-            : result;
+        return withQuantities(result, capacity);
     }
 
     const reason = ORDER_VALIDATION_REASON.UnknownSide;
@@ -403,7 +427,7 @@ export async function validateSeaportOrder(
 }
 
 async function validateSellOrder(
-    rpc: RpcProviderPort,
+    rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     order: OrderRecord,
     approvalTarget: string,
 ): Promise<OrderValidationResult> {
@@ -514,13 +538,14 @@ async function validateSellOrder(
 }
 
 async function validateBuyOrder(
-    rpc: RpcProviderPort,
+    rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     order: OrderRecord,
     approvalTarget: string,
+    currency: string,
     price: bigint,
     remaining: bigint | null,
+    partial: boolean,
 ): Promise<OrderValidationResult & { capacity?: bigint }> {
-    const currency = order.currency ?? zeroAddress;
     if (currency.toLowerCase() === zeroAddress.toLowerCase()) {
         let balance: bigint;
         try {
@@ -554,7 +579,9 @@ async function validateBuyOrder(
             capacity:
                 remaining === null
                     ? undefined
-                    : fundedOrderQuantity(remaining, price, balance),
+                    : partial
+                      ? fundedOrderQuantity(remaining, price, balance)
+                      : remaining,
         };
     }
 
@@ -628,7 +655,9 @@ async function validateBuyOrder(
         capacity:
             remaining === null
                 ? undefined
-                : fundedOrderQuantity(remaining, price, balance, allowance),
+                : partial
+                  ? fundedOrderQuantity(remaining, price, balance, allowance)
+                  : remaining,
     };
 }
 
@@ -660,7 +689,7 @@ function invalidValidationResult(
 }
 
 async function resolveConduit(
-    rpc: RpcProviderPort,
+    rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     conduits: ConduitRegistryPort,
     conduitController: string,
     chainId: number,
@@ -714,7 +743,7 @@ async function resolveConduit(
 }
 
 async function ensureConduitChannel(
-    rpc: RpcProviderPort,
+    rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     conduits: ConduitRegistryPort,
     conduitController: string,
     chainId: number,

@@ -4,7 +4,7 @@ import { logger } from "@artgod/shared/utils";
 import {
     computeSeaportOrderHash,
     resolveSeaportProtocolVersion,
-} from "../src/application/offchain/seaport-protocol.js";
+} from "../src/domain/seaport-protocol.js";
 import { validateSeaportOrder } from "../src/application/offchain/seaport-validate.js";
 import { normalizeOpenSeaEvent } from "../src/application/offchain/opensea-normalize.js";
 import {
@@ -68,6 +68,7 @@ describe("validateSeaportOrder", () => {
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
             reason: ORDER_VALIDATION_REASON.Approved,
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(warnSpy).not.toHaveBeenCalled();
         expect(rpc.calledFunctions).toEqual([
@@ -123,6 +124,7 @@ describe("validateSeaportOrder", () => {
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
             reason: ORDER_VALIDATION_REASON.Approved,
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(warnSpy).toHaveBeenCalledWith(
             "Seaport stream order missing signature",

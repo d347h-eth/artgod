@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
 import { zeroAddress } from "viem";
-import { computeSeaportOrderHash } from "../src/application/offchain/seaport-protocol.js";
-import {
-    createSeaportValidationBatchFactory,
-    createSeaportOrderValidationFactory,
-} from "../src/application/offchain/seaport-validation-batch.js";
+import { computeSeaportOrderHash } from "../src/domain/seaport-protocol.js";
+import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import {
     OrderValidationSnapshotUnavailable,
     OrderValidationReadUnavailable,
@@ -16,37 +13,30 @@ import {
     ORDER_STATUS,
     type OrderRecord,
 } from "../src/domain/orders.js";
-import type { ConduitRegistryPort } from "../src/ports/conduits.js";
 import {
     HEAVY_MAKER,
     HeavyMakerRpc,
     heavyMakerOrder,
-    warmConduits,
+    heavyMakerBlock,
+    heavyMakerCheckpoint,
 } from "./fixtures/heavy-maker.js";
 
 function factory(
     rpc: HeavyMakerRpc,
     options: {
         chainId?: number;
-        wethAddress?: string;
-        conduits?: ConduitRegistryPort;
         now?: () => number;
     } = {},
 ) {
-    return createSeaportValidationBatchFactory({
+    return createSeaportOrderValidationFactory({
         rpc,
         chainId: HEAVY_MAKER.chainId,
-        wethAddress: HEAVY_MAKER.weth,
-        conduits: warmConduits,
         conduitController: HEAVY_MAKER.controller,
         now: () => HEAVY_MAKER.now * 1_000,
         ...options,
     });
 }
-const scope = {
-    chainId: HEAVY_MAKER.chainId,
-    minimumBlock: HEAVY_MAKER.blockNumber,
-};
+const scope = { checkpoint: heavyMakerCheckpoint() };
 
 describe("bounded Seaport validation snapshots", () => {
     beforeEach(() =>
@@ -80,7 +70,6 @@ describe("bounded Seaport validation snapshots", () => {
             const create = createSeaportOrderValidationFactory({
                 chainId: HEAVY_MAKER.chainId,
                 rpc,
-                conduits: warmConduits,
                 conduitController: HEAVY_MAKER.controller,
             });
             const batch = await create(scope);
@@ -106,11 +95,10 @@ describe("bounded Seaport validation snapshots", () => {
     it("pins native balance and sell checks in full-order snapshots, propagating native RPC failure", async () => {
         vi.spyOn(logger, "error").mockImplementation(() => {});
         const rpc = new HeavyMakerRpc();
-        const getBalance = vi.spyOn(rpc, "getBalance");
+        const getBalance = vi.spyOn(rpc, "getBalanceAtBlock");
         const create = createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
             rpc,
-            conduits: warmConduits,
             conduitController: HEAVY_MAKER.controller,
         });
         const native = heavyMakerOrder(5, { currency: zeroAddress });
@@ -125,7 +113,9 @@ describe("bounded Seaport validation snapshots", () => {
             ORDER_STATUS.Fillable,
         );
         expect(getBalance).toHaveBeenCalledWith(native.maker, {
+            chainId: HEAVY_MAKER.chainId,
             blockNumber: HEAVY_MAKER.blockNumber,
+            blockHash: HEAVY_MAKER.blockHash,
         });
         const sell = heavyMakerOrder(6, {
             side: "sell",
@@ -156,9 +146,10 @@ describe("bounded Seaport validation snapshots", () => {
 
     it("shares in-flight wallet reads while retaining each order status and pinning every read", async () => {
         const rpc = new HeavyMakerRpc();
-        const blocks = new Set<number | undefined>();
+        const blocks = new Set<string | undefined>();
         rpc.onRead = (params) => {
-            blocks.add(params.blockNumber);
+            blocks.add(params.block?.blockHash);
+            expect(params.blockNumber).toBeUndefined();
         };
         const batch = await factory(rpc)(scope);
         const results = await Promise.all(
@@ -173,8 +164,10 @@ describe("bounded Seaport validation snapshots", () => {
             getCounter: 1,
             allowance: 1,
             balanceOf: 1,
+            getConduit: 1,
+            getChannels: 1,
         });
-        expect(blocks).toEqual(new Set([HEAVY_MAKER.blockNumber]));
+        expect(blocks).toEqual(new Set([HEAVY_MAKER.blockHash]));
         await expect(batch.validate(heavyMakerOrder(3))).rejects.toThrow(
             OrderValidationSnapshotUnavailable,
         );
@@ -184,13 +177,23 @@ describe("bounded Seaport validation snapshots", () => {
         const rpc = new HeavyMakerRpc();
         const secondConduit = "0x7777777777777777777777777777777777777777";
         const secondKey = `0x${"02".repeat(32)}`;
-        const batch = await factory(rpc, {
-            conduits: {
-                ...warmConduits,
-                getConduit: (_chain, key) =>
-                    key === secondKey ? secondConduit : HEAVY_MAKER.conduit,
+        const read = rpc.readContractAtBlock.bind(rpc);
+        vi.spyOn(rpc, "readContractAtBlock").mockImplementation(
+            async (params) => {
+                if (
+                    params.functionName === "getConduit" &&
+                    params.args?.[0] === secondKey
+                )
+                    return [secondConduit, true] as any;
+                if (params.functionName === "getChannels")
+                    return [
+                        HEAVY_MAKER.protocol,
+                        "0x8888888888888888888888888888888888888888",
+                    ] as any;
+                return read(params);
             },
-        })(scope);
+        );
+        const batch = await factory(rpc)(scope);
         const otherProtocol = heavyMakerOrder(3);
         otherProtocol.seaportData = {
             ...otherProtocol.seaportData!,
@@ -218,29 +221,24 @@ describe("bounded Seaport validation snapshots", () => {
             getCounter: 3,
             allowance: 3,
             balanceOf: 2,
+            getConduit: 1,
         });
     });
 
-    it("rejects cross-chain, other-currency, sell and native orders instead of leaking a snapshot", async () => {
+    it("rejects orders from another chain or collection scope", async () => {
         const rpc = new HeavyMakerRpc();
         const batch = await factory(rpc)(scope);
-        for (const change of [
-            { chainId: 2 },
-            { currency: "0x9999999999999999999999999999999999999999" },
-            { side: "sell" as const },
-            { currency: null },
-        ]) {
+        for (const change of [{ chainId: 2 }, { collectionId: 11 }]) {
             await expect(
                 batch.validate(heavyMakerOrder(0, change)),
-            ).rejects.toThrow("requires WETH bids");
+            ).rejects.toThrow("snapshot scope");
         }
-        await expect(factory(rpc)({ ...scope, chainId: 2 })).rejects.toThrow(
-            "chain mismatch",
-        );
+        await expect(
+            factory(rpc)({ checkpoint: { ...scope.checkpoint, chainId: 2 } }),
+        ).rejects.toThrow("chain mismatch");
         expect(rpc.reads).toEqual({});
         const chainTwo = await factory(rpc, { chainId: 2 })({
-            ...scope,
-            chainId: 2,
+            checkpoint: { ...scope.checkpoint, chainId: 2 },
         });
         expect(
             (await chainTwo.validate(heavyMakerOrder(0, { chainId: 2 })))
@@ -286,14 +284,7 @@ describe("bounded Seaport validation snapshots", () => {
                 if (functionName === failedRead)
                     throw new Error("RPC unavailable");
             };
-            const batch = await factory(rpc, {
-                conduits: {
-                    getConduit: () => null,
-                    hasChannel: () => false,
-                    upsertConduit: () => {},
-                    replaceChannels: () => {},
-                },
-            })(scope);
+            const batch = await factory(rpc)(scope);
             await expect(batch.validate(heavyMakerOrder(0))).rejects.toThrow(
                 OrderValidationSnapshotUnavailable,
             );
@@ -317,7 +308,9 @@ describe("bounded Seaport validation snapshots", () => {
         await first.finish();
         rpc.balance = 10n ** 24n;
         rpc.blockNumber++;
-        const second = await create(scope);
+        const second = await create({
+            checkpoint: heavyMakerCheckpoint(heavyMakerBlock(rpc.blockNumber)),
+        });
         expect((await second.validate(heavyMakerOrder(1))).status).toBe(
             ORDER_STATUS.Fillable,
         );
@@ -325,38 +318,33 @@ describe("bounded Seaport validation snapshots", () => {
         expect(rpc.reads.balanceOf).toBe(2);
     });
 
-    it.each<keyof ConduitRegistryPort>([
-        "getConduit",
-        "upsertConduit",
-        "hasChannel",
-        "replaceChannels",
-    ])(
-        "retains infrastructure failure from conduit registry %s",
-        async (method) => {
-            vi.spyOn(logger, "error").mockImplementation(() => {});
-            vi.spyOn(logger, "debug").mockImplementation(() => {});
-            const failure = new Error("Conduit storage unavailable");
-            const conduits: ConduitRegistryPort = {
-                getConduit: () => null,
-                upsertConduit: () => {},
-                hasChannel: () => false,
-                replaceChannels: () => {},
-            };
-            vi.spyOn(conduits, method).mockImplementation(() => {
-                throw failure;
-            });
-            const batch = await factory(new HeavyMakerRpc(), { conduits })(
-                scope,
+    it("reads conduit existence and channel authority anew at each checkpoint", async () => {
+        const rpc = new HeavyMakerRpc();
+        const first = await factory(rpc)(scope);
+        expect((await first.validate(heavyMakerOrder(0))).status).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        await first.finish();
+        const read = rpc.readContractAtBlock.bind(rpc);
+        const calls = vi
+            .spyOn(rpc, "readContractAtBlock")
+            .mockImplementation(async (params) =>
+                params.functionName === "getChannels"
+                    ? ([] as any)
+                    : read(params),
             );
-            await expect(batch.validate(heavyMakerOrder(0))).rejects.toThrow(
-                OrderValidationSnapshotUnavailable,
-            );
-            expect(batch.canAccept()).toBe(false);
-            await expect(batch.finish()).rejects.toMatchObject({
-                cause: failure,
-            });
-        },
-    );
+        const next = await factory(rpc)(scope);
+        expect((await next.validate(heavyMakerOrder(1))).status).toBe(
+            ORDER_STATUS.Invalid,
+        );
+        await next.finish();
+        expect(
+            calls.mock.calls.some(([p]) => p.functionName === "getConduit"),
+        ).toBe(true);
+        expect(
+            calls.mock.calls.some(([p]) => p.functionName === "getChannels"),
+        ).toBe(true);
+    });
 
     it("bounds admission by count and elapsed time, rejecting expired results", async () => {
         const rpc = new HeavyMakerRpc();
@@ -381,25 +369,48 @@ describe("bounded Seaport validation snapshots", () => {
         );
     });
 
-    it("rejects lagging heads, reorgs, stale blocks and excessive head advance before commit", async () => {
+    it("accepts applied lag and advancing heads without selecting another snapshot", async () => {
         const rpc = new HeavyMakerRpc();
-        await expect(
-            factory(rpc)({ ...scope, minimumBlock: rpc.blockNumber + 1 }),
-        ).rejects.toThrow("precedes maker trigger");
-        await expect(
-            factory(rpc, {
-                now: () =>
-                    (HEAVY_MAKER.now + POLICY.maxBlockAgeSeconds + 1) * 1_000,
-            })(scope),
-        ).rejects.toThrow("stale or unavailable");
+        rpc.blockTimestamp = HEAVY_MAKER.now - 3600;
+        const getHead = vi
+            .spyOn(rpc, "getBlockNumber")
+            .mockRejectedValue(new Error("independent HEAD forbidden"));
+        const checkpoint = heavyMakerCheckpoint(
+            heavyMakerBlock(rpc.blockNumber, rpc.blockHash, rpc.blockTimestamp),
+        );
+        const snapshot = await factory(rpc)({ checkpoint });
+        expect((await snapshot.validate(heavyMakerOrder(0))).status).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        rpc.blockNumber += 100;
+        await snapshot.finish();
+        expect(getHead).not.toHaveBeenCalled();
+        expect(snapshot.proof.block).toMatchObject(checkpoint.block);
+    });
+
+    it("rejects replaced checkpoint identity without latest or numeric state fallback", async () => {
+        const rpc = new HeavyMakerRpc();
         const reorg = await factory(rpc)(scope);
         await reorg.validate(heavyMakerOrder(0));
         rpc.blockHash = `0x${"cd".repeat(32)}`;
-        await expect(reorg.finish()).rejects.toThrow("changed before commit");
-        const advancing = await factory(rpc)(scope);
-        rpc.blockNumber += POLICY.maxHeadAdvance + 1;
-        await expect(advancing.finish()).rejects.toThrow(
-            "changed before commit",
+        await expect(reorg.finish()).rejects.toMatchObject({
+            check: {
+                chainId: HEAVY_MAKER.chainId,
+                blockNumber: HEAVY_MAKER.blockNumber,
+                blockHash: HEAVY_MAKER.blockHash,
+            },
+            observedHash: rpc.blockHash,
+        });
+        const read = vi
+            .spyOn(rpc, "readContractAtBlock")
+            .mockRejectedValue(new Error("EIP-1898 unsupported"));
+        const legacy = vi.spyOn(rpc, "readContract");
+        legacy.mockClear();
+        const retry = await factory(rpc)(scope);
+        await expect(retry.validate(heavyMakerOrder(1))).rejects.toThrow(
+            OrderValidationSnapshotUnavailable,
         );
+        expect(read).toHaveBeenCalled();
+        expect(legacy).not.toHaveBeenCalled();
     });
 });

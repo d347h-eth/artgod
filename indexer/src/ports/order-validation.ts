@@ -1,3 +1,4 @@
+import type { ValidationCheckpoint } from "../domain/chain-sync.js";
 import type { OrderValidationProof } from "../domain/order-validation-demand.js";
 import type { OrderRecord, OrderValidationResult } from "../domain/orders.js";
 import type { SyncWorkClass } from "@artgod/shared/types/sync-work-class";
@@ -7,7 +8,8 @@ export type OrderValidator = (
 ) => Promise<OrderValidationResult>;
 
 /** Results must not be persisted until finish verifies the bounded chain snapshot. */
-export interface MakerValidationBatch {
+export interface OrderValidationSnapshot {
+    readonly proof: OrderValidationProof;
     canAccept(): boolean;
     validate: OrderValidator;
     finish(): Promise<void>;
@@ -21,22 +23,14 @@ export interface MakerValidationBatch {
 }
 
 type ValidationSnapshotInput = {
-    chainId: number;
-    minimumBlock: number | null;
+    /** Supplied by the chain coordinator after essential state is applied. */
+    checkpoint: ValidationCheckpoint;
     workClass?: SyncWorkClass;
     /** Bounded lookahead only; each candidate still requires full validation before commit. */
     candidates?: readonly OrderRecord[];
 };
 
-export type MakerValidationBatchFactory = (
-    input: ValidationSnapshotInput,
-) => Promise<MakerValidationBatch>;
-
-/** A full-order snapshot whose successful finish proves trigger coverage. */
+/** A bounded full-order snapshot selected by the applied chain owner. */
 export type OrderValidationSnapshotFactory = (
     input: ValidationSnapshotInput,
-) => Promise<
-    MakerValidationBatch & {
-        proof: OrderValidationProof;
-    }
->;
+) => Promise<OrderValidationSnapshot>;

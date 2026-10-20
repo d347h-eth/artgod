@@ -43,10 +43,12 @@ import {
     RPC_PROTOCOL,
     RpcObservability,
 } from "@artgod/shared/observability/rpc";
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import type { CachePort } from "../../ports/cache.js";
 import type {
     Hex,
     RpcBlock,
+    RpcContractRead,
     RpcLog,
     RpcLogFilter,
     RpcFirstLogPort,
@@ -153,7 +155,9 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
     async getBlockNumber(beforeRequest?: () => void): Promise<number> {
         const value = await this.executeRpc(
             "getBlockNumber",
-            (client) => client.getBlockNumber(),
+            // A coordinator sample must observe the remote head after capturing
+            // its admission watermark, never reuse viem's implicit head cache.
+            (client) => client.getBlockNumber({ cacheTime: 0 }),
             { beforeRequest },
         );
         return toSafeNumber(value, "blockNumber");
@@ -416,14 +420,7 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
     ): Promise<T> {
         const { block, ...contract } = params;
-        if (
-            !Number.isSafeInteger(block.chainId) ||
-            block.chainId < 1 ||
-            !Number.isSafeInteger(block.blockNumber) ||
-            block.blockNumber < 0 ||
-            !/^0x[0-9a-fA-F]{64}$/.test(block.blockHash)
-        )
-            throw new Error("Invalid exact-block contract read");
+        assertExactBlockReference(block);
         const abi = contract.abi as Abi;
         const data = encodeFunctionData({
             abi,
@@ -432,8 +429,8 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         });
         return this.executeRpc("readContractAtBlock", async (client) => {
             try {
-                // viem's readContract action accepts heights, not EIP-1898
-                // selectors. Keep the raw call and decoded contract errors here.
+                // Preserve exact hash identity across endpoint retries and retain
+                // contract error decoding at the RPC adapter boundary.
                 const result = await client.request(
                     {
                         method: "eth_call",
@@ -475,23 +472,60 @@ export class ViemRpcProvider implements RpcProviderPort, RpcFirstLogPort {
         );
     }
 
+    async getBalanceAtBlock(
+        address: Hex,
+        block: ChainBlockReference,
+    ): Promise<bigint> {
+        assertExactBlockReference(block);
+        return this.executeRpc("getBalanceAtBlock", (client) =>
+            client.getBalance({
+                address,
+                blockHash: block.blockHash as Hex,
+                requireCanonical: true,
+            }),
+        );
+    }
+
     async readContracts(
         input: Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0],
     ) {
+        if (!Number.isSafeInteger(input.blockNumber) || input.blockNumber < 0)
+            throw new Error("Invalid bounded contract batch");
+        return this.executeContractBatch(input.contracts, {
+            blockNumber: BigInt(input.blockNumber),
+        });
+    }
+
+    async readContractsAtBlock(
+        input: Parameters<
+            NonNullable<RpcProviderPort["readContractsAtBlock"]>
+        >[0],
+    ) {
+        assertExactBlockReference(input.block);
+        return this.executeContractBatch(input.contracts, {
+            blockHash: input.block.blockHash as Hex,
+            requireCanonical: true,
+        });
+    }
+
+    private async executeContractBatch(
+        contracts: readonly RpcContractRead[],
+        selector:
+            | { blockNumber: bigint }
+            | { blockHash: Hex; requireCanonical: true },
+    ) {
         if (
-            input.contracts.length < 1 ||
-            input.contracts.length > RPC_CONTRACT_BATCH_MAX_CALLS ||
-            !Number.isSafeInteger(input.blockNumber) ||
-            input.blockNumber < 0
+            contracts.length < 1 ||
+            contracts.length > RPC_CONTRACT_BATCH_MAX_CALLS
         )
             throw new Error("Invalid bounded contract batch");
         return this.executeRpc("readContracts", async (client) => {
             const results = await client.multicall({
-                contracts: input.contracts.map((contract) => ({
+                contracts: contracts.map((contract) => ({
                     ...contract,
                     abi: contract.abi as Abi,
                 })),
-                blockNumber: BigInt(input.blockNumber),
+                ...selector,
                 allowFailure: true,
                 // A read-only eth_call works without assuming a deployed multicall address.
                 deployless: true,
@@ -598,4 +632,16 @@ function toSafeNumber(value: bigint, label: string): number {
         throw new Error(`${label} exceeds JS safe integer: ${String(value)}`);
     }
     return num;
+}
+
+/** Validation and rollback use one identity contract for stateful RPC reads. */
+function assertExactBlockReference(block: ChainBlockReference): void {
+    if (
+        !Number.isSafeInteger(block.chainId) ||
+        block.chainId < 1 ||
+        !Number.isSafeInteger(block.blockNumber) ||
+        block.blockNumber < 0 ||
+        !/^0x[0-9a-fA-F]{64}$/.test(block.blockHash)
+    )
+        throw new Error("Invalid exact-block state read");
 }

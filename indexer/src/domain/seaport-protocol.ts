@@ -11,7 +11,7 @@ import {
     type Hex,
     type Signature,
 } from "viem";
-import type { SeaportOrderData } from "../../domain/orders.js";
+import type { SeaportOrderData } from "./orders.js";
 
 const SEAPORT_CONTRACT_NAME = "Seaport";
 const SEAPORT_VERSION_V1_6 = "1.6";

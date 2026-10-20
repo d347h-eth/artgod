@@ -169,6 +169,7 @@ export const ORDER_VALIDATION_REASON = {
     UnsupportedConduit: "unsupported-conduit",
     UnsupportedConduitChannel: "unsupported-conduit-channel",
     MissingPrice: "missing-price",
+    UnsupportedPayment: "unsupported-payment",
     InvalidFillFraction: "invalid-fill-fraction",
     UnknownSide: "unknown-side",
     MissingTokenId: "missing-token-id",
