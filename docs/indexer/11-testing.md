@@ -150,11 +150,11 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   A busy-peer comparison verifies that unequal gaps avoid its nine already
   covered transactions/receipts; 3,000 small planner configurations check exact
   per-member block accounting, no widening, bounds and eventual completion.
-- `tests/sync-job-contract.test.ts` checks the source/policy/member contract and
-  retained legacy shapes. The broker suite uses the same backfill handler as the
-  runtime to reject wrong-source member batches with retained or completed
-  intents, preserve manual historical acquisition, and ACK bootstrap/gap/reorg hints
-  without RPC while their durable owner remains executable.
+- `tests/sync-job-contract.test.ts` checks the current source/range/envelope
+  contract and rejects automatic repair/recovery members on manual or bootstrap
+  requests. The backfill-handler and broker tests preserve manual historical
+  acquisition and ACK bootstrap wakeups without RPC. Automatic gap/reorg work
+  uses retained coordinator state, not backfill queue envelopes.
 - `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
   burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
   collection coverage rollback.
@@ -163,8 +163,8 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   writes, changing rollback token scope, RPC and transactional failure, paged
   ERC1155 reversal and bootstrap checkpoint replacement.
 - `tests/reorg-recovery.test.ts` exercises actual recovery use cases, fork search,
-  worker acknowledgment, exact-block snapshot adapter, SQLite and shared range/
-  fanout processing. It covers connected accepted ancestry independent of historical gap work at
+  exact-block snapshot adapter, SQLite and shared range/follow-up processing.
+  It covers connected accepted ancestry independent of historical gap work at
   stationary HEAD, reopen/startup continuation, failed initial retention and
   atomic rollback/resync retention, partial publication without reacquisition,
   retry beyond ordinary publication limits, stale proof,
@@ -173,6 +173,14 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   an earlier orphan; changed accepted lineage invalidates ancestor proof.
   Initial journal failures followed by RPC, wrong-height, checkpoint or header
   read failures cannot consume the pending DB check.
+- `tests/reorg-restored-agreement.test.ts` covers transient disagreement at the
+  accepted base, restart, coalesced later mismatches, stale generations and
+  revisions, newer installed bases and interrupted resync. Genuine base
+  replacement remains gated.
+- `tests/reorg-filled-order-validation.test.ts` follows decoded transfer/fill
+  receipts through terminal full validation, maintenance, coordinator rollback,
+  replacement acquisition and full validation to a usable order again. It uses
+  synthetic RPC data with production owners and a stipulated installed base.
 - `tests/pending-canonical-checks.test.ts` covers atomic recent-block retention,
   unchanged maturity thresholds, duplicate imports, fresh-hash/revision fences,
   downtime beyond the realtime tail, durable retries and atomic recovery handoff.
@@ -403,6 +411,10 @@ no validation permit. `tests/maker-revalidation-checkpoint.test.ts` covers scope
 checkpoint/restart and receipt cleanup separately from ordinary proof commits.
 `tests/historical-order-validation.test.ts` checks proof reuse and scope-to-ordinary
 convergence without giving historical hints permission to choose a newer head.
+`tests/future-order-validation.test.ts` verifies retained future-start work across
+restart and replay, shared/collection checkpoint timing, ready-work fairness and
+exclusive expiry. Full validation uses the accepted block timestamp even when
+local wall time differs.
 
 `tests/seaport-validation-batch.test.ts`, `tests/seaport-status-batch.test.ts` and
 `tests/rpc-provider-resilience.test.ts` cover compatible snapshot sharing,
@@ -509,6 +521,9 @@ and retry, manual refresh, collection removal and complete listings-plus-offers
 observations. `tests/worker-runner-lease.test.ts` covers long handlers, failure,
 shutdown waiting and renewal-timer cleanup. Consumer-policy updates are covered
 in `tests/nats-consumer-config.test.ts`.
+`tests/order-source-reconciliation.test.ts` covers per-source withdrawal,
+independent active sources, neutral hints, duplicate freshness during a crawl,
+bounded page races and atomic seller-price refresh.
 
 The maintained broker fixture is separate from the offline suite:
 

@@ -202,8 +202,7 @@ Operators can schedule a range through either current inbound adapter:
 
 The backend use case validates and splits the requested range; its outbound
 queue adapter and the CLI build explicit `manual_historical` jobs for
-`events-sync-backfill`. Their payload selects
-`skip_global_maker_revalidation`. These jobs import historical facts and
+`events-sync-backfill`. These jobs import historical facts and
 activities only; current order maintenance belongs to accepted coordinator
 ranges and ordinary validation demand.
 

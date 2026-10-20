@@ -14,13 +14,18 @@ sequenceDiagram
     participant DB as SQLite
     participant Domain as Domain Worker
 
-    RPC-->>Scheduler: Head update (WS)
-    Scheduler->>RPC: Poll head (HTTP)
-    Scheduler->>NATS: Publish realtime jobs within the recent tail
-    NATS-->>Sync: Deliver realtime job
-    Sync->>RPC: Fetch logs, extensions, headers, transactions and receipts
-    Sync->>DB: Atomic facts, ownership, canonical order effects, checks, maker wakeups and applied progress
-    Sync->>NATS: ACK successful acquisition
+    RPC-->>Scheduler: Head update wakes HTTP sampling
+    Scheduler->>DB: Capture local admission watermark
+    Scheduler->>RPC: Read head (HTTP)
+    Scheduler->>DB: Retain sampled target and admission coverage
+    Scheduler->>NATS: Publish realtime wakeup
+    NATS-->>Sync: Deliver wakeup
+    Sync->>Sync: Wake the serial coordinator
+    Sync->>NATS: ACK wakeup
+    loop Retained current target has an unapplied prefix
+        Sync->>RPC: Fetch next connected logs, headers, transactions and receipts
+        Sync->>DB: Atomic facts, ownership, canonical order effects, checks, maker wakeups and applied progress
+    end
     Domain->>DB: Read due required follow-ups
     Domain->>NATS: Publish activity/metadata jobs and compact maker continuations
     Domain->>DB: Remove accepted sync intent; retry failed publication
@@ -49,7 +54,7 @@ sequenceDiagram
     end
     loop Continuous bounded passes; poll only when idle or waiting
         Sync->>DB: Check newest pending height and due HEAD-check times
-        Sync->>Sync: Wait for preceding current-state backfill
+        Sync->>Sync: Prioritize current applied prefixes and retained recovery
         Sync->>RPC: Read HEAD when a range or HEAD check is due
         opt Collection HEAD check overdue by 30 minutes
             Sync->>DB: Find newest missing blocks above pending range or cursor
@@ -68,7 +73,7 @@ sequenceDiagram
     Domain->>NATS: Publish required jobs with stable IDs
     Domain->>DB: Remove accepted intent or retain retry with capped delay
     Note over Scanner,DB: Completed cycles wait until the next recheck; saved check time includes downtime
-    Note over Sync,DB: Newest eligible retry holds older history; recent tail belongs to realtime
+    Note over Sync,DB: Historical repair cannot advance accepted current-state prefixes
     Note over Sync,Domain: Failed publication repeats no RPC acquisition
 ```
 

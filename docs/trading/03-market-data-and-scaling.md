@@ -205,9 +205,12 @@ Seaport buy orders, the read API also returns nullable `originalQuantity` and
 `fillableQuantity`: original signed units and remaining units covered by balance
 and allowance at validation. Capacity is not reserved across offers. Bot snapshot
 rows carry source remainder without claiming a validated funding capacity.
-Indexed rows expose `validatedAt` and `validationPending` from the existing demand
-owner. A pending partial-order refresh retains its last validated values and
-fillability until a new protocol snapshot commits.
+Validation storage retains the last validated quantities while a refresh is
+pending. Indexed bid-book rows and current asks require fresh, usable canonical
+proof with positive remaining quantity and funding capacity. Pending order
+validation or a maker requirement not covered by that proof excludes the row
+from these read models. Returned indexed bid-book rows expose the proof time as
+`validatedAt` and have `validationPending=false`.
 
 After a successful snapshot, the projection sidecar writes parsed offer rows and
 snapshot metadata to SQLite. Backend reads use that source only when all of

@@ -216,11 +216,16 @@ bounded retry policy and sent receipts. Event-specific rows retain originating
 block identity and are removed by rollback; DB range projections remain pending
 because they reread canonical facts, including unfinished pre-fork work.
 
+Realtime deliveries wake the serial coordinator and ACK without acquiring
+blocks. The scheduler already retained the target; progress and retries survive
+lost wakeups. Bootstrap backfill deliveries also wake this owner. Only manual
+historical acquisitions hold a broker delivery during RPC and renew its lease
+through `touch`.
+
 Recent stored blocks retain hash checks in SQLite; the sync coordinator reads them
 directly. A failed header read or mismatch-retention transaction leaves the
-check pending with durable backoff. Recovery handoff consumes it atomically,
-without a check queue or DLQ. Manual/bootstrap backfills still renew long-running
-broker leases through `touch`.
+check pending with durable backoff. Recovery handoff retains the disagreement
+atomically, without a check queue or DLQ.
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
     - `domain.metadata.sync`
