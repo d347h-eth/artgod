@@ -22,7 +22,6 @@ export const ORDER_JOB_KIND = {
 export const ORDER_UPDATE_REASON = {
     Validation: "order",
     SourceExecution: "source-execution",
-    SourceExecutionValidation: "source-execution-validation",
     Fill: "fill",
     Cancel: "cancel",
 } as const;
@@ -75,37 +74,18 @@ export type OrderUpdateByMakerPayload =
 // An order-specific update carrying a source observation, protocol fact or validation request.
 export type OrderUpdateByIdPayload = {
     chainId: number;
+    /** Offchain source identity; omitted only on owner-produced canonical hints. */
+    source?: string;
     /** Present on source updates, including cancellation before its create arrives. */
     collectionId?: number;
     observedAt?: number;
     /** Original order expiry supplied by a source update, when available. */
     validUntil?: number | null;
     orderId: string;
-    /**
-     * Domain handling category from ORDER_UPDATE_REASON, not the upstream event name.
-     * Without sourceStatus, runtime handling is:
-     * - Validation: admit durable full validation; preserve current state until its
-     *   result updates fillability and quantities.
-     * - SourceExecution: inspect the retained signed terms. Full-only orders apply
-     *   the source-filled observation immediately, without RPC. Partial or unknown
-     *   Seaport terms hand off to SourceExecutionValidation without waiting on RPC.
-     *   Missing orders are ignored; later upserts retain optimistic admission.
-     * - SourceExecutionValidation: resolve canonical transaction inclusion on
-     *   order-updates-by-id, then admit block-scoped durable validation. Missing or
-     *   malformed transaction hashes are discarded; unavailable receipts retry.
-     * - Fill: apply a canonical execution. Full-only orders become filled with zero
-     *   remaining capacity; partial or unknown Seaport terms require block-scoped
-     *   validation to establish cumulative remaining quantity and fillability.
-     * - Cancel: apply protocol cancellation.
-     * With sourceStatus, the source-observation lifecycle path takes precedence:
-     * apply that source status and its retention protection instead of deriving
-     * protocol fillability from reason.
-     * OpenSea item_sold uses SourceExecution; normalization alone cannot decide
-     * whether the retained signed order permits partial fulfillment.
-     */
+    /** Source observations retain ordinary causal demand. Only the sync owner's
+     * canonical effects may directly establish protocol terminal state. */
     reason: string;
-    /** Source sale inclusion to resolve before coalescing validation. Missing or
-     * malformed evidence cannot request partial-order execution validation. */
+    /** Optional source metadata; never a receipt prerequisite or coverage proof. */
     executionTransactionHash?: string | null;
     sourceStatus?: OrderSourceStatus | null;
     blockNumber?: number | null;
@@ -144,7 +124,4 @@ export type OrderUpsertPayload = {
     rawSourceKind: "stream" | "rest";
     rawPayload?: unknown;
     seaportData?: SeaportOrderData | null;
-    // validateAfterUpsert is expected to be "true" by default to trigger onchain validation of the order,
-    // otherwise the order might be persisted optimistically as "fillable".
-    validateAfterUpsert: boolean;
 };

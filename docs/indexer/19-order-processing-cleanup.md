@@ -1,10 +1,18 @@
 # Deferred order-processing cleanup
 
-This is the follow-up development inventory for the order-queue healing work.
-Carry this document with that branch's merge; implement the cleanup separately.
-Priority and status belong to [BKL-067](../planning/01-unified-backlog.md).
-The inventory was checked against implementation commit `45aba583` on 2026-09-25.
-It describes source findings and proposed work, not completed cleanup or live QA.
+This inventory originated with the order-queue healing work at `45aba583`.
+The sync/validation revamp has now completed the redundant-executor portions:
+C02/C03 remove inline maker and by-ID RPC validation, C04 uses one checkpoint
+snapshot factory, and C05 removes the upsert validation opt-out. Maker execution
+now expands scopes into ordinary demand, so `applyMakerResolution` is removed too.
+The old receipt prerequisite is removed; source sale hints use causal admission.
+
+The remaining items below are deferred review inventory, not descriptions of
+current execution authority. The current contract is [Orders Domain](07-domain-orders.md)
+and [Sync Pipeline](04-sync-pipeline.md). Where an older proposed compatibility
+transition conflicts with the revamp's explicit exclusion of pre-upgrade state,
+the revamp's scope governs. No queue purge or live migration is implied.
+Priority for remaining cleanup belongs to [BKL-067](../planning/01-unified-backlog.md).
 
 ## Direction and scope
 
@@ -76,82 +84,26 @@ mechanism is unnecessary.
 
 ### C02 — Remove the old inline maker executor and its reporting tree
 
-**Remove.** Runtime now calls
-[RevalidateMakerOrders](../../indexer/src/application/orders/revalidate-maker.ts).
-Production call-site search found no caller of the old
-`SqliteOrdersDomain.handleOrderUpdateByMaker`; tests still exercise it.
-
-- Delete `handleOrderUpdateByMaker`, its whole-pass `processMakerBatch` loop,
-  `revalidateSeaportOrderWithReporting`, the unused `revalidateSeaportOrder`
-  helper, and reporting-only profiles, timers, counters and summaries.
-- Delete [order-update-by-maker-reporting.ts](../../indexer/src/infra/domain/order-update-by-maker-reporting.ts),
-  `OrderUpdateByMakerRuntimeContext`, the old port method, and their test-only
-  references after moving useful assertions to the current use case.
-- Remove `filterCurrentStateRows` and its optional anchor-cache plumbing if the
-  caller audit still shows only the retired executor. Require explicit finite
-  boundary/page inputs in `selectMakerUpdateCandidates`; its unbounded defaults
-  and storage-maintenance batch-size default serve the old loop.
-- Keep indexed candidate selectors, row mapping, anchor checks,
-  `applyValidation`, `applyMakerResolution` and revision/source guards used by
-  current checkpoints. Keep current checkpoint logs and RPC counters.
+Implemented: the SQLite domain no longer owns an RPC maker loop. The retained maker use case only expands finite scopes into ordinary demand. Obsolete inline reporting and test entry points are removed. Indexed candidate selection, anchor guards and source/revision fences remain.
 
 ### C03 — Remove direct by-ID RPC validation from the SQLite adapter
 
-**Remove.** [ApplyOrderUpdate](../../indexer/src/application/orders/apply-order-update.ts)
-already sends validation hints to durable demand; its SQLite handler is used for
-lifecycle effects. The `reason = order` branch of
-`SqliteOrdersDomain.handleOrderUpdateById` still performs direct validation for
-standalone/test callers.
-
-- Delete that direct-RPC branch, the validation-to-fillable case of
-  `statusFromReason`, and associated logging once tests use
-  `AdmitOrderValidation` / `ValidateOrderDemand`. Keep the fill/cancel mappings
-  needed by lifecycle application.
-- Expose a lifecycle-specific operation/port rather than a mixed handler that
-  can accidentally bypass demand, strict snapshots and completion fences.
-- Preserve direct fill/cancel/source application, cancellation-before-create
-  protection, observation ordering, listing-price refresh and bootstrap gating.
-  These are current business behavior, including when no order row exists yet.
+Implemented: source/by-ID delivery performs atomic durable admission only. Canonical terminal effects belong to the sync writer; ordinary validation is the sole RPC proof executor. No standalone direct-validation adapter path remains.
 
 ### C04 — Consolidate validator factories and failure semantics
 
-**Remove redundant wiring; review the error-boundary refactor.**
-
-- [domain-worker.ts](../../indexer/src/runtime/domain-worker.ts) still constructs
-  a singleton `validateOrder` and `createSeaportValidationBatchFactory` solely
-  for the old adapter execution paths. Remove those constructor dependencies
-  after C02/C03, including fixture callers that pass unused validators.
-- [seaport-validation-batch.ts](../../indexer/src/application/offchain/seaport-validation-batch.ts)
-  exports both a WETH-only factory and the full-order snapshot factory used by
-  current maker and ordinary validation. Remove the WETH-only wrapper and its
-  admission predicate when callers/tests have moved. Consolidate
-  `MakerValidationBatchFactory` and the maker-specific naming of the shared
-  snapshot interface in [order-validation.ts](../../indexer/src/ports/order-validation.ts).
-- [seaport-validate.ts](../../indexer/src/application/offchain/seaport-validate.ts)
-  still translates RPC failures into invalid results; the snapshot wrapper
-  records the RPC error separately and throws even when the inner validator
-  returned a result. With the standalone path gone, use one explicit contract
-  for retryable infrastructure failure versus a real protocol-invalid result.
-  Do not simply delete the snapshot's failure detection before its replacement
-  covers every RPC/helper failure.
-- Preserve the actual full validator, signatures/hash/time checks, pinned reads,
-  head/hash/lifetime verification, per-spender wallet sharing, and multicall
-  fallback for real provider limitations. Those fallbacks are current resilience.
+Implemented: one full-order snapshot factory consumes supplied exact-hash checkpoints. The WETH-only factory and maker-specific duplicate factory contract are removed. Runtime uncertainty still passes through the mandatory snapshot failure boundary, so infrastructure errors cannot commit invalid protocol state.
 
 ### C05 — Simplify upsert's former post-publication contract
 
-**Remove obsolete output; review the opt-out.**
+**Opt-out removed; obsolete output remains deferred.**
 
 - `handleOrderUpsert` and `OrdersDomainPort` expose
   `{ changed, validationNeeded, validationRevision }`, although runtime ignores
   the result and demand is now committed inside the same transaction.
   `validationRevision` has no production caller. Remove unused public outputs;
   retain any internal decision needed for atomic demand admission.
-- The only production upsert publisher found,
-  [dispatch.ts](../../indexer/src/application/offchain/dispatch.ts), always sends
-  `validateAfterUpsert: true`. Check the complete producer/fixture surface before
-  removing this opt-out and making domain-owned validation policy unconditional
-  for admitted orders that need it.
+- The sole publisher and payload no longer carry `validateAfterUpsert`; domain policy unconditionally retains needed validation with observation admission.
 - Replace old failed-publication comments/tests with the actual atomic-admission
   contract. Preserve unchanged-upsert write avoidance, original observation time
   on retry, current-revision freshness invalidation, and five-minute freshness
@@ -338,34 +290,26 @@ adapter while composition constructs another demand adapter over the same store.
 
 ### C15 — Move verification and documentation onto the current pipeline
 
-**Required companion work; remove old implementation dependencies after porting
-the behavior they protect.**
+**Implemented with the coordinated sync/validation cutover.**
 
 - [orders-heavy-maker.test.ts](../../indexer/tests/orders-heavy-maker.test.ts)
-  retains whole-envelope/restart-from-zero benchmarks through the old executor.
-  Remove obsolete executable baselines from production dependencies. Historical
-  comparison can remain a documented result or isolated fixture if still useful.
-- [orders-update-by-maker.test.ts](../../indexer/tests/orders-update-by-maker.test.ts)
-  should exercise current scoped selection/checkpoint use cases. Port its token,
-  sibling-collection, allowance, counter, anchor and reporting value before
-  deleting assertions about the old log family.
-- [orders-raw-source.test.ts](../../indexer/tests/orders-raw-source.test.ts) still
-  models post-commit publish failure and directly calls the old by-ID validator.
-  Express canonical-source, unchanged-retry, cancellation and freshness checks
-  through durable admission/validation. Update daily-listing, storage-maintenance,
-  offchain-dispatch and shared fixture constructors that inject old validators.
-- Move `legacy-order-admission.test.ts` and `order-backlog.test.ts` compatibility
-  cases into the chosen transition's tests; retain steady-state tests for
-  current admission pacing, retained failures, terminal precedence and useful
-  progress. Update missing-time/old-origin maker tests when C09/C10 land.
-- Keep the current demand/checkpoint/status-batch tests, real-NATS queue tests,
-  [maker queue fixture](../../indexer/tests/fixtures/maker-queue-worker.ts), build
-  helper and backend lifecycle integration aligned with production composition.
-  Assertions that live only on deleted execution paths do not protect runtime.
-- Update `02-queues-and-jobs`, `07-domain-orders`, `11-testing`, `18-order-queue-recovery`,
-  sync/overview/sequence references, RPC catalog and backlog evidence. Remove
-  obsolete standalone/older-consumer claims and old-route inspection examples
-  when their replacement ships. Keep useful inspection and failure semantics.
+  measures bounded maker expansion and ordinary checkpoint validation over the
+  representative order book, including small-maker progress during a large pass.
+- [maker-scope-selection.test.ts](../../indexer/tests/maker-scope-selection.test.ts)
+  and [maker-demand-expansion.test.ts](../../indexer/tests/maker-demand-expansion.test.ts)
+  cover token, collection, allowance, counter, anchor and durable handoff behavior.
+  The independent inline maker validator and its old test suite are removed.
+- [orders-raw-source.test.ts](../../indexer/tests/orders-raw-source.test.ts) covers
+  normalized declarations, signature enrichment and duplicate write avoidance.
+  Source admission, partial quantity, freshness and recovery checks use the
+  ordinary durable demand and applied-chain fixtures.
+- Real-NATS order and reorg suites exercise production admission, expansion,
+  restart and coordinator boundaries. The source-admission suite replaces the
+  removed receipt prerequisite; unavailable transactions cannot occupy delivery
+  or validation capacity.
+- The owning sync, order, queue, runtime, RPC and testing documents describe the
+  new authority model. The remaining entries in this inventory are separate
+  cleanup candidates, not prerequisites for recovering pre-upgrade state.
 
 ## Current mechanisms to retain
 
@@ -373,10 +317,10 @@ These are deliberate parts of the revised model, not compatibility debt:
 
 - `order_validation_demand`, captured revision/generation/coverage, fenced
   leases and retry state; completed rows remain useful while their orders exist.
-- Finite maker-pass boundaries, atomic results/cursor/continuation checkpoints,
-  follow-up generations and current-scope admission. Keep persisted isolation
-  targets, atomic per-order handoffs and the distinction between finished maker
-  scans and unfinished demand; these are failure recovery, not compatibility.
+- Finite maker-pass boundaries, atomic demand/cursor/continuation checkpoints,
+  follow-up generations and current-scope admission. Keep per-order retry
+  isolation and the distinction between finished maker scans and unfinished
+  validation demand; these are failure recovery, not compatibility.
 - Outbox publication evidence, recovery after a crash or uncertain publication,
   and ACK-based replay safety. At-least-once delivery still applies to one version.
 - Shared FIFO validation admission, bounded work, provider timeouts, snapshot

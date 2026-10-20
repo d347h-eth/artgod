@@ -36,16 +36,7 @@ export type OrderUpdateByMakerRuntimeContext = {
 
 export interface OrdersDomainPort {
     handleDomainSync(context: DomainSyncContext): Promise<void>;
-    handleOrderUpdateByMaker(
-        payload: OrderUpdateByMakerPayload,
-        context?: OrderUpdateByMakerRuntimeContext,
-    ): Promise<void>;
     handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
-    /** Atomically classify a source execution from retained signed terms and apply
-     * full-only source completion. Partial/unknown orders require validation. */
-    applySourceExecution(payload: OrderUpdateByIdPayload): {
-        validationNeeded: boolean;
-    };
     handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
         changed: boolean;
         validationNeeded: boolean;

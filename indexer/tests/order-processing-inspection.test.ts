@@ -1,3 +1,4 @@
+import { observedOrderValidationRequest } from "../src/domain/order-validation-demand.js";
 import { existsSync } from "node:fs";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -63,30 +64,29 @@ it("requires explicit identity and bounds the read-only sample", () => {
 
 it("reports bounded pending work and its wakeup without changing SQLite or hiding unsampled work", () => {
     seedHeavyMaker(3);
-    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-        throw new Error("Inspection cannot use RPC");
-    });
+    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
     const demands = new SqliteOrderValidationDemand(domain);
     const now = HEAVY_MAKER.now * 1000;
     for (let i = 0; i < 3; i++)
         demands.admit(
-            {
-                chainId: 1,
-                orderId: heavyMakerOrder(i).id,
-                requiredAt: now - 1000,
-                minimumBlock: null,
-            },
-            now,
+            observedOrderValidationRequest(
+                1,
+                heavyMakerOrder(i).id,
+                `inspection-${i}`,
+            ),
+            now - 1000,
         );
-    const makers = new SqliteMakerRevalidations(domain, demands);
+    const makers = new SqliteMakerRevalidations(
+        domain,
+        demands,
+        HEAVY_MAKER.weth,
+    );
     const run = makers.admit({
         jobId: "inspect-fixture",
-        payload: heavyMakerHint(),
-        requiredAt: now,
+        payload: { ...heavyMakerHint(), blockNumber: null, blockHash: null },
         now,
     });
-    const claimed = makers.claim(run.runId, "fixture-owner", now)!;
-    makers.checkpoint(claimed, [], false, now);
+    makers.scheduleWakeup(run!, now);
     const before = db.raw.pragma("data_version", { simple: true });
     const config = { databasePath, chainId: 1, limit: 1, counts: false };
     const sampled = inspectOrderProcessing(config, now);
@@ -106,20 +106,17 @@ it("distinguishes due, leased and retrying work and reports age outside the samp
     db.exec("DELETE FROM orders; DELETE FROM collections;");
     seedHeavyMaker(3);
     const demands = new SqliteOrderValidationDemand(
-        new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-            throw new Error("Inspection cannot use RPC");
-        }),
+        new SqliteOrdersDomain(HEAVY_MAKER.weth),
     );
     const now = HEAVY_MAKER.now * 1000;
     for (let i = 0; i < 3; i++)
         demands.admit(
-            {
-                chainId: 1,
-                orderId: heavyMakerOrder(i).id,
-                requiredAt: now - (i === 2 ? 120_000 : 1000),
-                minimumBlock: null,
-            },
-            now,
+            observedOrderValidationRequest(
+                1,
+                heavyMakerOrder(i).id,
+                `inspection-${i}`,
+            ),
+            now - (i === 2 ? 120_000 : 1000),
         );
     db.prepare(
         "UPDATE order_validation_demand SET lease_until=? WHERE order_id=?",

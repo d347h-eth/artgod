@@ -70,11 +70,11 @@ export function orderRetirementReason(
         return ORDER_RETIREMENT_REASON.Expired;
     const terminal =
         order.fillabilityStatus === ORDER_STATUS.Filled ||
-        order.fillabilityStatus === ORDER_STATUS.Cancelled ||
-        order.sourceStatus === ORDER_SOURCE_STATUS.Filled ||
-        order.sourceStatus === ORDER_SOURCE_STATUS.Cancelled;
-    if (terminal && order.lastChangedAt <= now - POLICY.orderReorgGraceSeconds)
-        return ORDER_RETIREMENT_REASON.Terminal;
+        order.fillabilityStatus === ORDER_STATUS.Cancelled;
+    // Delayed canonical checks may still orphan a terminal result. Keep its
+    // signed declaration until expiry, when rollback cannot restore execution.
+    // Unknown expiry is not proof that deleting the declaration is safe.
+    if (terminal) return null;
     if (
         order.sourceStatus === ORDER_SOURCE_STATUS.Inactive &&
         order.lastChangedAt <= now - POLICY.inactiveOrderGraceSeconds
@@ -90,21 +90,15 @@ export function orderRetirementReason(
     return null;
 }
 
-/** Retirement can depend on a chain block only when that result proves
- * terminality. Source completion survives rollback unless a canonical filled
- * result is orphaned; a fillable or cancelled result does not prove that sale.
- * Independent source cancellation stays protected by its retirement reason. */
+/** Only protocol terminality can attribute a retirement to a chain block. */
 export function orderRetirementBlockNumber(
     order: Pick<OrderRetentionInput, "sourceStatus" | "fillabilityStatus">,
     resultBlockNumber: number | null,
 ): number | null {
-    if (
-        order.fillabilityStatus === ORDER_STATUS.Filled ||
-        (order.fillabilityStatus === ORDER_STATUS.Cancelled &&
-            order.sourceStatus !== ORDER_SOURCE_STATUS.Filled)
-    )
-        return resultBlockNumber;
-    return null;
+    return order.fillabilityStatus === ORDER_STATUS.Filled ||
+        order.fillabilityStatus === ORDER_STATUS.Cancelled
+        ? resultBlockNumber
+        : null;
 }
 
 /** Keep one order-level fence, not a receipt for every delivery. New expiry

@@ -1,7 +1,6 @@
-import {
-    seaportIsNftItem,
-    seaportIsPaymentItem,
-} from "@artgod/shared/market-data/seaport";
+import { seaportIsNftItem } from "@artgod/shared/market-data/seaport";
+import { declaredOrderQuote } from "../../domain/order-quantity.js";
+import { ORDER_SIDE } from "../../domain/orders.js";
 import type {
     SeaportConsiderationItem,
     SeaportOrderData,
@@ -73,17 +72,20 @@ export function extractSeaportSellTerms(
     if (!seaportData) return null;
 
     const nftItem = findSingleNftItem(seaportData.offer);
-    const payment = sumFixedCurrencyItems(seaportData.consideration);
-    if (!nftItem || !payment) {
-        return null;
-    }
+    if (!nftItem) return null;
+    const quote = declaredOrderQuote({
+        side: ORDER_SIDE.Sell,
+        contract: nftItem.token,
+        seaportData,
+    });
+    if (quote.currency === null || quote.price === null) return null;
 
     return {
         maker: seaportData.offerer,
         contract: nftItem.token,
         tokenId: nftItem.identifierOrCriteria,
-        currency: payment.currency,
-        price: payment.amount,
+        currency: quote.currency,
+        price: quote.price,
         validFrom: toUnixSecondsNumber(seaportData.startTime),
         validUntil: toUnixSecondsNumber(seaportData.endTime),
     };
@@ -138,37 +140,6 @@ function findSingleNftItem(
         return null;
     }
     return nftItems[0] ?? null;
-}
-
-function sumFixedCurrencyItems(
-    items: SeaportOrderItem[] | SeaportConsiderationItem[],
-): { currency: string; amount: string } | null {
-    const paymentItems = items.filter((item) =>
-        seaportIsPaymentItem(item.itemType),
-    );
-    if (paymentItems.length === 0) {
-        return null;
-    }
-
-    const [first] = paymentItems;
-    if (!first) return null;
-    const currency = first.token.toLowerCase();
-
-    let total = 0n;
-    for (const item of paymentItems) {
-        if (item.token.toLowerCase() !== currency) {
-            return null;
-        }
-        if (item.startAmount !== item.endAmount) {
-            return null;
-        }
-        total += BigInt(item.startAmount);
-    }
-
-    return {
-        currency,
-        amount: total.toString(),
-    };
 }
 
 function toUnixSecondsNumber(value: string): number {

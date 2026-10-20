@@ -103,7 +103,6 @@ it("aggregates a large mutation burst in fixed counters and finite reason/status
             reasons: {
                 [ORDER_UPDATE_REASON.Validation]: 1,
                 [ORDER_UPDATE_REASON.SourceExecution]: 1,
-                [ORDER_UPDATE_REASON.SourceExecutionValidation]: 0,
                 [ORDER_UPDATE_REASON.Fill]: 0,
                 [ORDER_UPDATE_REASON.Cancel]: 0,
                 [BUCKET.OtherReason]: 1001,
@@ -161,7 +160,9 @@ describe("committed order observations", () => {
         vi.spyOn(Date, "now").mockReturnValue(HEAVY_MAKER.now * 1000);
         for (const level of ["debug", "info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
-        db.exec("DELETE FROM orders; DELETE FROM collections;");
+        db.exec(
+            "DELETE FROM order_validation_demand; DELETE FROM order_source_observations; DELETE FROM orders; DELETE FROM collections;",
+        );
         seedHeavyMaker(0);
     });
 
@@ -275,12 +276,12 @@ function upsert(): OrderUpsertPayload {
         orderId: order.id,
         rawSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
         observedAt: HEAVY_MAKER.now,
-        validateAfterUpsert: true,
     };
 }
 
 function sourceUpdate(payload: OrderUpsertPayload) {
     return {
+        source: payload.source!,
         chainId: payload.chainId,
         orderId: payload.orderId,
         reason: ORDER_UPDATE_REASON.Validation,
@@ -299,17 +300,12 @@ function stored(payload: OrderUpsertPayload) {
 }
 
 function createDomain(
-    observer: ConstructorParameters<typeof SqliteOrdersDomain>[5],
+    observer: ConstructorParameters<typeof SqliteOrdersDomain>[3],
 ) {
     return new SqliteOrdersDomain(
         HEAVY_MAKER.weth,
-        async () => ({
-            status: ORDER_STATUS.Fillable,
-            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
-        }),
         undefined,
         () => HEAVY_MAKER.now,
-        undefined,
         observer,
     );
 }

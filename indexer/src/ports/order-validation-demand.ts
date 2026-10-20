@@ -10,10 +10,17 @@ import type {
     ORDER_VALIDATION_DEMAND_OUTCOME,
 } from "../domain/order-validation-demand.js";
 import type { OrderValidationResult } from "../domain/orders.js";
+import type { PendingCanonicalCheck } from "../domain/canonical-check.js";
 import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
 
 /** Current-state eligibility and revision-guarded effects, inside the owning writer snapshot. */
 export interface OrderValidationProjectionPort {
+    /** Refresh derived views after proof and pending-demand state are committed in the same writer. */
+    refreshValidationProjection(
+        chainId: number,
+        orderId: string,
+        nowMs: number,
+    ): void;
     validationCandidate(
         request: OrderValidationRequest,
     ): OrderValidationCandidate | null;
@@ -27,31 +34,18 @@ export interface OrderValidationProjectionPort {
 }
 
 export interface OrderValidationDemandPort {
-    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
-    /** Current eligibility only; does not admit work or consume coverage. */
-    needsValidation(request: OrderValidationRequest): boolean;
-    /** Same-order, same-canonical-history validation; does not consume pending newer demand. */
-    isCovered(request: OrderValidationRequest, revision: number): boolean;
-    /** Shares the maker checkpoint transaction. Keep newer unmet observations pending. */
-    recordValidation(
-        request: OrderValidationRequest,
-        revision: number,
-        evidence: OrderValidationEvidence,
-        now: number,
-    ): void;
+    /** Readiness check before joining fair validation capacity. */
+    hasReady(chainId: number, now: number): boolean;
+    /** Bounded, durable source-independent freshness admission. */
+    scheduleDue(chainId: number, now: number): number;
+    /** Retain a validator-observed mismatch through the chain owner before retry. */
+    retainDispute(check: PendingCanonicalCheck): void;
     /** Needed current-order work is always main, irrespective of the hint's work class.
      * A supplied checkpoint fences transaction inclusion resolved before admission. */
     admit(
         request: OrderValidationRequest,
         now: number,
         checkpoint?: ChainSyncCheckpoint,
-    ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
-    /** Admit a known failed order with isolated retry/backoff, without recording proof.
-     * Participates in the caller's checkpoint transaction on the same database. */
-    defer(
-        request: OrderValidationRequest,
-        error: string,
-        now: number,
     ): (typeof ORDER_VALIDATION_DEMAND_OUTCOME)[keyof typeof ORDER_VALIDATION_DEMAND_OUTCOME];
     get(chainId: number, orderId: string): OrderValidationDemand | null;
     /** Selects/claims bounded work atomically; only one executor owns each revision/generation. */

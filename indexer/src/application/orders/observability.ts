@@ -1,5 +1,5 @@
 import type { MAKER_REVALIDATION_STEP_END } from "../../domain/maker-revalidation.js";
-import type { MakerValidationBatch } from "../../ports/order-validation.js";
+import type { OrderValidationSnapshot } from "../../ports/order-validation.js";
 import type {
     ProcessingObservability,
     ProcessingObserver,
@@ -65,7 +65,7 @@ export interface OrderProcessingObserver extends ProcessingObserver {
     makerCheckpoint(report: MakerCheckpointReport): void;
     contractReads(
         path: OrderValidationPath,
-        reads: ReturnType<MakerValidationBatch["readCounts"]>,
+        reads: ReturnType<OrderValidationSnapshot["readCounts"]>,
     ): void;
     makerRecovery(checked: number, recovered: number, failed: number): void;
     makerReceiptsCleaned(count: number): void;

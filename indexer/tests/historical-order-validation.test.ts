@@ -8,10 +8,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { SYNC_WORK_CLASS as CLASS } from "@artgod/shared/types/sync-work-class";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
-import {
-    AdmitOrderValidation,
-    ValidateOrderDemand,
-} from "../src/application/orders/validate-order-demand.js";
+import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import {
@@ -27,12 +24,14 @@ import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validatio
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { bindRpcValidationFactory } from "../src/runtime/rpc-budget.js";
 import { advanceChainSyncRevision } from "../src/infra/storage/sqlite-chain-revisions.js";
+import { installHeavyMakerValidationChain } from "./helpers/heavy-maker-validation-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import {
     HeavyMakerRpc,
     HEAVY_MAKER as F,
     heavyMakerHint,
+    heavyMakerBlock,
     heavyMakerOrder,
     tokenSaleHint,
     seedHeavyMaker,
@@ -43,9 +42,8 @@ const now = F.now * 1000;
 const order = heavyMakerOrder(0);
 
 function workflow(rpc = new HeavyMakerRpc(), scope = new RpcWorkScope()) {
-    const orders = new SqliteOrdersDomain(F.weth, async () => {
-        throw new Error("Unexpected singleton validation");
-    });
+    const orders = new SqliteOrdersDomain(F.weth);
+    const chain = installHeavyMakerValidationChain();
     const demand = new SqliteOrderValidationDemand(orders);
     const admission = new FairOrderValidationAdmission(2);
     const createSnapshot = vi.fn(
@@ -54,14 +52,14 @@ function workflow(rpc = new HeavyMakerRpc(), scope = new RpcWorkScope()) {
             createSeaportOrderValidationFactory({
                 chainId: F.chainId,
                 rpc,
-                conduits: warmConduits,
                 conduitController: F.controller,
             }),
         ),
     );
-    const makerStore = new SqliteMakerRevalidations(orders, demand);
+    const makerStore = new SqliteMakerRevalidations(orders, demand, F.weth);
     return {
         rpc,
+        chain,
         demand,
         createSnapshot,
         makerStore,
@@ -73,13 +71,9 @@ function workflow(rpc = new HeavyMakerRpc(), scope = new RpcWorkScope()) {
         }),
         maker: new RevalidateMakerOrders({
             store: makerStore,
-            createSnapshot,
-            admission,
         }),
         update: new ApplyOrderUpdate({
-            executionValidation: { request: vi.fn(async () => {}) },
             chainId: F.chainId,
-            validation: new AdmitOrderValidation(F.chainId, demand),
             lifecycle: orders,
         }),
     };
@@ -101,27 +95,35 @@ describe("historical hints and current-order requirements", () => {
     it("reuses a newer full validation for a recovered event without using its delivery time", async () => {
         const w = workflow();
         w.demand.admit(
-            observedOrderValidationRequest(F.chainId, order.id, now - 1000),
+            observedOrderValidationRequest(
+                F.chainId,
+                order.id,
+                "first-observation",
+            ),
             now,
         );
+        w.chain.advance(F.blockNumber + 1);
+        w.chain.sample();
         await w.validator.executeBatch();
         w.createSnapshot.mockClear();
         vi.mocked(Date.now).mockReturnValue(now + 1000);
-        await w.update.execute(
-            {
-                chainId: F.chainId,
-                orderId: order.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-                blockNumber: F.blockNumber - 1,
-            },
-            now + 1000,
-        );
+        await w.update.execute({
+            chainId: F.chainId,
+            orderId: order.id,
+            reason: ORDER_UPDATE_REASON.Validation,
+            blockNumber: F.blockNumber,
+            blockHash: F.blockHash,
+        });
         expect(w.demand.get(F.chainId, order.id)?.pending).toBe(false);
         expect(await w.validator.executeBatch()).toBeUndefined();
         expect(w.createSnapshot).not.toHaveBeenCalled();
         expect(
             w.demand.admit(
-                observedOrderValidationRequest(F.chainId, order.id, now + 1000),
+                observedOrderValidationRequest(
+                    F.chainId,
+                    order.id,
+                    "new-observation",
+                ),
                 now + 1000,
             ),
         ).toBe(OUTCOME.Pending);
@@ -132,15 +134,20 @@ describe("historical hints and current-order requirements", () => {
         await w.maker.execute({
             jobId: "maker-first",
             payload: heavyMakerHint(),
-            requiredAt: now,
         });
+        await w.validator.executeBatch();
         expect(w.demand.get(F.chainId, order.id)).toMatchObject({
             pending: false,
             proofChainRevision: 0,
         });
         expect(
             w.demand.admit(
-                eventValidationRequest(F.chainId, order.id, F.blockNumber),
+                eventValidationRequest(
+                    F.chainId,
+                    order.id,
+                    F.blockNumber,
+                    F.blockHash,
+                ),
                 now + 1000,
             ),
         ).toBe(OUTCOME.Covered);
@@ -164,7 +171,12 @@ describe("historical hints and current-order requirements", () => {
             const hint = tokenSaleHint(sale);
             if (first === "ordinary") {
                 w.demand.admit(
-                    eventValidationRequest(F.chainId, sale.id, F.blockNumber),
+                    eventValidationRequest(
+                        F.chainId,
+                        sale.id,
+                        F.blockNumber,
+                        F.blockHash,
+                    ),
                     now,
                 );
                 await w.validator.executeBatch();
@@ -172,12 +184,17 @@ describe("historical hints and current-order requirements", () => {
                 await w.maker.execute({
                     jobId: "token-sale-first",
                     payload: hint,
-                    requiredAt: now,
                 });
             }
+            await w.validator.executeBatch();
             expect(
                 w.demand.admit(
-                    eventValidationRequest(F.chainId, sale.id, F.blockNumber),
+                    eventValidationRequest(
+                        F.chainId,
+                        sale.id,
+                        F.blockNumber,
+                        F.blockHash,
+                    ),
                     now + 1000,
                 ),
             ).toBe(OUTCOME.Covered);
@@ -185,7 +202,6 @@ describe("historical hints and current-order requirements", () => {
             await w.maker.execute({
                 jobId: "token-sale-covered",
                 payload: hint,
-                requiredAt: now + 1000,
             });
             expect(w.createSnapshot).not.toHaveBeenCalled();
             expect(w.demand.get(F.chainId, sale.id)).toMatchObject({
@@ -198,18 +214,21 @@ describe("historical hints and current-order requirements", () => {
     it("preserves a newer unmet observation while satisfying an older maker event", async () => {
         const w = workflow();
         w.demand.admit(
-            observedOrderValidationRequest(F.chainId, order.id, now + 1000),
+            observedOrderValidationRequest(
+                F.chainId,
+                order.id,
+                "new-observation",
+            ),
             now,
         );
         await w.maker.execute({
             jobId: "older-event",
             payload: heavyMakerHint(),
-            requiredAt: now,
         });
         expect(w.demand.get(F.chainId, order.id)).toMatchObject({
             pending: true,
-            requiredAt: now + 1000,
-            proofAt: now,
+            proofAt: null,
+            admissionSequence: 1,
         });
     });
 
@@ -218,18 +237,31 @@ describe("historical hints and current-order requirements", () => {
         const input = {
             jobId: "before-rollback",
             payload: heavyMakerHint(),
-            requiredAt: now,
         };
         await w.maker.execute(input);
-        db.writeTransaction(() => advanceChainSyncRevision(F.chainId))();
+        await w.validator.executeBatch();
+        db.writeTransaction(() => {
+            advanceChainSyncRevision(F.chainId);
+            w.chain.progress.rewindAfterRollback(
+                F.chainId,
+                heavyMakerBlock(F.blockNumber - 1),
+            );
+        })();
+        w.chain.advance(F.blockNumber);
         expect(
             w.demand.admit(
-                eventValidationRequest(F.chainId, order.id, F.blockNumber),
+                eventValidationRequest(
+                    F.chainId,
+                    order.id,
+                    F.blockNumber,
+                    F.blockHash,
+                ),
                 now,
             ),
         ).toBe(OUTCOME.Pending);
         w.createSnapshot.mockClear();
         await w.maker.execute({ ...input, jobId: "after-rollback" });
+        await w.validator.executeBatch();
         expect(w.createSnapshot).toHaveBeenCalledOnce();
         expect(w.demand.get(F.chainId, order.id)).toMatchObject({
             pending: false,
@@ -240,7 +272,12 @@ describe("historical hints and current-order requirements", () => {
     it("rejects validation acquired before rollback without saving effects or coverage", async () => {
         const w = workflow();
         w.demand.admit(
-            eventValidationRequest(F.chainId, order.id, F.blockNumber),
+            eventValidationRequest(
+                F.chainId,
+                order.id,
+                F.blockNumber,
+                F.blockHash,
+            ),
             now,
         );
         w.rpc.onRead = () => {
@@ -261,7 +298,7 @@ describe("historical hints and current-order requirements", () => {
         await w.maker.execute({
             jobId: "raw-gap-hint",
             payload: { ...heavyMakerHint(), workClass: CLASS.GapRepair },
-            requiredAt: now,
+
             admissionOnly: true,
         });
         expect(w.createSnapshot).not.toHaveBeenCalled();
@@ -274,6 +311,8 @@ describe("historical hints and current-order requirements", () => {
             jobId: continuation.jobId,
             payload: continuation.payload,
         });
+        expect(w.createSnapshot).not.toHaveBeenCalled();
+        await w.validator.executeBatch();
         expect(w.createSnapshot.mock.calls[0][0].workClass).toBe(CLASS.Main);
         expect(w.demand.get(F.chainId, order.id)?.pending).toBe(false);
     });
@@ -346,15 +385,13 @@ describe("historical hints and current-order requirements", () => {
             try {
                 const w = workflow(rpc, scope);
                 await scope.run(CLASS.GapRepair, () =>
-                    w.update.execute(
-                        {
-                            chainId: F.chainId,
-                            orderId: order.id,
-                            reason: ORDER_UPDATE_REASON.Validation,
-                            blockNumber: F.blockNumber,
-                        },
-                        now,
-                    ),
+                    w.update.execute({
+                        chainId: F.chainId,
+                        orderId: order.id,
+                        reason: ORDER_UPDATE_REASON.Validation,
+                        blockNumber: F.blockNumber,
+                        blockHash: F.blockHash,
+                    }),
                 );
                 const validation = w.validator.executeBatch();
                 await vi.advanceTimersByTimeAsync(5000);

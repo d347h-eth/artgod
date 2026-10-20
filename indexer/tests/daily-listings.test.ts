@@ -24,11 +24,7 @@ import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-data-maintenance.js";
 import { MaintainMarketData } from "../src/application/storage/maintain-market-data.js";
-import {
-    ORDER_VALIDATION_REASON,
-    ORDER_STATUS,
-    ORDER_SOURCE_STATUS,
-} from "../src/domain/orders.js";
+import { ORDER_STATUS, ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 
@@ -68,15 +64,7 @@ describe("permanent daily listings and current asks", () => {
         domain = new SqliteActivityDomain([ETH, WETH], () => now);
         feed = new SqliteActivitiesReadModel();
         prices = new SqliteDailyListingPrices(db, [ETH, WETH]);
-        orders = new SqliteOrdersDomain(
-            WETH,
-            async () => ({
-                status: ORDER_STATUS.Fillable,
-                reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
-            }),
-            undefined,
-            () => now,
-        );
+        orders = new SqliteOrdersDomain(WETH, undefined, () => now);
     });
     afterEach(() => {
         vi.restoreAllMocks();

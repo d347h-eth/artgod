@@ -1,469 +1,233 @@
 # Orders Domain
 
-The orders domain persists canonical order rows and maintains their fillability
-through update queues, durable validation demand and resumable maker scans.
+The chain coordinator owns accepted current state. Sources provide order
+observations and invalidation hints; the validator reads a checkpoint supplied
+by that coordinator. Neither source delivery nor validation may advance sync.
+See [sync](04-sync-pipeline.md), [recovery](06-reorg-handling.md), and
+[storage](05-storage-and-schema.md) for the shared authority boundary.
 
-Primary boundaries:
+Primary owners:
 
-- `indexer/src/runtime/domain-worker.ts` composes consumers and processing loops.
-- `indexer/src/application/orders/` owns validation orchestration and recovery.
-- `indexer/src/infra/domain/orders.ts` owns canonical projection and guarded writes.
-- `indexer/src/infra/orders/` implements durable demand, checkpoints and admission.
-
-Schema:
-
-- `database/migrations/003_orders_schema.sql`
-- `database/migrations/015_opensea_offchain_schema.sql`
-- `database/migrations/016_offchain_source_scope.sql`
-- `database/migrations/055_market_data_storage_lifecycle.sql`
-- Migrations 056–061 add maker progress, continuations, demand, delivery receipts
-  and isolated handoffs; see [order validation recovery](05-storage-and-schema.md#order-validation-recovery).
+- `domain/order-observation.ts`: declaration identity, structural readiness,
+  signed validity and independent source availability.
+- `infra/domain/orders.ts`: atomic observation admission and guarded projection.
+- `application/orders/validate-order-demand.ts`: the sole full RPC validator.
+- `infra/orders/sqlite-order-validation-demand.ts`: causal admission, leases,
+  proof completion, freshness scheduling and rollback invalidation.
+- `application/orders/revalidate-maker.ts`: bounded scope-to-demand expansion.
+- `shared/database/order-evidence.ts`: positive evidence required by current asks
+  and the backend indexed bid-book fallback.
 
 ## Inputs
 
-The orders domain consumes four relevant job kinds; queue routing is described
-in [queues and jobs](02-queues-and-jobs.md#current-job-types):
+`orders.upsert` carries a normalized declaration. Both accepted by-ID consumers
+pass source updates through the same atomic owner. A source update must identify
+its source; an onchain hint must identify an accepted block number and hash.
+Canonical sync retains essential order and maker invalidations in its writer,
+before publishing applied progress. Queue delivery is therefore a wakeup or
+redundant hint, never the only durable record of an essential invalidation.
 
-- `domain.orders.sync`
-- `orders.upsert`
-- `orders.update-by-maker`
-- `orders.update-by-id`
-
-`domain.orders.sync` is currently a no-op placeholder. Order state changes flow through the dedicated order queues instead of hidden range-wide invalidation logic.
-
-Even so, the orders domain now enforces the bootstrap-anchor contract for onchain-driven maintenance:
-
-- pre-anchor historical ranges must not invalidate current order state
-- global maker triggers and explicit onchain update-by-id events are checked against the affected order row's `collection_id`
-- offchain source-status updates are not anchor-gated because they are not replayed from historical onchain sync
+The `domain.orders.sync` range consumer remains a no-op. Removing its vocabulary
+and transport plumbing is separate deferred cleanup; it owns no state authority.
+Historical acquisition emits facts/projection work without current-order effects.
 
 ## Processing ownership and retained state
 
-The consumers and validation/recovery loops below share one domain-worker process
-per chain. Queue admission, validation completion and receipt cleanup are separate
-operations with different durable owners. Source sale hints additionally resolve
-fresh canonical transaction inclusion before coalescing. `order_execution_requirements`
-owns unresolved receipts independently of broker delivery and ordinary demand:
+| Owner               | Durable responsibility                                                            | Completion                                                                        |
+| ------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Source admission    | Immutable declaration, per-source observation and ordinary demand in one writer   | ACK after retention; no receipt lookup or validation permit                       |
+| Chain coordinator   | Connected shared/scoped applied prefixes and essential invalidations              | One atomic facts/effects/progress/outbox commit                                   |
+| Maker expansion     | Finite selection boundary, cursor, generation and continuation                    | Cursor advances only with per-order demand retention                              |
+| Ordinary validation | Ready-only claims, supplied checkpoint, exact-hash snapshot and fenced completion | Result, independent proof, demand coverage and projection refresh commit together |
+| Outbox/recovery     | Publication and continuation receipts with replay protection                      | Publication is distinct from completed validation                                 |
+| Maintenance         | Bounded stale/expired observation cleanup and head-sample retention               | Never performs RPC or invents positive proof                                      |
 
-| Component                                  | Durable responsibility                                                                                                 | Completion and cleanup                                                                                                                                                                             |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upsert and by-ID validation-hint consumers | Admit current order requirements into `order_validation_demand`; upserts commit canonical changes and demand together. | ACK after admission or an explicit current-state no-work decision. They do not wait for the RPC validation.                                                                                        |
-| Lifecycle consumer                         | Apply fill/cancel/source observations through the orders domain, including its replay and retirement rules.            | ACK after domain effects commit; no validation permit is required. Older lifecycle envelopes still reach the same behavior through the by-ID consumer.                                             |
-| Broad-maker and token consumers            | `maker_order_revalidation_runs` owns the finite scan, cursor, generations, isolation target and lease.                 | Commit effects or durable per-order handoff with the cursor and next continuation before ACK. A completed scan may still have pending demand.                                                      |
-| Per-order demand executors                 | Poll `order_validation_demand`, claim due rows and validate captured revisions/generations.                            | Commit results and coverage together; retry or release unfinished work. Eligible completed rows may retain reusable coverage; current-result block attribution remains on the order independently. |
-| Receipt executor                           | Poll `order_execution_requirements` with per-transaction leases and backoff.                                           | Atomically admit block-scoped validation and remove the requirement. One receipt executor shares fair capacity with ordinary validation.                                                           |
-| Outbox publisher                           | Publish committed maker continuation intent from `queue_outbox` and record publication receipts.                       | A sent row proves publication, not execution. Maker checkpoints replace the previous continuation row.                                                                                             |
-| Maker recovery and receipt cleanup         | Restore missing continuations and maintain `maker_validation_delivery_origins` replay proof.                           | Remove completed maker receipts only after the required broker ACK floors, and retain coalesced scopes while eligible candidates remain. Deferred demand survives this cleanup.                    |
-| Market-data maintenance                    | Retire canonical orders and replay-protection markers under domain retention rules.                                    | Deleting an order cascades to its demand row. Maintenance does not perform pending RPC validation.                                                                                                 |
-
-The demand row is also its own durable wakeup: startup polling can resume it
-without another broker envelope or per-order outbox copy. Its revision and
-generation prevent an old validation result from satisfying a newer request.
-Repeated hints therefore share unfinished work without collapsing definitive
-lifecycle facts into generic validation.
-
-Completion receipts are intentional state, not a backlog that needs manual
-truncation. Inspect pending flags, unfinished maker status and requirement age
-alongside broker counts. See [recovery](18-order-queue-recovery.md),
-[port ownership](12-ports-and-adapters.md#order-processing-ports) and the
-[runtime sequences](13-sequence-diagrams.md#order-admission-and-validation).
+Demand polling resumes after restart without a broker wakeup. Maker continuation
+recovery and broker replay receipts remain necessary scheduling/deduplication
+mechanisms; they no longer own a separate RPC validator. The former
+`order_execution_requirements` receipt prerequisite and executor are removed.
 
 ## Canonical Order Model
 
-`orders.upsert` carries the normalized ArtGod order DTO:
+`orders` retains normalized identity, scope, signed Seaport terms, original NFT
+quantity and materialized protocol state. Incoming signed terms must hash to the
+order identity and maker. A retained declaration cannot change its chain,
+collection, protocol domain, maker or signed components. Missing terms/signature
+may be enriched. Signed validity bounds take precedence over source metadata.
+Current persistence has one global order-hash key: conflicting cross-chain use
+is rejected explicitly; this change does not introduce a multichain orderbook.
 
-- order identity, `collectionId`, side, maker/taker, contract/token
-- source scope (`token`, `collection`, `attribute`)
-- source criteria root + normalized source schema
-- local token-set linkage status (`none`, `resolved`, `unresolved`, `mismatch`)
-- price, currency, validity window
-- original signed quantity and source-reported remaining quantity
-- canonical Seaport protocol payload (`seaportData`)
-- raw source kind (`stream` or `rest`)
-- raw audit payload
-
-Important invariant:
-
-- canonical runtime logic uses normalized DTO fields and persisted `seaport_data_json`
-- `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain and are disabled by default with `PERSIST_RAW_DEBUG_PAYLOADS=false`
-- trading bid-book fallback maps normalized order scope/schema fields and the
-  scalar `protocol_address`, without parsing the full Seaport payload or raw
-  REST/stream payloads; retained validators still use canonical Seaport data
+`order_source_observations` retains one compact observation per order/source.
+Source-reported quantity and source timestamp are observations, not remaining
+quantity or chain authority. Equivalent retransmissions coalesce even when a
+second source arrives between them. Local admission sequences order causal work;
+remote clocks never select checkpoints or advance another source's state.
+Raw REST/stream payloads remain opt-in debug storage and are not runtime input.
 
 ## Status Model
 
-The domain tracks two distinct statuses.
-
 ### `fillability_status`
 
-Protocol/onchain executability:
-
-- `unvalidated` — no current protocol result is established
-- `fillable`
-- `filled`
-- `cancelled`
-- `expired`
-- `no-balance`
-- `no-approval`
-- `invalid`
+The materialized protocol result is `unvalidated`, `fillable`, `filled`,
+`cancelled`, `expired`, `no-balance`, `no-approval`, or `invalid`.
+A `fillable` value alone does not establish current executability.
 
 ### `source_status`
 
-Marketplace/source-visible activity:
-
-- `active`
-- `inactive`
-- `cancelled`
-- `filled`
-- `invalidated`
-- `expired`
-- `unknown`
-
-They do not auto-collapse into one field.
-
-Examples:
-
-- source-active + no-balance
-- source-inactive + fillable
-- source-cancelled + still-fillable until an onchain/protocol check says otherwise
+Per-source records retain source vocabulary, including activity and withdrawal.
+The order row aggregates availability as `active` when any source is active,
+otherwise `inactive`. Withdrawal by OpenSea does not revoke another source's
+availability and never becomes an onchain cancellation. A create/REST copy does
+not undo that same source's explicit cancellation; an explicit subsequent source
+update can reopen it. Chain rollback does not modify source observations.
 
 ## Upsert Flow
 
-REST item, collection and trait offers and their stream counterparts use
-`normalizeOpenSeaBuyOrder()` in `opensea-bidding-order-terms.ts`. This single
-mapping translates the shared OpenSea offer parser into the canonical order
-DTO and attaches validated Seaport data. Event names provide diagnostic
-context; the complete parsed criteria determine the persisted scope.
+1. Normalize the source record through the existing source adapter.
+2. Bind the declaration to its collection, signed NFT side/contract/identifier
+   and immutable order identity. Derive supported quote currency and exact unit
+   price from signed payment terms, then merge immutable terms.
+3. Atomically retain the per-source observation, declaration and causal demand.
+4. Wait for a coordinator head sample captured after admission, then for shared
+   and collection applied progress to cover that sample.
+5. Claim ready demand, perform full validation, and commit fenced evidence.
 
-1. Offchain ingest normalizes a stream or REST record.
-2. `dispatchOffchainPayload()` publishes `orders.upsert`.
-3. Domain worker admits a current observation and writes only changed canonical
-   state; observation/validation freshness is separate from material changes.
-4. If validation is requested and needed, the same write transaction admits
-   durable `order_validation_demand` for the canonical revision and observation.
-   Recently validated identical upserts do not produce another validation.
-5. The application-owned demand worker performs full validation asynchronously
-   from current canonical data, with a fenced lease and captured generation.
-
-New orders start optimistically as `fillable`, including Seaport orders with
-`validateAfterUpsert=true`. Requested validation demand is committed in the same
-transaction as admission; the existing executors later correct fillability and
-quantities. The pending flag does not suppress provisional book visibility.
-RPC failure preserves that provisional state and durable pending demand. There
-is no guaranteed validation completion deadline: workers drain continuously,
-idle polling waits one second, and retry backoff is capped at 60 seconds.
-`validateAfterUpsert=false` skips requesting validation from this upsert; current
-production publishers always set it to true.
-
-Refreshing an existing order preserves its fillability status while the new
-obligation is pending. For supported fixed-amount partial buys, source quantity
-seeds a new order only; refreshes cannot replace its remaining quantity or funded
-capacity. Protocol validation owns those existing-order values. Other order
-shapes retain source-quantity updates. Repeated source quantities do not bypass the
-existing five-minute ordinary revalidation interval. `unvalidated` remains the state for a discarded orphaned
-protocol result after rollback; both maker scans and per-order demand can
-validate it.
-
-Initial status defaults are:
-
-- `fillability_status = fillable`
-- `source_status = active` (unless explicitly overridden)
-
-The demand executor corrects `fillability_status` after protocol checks run.
-
-Unchanged payloads and statuses are SQL no-ops. Observation-only writes and
-repeat validation have a five-minute freshness interval; explicit maker/state
-change triggers still revalidate. A changed canonical upsert clears `validated_at`
-in the same write that advances `state_revision` and commits its validation demand.
-There is no post-commit broker publication on this path. An unchanged upsert retry
-retains its original observation requirement instead of advancing it to retry time.
-A newer source observation does not erase that obligation: an older retry leaves
-stored state untouched and requests validation of the current active revision.
-Validation commits with a state-revision and
-active-source guard, so a result obtained before an awaited RPC cannot overwrite
-a newer cancellation. No SQLite reader or writer transaction stays open across
-that RPC.
+New declarations start `unvalidated`, with unknown canonical remaining quantity
+represented by null. Structurally incomplete declarations remain observed and
+pending but cannot claim RPC capacity. There is no optimistic `fillable` seed or
+upsert validation opt-out. A source sale never zeroes quantity, including a
+known full-only order. Existing results remain as observations while new demand
+is pending; positive readers reject evidence not covering that demand.
+An inactivity-retirement timestamp cannot reject a new source merely because it
+arrives in the same second as cleanup. Source-specific withdrawal and immutable
+expiry still apply.
 
 ### Coalesced ordinary validation
 
-Migration 058 stores at most one demand/coverage row per current order; deleting
-the order deletes its demand. Legacy `reason = "order"` envelopes admit current
-state using their explicit trigger block and enqueue time, without parsing job
-IDs. Missing, expired, source-terminal, protocol-terminal and pre-anchor work is
-resolved before RPC. An old `validated_at` value alone never establishes coverage.
+Source requirements carry stable observation identity and a local monotonic
+admission sequence. Canonical requirements carry accepted block number/hash.
+Coalescing preserves both. A source admitted during a head read waits for a later
+sample; source timestamps cannot satisfy that barrier. Samples freeze the first
+successful post-admission height and bind its hash to accepted shared history.
 
-Demand records canonical revision, generation and required observation/block
-coverage. A full validator snapshot pins contract and native-balance reads to a
-fresh block at least as recent as the trigger, then rechecks canonicality before
-committing. RPC uncertainty retries the durable obligation; it cannot be recorded
-as a protocol failure. Completion commits the order result and its resulting
-revision together, including a revision change caused by its own fillability write.
-Newer generations or changed canonical revisions remain pending. An unanchored
-canonical observation remains independently actionable when coalesced with an
-older chain trigger; it does not inherit that trigger's bootstrap rejection.
+Claims capture order revision, demand generation, chain revision, lease and one
+coherent collection/shared checkpoint. A newer observation can remain pending
+while an older valid claimed generation finishes. Advancing sync from N to N+1
+alone does not invalidate a coherent result at N. Changed order state, newer
+proof, lost lease, rollback, disputed history or insufficient coverage does.
 
-Two demand executors each claim a bounded page of at most 100 orders after
-acquiring one of the existing shared FIFO validation permits. Busy executors
-yield to the event loop and rejoin admission for another batch promptly; idle or
-failed polls wait one second. Queued admission is cancellable on shutdown before
-any rows are claimed; active work finishes its admitted order and releases the
-unconsumed claims. Maker and token work retain FIFO access to the same two permits.
-The page shares one fresh snapshot,
-including wallet reads and lazy status aggregates. Each order retains its own
-revision, generation and observation/block requirement; demands ahead of the
-snapshot retry independently while covered orders proceed. After five seconds
-of new validation, the batch verifies its snapshot and commits bounded results
-together. Unconsumed claims are released without coverage. Missing, expired or
-terminal pages report cheap progress without opening an RPC snapshot.
-After two failed attempts, affected demand rows retry individually until they
-complete. This prevents one persistent order-specific failure from keeping a
-whole page pending. Fresh work and a first transient retry retain batching; due
-order, leases and exponential backoff still apply. Recovery from a prolonged
-provider outage temporarily costs more snapshot reads for those isolated rows.
-Persisted two-minute leases renew
-every 30 seconds; expired leases are reclaimable after restart. Failed work uses
-bounded exponential retry delay up to 60 seconds. Pending rows themselves are the
-durable wakeup, so no per-order outbox publication or sent-state recovery is needed.
-Full validation still runs periodically when fresh ordinary observations require
-it; this does not claim complete WETH event coverage.
-
-This schema/worker pair requires aligned runtime artifacts. An older binary does
-not drain the new demand table. Native downgrade is not qualified; use a stopped
-runtime and a paired pre-upgrade SQLite/NATS backup if rollback is required.
-Maker hints use the separate scoped pass model below. All three validation paths
-(broad maker, token-scoped and ordinary demand) share two FIFO admission permits.
-Explicit fill/cancel/source transitions have a separate queue and do not need a
-validation permit. Legacy queues retain their old handlers and durable names.
-This scheduling boundary does not itself establish total backlog convergence.
-
-Migration 060 retains one high-water delivery receipt per maker run and consumer.
-A token scope can be reached through the legacy maker queue and the new token
-queue; cleanup therefore requires replay proof from both consumers, not just the
-last delivery. New deliveries invalidate older ACK proof. ACK advancement and
-scope cleanup are independently bounded, so alternating consumers cannot starve
-each other's cleanup pages. Outbox recovery checks the publication's stored
-queue, including continuations produced by an older binary.
+The demand owner admits periodic freshness work independently of source arrivals.
+Two ordinary executors share FIFO capacity; pages contain at most 100 ready
+orders. A snapshot stops accepting work after five seconds and expires after
+30 seconds. Unready demand acquires neither a validation permit nor a broker
+unacknowledged slot. Per-order retry/isolation prevents one failing declaration
+from repeatedly blocking unrelated work. Local quota deferral releases claims;
+RPC uncertainty cannot become a protocol-invalid result.
 
 ## OpenSea Sale Hints
 
-`shared/opensea/payload.ts` owns OpenSea envelope and identity decoding. Stream
-routing, order normalization, deduplication, diagnostics and the trading market
-event adapter use that owner. Generic normalization helpers live in
-`shared/offchain/normalizer-utils.ts`; address and hash checks use viem. NFT IDs
-have one decoder for the exact `chain/contract/uint256` format. Queue recovery
-decisions and job diagnostic formatting remain in the indexer.
+A source sale requests another check of the current order. Its transaction hash
+is optional informational metadata. Missing, malformed, orphaned or unavailable
+receipts do not prevent durable admission. The validator is not required to
+prove that a source's alleged transaction occurred. Canonical sync continues to
+own receipt-based execution/fill decoding and activity facts separately.
 
-An OpenSea `item_sold` event normally produces a source execution observation on
-`order-lifecycle-updates` and a seller/token revalidation hint. Known full-only
-orders apply source completion without RPC. Partial or unknown retained Seaport
-orders retain a transaction-bearing requirement in `order_execution_requirements`
-before acknowledging the source observation. Both order-update consumers do
-only the durable handoff; a failed write retries the delivery. A bounded receipt
-executor reads the receipt and canonical block fresh, verifies transaction
-inclusion and admits validation with that minimum block, independent of source
-delivery clocks. The admission and removal of the receipt requirement share one
-writer transaction, fenced by the canonical revision captured before the RPC.
-A provider behind the sale cannot satisfy
-the obligation through wall-clock freshness or a retained pre-sale proof. A sale
-alone does not prove the order is exhausted. The
-[locked Stream SDK contract](https://github.com/ProjectOpenSea/stream-js/blob/v0.4.0/src/types.ts)
-requires `order_hash`, but ingest also handles incomplete events:
-
-- A missing, blank or malformed hash produces no exact-order update. With a
-  valid seller address and `chain/contract/uint256` NFT identity, ingest still
-  awaits publication to `order-updates-by-token` before acknowledging the raw job.
-- The seller comes from the sale's `maker` field. A Seaport offerer can be the
-  buyer when a bid is accepted; it is not a substitute seller identity.
-- The hint enters the existing durable maker revalidation workflow. Full
-  validation uses a fresh pinned chain snapshot; only its result changes
-  fillability. The hint alone cannot mark an unknown order filled or create a
-  sale activity. Onchain fill/activity recovery follows
-  [Fill Decoding](15-fill-decoding.md).
-- A missing or malformed transaction hash logs and discards the partial/unknown
-  order's execution hint. Full-only source completion does not need that hash.
-  The separately published seller/token hint remains independent. Valid hashes
-  with unavailable/noncanonical receipts retain their own SQLite requirement
-  with bounded backoff; they never hold a broker ACK slot or degrade into
-  observation-time-only validation. Restart polling resumes expired leases.
-  Distinct transactions for one order cannot overwrite each other. Terminal,
-  expired, or deleted orders release obsolete requirements. Receipt work uses
-  the existing RPC port and fair validation capacity in the domain worker.
-- An observation for an order not stored locally is ignored without a retirement
-  marker or pending history. A later upsert keeps normal optimistic admission
-  and durable validation.
-- Current source execution requirements bypass the historical bootstrap projection
-  gate while still requiring their minimum chain block. Canonical historical fill
-  triggers retain their existing anchor policy.
-- Missing or invalid seller/NFT identifiers still fail ingestion. Failed queue
-  publication still retries. Cancellation and other exact-order events retain
-  their required hash.
-
-Hashless stream keys include a digest of the NFT, seller and available transaction
-hash plus the source timestamp. Different sales in one collection and second no
-longer share the `na` identity. Identical hints can coalesce; malformed events
-without a usable identity receive unique keys so they reach diagnosis.
-
-Successful fallback logs report the hash status, chain/collection, seller, NFT
-and available transaction hash. Dead-letter entries for sold events retain the
-same bounded identifiers under `openseaSale`, including usable fields from an
-otherwise malformed event. These diagnostics exclude raw source payloads,
-signatures, metadata and arbitrary URLs; raw-payload persistence stays opt-in.
-Exact historical recovery requires retained token/transaction identifiers and
-matching canonical transfer/fill or order-validation evidence. General queue
-drainage or reconciliation completion does not establish that recovery.
+Hashless OpenSea sales can still invalidate the reported seller/token scope.
+A source observation for an order absent locally is retained without inventing
+an order or a completed sale. A later declaration receives its own new barrier.
+Both accepted update consumers ACK only after durable admission or an explicit
+no-work decision; failed admission writes retry normally.
 
 ## Partial fills and quantities
 
-Signed size, remaining inventory and funded capacity are separate facts.
-For fixed-amount Seaport buy orders in one collection, `original_quantity` holds
-signed NFT units, `quantity` holds the last observed remainder, and
-`fillable_quantity` holds the units covered by balance and allowance at the last
-validation. Funding capacity is per order, not a wallet reservation across offers.
-The bid-book read model exposes `validatedAt` and the existing validation demand's
-`validationPending` flag, so pending work is distinct from protocol invalidity.
+- `original_quantity`: immutable signed NFT units when derivable.
+- `quantity`: remaining units from protocol state, null until established.
+- `fillable_quantity`: executable units supported by that validation snapshot.
 
-The shared offer parser calculates unit price using the original signed size,
-then reads the source remainder separately. For a signed 6 WETH offer on 100 NFTs,
-45 remaining and 0.6 WETH balance mean 0.06 WETH per NFT and capacity for at most
-10 units, further capped by allowance. Zero source remainder excludes the offer;
-malformed and oversized remainders are rejected on every pricing path. Thin
-`price.value`/`currentPrice` records support only a single unit and report unknown
-original signed size as null; multi-unit unit pricing requires signed terms.
-Incomplete NFT/payment items and unrecognized signed order types are rejected
-instead of falling back to an aggregate amount as a single-unit price. Known
-multi-unit NFT terms also prevent thin price fallback when their signed payment
-is absent. Valid single-unit thin records retain their existing fallback paths.
-Source ingestion remains an
-independent observation path and does not own chain lifecycle transitions.
+The protocol filled fraction determines remaining inventory; its denominator
+need not equal NFT units. For example, 11/20 filled of 100 leaves 45. Source
+quantities cannot overwrite these fields. All canonical fills request cumulative
+validation rather than assuming one event exhausted an order. Canonical
+cancellation is definitive when applied by the sync writer.
 
-The orders domain classifies canonical Seaport executions from signed order type:
+Supported fixed one-NFT-item shapes derive quantities from signed terms. Buy
+funding uses signed payment amounts, never untrusted source price. Partial buys
+cap units by balance and allowance; full-only buys require the entire remaining
+payment and expose all remaining units or zero capacity. Sell validation retains
+its existing ERC721 ownership/approval scope. Unsupported shapes keep unknown
+quantity rather than inventing one. Impossible fractions and uncertain reads
+leave prior state intact and demand retryable.
 
-- Full-only orders become `filled` with zero remaining quantity immediately,
-  through the lifecycle transaction. They consume no validation permit or RPC.
-- Partial orders retain their last validated state and quantities. Their execution
-  admits a block-scoped obligation to the existing durable validation demand.
-  The lifecycle consumer ACKs after admission, without waiting on RPC or marking
-  the order `invalid`. A covered execution or replay adds no new work.
-- Unknown signed terms cannot establish exhaustion; they also require validation.
-
-The existing demand executors read the cumulative protocol fraction at a pinned
-block at least as recent as the execution. Its denominator need not equal NFT
-units: 11/20 filled out of an original 100 leaves 45. Validation commits original,
-remaining and funded units together with fillability, coverage and the result's
-block attribution in `orders.block_number`. This attribution belongs to the
-materialized result and survives demand cleanup; it is replaced atomically with
-that result when status or quantities change. An unchanged result retains its
-earlier proof block; newer validation coverage belongs to demand and does not
-force an order write. Ordinary validation timestamp refresh still follows the
-five-minute interval. Retirement copies result attribution into its marker only
-when the terminal conclusion depends on that protocol result. A source sale with
-an earlier nonterminal result retains an unattributed marker; rolling back that
-result must not erase source completion. The same applies when a later canonical
-cancellation is rolled back while independent source completion remains.
-Canonical `filled` results, and canonical `cancelled` results without source
-completion, retain their block attribution through retirement. Rollback can
-therefore clear their orphan terminal markers, while source cancellation remains
-independently protected. Only a full
-fraction marks a partial order `filled`. Dependency failures leave valid state
-intact and keep the obligation pending; newer events, cancellations and chain
-revision changes retain the existing commit guards. No REST reconciliation is
-needed for this progression.
-
-Verified rollback preserves signed Seaport declarations. Results proved on an
-orphaned block become `unvalidated`, clear funded capacity, and receive durable
-validation demand in the rollback transaction. Pending requirements from the
-orphaned range are rebound to the fork boundary. A still-canonical pre-fork
-result remains intact. If a source sale already marked the order `filled`,
-rolling back its canonical `filled` result also restores source `active` so that
-completion cannot veto revalidation. Source completion alone, without an
-orphaned canonical filled result, is unchanged. The existing executors then
-recompute the new chain state without waiting for any source observation;
-independent source cancellation remains definitive.
-
-An OpenSea sale uses the source-execution handling category on
-`order-lifecycle-updates`. The orders domain
-checks retained signed terms: known full-only orders apply source `filled`
-immediately without RPC, including buy and sell orders. Partial or unknown
-Seaport terms retain current state and publish source-execution-validation work
-to `order-updates-by-id`, which verifies transaction inclusion before admitting
-block-scoped validation. Canonical chain fills and explicit
-cancellations retain their lifecycle path. Shared
-Seaport enum definitions own protocol values used by order normalization,
-execution facts, quantity calculation and signing policy.
+The first block establishing a changed lifecycle result remains its attribution
+in `orders.block_number`/`block_hash`. Independent `orders.proof_*` fields record
+the newest successful compatible full check, order/chain revision, covered source
+sequence and timestamp. Demand cleanup does not delete this evidence.
 
 ## Current-State Retention and Replay
 
-`orders` is a current passive market projection, not a lifetime order archive.
-The domain-owned rules are in `indexer/src/domain/order-retention.ts`:
+Canonical terminal declarations remain until signed expiry: elapsed wall-clock
+grace cannot prove safety while delayed canonical checks might still roll back
+their result. Unknown-expiry terminal declarations remain retained until a
+valid deadline is known. At expiry a rollback cannot restore executability.
+Source inactivity can age out nonterminal declarations under existing retention
+policy. Per-source withdrawal records survive independently until their expiry
+and until the owning declaration is gone; cleanup is bounded and rechecked in
+its writer. No global source-cancellation tombstone is created by the new path.
 
-- Passed `valid_until` is immediately eligible for removal. Filled/cancelled
-  state has a one-hour grace period; source-inactive rows have a one-hour grace.
-- Unknown-expiry orders have a 24-hour observation lifetime. A completed source
-  reconcile records conservative collection observation freshness once.
-- Temporary `no-balance` or `no-approval` is not terminal while the order is
-  otherwise current. No count cap silently drops valid unexpired market offers.
-- Expired orders, future timestamps beyond five minutes, missing collections
-  and source updates older than the
-  stored observation are rejected. Terminal cancellations cannot be undone by a
-  later create; source inactivity is reversible with a newer observation.
-- Queued creation observations are admitted for 24 hours, regardless of the
-  order's expiry. This does not limit valid stored orders: fresh REST observations
-  can still discover long-lived orders. Delayed cancellations of known orders
-  remain effective beyond that cutoff.
-- One `market_order_retirements` row per order protects against delayed input;
-  there is no per-message receipt archive. It stores the observation cutoff,
-  nullable order `valid_until`, and one calculated cleanup deadline, `expires_at`.
-- Inactive markers expire at the earlier of order expiry and observation cutoff
-  plus 24 hours. Cleanup or redelivery does not restart that replay window.
-- Cancellation/filled markers protect against fresh REST observations too. With
-  known expiry, they last until that deadline plus the existing one-hour grace.
-  Without it, they use a 24-hour fallback from first processing; repeat delivery
-  does not extend the fallback. This fallback is not proof of natural expiry.
-- OpenSea cancellation and sale updates carry optional `expiration_date` through
-  normalization and queueing. Missing or malformed optional expiry does not
-  discard the cancellation. Later expiry evidence can shorten or extend an
-  unknown-expiry fallback without admitting the rejected order. Conflicting
-  known deadlines conservatively retain the later expiry.
-- Known expiry is preserved when a full order is removed. Markers whose calculated
-  deadline has already passed are not inserted; normal indexed maintenance removes
-  expired markers. Natural order expiry also rejects replay directly.
-- Chain rollback removes orders and terminal retirement markers attributed to
-  its verified rollback range. Pre-fork records and records without block
-  attribution remain intact: absent attribution is not proof of orphaning.
-  Unattributed terminal evidence follows ordinary source/protocol and retention
-  lifecycle; rollback does not automatically reactivate or delete it.
-  It preserves explicit OpenSea cancellations, including their compact removal records. This
-  holds whichever cancellation arrives first, including after chain-derived
-  state has been retired. Source-cancelled rows remain ineligible for current
-  asks and follow the normal cleanup policy.
-  User trading intent and own orders remain separate owners.
+Rollback preserves signed declarations and independent source facts. It clears
+orphan protocol results/quantities and admits new demand in the same transaction.
+A latest proof on an orphan block is invalidated even when the unchanged result
+was first established earlier. Exact retained proofs below the verified ancestor
+can be rebound to the new chain revision; in-flight claims cannot. Recovery gates
+positive readers until the coordinator publishes usable progress again.
 
-REST reconciliation streams active identities into connection-local temporary
-SQLite tables. It stages missing identities once, updates 500 at a time and
-rechecks eligibility between batches. New stream observations, including their
-coalesced freshness bucket, win over older REST absence. Temporary membership
-is closed on success, failure or collection removal; no whole-orderbook JS array
-or durable reconcile receipt ledger is retained. Each deactivation batch also
-refreshes today's existing listing price once per affected ask seller/NFT, in the
-same transaction. Bids and orders whose eligibility changed do not cause a refresh.
+## Seaport Validation
 
-Maker-update selection excludes expired orders in SQL and pages 500 candidates
-at a time. The known-maker index likewise includes current/recoverable buy orders
-only and iterates rows without materializing an intermediate result array.
+The full validator reconstructs the order hash, handles supplied ordinary/bulk
+ECDSA signatures, checks validity, protocol status and maker counter, resolves
+conduit/channel authority, and checks supported NFT ownership/approvals or buy
+balance/allowance. Existing contract-wallet and offer-shape limitations remain.
+A missing source signature does not create an immutable signature proof.
 
-Startup recovery rebuilds legacy market rows before writers start; a single
-domain-worker maintenance owner selects obsolete orders through indexes every
-20 minutes. Its pass yields between 500-row batches and stops starting batches
-at a two-second elapsed budget. Already-completed startup recovery does not
-repeat that online sweep. Unfinished online work resumes after a 30-second pause
-with the same limits. Cleanup and price batches alternate across passes; a
-completed price pass waits 20 minutes before becoming due again during catch-up.
-Once caught up, or after
-a failure, the next pass waits 20 minutes. Passes never overlap.
-Order cleanup does not change extension artifacts or synthetic-token retirement
-records. Synthetic unminted IDs cannot have valid orders and do not need a
-historical-order marker.
-See [storage recovery](../development/03-sqlite-storage-and-recovery.md).
+`createSeaportOrderValidationFactory` requires a coordinator checkpoint. Every
+contract/native balance read uses that exact block hash. Snapshot-local sharing
+includes the block identity and complete call arguments, including spender.
+Conduits/channels are read within that snapshot rather than trusted from a mutable
+global cache. Fresh pre/post block checks verify canonicality; there is no latest
+fallback, independent head selection, or validator-written header registration.
+
+### Bounded status aggregates
+
+Status reads may use bounded deployless multicall with individual fallback for
+provider limitations. The same checkpoint, request-budget policies and failure
+boundary apply. Logical per-order reads and aggregate calls remain separately
+observable. A failed aggregate or verification discards uncommitted results.
+
+### Independent validation facts: design boundary
+
+Runtime still performs full checks. This revamp does not introduce funding-only
+validation or indefinitely cached signature/protocol/funding facts. Positive
+readers require current revision, canonical membership, shared/scoped coverage,
+freshness, matching order revision and coverage of pending order/maker demand.
+Executable indexed quotes also require known positive remaining and funded
+quantities. An unsupported shape with unknown units stays an observation; readers
+must not invent one executable NFT from a null quantity.
+A pending maker scope blocks only orders whose proof has not covered its exact
+canonical requirement or source admission sequence; a completed early page need
+not wait for the whole maker's scan.
+
+### Durable maker progress
+
+A canonical maker/token invalidation is retained before progress publication.
+The indexed candidate existence check runs inside that writer; a stale fetched
+bidder cache cannot drop the scope. Unknown makers with no indexed candidates
+need no run. A later order still receives its own initial causal admission.
+
+Each run captures a finite order boundary and expands bounded pages into ordinary
+demand. Demand admission and cursor/continuation commit together. Scope generation,
+lease, publication and replay guards survive restart. New arrivals do not extend
+a pass indefinitely. All current validation uses main capacity; optional history
+never supplies current-state authority.
 
 ## REST Reconciliation Freshness
 
@@ -501,273 +265,6 @@ A 15-minute scheduling tick is not an exact 15-minute completion guarantee:
 eligibility may wait until the next tick, then for serial work and API capacity.
 Execution-time suppression coalesces useful work, not physical queue envelopes.
 No schema or persisted payload change is required for existing alpha queues.
-
-## Seaport Validation
-
-The Seaport validator lives in `indexer/src/application/offchain/seaport-validate.ts` and runs from canonical `seaport_data_json`.
-
-`OrderValidationResult` and `ORDER_VALIDATION_REASON` are owned by
-`indexer/src/domain/orders.ts`. `status` and the quantity snapshot drive the
-projected order state. `reason` is a closed domain vocabulary explaining that
-result for logs and bounded summary counts; it does not route jobs, select
-lifecycle transitions or schedule retries. Exception details belong in the
-separate optional `error` field, never in a reason code. Runtime snapshot read
-failures still throw through the existing failure boundary before any result
-can commit. Tests and validators consume the same exported reason constants.
-
-Current validation flow:
-
-1. Parse canonical Seaport data from the order row.
-2. Reconstruct the Seaport order hash locally and compare with `order.id`.
-3. Signature handling:
-    - any supplied signature -> verify the Seaport typed-data signer
-    - stream-derived order without signature -> warn and continue
-    - REST-derived order -> no signature expectation
-4. Check time window with local wall clock.
-5. Read Seaport `getOrderStatus(orderHash)`.
-6. Read Seaport `getCounter(offerer)`.
-7. Resolve conduit approvals via ConduitController + local conduit cache.
-8. Check sell-side ownership/approvals or buy-side balance/allowance.
-
-The common protocol helper supports ordinary 64-byte EIP-2098 and 65-byte
-ECDSA signatures, plus Seaport bulk-order signatures. Bulk verification folds
-the order hash through positional siblings using the three-byte index, then
-verifies the height-specific `BulkOrder` digest in the same chain/protocol
-domain. Proofs are bounded to 1–24 nodes. Malformed encodings and incorrect
-proofs fail validation; a signature prefix alone does not authorize the order.
-These rules follow the
-[Seaport 1.6 verifier](https://github.com/ProjectOpenSea/seaport-core/blob/2f546b9a0d61a70e1632445cbcb108149a9369ae/src/lib/Verifiers.sol).
-Contract-wallet ERC-1271 verification remains unsupported. Successful signature
-recovery still requires every later fillability check to pass.
-
-Previously rejected bulk-signed orders can recover through ordinary validation
-demand. A fresh active source observation requests validation after the existing
-five-minute freshness interval; REST observations without signatures retain the
-canonical stream signature. Full validation commits the corrected fillability
-and demand coverage together, restoring current-ask eligibility only when all
-checks pass. Concurrent source cancellation still prevents publication. This
-uses the existing schema and reconciliation flow. Orders omitted by the source
-or already expired/terminal have no guaranteed recovery schedule; the fix does
-not establish current onchain fillability for the captured regression fixture.
-
-Singleton RPC-dependent validation retains its existing `try/catch` behavior:
-hard RPC/helper failures are logged and converted into `invalid`.
-
-Runtime maker passes use `createSeaportOrderValidationFactory` through the injected
-snapshot port. The WETH-only batch factory remains for legacy callers and the
-original benchmark. Full validation remains per order, but
-counter, allowance and balance reads share successful/in-flight results within
-one chain snapshot. Keys include block identity, contract, function and arguments;
-allowances remain distinct by spender. Order status, terms, hash and optional
-signature checks are retained. Existing conduit-cache behavior is unchanged.
-
-`ORDER_VALIDATION_BATCH_POLICY` caps a context at 100 orders and stops admitting
-orders after five seconds. A context pins every contract read to a current block
-at least as recent as the trigger. Before committing the bounded results, the
-worker fetches that block afresh and checks its hash, the head, and lifetime:
-30 seconds maximum context lifetime, a block no more than 60 seconds old, and
-head advancement of at most two blocks. The next context starts afresh. RPC,
-conduit-storage, stale-head and reorg failures discard the uncommitted context and retry the job;
-they cannot mark a wallet's bids invalid. Actual protocol terminal/invalid
-decisions still apply. Writes retain revision, active-source and bootstrap-anchor
-guards, with no SQLite transaction spanning RPC calls.
-
-Successful snapshot proof retains the complete block header, not just its height.
-Demand and maker commits register that header with the existing canonical-check
-owner in the result transaction, even when sync has not reached it. Conflicting
-stored hashes reject the commit and rearm canonical verification. Result
-attribution stores both height and hash on the order; reusable demand cleanup
-and terminal retirement cannot erase the pending block check. Header registration
-does not imply collection sync coverage or delay validation until confirmation.
-
-Runtime snapshots cover sell and non-WETH orders too, including pinned native
-balances. Standalone legacy callers retain their existing singleton path.
-
-### Bounded status aggregates
-
-Maker steps and demand batches provide their bounded candidates to the snapshot. When the RPC
-adapter supports `readContracts`, the first needed status lazily reads up to 20
-unique `(protocol, order hash)` statuses in one deployless multicall at the pinned
-block. Seaport's status view is independent of the caller; other validator calls
-do not use this aggregation path. No contract deployment or transaction occurs.
-One snapshot retains at most its 100-candidate lookahead, and stops admitting
-orders under the same count/time budgets. Unused prefetched statuses do not
-advance the cursor or satisfy validation demand. Hash/signature/time checks and
-all other full-validation decisions still run for each consumed order.
-
-Positional item errors or malformed tuples fall back to individual pinned reads
-only when that order is actually validated. Whole-batch failure disables further
-batch attempts for 60 seconds across that factory's contexts; each needed status
-then gets one individual port call, subject to the existing adapter retry policy.
-Adapters without batching and single-order contexts use individual reads.
-An individual failure poisons the context: its validation results remain
-uncommitted. Order-specific status/ownership/approval reads carry the candidate
-identity; shared funding/counter/conduit reads, storage and snapshot verification
-failures do not. This identifies the failed dependency's scope, not the provider's
-health or a definitive invalid order. Maker isolation can later transfer the
-unmet requirement to demand without accepting any result from that context.
-Every checkpoint applying validation results still requires the normal
-hash/head/lifetime check. Batches do not cache status across snapshots or weaken
-source/revision/anchor guards.
-
-The Viem adapter caps requests at 20 contracts and uses one `eth_call` per
-aggregate through its existing endpoint, rate, retry and circuit policies.
-Providers rejecting deployless calls or their gas/payload size use the fallback;
-no deployment-address or provider capability is assumed. Checkpoint logs count
-logical `perOrder` reads (including fallbacks) and `statusBatches` separately.
-Block lookups and transport retries are outside those counts. The reduction in
-wire requests does not imply a corresponding reduction in provider compute billing.
-
-### Independent validation facts: design boundary
-
-Runtime still performs full validation. A funding-only fast path is **not
-implemented**. Before introducing one, the orders domain needs separate facts
-with provenance and coverage, rather than a newer balance overwriting the single
-derived fillability status. The intended responsibilities are:
-
-| Fact                                    | Required identity and coverage                                                            | Events that invalidate or supersede it                                                             |
-| --------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Immutable terms and signature proof     | Canonical parameters, signature or explicit absence, chain, protocol and verifier version | Changed canonical parameters/signature or verifier behavior                                        |
-| Protocol status and maker counter       | Order/protocol or maker/protocol, block number/hash, canonical revision and generation    | Fill, cancel, counter change, reorg or new canonical order                                         |
-| Marketplace activity                    | Source identity, observation ordering and independent cancellation/retirement evidence    | New source observation or reconciliation; explicit terminal evidence dominates later create/replay |
-| NFT ownership and approvals             | Chain, asset/token, owner, operator/conduit and pinned block                              | Transfer, token approval, operator approval, conduit/channel change or reorg                       |
-| Funding                                 | Chain, currency, maker and pinned block; compare each order's current amount separately   | Transfer, native balance change, WETH Deposit/Withdrawal, reorg or freshness expiry                |
-| Allowance and conduit/channel authority | Chain, currency, owner, spender/channel and pinned block                                  | Approval, conduit/channel change, reorg or freshness expiry                                        |
-| Time and amount eligibility             | Canonical validity window and price curve evaluated at decision time                      | Time passage or changed terms; not reusable as an immutable proof                                  |
-
-Every partial completion must capture the canonical revision, invalidated fact
-generation, trigger block and observation requirement. A transaction may cover
-only that captured generation; newer invalidations remain pending. Positive
-fillability requires all applicable facts to be current and compatible. Unknown
-or failed reads remain pending and cannot become negative protocol evidence.
-Funding recovery can replace only the funding fact: it cannot clear source
-cancellation, protocol terminal state, ownership loss or insufficient approval.
-Source activity remains a separate condition for current asks, not a synonym for
-protocol executability. A reorg invalidates affected chain proofs while preserving
-independent explicit marketplace cancellations and retirement protection.
-
-An incremental implementation should first record facts alongside full validation
-and compare derived decisions without changing serving behavior. Only then may a
-single trigger use partial reads, with atomic fact/result/coverage writes, full
-fallback for unknown/stale facts, and tests for trigger races, rollback and
-funding recovery after cancellation. It must not introduce a per-message facts
-archive: current facts are bounded by current orders and shared wallet scopes.
-
-Periodic OpenSea reconciliation remains enabled. Its fresh ordinary observations
-request full validation once the existing five-minute validation freshness
-interval has elapsed; maker hints also retain full validation. This is not a
-source-independent periodic sweep or a guarantee that all stored orders refresh
-on a fixed schedule. Orders omitted by a source, unavailable RPC and backlog can
-still delay coverage. WETH Deposit/Withdrawal are not decoded yet (`BKL-033`), so
-Transfer/Approval alone cannot justify indefinite reuse of funding facts.
-
-An immutable hash/signature cache is also deferred. The current 9,339-order
-fixture mostly has no signatures: it establishes RPC savings, not representative
-signature CPU savings or an immutable-cache hit rate. Its local validation timing
-also does not isolate hash computation from other work. Before adding a bounded cache, profile real signature
-shapes and repeated revisions, use the complete immutable key above (including
-verifier version), and prove that changed terms/signatures never reuse proof.
-Neither optimization changes bidding concurrency; indexer validation retains two
-shared FIFO permits.
-
-### Durable maker progress
-
-The domain runtime invokes the `RevalidateMakerOrders` application use case with
-the original job identity and broker delivery origin. An additive
-`maker_order_revalidation_runs` table owns the request, finite pass boundary,
-cursor, completed count, failures and lease/version fence. Candidate pages use
-the existing indexed queries; the initial maximum order ID and rowid exclude
-later admissions. New canonical orders retain their own validation demand.
-
-Before durable admission, replay-metadata or storage failures retain the broker
-delivery with a one-second delay, bypassing the attempt-based dead-letter path.
-The original message still owns the obligation until the run transaction commits.
-Malformed requests and conflicting source-job identities remain unsupported work.
-
-Each bounded context commits its order effects and cursor in one SQLite write
-transaction. Removed, expired, source-terminal and anchor-ineligible candidates
-are intentionally resolved. A still-actionable changed revision rejects the
-checkpoint, preserving the previous cursor for fresh validation on retry. RPC
-awaits stay outside database transactions. A two-minute lease, renewed every
-30 seconds, fences duplicate executors; lease contention defers the delivery
-without treating the scheduling wait as an execution failure.
-
-After two failed steps, an order-scoped read failure saves its candidate in
-migration 061's `isolate_order_id`. The next step validates its preceding
-healthy prefix in a fresh bounded context, then retries the candidate alone.
-Successful prefix checkpoints and process restarts preserve the isolation target;
-passing or resolving it restores normal batching. Shared-read, registry,
-snapshot-creation/canonicality and unclassified failures still retry the maker
-step without advancing its cursor.
-
-If the isolated read fails again, the checkpoint atomically admits or strengthens
-that order's current-revision demand, advances the maker cursor and replaces its
-continuation. The failed snapshot contributes no validation result or proof.
-Admission carries the pass's observation requirement and minimum trigger block,
-preserves stronger demand and existing leases, and applies isolated retry/backoff.
-Terminal/deleted/anchor-ineligible orders resolve without a new obligation;
-concurrent successful demand may already cover the requirement.
-
-Maker `completed` now means the finite scan has resolved or durably handed off
-every selected order. It does not mean every order has validated successfully.
-`resolvedOrders` counts resolved entries; `deferredOrders` is a cumulative handoff
-count across generations, not the number still pending. Pending demand is the
-source of truth for unfinished handoffs and survives maker receipt cleanup.
-
-Restart reacquires a fresh RPC snapshot and resumes after the last committed
-cursor. Completion before ACK is recognizable on redelivery. Completed receipts
-are deleted in bounded batches only when the matching stream incarnation and
-every contributing consumer's ACK floor prove its deliveries cannot be replayed.
-One high-water receipt per consumer records that proof; a newer delivery clears
-its acknowledgement proof. Legacy inline origins migrate lazily when touched.
-Consumer proofs advance independently from rotating scope cleanup, so disjoint
-pages cannot starve acknowledgement bookkeeping. Coalesced live-scope admission remains while that scope has candidate
-orders; a bounded rotating cleanup checks both empty scope and replay boundary.
-Missing broker origin does not expire by time. Fresh publications after receipt
-cleanup are new admissions; they never skip current validation.
-
-Trusted enqueue time enables coalescing into one scope record per chain, maker
-and selection: WETH bids, all Seaport orders, collection sells or exact-token
-sells. Chain-gated and unanchored hints remain separate because their bootstrap
-eligibility differs. Equivalent balance/allowance hints share full WETH validation.
-Original job IDs are preserved for replay attribution, never parsed for meaning.
-Requests without trusted enqueue time and pre-upgrade runs stay independent.
-
-Older hints represented by a pass's start time and minimum trigger block add no
-scan: their work is already resolved or owned by the scan/durable demand.
-Newer requirements record a generation while the current finite pass continues.
-At its final checkpoint, the transaction captures a new finite boundary, resets
-the cursor and commits one continuation for the entire follow-up pass. Changes
-behind the old cursor are revisited; many newer hints require only one pending
-follow-up. Block/hash disagreements conservatively require a fresh pass. A later
-request can reopen a completed scope through the same fenced state and one durable
-continuation, preserving bounded metadata across repeated observation buckets.
-
-Each delivery admits at most 100 candidates and five seconds of new validation
-work, then finishes its in-flight RPC under the provider timeout. The checkpoint
-transaction also replaces the run's single outbox continuation. The next step
-joins the same queue behind ready work; the current delivery can ACK because
-unfinished work already has durable ownership. Step identity and lease fences
-make duplicate publication/delivery harmless. Successful steps start with a fresh
-delivery attempt; only failed execution/publication contributes to retry state.
-
-A five-second recovery poll rotates through at most 25 idle pending runs, after
-a 30-second grace period. It repairs absent or terminally failed outbox entries.
-For sent entries it checks the broker stream incarnation, publication sequence
-and consumer ACK floor: sent alone is not proof of pending or completed work.
-An active lease or changed step prevents a stale recovery decision from replacing
-newer work. The outbox holds at most one continuation per unfinished run; completed
-receipts still use the replay-boundary cleanup above, not a short TTL.
-
-Continuations retain `orders.update-by-maker` and the complete original payload,
-adding only `continuation: { runId, step }`. Older consumers can conservatively
-perform the original scan; they cannot resume the saved cursor. This is a source
-compatibility bridge, not verified native downgrade support. Keep SQLite/NATS
-backups and deployed worker artifacts aligned; do not restore either store alone.
-Legacy standalone `SqliteOrdersDomain.handleOrderUpdateByMaker` remains for
-existing callers and baseline tests; runtime scheduling belongs to the application
-use case. By-ID backlog admission and validation use the independent
-[demand path](#coalesced-ordinary-validation) above.
 
 ## Source Scope and Token Sets
 
@@ -848,104 +345,36 @@ non-zero local collection-set root.
 
 ### `orders.update-by-id`
 
-Used for:
-
-- explicit fill/cancel status changes
-- offchain source-status changes (`cancelled`, `filled`, `invalidated`, `active`)
-- legacy post-upsert and explicit chain validation hints (`reason = "order"`)
-
-For `reason = "order"`, runtime admission commits coalesced validation demand
-before ACK. The separate demand worker performs the RPC work. Legacy standalone
-`SqliteOrdersDomain.handleOrderUpdateById` callers retain their original behavior;
-the runtime uses the application-owned demand path.
+Both supported by-ID routes use `ApplyOrderUpdate` and the same durable source or
+canonical admission. Canonical hints are redundant with sync-writer effects.
+Source cancellation changes availability only; source sale requests validation.
 
 ### `orders.update-by-maker`
 
-Maker triggers are re-validation hints, not unconditional cancels.
-
-Current maker trigger scoping is split explicitly:
-
-- `nft-transfer`, `nft-approval`, `item_sold`, `item_transferred`
-    - token-scoped payload
-    - includes `collectionId + tokenId`
-    - re-validate exact-token sell orders for that maker
-- `nft-approval-for-all`
-    - collection-scoped payload
-    - includes `collectionId`
-    - re-validate active sell orders in that collection for that maker
-- `erc20-balance`, `approval-change`
-    - global payload
-    - re-validate WETH-denominated buy orders for that maker
-- `order-counter`
-    - global payload
-    - re-validate all Seaport orders for that maker
-
-These updates only change `fillability_status`.
-
-Anchor rule:
-
-- token-scoped and global onchain maker triggers may only mutate orders when the relevant collection can project current state at that block
-- the sync worker applies coarse anchor gating during fanout
-- the orders domain applies the final per-order/per-collection guard for broader triggers that are not collection-scoped at the sync boundary
+Broad maker and token routes share finite scope expansion and continuation
+recovery. Their completed scan means requirements were retained, not that every
+order has already been checked. Ordinary demand owns the eventual RPC result.
 
 ## Bidder Index (Quiet Default)
 
-WETH transfer/approval logs can trigger maker updates, but to avoid queue spam the sync path gates them behind a bidder index:
-
-- the index is refreshed from current buy orders
-- if the index is not ready or empty, WETH-triggered maker updates are not emitted
-- when non-empty, only indexed makers receive WETH-triggered updates
+Bidder discovery can include observed/unvalidated orders. It is not a positive
+executability view and cannot suppress required canonical invalidation. Sync
+acquires relevant bounded-range WETH events even with no realtime collections.
 
 ## Current Limits and Future Direction
 
-- `domain.orders.sync` is still a placeholder.
-- Validation semantics are intentionally split between source visibility and protocol executability.
-- Local time is still used for active/expired checks.
-- Raw audit payloads are not runtime input. The backend's indexed-orders
-  bid-book fallback uses normalized order columns and canonical source-schema
-  JSON, not the optional raw debug payload.
-- Quantity/capacity projection is limited to fixed-amount Seaport buy orders in
-  one collection. Baskets, changing amounts and partial sell inventory do not
-  yet expose validated quantity/capacity fields.
-- Ingest fails closed on local criteria linkage: empty membership is
-  `unresolved`, a root difference is `mismatch`, and neither state attaches a
-  local token-set id. There is no automatic redrive that rematerializes those
-  orders after canonical metadata coverage changes, and unusual numeric payload
-  forms still need a deterministic parsing/repair policy.
-- Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
-  `Deposit` and `Withdrawal` triggers are not decoded separately yet.
+The app remains local and offline-capable; no central authority is introduced.
+Future peer sources must use the same observation/admission boundary. P2P
+transport, funding-only fast paths, ERC1271, ERC1155 sell execution and automatic
+criteria rematerialization remain outside this change. Native WETH
+Deposit/Withdrawal invalidation is still deferred; periodic full validation
+bounds reuse independently of event completeness.
 
 ## Historical hints and current-order validation
 
-Automatic repair imports missing chain history under the background RPC allowance.
-An event hint still passes canonical block identity, collection anchor, scope,
-source activity, expiry and protocol-terminal checks before requiring validation.
-Cancellations and full-only order executions apply definitive lifecycle facts
-without validation RPC. Partial-order executions admit block-scoped validation
-demand while preserving the last validated state.
-
-`eventValidationRequest` requires a full validation at or after the event block.
-Its eventual delivery time is not a new source observation.
-`observedOrderValidationRequest` separately requires a validation observed at or
-after the source observation. Coalescing preserves both unmet requirements.
-
-Ordinary and maker/token validation share the existing per-order validation
-record. Reuse requires the current order revision, the current chain rollback
-revision, a sufficiently recent validation block and any required source
-observation time. Maker checkpoint commits its successful full validation record
-with the resulting order revision and cursor. A covered historical hint consumes
-no validation RPC and cannot clear a newer unmet observation. Rollback fences
-in-flight results and separates maker coalescing scopes from earlier history.
-
-All admitted current-order validation uses main capacity: both ordinary demand
-executors, maker/token continuations, retries, snapshot creation, reads and final
-verification. Per-order demand does not retain a selectable work class. A raw
-background maker hint only retains/coalesces its request and publishes a main
-continuation through the existing outbox. Historical metadata and extension work
-keep their background allocation.
-
-Validation still uses the shared total per-endpoint limits and the same two FIFO
-validation permits. No quota exemption or longer snapshot lifetime is needed.
-Local quota deferral releases claims without recording a validation failure; RPC
-uncertainty never becomes a protocol-invalid result. Snapshot lifetime, head-age,
-canonicality, order revision, generation and lease fences remain required.
+Historical imports enrich facts and asynchronous history projections only. They
+cannot move shared/scoped applied cursors, apply current ownership, or publish
+current-order invalidations. Required post-anchor catch-up uses foreground
+coordinator work even when optional gap repair is disabled. Current validation
+uses accepted canonical requirements and local source barriers, never queue time
+or historical coverage as a substitute for readiness.

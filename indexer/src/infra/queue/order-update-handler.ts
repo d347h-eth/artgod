@@ -46,17 +46,11 @@ export function orderUpdateHandler(deps: {
                 orderUpdateQueue(job.payload) !== deps.queueName)
         )
             throw new UnsupportedJob("Unsupported order queue envelope");
-        await deps.apply.execute(
-            {
-                ...job.payload,
-                collectionId: job.payload.collectionId ?? job.collectionId,
-                observedAt:
-                    job.payload.observedAt ??
-                    Math.floor(job.scheduledAt / 1000),
-            },
-            job.payload.observedAt == null
-                ? job.scheduledAt
-                : job.payload.observedAt * 1000,
-        );
+        await deps.apply.execute({
+            ...job.payload,
+            collectionId: job.payload.collectionId ?? job.collectionId,
+            observedAt:
+                job.payload.observedAt ?? Math.floor(job.scheduledAt / 1000),
+        });
     };
 }

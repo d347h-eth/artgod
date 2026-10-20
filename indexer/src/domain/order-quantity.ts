@@ -3,6 +3,7 @@ import {
     seaportAllowsPartialFills,
     seaportRequiresFullFill,
     seaportIsNftItem,
+    seaportIsPaymentItem,
     SEAPORT_ITEM_TYPE,
 } from "@artgod/shared/market-data/seaport";
 import { seaportNftQuantity } from "@artgod/shared/market-data/seaport-quantity";
@@ -11,6 +12,7 @@ import {
     ORDER_STATUS,
     type OrderRecord,
     type OrderValidationResult,
+    type SeaportOrderItem,
 } from "./orders.js";
 
 /** One fixed NFT item has an unambiguous signed size on either order side.
@@ -58,20 +60,15 @@ export function buyOrderFundingRequirement(
     original: bigint | null,
 ): { currency: string; minimumFunds: bigint; partial: boolean } | null {
     const data = order.seaportData;
-    const payment = data?.offer[0];
+    const payment = data ? fixedCurrencyPayment(data.offer) : null;
     if (
         order.side !== ORDER_SIDE.Buy ||
         !data ||
         data.offer.length !== 1 ||
-        !payment ||
-        ![SEAPORT_ITEM_TYPE.Native, SEAPORT_ITEM_TYPE.Erc20].some(
-            (type) => type === Number(payment.itemType),
-        ) ||
-        payment.startAmount !== payment.endAmount
+        !payment
     )
         return null;
-    const total = BigInt(payment.startAmount);
-    if (total <= 0n) return null;
+    const total = payment.amount;
     const partial =
         original !== null && seaportAllowsPartialFills(data.orderType);
     if (
@@ -80,13 +77,60 @@ export function buyOrderFundingRequirement(
     )
         return null;
     return {
-        currency:
-            Number(payment.itemType) === SEAPORT_ITEM_TYPE.Native
-                ? zeroAddress
-                : payment.token.toLowerCase(),
+        currency: payment.currency,
         minimumFunds: partial ? total / original! : total,
         partial,
     };
+}
+
+/** The indexed quote belongs to signed fixed terms. Unknown quantities or
+ * non-integral unit prices cannot borrow a source's claimed executable price. */
+export function declaredOrderQuote(
+    order: Pick<OrderRecord, "side" | "contract" | "seaportData">,
+): { currency: string | null; price: string | null } {
+    const data = order.seaportData;
+    const payment =
+        data && (order.side !== ORDER_SIDE.Buy || data.offer.length === 1)
+            ? fixedCurrencyPayment(
+                  order.side === ORDER_SIDE.Buy
+                      ? data.offer
+                      : data.consideration,
+              )
+            : null;
+    const quantity = fixedOrderOriginalQuantity(order);
+    return {
+        currency: payment?.currency ?? null,
+        price:
+            payment && quantity !== null && payment.amount % quantity === 0n
+                ? (payment.amount / quantity).toString()
+                : null,
+    };
+}
+
+/** One fixed payment currency, including fees split among recipients. */
+function fixedCurrencyPayment(
+    items: readonly SeaportOrderItem[],
+): { currency: string; amount: bigint } | null {
+    if (!items.length) return null;
+    let currency: string | null = null;
+    let amount = 0n;
+    for (const item of items) {
+        if (
+            !seaportIsPaymentItem(item.itemType) ||
+            item.startAmount !== item.endAmount
+        )
+            return null;
+        const token =
+            Number(item.itemType) === SEAPORT_ITEM_TYPE.Native
+                ? zeroAddress
+                : item.token.toLowerCase();
+        if (currency !== null && currency !== token) return null;
+        const value = BigInt(item.startAmount);
+        if (value < 0n) return null;
+        currency = token;
+        amount += value;
+    }
+    return amount > 0n ? { currency: currency!, amount } : null;
 }
 
 /** getOrderStatus stores a fraction, whose denominator need not equal NFT units. */

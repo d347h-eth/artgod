@@ -8,8 +8,7 @@ import { ORDER_SOURCE_STATUS } from "./orders.js";
 import { QUEUE_NAMES, type QueueName } from "./queues.js";
 import { UnsupportedJob } from "./unsupported-job.js";
 
-// Before targeted routing, one maker worker and one by-ID validator could run.
-// Preserve that aggregate order-validation capacity across all three paths.
+// One bounded validation lane owns RPC execution for ordinary and expanded scopes.
 export const ORDER_PROCESSING_POLICY = Object.freeze({
     concurrentValidations: 2,
 });
@@ -28,7 +27,7 @@ export function makerUpdateQueue(
         : QUEUE_NAMES.OrdersUpdateByMaker;
 }
 
-/** Definitive/source observations never enter coalescible validation demand. */
+/** Separate delivery routes share the same atomic source/canonical admission owner. */
 export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
     if (
         !Object.values(ORDER_UPDATE_REASON).some(
@@ -51,7 +50,6 @@ export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
         case ORDER_UPDATE_REASON.SourceExecution:
             return QUEUE_NAMES.OrderLifecycle;
         case ORDER_UPDATE_REASON.Validation:
-        case ORDER_UPDATE_REASON.SourceExecutionValidation:
             return QUEUE_NAMES.OrdersUpdateById;
         default:
             throw new UnsupportedJob("Unsupported order update reason");

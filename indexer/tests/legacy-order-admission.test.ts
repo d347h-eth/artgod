@@ -16,7 +16,7 @@ import {
 } from "../src/infra/orders/legacy-order-admission.js";
 import { orderUpdateHandler } from "../src/infra/queue/order-update-handler.js";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
-import { AdmitOrderValidation } from "../src/application/orders/validate-order-demand.js";
+import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
@@ -70,21 +70,17 @@ describe("legacy queue durable admission", () => {
         vi.spyOn(logger, "error").mockImplementation(() => {});
         vi.spyOn(logger, "warn").mockImplementation(() => {});
         db.exec(
-            "DELETE FROM orders; DELETE FROM market_order_retirements; DELETE FROM collections;",
+            "DELETE FROM order_validation_demand; DELETE FROM order_source_observations; DELETE FROM orders; DELETE FROM market_order_retirements; DELETE FROM collections;",
         );
     });
     afterEach(() => vi.restoreAllMocks());
 
     async function fixture() {
         const { sale } = seedHeavyMaker(1);
-        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-            throw new Error("Legacy admission must not run RPC");
-        });
+        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
         const store = new SqliteOrderValidationDemand(domain);
         const apply = new ApplyOrderUpdate({
-            executionValidation: { request: vi.fn(async () => {}) },
             chainId: 1,
-            validation: new AdmitOrderValidation(1, store),
             lifecycle: domain,
         });
         let deliver!: (
@@ -126,6 +122,8 @@ describe("legacy queue durable admission", () => {
                     chainId: 1,
                     orderId: sale.id,
                     reason: ORDER_UPDATE_REASON.Validation,
+                    source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                    sourceStatus: ORDER_SOURCE_STATUS.Active,
                 },
             },
             ack: vi.fn(async () => {}),
@@ -135,13 +133,20 @@ describe("legacy queue durable admission", () => {
         return { sale, store, apply, deliver, message, publish };
     }
 
-    it("uses the source observation time when an older observation is delivered later", async () => {
+    it("uses local admission for coverage while retaining an older source timestamp for diagnostics", async () => {
         const { sale, store, deliver, message } = await fixture();
         const observedAt = HEAVY_MAKER.now - 60;
         message.data.payload.observedAt = observedAt;
         await deliver(message);
         expect(message.ack).toHaveBeenCalledOnce();
-        expect(store.get(1, sale.id)?.requiredAt).toBe(observedAt * 1000);
+        expect(store.get(1, sale.id)?.requiredAt).toBe(HEAVY_MAKER.now * 1000);
+        expect(
+            db
+                .prepare(
+                    "SELECT source_observed_at FROM order_source_observations WHERE order_id=?",
+                )
+                .get(sale.id),
+        ).toEqual({ source_observed_at: observedAt });
     });
 
     it("does not ACK a failed demand commit; retry admits once before ACK without publication", async () => {
@@ -180,7 +185,7 @@ describe("legacy queue durable admission", () => {
         expect(publish).not.toHaveBeenCalled();
     });
 
-    it("retains a terminal fact through repeated transaction failure until it can commit", async () => {
+    it("retains source withdrawal through repeated transaction failure until it can commit", async () => {
         const { sale, deliver, message, publish } = await fixture();
         message.data.attempt = 50;
         message.data.payload.reason = ORDER_UPDATE_REASON.Cancel;
@@ -211,15 +216,16 @@ describe("legacy queue durable admission", () => {
             db
                 .prepare("SELECT source_status FROM orders WHERE id=?")
                 .get(sale.id),
-        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Cancelled });
+        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Inactive });
     });
 
     it.each([false, true])(
-        "applies a terminal fact before ACK with original attribution, absent order=%s",
+        "retains source-scoped withdrawal before ACK, absent order=%s",
         async (absent) => {
             const { sale, deliver, message } = await fixture();
             message.data.payload = {
                 chainId: 1,
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
                 orderId: absent ? "unseen-order" : sale.id,
                 reason: ORDER_UPDATE_REASON.Cancel,
                 sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
@@ -231,10 +237,10 @@ describe("legacy queue durable admission", () => {
                     expect(
                         db
                             .prepare(
-                                "SELECT valid_until FROM market_order_retirements WHERE order_id=?",
+                                "SELECT source_status FROM order_source_observations WHERE order_id=?",
                             )
                             .get(message.data.payload.orderId),
-                    ).toEqual({ valid_until: sale.validUntil });
+                    ).toEqual({ source_status: ORDER_SOURCE_STATUS.Cancelled });
                 else
                     expect(
                         db
@@ -242,7 +248,7 @@ describe("legacy queue durable admission", () => {
                                 "SELECT source_status FROM orders WHERE id=?",
                             )
                             .get(sale.id),
-                    ).toEqual({ source_status: ORDER_SOURCE_STATUS.Cancelled });
+                    ).toEqual({ source_status: ORDER_SOURCE_STATUS.Inactive });
             });
             await deliver(message);
             await deliver(message);
@@ -253,7 +259,7 @@ describe("legacy queue durable admission", () => {
                         "SELECT COUNT(*) AS count FROM market_order_retirements WHERE order_id=?",
                     )
                     .get(message.data.payload.orderId),
-            ).toEqual({ count: absent ? 1 : 0 });
+            ).toEqual({ count: 0 });
         },
     );
 

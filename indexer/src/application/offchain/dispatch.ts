@@ -172,7 +172,6 @@ export async function dispatchOffchainPayload(
                 sourceStatus: "active",
                 rawSourceKind: normalized.rawSourceKind,
                 rawPayload: normalized.rawPayload,
-                validateAfterUpsert: true,
             },
             attempt: 0,
             scheduledAt: Date.now(),
@@ -192,6 +191,7 @@ export async function dispatchOffchainPayload(
             queue: orderUpdateQueue(updateById),
             payload: {
                 chainId: updateById.chainId,
+                source: updateById.source,
                 collectionId: payload.collectionId,
                 observedAt: offchainObservationSeconds(payload),
                 validUntil: updateById.validUntil,
