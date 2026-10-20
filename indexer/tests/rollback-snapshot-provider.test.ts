@@ -162,14 +162,12 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
         const f = harness({ divergent: true });
         await f.rollback.execute(CANONICAL);
         f.owner().commit(
-            f
-                .owner()
-                .applied({
-                    blocks: [104, 105, 106, 107].map(block),
-                    data: emptyOnChainData(),
-                    shared: true,
-                    collectionIds: [f.collectionId],
-                }),
+            f.owner().applied({
+                blocks: [104, 105, 106, 107].map(block),
+                data: emptyOnChainData(),
+                shared: true,
+                collectionIds: [f.collectionId],
+            }),
         );
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: OWNER, amount: "1" },

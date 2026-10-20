@@ -162,12 +162,12 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   to later HEAD-check pages. It records warm local timings in
   `tmp/recent-gap-query-cost.json`; these are not a cold disk or fully covered
   26-million-block qualification.
-- `tests/scheduler-worker.test.ts` verifies HEAD scheduling at startup and unchanged heads,
-  WS/HTTP scheduling order, overlapping poll prevention, failure recovery, and
-  shutdown draining.
+- `tests/scheduler-worker.test.ts` verifies watermark capture before fresh head
+  reads, stationary-head sampling, hints arriving during a read, revision-fenced
+  retention, WS-only wakeups, overlapping poll prevention and shutdown draining.
 - `tests/sync-gap-batching.test.ts` uses the real range pipeline and migrated
-  SQLite adapters to verify shared headers/logs/receipts, separate coverage and
-  ownership, scoped follow-ups, common-suffix partial progress, restart, independent
+  SQLite adapters to verify shared headers/logs/receipts, separate coverage without
+  current ownership effects, scoped activity follow-ups, common-suffix partial progress, restart, independent
   publication retry, stale members and RPC failure. The broker suite executes
   shared intent directly and delivers its scoped follow-ups through JetStream.
   A busy-peer comparison verifies that unequal gaps avoid its nine already
@@ -176,8 +176,8 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
 - `tests/sync-job-contract.test.ts` checks the source/policy/member contract and
   retained legacy shapes. The broker suite uses the same backfill handler as the
   runtime to reject wrong-source member batches with retained or completed
-  intents, preserve valid manual/bootstrap acquisition, and ACK obsolete gap/reorg
-  deliveries while their durable owner remains executable.
+  intents, preserve manual historical acquisition, and ACK bootstrap/gap/reorg hints
+  without RPC while their durable owner remains executable.
 - `tests/ownership-balances.test.ts` covers out-of-order ERC721 blocks/logs,
   burns, ERC1155 delta convergence, duplicate processing, anchor guards, and
   collection coverage rollback.
@@ -187,13 +187,13 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   ERC1155 reversal and bootstrap checkpoint replacement.
 - `tests/reorg-recovery.test.ts` exercises actual recovery use cases, fork search,
   worker acknowledgment, exact-block snapshot adapter, SQLite and shared range/
-  fanout processing. It covers missing ancestors repaired by gap processing at
+  fanout processing. It covers connected accepted ancestry independent of historical gap work at
   stationary HEAD, reopen/startup continuation, failed initial retention and
   atomic rollback/resync retention, partial publication without reacquisition,
   retry beyond ordinary publication limits, stale proof,
   newer mismatch, concurrent token scope and pre-rollback realtime results. A
-  two-token mixed-fork fixture proves that a repaired matching header cannot hide
-  an earlier orphan; lower-header writes during RPC invalidate ancestor proof.
+  mixed-fork fixture proves that a later matching header cannot hide
+  an earlier orphan; changed accepted lineage invalidates ancestor proof.
   Initial journal failures followed by RPC, wrong-height, checkpoint or header
   read failures cannot consume the pending DB check.
 - `tests/pending-canonical-checks.test.ts` covers atomic recent-block retention,
@@ -210,16 +210,22 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   reopen. It checks distinct same-prefix migration ledger entries, foreign keys
   and the actual collection purge adapter. A merged-schema upgrade retains old
   ranges/cursors, removes delivery state and only obsolete automatic publications.
-- `tests/automatic-sync-executor.test.ts` covers one bounded range per pass,
-  zero idle head reads, newest-height priority across collections, retry and
-  above-head waits, ready peers at the same height, bounded indexed selection
-  past thousands of older rows, finishing a running range before HEAD checks,
-  and reselecting after waiting for the current-state gate or trimming a covered suffix,
-  newer-hole processing past 16 no-pending anchors above HEAD with default retry
-  timing and repeated scheduler/worker passes,
-  coalescing and shutdown draining, lifecycle changes during acquisition, dense
-  completion headers, and rollback of data/follow-ups when single/shared-member
-  or reorg progress writes fail.
+- `tests/automatic-sync-executor.test.ts`, `tests/sqlite-sync-coordination.test.ts`
+  and `tests/backfill-sync-handler.test.ts` use real migrated adapters to verify
+  ascending shared/scoped prefixes, gap-disabled foreground catch-up, source
+  barriers waiting for both prefixes, fair failed-scope retries, installed joining
+  bases, restart, candidate rejection, atomic outbox/progress rollback and
+  independent historical imports. Wakeups never acquire out of order.
+- `tests/chain-sync-progress.test.ts`, `tests/coordinated-chain-progress.test.ts` and
+  `tests/chain-history-retention.test.ts` cover exact predecessor/hash contracts,
+  empty-block continuity, source sampling and dispute gates, bounded connected
+  recovery windows, installed-base protection and bounded sample cleanup with
+  pending/claimed admission mappings retained.
+- `tests/bootstrap-ownership-installation.test.ts` proves atomic installed-base
+  handoff, run/lease/anchor/revision fences, stale task completion rejection and
+  duplicate installation preserving applied ownership. Bootstrap backfill/live
+  tests require accepted progress instead of raw coverage and recheck it before
+  final collection liveness.
 - `tests/sync-follow-ups.test.ts` covers atomic data/outbox failure, ephemeral
   hints across reopen, required retry beyond ordinary limits, lost publication
   replies without RPC, stable IDs, accepted-row cleanup, orphan publication
@@ -233,8 +239,8 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   headers, conflicting stored/duplicate headers and mixed parent chains. It also
   verifies canonical replacement after rollback and idempotent historical repair.
 - `tests/sync-blocks.test.ts` covers fresh header reads, tip rechecking, changing
-  ranges and complete bounded ancestor proof across sparse/mixed local history,
-  including retained parent identities at missing heights, without guessing a fork.
+  ranges and complete bounded ancestor proof. Sparse or disconnected local
+  history cannot be promoted to an accepted lineage or supply a guessed fork.
 - `tests/backfill-execution.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
 - `tests/continuous-gap-loop.test.ts` verifies immediate bounded continuation,
@@ -290,7 +296,7 @@ does not download tools or use configured live services. The shared isolated-NAT
 helper and child-worker bundler retain disposable SQLite/JetStream stores,
 worker/broker logs and reports under `tmp/reorg-recovery-nats/`. Metadata range
 broker fixtures retain their private stores and logs under `tmp/metadata-range-nats/`.
-Bootstrap coverage-upgrade fixtures use `tmp/bootstrap-coverage-recovery-nats/`.
+Bootstrap applied-progress/restart fixtures use `tmp/bootstrap-coverage-recovery-nats/`.
 RPC allocation fixtures use `tmp/rpc-allocation-nats/`.
 
 `integration/reorg-recovery.test.ts` exercises production recovery, worker,
@@ -307,7 +313,9 @@ outbox, SQLite and range/fanout implementations across:
 - durable recovery ownership through slow ownership reads without a check queue;
 - a 401-token serial rollback snapshot with controlled per-read latency, recording
   completion time and process RSS while keeping one bounded resync continuation;
-- restart after a committed check handoff and a lost obsolete automatic-hint ACK;
+- ordered shared resync plus collection replay, independent of historical gap
+  repair, including restart after a committed check handoff and lost obsolete
+  automatic-hint ACK;
 - a competing SQLite writer requiring bounded transaction retries, and stale
   proof from one process after another commits rollback.
 
@@ -318,14 +326,15 @@ reads, and that a replacement root refreshes the full range after old root/tail
 ACKs within the broker dedupe window. Token URI and HTTP responses are fixtures.
 
 `integration/bootstrap-coverage-recovery.test.ts` uses this same runner and
-isolated broker. It upgrades disposable databases with fully and partially
-acknowledged catch-up jobs through migration 067, reopens them, and resumes the
-retained steps through the startup reconciler, scheduler and backfill executor.
-It checks that old IDs remain deduplicated while fresh recovery deliveries
-restore coverage and allow collection-live completion. Real transfer decoding,
-the current-state gate and SQLite persistence prove ERC1155 deltas apply once,
-including when an old queued tail overlaps a recovery batch. Executor unit tests
-also cover bounded pending work, retry timing and uncertain publication.
+isolated broker. It ACKs the bootstrap wakeup before any block RPC, then applies
+one or two scoped prefixes through the real coordinator. It closes/reopens SQLite
+and restarts JetStream with retained stores. A deliberately applied migration 067
+clears fact coverage while preserving current-schema applied progress: raw
+coverage cannot complete an unfinished prefix, and its absence cannot undo an
+already applied prefix. The executor resumes only the missing suffix without
+republishing acquisition jobs. Real ERC1155 decoding proves deltas apply once;
+collection-live completion requires accepted shared/scoped progress. The fixture
+does not assume an ACKed message's dedupe identity survives broker restart.
 
 `integration/rpc-work-allocation.test.ts` uses independent budget clients on the
 isolated broker. It covers shared rates/in-flight limits under main load, failed
@@ -350,15 +359,11 @@ Current focused coverage includes:
 - offchain dispatch and token-set mismatch persistence (`tests/offchain-dispatch.test.ts`)
 - canonical order raw-source precedence and Seaport data usage (`tests/orders-raw-source.test.ts`)
 - Seaport validation (`tests/seaport-validate.test.ts`)
-- captured 100-unit partial collection offer, signed unit price, protocol fraction
-  conversion, remaining/funded capacity, partial-fill replay without source
-  reconciliation, immediate full-only exhaustion without RPC, source cancellation,
-  RPC failure, changed snapshot hash, chain-revision fencing, actual rollback of partial and full-only
-  results, source-first full-only completion followed by rollback and demand
-  recovery, fresh source admission, retirement before/after rollback,
-  source-cancellation preservation, and atomic rollback/demand failure
-  (`tests/partial-fill-order-lifecycle.test.ts`); parser and backend projection
-  coverage verify 100 original / 45 remaining / 10 funded units independently
+- partial and full-only orders on both sides, original/remaining/funded quantities,
+  initial unknown remaining state, exact protocol fractions, receipt-free source
+  sales, source-specific withdrawals, canonical cancellations, newer observations,
+  rollback/revalidation and retained unexpired terminals
+  (`tests/partial-fill-order-lifecycle.test.ts`)
 - ordinary and bulk signature recovery, positional proofs, compact/standard
   encodings, malformed inputs and domain binding
   (`tests/seaport-protocol.test.ts`)
@@ -366,7 +371,8 @@ Current focused coverage includes:
   recovery, including REST signature preservation, current-ask visibility, RPC
   failure and concurrent source cancellation
   (`tests/seaport-bulk-validation.test.ts`)
-- scoped maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
+- indexed maker/token/collection candidate scopes, including incomplete
+  declarations and pre-anchor exclusion (`tests/maker-scope-selection.test.ts`)
 
 The bulk-signature fixtures include a public listing captured on 2026-09-26 and
 independent Seaport SDK vectors for heights 1 and 3. The height-24 vector uses a
@@ -399,90 +405,33 @@ TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
   yarn workspace @artgod/indexer test tests/orders-heavy-maker.test.ts
 ```
 
-The baseline reports contract reads by purpose, virtual wire time (10 ms/read),
-local validation time and remaining SQLite/orchestration time. It verifies that
-the original serial handler finishes the entire maker before following token
-work, and replays the first page after interruption. Compare later changes on
-the same fixture and virtual latency; wall time is local synthetic evidence,
-not a live recovery ETA. Queue depth and useful validation count are separate
-measurements. No inspector extension is needed for this offline baseline.
+The workload expands bounded durable maker scopes into ordinary per-order demand,
+then validates every order through the sole ordinary executor. Small-maker and
+token work make progress while the heavy scope drains. Exact-hash snapshots reuse
+compatible wallet reads. Measurements use deterministic fake latency and are
+local scheduling evidence, not a live recovery ETA.
 
-`tests/order-validation-demand-batch.test.ts` exercises the individual-order demand
-path with real disposable SQLite and a batch-capable fake RPC. A 250-order case
-uses three snapshots, 13 status aggregates and nine shared wallet reads; all 250
-receive guarded completion. Mixed makers/sells, future triggers, obsolete pages,
-time-budget release, concurrent claims, lost leases, source/revision/generation
-changes, reorgs, failed SQL commits and graceful stop verify durability. A repeated
-order-specific read failure isolates retries so the other 99 orders can finish
-before that fault is repaired. These
-call counts and virtual latency are synthetic evidence, not live throughput.
+`tests/maker-demand-expansion.test.ts` verifies finite scope expansion without
+RPC. `tests/maker-validation-handoff.test.ts` expands 205 requirements before
+validation, isolates a persistent order failure across restart/recovery, waits
+for source barriers and preserves newer generations. Expansion cursor movement
+and per-order demand retention share one writer; expansion completion is not
+validation completion.
 
-Its sustained-admission case drives the production demand scheduler against
-disposable SQLite with 10 ms simulated latency per RPC port call, including
-block/head checks. It drains an initial 1,000 orders while accepting another 30
-per simulated second for ten seconds. All 1,300 are covered by the 11-second
-cutoff, with two RPC calls active at most; lifecycle work and a waiting competing
-validation request both proceed. This controlled workload does not qualify a
-live provider or predict native catch-up time.
+`tests/order-validation-demand-batch.test.ts` and
+`tests/order-validation-demand-scheduler.test.ts` cover bounded exact-checkpoint
+batches, shared snapshots, continuous draining, lease/revision/generation fences,
+per-order failure isolation, quotas and shutdown. Waiting-for-sync work consumes
+no validation permit. `tests/maker-revalidation-checkpoint.test.ts` covers scope
+checkpoint/restart and receipt cleanup separately from ordinary proof commits.
+`tests/historical-order-validation.test.ts` checks proof reuse and scope-to-ordinary
+convergence without giving historical hints permission to choose a newer head.
 
-`tests/order-validation-demand-scheduler.test.ts` covers continuous draining,
-idle/error backoff, FIFO sharing with maker/token work, and shutdown while queued
-or active. Reporting tests distinguish checks from durable effects and verify
-bounded window aggregation; inspector tests distinguish scheduler samples from
-opt-in global age/lease/retry aggregates.
-
-The same migrated workload also exercises bounded WETH snapshots: with 100
-orders per context, 94 contexts perform 9,339 order-status reads and 282 shared
-wallet reads. `tests/seaport-validation-batch.test.ts` covers scope isolation,
-in-flight sharing, early/terminal decisions, changing balances, count/time
-bounds, RPC and conduit-registry failures, stale heads and branch changes. Database interleavings
-verify that failed contexts leave prior state intact and newer source/anchor
-changes win. The RPC adapter test checks that canonicality reads bypass its
-general block cache. These are deterministic local proofs, not native QA.
-
-`tests/seaport-status-batch.test.ts` covers bounded lazy status aggregates,
-per-item failure and malformed-result fallback, provider rejection/cooldown,
-block/protocol isolation and reorg rejection. The RPC adapter test exercises
-real Viem encoding/decoding against stubbed HTTP responses, including endpoint
-retry after a failed aggregate. It does not contact an external provider.
-The checkpoint suite runs all 9,339 bids through actual durable steps with the
-batch-capable fake: 467 status aggregates plus 282 shared wallet calls = 749
-contract RPC calls, versus 9,621 after wallet sharing alone. Logical reads remain
-9,621; virtual wire time becomes 7,490 ms at 10 ms per aggregate/single call.
-These counts exclude block lookups, provider retries and cold conduits. The fake
-does not measure deployless execution gas, billing or live endpoint support.
-
-```sh
-TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
-  yarn workspace @artgod/indexer test tests/seaport-status-batch.test.ts \
-  tests/maker-revalidation-checkpoint.test.ts tests/rpc-provider-resilience.test.ts
-```
-
-`tests/maker-revalidation-checkpoint.test.ts` reopens migrated SQLite after an
-interruption, exercises the actual atomic result/cursor transaction (including
-SQLite busy retry), and checks lease fencing, changed/deleted orders, finite
-admission, completion before ACK and ACK-boundary receipt cleanup. The worker
-test checks delivery-origin mapping and deferred lease waits. Broker-origin
-and restart integration is a separate real-NATS gate; these SQLite tests do
-not establish broker or native runtime behavior. They also exercise elapsed
-budgets, duplicate continuations, terminal outbox failures, missing wakeups,
-recovery races and bounded rotating recovery pages. Maker coalescing cases cover
-2,000 old hints sharing a pass, live-scope coverage after ACK, distinct chain/
-selection/anchor modes, demand arriving before the first checkpoint, and restart
-at a full follow-up pass boundary with no missed earlier orders.
-
-Admission-failure cases run the actual worker beyond its retry ceiling with
-failed replay metadata or a SQLite admission abort. They require the original
-delivery to remain unacknowledged while no durable maker run exists, and prove
-completion after the fault clears.
-
-`tests/maker-validation-handoff.test.ts` injects a persistent order read failure
-among 250 orders: 249 finish while one remains in isolated demand, then completes
-after its dependency recovers. Real SQLite abort triggers prove demand admission,
-cursor advancement and continuation writes roll back together. Cases cover
-restart at the isolation target and after handoff, lost ACK/coalesced hints,
-newer maker generations during/after handoff, concurrent revisions and demand
-leases, terminal/anchor changes, shared dependency failures and receipt cleanup.
+`tests/seaport-validation-batch.test.ts`, `tests/seaport-status-batch.test.ts` and
+`tests/rpc-provider-resilience.test.ts` cover compatible snapshot sharing,
+exact-hash contract/native-balance calls, bounded status aggregates, per-item
+fallback and endpoint retry without a height-only fallback. Canonicality reads
+bypass the general block cache. They use stubbed RPC, not external providers.
 
 Run the maintained queue fixture with an existing staged NATS binary:
 
@@ -493,55 +442,36 @@ TMPDIR="$PWD/tmp" SQLITE_TMPDIR="$PWD/tmp" \
 ```
 
 This command bundles a maintained child worker using the existing esbuild
-dependency, starts the pinned NATS version on loopback, and keeps all stores
-under worktree `tmp/order-queue-healing-nats/`. It downloads nothing and never
-opens app-data storage. It proves that small-maker and token work completes
-after the heavy maker's first 100 validations, all 9,339 finish without consuming
-failure attempts, and 200 additional old maker hints add no validation pass or
-run rows. At most one outbox continuation exists for the run. It
-also holds both shared validation permits on RPC, applies a canonical full-only
-execution immediately, and verifies targeted token work finishes before the broad
-sweep. The stale in-flight validation cannot revive the filled order.
-The maximum stays at two active validations. It
-then kills its child while the second context is awaiting RPC, restarts NATS
-against the same synthetic store, and resumes the remaining 410 of 510 orders.
-The recovery fixture advances its injected clock past the persisted lease;
-it does not wait two real minutes. Results use deterministic fake RPC, so they
-establish scheduling/replay behavior rather than live throughput or native QA.
-The same fixture injects a persistent failure into a 250-order maker scan,
-observes 249 resolved orders and one durable handoff with all broker messages
-acknowledged, then restarts worker and NATS. Only the remaining order is validated
-after recovery; an empty broker queue is not mistaken for an empty demand table.
+dependency, starts the pinned NATS version on private loopback, and retains
+synthetic stores/logs under worktree `tmp/`. It downloads nothing and never opens
+app-data storage. `integration/order-queue-healing.test.ts` covers the 9,339-order
+scope with small-maker/token fairness, two validation permits, canonical lifecycle
+work while reads are blocked, persistent per-order failure, and worker/broker
+restart over retained stores. Maker completion records demand expansion; ordinary
+proof completion is asserted separately. Lease recovery uses an injected clock
+instead of waiting two real minutes.
+
+`integration/order-source-admission.test.ts` configures one unacknowledged queue
+slot and proves that durable source admission ACKs without receipt RPC. Unrelated
+ready demand completes while the source requirement waits for its applied
+checkpoint. Restart preserves the admitted requirement and resumes it only after
+shared and collection progress cover its later sample.
+
+`integration/order-backlog.test.ts` drains 10,002 supported current-format
+validation/lifecycle envelopes plus 1,000 arriving hints. It stops/resumes the
+child, bounds demand identities without per-envelope outbox rows, and checks
+committed domain state. Malformed bytes and an unsupported future envelope remain
+stored through broker restart. Results and bounded samples stay under
+`tmp/order-backlog-nats/`. This fixture does not establish pre-upgrade message
+compatibility, provider throughput or native/package behavior.
 
 `tests/order-processing.test.ts` covers FIFO admission, error release and the
-lifecycle boundary. The backend's `integration/order-lifecycle.test.ts` uses real
-migrations, domain transitions, read models and HTTP adapters: a processed sale
-removes the ask while the already-applied owner and sale activity remain intact.
-Run it with `yarn workspace @artgod/backend test integration/order-lifecycle.test.ts`.
-`yarn workspace @artgod/frontend test:listings:history` exercises the maintained
-rendered fixture for sold-token asks and retained daily history. That fixture is
+lifecycle boundary. Backend `integration/order-lifecycle.test.ts` uses real
+migrations, domain transitions, read models and HTTP adapters. Run it with
+`yarn workspace @artgod/backend test integration/order-lifecycle.test.ts`.
+`yarn workspace @artgod/frontend test:listings:history` runs the maintained
+rendered fixture for sold-token asks and retained daily history; it remains
 separate from native/live queue qualification.
-
-The same `test:orders:queues` command runs `integration/order-backlog.test.ts`:
-10,002 envelopes (7,719 validation hints, 2,281 cancellations, one source sale
-validation hint and one canonical execution), plus 1,000 arriving hints across
-50 additional orders. It uses the actual
-paced legacy handler, stops and resumes its child, verifies committed domain
-state and bounds demand rows without a per-envelope outbox. The current bound
-includes the source sale's one validation identity, alongside the 200 legacy and
-50 arriving validation identities. Malformed bytes and
-an unsupported future update remain stored through broker restart. Its concise
-result and bounded progress samples are under `tmp/order-backlog-nats/`.
-
-The September 24 synthetic run completed 11,002 supported envelopes in 64.4 s:
-170.9 completions/s against 44.2 arriving hints/s, 281 full validations and 1,124
-contract reads with a 2 ms fake delay per read. Demand peaked at 250 identities;
-there were no validation outbox rows. Worker CPU totaled 17.4 s, admission/domain
-SQLite work 6.0 s, peak worker RSS 143.7 MiB, and total allocated database growth
-228 KiB (including canonical updates and indexes, not metadata alone). Sampled
-unsatisfied demand age settled to zero. The oldest terminal input began 18 hours
-old and was applied about 64 s later. These costs include fixture instrumentation;
-they are neither real-provider throughput nor a six-million-message ETA.
 
 `tests/legacy-order-admission.test.ts` injects demand/terminal transaction failures
 and failed ACKs, checks retained retries beyond the normal ceiling, and verifies

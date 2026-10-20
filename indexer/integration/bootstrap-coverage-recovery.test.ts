@@ -23,17 +23,11 @@ import {
     buildBootstrapBackfillDelegatedStepResult,
 } from "../src/application/bootstrap-backfill-executor.js";
 import { BootstrapCollectionLiveExecutor } from "../src/application/bootstrap-collection-live-executor.js";
-import { BootstrapStartupReconciler } from "../src/application/bootstrap-startup-reconciler.js";
-import { BootstrapStepScheduler } from "../src/application/bootstrap-step-scheduler.js";
-import {
-    runningStepResult,
-    terminalStepResult,
-} from "../src/application/bootstrap-step-orchestrator.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
-import type { JobEnvelope, QueuePublication } from "../src/domain/jobs.js";
+import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import type { BackfillSyncPayload } from "../src/domain/sync-jobs.js";
 import type { RpcLog } from "../src/ports/rpc.js";
@@ -57,18 +51,11 @@ import {
 } from "../tests/helpers/reorg-recovery-fixture.js";
 import { loadReorgRecoveryTestConfig } from "../tests/helpers/reorg-recovery-test-config.js";
 import { syncBlockFixture } from "../tests/helpers/chain-fixture.js";
+import { createAppliedSyncFixture } from "../tests/helpers/applied-sync-fixture.js";
 import { loadTestEnv } from "../tests/helpers/test-env.js";
 
 // Migration filenames and ABI event names are asserted at their storage/wire boundaries.
 const RESET = "067_reset_collection_sale_coverage.sql";
-const AUTOMATIC_SYNC_SCHEMA = new Set([
-    "068_recent_gap_checks.sql",
-    "069_newest_gap_priority.sql",
-    "070_sync_work_allocation.sql",
-    "071_order_validation_chain_revision.sql",
-    "072_pending_canonical_checks.sql",
-    "073_reconcile_legacy_block_headers.sql",
-]);
 const CONTRACT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CONSUMER = "bootstrap-coverage-recovery";
@@ -98,10 +85,7 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
         for (const name of await readdir(source))
             // Isolate the historical reset while supplying the schema required
             // by today's production adapters before constructing those adapters.
-            if (
-                name.endsWith(".sql") &&
-                (name < RESET || AUTOMATIC_SYNC_SCHEMA.has(name))
-            )
+            if (name.endsWith(".sql") && name != RESET)
                 await copyFile(
                     path.join(source, name),
                     path.join(migrationsDir, name),
@@ -128,8 +112,8 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
     });
 
     it.each([1, 2])(
-        "finishes a retained bootstrap with %i ACKed initial batches without repeating ERC1155 deltas",
-        async (ackedBatches) => {
+        "resumes after %i applied scoped ranges and an ACKed hint without repeating ERC1155 deltas",
+        async (appliedRanges) => {
             const collectionId = insertCollection({
                 chainId: 1,
                 slug: "bootstrap-reset",
@@ -137,7 +121,7 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 anchorBlock: ANCHOR,
             });
             db.prepare(
-                "UPDATE collections SET standard=?, status=? WHERE collection_id=?",
+                "UPDATE collections SET standard=?,status=? WHERE collection_id=?",
             ).run(
                 COLLECTION_STANDARD.Erc1155,
                 COLLECTION_STATUS.Bootstrapping,
@@ -146,8 +130,18 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
             const runId = seedRun(collectionId);
             const rpc = fixtureRpc();
             let services = reorgRecoveryServices(rpc);
-            let runs = new SqliteBootstrapRuns();
-            let steps = new SqliteBootstrapSteps();
+            createAppliedSyncFixture({
+                chainId: 1,
+                anchor: syncBlockFixture(ANCHOR),
+                collections: [
+                    services.registry.getCollection(1, collectionId)!,
+                ],
+            });
+            services.progress.recordHeadSample(
+                services.progress.captureHeadSample(1),
+                syncBlockFixture(RANGE.toBlock),
+                Date.now(),
+            );
             const originalJobs: JobEnvelope<BackfillSyncPayload>[] = [];
             await publishBootstrapBackfillRange(
                 {
@@ -157,82 +151,75 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                         );
                     },
                 },
+                { chainId: 1, collectionId, ...RANGE },
+            );
+            expect(originalJobs).toHaveLength(1);
+            let delivered = 0;
+            let wakes = 0;
+            const handler = createBackfillSyncHandler({
+                reorgDepth: 3,
+                chainId: 1,
+                workerCount: 1,
+                wethAddress: zeroAddress,
+                rpc,
+                storage: services.storage,
+                commit: services.commit,
+                canonicalChecks: services.checks,
+                collectionsPort: services.registry,
+                extensions: { getInstall: () => null },
+                wakeCurrentSync: () => {
+                    wakes++;
+                },
+                gate: new BackfillExecutionGate(),
+            });
+            stop = await runWorker(
+                queue!,
                 {
-                    chainId: 1,
-                    collectionId,
-                    ...RANGE,
-                    batchSize: 2,
+                    queue: QUEUE_NAMES.BackfillSync,
+                    consumerName: CONSUMER,
+                    maxInFlight: 1,
+                },
+                async (job) => {
+                    await handler(job);
+                    delivered++;
                 },
             );
-            const delivered: JobEnvelope<BackfillSyncPayload>[] = [];
-            const startAcquisition = async () => {
-                const handler = createBackfillSyncHandler({
-                    reorgDepth: 3,
-                    chainId: 1,
-                    workerCount: 1,
-                    wethAddress: zeroAddress,
-                    rpc,
-                    storage: services.storage,
-                    commit: services.commit,
-                    canonicalChecks: services.checks,
-                    collectionsPort: services.registry,
-                    extensions: { getInstall: () => null },
-                    bidderIndex: {
-                        isActive: () => false,
-                        shouldEmit: () => false,
-                    },
-                    gate: new BackfillExecutionGate(),
-                });
-                return runWorker<BackfillSyncPayload>(
-                    queue!,
-                    {
-                        queue: QUEUE_NAMES.BackfillSync,
-                        consumerName: CONSUMER,
-                        maxInFlight: 1,
-                    },
-                    async (job) => {
-                        await handler(job);
-                        delivered.push(job);
-                    },
-                );
-            };
-            stop = await startAcquisition();
-            const oldPublications: QueuePublication[] = [];
-            for (const job of originalJobs.slice(0, ackedBatches))
-                oldPublications.push(
-                    await queue!.publish(QUEUE_NAMES.BackfillSync, job),
-                );
-            await waitForFixture(
-                () => delivered.length === ackedBatches,
-                "initial catch-up acquisitions",
+            const publication = await queue!.publish(
+                QUEUE_NAMES.BackfillSync,
+                originalJobs[0]!,
             );
+            await waitForFixture(
+                async () =>
+                    delivered === 1 &&
+                    !(await queue!.isPublicationPending(publication, CONSUMER)),
+                "bootstrap hint ACK independent of acquisition",
+            );
+            expect(wakes).toBe(1);
+            expect(rpc.logReads).toBe(0);
+            expect(
+                services.progress.collectionProgress(1, collectionId)?.applied
+                    .number,
+            ).toBe(ANCHOR);
             await stop();
             stop = undefined;
-            for (const publication of oldPublications)
-                await waitForFixture(
-                    async () =>
-                        !(await queue!.isPublicationPending(
-                            publication,
-                            CONSUMER,
-                        )),
-                    "initial catch-up ACK",
-                );
-            // In the partial case the tail remains queued across the DB upgrade.
-            for (const job of originalJobs.slice(ackedBatches))
-                await queue!.publish(QUEUE_NAMES.BackfillSync, job);
-            steps.updateStepProgress(runId, BOOTSTRAP_STEP_KEY.Backfill, {
-                completed: ackedBatches * 2,
-                total: 4,
-            });
-            const retainedRun = runs.getRun(runId);
-            const retainedStep = steps.getStep(
+            for (let pass = 0; pass < appliedRanges * 2; pass++)
+                await services.executor.runDue();
+            const appliedBefore = ANCHOR + appliedRanges * 2;
+            expect(
+                services.progress.collectionProgress(1, collectionId)?.applied
+                    .number,
+            ).toBe(appliedBefore);
+            expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
+                { owner: OWNER, amount: appliedRanges === 1 ? "3" : "5" },
+            ]);
+            const retainedRun = new SqliteBootstrapRuns().getRun(runId);
+            const retainedStep = new SqliteBootstrapSteps().getStep(
                 runId,
                 BOOTSTRAP_STEP_KEY.Backfill,
             );
-            expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
-                { owner: OWNER, amount: ackedBatches === 1 ? "3" : "5" },
-            ]);
 
+            await queue!.close();
+            await broker!.stop();
             setDbPath(databasePath);
             await copyFile(
                 resolveProjectPath(`database/migrations/${RESET}`),
@@ -241,8 +228,8 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
             await new MigrationRunner(migrationsDir).runMigrations();
             setDbPath(databasePath);
             services = reorgRecoveryServices(rpc);
-            runs = new SqliteBootstrapRuns();
-            steps = new SqliteBootstrapSteps();
+            const runs = new SqliteBootstrapRuns();
+            const steps = new SqliteBootstrapSteps();
             expect(runs.getRun(runId)).toEqual(retainedRun);
             expect(steps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill)).toEqual(
                 retainedStep,
@@ -256,166 +243,99 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 ),
             ).toBe(0);
             expect(
-                services.registry
-                    .getCollection(1, collectionId)
-                    ?.gapRepairWindow(200),
-            ).toBeNull();
-            // Prove that ACKed initial IDs are still suppressed by the real broker.
-            for (let index = 0; index < ackedBatches; index++)
-                expect(
-                    await queue!.publish(
-                        QUEUE_NAMES.BackfillSync,
-                        originalJobs[index],
-                    ),
-                ).toEqual(oldPublications[index]);
+                services.progress.collectionProgress(1, collectionId)?.applied
+                    .number,
+            ).toBe(appliedBefore);
+            broker = await IsolatedNats.start(
+                natsBinary,
+                artifacts,
+                path.join(artifacts, "jetstream"),
+            );
+            queue = await NatsJetStreamQueue.connect({
+                natsUrl: broker.url,
+                streamPrefix: "bootstrap_recovery_fixture",
+            });
+            expect(
+                await queue.isPublicationPending(publication, CONSUMER),
+            ).toBe(false);
 
-            let now = Date.now();
-            const recoveredJobs: JobEnvelope[] = [];
             const backfill = new BootstrapBackfillExecutor(
                 { getBlockNumber: async () => 200 },
-                services.storage,
+                services.progress,
                 services.registry,
                 runs,
                 steps,
                 {
-                    scheduleBackfillRange: async (request) =>
-                        publishBootstrapBackfillRange(
-                            {
-                                publish: async (target, job) => {
-                                    recoveredJobs.push(job);
-                                    return queue!.publish(target, job);
-                                },
-                            },
-                            request,
-                        ),
+                    scheduleBackfillRange: async () => {
+                        throw new Error(
+                            "Retained catchup must not republish broker ranges",
+                        );
+                    },
                     scheduleBackfillCheck: async () => {},
                     scheduleOpenSeaBootstrap: async () => {
                         throw new Error("Unexpected OpenSea bootstrap");
                     },
                 },
-                services.gaps,
-                () => now,
+            );
+            const input = {
+                chainId: 1,
+                runId,
+                collectionId,
+                address: CONTRACT,
+                anchorBlock: ANCHOR,
+                anchorHash: syncBlockFixture(ANCHOR).hash,
+                traceId: "bootstrap-restart",
+                sourceJobId: "bootstrap-check",
+                openSeaIntegration: {
+                    enabled: false,
+                    mode: OPENSEA_INTEGRATION_MODE.Disabled,
+                    reason: "fixture",
+                    missingKeys: [],
+                    requiredKeys: [],
+                },
+            };
+            const initial = await backfill.executeStep(input);
+            expect(initial.outcome).toBe(
+                appliedRanges === 1
+                    ? BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
+                    : BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
+            );
+            // Retained applied progress owns the missing suffix even with no
+            // runnable broker delivery and historical coverage reset to zero.
+            for (
+                let pass = 0;
+                services.progress.collectionProgress(1, collectionId)!.applied
+                    .number < RANGE.toBlock && pass < 10;
+                pass++
+            )
+                await services.executor.runDue();
+            expect((await backfill.executeStep(input)).outcome).toBe(
+                BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
             );
             const live = new BootstrapCollectionLiveExecutor(
                 services.registry,
                 runs,
                 steps,
                 new SqliteBootstrapStorage(),
-                {
-                    enqueueBootstrapFinalStats: async () => {},
-                },
+                { enqueueBootstrapFinalStats: async () => {} },
+                services.progress,
             );
-            const scheduler = new BootstrapStepScheduler(
-                runs,
-                steps,
-                {
-                    processClaimedStep: async ({ run, step, traceId }) => {
-                        if (step.stepKey === BOOTSTRAP_STEP_KEY.Backfill) {
-                            const result = await backfill.executeStep({
-                                chainId: 1,
-                                runId,
-                                collectionId,
-                                address: CONTRACT,
-                                anchorBlock: ANCHOR,
-                                backfillBatchSize: 2,
-                                traceId,
-                                sourceJobId: "bootstrap-fixture-check",
-                                openSeaIntegration: {
-                                    enabled: false,
-                                    mode: OPENSEA_INTEGRATION_MODE.Disabled,
-                                    reason: "fixture",
-                                    missingKeys: [],
-                                    requiredKeys: [],
-                                },
-                            });
-                            return result.outcome ===
-                                BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
-                                ? runningStepResult(now + 5000)
-                                : terminalStepResult();
-                        }
-                        await live.complete({
-                            run,
-                            step,
-                            traceId,
-                            sourceJobId: "bootstrap-fixture-live",
-                        });
-                        return terminalStepResult();
-                    },
-                },
-                { wakeBootstrapStep: async () => {} },
-                () => now,
-            );
-            const woke: string[] = [];
-            await new BootstrapStartupReconciler(runs, steps, {
-                wakeBootstrapStep: async ({ stepKey }) => {
-                    woke.push(stepKey);
-                },
-            }).reconcile({
-                chainId: 1,
-                limit: 10,
-                traceId: "bootstrap-fixture-restart",
+            await live.complete({
+                run: runs.getRun(runId)!,
+                step: steps.getStep(runId, BOOTSTRAP_STEP_KEY.CollectionLive)!,
+                traceId: "bootstrap-restart",
+                sourceJobId: "bootstrap-live",
             });
-            expect(woke).toContain(BOOTSTRAP_STEP_KEY.Backfill);
-            const tick = () =>
-                scheduler.runOnce({
-                    chainId: 1,
-                    runId,
-                    traceId: "bootstrap-fixture-check",
-                    laneName: "main",
-                    laneStepKeys: [
-                        BOOTSTRAP_STEP_KEY.Backfill,
-                        BOOTSTRAP_STEP_KEY.CollectionLive,
-                    ],
-                    leaseOwner: "bootstrap-fixture",
-                    leaseMs: 5000,
-                    maxProgressStaleMs: 60_000,
-                    claimLimit: 1,
-                    maxIterationsPerRun: 10,
-                    runLimit: 10,
-                    retryPolicy: {
-                        maxAttempts: 3,
-                        baseDelayMs: 10,
-                        maxDelayMs: 100,
-                    },
-                });
-            // Normal retained-step dispatch finds the old range, not HEAD=200.
-            await tick();
-            expect(recoveredJobs).toHaveLength(1);
-            stop = await startAcquisition();
-            for (let index = 0; index < 2; index++) {
-                const recovery = recoveredJobs[
-                    index
-                ] as JobEnvelope<BackfillSyncPayload>;
-                await waitForFixture(
-                    () => delivered.some((job) => job.jobId === recovery.jobId),
-                    "fresh recovery delivery inside original dedupe window",
-                );
-                now += 5000;
-                await tick();
-            }
-            expect(
-                recoveredJobs.map(
-                    (job) => (job.payload as BackfillSyncPayload).fromBlock,
-                ),
-            ).toEqual([103, 101]);
-            expect(
-                recoveredJobs.every((job) =>
-                    originalJobs.every((old) => old.jobId !== job.jobId),
-                ),
-            ).toBe(true);
-            expect(
-                steps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill)?.status,
-            ).toBe(BOOTSTRAP_STEP_STATUS.Succeeded);
             expect(runs.getRun(runId)?.status).toBe(
                 BOOTSTRAP_RUN_STATUS.Completed,
             );
-            expect(services.registry.getCollection(1, collectionId)).toEqual(
-                expect.objectContaining({
-                    status: COLLECTION_STATUS.Live,
-                    bootstrapAnchorBlock: ANCHOR,
-                    bootstrapLastSyncedBlock: RANGE.toBlock,
-                }),
-            );
+            expect(
+                services.registry.getCollection(1, collectionId),
+            ).toMatchObject({
+                status: COLLECTION_STATUS.Live,
+                bootstrapAnchorBlock: ANCHOR,
+                bootstrapLastSyncedBlock: RANGE.toBlock,
+            });
             expect(
                 services.storage.countCollectionSyncedBlocksInRange(
                     1,
@@ -423,7 +343,7 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                     RANGE.fromBlock,
                     RANGE.toBlock,
                 ),
-            ).toBe(4);
+            ).toBe(RANGE.toBlock - appliedBefore);
             expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
                 { owner: OWNER, amount: "5" },
             ]);
@@ -480,7 +400,7 @@ function seedRun(collectionId: number): number {
 }
 
 function fixtureRpc() {
-    const rpc = new RecoveryRpc();
+    const rpc = new RecoveryRpc(Number.MAX_SAFE_INTEGER, RANGE.toBlock);
     for (const [blockNumber, quantity] of [
         [101, 3n],
         [103, 2n],
@@ -511,6 +431,8 @@ function fixtureRpc() {
         });
         rpc.receipts.set(block.hash, {
             transactionHash: block.hash,
+            blockNumber,
+            blockHash: block.hash,
             logs: [log],
         });
     }

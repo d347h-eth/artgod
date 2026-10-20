@@ -219,6 +219,21 @@ describe("shared order evidence eligibility", () => {
         ).toBe(maximum);
     });
 
+    it("keeps a newly installed older scope unusable until its proof reaches the shared base", () => {
+        db.exec(
+            "UPDATE chain_sync_progress SET anchor_block=100,anchor_hash=applied_hash; UPDATE collection_sync_progress SET anchor_block=90,applied_block=99; UPDATE orders SET proof_block_number=90,proof_block_hash='" +
+                ORDER_EVIDENCE_FIXTURE.anchorHash +
+                "'",
+        );
+        expect(visible()).toBe(false);
+        db.exec(
+            "UPDATE collection_sync_progress SET applied_block=100; UPDATE orders SET proof_block_number=100,proof_block_hash='" +
+                ORDER_EVIDENCE_FIXTURE.hash +
+                "'",
+        );
+        expect(visible()).toBe(true);
+    });
+
     it("hides both ancestor recovery and resync until recovery completes", () => {
         db.prepare(
             "INSERT INTO chain_reorg_recoveries(chain_id,recovery_id,version,revision,checked_block,stored_hash,observed_hash,phase,retry_at) VALUES (1,'recovery',0,0,100,'old','new','awaiting_ancestor',0)",

@@ -497,14 +497,12 @@ describe("canonical sync persistence", () => {
             blockHash: ORPHAN_HASH,
         });
         f.owner().commit(
-            f
-                .owner()
-                .applied({
-                    blocks: [{ ...block(102), hash: ORPHAN_HASH }],
-                    data,
-                    shared: true,
-                    collectionIds: [f.collectionId],
-                }),
+            f.owner().applied({
+                blocks: [{ ...block(102), hash: ORPHAN_HASH }],
+                data,
+                shared: true,
+                collectionIds: [f.collectionId],
+            }),
         );
         expect(f.storage.getBlockHash(1, 102)).toBe(ORPHAN_HASH);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([

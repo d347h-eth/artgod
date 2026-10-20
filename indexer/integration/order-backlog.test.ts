@@ -37,7 +37,7 @@ import {
     waitForFixture,
 } from "../tests/helpers/isolated-nats.js";
 
-it("converges a legacy mixed backlog with sustained arrivals, bounded metadata and pause/resume, preserving unsupported bytes", async () => {
+it("converges a mixed current-format backlog with sustained arrivals, bounded metadata and pause/resume, preserving unsupported bytes", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const base = path.join(root, "tmp/order-backlog-nats");
     await mkdir(base, { recursive: true });
@@ -45,7 +45,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
     const dbPath = path.join(artifacts, "orders.sqlite");
     const workerPath = path.join(artifacts, "worker.mjs");
     await buildOrderQueueTestWorker(workerPath);
-    const prefix = "legacy-backlog";
+    const prefix = "mixed-backlog";
     const stream = resolveNatsJobStreamName(prefix);
     const consumerName = `id-${QUEUE_NAMES.OrdersUpdateById}-fixture`;
     const clockStart = HEAVY_MAKER.now * 1000;
@@ -151,7 +151,13 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
             chainId: 1,
             scheduledAt,
             attempt: 0,
-            payload,
+            payload: payload.source
+                ? payload
+                : {
+                      ...payload,
+                      blockNumber: HEAVY_MAKER.blockNumber,
+                      blockHash: HEAVY_MAKER.blockHash,
+                  },
         });
     }
     try {
@@ -172,7 +178,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
             streamPrefix: prefix,
         });
         const oldTime = clockStart - 18 * 3600 * 1000;
-        // The 10,000-envelope ratio mirrors the observed oldest sample, not all live traffic.
+        // Exercise the captured workload ratio using complete current envelope identities.
         for (let i = 0; i < 10_000; i++) {
             const validation = i < 7719;
             const order = heavyMakerOrder(
@@ -190,7 +196,8 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                     ...(validation
                         ? {}
                         : {
-                              sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                              source: "opensea",
+                              sourceStatus: ORDER_SOURCE_STATUS.Inactive,
                               observedAt: HEAVY_MAKER.now,
                               validUntil: order.validUntil,
                           }),
@@ -205,6 +212,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 collectionId: sale.collectionId,
                 orderId: sale.id,
                 reason: ORDER_UPDATE_REASON.Validation,
+                source: "opensea",
                 executionTransactionHash: HEAVY_MAKER.saleTransactionHash,
                 observedAt: HEAVY_MAKER.now,
             },
@@ -357,7 +365,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 .prepare(
                     "SELECT COUNT(*) AS count FROM orders WHERE source_status=?",
                 )
-                .get(ORDER_SOURCE_STATUS.Cancelled),
+                .get(ORDER_SOURCE_STATUS.Inactive),
         ).toEqual({ count: 1000 });
         expect(
             db
@@ -367,7 +375,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 .get(sale.id),
         ).toEqual({
             source_status: ORDER_SOURCE_STATUS.Active,
-            fillability_status: ORDER_STATUS.Filled,
+            fillability_status: ORDER_STATUS.NoBalance,
         });
         expect(
             db
@@ -379,9 +387,9 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         const result = {
             workload: {
                 initialEnvelopes: 10002,
-                legacyValidationHints: 7719,
-                legacyCancellations: 2281,
-                fillFacts: 1,
+                initialValidationHints: 7719,
+                sourceWithdrawals: 2281,
+                canonicalFillHints: 1,
                 saleValidationHints: 1,
                 liveOrders: HEAVY_MAKER.count + 2,
                 arrivingEnvelopes: arrivalCount,

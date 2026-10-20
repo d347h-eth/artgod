@@ -171,14 +171,12 @@ describe("verified reorg ownership rollback", () => {
         f.persist([f.transfer(103, 1, B, C)]); // A -> B at 102 is missing.
         await f.rollback.execute({ ...block(100), chainId: 1 });
         f.owner().commit(
-            f
-                .owner()
-                .applied({
-                    blocks: [101, 102, 103].map(block),
-                    data: emptyOnChainData(),
-                    shared: true,
-                    collectionIds: [f.collectionId],
-                }),
+            f.owner().applied({
+                blocks: [101, 102, 103].map(block),
+                data: emptyOnChainData(),
+                shared: true,
+                collectionIds: [f.collectionId],
+            }),
         );
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: A, amount: "1" },

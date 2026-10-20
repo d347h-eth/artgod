@@ -1,16 +1,14 @@
-import { SqliteOrderExecutionRequirements } from "../../src/infra/orders/sqlite-order-execution-requirements.js";
-import { ResolveOrderExecutions } from "../../src/application/orders/resolve-order-executions.js";
-import { CanonicalOrderExecutionBlock } from "../../src/application/orders/execution-block.js";
+import { validationChainFixture } from "../helpers/validation-chain-fixture.js";
 // Maintained child-process fixture: explicit synthetic DB, fake RPC, private test broker.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, setDbPath } from "@artgod/shared/database";
+import { MARKET_DATA_STORAGE_POLICY } from "@artgod/shared/market-data/storage-policy";
 import { logger } from "@artgod/shared/utils";
 import { RevalidateMakerOrders } from "../../src/application/orders/revalidate-maker.js";
 import { startMakerRevalidationRecovery } from "../../src/application/orders/recover-maker-revalidations.js";
 import { createSeaportOrderValidationFactory } from "../../src/application/offchain/seaport-validation-batch.js";
-import { validateSeaportOrder } from "../../src/application/offchain/seaport-validate.js";
 import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drainer.js";
 import { runWorker } from "../../src/application/worker-runner.js";
 import { SqliteOrdersDomain } from "../../src/infra/domain/orders.js";
@@ -19,7 +17,6 @@ import { FairOrderValidationAdmission } from "../../src/infra/orders/fair-valida
 import { SqliteOrderValidationDemand } from "../../src/infra/orders/sqlite-order-validation-demand.js";
 import { ApplyOrderUpdate } from "../../src/application/orders/apply-order-update.js";
 import {
-    AdmitOrderValidation,
     ValidateOrderDemand,
     startOrderValidationDemand,
 } from "../../src/application/orders/validate-order-demand.js";
@@ -44,7 +41,7 @@ import {
     type OrderUpdateByMakerPayload,
 } from "../../src/domain/order-jobs.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
-import { HEAVY_MAKER, HeavyMakerRpc, warmConduits } from "./heavy-maker.js";
+import { HEAVY_MAKER, HeavyMakerRpc } from "./heavy-maker.js";
 
 const root = process.env.ARTGOD_WORKSPACE_ROOT;
 if (!root)
@@ -78,8 +75,15 @@ Date.now = () =>
 logger.info = () => {};
 logger.debug = () => {};
 setDbPath(config.dbPath);
+// The fixture's seeded orders represent already observed active declarations.
+// Keep those source facts on restart; this is fixture setup, never migration recovery.
+db.prepare(
+    "INSERT OR IGNORE INTO order_source_observations(chain_id,collection_id,order_id,source_id,source_status,observation_key,source_observed_at,admitted_at,expires_at) " +
+        "SELECT chain_id,collection_id,id,source,source_status,'fixture-declaration:'||id,observed_at,?,valid_until*1000+? FROM orders",
+).run(config.clockMs, MARKET_DATA_STORAGE_POLICY.orderReorgGraceSeconds * 1000);
 const rpc = new HeavyMakerRpc();
-rpc.blockTimestamp = Math.floor(config.clockMs / 1_000);
+// Advancing the retry clock cannot change the identity of the accepted block.
+rpc.blockTimestamp = HEAVY_MAKER.now;
 const releaseRpc = Promise.withResolvers<void>();
 const heldOrderIds = new Set(config.holdOrderIds ?? []);
 const failedOrderIds = new Set(config.failOrderIds ?? []);
@@ -105,16 +109,13 @@ rpc.onRead = async ({ functionName, args }) => {
         await new Promise<void>(() => {});
     }
 };
-const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
-    validateSeaportOrder(
-        rpc,
-        warmConduits,
-        { conduitController: HEAVY_MAKER.controller },
-        order,
-    );
-const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validateOrder);
+const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
 const demandStore = new SqliteOrderValidationDemand(domain);
-const store = new SqliteMakerRevalidations(domain, demandStore);
+const store = new SqliteMakerRevalidations(
+    domain,
+    demandStore,
+    HEAVY_MAKER.weth,
+);
 const queue = await NatsJetStreamQueue.connect({
     natsUrl: config.natsUrl,
     streamPrefix: config.prefix,
@@ -151,18 +152,32 @@ const admission: OrderValidationAdmissionPort = {
 const snapshotFactory = createSeaportOrderValidationFactory({
     chainId: HEAVY_MAKER.chainId,
     rpc,
-    conduits: warmConduits,
     conduitController: HEAVY_MAKER.controller,
 });
-const createSnapshot: typeof snapshotFactory = (input) => {
-    rpc.blockTimestamp = Math.floor(Date.now() / 1000);
-    return snapshotFactory(input);
-};
-const processor = new RevalidateMakerOrders({
-    admission,
-    store,
-    createSnapshot,
+const createSnapshot = snapshotFactory;
+const processor = new RevalidateMakerOrders({ store });
+// This process owns only its explicitly supplied disposable fixture database.
+db.prepare(
+    "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id IN (SELECT DISTINCT collection_id FROM orders)",
+).run(HEAVY_MAKER.blockNumber - 1);
+const fixtureChain = validationChainFixture({
+    chainId: HEAVY_MAKER.chainId,
+    rpc,
+    collectionIds: (
+        db
+            .prepare(
+                "SELECT DISTINCT c.collection_id AS id FROM collections c JOIN orders o ON o.chain_id=c.chain_id AND o.collection_id=c.collection_id WHERE c.chain_id=?",
+            )
+            .all(HEAVY_MAKER.chainId) as { id: number }[]
+    ).map((row) => row.id),
 });
+db.prepare(
+    "UPDATE orders SET validation_ready=1 WHERE kind='seaport' AND seaport_data_json IS NOT NULL",
+).run();
+await fixtureChain.apply();
+const sampling = setInterval(() => {
+    void fixtureChain.apply();
+}, 50);
 let maximumAttempt = 0;
 let maximumOutbox = 0;
 const stopWorkers: Array<() => Promise<void>> = [];
@@ -186,7 +201,6 @@ for (const subscription of makerQueues)
                 await processor.execute({
                     jobId: job.jobId,
                     payload: job.payload,
-                    requiredAt: job.scheduledAt,
                     origin,
                 });
                 const rowCount = db
@@ -208,13 +222,13 @@ for (const subscription of makerQueues)
                 if (run.status === MAKER_REVALIDATION_STATUS.Completed) {
                     const heavy = db
                         .prepare(
-                            "SELECT resolved_orders AS resolved FROM maker_order_revalidation_runs WHERE source_job_id=?",
+                            "SELECT resolved_orders+deferred_orders AS expanded FROM maker_order_revalidation_runs WHERE source_job_id=?",
                         )
-                        .get("heavy") as { resolved: number } | undefined;
+                        .get("heavy") as { expanded: number } | undefined;
                     process.send?.({
                         phase: PHASE.Complete,
                         jobId: run.sourceJobId,
-                        heavyResolved: heavy?.resolved,
+                        heavyExpanded: heavy?.expanded,
                         reads: rpc.reads,
                         maximumAttempt,
                         maximumOutbox,
@@ -231,28 +245,8 @@ for (const subscription of makerQueues)
             },
         ),
     );
-const executionRequirements = new SqliteOrderExecutionRequirements(demandStore);
-const executionResolver = new ResolveOrderExecutions({
-    chainId: HEAVY_MAKER.chainId,
-    store: executionRequirements,
-    admission,
-    executionBlock: new CanonicalOrderExecutionBlock({
-        getTransactionReceipt: async (hash) => ({
-            transactionHash: hash as `0x${string}`,
-            blockNumber: rpc.blockNumber,
-            blockHash: rpc.blockHash,
-            logs: [],
-        }),
-        getBlock: async (number) => ({
-            ...(await rpc.getBlock(number)),
-            transactions: [HEAVY_MAKER.saleTransactionHash],
-        }),
-    }),
-});
 const applyUpdate = new ApplyOrderUpdate({
-    executionValidation: executionRequirements,
     chainId: HEAVY_MAKER.chainId,
-    validation: new AdmitOrderValidation(HEAVY_MAKER.chainId, demandStore),
     lifecycle: domain,
 });
 let handled = 0,
@@ -321,9 +315,7 @@ for (const queueName of [
                 await handleUpdate(job);
                 handled++;
                 if (
-                    (job.payload.reason === ORDER_UPDATE_REASON.Validation ||
-                        job.payload.reason ===
-                            ORDER_UPDATE_REASON.SourceExecutionValidation) &&
+                    job.payload.reason === ORDER_UPDATE_REASON.Validation &&
                     !job.payload.sourceStatus
                 )
                     validationHints++;
@@ -347,11 +339,6 @@ for (const queueName of [
         ),
     );
 }
-const stopExecutionResolution = startOrderValidationDemand(
-    executionResolver,
-    undefined,
-    1,
-);
 const stopValidation = startOrderValidationDemand(
     new ValidateOrderDemand({
         chainId: HEAVY_MAKER.chainId,
@@ -393,7 +380,7 @@ process.on("message", (message) => {
     stopping = true;
     void (async () => {
         await stopRecovery();
-        await stopExecutionResolution();
+        clearInterval(sampling);
         await stopValidation();
         for (const stop of stopWorkers) await stop();
         await stopOutbox();

@@ -200,7 +200,7 @@ const check = async () => {
         });
     }
 };
-if (config.role === ROLE.All || config.role === ROLE.Reorg || config.resume)
+if (config.role === ROLE.Reorg)
     stops.push(
         startReorgRecoveryLoop(
             {
@@ -213,6 +213,7 @@ if (config.role === ROLE.All || config.role === ROLE.Reorg || config.resume)
             20,
         ),
     );
+let syncLoop: ReturnType<typeof startAutomaticSyncLoop> | undefined;
 if (config.role === ROLE.All || config.role === ROLE.Resync)
     stops.push(
         await runWorker(
@@ -238,44 +239,40 @@ if (config.role === ROLE.All || config.role === ROLE.Resync)
                 canonicalChecks: services.checks,
                 collectionsPort: services.registry,
                 extensions: { getInstall: () => null },
-                bidderIndex: { isActive: () => false, shouldEmit: () => false },
+                wakeCurrentSync: () => syncLoop?.wake(),
                 gate: new BackfillExecutionGate(),
             }),
         ),
     );
 if (config.role === ROLE.All || config.role === ROLE.Resync) {
     const runDue = services.executor.runDue.bind(services.executor);
-    stops.push(
-        startAutomaticSyncLoop(
-            {
-                runDue: async () => {
-                    const before = services.recoveries.getRecovery(
-                        REORG_FIXTURE.ChainId,
-                    );
-                    const busy = await runDue();
-                    const after = services.recoveries.getRecovery(
-                        REORG_FIXTURE.ChainId,
-                    );
-                    if (
-                        before &&
-                        JSON.stringify(before) !== JSON.stringify(after)
-                    )
-                        report({
-                            phase: PHASE.Resynced,
-                            completed:
-                                before.phase !== after?.phase ||
-                                ("fromBlock" in before &&
-                                    (!after ||
-                                        !("fromBlock" in after) ||
-                                        before.fromBlock !== after.fromBlock)),
-                            logReads: rpc.logReads,
-                        });
-                    return busy;
-                },
+    syncLoop = startAutomaticSyncLoop(
+        {
+            runDue: async () => {
+                const before = services.recoveries.getRecovery(
+                    REORG_FIXTURE.ChainId,
+                );
+                const busy = await runDue();
+                const after = services.recoveries.getRecovery(
+                    REORG_FIXTURE.ChainId,
+                );
+                if (before && JSON.stringify(before) !== JSON.stringify(after))
+                    report({
+                        phase: PHASE.Resynced,
+                        completed:
+                            before.phase !== after?.phase ||
+                            ("fromBlock" in before &&
+                                (!after ||
+                                    !("fromBlock" in after) ||
+                                    before.fromBlock !== after.fromBlock)),
+                        logReads: rpc.logReads,
+                    });
+                return busy;
             },
-            20,
-        ),
+        },
+        20,
     );
+    stops.push(syncLoop.stop);
 }
 if (config.publish)
     stops.push(

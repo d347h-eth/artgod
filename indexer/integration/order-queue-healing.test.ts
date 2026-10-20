@@ -44,7 +44,7 @@ import {
 type WorkerReport = {
     phase: string;
     jobId?: string;
-    heavyResolved?: number;
+    heavyExpanded?: number;
     reads?: Record<string, number>;
     maximumAttempt?: number;
     maximumOutbox?: number;
@@ -197,6 +197,18 @@ it("services small work between real-broker steps and recovers after killing a w
             "heavy and small jobs finish",
         );
         await drained("fairness");
+        setDbPath(dbPath);
+        await fair.wait(
+            () =>
+                (
+                    db
+                        .prepare(
+                            "SELECT COUNT(*) AS n FROM order_validation_demand WHERE pending=1",
+                        )
+                        .get() as { n: number }
+                ).n === 0,
+            "ordinary proofs complete after expansion",
+        );
         await fair.stop();
         const completed = fair.reports.filter((r) => r.phase === "complete");
         expect(completed.map((r) => r.jobId)).toEqual([
@@ -204,15 +216,21 @@ it("services small work between real-broker steps and recovers after killing a w
             "sale",
             "heavy",
         ]);
-        expect(completed[0]!.heavyResolved).toBe(100);
-        expect(completed[1]!.heavyResolved).toBe(100);
-        expect(completed[2]!.heavyResolved).toBe(HEAVY_MAKER.count);
+        expect(completed[0]!.heavyExpanded).toBe(100);
+        expect(completed[1]!.heavyExpanded).toBe(100);
+        expect(completed[2]!.heavyExpanded).toBe(HEAVY_MAKER.count);
         expect(completed[2]!.maximumAttempt).toBe(1);
         expect(completed[2]!.maximumOutbox).toBe(1);
         expect(completed[2]!.runRows).toBe(3);
-        expect(completed[2]!.reads?.getOrderStatus).toBe(HEAVY_MAKER.count + 2);
+        const fairSummary = fair.reports.find(
+            (report) => report.phase === QUEUE_FIXTURE_PHASE.Summary,
+        )!;
+        expect(fairSummary.reads?.getOrderStatus).toBe(HEAVY_MAKER.count + 2);
         results.fairness = {
             ...completed[2],
+            finalReads: fairSummary.reads,
+            finalPending: (fairSummary as WorkerReport & { pending: number })
+                .pending,
             completionOrder: completed.map((r) => r.jobId),
             coalescedMakerHints: 200,
             localMs: Math.round(performance.now() - start),
@@ -220,7 +238,7 @@ it("services small work between real-broker steps and recovers after killing a w
 
         setDbPath(dbPath);
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_targets; DELETE FROM chain_head_samples; DELETE FROM chain_sync_revisions;",
         );
         const mixed = seedHeavyMaker(510);
         const first = db
@@ -252,6 +270,8 @@ it("services small work between real-broker steps and recovers after killing a w
             chainId: 1,
             orderId: mixed.small.id,
             reason: ORDER_UPDATE_REASON.Validation,
+            blockNumber: HEAVY_MAKER.blockNumber,
+            blockHash: HEAVY_MAKER.blockHash,
         });
         const routed = await worker("routing", HEAVY_MAKER.now * 1_000, null, [
             first.id,
@@ -264,12 +284,13 @@ it("services small work between real-broker steps and recovers after killing a w
             "maker and ordinary RPC hold both shared permits",
         );
         const urgentStart = performance.now();
-        await publishUpdate("fill", {
+        await publishUpdate("withdrawal", {
             chainId: 1,
             collectionId: mixed.small.collectionId,
             orderId: mixed.small.id,
-            reason: ORDER_UPDATE_REASON.Fill,
-            blockNumber: HEAVY_MAKER.blockNumber,
+            reason: ORDER_UPDATE_REASON.Cancel,
+            source: "opensea",
+            sourceStatus: ORDER_SOURCE_STATUS.Inactive,
             observedAt: HEAVY_MAKER.now,
         });
         const tokenPayload = tokenSaleHint(mixed.sale);
@@ -286,17 +307,17 @@ it("services small work between real-broker steps and recovers after killing a w
         await routed.wait(
             () =>
                 routed.reports.some(
-                    (r) => r.phase === "update" && r.jobId === "fill",
+                    (r) => r.phase === "update" && r.jobId === "withdrawal",
                 ),
-            "fill bypasses blocked validation",
+            "withdrawal bypasses blocked validation",
         );
         const fill = routed.reports.find(
-            (r) => r.phase === "update" && r.jobId === "fill",
+            (r) => r.phase === "update" && r.jobId === "withdrawal",
         )!;
         expect(fill.activeValidations).toBe(
             ORDER_PROCESSING_POLICY.concurrentValidations,
         );
-        expect(routed.reports.some((r) => r.phase === "complete")).toBe(false);
+        // Scope expansion has no RPC dependency and can finish while both ordinary validation permits are held.
         const lifecycleMs = Math.round(performance.now() - urgentStart);
         routed.child.send("release-rpc");
         await routed.wait(
@@ -306,34 +327,46 @@ it("services small work between real-broker steps and recovers after killing a w
             "targeted and broad work settle",
         );
         await drained("routing");
+        setDbPath(dbPath);
+        await routed.wait(
+            () =>
+                (
+                    db
+                        .prepare(
+                            "SELECT COUNT(*) AS n FROM order_validation_demand d JOIN orders o ON o.id=d.order_id WHERE d.pending=1 AND o.source_status='active'",
+                        )
+                        .get() as { n: number }
+                ).n === 0,
+            "ready ordinary validations settle",
+        );
         await routed.stop();
         const routedCompletions = routed.reports.filter(
             (r) => r.phase === "complete",
         );
-        expect(routedCompletions.map((r) => r.jobId)).toEqual([
-            "token",
-            "heavy",
-        ]);
+        expect(new Set(routedCompletions.map((r) => r.jobId))).toEqual(
+            new Set(["token", "heavy"]),
+        );
         expect(
-            routedCompletions.every(
-                (r) =>
-                    r.maximumValidations ===
-                    ORDER_PROCESSING_POLICY.concurrentValidations,
-            ),
-        ).toBe(true);
+            routed.reports.find(
+                (report) => report.phase === QUEUE_FIXTURE_PHASE.Summary,
+            )?.maximumValidations,
+        ).toBe(ORDER_PROCESSING_POLICY.concurrentValidations);
         setDbPath(dbPath);
         expect(
             db
                 .prepare("SELECT source_status FROM orders WHERE id=?")
                 .get(mixed.small.id),
-        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Active });
+        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Inactive });
         expect(
             db
                 .prepare(
                     "SELECT fillability_status,quantity FROM orders WHERE id=?",
                 )
                 .get(mixed.small.id),
-        ).toEqual({ fillability_status: ORDER_STATUS.Filled, quantity: "0" });
+        ).toEqual({
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: null,
+        });
         expect(
             db
                 .prepare("SELECT fillability_status FROM orders WHERE id=?")
@@ -342,7 +375,7 @@ it("services small work between real-broker steps and recovers after killing a w
         expect(
             db
                 .prepare(
-                    "SELECT COUNT(*) AS count FROM order_validation_demand WHERE pending=1",
+                    "SELECT COUNT(*) AS count FROM order_validation_demand d JOIN orders o ON o.id=d.order_id WHERE d.pending=1 AND o.source_status='active'",
                 )
                 .get(),
         ).toEqual({ count: 0 });
@@ -358,7 +391,7 @@ it("services small work between real-broker steps and recovers after killing a w
 
         setDbPath(dbPath);
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_targets; DELETE FROM chain_head_samples; DELETE FROM chain_sync_revisions;",
         );
         seedHeavyMaker(250);
         const failed = db
@@ -383,6 +416,25 @@ it("services small work between real-broker steps and recovers after killing a w
             "maker scan finishes despite one persistently failing order",
         );
         await drained("handoff");
+        setDbPath(dbPath);
+        await handingOff.wait(
+            () =>
+                (
+                    db
+                        .prepare(
+                            "SELECT COUNT(*) AS n FROM order_validation_demand WHERE pending=1",
+                        )
+                        .get() as { n: number }
+                ).n === 1 &&
+                (
+                    db
+                        .prepare(
+                            "SELECT failures FROM order_validation_demand WHERE order_id=?",
+                        )
+                        .get(failed.id) as { failures: number }
+                ).failures >= 3,
+            "healthy ordinary validations finish independently of the failed order",
+        );
         await handingOff.stop();
         setDbPath(dbPath);
         expect(
@@ -393,8 +445,8 @@ it("services small work between real-broker steps and recovers after killing a w
                 .get(),
         ).toEqual({
             status: MAKER_REVALIDATION_STATUS.Completed,
-            resolved_orders: 249,
-            deferred_orders: 1,
+            resolved_orders: 0,
+            deferred_orders: 250,
         });
         expect(
             db
@@ -445,14 +497,14 @@ it("services small work between real-broker steps and recovers after killing a w
         });
         db.raw.close();
         results.handoff = {
-            makerResolved: 249,
-            makerDeferred: 1,
+            makerResolved: 0,
+            makerDeferred: 250,
             recoveredOrderReads: recoveryReport.reads?.getOrderStatus,
         };
 
         setDbPath(dbPath);
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_targets; DELETE FROM chain_head_samples; DELETE FROM chain_sync_revisions;",
         );
         seedHeavyMaker(510);
         db.raw.close();
@@ -469,33 +521,66 @@ it("services small work between real-broker steps and recovers after killing a w
         await stopFixtureChild(interrupted.child, "SIGKILL");
         children.delete(interrupted.child);
         setDbPath(dbPath);
-        expect(
+        const completedBeforeStop = (
             db
                 .prepare(
-                    "SELECT resolved_orders,status FROM maker_order_revalidation_runs",
+                    "SELECT COUNT(*) AS n FROM order_validation_demand WHERE pending=0 AND proof_revision IS NOT NULL",
                 )
-                .get(),
-        ).toEqual({
-            resolved_orders: 100,
-            status: MAKER_REVALIDATION_STATUS.Pending,
-        });
+                .get() as { n: number }
+        ).n;
+        // Unexpanded maker candidates are also unfinished work after the crash.
+        const remaining = 510 - completedBeforeStop;
+        expect(remaining).toBeGreaterThan(0);
+        expect(remaining).toBeLessThanOrEqual(510);
         db.raw.close();
         await broker.stop();
         broker = await IsolatedNats.start(natsBinary, artifacts, store);
         const resumed = await worker(
             "restart",
-            HEAVY_MAKER.now * 1_000 + MAKER_REVALIDATION_POLICY.leaseMs + 1,
+            HEAVY_MAKER.now * 1_000 +
+                Math.max(
+                    MAKER_REVALIDATION_POLICY.leaseMs,
+                    ORDER_VALIDATION_DEMAND_POLICY.leaseMs,
+                ) +
+                1,
             null,
         );
-        await resumed.wait(
-            () => resumed.reports.some((r) => r.phase === "complete"),
-            "interrupted run resumes",
-        );
+        setDbPath(dbPath);
+        await resumed.wait(() => {
+            const pending = (
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS n FROM order_validation_demand WHERE pending=1",
+                    )
+                    .get() as { n: number }
+            ).n;
+            const expanding = (
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS n FROM maker_order_revalidation_runs WHERE status=?",
+                    )
+                    .get(MAKER_REVALIDATION_STATUS.Pending) as { n: number }
+            ).n;
+            return expanding === 0 && pending === 0;
+        }, "interrupted ordinary leases and remaining maker pages resume");
         await drained("restart");
         await resumed.stop();
-        const recovered = resumed.reports.find((r) => r.phase === "complete")!;
-        expect(recovered.reads?.getOrderStatus).toBe(410);
-        expect(recovered.heavyResolved).toBe(510);
+        const recovered = resumed.reports.find(
+            (r) => r.phase === QUEUE_FIXTURE_PHASE.Summary,
+        )!;
+        expect(recovered.reads?.getOrderStatus).toBe(remaining);
+        expect((recovered as WorkerReport & { pending: number }).pending).toBe(
+            0,
+        );
+        expect(
+            (
+                db
+                    .prepare(
+                        "SELECT SUM(resolved_orders+deferred_orders) AS n FROM maker_order_revalidation_runs",
+                    )
+                    .get() as { n: number }
+            ).n,
+        ).toBe(510);
         results.restart = recovered;
         await writeFile(
             path.join(artifacts, "results.json"),
