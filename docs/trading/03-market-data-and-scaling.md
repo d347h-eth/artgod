@@ -32,7 +32,8 @@ display state meet.
 OpenSea envelope, order identity and protocol alias readers live in
 `shared/opensea/payload.ts`. The shared offer parser owns WETH unit price and
 complete scope classification. It keeps signed original size separate from the
-source remainder, so partial-fill unit price always divides by original units.
+source remainder. Multi-unit prices divide by original units for both full-only
+and partial-fill orders; a source remainder changes quantity, never unit price.
 Indexer ingestion, bidder reads and bid-book
 projection use those same semantics. Generic trait matching and deduplication
 live in `shared/trading/offer-trait-criteria.ts`. Every string and numeric

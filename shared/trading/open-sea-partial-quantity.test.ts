@@ -16,7 +16,7 @@ function priceFixture(): {
     protocol_data: {
         parameters: {
             orderType?: unknown;
-            offer: Array<{ startAmount: unknown }>;
+            offer: Array<{ startAmount: unknown; endAmount: unknown }>;
             consideration: Array<{
                 token?: string;
                 itemType: unknown;
@@ -155,6 +155,54 @@ describe("OpenSea partial offer quantity", () => {
             price: 6_000_000_000_000_000_000n,
             originalQuantity: 1n,
             quantity: 1n,
+        });
+    });
+
+    it.each([
+        SEAPORT_ORDER_TYPE.FullOpen,
+        SEAPORT_ORDER_TYPE.FullRestricted,
+        SEAPORT_ORDER_TYPE_NAME.FullOpen,
+        SEAPORT_ORDER_TYPE_NAME.FullRestricted,
+    ])(
+        "prices full-only multi-unit type %s independently of source remainder",
+        (type) => {
+            const raw = priceFixture();
+            delete raw.remaining_quantity;
+            raw.protocol_data.parameters.orderType = type;
+            raw.protocol_data.parameters.consideration[0].itemType =
+                SEAPORT_ITEM_TYPE.Erc1155;
+            const withoutRemainder = parseOpenSeaBiddingOffer(raw);
+            const withRemainder = parseOpenSeaBiddingOffer({
+                ...raw,
+                remaining_quantity: 100,
+            });
+            for (const parsed of [withoutRemainder, withRemainder]) {
+                expect(parsed).toMatchObject({
+                    price: 60_000_000_000_000_000n,
+                    originalQuantity: 100n,
+                    quantity: 100n,
+                });
+            }
+            expect(withRemainder?.id).toBe(withoutRemainder?.id);
+        },
+    );
+
+    it("rounds full-only competitor unit prices up to a whole wei", () => {
+        const raw = priceFixture();
+        delete raw.remaining_quantity;
+        raw.protocol_data.parameters.orderType = SEAPORT_ORDER_TYPE.FullOpen;
+        raw.protocol_data.parameters.consideration[0].itemType =
+            SEAPORT_ITEM_TYPE.Erc1155;
+        raw.protocol_data.parameters.offer[0].startAmount = "101";
+        raw.protocol_data.parameters.offer[0].endAmount = "101";
+        // Remove the unrelated captured fee so only the intended payment is priced.
+        raw.protocol_data.parameters.consideration = [
+            raw.protocol_data.parameters.consideration[0],
+        ];
+        expect(extractOpenSeaWethUnitPrice(raw)).toMatchObject({
+            price: 2n,
+            originalQuantity: 100n,
+            quantity: 100n,
         });
     });
 

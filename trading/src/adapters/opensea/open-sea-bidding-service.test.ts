@@ -3,6 +3,10 @@ import { describe, it } from "vitest";
 import { parseEther } from "viem";
 import { capturedOpenSeaPartialCollectionOffer } from "@artgod/shared/testing/opensea-offers";
 import {
+    SEAPORT_ITEM_TYPE,
+    SEAPORT_ORDER_TYPE,
+} from "@artgod/shared/market-data/seaport";
+import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
@@ -224,6 +228,42 @@ describe("OpenSeaBiddingService", () => {
     const collectionAddress = "0xcollection";
     const protocolAddress = "0xprotocol";
     const orderHash = "0xhash";
+
+    it.each([SEAPORT_ORDER_TYPE.FullOpen, SEAPORT_ORDER_TYPE.FullRestricted])(
+        "returns the same multi-unit competitor price for full-only type %s with or without source remainder",
+        async (orderType) => {
+            const sdk = new MockOpenSeaSdk();
+            const service = new OpenSeaBiddingService(sdk, makerAddress);
+            const { remaining_quantity: _, ...raw } = structuredClone(
+                capturedOpenSeaPartialCollectionOffer,
+            );
+            raw.protocol_data.parameters.orderType = orderType;
+            raw.protocol_data.parameters.consideration[0].itemType =
+                SEAPORT_ITEM_TYPE.Erc1155;
+            raw.protocol_data.parameters.consideration[0].identifierOrCriteria =
+                "7";
+            const job: BidderJob = {
+                id: "full-only-unit-price",
+                revision: 1,
+                network: "eth",
+                collectionId: 1,
+                collectionSlug,
+                collectionAddress:
+                    raw.protocol_data.parameters.consideration[0].token,
+                target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "7" },
+                config: { floor: 1n, ceiling: parseEther("0.1"), delta: 1n },
+                state: {},
+            };
+
+            for (const offer of [raw, { ...raw, remaining_quantity: 100 }]) {
+                sdk.api.getOffersByNFT = async () => ({ offers: [offer] });
+                const offers = await service.getActiveOffers(job);
+                assert.equal(offers.length, 1);
+                assert.equal(offers[0].id, raw.order_hash);
+                assert.equal(offers[0].price, parseEther("0.06"));
+            }
+        },
+    );
 
     it.each([
         [

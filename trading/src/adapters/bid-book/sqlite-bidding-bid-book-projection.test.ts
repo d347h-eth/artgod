@@ -13,6 +13,10 @@ import {
 } from "@artgod/shared/types";
 import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
 import {
+    SEAPORT_ITEM_TYPE,
+    SEAPORT_ORDER_TYPE,
+} from "@artgod/shared/market-data/seaport";
+import {
     capturedOpenSeaRangedOfferFixtures,
     capturedOpenSeaCambriaRestOffers,
     capturedOpenSeaPartialCollectionOffer as partialOffer,
@@ -164,6 +168,56 @@ describe("SqliteBiddingBidBookProjection", () => {
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
     });
+
+    it.each([SEAPORT_ORDER_TYPE.FullOpen, SEAPORT_ORDER_TYPE.FullRestricted])(
+        "projects the same full-only type %s unit price when source remainder is added",
+        async (orderType) => {
+            const projection = new SqliteBiddingBidBookProjection(
+                1,
+                OWNER_ADDRESS,
+                WETH_ADDRESS,
+            );
+            const orderId = `full-only-${orderType}`;
+            for (const remainingQuantity of [undefined, 100]) {
+                const offer = makeOpenSeaOffer({
+                    orderHash: orderId,
+                    offerer: OTHER_ADDRESS,
+                    priceWei: "6000000000000000000",
+                    nftItemType: SEAPORT_ITEM_TYPE.Erc1155,
+                    identifierOrCriteria: "7",
+                    criteria: undefined,
+                    nftAmount: "100",
+                    orderType,
+                    remainingQuantity,
+                });
+                await projection.replaceCollectionBidBook(
+                    {
+                        collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                        refreshedAt: Date.now(),
+                        offers: [offer],
+                        metrics: createCollectionOfferSnapshotMetrics({
+                            offerCount: 1,
+                        }),
+                    },
+                    "full-only-unit-price",
+                );
+                assert.deepEqual(
+                    db
+                        .prepare(
+                            "SELECT order_id,price_wei,quantity FROM trading_bidding_bid_book_rows",
+                        )
+                        .all(),
+                    [
+                        {
+                            order_id: orderId,
+                            price_wei: "60000000000000000",
+                            quantity: "100",
+                        },
+                    ],
+                );
+            }
+        },
+    );
 
     it("excludes exhausted and malformed thin offers on both price paths from the snapshot projection", async () => {
         const projection = new SqliteBiddingBidBookProjection(

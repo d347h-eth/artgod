@@ -210,7 +210,7 @@ export function parseOpenSeaBiddingOffer(
     };
 }
 
-// Extracts the unit WETH price; partial multi-quantity offers are divided by NFT units.
+// Extracts the unit WETH price from original NFT units, independent of fill policy.
 export function extractOpenSeaWethUnitPrice(
     rawOrder: unknown,
     options: {
@@ -286,12 +286,12 @@ export function extractOpenSeaWethUnitPrice(
             remainingQuantity > nftUnits
         )
             return null;
-        const isPartial =
+        const requiresOriginalQuantity =
             seaportAllowsPartialFills(orderType) ||
             (remainingQuantity !== null && remainingQuantity > 1n);
         if (
-            (isPartial && protocolNftQuantity === null) ||
-            (nftUnits > 1n && orderType === null && !isPartial)
+            (requiresOriginalQuantity && protocolNftQuantity === null) ||
+            (nftUnits > 1n && orderType === null && !requiresOriginalQuantity)
         )
             return null;
 
@@ -307,11 +307,9 @@ export function extractOpenSeaWethUnitPrice(
             const originalQuantity = nftUnits > 0n ? nftUnits : null;
             const quantity = remainingQuantity ?? originalQuantity ?? 1n;
             if (originalQuantity === null && quantity > 1n) return null;
-            if (
-                isPartial &&
-                originalQuantity !== null &&
-                originalQuantity > 1n
-            ) {
+            // Full-only execution still has a unit price. Source remainder
+            // changes available units, never the signed payment denominator.
+            if (originalQuantity !== null && originalQuantity > 1n) {
                 return {
                     price: divCeil(total.value, originalQuantity),
                     source: `${total.source}/unit`,
