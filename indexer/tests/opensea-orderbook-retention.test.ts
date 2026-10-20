@@ -10,6 +10,7 @@ import {
 } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { SqliteDailyListingPrices } from "../src/infra/storage/sqlite-daily-listing-prices.js";
 import { loadOpenSeaConfig } from "../src/config/opensea.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
@@ -54,6 +55,21 @@ describe("streamed orderbook reconciliation", () => {
             ORDER_STATUS.Fillable,
             observedAt,
         );
+        observe(id, observedAt);
+    }
+    function observe(id: string, observedAt: number) {
+        db.writeTransaction(() =>
+            new SqliteOrderObservations().retain({
+                chainId: 1,
+                collectionId: 99,
+                orderId: id,
+                sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                observationKey: id,
+                status: ORDER_SOURCE_STATUS.Active,
+                declaration: true,
+                now: observedAt * 1_000,
+            }),
+        )();
     }
     const status = (id: string) =>
         db.prepare("SELECT source_status FROM orders WHERE id=?").get(id);
@@ -99,10 +115,7 @@ describe("streamed orderbook reconciliation", () => {
         const observation = begin();
         const completing = observation.complete();
         const lastId = String(POLICY.maintenanceBatchRows).padStart(5, "0");
-        db.prepare("UPDATE orders SET observed_at=? WHERE id=?").run(
-            NOW + 1,
-            lastId,
-        );
+        observe(lastId, NOW + 1);
         expect(await completing).toBe(POLICY.maintenanceBatchRows);
         expect(status(lastId)).toEqual({
             source_status: ORDER_SOURCE_STATUS.Active,
@@ -157,6 +170,15 @@ describe("streamed orderbook reconciliation", () => {
             "fixture price failure",
         );
         expect(status("ask")).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+        });
+        expect(
+            db
+                .prepare(
+                    "SELECT source_status FROM order_source_observations WHERE order_id='ask'",
+                )
+                .get(),
+        ).toEqual({
             source_status: ORDER_SOURCE_STATUS.Active,
         });
         expect(

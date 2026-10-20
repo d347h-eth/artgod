@@ -2,6 +2,7 @@ import { db } from "@artgod/shared/database";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 import { ORDER_SIDE, ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 import type { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
+import { SqliteOrderObservations } from "../orders/sqlite-order-observations.js";
 import type {
     OrderSourceStatePort,
     OrderSourceObservation,
@@ -11,6 +12,7 @@ let nextObservation = 0;
 
 /** Streaming membership is connection-local, not a JS payload array or durable receipt archive. */
 export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
+    private readonly observations = new SqliteOrderObservations();
     constructor(
         private readonly listingPrices: Pick<
             SqliteDailyListingPrices,
@@ -48,8 +50,9 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
         // that whole freshness bucket alone rather than mark a recently seen
         // order inactive because it was absent from an older REST page.
         const observedThrough =
-            input.startedAt - POLICY.orderRevalidationSeconds;
+            (input.startedAt - POLICY.orderRevalidationSeconds) * 1_000;
         const listingPrices = this.listingPrices;
+        const observations = this.observations;
         const nowSeconds = this.nowSeconds;
         return {
             recordActiveOrder(orderId) {
@@ -64,7 +67,7 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                 // eligibility so a stream observation during the crawl wins.
                 db.raw
                     .prepare(
-                        `INSERT INTO ${missing}(id) SELECT o.id FROM orders o WHERE chain_id=? AND collection_id=? AND source=? AND source_status=? AND observed_at<=? AND NOT EXISTS(SELECT 1 FROM ${name} a WHERE a.id=o.id)`,
+                        `INSERT INTO ${missing}(id) SELECT o.order_id FROM order_source_observations o WHERE chain_id=? AND collection_id=? AND source_id=? AND source_status=? AND admitted_at<=? AND NOT EXISTS(SELECT 1 FROM ${name} a WHERE a.id=o.order_id)`,
                     )
                     .run(
                         input.chainId,
@@ -77,10 +80,6 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                 let after = "";
                 const select = db.raw.prepare(
                     `SELECT id FROM ${missing} WHERE id>? ORDER BY id LIMIT ?`,
-                );
-                const update = db.raw.prepare(
-                    "UPDATE orders SET source_status=?,observed_at=MAX(observed_at,?),state_revision=state_revision+1,updated_at=CURRENT_TIMESTAMP " +
-                        "WHERE id=? AND chain_id=? AND collection_id=? AND source=? AND source_status=? AND observed_at<=? RETURNING side,token_id,maker",
                 );
                 while (!closed) {
                     const rows = select.all(
@@ -96,26 +95,20 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                             { token_id: string; maker: string }
                         >();
                         for (const row of rows) {
-                            const changedOrder = update.get(
-                                ORDER_SOURCE_STATUS.Inactive,
-                                input.startedAt,
-                                row.id,
-                                input.chainId,
-                                input.collectionId,
-                                input.source,
-                                ORDER_SOURCE_STATUS.Active,
-                                observedThrough,
-                            ) as
-                                | {
-                                      side: string | null;
-                                      token_id: string | null;
-                                      maker: string;
-                                  }
-                                | undefined;
-                            if (!changedOrder) continue;
+                            const withdrawal =
+                                observations.withdrawIfUnobserved({
+                                    chainId: input.chainId,
+                                    collectionId: input.collectionId,
+                                    orderId: row.id,
+                                    sourceId: input.source,
+                                    observedThrough,
+                                    startedAt: input.startedAt * 1_000,
+                                });
+                            if (!withdrawal) continue;
                             count++;
+                            const changedOrder = withdrawal.availabilityChange;
                             if (
-                                changedOrder.side === ORDER_SIDE.Sell &&
+                                changedOrder?.side === ORDER_SIDE.Sell &&
                                 changedOrder.token_id !== null
                             ) {
                                 sellers.set(

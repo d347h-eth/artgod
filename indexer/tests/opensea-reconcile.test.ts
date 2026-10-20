@@ -24,6 +24,7 @@ import type { JobEnvelope } from "../src/domain/jobs.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -371,6 +372,18 @@ describe("OpenSea reconciliation admission", () => {
             ORDER_SOURCE_STATUS.Active,
             ORDER_STATUS.Fillable,
         );
+        db.writeTransaction(() =>
+            new SqliteOrderObservations().retain({
+                chainId: 1,
+                collectionId: 99,
+                orderId: "absent",
+                sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                observationKey: "absent",
+                status: ORDER_SOURCE_STATUS.Active,
+                declaration: true,
+                now: 0,
+            }),
+        )();
         let fail = true;
         type Api = ConstructorParameters<typeof OpenSeaOrderbookSync>[0];
         const api = {

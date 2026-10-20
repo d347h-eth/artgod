@@ -79,6 +79,12 @@ otherwise `inactive`. Withdrawal by OpenSea does not revoke another source's
 availability and never becomes an onchain cancellation. A create/REST copy does
 not undo that same source's explicit cancellation; an explicit subsequent source
 update can reopen it. Chain rollback does not modify source observations.
+Completed REST crawls withdraw absent source observations through the same
+atomic availability owner. Selection and each bounded write recheck that
+source's local freshness; another source's recent activity cannot hide an
+OpenSea withdrawal. Repeated observations coalesce local freshness writes
+without creating another validation admission. Reconciliation leaves that
+freshness bucket alone so observations arriving during a crawl win.
 
 ## Upsert Flow
 

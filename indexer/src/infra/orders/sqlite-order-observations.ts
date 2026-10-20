@@ -6,12 +6,21 @@ import {
 } from "../../domain/orders.js";
 import {
     aggregateOrderAvailability,
+    ORDER_OBSERVATION_KIND,
+    orderObservationKey,
     sourceAvailabilityAfterObservation,
 } from "../../domain/order-observation.js";
+import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
 
 type SourceObservationRow = {
     observation_key: string;
     source_status: OrderSourceStatus;
+};
+
+type AvailabilityChange = {
+    side: string | null;
+    token_id: string | null;
+    maker: string;
 };
 
 /** One compact record per source/declaration; retransmissions do not allocate
@@ -69,15 +78,102 @@ export class SqliteOrderObservations {
                 observedAt: input.sourceObservedAt ?? null,
                 expiry,
             });
+        } else {
+            // A repeated declaration still proves this source was seen locally.
+            // Coalesce freshness writes without changing semantic identity or
+            // allocating another validation admission.
+            db.prepare(
+                "UPDATE order_source_observations SET admitted_at=? WHERE chain_id=? AND order_id=? AND source_id=? AND admitted_at<=?",
+            ).run(
+                input.now,
+                input.chainId,
+                input.orderId,
+                input.sourceId,
+                input.now -
+                    MARKET_DATA_STORAGE_POLICY.orderRevalidationSeconds * 1_000,
+            );
         }
+        return {
+            changed,
+            availability: this.availability(input.chainId, input.orderId),
+        };
+    }
+
+    /** Persist the derived aggregate inside the source observation's writer. */
+    projectAvailability(
+        chainId: number,
+        orderId: string,
+        availability = this.availability(chainId, orderId),
+    ): AvailabilityChange | undefined {
+        if (!db.raw.inTransaction)
+            throw new Error("Order availability requires its admission writer");
+        return db
+            .prepare(
+                `UPDATE orders SET source_status=?,state_revision=state_revision+1,updated_at=CURRENT_TIMESTAMP
+                 WHERE chain_id=? AND id=? AND source_status<>? RETURNING side,token_id,maker`,
+            )
+            .get(availability, chainId, orderId, availability) as
+            | AvailabilityChange
+            | undefined;
+    }
+
+    /** REST absence withdraws one source, never the declaration or another
+     * source. Recheck local freshness in the same writer as both projections. */
+    withdrawIfUnobserved(input: {
+        chainId: number;
+        collectionId: number;
+        orderId: string;
+        sourceId: string;
+        observedThrough: number;
+        startedAt: number;
+    }): { availabilityChange: AvailabilityChange | undefined } | undefined {
+        if (!db.raw.inTransaction)
+            throw new Error(
+                "Order withdrawal requires its reconciliation writer",
+            );
+        const key = orderObservationKey(
+            input.sourceId,
+            ORDER_OBSERVATION_KIND.Update,
+            [
+                input.orderId,
+                ORDER_UPDATE_REASON.Validation,
+                ORDER_SOURCE_STATUS.Inactive,
+                null,
+                input.startedAt,
+            ],
+        );
+        const changed = db
+            .prepare(
+                `UPDATE order_source_observations
+                 SET source_status=?,observation_key=?,source_observed_at=NULL,admitted_at=?
+                 WHERE chain_id=? AND collection_id=? AND order_id=? AND source_id=? AND source_status=? AND admitted_at<=?`,
+            )
+            .run(
+                ORDER_SOURCE_STATUS.Inactive,
+                key,
+                input.startedAt,
+                input.chainId,
+                input.collectionId,
+                input.orderId,
+                input.sourceId,
+                ORDER_SOURCE_STATUS.Active,
+                input.observedThrough,
+            ).changes;
+        if (!changed) return;
+        return {
+            availabilityChange: this.projectAvailability(
+                input.chainId,
+                input.orderId,
+            ),
+        };
+    }
+
+    private availability(chainId: number, orderId: string): OrderSourceStatus {
         const active = db
             .prepare(
                 "SELECT 1 FROM order_source_observations WHERE chain_id=? AND order_id=? AND source_status=? LIMIT 1",
             )
-            .get(input.chainId, input.orderId, ORDER_SOURCE_STATUS.Active);
-        return {
-            changed,
-            availability: aggregateOrderAvailability(Boolean(active)),
-        };
+            .get(chainId, orderId, ORDER_SOURCE_STATUS.Active);
+        return aggregateOrderAvailability(Boolean(active));
     }
 }

@@ -26,6 +26,7 @@ import { SqliteMarketDataMaintenance } from "../src/infra/storage/sqlite-market-
 import { MaintainMarketData } from "../src/application/storage/maintain-market-data.js";
 import { ORDER_STATUS, ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 
 const ETH = "0x0000000000000000000000000000000000000000";
@@ -423,6 +424,20 @@ describe("permanent daily listings and current asks", () => {
             OFFCHAIN_ORDER_SOURCE.OpenSea,
             now - 3600,
         );
+        db.writeTransaction(() => {
+            const observations = new SqliteOrderObservations();
+            for (const id of ["cheaper", "remaining"])
+                observations.retain({
+                    chainId: 1,
+                    collectionId: 1,
+                    orderId: id,
+                    sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                    observationKey: id,
+                    status: ORDER_SOURCE_STATUS.Active,
+                    declaration: true,
+                    now: (now - 3600) * 1_000,
+                });
+        })();
         await event("cheaper", now - 500);
         const pinned = list().items[0]!;
         const observation = new SqliteOrderSourceStateStore(

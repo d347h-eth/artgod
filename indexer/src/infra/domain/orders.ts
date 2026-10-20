@@ -520,17 +520,11 @@ export class SqliteOrdersDomain
             now,
         });
         if (!row) return;
-        const changed = db
-            .prepare(
-                `UPDATE orders SET source_status=?,state_revision=state_revision+1,updated_at=CURRENT_TIMESTAMP
-             WHERE chain_id=? AND id=? AND source_status<>?`,
-            )
-            .run(
-                observation.availability,
-                payload.chainId,
-                payload.orderId,
-                observation.availability,
-            ).changes;
+        const changed = this.observations.projectAvailability(
+            payload.chainId,
+            payload.orderId,
+            observation.availability,
+        );
         if (observation.changed)
             this.validationDemand.admit(
                 observedOrderValidationRequest(
