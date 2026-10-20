@@ -61,8 +61,8 @@ it("ACKs durable source demand while sync is behind, serves unrelated ready work
         const chain = installHeavyMakerValidationChain();
         const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
         const demand = new SqliteOrderValidationDemand(domain);
-        // Real broker timers use wall time; retime the signed fixture declaration
-        // instead of replacing the process clock while Yarn/NATS timers run.
+        // Keep declarations active at both the synthetic accepted block and
+        // local wall time; broker timers must retain the real process clock.
         db.exec("DELETE FROM orders");
         const observed = [];
         const now = Math.floor(Date.now() / 1000);
@@ -70,7 +70,7 @@ it("ACKs durable source demand while sync is behind, serves unrelated ready work
             const order = heavyMakerOrder(index);
             const seaportData = {
                 ...order.seaportData!,
-                startTime: String(now - 60),
+                startTime: String(HEAVY_MAKER.now - 60),
                 endTime: String(now + 86_400),
             };
             const orderId = computeSeaportOrderHash(seaportData);
