@@ -1,7 +1,7 @@
 import {
     proveReorgAncestor,
     assertReorgHistory,
-    type ReorgAncestorProof,
+    type ReorgHistoryProof,
     type ReorgHistorySnapshot,
 } from "../domain/reorg-fork.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
@@ -24,7 +24,7 @@ export async function findCommonAncestor(input: {
     chainId: number;
     startBlock: number;
     reorgDepth: number;
-}): Promise<ReorgAncestorProof | null> {
+}): Promise<ReorgHistoryProof | null> {
     const minBlock = Math.max(
         0,
         input.startBlock - Math.max(1, input.reorgDepth),

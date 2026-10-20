@@ -1,7 +1,10 @@
 import { db } from "@artgod/shared/database";
 import type { CanonicalChecksPort } from "../../ports/canonical-checks.js";
 import type { PendingCanonicalCheck } from "../../domain/canonical-check.js";
-import { ChainSyncConflict } from "../../domain/chain-sync.js";
+import {
+    ChainSyncConflict,
+    type ChainSyncCheckpoint,
+} from "../../domain/chain-sync.js";
 import {
     assertChainSyncCheckpoint,
     captureChainSyncCheckpoint,
@@ -113,6 +116,30 @@ export class SqliteCanonicalChecks implements CanonicalChecksPort {
                 "UPDATE chain_sync_progress SET disputed_from=(SELECT MIN(block_number) FROM blocks WHERE chain_id=? AND canonical_check_disputed=1) WHERE chain_id=?",
             ).run(check.chainId, check.chainId);
             return true;
+        })();
+    }
+
+    handoffToRecovery(check: PendingCanonicalCheck): boolean {
+        return db.writeTransaction(() => {
+            if (!this.complete(check)) return false;
+            // Unlike a successful check, recovery retains the disagreement
+            // even when an earlier mismatch already owns the journal.
+            db.prepare(
+                "UPDATE blocks SET canonical_check_disputed=1,canonical_check_generation=canonical_check_generation+1 WHERE chain_id=? AND block_number=? AND block_hash=?",
+            ).run(check.chainId, check.blockNumber, check.blockHash);
+            db.prepare(
+                "UPDATE chain_sync_progress SET disputed_from=CASE WHEN disputed_from IS NULL THEN ? ELSE MIN(disputed_from,?) END WHERE chain_id=?",
+            ).run(check.blockNumber, check.blockNumber, check.chainId);
+            return true;
+        })();
+    }
+
+    resumeDisputes(checkpoint: ChainSyncCheckpoint): void {
+        db.writeTransaction(() => {
+            assertChainSyncCheckpoint(checkpoint);
+            db.prepare(
+                "UPDATE blocks SET canonical_check_pending=1,canonical_check_retry_at=0 WHERE chain_id=? AND canonical_check_disputed=1",
+            ).run(checkpoint.chainId);
         })();
     }
 

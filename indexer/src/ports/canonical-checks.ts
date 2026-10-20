@@ -1,4 +1,5 @@
 import type { PendingCanonicalCheck } from "../domain/canonical-check.js";
+import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
 
 /** One reorg runtime per chain reads bounded DB-owned work. No broker lease or cursor owns it. */
 export interface CanonicalChecksPort {
@@ -16,9 +17,15 @@ export interface CanonicalChecksPort {
         now: number;
         upperBound: number;
     }): PendingCanonicalCheck | null;
-    /** Recovery handoff consumes this stored identity/revision without clearing
-     * its dispute. A supplied generation additionally fences the exact claim. */
+    /** Consume a stored identity/revision without clearing its dispute or source
+     * barrier. A supplied generation additionally fences the exact claim. */
     complete(check: PendingCanonicalCheck): boolean;
+    /** Transfer this check to recovery while retaining its individual dispute.
+     * Coalescing the recovery journal must not erase later disagreements. */
+    handoffToRecovery(check: PendingCanonicalCheck): boolean;
+    /** A restored history transfers every retained dispute back to fresh
+     * generation-fenced checks; the progress gate stays closed meanwhile. */
+    resumeDisputes(checkpoint: ChainSyncCheckpoint): void;
     /** Fresh matching-header confirmation repairs source barriers and clears
      * only this dispute generation; other disputes and recovery remain gated. */
     confirmCanonicalBlock(check: PendingCanonicalCheck): boolean;

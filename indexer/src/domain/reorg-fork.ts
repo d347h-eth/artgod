@@ -15,10 +15,23 @@ export type ReorgHistorySnapshot = {
     headers: readonly SyncBlockHeader[];
 };
 
+export const REORG_HISTORY_PROOF = {
+    Ancestor: "ancestor",
+    RestoredAgreement: "restored_agreement",
+} as const;
+
 export type ReorgAncestorProof = {
+    kind: typeof REORG_HISTORY_PROOF.Ancestor;
     fork: VerifiedChainBlock;
     history: ReorgHistorySnapshot;
 };
+
+export type ReorgRestoredAgreement = {
+    kind: typeof REORG_HISTORY_PROOF.RestoredAgreement;
+    history: ReorgHistorySnapshot;
+};
+
+export type ReorgHistoryProof = ReorgAncestorProof | ReorgRestoredAgreement;
 
 export function assertReorgHistory(history: ReorgHistorySnapshot): void {
     if (
@@ -41,7 +54,7 @@ export function assertReorgHistory(history: ReorgHistorySnapshot): void {
 export function proveReorgAncestor(input: {
     history: ReorgHistorySnapshot;
     canonicalBlocks: readonly SyncBlockHeader[];
-}): ReorgAncestorProof | null {
+}): ReorgHistoryProof | null {
     const { history, canonicalBlocks } = input;
     assertReorgHistory(history);
     assertSyncBlockHeaders(canonicalBlocks);
@@ -55,7 +68,7 @@ export function proveReorgAncestor(input: {
     const canonical = new Map(
         canonicalBlocks.map((block) => [block.number, block]),
     );
-    let firstDivergence = history.toBlock;
+    let firstDivergence: number | null = null;
     for (const stored of history.headers) {
         const current = canonical.get(stored.number);
         if (!current)
@@ -66,10 +79,20 @@ export function proveReorgAncestor(input: {
             stored.hash !== current.hash ||
             stored.timestamp !== current.timestamp
         )
-            firstDivergence = Math.min(firstDivergence, stored.number);
+            firstDivergence = Math.min(
+                firstDivergence ?? stored.number,
+                stored.number,
+            );
         if (stored.number > 0 && stored.parentHash !== current.parentHash)
-            firstDivergence = Math.min(firstDivergence, stored.number - 1);
+            firstDivergence = Math.min(
+                firstDivergence ?? stored.number - 1,
+                stored.number - 1,
+            );
     }
+    // A previous disagreement is evidence to verify, not proof that the
+    // accepted chain must be replaced. In particular, its base may still agree.
+    if (firstDivergence === null)
+        return { kind: REORG_HISTORY_PROOF.RestoredAgreement, history };
     let fork: SyncBlockHeader | undefined;
     for (const stored of history.headers) {
         const current = canonical.get(stored.number)!;
@@ -83,6 +106,10 @@ export function proveReorgAncestor(input: {
             fork = current;
     }
     return fork
-        ? { fork: { ...fork, chainId: history.checkpoint.chainId }, history }
+        ? {
+              kind: REORG_HISTORY_PROOF.Ancestor,
+              fork: { ...fork, chainId: history.checkpoint.chainId },
+              history,
+          }
         : null;
 }

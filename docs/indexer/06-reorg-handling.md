@@ -59,6 +59,8 @@ For each eligible row, the sync coordinator:
    barrier at that height, and removes that dispute gate. Other disputes and
    retained recovery remain gated.
 4. On a mismatch, retains recovery and clears the pending flag in one transaction.
+   Its individual dispute remains retained, including when an earlier mismatch
+   already owns the recovery journal.
 5. Attempts ancestor verification and rollback through the existing recovery flow.
 
 RPC, wrong-height responses, checkpoint/header reads and retention failures leave
@@ -87,6 +89,16 @@ headers independently of forward ingestion. Missing accepted local lineage
 remains an invariant failure; historical gap repair does not manufacture proof
 of the old branch.
 
+Fresh proof may also establish that the complete accepted window agrees again.
+That outcome does not require rollback: the recovery writer preserves accepted
+facts, installed bases and chain revision. It atomically returns every retained
+individual dispute to the existing canonical checks and preserves any interrupted
+resync range. Progress stays gated until fresh generation-fenced checks confirm
+those identities. This includes later disagreements coalesced into the earlier
+journal and new disputes arriving during proof RPC; agreement at the original
+checked height cannot silently discharge either one. Restart resumes the same
+retained checks and acquisition.
+
 A newer mismatch during resync carries the earliest unacquired resync block into
 its replacement workflow. Stale proof cannot commit over a newer recovery or
 chain revision. A changed revision rearms proof while preserving that unfinished
@@ -97,7 +109,7 @@ resync it prevents from completing.
 
 ## Recovery Decision Logs
 
-`RecoverChainReorg` emits two structured decisions under `component=ReorgRecovery`.
+`RecoverChainReorg` emits three structured decisions under `component=ReorgRecovery`.
 The action values belong to `REORG_RECOVERY_LOG_ACTION` in
 `indexer/src/domain/reorg-recovery.ts`:
 
@@ -108,6 +120,9 @@ The action values belong to `REORG_RECOVERY_LOG_ACTION` in
   succeeds. Includes the retained mismatch, verified fork height/hash, rollback
   start, captured HEAD, full resync bounds/count, first batch end, configured batch
   size, affected ERC721 token count, and revisions before/after rollback.
+- `agreement_restored` (info): emitted after an agreeing history window returns
+  its disputes to canonical checks. Includes the chain/recovery ID, checked
+  height, unchanged revision and any retained resync bounds.
 
 `forkToCheckedBlocks` is the distance from the verified fork to the checked height,
 not a measured total of orphaned chain blocks. `resyncBlocks` is the complete
@@ -134,6 +149,9 @@ The fork point search (`findCommonAncestor()`):
   and rechecks its tip, reusing sync's header acquisition contract.
 - Returns the nearest matching ancestor below every observed divergence,
   together with its captured local history evidence.
+- Distinguishes complete restored agreement from a divergence. A fully matching
+  window, including a single accepted-base header, does not invent an earlier
+  fork or require rollback.
 - Returns `null` when no matching ancestor exists within the retained window.
   Replacing the accepted base or exceeding the supported depth keeps recovery
   pending; it never expands the bound or guesses missing ancestry.

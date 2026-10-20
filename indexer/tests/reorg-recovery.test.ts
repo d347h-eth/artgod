@@ -711,6 +711,12 @@ describe("durable production reorg recovery", () => {
             "new-earlier-mismatch",
         );
         await services.recovery.resumeDue();
+        // The superseding earlier mismatch agrees again. It must not trigger
+        // an unnecessary rollback or erase the original later disagreement.
+        expect(revision()).toBe(0);
+        expect(services.recoveries.getRecovery(1)).toBeNull();
+        expect(await services.recovery.checkDue()).toBe(true);
+        expect(await services.recovery.checkDue()).toBe(true);
         expect(revision()).toBe(1);
     });
 

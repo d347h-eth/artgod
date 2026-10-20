@@ -105,7 +105,7 @@ describe("accepted lineage and admission retention", () => {
             startBlock: 905,
             reorgDepth: 10,
         });
-        expect(proof?.fork.number).toBe(904);
+        expect(proof).toMatchObject({ fork: { number: 904 } });
     });
 
     it.each(["missing", "disconnected"] as const)(

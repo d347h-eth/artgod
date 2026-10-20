@@ -5,7 +5,10 @@ import {
     ChainSyncConflict,
     type SyncBlockHeader,
 } from "../src/domain/chain-sync.js";
-import type { ReorgHistorySnapshot } from "../src/domain/reorg-fork.js";
+import {
+    REORG_HISTORY_PROOF,
+    type ReorgHistorySnapshot,
+} from "../src/domain/reorg-fork.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 
 describe("canonical sync header reads", () => {
@@ -166,6 +169,25 @@ describe("verified common ancestor", () => {
         const h = harness(localBranch(105, 105, 105), 105, 105);
         expect(await findCommonAncestor(h)).toBeNull();
     });
+
+    it.each([100, 105])(
+        "recognizes restored agreement through %s without inventing a divergence",
+        async (to) => {
+            const headers = Array.from({ length: to - 99 }, (_, i) =>
+                block(100 + i),
+            );
+            const h = harness(headers, 100, to);
+            expect(await findCommonAncestor(h)).toEqual({
+                kind: REORG_HISTORY_PROOF.RestoredAgreement,
+                history: {
+                    checkpoint: { chainId: 1, revision: 0 },
+                    fromBlock: 100,
+                    toBlock: to,
+                    headers,
+                },
+            });
+        },
+    );
 
     it("rejects changing or mixed RPC lineage", async () => {
         const h = harness();
