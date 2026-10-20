@@ -1,3 +1,4 @@
+import { seedOrderEvidence } from "@artgod/shared/testing/order-evidence";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -161,9 +162,73 @@ describe("SqliteBiddingBidBookRepository", () => {
             tokenTraits: [],
             includeOwnJobContext: false,
         });
-        assert.equal(pending.bids.length, 1);
-        assert.equal(pending.bids[0].validationPending, true);
-        assert.equal(pending.bids[0].quantity, "45");
+        assert.equal(pending.bids.length, 0);
+    });
+
+    it("requires current independent proof in the indexed fallback", () => {
+        insertIndexedOrder({
+            collectionId,
+            id: "proof-bid",
+            updatedAt: INDEXED_ORDER_PLACED_AT,
+        });
+        const repository = new SqliteBiddingBidBookRepository();
+        const read = () =>
+            repository.listTokenBidBook({
+                chainId: 1,
+                collectionId,
+                tokenId: "1997",
+                tokenTraits: [],
+                includeOwnJobContext: false,
+            }).bids;
+        assert.equal(read().length, 1);
+        db.prepare(
+            "UPDATE orders SET proof_block_hash='wrong' WHERE id='proof-bid'",
+        ).run();
+        assert.equal(read().length, 0);
+        seedOrderEvidence(db.raw, "proof-bid", Date.now());
+        assert.equal(read().length, 1);
+        db.prepare(
+            "UPDATE collection_sync_progress SET applied_block=99 WHERE collection_id=?",
+        ).run(collectionId);
+        assert.equal(read().length, 0);
+        db.prepare(
+            "UPDATE collection_sync_progress SET applied_block=100 WHERE collection_id=?",
+        ).run(collectionId);
+        db.prepare("UPDATE chain_sync_progress SET disputed_from=100").run();
+        assert.equal(read().length, 0);
+    });
+
+    it("excludes indexed Fillable rows without known remaining units and funded capacity", () => {
+        insertIndexedOrder({
+            collectionId,
+            id: "unknown-size",
+            updatedAt: INDEXED_ORDER_PLACED_AT,
+        });
+        const repository = new SqliteBiddingBidBookRepository();
+        const read = () =>
+            repository.listTokenBidBook({
+                chainId: 1,
+                collectionId,
+                tokenId: "1997",
+                tokenTraits: [],
+                includeOwnJobContext: false,
+            }).bids;
+        assert.equal(read().length, 1);
+        for (const [quantity, capacity] of [
+            [null, "1"],
+            ["1", null],
+            ["0", "1"],
+            ["1", "0"],
+        ]) {
+            db.prepare(
+                "UPDATE orders SET quantity=?,fillable_quantity=? WHERE id='unknown-size'",
+            ).run(quantity, capacity);
+            assert.equal(read().length, 0);
+        }
+        db.prepare(
+            "UPDATE orders SET quantity='45',fillable_quantity='10' WHERE id='unknown-size'",
+        ).run();
+        assert.equal(read()[0].quantity, "45");
     });
 
     for (const source of [
@@ -3304,6 +3369,7 @@ function insertIndexedOrder(input: {
         createdAt: INDEXED_ORDER_PLACED_AT,
         updatedAt: input.updatedAt,
     });
+    seedOrderEvidence(db.raw, input.id, Date.now());
 }
 
 function makeOpenSeaBuyOrderPayload(input: {

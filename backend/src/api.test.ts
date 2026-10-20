@@ -1,3 +1,4 @@
+import { seedOrderEvidence } from "@artgod/shared/testing/order-evidence";
 import {
     buildCompetitionPresetsPath,
     buildCompetitionPresetReapplyPreviewPath,
@@ -8954,6 +8955,7 @@ function insertOrderFixture(input: {
         input.rawRestData ? JSON.stringify(input.rawRestData) : null,
         input.rawStreamData ? JSON.stringify(input.rawStreamData) : null,
     );
+    seedOrderEvidence(db.raw, input.id, Date.now());
 }
 
 function makeOpenSeaBuyOrderPayload(input: {

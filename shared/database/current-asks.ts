@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { usableOrderEvidenceSql } from "./order-evidence.js";
 import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
@@ -30,7 +31,8 @@ export const CURRENT_ASK_INDEX_SQL = [
     .join("\n");
 
 /** Scope expressions are adapter-owned SQL, not request input. Bindings after
- * scope are currencies, current time for valid_from, then current time for expiry. */
+ * scope are currencies, current time for valid_from/expiry (seconds), then proof
+ * freshness time (milliseconds). */
 export function currentAskIdSql(scope: {
     chain: string;
     collection: string;
@@ -45,6 +47,7 @@ export function currentAskIdSql(scope: {
         (scope.maker ? `AND ask.maker=${scope.maker} ` : "") +
         `AND ${eligibleAskSql("ask")} AND ask.currency IN (${Array(scope.currencyCount).fill("?").join(",")}) ` +
         "AND (ask.valid_from IS NULL OR ask.valid_from<=?) AND (ask.valid_until IS NULL OR ask.valid_until>?) " +
+        `AND ${usableOrderEvidenceSql({ orderAlias: "ask", nowMs: "?" })} ` +
         `ORDER BY LENGTH(${normalizedAskPriceSql("ask")}),${normalizedAskPriceSql("ask")},ask.currency,ask.id LIMIT 1`
     );
 }
@@ -53,7 +56,8 @@ export type CurrentAsk = {
     id: string;
     price: string;
     currency: string;
-    quantity: string | null;
+    /** The shared executable-evidence guard guarantees known positive units. */
+    quantity: string;
 };
 
 /** Shared best-ask selection for stored daily prices and collection cards. */
@@ -91,6 +95,7 @@ export class SqliteCurrentAsks {
             ...this.currencies,
             now,
             now,
+            now * 1_000,
         ) as CurrentAsk | undefined;
     }
 }
