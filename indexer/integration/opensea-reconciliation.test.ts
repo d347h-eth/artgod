@@ -46,6 +46,8 @@ import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import { HEAVY_MAKER } from "../tests/fixtures/heavy-maker.js";
 
 it("renews leases, drains obsolete work and recovers an interrupted durable on real NATS", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -285,7 +287,9 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                     await queue.publish(destination, envelope);
                 },
             },
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(HEAVY_MAKER.weth),
+            ),
         );
         const collections = new SqliteCollectionRegistry();
         const runs = new SqliteOpenSeaOrderbookRuns();
@@ -389,7 +393,9 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 },
             },
             queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(HEAVY_MAKER.weth),
+            ),
         );
         const collections = new SqliteCollectionRegistry();
         const stop = await runWorker<OpenSeaReconcileCollectionPayload>(
@@ -457,7 +463,9 @@ it("renews leases, drains obsolete work and recovers an interrupted durable on r
                 },
             },
             queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: () => {} }),
+            new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(HEAVY_MAKER.weth),
+            ),
         );
         const collections = new SqliteCollectionRegistry();
         const stop = await runWorker<OpenSeaReconcileCollectionPayload>(
