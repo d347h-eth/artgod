@@ -286,7 +286,6 @@ and heights stay in JSON fields rather than indexed labels.
     - `42740` backend-api
     - `42741` scheduler-worker
     - `42742` sync-worker
-    - `42743` reorg-worker
     - `42744` domain-worker
     - `42745` offchain-ingest-worker
     - `42746` opensea-stream-worker

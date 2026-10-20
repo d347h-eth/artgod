@@ -771,14 +771,6 @@ default = "42742"
 help = "Prometheus metrics port for the sync worker."
 
 [[settings]]
-key = "INDEXER_METRICS_PORT_REORG_WORKER"
-group = "indexer-observability"
-targets = ["local", "deploy"]
-label = "indexer metrics port reorg worker"
-default = "42743"
-help = "Prometheus metrics port for the reorg worker."
-
-[[settings]]
 key = "INDEXER_METRICS_PORT_DOMAIN_WORKER"
 group = "indexer-observability"
 targets = ["local", "deploy"]

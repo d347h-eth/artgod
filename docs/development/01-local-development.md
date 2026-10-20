@@ -739,7 +739,6 @@ Run indexer runtimes as needed:
 ```sh
 yarn workspace @artgod/indexer run dev:scheduler-worker
 yarn workspace @artgod/indexer run dev:sync-worker
-yarn workspace @artgod/indexer run dev:reorg-worker
 yarn workspace @artgod/indexer run dev:domain-worker
 yarn workspace @artgod/indexer run dev:bootstrap-worker
 yarn workspace @artgod/indexer run dev:collection-extension-worker

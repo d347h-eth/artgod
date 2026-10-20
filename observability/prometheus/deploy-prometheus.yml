@@ -22,9 +22,6 @@ scrape_configs:
           - targets: ["indexer-sync-worker:42742"]
             labels:
                 runtime: "sync-worker"
-          - targets: ["indexer-reorg-worker:42743"]
-            labels:
-                runtime: "reorg-worker"
           - targets: ["indexer-domain-worker:42744"]
             labels:
                 runtime: "domain-worker"

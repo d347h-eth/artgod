@@ -669,7 +669,6 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/nats-job-stream-maintenance.mjs`
 - `indexer/dist-desktop/scheduler-worker.mjs`
 - `indexer/dist-desktop/sync-worker.mjs`
-- `indexer/dist-desktop/reorg-worker.mjs`
 - `indexer/dist-desktop/domain-worker.mjs`
 - `indexer/dist-desktop/bootstrap-worker.mjs`
 - `indexer/dist-desktop/collection-extension-worker.mjs`

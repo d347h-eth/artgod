@@ -1,4 +1,3 @@
-import { CanonicalOrderExecutionBlock } from "../application/orders/execution-block.js";
 import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import {
@@ -69,9 +68,6 @@ import { OrderValidationDemandProgress } from "../infra/orders/order-validation-
 import { DomainProcessingMetrics } from "../infra/observability/domain-processing-metrics.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
-import { SqliteOrderExecutionRequirements } from "../infra/orders/sqlite-order-execution-requirements.js";
-import { ResolveOrderExecutions } from "../application/orders/resolve-order-executions.js";
-import { ORDER_VALIDATION_DEMAND_POLICY } from "../domain/order-validation-demand.js";
 import { UnsupportedJob } from "../domain/unsupported-job.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
@@ -90,14 +86,8 @@ import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
 } from "../infra/rpc/observability.js";
-import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
-import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
+import { createSeaportOrderValidationFactory } from "../application/offchain/seaport-validation-batch.js";
 import {
-    createSeaportValidationBatchFactory,
-    createSeaportOrderValidationFactory,
-} from "../application/offchain/seaport-validation-batch.js";
-import {
-    AdmitOrderValidation,
     ValidateOrderDemand,
     startOrderValidationDemand,
 } from "../application/orders/validate-order-demand.js";
@@ -166,23 +156,10 @@ async function main() {
             resilience: config.rpc.resilience,
             requestBudget: rpcAllocation.requestBudget,
         });
-        const conduits = new SqliteConduitRegistry();
-        const validateOrder = (
-            order: Parameters<typeof validateSeaportOrder>[3],
-        ) => validateSeaportOrder(rpc, conduits, config.seaport, order);
-        const createValidationBatch = createSeaportValidationBatchFactory({
-            chainId: config.chainId,
-            wethAddress: config.tokens.wethAddress,
-            rpc,
-            conduits,
-            conduitController: config.seaport.conduitController,
-        });
         const ordersDomain = new SqliteOrdersDomain(
             config.tokens.wethAddress,
-            validateOrder,
             config.debugPayloads,
             undefined,
-            createValidationBatch,
             new OrderMutationProgress(config.chainId),
         );
         const orderValidationStore = new SqliteOrderValidationDemand(
@@ -191,18 +168,13 @@ async function main() {
         const makerRevalidationStore = new SqliteMakerRevalidations(
             ordersDomain,
             orderValidationStore,
-        );
-        const admitOrderValidation = new AdmitOrderValidation(
-            config.chainId,
-            orderValidationStore,
-            processingObservability,
+            config.tokens.wethAddress,
         );
         const createOrderSnapshot = bindRpcValidationFactory(
             rpcAllocation.workScope,
             createSeaportOrderValidationFactory({
                 chainId: config.chainId,
                 rpc,
-                conduits,
                 conduitController: config.seaport.conduitController,
             }),
         );
@@ -210,19 +182,8 @@ async function main() {
             ORDER_PROCESSING_POLICY.concurrentValidations,
             processingObservability,
         );
-        const executionRequirements = new SqliteOrderExecutionRequirements(
-            orderValidationStore,
-        );
-        const executionResolver = new ResolveOrderExecutions({
-            chainId: config.chainId,
-            store: executionRequirements,
-            executionBlock: new CanonicalOrderExecutionBlock(rpc),
-            admission: validationAdmission,
-        });
         const applyOrderUpdate = new ApplyOrderUpdate({
-            executionValidation: executionRequirements,
             chainId: config.chainId,
-            validation: admitOrderValidation,
             lifecycle: ordersDomain,
             observability: processingObservability,
         });
@@ -235,8 +196,6 @@ async function main() {
         });
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
-            createSnapshot: createOrderSnapshot,
-            admission: validationAdmission,
             observability: processingObservability,
             replayBoundary: (consumerName) =>
                 queue.getReplayBoundary(consumerName),
@@ -360,7 +319,6 @@ async function main() {
                                           job.workClass,
                                       ),
                                   },
-                            requiredAt: job.scheduledAt,
                             admissionOnly:
                                 decodeSyncWorkClass(job.workClass) ===
                                     SYNC_WORK_CLASS.GapRepair &&
@@ -441,13 +399,6 @@ async function main() {
                 ),
             );
 
-        // A single receipt executor shares fair capacity with ordinary validation;
-        // unavailable receipts never consume both permits or a broker ACK slot.
-        const stopExecutionResolution = startOrderValidationDemand(
-            executionResolver,
-            undefined,
-            ORDER_VALIDATION_DEMAND_POLICY.receiptExecutors,
-        );
         const stopOrderValidation = startOrderValidationDemand(
             orderValidation,
             new OrderValidationDemandProgress(config.chainId),
@@ -773,7 +724,6 @@ async function main() {
                 action: "shutdown",
             });
             await stopMakerRecovery();
-            await stopExecutionResolution();
             await stopOrderValidation();
             await stopOrders();
             for (const stop of stopMakerConsumers) await stop();

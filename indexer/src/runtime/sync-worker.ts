@@ -7,11 +7,6 @@ import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { BackfillExecutionGate } from "../application/backfill-execution.js";
-import type { SyncRange } from "../application/sync.js";
-import {
-    domainSyncSource,
-    processSyncRange,
-} from "../application/sync-range-processing.js";
 import {
     createBackfillSyncHandler,
     SYNC_WORKER_LOG_COMPONENT,
@@ -22,18 +17,13 @@ import {
 } from "../application/automatic-sync-executor.js";
 import { SyncGapScheduler } from "../application/sync-gap-scheduler.js";
 import { AutomaticSyncMetrics } from "../infra/observability/automatic-sync-metrics.js";
-import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
 import { SqliteSyncRangeCommit } from "../infra/storage/sqlite-sync-range-commit.js";
 import { SqliteReorgRecoveries } from "../infra/storage/sqlite-reorg-recoveries.js";
 import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import { runWorker } from "../application/worker-runner.js";
-import { BidderIndex } from "../application/bidder-index.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    SYNC_JOB_KIND,
-} from "../domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type { RealtimeSyncPayload } from "../domain/sync-jobs.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
@@ -46,11 +36,18 @@ import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteSyncGapStore } from "../infra/storage/sqlite-sync-gaps.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
-import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
-const BIDDER_INDEX_REFRESH_MS = 30_000;
+import { SqliteChainProgress } from "../infra/storage/sqlite-chain-progress.js";
+import { SqliteSyncCoordination } from "../infra/storage/sqlite-sync-coordination.js";
+import { SqliteOrdersDomain } from "../infra/domain/orders.js";
+import { SqliteOrderValidationDemand } from "../infra/orders/sqlite-order-validation-demand.js";
+import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
+import { RetainCanonicalOrderEffects } from "../application/orders/retain-canonical-order-effects.js";
+import { RecoverChainReorg } from "../application/reorg-recovery.js";
+import { RollbackChainRange } from "../application/reorg-rollback.js";
+import { RpcRollbackOwnershipSnapshot } from "../infra/ownership/rpc-rollback-snapshot.js";
 const BACKFILL_LEASE_EXTENSION_MS = 10_000;
 
 async function main() {
@@ -123,7 +120,36 @@ async function main() {
         );
         const outbox = new SqliteQueueOutbox();
         const collectionRegistry = new SqliteCollectionRegistry();
+        const progress = new SqliteChainProgress();
+        const coordination = new SqliteSyncCoordination(progress);
+        const orders = new SqliteOrdersDomain(
+            config.tokens.wethAddress,
+            config.debugPayloads,
+        );
+        const demands = new SqliteOrderValidationDemand(orders);
+        const makers = new SqliteMakerRevalidations(
+            orders,
+            demands,
+            config.tokens.wethAddress,
+        );
+        const recovery = new RecoverChainReorg(
+            primaryRpc,
+            storage,
+            reorgRecoveries,
+            new RollbackChainRange(
+                storage,
+                new RpcRollbackOwnershipSnapshot(primaryRpc),
+            ),
+            canonicalChecks,
+            {
+                chainId: config.chainId,
+                reorgDepth: config.sync.reorgDepth,
+                batchSize: config.sync.backfillBatchSize,
+            },
+        );
         const commit = new SqliteSyncRangeCommit({
+            progress,
+            orderEffects: new RetainCanonicalOrderEffects({ orders, makers }),
             storage,
             outbox,
             gaps: syncGapStore,
@@ -133,41 +159,41 @@ async function main() {
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
         );
-        const bidderIndex = new BidderIndex(
-            new SqliteBidderIndex(),
-            config.chainId,
-        );
-        try {
-            const initialIndex = await bidderIndex.refresh();
-            logger.info("Bidder index refreshed", {
-                component: SYNC_WORKER_LOG_COMPONENT,
-                action: "bidderIndexRefresh",
-                ...initialIndex,
-            });
-        } catch (error) {
-            logger.warn("Bidder index refresh failed", {
-                component: SYNC_WORKER_LOG_COMPONENT,
-                action: "bidderIndexRefresh",
-                error: String(error),
-            });
-        }
-        const bidderRefreshTimer = setInterval(async () => {
-            try {
-                const state = await bidderIndex.refresh();
-                logger.debug("Bidder index refreshed", {
-                    component: SYNC_WORKER_LOG_COMPONENT,
-                    action: "bidderIndexRefresh",
-                    ...state,
-                });
-            } catch (error) {
-                logger.warn("Bidder index refresh failed", {
-                    component: SYNC_WORKER_LOG_COMPONENT,
-                    action: "bidderIndexRefresh",
-                    error: String(error),
-                });
-            }
-        }, BIDDER_INDEX_REFRESH_MS);
         const backfillExecutionGate = new BackfillExecutionGate();
+
+        const automaticSync = startAutomaticSyncLoop(
+            new AutomaticSyncExecutor({
+                chainId: config.chainId,
+                rpc: primaryRpc,
+                historicalRpc: backfillRpc,
+                progress,
+                coordination,
+                recovery,
+                storage,
+                commit,
+                canonicalChecks,
+                collectionsPort: collectionRegistry,
+                collectionExtensions,
+                wethAddress: config.tokens.wethAddress,
+                gaps: syncGapStore,
+                gapWorkEnabled:
+                    config.rpc.gapAllocation.mode !== GAP_FILL_MODE.Disabled,
+                workScope: rpcAllocation.workScope,
+                gapScheduler: new SyncGapScheduler(
+                    collectionRegistry,
+                    syncGapStore,
+                    {
+                        chainId: config.chainId,
+                        batchSize: config.sync.backfillBatchSize,
+                    },
+                ),
+                recoveries: reorgRecoveries,
+                gate: backfillExecutionGate,
+                batchSize: config.sync.backfillBatchSize,
+                reorgDepth: config.sync.reorgDepth,
+                observer: new AutomaticSyncMetrics(runtimeMetrics.metrics),
+            }),
+        );
 
         const stopRealtime = await runWorker(
             queue,
@@ -180,55 +206,10 @@ async function main() {
             },
             async (job: JobEnvelope<RealtimeSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.RealtimeBlock) return;
-                const collections = collectionRegistry.listCollectionsForSync(
-                    config.chainId,
-                    "realtime",
-                );
-                if (collections.length === 0) {
-                    logger.debug("No realtime collections for sync", {
-                        component: SYNC_WORKER_LOG_COMPONENT,
-                        action: "syncBlock",
-                        blockNumber: job.payload.blockNumber,
-                    });
-                    return;
-                }
-                const range: SyncRange = {
-                    fromBlock: job.payload.blockNumber,
-                    toBlock: job.payload.blockNumber,
-                };
-                const { data, blocks } = await processSyncRange({
-                    rpc: primaryRpc,
-                    reorgDepth: config.sync.reorgDepth,
-                    storage,
-                    commit,
-                    canonicalChecks,
-                    sources: [domainSyncSource(job)],
-                    mode: "realtime",
-                    completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
-                    collectionScopeResolver: collectionRegistry,
-                    collectionExtensions,
-                    chainId: config.chainId,
-                    collections,
-                    range,
-                    bidderIndex,
-                    wethAddress: config.tokens.wethAddress,
-                    orderMaintenancePolicy:
-                        BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-                });
-                logger.info("Sync block processed", {
-                    component: SYNC_WORKER_LOG_COMPONENT,
-                    action: "syncBlock",
-                    blockNumber: job.payload.blockNumber,
-                    collectionIds: collections.map(
-                        (collection) => collection.id,
-                    ),
-                    blocks: blocks.length,
-                    transfers: data.collectionScoped.nftTransferEvents.length,
-                    nftApprovals:
-                        data.collectionScoped.nftApprovalEvents.length,
-                    balanceDeltas:
-                        data.collectionScoped.nftBalanceDeltas.length,
-                });
+                if (job.chainId !== config.chainId) return;
+                // Sampling retained the target before publication. Deliveries only
+                // wake the single owner; they cannot apply individual future blocks.
+                automaticSync.wake();
             },
             {
                 workScope: rpcAllocation.workScope,
@@ -258,7 +239,7 @@ async function main() {
                 canonicalChecks,
                 collectionsPort: collectionRegistry,
                 extensions: collectionExtensions,
-                bidderIndex,
+                wakeCurrentSync: () => automaticSync.wake(),
                 gate: backfillExecutionGate,
             }),
             {
@@ -266,37 +247,6 @@ async function main() {
                 apm: runtimeApm.apm,
                 spanName: "worker.backfillSync.consume",
             },
-        );
-
-        const stopAutomaticSync = startAutomaticSyncLoop(
-            new AutomaticSyncExecutor({
-                chainId: config.chainId,
-                rpc: backfillRpc,
-                storage,
-                commit,
-                canonicalChecks,
-                collectionsPort: collectionRegistry,
-                collectionExtensions,
-                bidderIndex,
-                wethAddress: config.tokens.wethAddress,
-                gaps: syncGapStore,
-                gapWorkEnabled:
-                    config.rpc.gapAllocation.mode !== GAP_FILL_MODE.Disabled,
-                workScope: rpcAllocation.workScope,
-                gapScheduler: new SyncGapScheduler(
-                    collectionRegistry,
-                    syncGapStore,
-                    {
-                        chainId: config.chainId,
-                        batchSize: config.sync.backfillBatchSize,
-                    },
-                ),
-                recoveries: reorgRecoveries,
-                gate: backfillExecutionGate,
-                batchSize: config.sync.backfillBatchSize,
-                reorgDepth: config.sync.reorgDepth,
-                observer: new AutomaticSyncMetrics(runtimeMetrics.metrics),
-            }),
         );
 
         logger.info("Sync worker ready", {
@@ -311,9 +261,8 @@ async function main() {
                 component: SYNC_WORKER_LOG_COMPONENT,
                 action: "shutdown",
             });
-            clearInterval(bidderRefreshTimer);
             await Promise.all([
-                stopAutomaticSync(),
+                automaticSync.stop(),
                 stopRealtime(),
                 stopBackfill(),
             ]);

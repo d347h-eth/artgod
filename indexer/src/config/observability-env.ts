@@ -35,7 +35,6 @@ const DEFAULT_INDEXER_METRICS_PORTS: IndexerMetricsPortsConfig = {
         "INDEXER_METRICS_PORT_SCHEDULER_WORKER",
     ),
     syncWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_SYNC_WORKER"),
-    reorgWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_REORG_WORKER"),
     domainWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_DOMAIN_WORKER"),
     offchainIngestWorker: getSettingDefaultNumber(
         "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER",
@@ -91,7 +90,6 @@ export type IndexerMetricsConfig = {
 export type IndexerMetricsPortsConfig = {
     schedulerWorker: number;
     syncWorker: number;
-    reorgWorker: number;
     domainWorker: number;
     offchainIngestWorker: number;
     openseaStreamWorker: number;
@@ -181,11 +179,6 @@ export function parseIndexerMetricsConfig(
                 env.INDEXER_METRICS_PORT_SYNC_WORKER,
                 "INDEXER_METRICS_PORT_SYNC_WORKER",
                 DEFAULT_INDEXER_METRICS_PORTS.syncWorker,
-            ),
-            reorgWorker: parseNumber(
-                env.INDEXER_METRICS_PORT_REORG_WORKER,
-                "INDEXER_METRICS_PORT_REORG_WORKER",
-                DEFAULT_INDEXER_METRICS_PORTS.reorgWorker,
             ),
             domainWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_DOMAIN_WORKER,

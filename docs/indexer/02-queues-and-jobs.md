@@ -244,7 +244,7 @@ bounded retry policy and sent receipts. Event-specific rows retain originating
 block identity and are removed by rollback; DB range projections remain pending
 because they reread canonical facts, including unfinished pre-fork work.
 
-Recent stored blocks retain hash checks in SQLite; the reorg worker reads them
+Recent stored blocks retain hash checks in SQLite; the sync coordinator reads them
 directly. A failed header read or mismatch-retention transaction leaves the
 check pending with durable backoff. Recovery handoff consumes it atomically,
 without a check queue or DLQ. Manual/bootstrap backfills still renew long-running
