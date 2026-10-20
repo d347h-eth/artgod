@@ -91,7 +91,10 @@ describe.each(["scalar", "snapshot"] as const)(
                 return validateSeaportOrder(
                     rpc,
                     warmConduits,
-                    { conduitController: HEAVY_MAKER.controller },
+                    {
+                        conduitController: HEAVY_MAKER.controller,
+                        timestamp: BULK_ORDER_OBSERVED_AT,
+                    },
                     order,
                 );
             const snapshot = await snapshotFactory(rpc)({

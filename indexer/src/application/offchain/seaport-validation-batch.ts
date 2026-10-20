@@ -226,7 +226,10 @@ export function createSeaportOrderValidationFactory(
                     const result = await validateSeaportOrder(
                         pinnedRpc,
                         conduits,
-                        { conduitController: input.conduitController },
+                        {
+                            conduitController: input.conduitController,
+                            timestamp: block.timestamp,
+                        },
                         order,
                     );
                     // A failed dependency poisons this snapshot, even if the validator

@@ -50,6 +50,7 @@ const READY_JOINS =
     "JOIN chain_sync_progress p ON p.chain_id=d.chain_id " +
     "LEFT JOIN chain_sync_revisions r ON r.chain_id=d.chain_id " +
     "JOIN collection_sync_progress c ON c.chain_id=d.chain_id AND c.collection_id=o.collection_id " +
+    "JOIN blocks vb ON vb.chain_id=d.chain_id AND vb.block_number=MIN(p.applied_block,c.applied_block) " +
     "JOIN collections co ON co.chain_id=c.chain_id AND co.collection_id=c.collection_id " +
     "LEFT JOIN chain_head_samples s ON s.chain_id=d.chain_id AND s.revision=p.revision AND s.admission_watermark=(SELECT MIN(h.admission_watermark) FROM chain_head_samples h WHERE h.chain_id=d.chain_id AND h.revision=p.revision AND h.admission_watermark>=d.admission_sequence) " +
     "LEFT JOIN blocks sb ON sb.chain_id=s.chain_id AND sb.block_number=s.block_number AND sb.block_hash=s.block_hash " +
@@ -57,6 +58,9 @@ const READY_JOINS =
 const READY_WHERE =
     "WHERE d.chain_id=@chainId AND d.pending=1 AND d.next_attempt_at<=@now AND d.lease_until<=@now " +
     "AND o.validation_ready=1 AND o.kind=@kind AND o.source_status=@active AND (o.valid_until IS NULL OR o.valid_until>@nowSeconds) AND o.fillability_status NOT IN (@filled,@cancelled,@expired) AND p.revision=COALESCE(r.revision,0) AND c.revision=p.revision " +
+    // Signed start is a checkpoint-time prerequisite, not terminal expiry or a
+    // lost obligation. Exclude waiting orders before LIMIT and lease acquisition.
+    "AND (o.valid_from IS NULL OR o.valid_from<=vb.timestamp) " +
     "AND co.bootstrap_anchor_block=c.anchor_block AND co.status IN (@live,@bootstrapping) AND MIN(p.applied_block,c.applied_block)>=p.anchor_block " +
     "AND p.disputed_from IS NULL AND NOT EXISTS(SELECT 1 FROM chain_reorg_recoveries recovery WHERE recovery.chain_id=d.chain_id) " +
     "AND (d.admission_sequence=0 OR (s.block_number<=MIN(p.applied_block,c.applied_block) AND sb.block_hash IS NOT NULL)) " +

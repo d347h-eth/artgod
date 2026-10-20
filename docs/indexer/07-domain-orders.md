@@ -128,6 +128,13 @@ orders. A snapshot stops accepting work after five seconds and expires after
 unacknowledged slot. Per-order retry/isolation prevents one failing declaration
 from repeatedly blocking unrelated work. Local quota deferral releases claims;
 RPC uncertainty cannot become a protocol-invalid result.
+Future-start declarations retain ordinary pending demand without occupying
+leases or RPC capacity. Claims become ready when the accepted shared/collection
+checkpoint reaches the signed start time, independently of source replay or
+process restart. Full validation evaluates the signed validity interval against
+that checkpoint's timestamp; local wall time still bounds work lifetimes,
+freshness and conservative expiry. A not-yet-started result is nonterminal,
+while the signed end time remains exclusive and terminal.
 
 ## OpenSea Sale Hints
 

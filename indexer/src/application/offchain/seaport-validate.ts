@@ -18,6 +18,8 @@ import {
     ORDER_STATUS,
     ORDER_SIDE,
     ORDER_VALIDATION_REASON,
+    ORDER_VALIDITY_STATE,
+    resolveOrderValidityState,
     type OrderRecord,
     type OrderValidationReason,
     type OrderValidationResult,
@@ -59,8 +61,10 @@ const CONDUIT_CONTROLLER_ABI = [
 const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-type SeaportValidationConfig = {
+type SeaportValidationContext = {
     conduitController: string;
+    /** Signed validity is evaluated at the same accepted block as contract reads. */
+    timestamp: number;
 };
 
 type OrderParameters = {
@@ -97,7 +101,7 @@ type ParsedProtocol = {
 export async function validateSeaportOrder(
     rpc: Pick<RpcProviderPort, "readContract" | "getBalance">,
     conduits: ConduitRegistryPort,
-    config: SeaportValidationConfig,
+    config: SeaportValidationContext,
     order: OrderRecord,
 ): Promise<OrderValidationResult> {
     let parsed: ParsedProtocol | null = null;
@@ -190,14 +194,20 @@ export async function validateSeaportOrder(
         });
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    if (now < Number(parsed.parameters.startTime)) {
+    const validity = resolveOrderValidityState(
+        {
+            validFrom: Number(parsed.parameters.startTime),
+            validUntil: Number(parsed.parameters.endTime),
+        },
+        config.timestamp,
+    );
+    if (validity === ORDER_VALIDITY_STATE.NotStarted) {
         return {
-            status: ORDER_STATUS.Expired,
+            status: ORDER_STATUS.Unvalidated,
             reason: ORDER_VALIDATION_REASON.NotActive,
         };
     }
-    if (now > Number(parsed.parameters.endTime)) {
+    if (validity === ORDER_VALIDITY_STATE.Expired) {
         return {
             status: ORDER_STATUS.Expired,
             reason: ORDER_VALIDATION_REASON.Expired,

@@ -58,6 +58,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -90,6 +91,7 @@ describe("validateSeaportOrder", () => {
                 rpc,
                 new MemoryConduitRegistry(),
                 {
+                    timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                     conduitController:
                         "0x00000000f9490004c11cef243f5400493c00ad63",
                 },
@@ -114,6 +116,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -144,6 +147,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -174,12 +178,12 @@ describe("validateSeaportOrder", () => {
             maker: normalized.maker,
             contract: normalized.contract,
         });
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
 
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1769383500,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
@@ -197,8 +201,6 @@ describe("validateSeaportOrder", () => {
             "ownerOf",
             "isApprovedForAll",
         ]);
-
-        nowSpy.mockRestore();
     });
 
     it("verifies a compact OpenSea stream order signature with Seaport typed data", async () => {
@@ -214,12 +216,12 @@ describe("validateSeaportOrder", () => {
             conduitAddress: SEAPORT_CONDUIT,
             channels: [SEAPORT],
         });
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1777214700 * 1000);
 
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1777214700,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -250,8 +252,6 @@ describe("validateSeaportOrder", () => {
             "allowance",
             "balanceOf",
         ]);
-
-        nowSpy.mockRestore();
     });
 
     it("invalidates a stream order when the recovered signer does not match maker", async () => {
@@ -261,11 +261,11 @@ describe("validateSeaportOrder", () => {
         if (!normalized) return;
 
         const rpc = new MockRpc();
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1769383500,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
@@ -278,8 +278,6 @@ describe("validateSeaportOrder", () => {
             status: ORDER_STATUS.Invalid,
             reason: ORDER_VALIDATION_REASON.BadSignature,
         });
-
-        nowSpy.mockRestore();
     });
 
     it("returns invalid instead of throwing when getOrderStatus fails", async () => {
@@ -292,6 +290,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -328,7 +327,10 @@ describe("validateSeaportOrder", () => {
                 const result = await validateSeaportOrder(
                     new MockRpc({ failFunction }),
                     new MemoryConduitRegistry(),
-                    { conduitController: SEAPORT_CONDUIT },
+                    {
+                        timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
+                        conduitController: SEAPORT_CONDUIT,
+                    },
                     buildOrderRecord({
                         id: computeSeaportOrderHash(data),
                         side: ORDER_SIDE.Buy,
@@ -358,7 +360,10 @@ describe("validateSeaportOrder", () => {
             const result = await validateSeaportOrder(
                 new MockRpc(),
                 new MemoryConduitRegistry(),
-                { conduitController: SEAPORT_CONDUIT },
+                {
+                    timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
+                    conduitController: SEAPORT_CONDUIT,
+                },
                 buildOrderRecord({ seaportData: data }),
             );
             expect(result.status).toBe(ORDER_STATUS.Invalid);
@@ -380,6 +385,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
