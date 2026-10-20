@@ -16,7 +16,7 @@ export class RetainCanonicalOrderEffects implements CanonicalOrderEffectsPort {
     constructor(
         private readonly ports: {
             orders: CanonicalOrderProjectionPort;
-            makers: Pick<MakerRevalidationStore, "admit">;
+            makers: Pick<MakerRevalidationStore, "admit" | "scheduleWakeup">;
         },
     ) {}
 
@@ -37,13 +37,16 @@ export class RetainCanonicalOrderEffects implements CanonicalOrderEffectsPort {
                     input.now,
                 );
             } else {
-                this.ports.makers.admit({
+                const run = this.ports.makers.admit({
                     jobId: canonicalOrderEffectId(effect),
                     payload: effect.payload,
                     // Chain coverage, never source/delivery time, establishes the
                     // obligation. The maker store captures its finite scan boundary.
                     now: input.now,
                 });
+                // Only admitted scopes need delivery. Admission and the existing
+                // idempotent continuation share the enclosing sync transaction.
+                if (run) this.ports.makers.scheduleWakeup(run, input.now);
             }
         }
     }

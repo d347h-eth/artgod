@@ -1,4 +1,7 @@
-import type { OrderUpdateByMakerPayload } from "./order-jobs.js";
+import type {
+    OrderMakerContinuationPayload,
+    OrderUpdateByMakerPayload,
+} from "./order-jobs.js";
 import {
     SYNC_WORK_CLASS,
     decodeSyncWorkClass,
@@ -6,7 +9,6 @@ import {
     type SyncWorkClass,
 } from "@artgod/shared/types/sync-work-class";
 import type { OrderRecord } from "./orders.js";
-import type { QueueDeliveryOrigin } from "./jobs.js";
 import type { JobEnvelope, QueuePublication } from "./jobs.js";
 import { ORDER_JOB_KIND } from "./order-jobs.js";
 import type { QueueName } from "./queues.js";
@@ -63,7 +65,7 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     failures: number;
     wakeupOutboxId: number | null;
     wakeupGeneration: number;
-    scopeKey: string | null;
+    scopeKey: string;
     generation: number;
     passGeneration: number;
     passStartedAt: number;
@@ -75,7 +77,6 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     requestedObservationKey: string | null;
     requestedAt: number;
     requestedPayload: OrderUpdateByMakerPayload;
-    origin?: QueueDeliveryOrigin;
 };
 
 const MAKER_VALIDATION_SCOPE = {
@@ -178,16 +179,17 @@ export type MakerWakeup = {
 export function makerContinuationJob(
     run: MakerRevalidationRun,
     now: number,
-): JobEnvelope<OrderUpdateByMakerPayload> {
+): JobEnvelope<OrderMakerContinuationPayload> {
     return {
         jobId: `orders:update:maker:continue:${run.runId}:${run.step}:${run.wakeupGeneration}`,
-        kind: ORDER_JOB_KIND.UpdateByMaker,
+        kind: ORDER_JOB_KIND.ContinueMaker,
         queue: makerUpdateQueue(run.payload),
         chainId: run.chainId,
         workClass: makerWorkClass(run),
         payload: {
-            ...run.payload,
-            continuation: { runId: run.runId, step: run.step },
+            chainId: run.chainId,
+            runId: run.runId,
+            step: run.step,
         },
         attempt: 0,
         scheduledAt: now,

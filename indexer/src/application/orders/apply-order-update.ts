@@ -21,7 +21,7 @@ export class ApplyOrderUpdate {
     async execute(payload: OrderUpdateByIdPayload): Promise<void> {
         if (payload.chainId !== this.deps.chainId || !payload.orderId)
             throw new Error("Invalid order update identity");
-        // Keep transport vocabulary validation shared with both accepted queues.
+        // Share source vocabulary validation with the offchain publisher.
         orderUpdateQueue(payload);
         await observeProcessing(
             this.deps.observability,

@@ -16,9 +16,11 @@ import {
 } from "./helpers/reorg-recovery-fixture.js";
 import { OPENSEA_STREAM_INGESTION_STATUS } from "@artgod/shared/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildOrderUpdateFollowUps } from "../src/application/order-update-fanout.js";
+import {
+    buildCanonicalOrderEffects,
+    type CanonicalOrderEffect,
+} from "../src/domain/canonical-order-effects.js";
 import { CollectionRecord } from "../src/domain/collections.js";
-import type { JobEnvelope } from "../src/domain/jobs.js";
 import {
     COLLECTION_SCOPED_MAKER_TRIGGER_REASON,
     GLOBAL_MAKER_TRIGGER_REASON,
@@ -30,7 +32,6 @@ import {
     ORDER_JOB_KIND,
     type OrderUpdateByMakerPayload,
 } from "../src/domain/order-jobs.js";
-import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 
 describe("backfill order maintenance", () => {
@@ -75,18 +76,19 @@ describe("backfill order maintenance", () => {
             ),
         );
 
-        const jobs = buildOrderUpdateFollowUps(
-            1,
-            [collectionWithAnchor(100)],
-            data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-            false,
-        ).map((followUp) => followUp.job);
+        const jobs = buildCanonicalOrderEffects({
+            chainId: 1,
+            collections: [collectionWithAnchor(100)],
+            data: data,
+            orderMaintenancePolicy:
+                BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
+            applyingShared: false,
+        });
 
         expect(jobs).toEqual([]);
     });
 
-    it("keeps global maker fanout for current-state repair policy", async () => {
+    it("keeps global maker effects for current-state repair policy", async () => {
         const data = emptyOnChainData();
         data.global.makerTriggers.push(
             globalTrigger(
@@ -96,13 +98,14 @@ describe("backfill order maintenance", () => {
             ),
         );
 
-        const jobs = buildOrderUpdateFollowUps(
-            1,
-            [collectionWithAnchor(100)],
-            data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            true,
-        ).map((followUp) => followUp.job);
+        const jobs = buildCanonicalOrderEffects({
+            chainId: 1,
+            collections: [collectionWithAnchor(100)],
+            data: data,
+            orderMaintenancePolicy:
+                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            applyingShared: true,
+        });
 
         expect(orderUpdateByMakerPayloads(jobs)).toEqual([
             expect.objectContaining({
@@ -112,7 +115,7 @@ describe("backfill order maintenance", () => {
         ]);
     });
 
-    it("treats order-counter as policy-gated global maker fanout", async () => {
+    it("treats order-counter as policy-gated global maker effects", async () => {
         const currentStateData = emptyOnChainData();
         currentStateData.global.makerTriggers.push(
             globalTrigger(
@@ -121,13 +124,14 @@ describe("backfill order maintenance", () => {
                 5,
             ),
         );
-        const currentStateJobs = buildOrderUpdateFollowUps(
-            1,
-            [collectionWithAnchor(100)],
-            currentStateData,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-            true,
-        ).map((followUp) => followUp.job);
+        const currentStateJobs = buildCanonicalOrderEffects({
+            chainId: 1,
+            collections: [collectionWithAnchor(100)],
+            data: currentStateData,
+            orderMaintenancePolicy:
+                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            applyingShared: true,
+        });
 
         const manualData = emptyOnChainData();
         manualData.global.makerTriggers.push(
@@ -137,13 +141,14 @@ describe("backfill order maintenance", () => {
                 5,
             ),
         );
-        const manualJobs = buildOrderUpdateFollowUps(
-            1,
-            [collectionWithAnchor(100)],
-            manualData,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
-            false,
-        ).map((followUp) => followUp.job);
+        const manualJobs = buildCanonicalOrderEffects({
+            chainId: 1,
+            collections: [collectionWithAnchor(100)],
+            data: manualData,
+            orderMaintenancePolicy:
+                BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
+            applyingShared: false,
+        });
 
         expect(orderUpdateByMakerPayloads(currentStateJobs)).toEqual([
             expect.objectContaining({
@@ -156,15 +161,10 @@ describe("backfill order maintenance", () => {
 });
 
 function orderUpdateByMakerPayloads(
-    jobs: JobEnvelope[],
+    jobs: CanonicalOrderEffect[],
 ): OrderUpdateByMakerPayload[] {
     return jobs
-        .filter(
-            (job) =>
-                (job.queue === QUEUE_NAMES.OrdersUpdateByMaker ||
-                    job.queue === QUEUE_NAMES.OrdersUpdateByToken) &&
-                job.kind === ORDER_JOB_KIND.UpdateByMaker,
-        )
+        .filter((job) => job.kind === ORDER_JOB_KIND.UpdateByMaker)
         .map((job) => job.payload as OrderUpdateByMakerPayload);
 }
 
@@ -294,8 +294,6 @@ describe("current protocol acquisition ownership", () => {
                 range: { fromBlock, toBlock: fromBlock },
                 application,
                 wethAddress: REORG_FIXTURE.Weth,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             });
         return { ...f, collections, rpc, logs, acquire };
     }

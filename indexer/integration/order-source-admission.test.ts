@@ -100,22 +100,21 @@ it("ACKs durable source demand while sync is behind, serves unrelated ready work
         stopWorker = await runWorker(
             queue,
             {
-                queue: QUEUE_NAMES.OrdersUpdateById,
+                queue: QUEUE_NAMES.OrderLifecycle,
                 consumerName,
                 ...ORDER_UPDATE_WORKER_POLICY,
             },
             orderUpdateHandler({
                 chainId: 1,
-                queueName: QUEUE_NAMES.OrdersUpdateById,
                 apply: new ApplyOrderUpdate({ chainId: 1, lifecycle: domain }),
             }),
         );
         const publish = (id: string, payload: OrderUpdateByIdPayload) =>
-            queue.publish(QUEUE_NAMES.OrdersUpdateById, {
+            queue.publish(QUEUE_NAMES.OrderLifecycle, {
                 jobId: id,
                 kind: ORDER_JOB_KIND.UpdateById,
                 chainId: 1,
-                queue: QUEUE_NAMES.OrdersUpdateById,
+                queue: QUEUE_NAMES.OrderLifecycle,
                 scheduledAt: Date.now(),
                 attempt: 0,
                 payload,
@@ -125,6 +124,8 @@ it("ACKs durable source demand while sync is behind, serves unrelated ready work
         await publish("sale-not-yet-seen", {
             chainId: 1,
             orderId: sale,
+            collectionId: heavyMakerOrder(0).collectionId,
+            observedAt: now,
             source: "opensea",
             reason: ORDER_UPDATE_REASON.SourceExecution,
             executionTransactionHash: HEAVY_MAKER.saleTransactionHash,
@@ -138,17 +139,7 @@ it("ACKs durable source demand while sync is behind, serves unrelated ready work
             heavyMakerBlock(1001),
             Date.now(),
         );
-        await publish("unrelated-ready", {
-            chainId: 1,
-            orderId: ready,
-            reason: ORDER_UPDATE_REASON.Validation,
-            blockNumber: 1000,
-            blockHash: HEAVY_MAKER.blockHash,
-        });
-        await waitForFixture(
-            () => demand.get(1, ready)?.pending === true,
-            "unrelated ready admission",
-        );
+        expect(demand.get(1, ready)?.pending).toBe(true);
         const manager = await broker.connection.jetstreamManager();
         await waitForFixture(async () => {
             const info = await manager.consumers.info(

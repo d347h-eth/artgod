@@ -885,7 +885,7 @@ describe("isolated broker and process reorg recovery", () => {
                     "SELECT COUNT(*) AS count FROM queue_outbox WHERE status = ? AND json_extract(job_json, '$.workClass') = ?",
                 )
                 .get(QUEUE_OUTBOX_STATUS.Pending, SYNC_WORK_CLASS.Main),
-        ).toEqual({ count: 8 });
+        ).toEqual({ count: 6 });
         await acquired.kill();
         await restartedBroker();
         const resumed = await worker();

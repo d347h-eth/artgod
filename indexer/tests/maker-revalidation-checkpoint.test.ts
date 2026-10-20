@@ -1,3 +1,4 @@
+import { gapConsumerName } from "@artgod/shared/queue/nats-job-stream";
 import { persistCanonicalBlocks } from "../src/infra/storage/sqlite-canonical-headers.js";
 import { captureChainSyncCheckpoint } from "../src/infra/storage/sqlite-chain-revisions.js";
 import { SYNC_WORK_CLASS as WORK_CLASS } from "@artgod/shared/types/sync-work-class";
@@ -24,6 +25,7 @@ import type { JobEnvelope } from "../src/domain/jobs.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByMakerPayload,
+    type OrderMakerContinuationPayload,
 } from "../src/domain/order-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
@@ -46,11 +48,7 @@ import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-reval
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import type { MakerOrderProjectionPort } from "../src/ports/maker-revalidation.js";
-import type {
-    QueueMessage,
-    QueuePort,
-    QueueReplayBoundary,
-} from "../src/ports/queue.js";
+import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
 import {
     HEAVY_MAKER,
     heavyMakerBlock,
@@ -89,7 +87,6 @@ const now = HEAVY_MAKER.now * 1_000;
 function workflow(
     rpc = new HeavyMakerRpc(),
     wrap?: (orders: SqliteOrdersDomain) => MakerOrderProjectionPort,
-    replayBoundary?: (consumerName: string) => Promise<QueueReplayBoundary>,
 ) {
     // The canonical producer has committed this header; these tests isolate local expansion/replay bookkeeping.
     db.writeTransaction(() =>
@@ -106,7 +103,7 @@ function workflow(
         demand,
         HEAVY_MAKER.weth,
     );
-    const processor = new RevalidateMakerOrders({ store, replayBoundary });
+    const processor = new RevalidateMakerOrders({ store });
     // Checkpoint cases exhaust durable steps locally; broker admission is tested separately.
     const executeAll = async (
         input: Parameters<RevalidateMakerOrders["execute"]>[0],
@@ -120,9 +117,10 @@ function workflow(
                 .prepare("SELECT job_json FROM queue_outbox WHERE outbox_id=?")
                 .get(run.wakeupOutboxId) as { job_json: string };
             const job = JSON.parse(row.job_json);
-            await processor.execute({
+            await processor.resume({
                 jobId: job.jobId,
                 payload: job.payload,
+                queueName: job.queue,
                 origin: input.origin,
             });
             run = store.get(run.runId)!;
@@ -158,7 +156,7 @@ describe("durable maker checkpoints", () => {
 
     function continuation(
         work: ReturnType<typeof workflow>,
-    ): JobEnvelope<OrderUpdateByMakerPayload> {
+    ): JobEnvelope<OrderMakerContinuationPayload> {
         const run = work.store.admit({ ...request, now: Date.now() });
         const row = db
             .prepare("SELECT job_json FROM queue_outbox WHERE outbox_id=?")
@@ -166,95 +164,84 @@ describe("durable maker checkpoints", () => {
         return JSON.parse(row.job_json);
     }
 
-    it.each(["storage", "broker-boundary"])(
-        "retains a maker trigger past the retry ceiling when %s fails before admission",
-        async (fault) => {
-            vi.spyOn(logger, "warn").mockImplementation(() => {});
-            seedHeavyMaker(1);
-            let unavailable = true;
-            const work = workflow(new HeavyMakerRpc(), undefined, async () => {
-                if (fault === "broker-boundary" && unavailable)
-                    throw new Error("Replay metadata unavailable");
-                return { ...origin, ackFloor: origin.sequence - 1 };
-            });
-            let deliver!: (
-                message: QueueMessage<OrderUpdateByMakerPayload>,
-            ) => Promise<void>;
-            const publish = vi.fn();
-            const queue: QueuePort = {
-                publish,
-                async subscribe(_queue, handler) {
-                    deliver = handler as typeof deliver;
-                    return async () => {};
-                },
-                async close() {},
-            };
-            await runWorker<OrderUpdateByMakerPayload>(
-                queue,
-                {
-                    queue: QUEUE_NAMES.OrdersUpdateByMaker,
-                    consumerName: origin.consumerName,
-                    maxAttempts: 1,
-                    deadLetterQueue: QUEUE_NAMES.DeadLetter,
-                },
-                (job, deliveryOrigin) =>
-                    work.stepProcessor.execute({
-                        jobId: job.jobId,
-                        payload: job.payload,
+    it("retains a maker trigger past the retry ceiling when storage fails before admission", async () => {
+        vi.spyOn(logger, "warn").mockImplementation(() => {});
+        seedHeavyMaker(1);
+        const work = workflow();
+        let deliver!: (
+            message: QueueMessage<OrderUpdateByMakerPayload>,
+        ) => Promise<void>;
+        const publish = vi.fn();
+        const queue: QueuePort = {
+            publish,
+            async subscribe(_queue, handler) {
+                deliver = handler as typeof deliver;
+                return async () => {};
+            },
+            async close() {},
+        };
+        await runWorker<OrderUpdateByMakerPayload>(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                consumerName: origin.consumerName,
+                maxAttempts: 1,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            (job, deliveryOrigin) =>
+                work.stepProcessor.execute({
+                    jobId: job.jobId,
+                    payload: job.payload,
 
-                        origin: deliveryOrigin,
-                    }),
-            );
-            const message: QueueMessage<OrderUpdateByMakerPayload> = {
-                data: {
-                    ...request,
-                    kind: ORDER_JOB_KIND.UpdateByMaker,
-                    queue: QUEUE_NAMES.OrdersUpdateByMaker,
-                    chainId: HEAVY_MAKER.chainId,
-                    scheduledAt: now,
-                    attempt: 50,
-                },
-                origin,
-                ack: vi.fn(async () => {}),
-                nack: vi.fn(async () => {}),
-                touch: vi.fn(async () => {}),
-            };
-            if (fault === "storage")
-                db.exec(
-                    "CREATE TEMP TRIGGER reject_maker_admission BEFORE INSERT ON maker_order_revalidation_runs BEGIN SELECT RAISE(ABORT,'fixture admission failure'); END;",
-                );
-            try {
-                await deliver(message);
-                expect(message.ack).not.toHaveBeenCalled();
-                expect(publish).not.toHaveBeenCalled();
-                expect(message.nack).toHaveBeenCalledWith({
-                    delayMs: POLICY.admissionRetryMs,
-                });
-                expect(
-                    db
-                        .prepare(
-                            "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
-                        )
-                        .get(),
-                ).toEqual({ count: 0 });
-                expect(work.rpc.reads).toEqual({});
-            } finally {
-                if (fault === "storage")
-                    db.exec("DROP TRIGGER reject_maker_admission");
-                unavailable = false;
-            }
+                    origin: deliveryOrigin!,
+                }),
+        );
+        const message: QueueMessage<OrderUpdateByMakerPayload> = {
+            data: {
+                ...request,
+                kind: ORDER_JOB_KIND.UpdateByMaker,
+                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                chainId: HEAVY_MAKER.chainId,
+                scheduledAt: now,
+                attempt: 50,
+            },
+            origin,
+            ack: vi.fn(async () => {}),
+            nack: vi.fn(async () => {}),
+            touch: vi.fn(async () => {}),
+        };
+        db.exec(
+            "CREATE TEMP TRIGGER reject_maker_admission BEFORE INSERT ON maker_order_revalidation_runs BEGIN SELECT RAISE(ABORT,'fixture admission failure'); END;",
+        );
+        try {
             await deliver(message);
-            expect(message.ack).toHaveBeenCalledOnce();
+            expect(message.ack).not.toHaveBeenCalled();
             expect(publish).not.toHaveBeenCalled();
-            expect(work.rpc.reads).toEqual({});
-            expect(work.store.admit({ ...request, now })).toMatchObject({
-                status: STATUS.Completed,
-                deferredOrders: 1,
+            expect(message.nack).toHaveBeenCalledWith({
+                delayMs: POLICY.admissionRetryMs,
             });
-        },
-    );
+            expect(
+                db
+                    .prepare(
+                        "SELECT COUNT(*) AS count FROM maker_order_revalidation_runs",
+                    )
+                    .get(),
+            ).toEqual({ count: 0 });
+            expect(work.rpc.reads).toEqual({});
+        } finally {
+            db.exec("DROP TRIGGER reject_maker_admission");
+        }
+        await deliver(message);
+        expect(message.ack).toHaveBeenCalledOnce();
+        expect(publish).not.toHaveBeenCalled();
+        expect(work.rpc.reads).toEqual({});
+        expect(work.store.admit({ ...request, now })).toMatchObject({
+            status: STATUS.Completed,
+            deferredOrders: 1,
+        });
+    });
 
-    it("retains gap continuations, promotes coalesced main demand and resets completed priority", async () => {
+    it("routes background admission to main continuations and retains requested work class", async () => {
         seedHeavyMaker(150);
         const work = workflow();
         const background = {
@@ -273,7 +260,12 @@ describe("durable maker checkpoints", () => {
             ).job_json,
         ) as JobEnvelope<OrderUpdateByMakerPayload>;
         expect(before.workClass).toBe(WORK_CLASS.Main);
-        expect(before.payload.workClass).toBe(WORK_CLASS.Main);
+        expect(before.kind).toBe(ORDER_JOB_KIND.ContinueMaker);
+        expect(before.payload).toEqual({
+            chainId: run.chainId,
+            runId: run.runId,
+            step: run.step,
+        });
         const main = {
             ...background,
             jobId: "main-promotion",
@@ -379,6 +371,108 @@ describe("durable maker checkpoints", () => {
         expect(work.store.get(first.runId)?.status).toBe(STATUS.Completed);
     });
 
+    it("uses the stored scope for compact continuation routing and never recreates cleaned work", async () => {
+        seedHeavyMaker(150);
+        const work = workflow();
+        await work.stepProcessor.execute(request);
+        const next = continuation(work);
+        expect(next.kind).toBe(ORDER_JOB_KIND.ContinueMaker);
+        expect(Object.keys(next.payload).sort()).toEqual([
+            "chainId",
+            "runId",
+            "step",
+        ]);
+        const resume = {
+            jobId: next.jobId,
+            payload: next.payload,
+            queueName: next.queue,
+            origin,
+        };
+        await expect(
+            work.stepProcessor.resume({
+                ...resume,
+                queueName: QUEUE_NAMES.OrdersUpdateByToken,
+            }),
+        ).rejects.toThrow("Invalid maker continuation identity");
+        await expect(
+            work.stepProcessor.resume({
+                ...resume,
+                payload: { ...next.payload, chainId: 2 },
+            }),
+        ).rejects.toThrow("Invalid maker continuation identity");
+        await expect(
+            work.stepProcessor.resume({
+                ...resume,
+                payload: { ...next.payload, step: next.payload.step + 1 },
+            }),
+        ).rejects.toThrow("Invalid maker continuation identity");
+        await work.stepProcessor.resume(resume);
+        const complete = work.store.get(next.payload.runId)!;
+        await work.stepProcessor.resume(resume);
+        expect(work.store.get(complete.runId)).toEqual(complete);
+        db.prepare("DELETE FROM orders WHERE maker=?").run(HEAVY_MAKER.maker);
+        expect(
+            work.store.cleanup({ ...origin, ackFloor: origin.sequence }, 100),
+        ).toBe(1);
+        await work.stepProcessor.resume(resume);
+        expect(work.store.get(complete.runId)).toBeUndefined();
+    });
+
+    it("hands failed admitted expansion to periodic recovery only after durable release", async () => {
+        seedHeavyMaker(150);
+        const work = workflow();
+        vi.spyOn(work.store, "expand").mockImplementationOnce(() => {
+            throw new Error("page storage interrupted");
+        });
+        await work.stepProcessor.execute(request);
+        const run = work.store.admit({ ...request, now })!;
+        expect(run).toMatchObject({
+            status: STATUS.Pending,
+            leaseOwner: null,
+            afterId: "",
+            failures: 1,
+        });
+        const recoveryAt = now + POLICY.recoveryGraceMs + 1;
+        expect(
+            await recoverMakerRevalidations(
+                {
+                    store: work.store,
+                    isPublicationPending: async () => false,
+                    replayBoundaries: async () => [
+                        { ...origin, ackFloor: origin.sequence },
+                    ],
+                },
+                recoveryAt,
+            ),
+        ).toBe(1);
+        const next = continuation(work);
+        await work.stepProcessor.resume({
+            jobId: next.jobId,
+            payload: next.payload,
+            queueName: next.queue,
+            origin,
+        });
+        expect(work.store.get(run.runId)?.deferredOrders).toBe(100);
+    });
+
+    it("does not acknowledge expansion failure when durable release is uncertain", async () => {
+        seedHeavyMaker(150);
+        const work = workflow();
+        vi.spyOn(work.store, "expand").mockImplementationOnce(() => {
+            throw new Error("page storage interrupted");
+        });
+        vi.spyOn(work.store, "release").mockImplementationOnce(() => {
+            throw new Error("release unavailable");
+        });
+        await expect(work.stepProcessor.execute(request)).rejects.toThrow(
+            "release unavailable",
+        );
+        expect(work.store.admit({ ...request, now })).toMatchObject({
+            status: STATUS.Pending,
+            afterId: "",
+        });
+    });
+
     it("recovers publication exhaustion including publish-success followed by a failed sent write", async () => {
         const telemetry = await processingTelemetry();
         seedHeavyMaker(150);
@@ -427,15 +521,14 @@ describe("durable maker checkpoints", () => {
             ),
         ).toBe(1);
         expect(continuation(work).jobId).not.toBe(old.jobId);
-        expect(continuation(work).payload.continuation).toEqual(
-            old.payload.continuation,
-        );
+        expect(continuation(work).payload).toEqual(old.payload);
         expect(
             db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
         ).toEqual({ count: 1 });
-        await work.stepProcessor.execute({
+        await work.stepProcessor.resume({
             jobId: old.jobId,
             payload: old.payload,
+            queueName: old.queue,
             origin,
         });
         await work.processor.execute(request);
@@ -570,14 +663,9 @@ describe("durable maker checkpoints", () => {
     it("recognizes completion after a lost ACK and cleans only behind a matching broker boundary", async () => {
         seedHeavyMaker(3);
         const work = workflow();
-        vi.mocked(logger.info).mockImplementation((_message, fields) => {
-            if (fields?.status === STATUS.Completed)
-                throw new Error("crash before ACK");
-        });
-        await expect(work.processor.execute(request)).rejects.toThrow(
-            "before ACK",
-        );
-        vi.mocked(logger.info).mockImplementation(() => {});
+        // Completion committed, but this delivery's ACK was lost. The next input
+        // is its broker replay, rather than another validation obligation.
+        await work.processor.execute(request);
         const calls = { ...work.rpc.reads };
         await work.processor.execute(request);
         expect(work.rpc.reads).toEqual(calls);
@@ -592,7 +680,7 @@ describe("durable maker checkpoints", () => {
         expect(work.store.cleanup({ ...origin, ackFloor: 10 }, 1)).toBe(1);
     });
 
-    it("requires every contributing consumer ACK floor and invalidates proof for a newer delivery", async () => {
+    it("requires every contributing main/gap consumer ACK floor and invalidates proof for a newer delivery", async () => {
         seedHeavyMaker(0);
         const work = workflow();
         const request = {
@@ -607,7 +695,7 @@ describe("durable maker checkpoints", () => {
         await work.processor.execute(request);
         const other = {
             ...origin,
-            consumerName: "targeted-fixture",
+            consumerName: gapConsumerName(origin.consumerName),
             sequence: 20,
         };
         await work.processor.execute({ ...request, origin: other });
@@ -678,7 +766,7 @@ describe("durable maker checkpoints", () => {
         };
         const second = {
             ...origin,
-            consumerName: "second-consumer",
+            consumerName: gapConsumerName(origin.consumerName),
             sequence: 30,
         };
         for (let i = 0; i < 4; i++) {

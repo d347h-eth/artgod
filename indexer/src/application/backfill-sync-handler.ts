@@ -93,7 +93,6 @@ export function createBackfillSyncHandler(input: {
             range,
             application: { kind: SYNC_APPLICATION_KIND.Historical },
             wethAddress: input.wethAddress,
-            orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
             sources: [domainSyncSource(job)],
             mode: "backfill",
             completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },

@@ -10,10 +10,6 @@ import {
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
-import {
-    LegacyOrderAdmission,
-    LEGACY_ORDER_ADMISSION_POLICY,
-} from "../src/infra/orders/legacy-order-admission.js";
 import { orderUpdateHandler } from "../src/infra/queue/order-update-handler.js";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
@@ -34,32 +30,7 @@ import { HEAVY_MAKER, seedHeavyMaker } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
-it("spaces legacy admission without an idle-time burst and tolerates an early timer", async () => {
-    let now = 0;
-    const waits: number[] = [];
-    let early = true;
-    const admission = new LegacyOrderAdmission(
-        () => now,
-        async (ms) => {
-            waits.push(ms);
-            if (early) {
-                early = false;
-                now += ms / 2;
-            } else now += ms;
-        },
-    );
-    await admission.enter();
-    await admission.enter();
-    expect(now).toBe(LEGACY_ORDER_ADMISSION_POLICY.intervalMs);
-    expect(waits).toHaveLength(2);
-    now += 60_000;
-    const resumed = now;
-    await admission.enter();
-    await admission.enter();
-    expect(now - resumed).toBe(LEGACY_ORDER_ADMISSION_POLICY.intervalMs);
-});
-
-describe("legacy queue durable admission", () => {
+describe("source queue durable admission", () => {
     loadTestEnv();
     beforeAll(async () => {
         setDbPath(await createTempDbPath());
@@ -98,28 +69,28 @@ describe("legacy queue durable admission", () => {
         await runWorker(
             queue,
             {
-                queue: QUEUE_NAMES.OrdersUpdateById,
-                consumerName: "fixture-legacy",
+                queue: QUEUE_NAMES.OrderLifecycle,
+                consumerName: "fixture-lifecycle",
                 ...ORDER_UPDATE_WORKER_POLICY,
             },
             orderUpdateHandler({
                 chainId: 1,
-                queueName: QUEUE_NAMES.OrdersUpdateById,
                 apply,
-                admission: { async enter() {} },
             }),
         );
         const message: QueueMessage<OrderUpdateByIdPayload> = {
             data: {
-                jobId: "legacy-observation",
+                jobId: "source-observation",
                 kind: ORDER_JOB_KIND.UpdateById,
-                queue: QUEUE_NAMES.OrdersUpdateById,
+                queue: QUEUE_NAMES.OrderLifecycle,
                 chainId: 1,
                 collectionId: sale.collectionId,
                 scheduledAt: HEAVY_MAKER.now * 1000,
                 attempt: 1,
                 payload: {
                     chainId: 1,
+                    collectionId: sale.collectionId,
+                    observedAt: HEAVY_MAKER.now,
                     orderId: sale.id,
                     reason: ORDER_UPDATE_REASON.Validation,
                     source: OFFCHAIN_ORDER_SOURCE.OpenSea,
@@ -225,6 +196,7 @@ describe("legacy queue durable admission", () => {
             const { sale, deliver, message } = await fixture();
             message.data.payload = {
                 chainId: 1,
+                collectionId: sale.collectionId,
                 source: OFFCHAIN_ORDER_SOURCE.OpenSea,
                 orderId: absent ? "unseen-order" : sale.id,
                 reason: ORDER_UPDATE_REASON.Cancel,
@@ -263,7 +235,7 @@ describe("legacy queue durable admission", () => {
         },
     );
 
-    it.each(["unknown-kind", "unknown-reason", "invalid-block"])(
+    it.each(["unknown-kind", "unknown-reason", "invalid-time"])(
         "keeps %s recoverable beyond the ordinary retry ceiling",
         async (fault) => {
             const { deliver, message, publish } = await fixture();
@@ -272,8 +244,7 @@ describe("legacy queue durable admission", () => {
                 message.data.kind = "future.order-update";
             if (fault === "unknown-reason")
                 message.data.payload.reason = "future-reason";
-            if (fault === "invalid-block")
-                message.data.payload.blockNumber = -1;
+            if (fault === "invalid-time") message.data.payload.observedAt = -1;
             await deliver(message);
             expect(message.ack).not.toHaveBeenCalled();
             expect(publish).not.toHaveBeenCalled();

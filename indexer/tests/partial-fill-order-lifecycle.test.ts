@@ -742,13 +742,15 @@ describe("partial-order lifecycle through the applied validation owner", () => {
         await initial(w);
         w.rpc.blockNumber = BLOCK;
         await w.chain.apply();
-        await w.update.execute({
-            chainId: 1,
-            orderId: ID,
-            reason: ORDER_UPDATE_REASON.Cancel,
-            blockNumber: BLOCK,
-            blockHash: hash(BLOCK),
-        });
+        await expect(
+            w.update.execute({
+                chainId: 1,
+                orderId: ID,
+                reason: ORDER_UPDATE_REASON.Cancel,
+                blockNumber: BLOCK,
+                blockHash: hash(BLOCK),
+            } as unknown as Parameters<ApplyOrderUpdate["execute"]>[0]),
+        ).rejects.toThrow("source");
         expect(row()?.fillability_status).toBe(ORDER_STATUS.Fillable);
         await canonical(w, ORDER_UPDATE_REASON.Cancel);
         expect(row()).toMatchObject({

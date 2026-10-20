@@ -124,7 +124,6 @@ export function metadataRangeFixture(input: {
             ],
             "backfill",
             data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             result.application,
         );
         services.commit.commitSyncRange({

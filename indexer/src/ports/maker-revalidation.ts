@@ -6,6 +6,7 @@ import type {
     MakerWakeup,
 } from "../domain/maker-revalidation.js";
 import type { QueueDeliveryOrigin, QueueReplayBoundary } from "./queue.js";
+import type { QueueName } from "../domain/queues.js";
 
 /** Domain projection behavior used inside the checkpoint adapter's write transaction. */
 export interface MakerOrderProjectionPort {
@@ -38,7 +39,8 @@ export interface MakerRevalidationStore {
         chainId: number;
         runId: string;
         step: number;
-        origin?: QueueDeliveryOrigin;
+        queueName: QueueName;
+        origin: QueueDeliveryOrigin;
     }): MakerRevalidationRun | null;
     /** Expand one bounded page into ordinary demand and advance the cursor atomically.
      * Completion means durable accounting, never successful protocol validation. */

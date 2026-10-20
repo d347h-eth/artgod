@@ -15,7 +15,6 @@ import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 import { resolveIndexerCollectionExtension } from "./collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import { decodeWethMakerInfos, WETH_EVENT_FILTERS } from "./ft/weth.js";
-import { buildOrderUpdateFollowUps } from "./order-update-fanout.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -28,7 +27,6 @@ import {
     type MetadataRefreshRangePayload,
 } from "../domain/domain-jobs.js";
 import type { OnChainData } from "../domain/onchain.js";
-import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { Hex, RpcBlock, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort, SyncRangeResult } from "../ports/storage.js";
@@ -56,7 +54,6 @@ export async function acquireSyncRange(input: {
     range: SyncRange;
     application: SyncApplication;
     wethAddress: string;
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 }): Promise<SyncRangeResult> {
     const {
         rpc,
@@ -68,7 +65,6 @@ export async function acquireSyncRange(input: {
         range,
         application,
         wethAddress,
-        orderMaintenancePolicy,
     } = input;
     const checkpoint = storage.captureSyncCheckpoint(chainId);
     if (application.kind === SYNC_APPLICATION_KIND.Applied) {
@@ -136,7 +132,6 @@ export async function processSyncRange(
         input.sources,
         input.mode,
         result.data,
-        input.orderMaintenancePolicy,
         result.application,
     ).map((followUp) => ({
         ...followUp,
@@ -182,7 +177,6 @@ export function buildSyncFollowUps(
     sources: readonly DomainSyncSource[],
     mode: DomainSyncMode,
     data: OnChainData,
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
     application: SyncApplication,
 ): SyncFollowUp[] {
     const followUps: SyncFollowUp[] = [];
@@ -200,8 +194,8 @@ export function buildSyncFollowUps(
         throw new Error(
             "Domain sync sources do not match the acquired collections",
         );
-    // Grouped repairs retain collection-scoped domain identities. Shared event
-    // fanout below runs once for the whole acquisition, including global hints.
+    // Grouped repairs retain collection-scoped activity and metadata identities.
+    // Order effects are retained directly by the atomic sync writer.
     for (const source of sources) {
         const targetCollections =
             source.collectionId === undefined
@@ -249,16 +243,6 @@ export function buildSyncFollowUps(
             continue;
         }
 
-        const ordersJob: JobEnvelope<DomainSyncPayload> = {
-            jobId: `domain:orders:${source.fanoutId}`,
-            kind: DOMAIN_JOB_KIND.OrdersSync,
-            queue: QUEUE_NAMES.OrdersDomain,
-            payload: currentStatePayload,
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: source.collectionId,
-        };
         const metadataJob: JobEnvelope<DomainSyncPayload> = {
             jobId: `domain:metadata:${source.fanoutId}`,
             kind: DOMAIN_JOB_KIND.MetadataSync,
@@ -269,22 +253,11 @@ export function buildSyncFollowUps(
             chainId,
             collectionId: source.collectionId,
         };
-        followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: ordersJob });
         followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: metadataJob });
     }
     if (application.kind === SYNC_APPLICATION_KIND.Historical) return followUps;
     const currentStateData = filterCurrentStateOnChainData(collections, data);
 
-    // Retain every post-anchor event hint, including hints absent from raw facts.
-    followUps.push(
-        ...buildOrderUpdateFollowUps(
-            chainId,
-            collections,
-            currentStateData,
-            orderMaintenancePolicy,
-            application.chain !== null,
-        ),
-    );
     followUps.push(
         ...buildMetadataRefreshFollowUps(
             chainId,

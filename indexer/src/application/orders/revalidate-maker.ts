@@ -11,12 +11,13 @@ import {
     canonicalMakerRequest,
     type MakerRevalidationRun,
 } from "../../domain/maker-revalidation.js";
-import type { OrderUpdateByMakerPayload } from "../../domain/order-jobs.js";
-import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
 import type {
-    QueueDeliveryOrigin,
-    QueueReplayBoundary,
-} from "../../ports/queue.js";
+    OrderMakerContinuationPayload,
+    OrderUpdateByMakerPayload,
+} from "../../domain/order-jobs.js";
+import type { QueueName } from "../../domain/queues.js";
+import type { MakerRevalidationStore } from "../../ports/maker-revalidation.js";
+import type { QueueDeliveryOrigin } from "../../ports/queue.js";
 import {
     observeBestEffort,
     observeProcessing,
@@ -31,9 +32,6 @@ export class RevalidateMakerOrders {
     constructor(
         private readonly deps: {
             store: MakerRevalidationStore;
-            replayBoundary?: (
-                consumerName: string,
-            ) => Promise<QueueReplayBoundary>;
             now?: () => number;
             observability?: OrderProcessingObservability;
         },
@@ -42,14 +40,11 @@ export class RevalidateMakerOrders {
     async execute(input: {
         jobId: string;
         payload: OrderUpdateByMakerPayload;
-        origin?: QueueDeliveryOrigin;
+        origin: QueueDeliveryOrigin;
         observationKey?: string;
         /** Raw historical hints retain/coalesce intent and publish main validation. */
         admissionOnly?: boolean;
     }): Promise<void> {
-        const { store } = this.deps;
-        const now = this.deps.now ?? Date.now;
-        const hooks = this.deps.observability;
         if (!input.jobId)
             throw new UnsupportedJob("Maker request job identity is required");
         let payload: OrderUpdateByMakerPayload;
@@ -58,53 +53,83 @@ export class RevalidateMakerOrders {
         } catch (error) {
             throw new UnsupportedJob(String(error));
         }
-        const continuation = input.payload.continuation;
+        const admitted = await this.retain(
+            input.jobId,
+            payload.chainId,
+            false,
+            () => this.deps.store.admit({ ...input, payload, now: this.now() }),
+        );
+        if (!admitted || admitted.status === STATUS.Completed) return;
+        if (input.admissionOnly) {
+            this.deps.store.scheduleWakeup(admitted, this.now());
+            return;
+        }
+        // A redelivered origin can ACK once the atomic checkpoint/outbox owns the rest.
         if (
-            continuation &&
-            (!continuation.runId ||
-                !Number.isSafeInteger(continuation.step) ||
-                continuation.step < 0)
+            admitted.wakeupOutboxId !== null ||
+            admitted.sourceJobId !== input.jobId
+        )
+            return;
+        this.expand(admitted);
+    }
+
+    async resume(input: {
+        jobId: string;
+        payload: OrderMakerContinuationPayload;
+        queueName: QueueName;
+        origin: QueueDeliveryOrigin;
+    }): Promise<void> {
+        const { payload } = input;
+        if (
+            !input.jobId ||
+            !Number.isSafeInteger(payload.chainId) ||
+            payload.chainId <= 0 ||
+            typeof payload.runId !== "string" ||
+            !payload.runId ||
+            !Number.isSafeInteger(payload.step) ||
+            payload.step < 0
         )
             throw new UnsupportedJob("Invalid maker continuation");
-        let admitted: MakerRevalidationRun | null;
+        const admitted = await this.retain(
+            input.jobId,
+            payload.chainId,
+            true,
+            () =>
+                this.deps.store.resume({
+                    ...payload,
+                    queueName: input.queueName,
+                    origin: input.origin,
+                }),
+        );
+        if (admitted && admitted.status !== STATUS.Completed)
+            this.expand(admitted);
+    }
+
+    private now(): number {
+        return (this.deps.now ?? Date.now)();
+    }
+
+    private async retain(
+        jobId: string,
+        chainId: number,
+        continuation: boolean,
+        retain: () => MakerRevalidationRun | null,
+    ): Promise<MakerRevalidationRun | null> {
         try {
-            admitted = await observeProcessing(
-                hooks,
+            return await observeProcessing(
+                this.deps.observability,
                 OPERATION.MakerAdmit,
-                { chainId: payload.chainId, continuation: !!continuation },
-                async () => {
-                    if (input.origin && this.deps.replayBoundary) {
-                        const boundary = await this.deps.replayBoundary(
-                            input.origin.consumerName,
-                        );
-                        const cleaned = observeSyncProcessing(
-                            hooks,
-                            OPERATION.MakerCleanup,
-                            { chainId: payload.chainId },
-                            () => store.cleanup(boundary, POLICY.cleanupRows),
-                        );
-                        observeBestEffort(() =>
-                            hooks?.observer?.makerReceiptsCleaned(cleaned),
-                        );
-                    }
-                    return continuation
-                        ? store.resume({
-                              chainId: payload.chainId,
-                              ...continuation,
-                              origin: input.origin,
-                          })
-                        : store.admit({ ...input, payload, now: now() });
-                },
+                { chainId, continuation },
+                async () => retain(),
             );
         } catch (error) {
             if (error instanceof MakerRevalidationConflict)
                 throw new UnsupportedJob(error.message);
             // Until admission commits, the broker message is the only durable owner.
-            // Sending it to the log-only DLQ would leave nothing for run recovery.
             logger.warn(LOG.AdmissionRetry, {
                 component: LOG.Component,
-                jobId: input.jobId,
-                chainId: payload.chainId,
+                jobId,
+                chainId,
                 error: String(error),
             });
             throw new JobDeferred(
@@ -112,26 +137,11 @@ export class RevalidateMakerOrders {
                 POLICY.admissionRetryMs,
             );
         }
-        if (!admitted) return;
-        if (
-            continuation &&
-            JSON.stringify(admitted.payload) !== JSON.stringify(payload)
-        )
-            throw new MakerRevalidationConflict(
-                "Maker continuation payload changed",
-            );
-        if (admitted.status === STATUS.Completed) return;
-        if (input.admissionOnly && !continuation) {
-            store.scheduleWakeup(admitted, now());
-            return;
-        }
-        // A redelivered origin can ACK once the atomic checkpoint/outbox owns the rest.
-        if (
-            !continuation &&
-            (admitted.wakeupOutboxId !== null ||
-                admitted.sourceJobId !== input.jobId)
-        )
-            return;
+    }
+
+    private expand(admitted: MakerRevalidationRun): void {
+        const { store, observability: hooks } = this.deps;
+        const now = () => this.now();
         // Expanding a finite local page does not acquire RPC capacity or await sync.
         // Unready orders are owned by ordinary demand before this delivery ACKs.
         const run = store.claim(admitted.runId, randomUUID(), now());
@@ -147,7 +157,6 @@ export class RevalidateMakerOrders {
             const progress = {
                 resolved: next.resolvedOrders - run.resolvedOrders,
                 deferred: next.deferredOrders - run.deferredOrders,
-                validated: 0,
                 stepEnd:
                     next.status === STATUS.Completed
                         ? STEP_END.Completed
@@ -182,7 +191,8 @@ export class RevalidateMakerOrders {
                 priorFailures: run.failures,
                 error: String(error),
             });
-            throw error;
+            // The failed page retained no cursor movement. After this durable release,
+            // periodic maker recovery owns retry; the input delivery can ACK.
         } finally {
             store.release(run, now());
         }

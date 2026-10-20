@@ -28,7 +28,6 @@ import {
 import type { OrderValidationResult } from "../../domain/orders.js";
 import type { OrderMutationObserver } from "../../application/orders/observability.js";
 import { observeBestEffort } from "../../application/processing-observability.js";
-import { ORDER_DOMAIN_LOG_COMPONENT } from "./orders-reporting.js";
 import { db } from "@artgod/shared/database";
 import { zeroAddress } from "viem";
 import { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
@@ -44,7 +43,6 @@ import {
     getDefaultDebugPayloadPersistenceConfig,
     type DebugPayloadPersistenceConfig,
 } from "@artgod/shared/config/debug-payload-persistence";
-import { logger } from "@artgod/shared/utils";
 import { CollectionRecord } from "../../domain/collections.js";
 import {
     GLOBAL_MAKER_TRIGGER_REASON,
@@ -64,10 +62,7 @@ import type {
     OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
 import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
-import type {
-    DomainSyncContext,
-    OrdersDomainPort,
-} from "../../ports/domain-handlers.js";
+import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
 import type {
     OrderLocalTokenSetStatus,
     OrderRecord,
@@ -330,15 +325,6 @@ export class SqliteOrdersDomain
         ]);
     }
 
-    async handleDomainSync(context: DomainSyncContext): Promise<void> {
-        logger.debug("Orders domain sync ignored", {
-            component: ORDER_DOMAIN_LOG_COMPONENT,
-            action: "handleDomainSync",
-            ...context,
-            reason: "order-updates-flow-through-dedicated-jobs",
-        });
-    }
-
     private applyValidation(
         row: OrderRow,
         validation: OrderValidationResult | OrderStatus,
@@ -476,28 +462,10 @@ export class SqliteOrdersDomain
     async handleOrderUpdateById(
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {
+        if (!payload.source)
+            throw new Error("Order observation is missing its source");
         const observation = db.writeTransaction(() => {
-            if (payload.source) return this.applySourceObservation(payload);
-            // Canonical queue deliveries are redundant hints. Only the owning
-            // sync transaction above may apply terminal protocol facts directly.
-            if (
-                payload.sourceStatus ||
-                payload.blockNumber == null ||
-                !payload.blockHash
-            )
-                throw new Error(
-                    "Order hint is missing its source or canonical identity",
-                );
-            this.validationDemand.admit(
-                eventValidationRequest(
-                    payload.chainId,
-                    payload.orderId,
-                    payload.blockNumber,
-                    payload.blockHash,
-                ),
-                this.nowSeconds() * 1_000,
-            );
-            return undefined;
+            return this.applySourceObservation(payload);
         })();
         if (observation)
             observeBestEffort(() =>
@@ -584,11 +552,7 @@ export class SqliteOrdersDomain
         };
     }
 
-    async handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
-        changed: boolean;
-        validationNeeded: boolean;
-        validationRevision: number;
-    }> {
+    async handleOrderUpsert(payload: OrderUpsertPayload): Promise<void> {
         // Admission, tombstone checks and mutation share the writer snapshot.
         // There is no network work inside this transaction.
         const outcome = db.writeTransaction(() => {
@@ -606,19 +570,16 @@ export class SqliteOrdersDomain
             return outcome;
         })();
         observeBestEffort(() => this.mutations?.upserted(outcome.changed));
-        return outcome;
     }
 
     private applyOrderUpsert(payload: OrderUpsertPayload): {
         changed: boolean;
         validationNeeded: boolean;
-        validationRevision: number;
         observationKey: string | null;
     } {
         const ignored = {
             changed: false,
             validationNeeded: false,
-            validationRevision: 0,
             observationKey: null,
         };
         const now = this.nowSeconds();
@@ -688,9 +649,7 @@ export class SqliteOrdersDomain
                 existingRow.side !== payload.side ||
                 existingRow.maker !== payload.maker.toLowerCase() ||
                 existingRow.contract !== payload.contract.toLowerCase() ||
-                existingRow.source_scope_kind !==
-                    (payload.sourceScopeKind ??
-                        ORDER_SOURCE_SCOPE_KIND.Token) ||
+                existingRow.source_scope_kind !== payload.sourceScopeKind ||
                 existingRow.token_id !== (payload.tokenId ?? null))
         )
             throw new Error(
@@ -706,10 +665,8 @@ export class SqliteOrdersDomain
         const maker = payload.maker.toLowerCase();
         const taker = payload.taker?.toLowerCase() ?? null;
         const contract = payload.contract.toLowerCase();
-        const sourceScopeKind =
-            payload.sourceScopeKind ?? ORDER_SOURCE_SCOPE_KIND.Token;
-        const rawSourceKind =
-            payload.rawSourceKind ?? ORDER_SEAPORT_DATA_SOURCE_KIND.Stream;
+        const sourceScopeKind = payload.sourceScopeKind;
+        const rawSourceKind = payload.rawSourceKind;
         const existingOrder = existingRow ? mapOrderRow(existingRow) : null;
         assertOrderDeclarationIdentity({
             id: payload.orderId,
@@ -846,9 +803,6 @@ export class SqliteOrdersDomain
             changed: result.changes > 0,
             validationNeeded: observation.changed || result.changes > 0,
             observationKey,
-            validationRevision: existingRow
-                ? existingRow.state_revision + (result.changes > 0 ? 1 : 0)
-                : 0,
         };
     }
 

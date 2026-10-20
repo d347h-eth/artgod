@@ -25,8 +25,10 @@ import {
     ORDER_PROCESSING_POLICY,
     ORDER_UPDATE_WORKER_POLICY,
 } from "../../src/domain/order-processing.js";
+import { makerUpdateHandler } from "../../src/infra/queue/maker-update-handler.js";
 import { orderUpdateHandler } from "../../src/infra/queue/order-update-handler.js";
 import {
+    QUEUE_FIXTURE_CONSUMER as CONSUMER,
     QUEUE_FIXTURE_PHASE as PHASE,
     QUEUE_FIXTURE_COMMAND as COMMAND,
     type QueueFixtureProgress,
@@ -39,6 +41,7 @@ import {
     ORDER_UPDATE_REASON,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
+    type OrderMakerContinuationPayload,
 } from "../../src/domain/order-jobs.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
 import { HEAVY_MAKER, HeavyMakerRpc } from "./heavy-maker.js";
@@ -120,8 +123,8 @@ const queue = await NatsJetStreamQueue.connect({
     natsUrl: config.natsUrl,
     streamPrefix: config.prefix,
 });
-const consumerName = "maker-healing-fixture";
-const tokenConsumerName = "token-healing-fixture";
+const consumerName = CONSUMER.Maker;
+const tokenConsumerName = CONSUMER.Token;
 const makerQueues = [
     { queueName: QUEUE_NAMES.OrdersUpdateByMaker, consumerName },
     {
@@ -183,7 +186,9 @@ let maximumOutbox = 0;
 const stopWorkers: Array<() => Promise<void>> = [];
 for (const subscription of makerQueues)
     stopWorkers.push(
-        await runWorker<OrderUpdateByMakerPayload>(
+        await runWorker<
+            OrderUpdateByMakerPayload | OrderMakerContinuationPayload
+        >(
             queue,
             {
                 queue: subscription.queueName,
@@ -195,28 +200,27 @@ for (const subscription of makerQueues)
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job, origin) => {
-                if (job.kind !== ORDER_JOB_KIND.UpdateByMaker)
-                    throw new Error("Unexpected fixture job kind");
                 maximumAttempt = Math.max(maximumAttempt, job.attempt);
-                await processor.execute({
-                    jobId: job.jobId,
-                    payload: job.payload,
-                    origin,
-                });
+                await makerUpdateHandler({
+                    chainId: HEAVY_MAKER.chainId,
+                    queueName: subscription.queueName,
+                    processor,
+                })(job, origin);
                 const rowCount = db
                     .prepare("SELECT COUNT(*) AS count FROM queue_outbox")
                     .get() as { count: number };
                 maximumOutbox = Math.max(maximumOutbox, rowCount.count);
                 // Reporting must not admit a second independent run for a coalesced hint.
                 const identity =
-                    job.payload.continuation ??
-                    (db
-                        .prepare(
-                            "SELECT run_id AS runId FROM maker_order_revalidation_runs WHERE chain_id=? AND source_job_id=?",
-                        )
-                        .get(job.chainId, job.jobId) as
-                        | { runId: string }
-                        | undefined);
+                    job.kind === ORDER_JOB_KIND.ContinueMaker
+                        ? (job.payload as OrderMakerContinuationPayload)
+                        : (db
+                              .prepare(
+                                  "SELECT run_id AS runId FROM maker_order_revalidation_runs WHERE chain_id=? AND source_job_id=?",
+                              )
+                              .get(job.chainId, job.jobId) as
+                              | { runId: string }
+                              | undefined);
                 const run = identity ? store.get(identity.runId) : undefined;
                 if (!run) return;
                 if (run.status === MAKER_REVALIDATION_STATUS.Completed) {
@@ -250,10 +254,10 @@ const applyUpdate = new ApplyOrderUpdate({
     lifecycle: domain,
 });
 let handled = 0,
-    validationHints = 0,
-    terminalFacts = 0,
+    sourceRechecks = 0,
+    sourceLifecycleUpdates = 0,
     sqliteAdmissionMs = 0,
-    maximumTerminalAgeMs = 0;
+    maximumSourceAgeMs = 0;
 const measuredApply = {
     async execute(...args: Parameters<ApplyOrderUpdate["execute"]>) {
         const start = performance.now();
@@ -271,8 +275,8 @@ function progress(phase: string): QueueFixtureProgress {
     return {
         phase,
         handled,
-        validationHints,
-        terminalFacts,
+        sourceRechecks,
+        sourceLifecycleUpdates,
         elapsedMs: performance.now() - startedAt,
         cpuMs: (cpu.user + cpu.system) / 1000,
         sqliteAdmissionMs,
@@ -282,7 +286,7 @@ function progress(phase: string): QueueFixtureProgress {
         demandRows: demand.rows,
         oldestDemandAgeMs:
             demand.oldest == null ? 0 : Date.now() - demand.oldest,
-        maximumTerminalAgeMs,
+        maximumSourceAgeMs,
         allocatedBytes:
             Number(db.raw.pragma("page_count", { simple: true })) *
             Number(db.raw.pragma("page_size", { simple: true })),
@@ -294,13 +298,10 @@ function progress(phase: string): QueueFixtureProgress {
         maximumRssKiB: process.resourceUsage().maxRSS,
     };
 }
-for (const queueName of [
-    QUEUE_NAMES.OrdersUpdateById,
-    QUEUE_NAMES.OrderLifecycle,
-]) {
+{
+    const queueName = QUEUE_NAMES.OrderLifecycle;
     const handleUpdate = orderUpdateHandler({
         chainId: HEAVY_MAKER.chainId,
-        queueName,
         apply: measuredApply,
     });
     stopWorkers.push(
@@ -314,15 +315,12 @@ for (const queueName of [
             async (job) => {
                 await handleUpdate(job);
                 handled++;
-                if (
-                    job.payload.reason === ORDER_UPDATE_REASON.Validation &&
-                    !job.payload.sourceStatus
-                )
-                    validationHints++;
+                if (job.payload.reason === ORDER_UPDATE_REASON.Validation)
+                    sourceRechecks++;
                 else {
-                    terminalFacts++;
-                    maximumTerminalAgeMs = Math.max(
-                        maximumTerminalAgeMs,
+                    sourceLifecycleUpdates++;
+                    maximumSourceAgeMs = Math.max(
+                        maximumSourceAgeMs,
                         Date.now() - job.scheduledAt,
                     );
                 }

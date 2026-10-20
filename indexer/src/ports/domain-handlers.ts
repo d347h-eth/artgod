@@ -11,7 +11,6 @@ import type {
 } from "../domain/metadata.js";
 import type {
     OrderUpdateByIdPayload,
-    OrderUpdateByMakerPayload,
     OrderUpsertPayload,
 } from "../domain/order-jobs.js";
 
@@ -26,22 +25,9 @@ export type DomainSyncContext = {
     sourceKind: string;
 };
 
-export type OrderUpdateByMakerRuntimeContext = {
-    jobId: string;
-    attempt: number;
-    scheduledAt: number;
-    traceId?: string | null;
-    consumerName?: string;
-};
-
 export interface OrdersDomainPort {
-    handleDomainSync(context: DomainSyncContext): Promise<void>;
     handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
-    handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
-        changed: boolean;
-        validationNeeded: boolean;
-        validationRevision: number;
-    }>;
+    handleOrderUpsert(payload: OrderUpsertPayload): Promise<void>;
 }
 
 export interface MetadataDomainPort {

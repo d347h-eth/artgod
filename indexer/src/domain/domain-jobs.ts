@@ -1,5 +1,4 @@
 export const DOMAIN_JOB_KIND = {
-    OrdersSync: "domain.orders.sync",
     MetadataSync: "domain.metadata.sync",
     MetadataRefresh: "domain.metadata.refresh",
     MetadataRefreshRange: "domain.metadata.refresh-range",

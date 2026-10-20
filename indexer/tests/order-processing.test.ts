@@ -19,7 +19,10 @@ import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.j
 import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
-import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
+} from "../src/domain/order-jobs.js";
 import {
     ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
@@ -110,28 +113,25 @@ describe("order processing boundaries", () => {
             QUEUE_NAMES.OrdersUpdateByToken,
         );
         for (const reason of [
-            ORDER_UPDATE_REASON.Fill,
+            ORDER_UPDATE_REASON.Validation,
             ORDER_UPDATE_REASON.Cancel,
             ORDER_UPDATE_REASON.SourceExecution,
         ])
             expect(
-                orderUpdateQueue({ chainId: 1, orderId: sale.id, reason }),
+                orderUpdateQueue({
+                    chainId: 1,
+                    orderId: sale.id,
+                    source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                    reason,
+                }),
             ).toBe(QUEUE_NAMES.OrderLifecycle);
-        expect(
+        expect(() =>
             orderUpdateQueue({
                 chainId: 1,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-            }),
-        ).toBe(QUEUE_NAMES.OrdersUpdateById);
-        expect(
-            orderUpdateQueue({
-                chainId: 1,
-                orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-                sourceStatus: ORDER_SOURCE_STATUS.Active,
-            }),
-        ).toBe(QUEUE_NAMES.OrderLifecycle);
+                reason: ORDER_UPDATE_REASON.Fill,
+            } as unknown as OrderUpdateByIdPayload),
+        ).toThrow("source");
     });
 
     it("retains a source sale while validation capacity is occupied and immediately hides its stale current ask", async () => {
@@ -261,12 +261,14 @@ describe("order processing boundaries", () => {
             processor.execute({
                 chainId: 1,
                 orderId: "fixture",
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
                 reason: "unsupported-future-update",
             }),
         ).rejects.toThrow("Unsupported");
         await expect(
             processor.execute({
                 chainId: 2,
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
                 orderId: "fixture",
                 reason: ORDER_UPDATE_REASON.Fill,
             }),

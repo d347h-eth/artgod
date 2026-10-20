@@ -13,13 +13,11 @@ import { CanonicalSyncJobAdmission } from "../src/application/canonical-sync-job
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
-import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
 import { SYNC_FOLLOW_UP_KIND } from "../src/domain/sync-follow-ups.js";
 import {
     QUEUE_OUTBOX_RETRY_POLICY,
     QUEUE_OUTBOX_STATUS,
 } from "../src/domain/queue-outbox.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import type { QueuePort } from "../src/ports/queue.js";
 import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
@@ -48,7 +46,6 @@ const SOURCE = {
     sourceJobId: "sync-fixture",
     sourceKind: "sync-fixture",
 };
-const POLICY = BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState;
 
 describe("atomic sync follow-up retention", () => {
     loadTestEnv();
@@ -65,18 +62,19 @@ describe("atomic sync follow-up retention", () => {
         data.collectionScoped.nftTransferEvents.push(
             f.transfer(103, 1, OWNER, NEXT),
         );
-        // This maker hint has no raw persistence table; it must survive a crash.
-        data.global.makerTriggers.push({
-            maker: OWNER,
-            reason: GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
+        // Metadata refreshes have no raw persistence table; their publication
+        // intent must commit atomically with acquisition and survive a crash.
+        data.collectionScoped.metadataRefreshEvents.push({
+            collectionId: f.collectionId,
+            contract: f.contract,
+            tokenId: "1",
+            reason: "fixture-refresh",
+            trigger: "fixture-refresh",
             blockNumber: 103,
             blockHash: block(103).hash,
             txHash: f.transfer(103, 2, OWNER, NEXT).txHash,
             logIndex: 2,
         });
-        db.prepare(
-            "INSERT INTO orders(id,chain_id,collection_id,kind,side,maker,contract_address,currency,quantity,source_status,fillability_status) VALUES ('fixture-bid',1,?,'seaport','buy',?,?,?,'1','active','fillable')",
-        ).run(f.collectionId, OWNER, f.contract, REORG_FIXTURE.Weth);
         const applied = createAppliedSyncFixture({
             chainId: 1,
             anchor: block(100),
@@ -98,7 +96,6 @@ describe("atomic sync follow-up retention", () => {
             [SOURCE],
             "backfill",
             data,
-            POLICY,
             result.application,
         );
         return {
@@ -135,8 +132,7 @@ describe("atomic sync follow-up retention", () => {
         expect(f.progress.chainProgress(1)?.applied.number).toBe(100);
         db.exec("DROP TRIGGER fail_sync_followup;");
         f.commit.commitSyncRange(f);
-        expect(count("queue_outbox")).toBe(4);
-        expect(count("maker_order_revalidation_runs")).toBe(1);
+        expect(count("queue_outbox")).toBe(3);
         expect(f.progress.chainProgress(1)?.applied.number).toBe(103);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: NEXT, amount: "1" },
@@ -147,7 +143,7 @@ describe("atomic sync follow-up retention", () => {
         const f = fixture();
         f.commit.commitSyncRange(f);
         expect(() => f.commit.commitSyncRange(f)).toThrow(ChainSyncConflict); // A replay cannot apply the same prefix twice.
-        expect(count("queue_outbox")).toBe(4);
+        expect(count("queue_outbox")).toBe(3);
         setDbPath(dbPath);
         const outbox = new SqliteQueueOutbox();
         const publish = vi.fn<QueuePort["publish"]>(async () => {
@@ -168,16 +164,16 @@ describe("atomic sync follow-up retention", () => {
             .prepare("SELECT status, retry_policy, attempts FROM queue_outbox")
             .all();
         expect(rows).toEqual(
-            Array.from({ length: 4 }, () => ({
+            Array.from({ length: 3 }, () => ({
                 status: QUEUE_OUTBOX_STATUS.FailedRetry,
                 retry_policy: QUEUE_OUTBOX_RETRY_POLICY.Required,
                 attempts: 7,
             })),
         );
         publish.mockResolvedValue(undefined);
-        expect(await drainQueueOutbox(outbox, { publish })).toBe(4);
+        expect(await drainQueueOutbox(outbox, { publish })).toBe(3);
         expect(count("queue_outbox")).toBe(0);
-        const jobs = publish.mock.calls.slice(-4).map(([, job]) => job);
+        const jobs = publish.mock.calls.slice(-3).map(([, job]) => job);
         expect(
             jobs.every((job) => job.jobId.endsWith("chain-revision:0")),
         ).toBe(true);
@@ -218,7 +214,6 @@ describe("atomic sync follow-up retention", () => {
             collections: [loadCollection(1, f.collectionId)],
             range: { fromBlock: 101, toBlock: 103 },
             wethAddress: REORG_FIXTURE.Weth,
-            orderMaintenancePolicy: POLICY,
             sources: [SOURCE],
             mode: "backfill",
             completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
@@ -242,9 +237,9 @@ describe("atomic sync follow-up retention", () => {
         publish.mockImplementation(async (_queue, job) => {
             accepted.push(job);
         });
-        expect(await drainQueueOutbox(outbox, { publish })).toBe(3);
-        expect(accepted.slice(0, 3).map((job) => job.jobId)).toEqual(
-            accepted.slice(3).map((job) => job.jobId),
+        expect(await drainQueueOutbox(outbox, { publish })).toBe(2);
+        expect(accepted.slice(0, 2).map((job) => job.jobId)).toEqual(
+            accepted.slice(2).map((job) => job.jobId),
         );
         expect({
             logs: rpc.logReads,
@@ -274,7 +269,7 @@ describe("atomic sync follow-up retention", () => {
                     retryBaseDelayMs: 0,
                 },
             ),
-        ).toBe(3);
+        ).toBe(2);
         expect(count("queue_outbox")).toBe(1);
         expect(
             await drainQueueOutbox(
@@ -292,8 +287,9 @@ describe("atomic sync follow-up retention", () => {
 
     it("removes orphan event publications but preserves unfinished range publications and canonical pre-fork hints", () => {
         const f = fixture();
-        f.result.data.global.makerTriggers.push({
-            ...f.result.data.global.makerTriggers[0],
+        f.result.data.collectionScoped.metadataRefreshEvents.push({
+            ...f.result.data.collectionScoped.metadataRefreshEvents[0],
+            tokenId: "2",
             blockNumber: 101,
             blockHash: block(101).hash,
             logIndex: 3,
@@ -305,7 +301,6 @@ describe("atomic sync follow-up retention", () => {
             [SOURCE],
             "backfill",
             f.result.data,
-            POLICY,
             f.result.application,
         );
         f.commit.commitSyncRange(f);
@@ -328,7 +323,7 @@ describe("atomic sync follow-up retention", () => {
                 { collectionId: f.collectionId, tokenId: "1", owner: OWNER },
             ],
         });
-        expect(count("queue_outbox")).toBe(4); // three DB range jobs plus one valid event
+        expect(count("queue_outbox")).toBe(3); // two DB range jobs plus one valid event
         expect(admission.isCurrent(orphan)).toBe(false); // also fences an already published message
         expect(admission.isCurrent(beforeFork)).toBe(true);
         expect(

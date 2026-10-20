@@ -7,8 +7,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { SYNC_WORK_CLASS as CLASS } from "@artgod/shared/types/sync-work-class";
-import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
 import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
+import { makerFixtureOrigin } from "./helpers/maker-validation-workflow.js";
 import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import {
@@ -16,7 +16,6 @@ import {
     observedOrderValidationRequest,
     ORDER_VALIDATION_DEMAND_OUTCOME as OUTCOME,
 } from "../src/domain/order-validation-demand.js";
-import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
@@ -72,10 +71,6 @@ function workflow(rpc = new HeavyMakerRpc(), scope = new RpcWorkScope()) {
         maker: new RevalidateMakerOrders({
             store: makerStore,
         }),
-        update: new ApplyOrderUpdate({
-            chainId: F.chainId,
-            lifecycle: orders,
-        }),
     };
 }
 
@@ -107,13 +102,15 @@ describe("historical hints and current-order requirements", () => {
         await w.validator.executeBatch();
         w.createSnapshot.mockClear();
         vi.mocked(Date.now).mockReturnValue(now + 1000);
-        await w.update.execute({
-            chainId: F.chainId,
-            orderId: order.id,
-            reason: ORDER_UPDATE_REASON.Validation,
-            blockNumber: F.blockNumber,
-            blockHash: F.blockHash,
-        });
+        w.demand.admit(
+            eventValidationRequest(
+                F.chainId,
+                order.id,
+                F.blockNumber,
+                F.blockHash,
+            ),
+            Date.now(),
+        );
         expect(w.demand.get(F.chainId, order.id)?.pending).toBe(false);
         expect(await w.validator.executeBatch()).toBeUndefined();
         expect(w.createSnapshot).not.toHaveBeenCalled();
@@ -132,6 +129,7 @@ describe("historical hints and current-order requirements", () => {
     it("shares completed validation between maker scans and ordinary demand in both directions", async () => {
         const w = workflow();
         await w.maker.execute({
+            origin: makerFixtureOrigin,
             jobId: "maker-first",
             payload: heavyMakerHint(),
         });
@@ -153,6 +151,7 @@ describe("historical hints and current-order requirements", () => {
         ).toBe(OUTCOME.Covered);
         w.createSnapshot.mockClear();
         await w.maker.execute({
+            origin: makerFixtureOrigin,
             jobId: "independent-maker",
             payload: heavyMakerHint(),
         });
@@ -182,6 +181,7 @@ describe("historical hints and current-order requirements", () => {
                 await w.validator.executeBatch();
             } else {
                 await w.maker.execute({
+                    origin: makerFixtureOrigin,
                     jobId: "token-sale-first",
                     payload: hint,
                 });
@@ -200,6 +200,7 @@ describe("historical hints and current-order requirements", () => {
             ).toBe(OUTCOME.Covered);
             w.createSnapshot.mockClear();
             await w.maker.execute({
+                origin: makerFixtureOrigin,
                 jobId: "token-sale-covered",
                 payload: hint,
             });
@@ -222,6 +223,7 @@ describe("historical hints and current-order requirements", () => {
             now,
         );
         await w.maker.execute({
+            origin: makerFixtureOrigin,
             jobId: "older-event",
             payload: heavyMakerHint(),
         });
@@ -296,6 +298,7 @@ describe("historical hints and current-order requirements", () => {
     it("saves a raw background maker hint before publishing its main continuation", async () => {
         const w = workflow();
         await w.maker.execute({
+            origin: makerFixtureOrigin,
             jobId: "raw-gap-hint",
             payload: { ...heavyMakerHint(), workClass: CLASS.GapRepair },
 
@@ -307,9 +310,11 @@ describe("historical hints and current-order requirements", () => {
         };
         const continuation = JSON.parse(row.job_json);
         expect(continuation.workClass).toBe(CLASS.Main);
-        await w.maker.execute({
+        await w.maker.resume({
+            origin: makerFixtureOrigin,
             jobId: continuation.jobId,
             payload: continuation.payload,
+            queueName: continuation.queue,
         });
         expect(w.createSnapshot).not.toHaveBeenCalled();
         await w.validator.executeBatch();
@@ -385,13 +390,17 @@ describe("historical hints and current-order requirements", () => {
             try {
                 const w = workflow(rpc, scope);
                 await scope.run(CLASS.GapRepair, () =>
-                    w.update.execute({
-                        chainId: F.chainId,
-                        orderId: order.id,
-                        reason: ORDER_UPDATE_REASON.Validation,
-                        blockNumber: F.blockNumber,
-                        blockHash: F.blockHash,
-                    }),
+                    Promise.resolve(
+                        w.demand.admit(
+                            eventValidationRequest(
+                                F.chainId,
+                                order.id,
+                                F.blockNumber,
+                                F.blockHash,
+                            ),
+                            Date.now(),
+                        ),
+                    ),
                 );
                 const validation = w.validator.executeBatch();
                 await vi.advanceTimersByTimeAsync(5000);

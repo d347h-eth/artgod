@@ -1,3 +1,8 @@
+export const QUEUE_FIXTURE_CONSUMER = {
+    Maker: "maker-healing-fixture",
+    Token: "token-healing-fixture",
+} as const;
+
 export const QUEUE_FIXTURE_PHASE = {
     Ready: "ready",
     Held: "held",
@@ -15,8 +20,8 @@ export const QUEUE_FIXTURE_COMMAND = {
 export type QueueFixtureProgress = {
     phase: string;
     handled: number;
-    validationHints: number;
-    terminalFacts: number;
+    sourceRechecks: number;
+    sourceLifecycleUpdates: number;
     elapsedMs: number;
     cpuMs: number;
     sqliteAdmissionMs: number;
@@ -25,7 +30,7 @@ export type QueueFixtureProgress = {
     pending: number;
     demandRows: number;
     oldestDemandAgeMs: number;
-    maximumTerminalAgeMs: number;
+    maximumSourceAgeMs: number;
     allocatedBytes: number;
     outboxRows: number;
     maximumRssKiB: number;

@@ -9,7 +9,6 @@ import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
 import { RetainCanonicalOrderEffects } from "../src/application/orders/retain-canonical-order-effects.js";
-import { buildOrderUpdateFollowUps } from "../src/application/order-update-fanout.js";
 import {
     ORDER_VALIDATION_DEMAND_POLICY,
     eventValidationRequest,
@@ -19,7 +18,6 @@ import {
     GLOBAL_MAKER_TRIGGER_REASON,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../src/domain/maker-triggers.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { ORDER_STATUS } from "../src/domain/orders.js";
 import {
@@ -118,20 +116,11 @@ it("keeps a 9,339-order maker invalidation bounded in the atomic writer and serv
                 shared: true,
                 collectionIds: [9, 11],
             });
-            const followUps = buildOrderUpdateFollowUps(
-                1,
-                result.collections,
-                data,
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-                true,
-            );
-            const serializedBytes = Buffer.byteLength(
-                JSON.stringify({ result, followUps }),
-            );
+            const serializedBytes = Buffer.byteLength(JSON.stringify(result));
             // commit() performs the actual BEGIN/assert/persist/effects/advance/outbox/COMMIT.
             // The measured synchronous call includes transaction setup and commit overhead.
             const started = performance.now();
-            owner.commit(result, followUps);
+            owner.commit(result);
             const milliseconds = performance.now() - started;
             samples.push({
                 mode:
@@ -143,7 +132,11 @@ it("keeps a 9,339-order maker invalidation bounded in the atomic writer and serv
                 headers: blocks.length,
                 transfers,
                 criticalEffects: 1 + transfers * 2,
-                followUps: followUps.length,
+                followUps: (
+                    db
+                        .prepare("SELECT COUNT(*) AS n FROM queue_outbox")
+                        .get() as { n: number }
+                ).n,
             });
             last = tip.number;
             expect(

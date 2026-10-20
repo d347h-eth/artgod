@@ -22,7 +22,7 @@ import {
     type SyncWorkCompletion,
     type SyncApplication,
 } from "../domain/sync-work.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY, SYNC_JOB_KIND } from "../domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { DomainSyncSource } from "../domain/domain-jobs.js";
 import type {
@@ -75,7 +75,7 @@ const LOG_ACTION = { Range: "range", Poll: "poll" } as const;
 
 type AutomaticSyncInput = Omit<
     SyncRangeInput,
-    "collections" | "range" | "orderMaintenancePolicy" | "collectionScopeResolver" | "application"
+    "collections" | "range" | "collectionScopeResolver" | "application"
 > & {
     commit: SyncRangeCommitPort;
     canonicalChecks: Pick<CanonicalChecksPort, "retain">;
@@ -532,10 +532,6 @@ export class AutomaticSyncExecutor {
             sources,
             completion,
             mode: "backfill",
-            orderMaintenancePolicy:
-                application.kind === SYNC_APPLICATION_KIND.Applied
-                    ? BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState
-                    : BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
         });
         const completedAtMs = this.now();
         observeBestEffort(() =>

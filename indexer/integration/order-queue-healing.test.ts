@@ -27,7 +27,10 @@ import {
     MAKER_REVALIDATION_STATUS,
 } from "../src/domain/maker-revalidation.js";
 import { ORDER_VALIDATION_DEMAND_POLICY } from "../src/domain/order-validation-demand.js";
-import { QUEUE_FIXTURE_PHASE } from "../tests/fixtures/order-queue-protocol.js";
+import {
+    QUEUE_FIXTURE_CONSUMER,
+    QUEUE_FIXTURE_PHASE,
+} from "../tests/fixtures/order-queue-protocol.js";
 import { loadOrderQueueTestConfig } from "../tests/helpers/order-queue-test-config.js";
 import {
     IsolatedNats,
@@ -144,10 +147,10 @@ it("services small work between real-broker steps and recovers after killing a w
         });
         queues.add(queue);
         for (const job of jobs)
-            await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, {
+            await queue.publish(makerUpdateQueue(job.payload), {
                 jobId: job.id,
                 kind: ORDER_JOB_KIND.UpdateByMaker,
-                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                queue: makerUpdateQueue(job.payload),
                 payload: job.payload,
                 chainId: 1,
                 scheduledAt: HEAVY_MAKER.now * 1_000,
@@ -162,7 +165,7 @@ it("services small work between real-broker steps and recovers after killing a w
         await waitForFixture(async () => {
             const consumer = await manager.consumers.info(
                 resolveNatsJobStreamName(prefix),
-                "maker-healing-fixture",
+                QUEUE_FIXTURE_CONSUMER.Maker,
             );
             return consumer.num_pending === 0 && consumer.num_ack_pending === 0;
         }, "all maker messages acknowledged");
@@ -269,9 +272,11 @@ it("services small work between real-broker steps and recovers after killing a w
         await publishUpdate("ordinary", {
             chainId: 1,
             orderId: mixed.small.id,
+            collectionId: mixed.small.collectionId,
+            source: "opensea",
+            observedAt: HEAVY_MAKER.now,
+            sourceStatus: ORDER_SOURCE_STATUS.Active,
             reason: ORDER_UPDATE_REASON.Validation,
-            blockNumber: HEAVY_MAKER.blockNumber,
-            blockHash: HEAVY_MAKER.blockHash,
         });
         const routed = await worker("routing", HEAVY_MAKER.now * 1_000, null, [
             first.id,
@@ -281,7 +286,7 @@ it("services small work between real-broker steps and recovers after killing a w
             () =>
                 routed.reports.filter((r) => r.phase === "rpc-held").length ===
                 2,
-            "maker and ordinary RPC hold both shared permits",
+            "ordinary validation snapshots hold both shared permits",
         );
         const urgentStart = performance.now();
         await publishUpdate("withdrawal", {

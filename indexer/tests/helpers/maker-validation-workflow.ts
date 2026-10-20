@@ -68,9 +68,10 @@ export function makerValidationWorkflow(
                 .prepare("SELECT job_json FROM queue_outbox WHERE outbox_id=?")
                 .get(run.wakeupOutboxId) as { job_json: string };
             const job = JSON.parse(row.job_json);
-            await processor.execute({
+            await processor.resume({
                 jobId: job.jobId,
                 payload: job.payload,
+                queueName: job.queue,
                 origin: input.origin,
             });
         }

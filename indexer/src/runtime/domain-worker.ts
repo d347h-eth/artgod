@@ -1,9 +1,6 @@
 import { OrderMutationProgress } from "../infra/domain/orders-reporting.js";
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
-import {
-    SYNC_WORK_CLASS,
-    decodeSyncWorkClass,
-} from "@artgod/shared/types/sync-work-class";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import { gapConsumerName } from "@artgod/shared/queue/nats-job-stream";
 import {
     bindRpcValidationFactory,
@@ -58,7 +55,6 @@ import {
 import { METADATA_REFRESH_RUN_ID_SCOPE } from "../domain/metadata-refresh-followups.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
-    makerUpdateQueue,
     orderConsumerName,
     ORDER_PROCESSING_POLICY,
     ORDER_UPDATE_WORKER_POLICY,
@@ -68,7 +64,8 @@ import { OrderValidationDemandProgress } from "../infra/orders/order-validation-
 import { DomainProcessingMetrics } from "../infra/observability/domain-processing-metrics.js";
 import { ApplyOrderUpdate } from "../application/orders/apply-order-update.js";
 import { orderUpdateHandler } from "../infra/queue/order-update-handler.js";
-import { UnsupportedJob } from "../domain/unsupported-job.js";
+import { makerUpdateHandler } from "../infra/queue/maker-update-handler.js";
+import { orderUpsertHandler } from "../infra/queue/order-upsert-handler.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
@@ -97,11 +94,6 @@ import { startMakerRevalidationRecovery } from "../application/orders/recover-ma
 import { SqliteMakerRevalidations } from "../infra/orders/sqlite-maker-revalidations.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
-import {
-    ORDER_JOB_KIND,
-    type OrderUpdateByMakerPayload,
-    type OrderUpsertPayload,
-} from "../domain/order-jobs.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 
@@ -197,8 +189,6 @@ async function main() {
         const makerRevalidations = new RevalidateMakerOrders({
             store: makerRevalidationStore,
             observability: processingObservability,
-            replayBoundary: (consumerName) =>
-                queue.getReplayBoundary(consumerName),
         });
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
@@ -255,28 +245,6 @@ async function main() {
             QUEUE_NAMES.OrdersUpdateByToken,
         ] as const;
 
-        const stopOrders = await runWorker(
-            queue,
-            {
-                acceptGapWork: true,
-                queue: QUEUE_NAMES.OrdersDomain,
-                consumerName: `orders-domain-${config.chainId}`,
-                maxInFlight: 1,
-                maxAttempts: 5,
-                deadLetterQueue: QUEUE_NAMES.DeadLetter,
-            },
-            async (job: JobEnvelope<DomainSyncPayload>) => {
-                if (job.kind !== DOMAIN_JOB_KIND.OrdersSync) return;
-                await ordersDomain.handleDomainSync(toDomainContext(job));
-            },
-            {
-                workScope: rpcAllocation.workScope,
-                apm: runtimeApm.apm,
-                admission: syncJobAdmission,
-                spanName: "worker.ordersDomain.consume",
-            },
-        );
-
         const stopMakerConsumers: Array<() => Promise<void>> = [];
         for (const queueName of makerQueues)
             stopMakerConsumers.push(
@@ -294,38 +262,11 @@ async function main() {
                         maxAttempts: 5,
                         deadLetterQueue: QUEUE_NAMES.DeadLetter,
                     },
-                    async (
-                        job: JobEnvelope<OrderUpdateByMakerPayload>,
-                        origin,
-                    ) => {
-                        if (
-                            job.kind !== ORDER_JOB_KIND.UpdateByMaker ||
-                            job.chainId !== config.chainId ||
-                            !job.payload ||
-                            job.payload.chainId !== config.chainId ||
-                            (queueName === QUEUE_NAMES.OrdersUpdateByToken &&
-                                makerUpdateQueue(job.payload) !== queueName)
-                        )
-                            throw new UnsupportedJob(
-                                "Unsupported maker queue envelope",
-                            );
-                        await makerRevalidations.execute({
-                            jobId: job.jobId,
-                            payload: job.payload.continuation
-                                ? job.payload
-                                : {
-                                      ...job.payload,
-                                      workClass: decodeSyncWorkClass(
-                                          job.workClass,
-                                      ),
-                                  },
-                            admissionOnly:
-                                decodeSyncWorkClass(job.workClass) ===
-                                    SYNC_WORK_CLASS.GapRepair &&
-                                !job.payload.continuation,
-                            origin,
-                        });
-                    },
+                    makerUpdateHandler({
+                        chainId: config.chainId,
+                        queueName,
+                        processor: makerRevalidations,
+                    }),
                     {
                         workScope: rpcAllocation.workScope,
                         apm: runtimeApm.apm,
@@ -365,39 +306,28 @@ async function main() {
                 ),
         });
 
-        const stopIdConsumers: Array<() => Promise<void>> = [];
-        for (const queueName of [
-            QUEUE_NAMES.OrdersUpdateById,
-            QUEUE_NAMES.OrderLifecycle,
-        ] as const)
-            stopIdConsumers.push(
-                await runWorker(
-                    queue,
-                    {
-                        acceptGapWork: true,
-                        queue: queueName,
-                        consumerName: orderConsumerName(
-                            queueName,
-                            config.chainId,
-                        ),
-                        ...ORDER_UPDATE_WORKER_POLICY,
-                    },
-                    orderUpdateHandler({
-                        chainId: config.chainId,
-                        queueName,
-                        apply: applyOrderUpdate,
-                    }),
-                    {
-                        workScope: rpcAllocation.workScope,
-                        apm: runtimeApm.apm,
-                        admission: syncJobAdmission,
-                        spanName:
-                            queueName === QUEUE_NAMES.OrdersUpdateById
-                                ? "worker.ordersUpdateById.consume"
-                                : "worker.orderLifecycle.consume",
-                    },
+        const stopOrderLifecycle = await runWorker(
+            queue,
+            {
+                acceptGapWork: true,
+                queue: QUEUE_NAMES.OrderLifecycle,
+                consumerName: orderConsumerName(
+                    QUEUE_NAMES.OrderLifecycle,
+                    config.chainId,
                 ),
-            );
+                ...ORDER_UPDATE_WORKER_POLICY,
+            },
+            orderUpdateHandler({
+                chainId: config.chainId,
+                apply: applyOrderUpdate,
+            }),
+            {
+                workScope: rpcAllocation.workScope,
+                apm: runtimeApm.apm,
+                admission: syncJobAdmission,
+                spanName: "worker.orderLifecycle.consume",
+            },
+        );
 
         const stopOrderValidation = startOrderValidationDemand(
             orderValidation,
@@ -413,15 +343,10 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<OrderUpsertPayload>) => {
-                if (job.kind !== ORDER_JOB_KIND.Upsert) return;
-                await ordersDomain.handleOrderUpsert({
-                    ...job.payload,
-                    observedAt:
-                        job.payload.observedAt ??
-                        Math.floor(job.scheduledAt / 1000),
-                });
-            },
+            orderUpsertHandler({
+                chainId: config.chainId,
+                orders: ordersDomain,
+            }),
             {
                 workScope: rpcAllocation.workScope,
                 apm: runtimeApm.apm,
@@ -725,9 +650,8 @@ async function main() {
             });
             await stopMakerRecovery();
             await stopOrderValidation();
-            await stopOrders();
             for (const stop of stopMakerConsumers) await stop();
-            for (const stop of stopIdConsumers) await stop();
+            await stopOrderLifecycle();
             await stopOrderUpserts();
             await stopMetadata();
             await stopMetadataRefresh();

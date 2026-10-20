@@ -22,7 +22,6 @@ import {
 } from "./helpers/reorg-recovery-fixture.js";
 import { advanceChainSyncRevision } from "../src/infra/storage/sqlite-chain-revisions.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
 import { buildSyncFollowUps } from "../src/application/sync-range-processing.js";
 
@@ -239,7 +238,6 @@ describe("DB-owned canonical hash checks", () => {
             ],
             "realtime",
             result.data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             result.application,
         );
         db.exec(

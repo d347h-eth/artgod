@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
-import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
+} from "../src/domain/order-jobs.js";
 import { ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
 
 function fixture() {
@@ -54,21 +57,23 @@ describe("source-independent order update delivery", () => {
             ),
         ).toEqual(["fixture-order", "unrelated"]);
     });
-    it("shares lifecycle admission for source cancellation and canonical hints", async () => {
+    it("retains source cancellation but rejects canonical facts from the source lane", async () => {
         const { worker, lifecycle } = fixture();
         await worker.execute({
             ...sale,
             reason: ORDER_UPDATE_REASON.Cancel,
             sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
         });
-        await worker.execute({
-            ...sale,
-            source: undefined,
-            reason: ORDER_UPDATE_REASON.Fill,
-            blockNumber: 10,
-            blockHash: `0x${"34".repeat(32)}`,
-        });
-        expect(lifecycle.handleOrderUpdateById).toHaveBeenCalledTimes(2);
+        await expect(
+            worker.execute({
+                ...sale,
+                source: undefined,
+                reason: ORDER_UPDATE_REASON.Fill,
+                blockNumber: 10,
+                blockHash: `0x${"34".repeat(32)}`,
+            } as unknown as OrderUpdateByIdPayload),
+        ).rejects.toThrow("source");
+        expect(lifecycle.handleOrderUpdateById).toHaveBeenCalledOnce();
     });
     it("rejects invalid routing identity before calling the owner", async () => {
         const { worker, lifecycle } = fixture();

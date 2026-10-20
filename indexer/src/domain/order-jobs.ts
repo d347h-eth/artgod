@@ -16,6 +16,7 @@ import type { TokenSetSchema } from "./token-sets.js";
 
 export const ORDER_JOB_KIND = {
     UpdateByMaker: "orders.update-by-maker",
+    ContinueMaker: "orders.continue-maker",
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
@@ -38,8 +39,13 @@ type OrderUpdateByMakerAttribution = {
     blockHash?: string | null;
     txHash?: string | null;
     logIndex?: number | null;
-    /** Full original payload lets older workers conservatively process a continuation. */
-    continuation?: { runId: string; step: number };
+};
+
+/** Resume the retained finite pass; its selection payload belongs to the run. */
+export type OrderMakerContinuationPayload = {
+    chainId: number;
+    runId: string;
+    step: number;
 };
 
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.
@@ -71,11 +77,10 @@ export type OrderUpdateByMakerPayload =
     | CollectionScopedOrderUpdateByMakerPayload
     | GlobalOrderUpdateByMakerPayload;
 
-// An order-specific update carrying a source observation, protocol fact or validation request.
+// An order-specific source observation. Canonical effects use CanonicalOrderUpdate.
 export type OrderUpdateByIdPayload = {
     chainId: number;
-    /** Offchain source identity; omitted only on owner-produced canonical hints. */
-    source?: string;
+    source: string;
     /** Present on source updates, including cancellation before its create arrives. */
     collectionId?: number;
     observedAt?: number;
@@ -88,10 +93,6 @@ export type OrderUpdateByIdPayload = {
     /** Optional source metadata; never a receipt prerequisite or coverage proof. */
     executionTransactionHash?: string | null;
     sourceStatus?: OrderSourceStatus | null;
-    blockNumber?: number | null;
-    blockHash?: string | null;
-    txHash?: string | null;
-    logIndex?: number | null;
 };
 
 export type OrderUpsertPayload = {

@@ -138,9 +138,10 @@ describe("bounded maker scope expansion into ordinary demand", () => {
             .prepare("SELECT job_json FROM queue_outbox WHERE outbox_id=?")
             .get(run.wakeupOutboxId) as { job_json: string };
         const job = JSON.parse(row.job_json);
-        await worker.execute({
+        await worker.resume({
             jobId: job.jobId,
             payload: job.payload,
+            queueName: job.queue,
             origin,
         });
         return store.get(runId)!;

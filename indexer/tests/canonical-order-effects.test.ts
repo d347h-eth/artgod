@@ -23,7 +23,6 @@ import {
     ORDER_UPDATE_REASON,
 } from "../src/domain/order-jobs.js";
 import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
-import { buildOrderUpdateFollowUps } from "../src/application/order-update-fanout.js";
 import { RetainCanonicalOrderEffects } from "../src/application/orders/retain-canonical-order-effects.js";
 import type { MakerRevalidationStore } from "../src/ports/maker-revalidation.js";
 import { emptyOnChainData } from "./helpers/ownership-fixture.js";
@@ -161,24 +160,6 @@ describe("canonical order effects before applied progress", () => {
         );
     });
 
-    it("uses the same classifications and identities for durable effects and optional broker wakeups", () => {
-        const input = fixture();
-        const effects = buildCanonicalOrderEffects(input);
-        const followUps = buildOrderUpdateFollowUps(
-            input.chainId,
-            input.collections,
-            input.data,
-            input.orderMaintenancePolicy,
-            input.applyingShared,
-        );
-        expect(followUps.map(({ job }) => job.payload)).toEqual(
-            effects.map((effect) => effect.payload),
-        );
-        expect(followUps.map(({ job }) => job.jobId)).toEqual(
-            effects.map(canonicalOrderEffectId),
-        );
-    });
-
     it("creates no current effects for historical policy, unselected scopes or pre-anchor facts", () => {
         const input = fixture();
         expect(
@@ -252,7 +233,7 @@ describe("canonical order effects before applied progress", () => {
         const admit = vi.fn<MakerRevalidationStore["admit"]>();
         const operation = new RetainCanonicalOrderEffects({
             orders: { applyCanonicalOrderUpdate },
-            makers: { admit },
+            makers: { admit, scheduleWakeup: vi.fn() },
         });
         const effects = buildCanonicalOrderEffects(fixture());
         const checkpoint = { chainId: CHAIN, revision: 3 };
@@ -280,7 +261,7 @@ describe("canonical order effects before applied progress", () => {
         const admit = vi.fn<MakerRevalidationStore["admit"]>();
         const operation = new RetainCanonicalOrderEffects({
             orders: { applyCanonicalOrderUpdate },
-            makers: { admit },
+            makers: { admit, scheduleWakeup: vi.fn() },
         });
         const effects = buildCanonicalOrderEffects(fixture());
         effects.at(-1)!.payload.chainId = 2;
@@ -305,7 +286,7 @@ describe("canonical order effects before applied progress", () => {
             });
         const operation = new RetainCanonicalOrderEffects({
             orders: { applyCanonicalOrderUpdate },
-            makers: { admit },
+            makers: { admit, scheduleWakeup: vi.fn() },
         });
         expect(() =>
             operation.retain({

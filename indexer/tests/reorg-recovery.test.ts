@@ -18,7 +18,7 @@ import {
     type ReorgResyncRange,
 } from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
-import { SYNC_JOB_KIND, BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../src/domain/sync-jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
@@ -771,7 +771,6 @@ describe("durable production reorg recovery", () => {
                 collectionIds: [fixture.collectionId],
             }).application,
             wethAddress: F.Weth,
-            orderMaintenancePolicy: BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             sources: [
                 {
                     fanoutId: "realtime",

@@ -10,6 +10,7 @@ import {
 } from "../src/domain/orders.js";
 import {
     ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
     type OrderUpsertPayload,
 } from "../src/domain/order-jobs.js";
 import { observedOrderValidationRequest } from "../src/domain/order-validation-demand.js";
@@ -151,19 +152,21 @@ describe("normalized declaration and optional raw audit payloads", () => {
         expect(after.revision).toBeGreaterThan(before.revision);
         expect(after.generation).toBeGreaterThan(before.generation);
     });
-    it("ignores pre-anchor canonical hints without losing a later source obligation", async () => {
+    it("rejects canonical hints on the source entry without losing a source obligation", async () => {
         const domain = new SqliteOrdersDomain(H.weth);
         await domain.handleOrderUpsert(payload());
         const owner = installHeavyMakerValidationChain();
         const demands = new SqliteOrderValidationDemand(domain);
         const before = demands.get(1, order.id)!;
-        await domain.handleOrderUpdateById({
-            chainId: 1,
-            orderId: order.id,
-            reason: ORDER_UPDATE_REASON.Fill,
-            blockNumber: 998,
-            blockHash: `0x${"ab".repeat(32)}`,
-        });
+        await expect(
+            domain.handleOrderUpdateById({
+                chainId: 1,
+                orderId: order.id,
+                reason: ORDER_UPDATE_REASON.Fill,
+                blockNumber: 998,
+                blockHash: `0x${"ab".repeat(32)}`,
+            } as unknown as OrderUpdateByIdPayload),
+        ).rejects.toThrow("source");
         expect(demands.get(1, order.id)).toEqual(before);
         owner.sample();
         expect(demands.hasReady(1, Date.now())).toBe(true);

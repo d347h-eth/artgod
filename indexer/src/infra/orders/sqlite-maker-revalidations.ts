@@ -1,3 +1,4 @@
+import { makerUpdateQueue } from "../../domain/order-processing.js";
 import { decodeSyncWorkClass } from "@artgod/shared/types/sync-work-class";
 import { randomUUID } from "node:crypto";
 import { db } from "@artgod/shared/database";
@@ -35,19 +36,13 @@ import {
     GLOBAL_MAKER_TRIGGER_REASON,
 } from "../../domain/maker-triggers.js";
 
-type RunRow = Omit<
-    MakerRevalidationRun,
-    "payload" | "origin" | "requestedPayload"
-> & {
+type RunRow = Omit<MakerRevalidationRun, "payload" | "requestedPayload"> & {
     payloadJson: string;
-    sourcePayloadJson: string | null;
-    requestedPayloadJson: string | null;
-    originStreamId: string | null;
-    originConsumer: string | null;
-    originSequence: number | null;
+    sourcePayloadJson: string;
+    requestedPayloadJson: string;
 };
 const SELECT_RUN =
-    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,source_payload_json AS sourcePayloadJson,requested_payload_json AS requestedPayloadJson,scope_key AS scopeKey,required_chain_revision AS chainRevision,admission_sequence AS admissionSequence,requested_admission_sequence AS requestedAdmissionSequence,observation_key AS observationKey,requested_observation_key AS requestedObservationKey,generation,pass_generation AS passGeneration,pass_started_at AS passStartedAt,requested_at AS requestedAt,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration,origin_stream_id AS originStreamId,origin_consumer AS originConsumer,origin_sequence AS originSequence FROM maker_order_revalidation_runs ";
+    "SELECT run_id AS runId,chain_id AS chainId,source_job_id AS sourceJobId,payload_json AS payloadJson,source_payload_json AS sourcePayloadJson,requested_payload_json AS requestedPayloadJson,scope_key AS scopeKey,required_chain_revision AS chainRevision,admission_sequence AS admissionSequence,requested_admission_sequence AS requestedAdmissionSequence,observation_key AS observationKey,requested_observation_key AS requestedObservationKey,generation,pass_generation AS passGeneration,pass_started_at AS passStartedAt,requested_at AS requestedAt,status,after_id AS afterId,upper_order_id AS upperOrderId,upper_rowid AS upperRowId,lease_owner AS leaseOwner,lease_version AS leaseVersion,lease_until AS leaseUntil,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,failures,wakeup_outbox_id AS wakeupOutboxId,wakeup_generation AS wakeupGeneration FROM maker_order_revalidation_runs ";
 
 /** Shares the projection's connection so order effects and progress have one commit boundary. */
 export class SqliteMakerRevalidations implements MakerRevalidationStore {
@@ -112,10 +107,7 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
             let row = db
                 .prepare(SELECT_RUN + "WHERE chain_id=? AND source_job_id=?")
                 .get(payload.chainId, input.jobId) as RunRow | undefined;
-            if (
-                row &&
-                (row.sourcePayloadJson ?? row.payloadJson) !== payloadJson
-            )
+            if (row && row.sourcePayloadJson !== payloadJson)
                 throw new MakerRevalidationConflict(
                     "Maker request identity reused with different payload",
                 );
@@ -234,27 +226,9 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
 
     private recordOrigin(runId: string, origin?: QueueDeliveryOrigin): void {
         if (!origin) return;
-        this.retainLegacyOrigin(runId);
         db.prepare(
             "INSERT INTO maker_validation_delivery_origins (run_id,consumer_name,stream_id,maximum_sequence) VALUES (?,?,?,?) ON CONFLICT(run_id,consumer_name) DO UPDATE SET acknowledged=CASE WHEN stream_id=excluded.stream_id AND maximum_sequence>=excluded.maximum_sequence THEN acknowledged ELSE 0 END,maximum_sequence=CASE WHEN stream_id=excluded.stream_id THEN MAX(maximum_sequence,excluded.maximum_sequence) ELSE excluded.maximum_sequence END,stream_id=excluded.stream_id",
         ).run(runId, origin.consumerName, origin.streamId, origin.sequence);
-        db.prepare(
-            "UPDATE maker_order_revalidation_runs SET origin_sequence=CASE WHEN origin_stream_id=? AND origin_consumer=? THEN MAX(COALESCE(origin_sequence,0),?) ELSE ? END,origin_stream_id=?,origin_consumer=? WHERE run_id=?",
-        ).run(
-            origin.streamId,
-            origin.consumerName,
-            origin.sequence,
-            origin.sequence,
-            origin.streamId,
-            origin.consumerName,
-            runId,
-        );
-    }
-
-    private retainLegacyOrigin(runId: string): void {
-        db.prepare(
-            "INSERT INTO maker_validation_delivery_origins (run_id,consumer_name,stream_id,maximum_sequence) SELECT run_id,origin_consumer,origin_stream_id,origin_sequence FROM maker_order_revalidation_runs WHERE run_id=? AND origin_consumer IS NOT NULL AND origin_stream_id IS NOT NULL AND origin_sequence IS NOT NULL ON CONFLICT(run_id,consumer_name) DO NOTHING",
-        ).run(runId);
     }
 
     claim(
@@ -285,7 +259,11 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
         return db.writeTransaction(() => {
             const run = this.get(input.runId);
             if (!run) return null; // An old continuation never recreates an already cleaned run.
-            if (input.chainId !== run.chainId || input.step > run.step)
+            if (
+                input.chainId !== run.chainId ||
+                input.step > run.step ||
+                input.queueName !== makerUpdateQueue(run.payload)
+            )
                 throw new MakerRevalidationConflict(
                     "Invalid maker continuation identity",
                 );
@@ -497,7 +475,6 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
             let removed = 0;
             for (const row of rows) {
                 const run = mapRun(row);
-                this.retainLegacyOrigin(run.runId);
                 db.prepare(
                     "UPDATE maker_validation_delivery_origins SET acknowledged=1 WHERE run_id=? AND consumer_name=? AND stream_id=? AND maximum_sequence<=? AND acknowledged=0",
                 ).run(
@@ -518,13 +495,12 @@ export class SqliteMakerRevalidations implements MakerRevalidationStore {
                     origins.count > 0 && origins.acknowledged === origins.count;
                 if (
                     !replaySafe ||
-                    (run.scopeKey !== null &&
-                        this.orders.selectMakerCandidates(
-                            run.payload,
-                            "",
-                            this.orders.captureMakerPass(),
-                            1,
-                        ).length)
+                    this.orders.selectMakerCandidates(
+                        run.payload,
+                        "",
+                        this.orders.captureMakerPass(),
+                        1,
+                    ).length
                 ) {
                     // A live scope's admission record survives delivery ACKs. Deferred
                     // order work belongs to demand independently of this scan receipt.
@@ -548,22 +524,11 @@ function mapRun(row: RunRow): MakerRevalidationRun {
         payloadJson,
         sourcePayloadJson: _sourcePayloadJson,
         requestedPayloadJson,
-        originStreamId,
-        originConsumer,
-        originSequence,
         ...run
     } = row;
     return {
         ...run,
         payload: JSON.parse(payloadJson),
-        requestedPayload: JSON.parse(requestedPayloadJson ?? payloadJson),
-        origin:
-            originStreamId && originConsumer && originSequence !== null
-                ? {
-                      streamId: originStreamId,
-                      consumerName: originConsumer,
-                      sequence: originSequence,
-                  }
-                : undefined,
+        requestedPayload: JSON.parse(requestedPayloadJson),
     };
 }

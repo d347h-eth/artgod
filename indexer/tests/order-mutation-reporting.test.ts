@@ -256,9 +256,9 @@ describe("committed order observations", () => {
             throw new Error("diagnostic sink failed");
         };
         const domain = createDomain({ upserted: fail, sourceUpdated: fail });
-        await expect(domain.handleOrderUpsert(payload)).resolves.toMatchObject({
-            changed: true,
-        });
+        await expect(
+            domain.handleOrderUpsert(payload),
+        ).resolves.toBeUndefined();
         expect(stored(payload)?.source_status).toBe(ORDER_SOURCE_STATUS.Active);
         await expect(
             domain.handleOrderUpdateById(sourceUpdate(payload)),
