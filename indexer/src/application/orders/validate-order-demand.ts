@@ -1,3 +1,4 @@
+import { StoredBlockHashConflict } from "../../domain/chain-sync.js";
 import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { randomUUID } from "node:crypto";
 import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
@@ -5,14 +6,12 @@ import { logger } from "@artgod/shared/utils";
 import {
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
     ORDER_VALIDATION_DEMAND_LOG as LOG,
-    validationProofSatisfies,
-    type OrderValidationRequest,
     type OrderValidationCompletion,
 } from "../../domain/order-validation-demand.js";
 import type { OrderValidationDemandPort } from "../../ports/order-validation-demand.js";
 import type {
     OrderValidationSnapshotFactory,
-    MakerValidationBatch,
+    OrderValidationSnapshot,
 } from "../../ports/order-validation.js";
 import type { OrderValidationAdmissionPort } from "../../ports/order-validation-admission.js";
 import { ORDER_PROCESSING_POLICY } from "../../domain/order-processing.js";
@@ -25,24 +24,6 @@ import {
     ORDER_PROCESSING_OPERATION as OPERATION,
     type OrderProcessingObservability,
 } from "./observability.js";
-
-export class AdmitOrderValidation {
-    constructor(
-        private readonly chainId: number,
-        private readonly store: OrderValidationDemandPort,
-        private readonly observability?: OrderProcessingObservability,
-    ) {}
-    execute(request: OrderValidationRequest) {
-        if (request.chainId !== this.chainId)
-            throw new Error("Order validation demand chain mismatch");
-        return observeSyncProcessing(
-            this.observability,
-            OPERATION.DemandAdmit,
-            { chainId: this.chainId },
-            () => this.store.admit(request, Date.now()),
-        );
-    }
-}
 
 export type OrderValidationBatchReport = {
     scanned: number;
@@ -57,7 +38,7 @@ export type OrderValidationBatchReport = {
     lostClaims: number;
     oldestRequiredAt: number | null;
     durationMs: number;
-    contractReads: ReturnType<MakerValidationBatch["readCounts"]> | null;
+    contractReads: ReturnType<OrderValidationSnapshot["readCounts"]> | null;
 };
 
 /** Runtime reporting remains bounded and separate from validation persistence. */
@@ -84,6 +65,9 @@ export class ValidateOrderDemand {
     ): Promise<OrderValidationBatchReport | undefined> {
         // Acquire fair capacity before claiming rows or aging a chain snapshot.
         if (signal?.aborted) return undefined;
+        const now = (this.deps.now ?? Date.now)();
+        this.deps.store.scheduleDue(this.deps.chainId, now);
+        if (!this.deps.store.hasReady(this.deps.chainId, now)) return undefined;
         return this.deps.admission.run(
             async () => {
                 if (signal?.aborted) return undefined;
@@ -155,9 +139,7 @@ export class ValidateOrderDemand {
             | Awaited<ReturnType<OrderValidationSnapshotFactory>>
             | undefined;
         try {
-            const checkpoint = this.deps.store.captureSyncCheckpoint(
-                this.deps.chainId,
-            );
+            const checkpoint = batch.checkpoint!;
             await observeProcessing(
                 hooks,
                 OPERATION.DemandBatch,
@@ -169,33 +151,14 @@ export class ValidateOrderDemand {
                         attributes,
                         () =>
                             this.deps.createSnapshot({
-                                chainId: this.deps.chainId,
-                                // Different demands have different trigger blocks. Check each against the
-                                // fresh snapshot below so one future trigger cannot block unrelated work.
-                                minimumBlock: null,
+                                checkpoint,
                                 workClass: SYNC_WORK_CLASS.Main,
                                 candidates: batch.claims.map(
                                     (claim) => claim.candidate.order,
                                 ),
                             }),
                     );
-                    const ready = batch.claims.filter((claim) =>
-                        validationProofSatisfies(snapshot!.proof, claim.demand),
-                    );
-                    const uncovered = batch.claims.filter(
-                        (claim) =>
-                            !validationProofSatisfies(
-                                snapshot!.proof,
-                                claim.demand,
-                            ),
-                    );
-                    report.retried += this.deps.store.fail(
-                        uncovered,
-                        new Error(
-                            "Snapshot does not yet cover demand observation or trigger block",
-                        ),
-                        now(),
-                    );
+                    const ready = batch.claims;
                     const completions: OrderValidationCompletion[] = [];
                     await observeProcessing(
                         hooks,
@@ -230,7 +193,16 @@ export class ValidateOrderDemand {
                         () =>
                             this.deps.store.completeBatch(
                                 completions,
-                                { ...snapshot!.proof, checkpoint },
+                                {
+                                    ...snapshot!.proof,
+                                    checkpoint,
+                                    admissionSequence: Math.max(
+                                        ...ready.map(
+                                            (claim) =>
+                                                claim.demand.admissionSequence,
+                                        ),
+                                    ),
+                                },
                                 now(),
                             ),
                     );
@@ -246,6 +218,9 @@ export class ValidateOrderDemand {
                 },
             );
         } catch (error) {
+            // Validation reports disagreement; only the chain owner gates and repairs.
+            if (error instanceof StoredBlockHashConflict)
+                this.deps.store.retainDispute(error.check);
             if (getRpcBudgetDeferral(error)) {
                 report.released += this.deps.store.release(batch.claims, now());
             } else
@@ -269,9 +244,12 @@ export class ValidateOrderDemand {
     }
 }
 
-export function startOrderValidationDemand(
-    processor: Pick<ValidateOrderDemand, "executeBatch">,
-    reporter?: OrderValidationDemandReporter,
+export function startOrderValidationDemand<
+    T extends { claimed: number; released: number },
+>(
+    processor: { executeBatch(signal?: AbortSignal): Promise<T | undefined> },
+    reporter?: { record(report: T | undefined): void; flush(): void },
+    concurrency: number = ORDER_PROCESSING_POLICY.concurrentValidations,
 ): () => Promise<void> {
     const controller = new AbortController();
     const waits = new Set<() => void>();
@@ -309,10 +287,7 @@ export function startOrderValidationDemand(
     };
     // Both current-order executors use main capacity. Historical hints are
     // filtered/coalesced before becoming validation demand.
-    const active = Array.from(
-        { length: ORDER_PROCESSING_POLICY.concurrentValidations },
-        () => run(),
-    );
+    const active = Array.from({ length: concurrency }, () => run());
     return async () => {
         controller.abort();
         for (const resume of waits) resume();

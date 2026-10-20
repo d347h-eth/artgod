@@ -1,16 +1,18 @@
 import { strict as assert } from "node:assert";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
     type BiddingOrderRecoveryResult,
     type BiddingService,
     type Order,
+    type OrderCancellation,
 } from "./bidding-service.js";
 import {
     FailedOfferCancellationReconciler,
     UNSETTLED_TERMINAL_CANCELLATION_ERROR,
     type CompletedOfferCancellation,
+    type OfferCancellationCheck,
     type RecoverableOfferCancellationRecord,
     type FailedOfferCancellationRepositoryPort,
 } from "./failed-offer-cancellation-reconciler.js";
@@ -33,6 +35,8 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
     completed: CompletedOfferCancellation[] = [];
     listCalls = 0;
     listGate: Promise<void> | undefined;
+    checks: OfferCancellationCheck[] = [];
+    admitCheck = true;
 
     constructor(
         private readonly records: RecoverableOfferCancellationRecord[],
@@ -56,6 +60,11 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
         this.completed.push(cancellation);
     }
 
+    beginOfferCancellationCheck(check: OfferCancellationCheck): boolean {
+        this.checks.push(check);
+        return this.admitCheck;
+    }
+
     markOfferCancellationFailed(_failure: {
         jobId: string;
         orderId: string;
@@ -76,11 +85,11 @@ class FakeBiddingService implements BiddingService {
 
     lookups: RecoverableOfferCancellationRecord[] = [];
     result: BiddingOrderRecoveryResult = {
-        status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
     };
     error: Error | null = null;
     cancelError: Error | null = null;
-    cancelledOrders: Order[] = [];
+    cancelledOrders: OrderCancellation[] = [];
     lookupGate: Promise<void> | undefined;
 
     async getActiveOffers(): Promise<Order[]> {
@@ -132,7 +141,7 @@ class FakeBiddingService implements BiddingService {
         throw new Error("unused");
     }
 
-    async cancelRecoveredOrder(order: Order): Promise<void> {
+    async cancelRecoveredOrder(order: OrderCancellation): Promise<void> {
         this.cancelledOrders.push(order);
         if (this.cancelError) {
             throw this.cancelError;
@@ -154,6 +163,24 @@ function createReconciler(
 }
 
 describe("FailedOfferCancellationReconciler", () => {
+    it("does not look up a row that completed or was deferred after batch selection", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            FAILED_CANCELLATION_RECORD,
+        ]);
+        repository.admitCheck = false;
+        const service = new FakeBiddingService();
+        assert.equal(
+            await createReconciler(
+                repository,
+                service,
+                false,
+            ).reconcileFailedCancellations(),
+            0,
+        );
+        assert.deepEqual(service.lookups, []);
+        assert.deepEqual(repository.completed, []);
+    });
+
     it("does not read a batch after admission closes", async () => {
         const repository = new FakeFailedCancellationRepository([
             FAILED_CANCELLATION_RECORD,
@@ -216,8 +243,7 @@ describe("FailedOfferCancellationReconciler", () => {
         const reconciler = createReconciler(repository, biddingService, false);
 
         const reconciliation = reconciler.reconcileFailedCancellations();
-        await Promise.resolve();
-        assert.equal(biddingService.lookups.length, 1);
+        await vi.waitFor(() => assert.equal(biddingService.lookups.length, 1));
         reconciler.closeAdmission();
         releaseLookup();
 
@@ -490,7 +516,7 @@ describe("FailedOfferCancellationReconciler", () => {
         assert.deepEqual(repository.completed, []);
     });
 
-    it("continues after one failed lookup and completes later proven-absent rows", async () => {
+    it("continues after one failed lookup and completes later terminal rows", async () => {
         const records = [
             { ...FAILED_CANCELLATION_RECORD, orderId: "0xfirst" },
             { ...FAILED_CANCELLATION_RECORD, orderId: "0xsecond" },
@@ -504,7 +530,7 @@ describe("FailedOfferCancellationReconciler", () => {
                 throw new Error("OpenSea unavailable");
             }
             return {
-                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
             };
         };
         const reconciler = createReconciler(repository, biddingService, true);

@@ -32,17 +32,21 @@ import { SqliteCollectionCustomizationRecords } from "../src/infra/collections/s
 import { SqliteOrdersDomain } from "../../indexer/src/infra/domain/orders.js";
 import { SqliteOrderValidationDemand } from "../../indexer/src/infra/orders/sqlite-order-validation-demand.js";
 import { ApplyOrderUpdate } from "../../indexer/src/application/orders/apply-order-update.js";
-import { AdmitOrderValidation } from "../../indexer/src/application/orders/validate-order-demand.js";
+import { installHeavyMakerValidationChain } from "../../indexer/tests/helpers/heavy-maker-validation-fixture.js";
 import { ORDER_UPDATE_REASON } from "../../indexer/src/domain/order-jobs.js";
-import { ORDER_SOURCE_STATUS } from "../../indexer/src/domain/orders.js";
+import {
+    ORDER_SOURCE_STATUS,
+    ORDER_STATUS,
+} from "../../indexer/src/domain/orders.js";
 import {
     HEAVY_MAKER,
     seedHeavyMaker,
+    heavyMakerBlock,
 } from "../../indexer/tests/fixtures/heavy-maker.js";
 
 afterEach(() => vi.restoreAllMocks());
 
-it("removes a processed sale from current asks through HTTP while preserving ownership and sale history", async () => {
+it("hides a source-observed sale pending sync while preserving accepted ownership and sale history through HTTP", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const base = path.join(root, "tmp/order-lifecycle-api");
     await mkdir(base, { recursive: true });
@@ -54,8 +58,45 @@ it("removes a processed sale from current asks through HTTP while preserving own
     const app = Fastify();
     try {
         const { sale } = seedHeavyMaker(1);
-        // Represent the already-applied onchain projection from the reported incident.
-        // The order queue must not erase these independent durable facts.
+        const chain = installHeavyMakerValidationChain();
+        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
+        const demand = new SqliteOrderValidationDemand(domain);
+        await domain.handleOrderUpsert({
+            ...sale,
+            orderId: sale.id,
+            rawSourceKind: sale.seaportDataSourceKind!,
+            observedAt: HEAVY_MAKER.now,
+        });
+        chain.sample();
+        const claim = demand.claimBatch(1, "http-fixture", Date.now())
+            .claims[0]!;
+        // Supply a successful protocol result at the real accepted checkpoint;
+        // RPC decoding is covered by the validator adapter suites.
+        demand.completeBatch(
+            [
+                {
+                    claim,
+                    result: {
+                        status: ORDER_STATUS.Fillable,
+                        reason: "fixture",
+                        quantities: {
+                            original: "1",
+                            remaining: "1",
+                            fillable: "1",
+                        },
+                    },
+                },
+            ],
+            {
+                checkpoint: claim.checkpoint,
+                block: claim.checkpoint.block,
+                observedAt: Date.now(),
+                admissionSequence: claim.demand.admissionSequence,
+            },
+            Date.now(),
+        );
+        // Prior accepted ownership/history stays intact when a later source sale
+        // is observed before its onchain application.
         db.prepare(
             "INSERT INTO tokens(chain_id,collection_id,contract_address,token_id) VALUES (?,?,?,?)",
         ).run(sale.chainId, sale.collectionId, sale.contract, sale.tokenId);
@@ -66,7 +107,7 @@ it("removes a processed sale from current asks through HTTP while preserving own
             sale.collectionId,
             sale.contract,
             sale.tokenId,
-            HEAVY_MAKER.smallMaker,
+            sale.maker,
             HEAVY_MAKER.blockNumber,
             HEAVY_MAKER.now,
         );
@@ -86,10 +127,10 @@ it("removes a processed sale from current asks through HTTP while preserving own
             HEAVY_MAKER.blockNumber,
             "0xsale",
             0,
-            sale.maker,
             HEAVY_MAKER.smallMaker,
             sale.maker,
             HEAVY_MAKER.smallMaker,
+            sale.maker,
             sale.price,
             sale.currency,
         );
@@ -134,34 +175,43 @@ it("removes a processed sale from current asks through HTTP while preserving own
             { tokenId: sale.tokenId, listingPrice: sale.price },
         ]);
         const before = await fetch(`${url}/${sale.tokenId}/activity`);
-        expect(before.token.currentHolder).toBe(HEAVY_MAKER.smallMaker);
+        expect(before.token.currentHolder).toBe(sale.maker);
         expect(before.activities.items).toHaveLength(1);
-        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-            throw new Error("A lifecycle fact must not wait for RPC");
-        });
         const processor = new ApplyOrderUpdate({
             chainId: 1,
-            validation: new AdmitOrderValidation(
-                1,
-                new SqliteOrderValidationDemand(domain),
-            ),
             lifecycle: domain,
         });
-        await processor.execute(
-            {
-                chainId: 1,
-                collectionId: sale.collectionId,
-                orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Fill,
-                sourceStatus: ORDER_SOURCE_STATUS.Filled,
-                observedAt: HEAVY_MAKER.now,
-            },
-            HEAVY_MAKER.now * 1000,
+        await processor.execute({
+            chainId: 1,
+            collectionId: sale.collectionId,
+            orderId: sale.id,
+            source: "opensea",
+            reason: ORDER_UPDATE_REASON.SourceExecution,
+            executionTransactionHash: HEAVY_MAKER.saleTransactionHash,
+            observedAt: HEAVY_MAKER.now,
+        });
+        chain.progress.recordHeadSample(
+            chain.progress.captureHeadSample(1),
+            heavyMakerBlock(1001),
+            Date.now(),
         );
+        expect(demand.get(1, sale.id)?.pending).toBe(true);
+        expect(demand.hasReady(1, Date.now())).toBe(false);
+        expect(
+            db
+                .prepare(
+                    "SELECT source_status,fillability_status,quantity FROM orders WHERE id=?",
+                )
+                .get(sale.id),
+        ).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+            fillability_status: ORDER_STATUS.Fillable,
+            quantity: "1",
+        });
         expect((await fetch(url)).tokens.items).toEqual([]);
         const after = await fetch(`${url}/${sale.tokenId}/activity`);
         expect(after.token).toMatchObject({
-            currentHolder: HEAVY_MAKER.smallMaker,
+            currentHolder: sale.maker,
             listingPrice: null,
             listingCurrency: null,
         });
@@ -169,7 +219,7 @@ it("removes a processed sale from current asks through HTTP while preserving own
         expect(after.activities.items[0]).toMatchObject({
             kind: ACTIVITY_KIND.Sale,
             price: sale.price,
-            to: HEAVY_MAKER.smallMaker,
+            to: sale.maker,
         });
     } finally {
         await app.close();

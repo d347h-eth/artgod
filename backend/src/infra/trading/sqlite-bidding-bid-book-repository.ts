@@ -1,3 +1,4 @@
+import { usableOrderEvidenceSql } from "@artgod/shared/database/order-evidence";
 import {
     biddingTraitsMatchToken,
     biddingTraitCriteriaKey,
@@ -238,6 +239,10 @@ type IndexedOrderRow = {
     maker: string;
     price: string | null;
     quantity: string;
+    original_quantity: string | null;
+    fillable_quantity: string | null;
+    validation_pending: number;
+    validated_at: number;
     currency: string | null;
     valid_from: number | null;
     valid_until: number | null;
@@ -523,14 +528,15 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             collectionId: number;
             nowSeconds: number;
         }>(
-            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_from, valid_until, seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at, " +
-                "COALESCE(datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0), 'unixepoch'),updated_at) AS updated_at " +
+            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, original_quantity, fillable_quantity, orders.proof_at/1000 AS validated_at, 0 AS validation_pending, currency, valid_from, valid_until, seaport_data_json IS NOT NULL AS has_seaport_data, protocol_address, created_at, " +
+                "COALESCE(datetime(NULLIF(MAX(observed_at,COALESCE((SELECT observed_at FROM market_order_observations mo WHERE mo.chain_id=orders.chain_id AND mo.collection_id=orders.collection_id),0)),0), 'unixepoch'),orders.updated_at) AS updated_at " +
                 "FROM orders " +
-                "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+                "WHERE orders.chain_id = @chainId AND collection_id = @collectionId " +
                 "AND side = 'buy' AND source_status = 'active' AND fillability_status = 'fillable' " +
                 "AND price IS NOT NULL AND price != '' " +
                 "AND (valid_from IS NULL OR valid_from <= @nowSeconds) " +
-                "AND (valid_until IS NULL OR valid_until > @nowSeconds)",
+                "AND (valid_until IS NULL OR valid_until > @nowSeconds) " +
+                `AND ${usableOrderEvidenceSql({ orderAlias: "orders", nowMs: "@nowSeconds*1000" })}`,
         ) as BetterSqlite3NamedStatement<{
             chainId: number;
             collectionId: number;
@@ -2405,6 +2411,10 @@ function mapIndexedOrderRow(
                 price: exactBidBookRowPrice(row.price),
                 bidLimits: null,
                 quantity: row.quantity,
+                originalQuantity: row.original_quantity,
+                fillableQuantity: row.fillable_quantity,
+                validationPending: row.validation_pending === 1,
+                validatedAt: row.validated_at || null,
                 currencyAddress: row.currency,
                 currencySymbol: null,
                 protocolAddress: row.protocol_address,

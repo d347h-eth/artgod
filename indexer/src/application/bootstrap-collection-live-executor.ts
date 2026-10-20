@@ -17,11 +17,17 @@ import {
     type BootstrapTemporaryDataStoragePort,
 } from "./bootstrap-temporary-data-cleanup.js";
 import { parseBootstrapBackfillLiveBlock } from "./bootstrap-backfill-executor.js";
+import {
+    bootstrapAppliedCheckpoint,
+    type BootstrapAppliedProgressPort,
+} from "./bootstrap-applied-progress.js";
+import type { CollectionRegistryPort } from "../ports/collections.js";
 
 // Collection-live executor outcomes are returned to runtime logs/tests.
 export const BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME = {
     Completed: "completed",
     CollectionMissing: "collection_missing",
+    AwaitingAppliedProgress: "awaiting_applied_progress",
 } as const;
 
 export type BootstrapCollectionLiveExecutorOutcome =
@@ -57,13 +63,10 @@ export type BootstrapCollectionLiveResult = {
     cleanup: BootstrapTemporaryDataCleanupResult;
 };
 
-export interface BootstrapCollectionLiveCollectionPort {
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
-}
+export type BootstrapCollectionLiveCollectionPort = Pick<
+    CollectionRegistryPort,
+    "markBootstrapFinished"
+>;
 
 export interface BootstrapCollectionLiveRunsPort extends BootstrapTemporaryDataRunsPort {
     updateRunStatus(
@@ -124,6 +127,7 @@ export class BootstrapCollectionLiveExecutor {
         private readonly stepsPort: BootstrapCollectionLiveStepsPort,
         private readonly temporaryDataPort: BootstrapCollectionLiveTemporaryDataPort,
         private readonly queuePort: BootstrapCollectionLiveQueuePort,
+        private readonly progress: BootstrapAppliedProgressPort,
     ) {}
 
     async complete(
@@ -142,10 +146,28 @@ export class BootstrapCollectionLiveExecutor {
             );
         }
 
+        const checkpoint =
+            input.run.anchorBlock !== null && input.run.anchorBlockHash !== null
+                ? bootstrapAppliedCheckpoint(this.progress, {
+                      chainId: input.run.chainId,
+                      collectionId: input.run.collectionId,
+                      anchorBlock: input.run.anchorBlock,
+                      anchorHash: input.run.anchorBlockHash,
+                  })
+                : null;
+        if (!checkpoint || checkpoint.block.number < liveBlock)
+            return {
+                outcome:
+                    BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress,
+                liveBlock,
+                cleanup: { deleted: false },
+            };
+
         const updated = this.collectionPort.markBootstrapFinished(
             input.run.chainId,
             input.run.collectionId,
             liveBlock,
+            checkpoint,
         );
         if (!updated) {
             this.failCollectionLive(input);

@@ -24,6 +24,8 @@ import type { JobEnvelope } from "../src/domain/jobs.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -256,9 +258,9 @@ describe("OpenSea reconciliation admission", () => {
         async (reason) => {
             collections.markOpenSeaReconcileCompleted(1, 99);
             const writes = db.prepare("SELECT total_changes() AS n").get();
-            const sourceState = new SqliteOrderSourceStateStore({
-                refreshSeller: vi.fn(),
-            });
+            const sourceState = new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(loadOpenSeaConfig().tokens.wethAddress),
+            );
             const begin = vi.spyOn(sourceState, "beginObservation");
             const api = { forEachListing: vi.fn(), forEachOffer: vi.fn() };
             const pipeline = new OpenSeaOrderbookSync(api, queue, sourceState);
@@ -371,6 +373,18 @@ describe("OpenSea reconciliation admission", () => {
             ORDER_SOURCE_STATUS.Active,
             ORDER_STATUS.Fillable,
         );
+        db.writeTransaction(() =>
+            new SqliteOrderObservations().retain({
+                chainId: 1,
+                collectionId: 99,
+                orderId: "absent",
+                sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                observationKey: "absent",
+                status: ORDER_SOURCE_STATUS.Active,
+                declaration: true,
+                now: 0,
+            }),
+        )();
         let fail = true;
         type Api = ConstructorParameters<typeof OpenSeaOrderbookSync>[0];
         const api = {
@@ -405,7 +419,9 @@ describe("OpenSea reconciliation admission", () => {
         const pipeline = new OpenSeaOrderbookSync(
             api,
             queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: vi.fn() }),
+            new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(loadOpenSeaConfig().tokens.wethAddress),
+            ),
         );
         await handle(job(), pipeline);
         expect(events).toEqual(["listings", "offers"]);

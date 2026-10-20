@@ -10,6 +10,7 @@ import {
     REORG_RECOVERY_LOG_COMPONENT,
     REORG_RECOVERY_LOG_ACTION,
     beginReorgResync,
+    resumeReorgAcquisition,
     type AwaitingReorgAncestor,
     type ReorgRecoveryState,
     type ReorgResync,
@@ -23,7 +24,11 @@ import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import { findCommonAncestor, type ReorgForkStore } from "./reorg-fork.js";
-import type { ReorgAncestorProof } from "../domain/reorg-fork.js";
+import {
+    REORG_HISTORY_PROOF,
+    type ReorgAncestorProof,
+    type ReorgRestoredAgreement,
+} from "../domain/reorg-fork.js";
 import {
     RollbackChainRange,
     type ReorgRollbackPlan,
@@ -60,6 +65,13 @@ export interface ReorgRecoveryStore {
         proof: ReorgAncestorProof;
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
+        next: ReorgResync | null;
+    }): void;
+    // Preserve accepted facts and revision, rearm each retained disagreement,
+    // and keep any interrupted acquisition in the same atomic transition.
+    commitRestoredAgreement(input: {
+        expected: AwaitingReorgAncestor;
+        proof: ReorgRestoredAgreement;
         next: ReorgResync | null;
     }): void;
     // Delay one failed acquisition without creating another broker delivery.
@@ -155,7 +167,7 @@ export class RecoverChainReorg {
                     "Block check RPC returned the wrong block",
                 );
             if (block.hash === storedHash) {
-                this.checks.complete(check);
+                this.checks.confirmCanonicalBlock(check);
                 return;
             }
             const retained = this.recoveries.retainMismatch({
@@ -250,6 +262,33 @@ export class RecoverChainReorg {
                 });
                 return;
             }
+            if (proof.kind === REORG_HISTORY_PROOF.RestoredAgreement) {
+                const next =
+                    recovery.resumeFrom === null
+                        ? null
+                        : resumeReorgAcquisition({
+                              recovery,
+                              head: await this.rpc.getBlockNumber(),
+                              batchSize: this.options.batchSize,
+                              retryAt: this.now(),
+                          });
+                this.recoveries.commitRestoredAgreement({
+                    expected: recovery,
+                    proof,
+                    next,
+                });
+                logger.info("Reorg disagreement restored to canonical checks", {
+                    component: REORG_RECOVERY_LOG_COMPONENT,
+                    action: REORG_RECOVERY_LOG_ACTION.AgreementRestored,
+                    chainId: recovery.chainId,
+                    recoveryId: recovery.recoveryId,
+                    checkedBlock: recovery.checkedBlock,
+                    revision: recovery.revision,
+                    resyncFromBlock: next?.fromBlock ?? null,
+                    resyncToBlock: next?.targetBlock ?? null,
+                });
+                return;
+            }
             const prepared = await this.rollback.prepare(proof.fork);
             if (prepared.plan.checkpoint.revision !== recovery.revision)
                 throw new ChainSyncConflict(
@@ -311,42 +350,4 @@ export class RecoverChainReorg {
             });
         }
     }
-}
-
-export function startReorgRecoveryLoop(
-    recovery: Pick<RecoverChainReorg, "resumeDue" | "checkDue">,
-    pollMs: number = REORG_RECOVERY_POLICY.PollMs,
-): () => Promise<void> {
-    if (!Number.isSafeInteger(pollMs) || pollMs < 1)
-        throw new Error("Invalid reorg recovery polling interval");
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let wake: (() => void) | undefined;
-    const run = async () => {
-        while (!stopped) {
-            let busy = false;
-            try {
-                await recovery.resumeDue();
-                if (!stopped) busy = await recovery.checkDue();
-            } catch (error) {
-                logger.warn("Reorg recovery continuation failed", {
-                    component: REORG_RECOVERY_LOG_COMPONENT,
-                    action: REORG_RECOVERY_LOG_ACTION.Poll,
-                    error: String(error),
-                });
-            }
-            if (!stopped)
-                await new Promise<void>((resolve) => {
-                    wake = resolve;
-                    timer = setTimeout(resolve, busy ? 0 : pollMs);
-                });
-        }
-    };
-    const active = run();
-    return async () => {
-        stopped = true;
-        clearTimeout(timer);
-        wake?.();
-        await active;
-    };
 }

@@ -7,7 +7,6 @@
         "dev": "bash ../scripts/indexer-dev.sh",
         "dev:scheduler-worker": "tsx src/runtime/scheduler-worker.ts",
         "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
-        "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
         "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
         "dev:offchain-ingest-worker": "tsx src/runtime/offchain-ingest-worker.ts",
         "dev:opensea-stream-worker": "tsx src/runtime/opensea-stream-worker.ts",

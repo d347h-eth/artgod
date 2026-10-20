@@ -1,10 +1,9 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { db, setDbPath } from "@artgod/shared/database";
+import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { zeroAddress } from "viem";
 import { loadOpenSeaConfig } from "../config/opensea.js";
 import { OPENSEA_RECONCILE_WORKER_POLICY } from "../config/opensea-reconcile-worker.js";
-import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
+import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import { runWorker } from "../application/worker-runner.js";
 import { handleReconcileJob } from "../application/offchain/opensea-reconcile.js";
 import { OpenSeaReconcilePolicy } from "../domain/opensea-reconcile-policy.js";
@@ -52,10 +51,7 @@ async function main() {
         const collections = new SqliteCollectionRegistry();
         const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
         const sourceState = new SqliteOrderSourceStateStore(
-            new SqliteDailyListingPrices(db, [
-                zeroAddress,
-                config.tokens.wethAddress,
-            ]),
+            new SqliteOrdersDomain(config.tokens.wethAddress),
         );
         const api = new OpenSeaApiAdapter({
             apiKey: config.opensea.apiKey,

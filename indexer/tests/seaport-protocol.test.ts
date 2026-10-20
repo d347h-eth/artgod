@@ -3,7 +3,7 @@ import { compactSignatureToSignature, serializeSignature } from "viem";
 import {
     computeSeaportOrderHash,
     recoverSeaportSigner,
-} from "../src/application/offchain/seaport-protocol.js";
+} from "../src/domain/seaport-protocol.js";
 import { capturedBulkOrder } from "./fixtures/seaport-bulk-order.js";
 import { seaportSignatureVectors as vectors } from "./fixtures/seaport-signature-vectors.js";
 

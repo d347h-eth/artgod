@@ -1,3 +1,4 @@
+import type { ChainBlockReference } from "../../domain/chain-sync.js";
 import { getRpcBudgetDeferral } from "@artgod/shared/evm/rpc-budget";
 import { SEAPORT_VALIDATION_ABI } from "../../abi/seaport-validation.js";
 import { ORDER_VALIDATION_BATCH_POLICY } from "../../domain/order-validation-policy.js";
@@ -9,13 +10,12 @@ import {
     type RpcProviderPort,
 } from "../../ports/rpc.js";
 
-type OrderStatus = readonly [boolean, boolean, bigint, bigint];
+export type SeaportProtocolStatus = readonly [boolean, boolean, bigint, bigint];
 
 /** Context-local lookahead: bounded status aggregates never replace full validation. */
 export function createSeaportStatusReader(input: {
     rpc: RpcProviderPort;
-    chainId: number;
-    blockNumber: number;
+    block: ChainBlockReference;
     candidates: readonly OrderRecord[];
     canBatch: () => boolean;
     batchFailed: () => void;
@@ -23,14 +23,14 @@ export function createSeaportStatusReader(input: {
 }) {
     const pending = new Map<string, RpcContractRead>();
     const prefetched = new Map<string, Promise<unknown>>();
-    const singles = new Map<string, Promise<OrderStatus>>();
+    const singles = new Map<string, Promise<SeaportProtocolStatus>>();
     for (const order of input.candidates.slice(
         0,
         ORDER_VALIDATION_BATCH_POLICY.maxOrders,
     )) {
         const protocol = order.seaportData?.protocolAddress;
         if (
-            order.chainId !== input.chainId ||
+            order.chainId !== input.block.chainId ||
             order.kind !== "seaport" ||
             !protocol ||
             !/^0x[0-9a-f]{40}$/i.test(protocol) ||
@@ -50,16 +50,16 @@ export function createSeaportStatusReader(input: {
         input.counts.perOrder += contracts.length;
         input.counts.statusBatches++;
         try {
-            const results = await input.rpc.readContracts!({
+            const results = await input.rpc.readContractsAtBlock!({
                 contracts,
-                blockNumber: input.blockNumber,
+                block: input.block,
             });
             if (results.length !== contracts.length)
                 throw new Error("Contract batch result count mismatch");
             const values = results.map((result) =>
                 "value" in result ? result.value : undefined,
             );
-            if (!values.some(isOrderStatus)) input.batchFailed();
+            if (!values.some(isSeaportProtocolStatus)) input.batchFailed();
             return values;
         } catch (error) {
             if (getRpcBudgetDeferral(error)) throw error;
@@ -70,12 +70,14 @@ export function createSeaportStatusReader(input: {
         }
     }
 
-    return async (contract: RpcContractRead): Promise<OrderStatus> => {
+    return async (
+        contract: RpcContractRead,
+    ): Promise<SeaportProtocolStatus> => {
         const key = statusKey(contract);
         if (
             !prefetched.has(key) &&
             !singles.has(key) &&
-            input.rpc.readContracts &&
+            input.rpc.readContractsAtBlock &&
             input.canBatch()
         ) {
             const chunk = [contract];
@@ -96,14 +98,14 @@ export function createSeaportStatusReader(input: {
             }
         }
         const value = await prefetched.get(key);
-        if (isOrderStatus(value)) return value;
+        if (isSeaportProtocolStatus(value)) return value;
         let single = singles.get(key);
         if (!single) {
             input.counts.perOrder++;
             single = input.rpc
-                .readContract({ ...contract, blockNumber: input.blockNumber })
+                .readContractAtBlock({ ...contract, block: input.block })
                 .then((result) => {
-                    if (!isOrderStatus(result))
+                    if (!isSeaportProtocolStatus(result))
                         throw new Error(
                             "Invalid Seaport order status response",
                         );
@@ -121,7 +123,9 @@ function statusKey(contract: RpcContractRead): string {
     return `${contract.address}:${contract.args?.[0]}`.toLowerCase();
 }
 
-function isOrderStatus(value: unknown): value is OrderStatus {
+export function isSeaportProtocolStatus(
+    value: unknown,
+): value is SeaportProtocolStatus {
     return (
         Array.isArray(value) &&
         value.length === 4 &&
@@ -130,6 +134,7 @@ function isOrderStatus(value: unknown): value is OrderStatus {
         typeof value[2] === "bigint" &&
         value[2] >= 0n &&
         typeof value[3] === "bigint" &&
-        value[3] >= 0n
+        value[3] >= 0n &&
+        value[2] <= value[3]
     );
 }

@@ -1,3 +1,4 @@
+import { createAppliedSyncFixture } from "./applied-sync-fixture.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./chain-fixture.js";
 import { db } from "@artgod/shared/database";
 import { SqliteCollectionRegistry } from "../../src/infra/collections/sqlite.js";
@@ -93,21 +94,52 @@ export function transferFixture() {
         txHash: `0x${String(blockNumber * 100 + logIndex).padStart(64, "0")}`,
         kind: COLLECTION_STANDARD.Erc721,
     });
+    let applied: ReturnType<typeof createAppliedSyncFixture> | undefined;
+    const owner = () =>
+        (applied ??= createAppliedSyncFixture({
+            chainId: 1,
+            anchor: syncBlockFixture(100),
+            collections: [loadCollection(1, collectionId)],
+        }));
     const persist = (events: NftTransferEvent[]) => {
+        if (!events.length) return;
+        const coordinator = owner();
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents = events;
-        storage.persistSyncResult({
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            checkpoint: storage.captureSyncCheckpoint(1),
-            blocks: events.map((event) => ({
-                ...syncBlockFixture(event.blockNumber),
-                hash: event.blockHash,
-            })),
-            data: data,
-            collections: [loadCollection(1, collectionId)],
-        });
+        const from = Math.min(...events.map((event) => event.blockNumber));
+        const to = Math.max(...events.map((event) => event.blockNumber));
+        const tip = coordinator.progress.chainProgress(1)!.applied.number;
+        if (to <= tip) {
+            // Replayed/older facts enrich history without reapplying ownership.
+            const numbers = [
+                ...new Set(events.map((event) => event.blockNumber)),
+            ].sort((a, b) => a - b);
+            coordinator.commit(
+                coordinator.historical({
+                    blocks: numbers.map(syncBlockFixture),
+                    data,
+                    collectionIds: [collectionId],
+                }),
+            );
+            return;
+        }
+        if (from <= tip)
+            throw new Error(
+                "Split historical and applied fixture acquisitions explicitly",
+            );
+        const blocks = Array.from({ length: to - tip }, (_, i) =>
+            syncBlockFixture(tip + i + 1),
+        );
+        coordinator.commit(
+            coordinator.applied({
+                blocks,
+                data,
+                shared: true,
+                collectionIds: [collectionId],
+            }),
+        );
     };
-    return { collectionId, storage, contract, transfer, persist };
+    return { collectionId, storage, contract, transfer, persist, owner };
 }
 
 export function emptyOnChainData(): OnChainData {

@@ -1,6 +1,8 @@
 # Sync Pipeline
 
-The sync pipeline consumes block sync jobs, fetches on-chain data, persists it, and fans out domain jobs plus targeted order update jobs.
+The sync coordinator acquires and applies contiguous onchain prefixes. Historical
+imports share acquisition and storage, but cannot mutate current ownership or
+order state. Queue messages wake the owner or request historical enrichment.
 
 Primary files:
 
@@ -15,70 +17,66 @@ Primary files:
 Sync jobs are defined in `indexer/src/domain/sync-jobs.ts`:
 
 - `sync.realtime.block` with payload `{ blockNumber }`
-- `sync.backfill.range` with payload
-  `{ fromBlock, toBlock, source, orderMaintenancePolicy }`
+- `sync.backfill.range` with payload `{ fromBlock, toBlock, source }`
 
-Backfill `source` identifies whether the range is `manual_historical`,
-`reorg_recovery`, `bootstrap_catchup`, or `gap_repair`.
-`orderMaintenancePolicy` is `current_state` for repair/catch-up work and
-`skip_global_maker_revalidation` for manual historical enrichment.
+Backfill `source` is `manual_historical` or `bootstrap_catchup`. The source
+selects the ingress behavior; no second maintenance-policy field exists.
 
-The scheduler publishes realtime jobs; the backend and bootstrap worker publish
-manual/bootstrap ranges. Automatic collection gaps and canonical reorg resync
-are retained in SQLite and executed directly in the sync runtime. Backfill
-source/member validation remains at the queue boundary so old or inconsistent
-automatic hints cannot widen collection selection. Old automatic jobs are
-acknowledged without RPC; their durable SQLite owner remains executable.
+The scheduler retains remote head samples before publishing realtime wakeups.
+Bootstrap retains its catch-up target and publishes one scoped wakeup. Their
+handlers acknowledge promptly without acquiring blocks. Only `manual_historical`
+queue requests acquire ranges directly, through Historical writer acceptance.
+Automatic gap/reorg ranges belong to retained SQLite intent and the coordinator;
+they have no producer or accepted payload on this queue.
 
 ## Sync Worker Flow
 
-The sync worker runs two queue consumers and one automatic executor:
+The sync runtime has one current-state coordinator (`AutomaticSyncExecutor`),
+realtime/backfill queue adapters, and the existing historical gap scanner.
 
-1. Realtime jobs run with one in-flight block and target live/anchored bootstrap
-   collections. Manual/bootstrap backfills keep configurable concurrency, with
-   pre-anchor facts-only ranges parallel and current-state ranges serialized.
-2. `AutomaticSyncExecutor` executes at most one bounded range per pass. Ready
-   reorg resync takes priority; otherwise it shares the newest pending height's
-   ready common suffix. That height keeps priority during retry backoff or when
-   it exceeds the RPC head. Older automatic history waits.
-3. All three paths use `processSyncRange()`: acquire logs, extension watch facts,
-   policy-enabled WETH hints, transactions/receipts and fresh canonical headers;
-   build required follow-ups; commit the complete result through
-   `SyncRangeCommitPort`.
-4. `SqliteSyncRangeCommit` validates current ownership/revision and commits facts,
-   coverage, balances, required outbox rows and automatic acquisition progress in
-   one transaction. No RPC or broker call happens inside that writer.
-5. Domain-worker publishes due outbox rows independently. A publication outage
-   or lost reply retries stable identities without repeating remote acquisition.
+1. The coordinator resumes retained recovery and checks a due canonical identity
+   before selecting forward work. Explicit disputes and ancestor recovery gate
+   current progress; ordinary delayed maturity checks do not.
+2. An installed ownership base supplies the initial shared anchor. Selecting a
+   bootstrap anchor alone cannot initialize progress. Additional installed bases
+   inside that prefix reuse its exact header. A slow bootstrap with an older
+   installed base receives fresh anchor verification and bounded collection-only
+   replay until it joins the exact shared base. Shared authority never moves
+   backward; validation remains unavailable below that join.
+3. Each pass acquires one bounded range: either the next shared-chain prefix or
+   the next collection prefix through already accepted shared history. Empty
+   blocks still advance with complete linked headers. Per-scope retry times and
+   alternating shared/scoped selection prevent one failed collection from
+   starving other ready work.
+4. `processSyncRange()` acquires logs, extension facts, transactions/receipts and
+   fresh canonical headers, then builds follow-ups. `SqliteSyncRangeCommit`
+   atomically validates the expected predecessor, revision and scope, writes
+   facts, applies ownership and canonical order effects, retains required outbox
+   rows, and advances only those prefixes. No RPC or broker call is in the writer.
+5. Domain-worker publishes retained follow-ups independently. Delayed publication
+   cannot postpone core order invalidation or advance the applied checkpoint.
+6. When foreground work is idle, enabled historical gap repair acquires a bounded
+   facts-only range. Manual historical jobs use the same projection restriction.
 
-Automatic and queued backfills use `RPC_BACKFILL_URL_LIST` when configured;
-realtime uses `RPC_URL_LIST`. Automatic repair starts immediately and continues
-after each successful batch or local discovery page with older history still
-to check. It waits 12 seconds only when idle, paused or blocked. Discovery runs
-beside repair in the sync worker and does not depend on a scheduler tick.
+Shared and scoped catch-up, bootstrap catch-up, recovery and current validation
+use the main RPC lane. They continue when historical gap filling is disabled.
+Historical acquisition uses `RPC_BACKFILL_URL_LIST` when configured; current
+application uses `RPC_URL_LIST`. One acquired current range is held at a time,
+with no speculative future buffer. The loop continues immediately after progress
+and polls every 12 seconds when idle or waiting; wakeups shorten that wait.
+`BACKFILL_WORKER_COUNT` controls manual historical queue concurrency.
 
-A local-only discovery page may reuse HEAD for at most 12 seconds. Every batch
-that fetches block data reads fresh HEAD before selection. Persisted 30-minute
-checks can replace older pending ranges inside the shared current-state gate.
-Startup also finishes one bounded pass of newer-gap checks across live collections
-before older repair, even when the saved 30-minute timer is not due. Reenabling
-gap filling requires restart and follows this same path.
-Advancing `HEAD - REORG_DEPTH` also checks each collection's newly eligible strip
-in bounded pages before selecting older work. Successful positions are local
-memory; covered strips require no durable write, and incremental checks do not
-reset the broader 30-minute timer.
-A running range finishes first; queued manual/recovery work gets the gate before
-another automatic gap pass. Selection is repeated after waiting for that gate.
-The loop drains admitted work before dependencies close; realtime stays outside
-the gate. `BACKFILL_WORKER_COUNT` applies to queued manual/bootstrap backfills.
-Automatic gaps still use one shared range at a time.
+Historical discovery retains its bounded backward scan, startup/newer-hole
+checks, per-collection cursor and retry policy. These establish missing fact
+coverage, not ownership or validation readiness. See
+[historical gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair).
 
 ### RPC allocation
 
-`main` covers realtime, manual backfills, bootstrap, reorg recovery and their
+`main` covers current shared/scoped application, manual backfills, bootstrap, reorg recovery and their
 downstream work. Automatic collection-gap acquisition and historical metadata/extension work
 use `gap_repair`. Needed current-order validation uses main after domain
-relevance and saved-validation checks. The class is explicit in queued envelopes; maker validation continuations are
+relevance and saved-validation checks. The class is explicit in queued envelopes; maker demand-expansion continuations are
 main. Per-order validation demand has one main execution lane. Historical maker
 hints enter through a background admission slot and retain a main continuation
 only for a current requirement. Needed validation is independent of the hint's
@@ -219,8 +217,12 @@ rejects the sync attempt instead of attributing orphaned fill facts to its block
 
 Seaport fills are decoded from receipt `OrderFulfilled` logs (no traces) and emitted as collection-scoped `fillEvents` when the protocol fill contains a tracked NFT and maps to a tracked NFT transfer in the same transaction. Matched buy/sell mirror logs for one NFT transfer are canonicalized to one fill; multi-hop bundles can emit multiple fills. Blur V2 fills come from receipt execution events correlated to tracked NFT transfers, including direct and routed calls. See `docs/indexer/15-fill-decoding.md` for the full fill-decoding policy and edge cases. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
-NFT approval logs are decoded into collection-scoped order revalidation hints: ERC721 `Approval` emits an exact-token maker trigger, while ERC721/ERC1155 `ApprovalForAll` emits collection-scoped maker triggers for the tracked contract. WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These hints have no raw event table, but required follow-up envelopes are retained
-atomically in the outbox. They are only emitted when the order-maintenance policy allows current-state maker revalidation and the bidder index is ready and non-empty (quiet default). When the policy is `skip_global_maker_revalidation`, or when the index is empty/not yet loaded, WETH logs are skipped and no maker triggers are emitted.
+NFT approval logs are decoded into collection-scoped order revalidation hints: ERC721 `Approval` emits an exact-token maker trigger, while ERC721/ERC1155 `ApprovalForAll` emits collection-scoped maker triggers for the tracked contract. WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These hints have no raw event table. Shared applied ranges acquire WETH and
+Seaport global effects independently of the buy-side bidder index; the commit
+retains canonical maker invalidation before advancing shared progress. Scoped
+ranges retain their token/collection effects before advancing that collection.
+Optional queue follow-ups use the same effect classifier. Historical imports
+retain no current-order invalidation or maker-validation work.
 
 Maker triggers are re-validation hints, not unconditional cancels. NFT transfers, single-token NFT approvals, and fill-derived item movements emit token-scoped maker triggers. NFT operator approvals emit collection-scoped maker triggers. WETH transfer/approval triggers and Seaport counter bumps stay global.
 
@@ -254,53 +256,40 @@ All of these normalize to token-level metadata refresh events with:
 
 The `Terraformed` log also emits an extension event fact. The Terraforms extension owns the block-scoped contract reads needed to attach the committed canvas rows, maker address, and content hash to that fact.
 
-## Gap Check
+## Historical Gap Check
 
-The sync worker performs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
-on startup and every HTTP head poll. It repeatedly walks collection-specific
-coverage from head through each live collection's bootstrap anchor, including
-holes behind bootstrap's last-synced block. The former global predecessor check
-has been removed.
+The sync coordinator runs [perpetual collection gap repair](03-scheduler-worker.md#perpetual-collection-gap-repair)
+when foreground work is idle. Collection coverage records successfully imported
+facts; it cannot establish an applied prefix or satisfy bootstrap completion.
 
 Repairs retain explicit collection IDs, repair identities, anchors and bounds.
-The direct executor reloads them, plans one bounded common suffix and calls the
-same multi-collection pipeline once. Each member gets scoped activity/order/
-metadata range follow-ups with a stable source identity derived from its repair
-ID and acquired bounds. Shared order hints and metadata refreshes are built once.
-Fully pre-anchor members receive activity projection only.
-
-Atomic completion advances a matching intent to its older remainder or clears
-it. Retrying publication cannot reset progress or repeat RPC acquisition; the
-required outbox rows remain independently retryable. Pause, anchor changes,
-completion or purge before commit invalidate a gap member and reject the whole
-acquisition transaction. Legacy queued automatic hints do not execute ranges.
+The executor reloads them and plans one bounded common suffix. The transaction
+writes historical facts, scoped activity follow-ups and the matching repair
+remainder together. Current balances, orders, metadata and applied progress do
+not change. Failed publication retries outbox intent without repeating RPC.
+Pause, anchor changes, completion or purge invalidate a repair member before
+commit. Queued automatic hints never execute these ranges independently.
 
 ## Persisting Sync Results
 
-`SqliteStorage.persistSyncResult()`:
+`SqliteSyncRangeCommit` owns the transaction around
+`SqliteStorage.persistSyncResult()` and applied progress:
 
-- Validates that every fact and fanout hint references a supplied header with the
-  same block number and hash. Adjacent headers must have matching parent links,
-  and repeated heights must contain identical metadata.
-- Rejects a hash conflicting with a stored block; canonical replacement requires
-  rollback first. Validation failure writes no facts, coverage or balances.
-- Writes blocks to `blocks` table.
-- Marks each processed block in `collection_sync_blocks` for every collection the sync job actually targeted.
-- Inserts transfer events into `nft_transfer_events`.
-- Inserts fill events into `fills`.
-- Applies balance updates for newly inserted transfers only when the event block is strictly after the affected collection's `bootstrap_anchor_block`.
-
-The storage layer is idempotent:
-
-- Transfers are inserted with `INSERT OR IGNORE` against a unique constraint.
-- Collection block coverage is upserted by `(chain_id, collection_id, block_number)`.
-- Balances are updated only for transfers that were newly inserted.
-- For ERC721 tokens touched by new post-anchor transfers, ownership is projected
-  from the latest persisted transfer by block number and log index, or the verified
-  fork ownership checkpoint when it is at or after that transfer's block. Older repair
-  ranges cannot restore a previous owner, leave multiple owners, or resurrect a
-  token whose latest transfer burns it. ERC1155 deltas remain additive and are
-  applied once per inserted transfer.
+- Every fact and hint must reference a supplied header with the same height/hash.
+  Headers cover the entire range, including empty blocks, and parent links match.
+- Applied ranges start exactly after their captured predecessor. Shared ranges
+  install the next accepted headers; collection-only replay uses identities
+  already accepted by shared progress. A stored mismatch requires recovery.
+- Historical imports cannot install future accepted headers or apply current
+  effects. Existing accepted identities must match.
+- Transfers/fills and collection fact coverage remain idempotent. Current
+  ownership is applied once per newly accepted collection prefix, even if its
+  facts were previously imported by a historical request.
+- ERC721 projection reads only history through the accepted range end and its
+  ownership checkpoint. ERC1155 deltas apply once under the same prefix fence.
+- Canonical fills, cancellations and validation invalidations commit before the
+  checkpoint is exposed, together with their required downstream intent.
+- Rejected candidates change no facts, current effects, outbox or applied progress.
 
 The sync worker captures the chain sync revision before fetching RPC data.
 Persistence checks that revision in the same write transaction as facts, coverage
@@ -314,21 +303,18 @@ progress or required follow-up is committed. A stored-header hash disagreement
 also retains an explicit canonical check after the failed transaction exits,
 including for mature history or a previously completed check. Ordinary revision,
 range and acquisition-ownership conflicts do not rearm verification. The existing
-reorg worker freshly checks the stored identity and owns any rollback/resync.
+sync coordinator freshly checks the stored identity and owns any rollback/resync.
 Changes after the final RPC check remain the responsibility
-of the reorg worker; external chain state cannot be frozen by a SQLite transaction.
+of the sync coordinator; external chain state cannot be frozen by a SQLite transaction.
 
-This is the key ownership invariant for historical backfill:
-
-- raw facts are always persisted for the requested range
-- current-state tables are anchor-gated
-- `block <= bootstrap_anchor_block` is facts-only and must not mutate `nft_balances`
+Historical backfill is facts-only at every height, including after a collection
+anchor. Current effects require an explicitly accepted contiguous application;
+raw coverage and an anchor comparison cannot grant that authority.
 
 ## Domain Job Fan-Out
 
 The acquisition transaction retains domain follow-ups with an explicit projection split:
 
-- `domain.orders.sync`
 - `domain.metadata.sync`
 - `domain.activity.sync`
 
@@ -347,27 +333,21 @@ Current behavior:
     - always receives the full raw range with `projection = facts_only`
     - activities are a historical-safe feed projection over persisted facts
 - `domain.metadata.sync`
-    - published only for the post-anchor window with `projection = current_state`
-- `domain.orders.sync`
-    - published only when the range intersects the post-anchor window
-    - currently remains a placeholder, but order update fanout from the sync worker is still anchor-gated
+    - published only for accepted collection application with `projection = current_state`
 
-Order maintenance then continues through dedicated update queues:
+Canonical order effects are retained directly in the same writer before applied
+progress advances. By-ID effects update protocol state or ordinary validation
+demand without another broker delivery. Maker effects perform an indexed
+candidate existence check; an admitted scope retains one existing compact
+continuation. Repeated effects coalesce into that scope and its current wakeup.
+Unknown WETH owners create no order outbox message and no maker run. WETH logs
+are read once per shared applied range; no bidder cache gates correctness.
 
-- `orders.update-by-maker`
-- `orders.update-by-id`
-
-`orders.update-by-maker` now carries a discriminated scope:
-
-- token-scoped updates include `collectionId + tokenId`
-- collection-scoped updates include `collectionId` only
-- global updates carry maker-wide invalidation reasons only
-
-Manual historical backfills keep token-scoped order maintenance but suppress
-global `orders.update-by-maker` jobs for WETH balance, approval, and Seaport
-counter triggers. Current-state repair backfills keep the global fanout.
-
-The collection bootstrap worker also uses the sync pipeline for short-range bootstrap backfill. These bootstrap-published backfill jobs are collection-scoped so completion checks only track the intended collection.
+Historical ranges emit activity follow-ups only. Maker handlers expand durable
+per-order demand; validators read a coordinator checkpoint and cannot advance it.
+Bootstrap wakeups do not acquire independently; completion observes both accepted
+prefixes. The coordinator's single-flight execution owns current acquisition
+serialization; historical facts-only work relies on its explicit writer contract.
 
 ## Current Limits and Future Direction
 
@@ -420,20 +400,18 @@ Logical execution job size must remain separate from the RPC adapter's internal
 `LOG_CHUNK_SIZE`, so large jobs can reduce broker fan-out while each provider
 request stays within its limits. The scheduling surface should show the
 estimated job count and require explicit confirmation above a configured
-threshold. The design must preserve current-state projection order across
-post-anchor ranges, including retries. The current process-local backfill gate
-serializes arrivals but does not establish a durable block-order barrier; see
-[bootstrap execution](17-bootstrap-execution-and-concurrency.md#10-short-backfill).
+threshold. This future run manager must remain facts-only. Post-anchor current application
+already belongs to the coordinator and its durable ordered-prefix fence; see
+[bootstrap execution](17-bootstrap-execution-and-concurrency.md#10-applied-catch-up).
 
 Before implementation, decide which runtime owns the feeder, whether the first
 model supports both chain-wide and collection-scoped runs, the default admitted
 window, and run-history retention. The existing `BackfillSyncPayload` source and
-manual order-maintenance policy remain authoritative throughout.
+Historical writer boundary remain authoritative throughout.
 
 The current Admin action always schedules historical enrichment. A later
-operator surface should expose that policy in run/status output rather than
-making operators infer it. If ArtGod adds an explicit current-state repair mode,
-it should remain a separate typed choice and guard Seaport counter fan-out by
-the presence of local Seaport orders, not by the buy-side bidder index. A direct
+operator surface should expose that historical intent in run/status output rather than
+making operators infer it. Any future current-state repair command must retain requirements for the existing
+coordinator instead of granting a historical job projection authority. A direct
 collection-, maker-, or orderbook-scoped command to revalidate current local
 orders is preferable to replaying months of historical triggers for repair.

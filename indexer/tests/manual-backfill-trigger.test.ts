@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-    SYNC_JOB_KIND,
-} from "../src/domain/sync-jobs.js";
+import { BACKFILL_SOURCE, SYNC_JOB_KIND } from "../src/domain/sync-jobs.js";
 import { buildManualHistoricalBackfillJobs } from "../src/application/manual-backfill-trigger.js";
 
 describe("manual backfill trigger jobs", () => {
@@ -12,7 +8,7 @@ describe("manual backfill trigger jobs", () => {
         vi.restoreAllMocks();
     });
 
-    it("builds manual historical backfill jobs with explicit source and policy", () => {
+    it("builds manual historical backfill jobs with explicit source", () => {
         vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
 
         const jobs = buildManualHistoricalBackfillJobs({
@@ -40,8 +36,6 @@ describe("manual backfill trigger jobs", () => {
                     fromBlock: 100,
                     toBlock: 101,
                     source: BACKFILL_SOURCE.ManualHistorical,
-                    orderMaintenancePolicy:
-                        BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
                 },
             }),
             expect.objectContaining({

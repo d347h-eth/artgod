@@ -46,8 +46,9 @@ import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
-import { SqliteStorage } from "../src/infra/storage/sqlite.js";
-import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
+import { SqliteChainProgress } from "../src/infra/storage/sqlite-chain-progress.js";
+import { persistCanonicalBlocks } from "../src/infra/storage/sqlite-canonical-headers.js";
+import { captureChainSyncCheckpoint } from "../src/infra/storage/sqlite-chain-revisions.js";
 import type { Hex, RpcBlock } from "../src/ports/rpc.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -84,6 +85,13 @@ describe("bootstrap pipeline lifecycle", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM collection_sync_progress;",
+                "DELETE FROM collection_ownership_bases;",
+                "DELETE FROM chain_sync_progress;",
+                "DELETE FROM chain_head_samples;",
+                "DELETE FROM chain_sync_targets;",
+                "DELETE FROM blocks;",
+                "DELETE FROM chain_sync_revisions;",
                 "DELETE FROM bootstrap_run_events;",
                 "DELETE FROM bootstrap_run_steps;",
                 "DELETE FROM bootstrap_metadata_snapshot_tasks;",
@@ -120,7 +128,7 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapSteps = new SqliteBootstrapSteps();
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
-        const storage = new SqliteStorage();
+        const progress = new SqliteChainProgress();
         const statsRecomputeRequests: Array<{
             payload: MetadataStatsRecomputePayload;
             traceId: string;
@@ -151,12 +159,11 @@ describe("bootstrap pipeline lifecycle", () => {
             {
                 getBlockNumber: async () => 100,
             },
-            storage,
+            progress,
             collections,
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests),
-            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -164,6 +171,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapSteps,
             bootstrapStorage,
             backfillQueuePort(statsRecomputeRequests),
+            progress,
         );
 
         const run = bootstrapRuns.getRun(runId);
@@ -212,13 +220,14 @@ describe("bootstrap pipeline lifecycle", () => {
             total: 2,
         });
 
+        acceptOwnershipBase(runId, collectionId);
         const backfillResult = await backfillExecutor.scheduleAfterSnapshot({
             chainId: 1,
             runId,
             collectionId,
             address: TEST_CONTRACT_ADDRESS,
             anchorBlock: 100,
-            backfillBatchSize: 10,
+            anchorHash: TEST_ANCHOR_HASH,
             openSeaIntegration: disabledOpenSeaIntegration(),
             traceId: "trace-1",
             sourceJobId: "job-1",
@@ -342,7 +351,7 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapSteps = new SqliteBootstrapSteps(() => 1_000);
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
-        const storage = new SqliteStorage();
+        const progress = new SqliteChainProgress();
         const statsRecomputeRequests: Array<{
             payload: MetadataStatsRecomputePayload;
             traceId: string;
@@ -369,12 +378,11 @@ describe("bootstrap pipeline lifecycle", () => {
             {
                 getBlockNumber: async () => 100,
             },
-            storage,
+            progress,
             collections,
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests),
-            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -382,6 +390,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapSteps,
             bootstrapStorage,
             backfillQueuePort(statsRecomputeRequests),
+            progress,
         );
         const scheduler = new BootstrapStepScheduler(
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
@@ -433,6 +442,7 @@ describe("bootstrap pipeline lifecycle", () => {
                             { completed: 2, total: 2 },
                         );
                     } else if (step.stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
+                        acceptOwnershipBase(run.runId, run.collectionId);
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Ownership,
@@ -448,7 +458,7 @@ describe("bootstrap pipeline lifecycle", () => {
                             collectionId: run.collectionId,
                             address: run.requestAddress,
                             anchorBlock: run.anchorBlock,
-                            backfillBatchSize: 10,
+                            anchorHash: run.anchorBlockHash!,
                             openSeaIntegration: disabledOpenSeaIntegration(),
                             traceId,
                             sourceJobId: "scheduler-job-1",
@@ -518,7 +528,7 @@ describe("bootstrap pipeline lifecycle", () => {
 
     it("recovers delegated backfill work after the health-check deadline", async () => {
         let nowMs = 1_000;
-        let syncedBlockCount = 0;
+        const progress = new SqliteChainProgress();
         const collectionId = seedCollection();
         const runId = seedBootstrapRun(collectionId);
         seedBootstrapStep(runId, BOOTSTRAP_STEP_KEY.Anchor);
@@ -572,14 +582,11 @@ describe("bootstrap pipeline lifecycle", () => {
             {
                 getBlockNumber: async () => 105,
             },
-            {
-                countCollectionSyncedBlocksInRange: () => syncedBlockCount,
-            },
+            progress,
             collections,
             bootstrapRuns,
             bootstrapSteps,
             backfillQueuePort(statsRecomputeRequests, backfillRanges),
-            new SqliteSyncGapStore(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
@@ -587,6 +594,7 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapSteps,
             bootstrapStorage,
             backfillQueuePort(statsRecomputeRequests),
+            progress,
         );
         const scheduler = new BootstrapStepScheduler(
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
@@ -642,6 +650,7 @@ describe("bootstrap pipeline lifecycle", () => {
                         return terminalStepResult();
                     }
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
+                        acceptOwnershipBase(run.runId, run.collectionId);
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Ownership,
@@ -659,7 +668,7 @@ describe("bootstrap pipeline lifecycle", () => {
                             collectionId: run.collectionId,
                             address: run.requestAddress,
                             anchorBlock: run.anchorBlock,
-                            backfillBatchSize: 10,
+                            anchorHash: run.anchorBlockHash!,
                             openSeaIntegration: disabledOpenSeaIntegration(),
                             traceId,
                             sourceJobId: "scheduler-job-2",
@@ -710,7 +719,7 @@ describe("bootstrap pipeline lifecycle", () => {
             runId,
             BOOTSTRAP_STEP_KEY.Backfill,
         );
-        syncedBlockCount = 5;
+        applyEmptyCatchup(collectionId);
         nowMs += TEST_BACKFILL_CHECK_DELAY_MS;
         const completed = await scheduler.runOnce(input);
 
@@ -874,4 +883,42 @@ function listRunEventCodes(runId: number): string[] {
         )
         .all(runId) as Array<{ event_code: string }>;
     return rows.map((row) => row.event_code);
+}
+
+/** Ownership installation and ordered effects are separate boundary tests.
+ * This scheduler fixture supplies their durable accepted-base/prefix result. */
+function acceptOwnershipBase(runId: number, collectionId: number) {
+    const progress = new SqliteChainProgress();
+    const checkpoint = captureChainSyncCheckpoint(1);
+    const anchor = buildBlock(100);
+    progress.initializeChain(checkpoint, anchor);
+    db.prepare(
+        "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
+    ).run(
+        1,
+        collectionId,
+        runId,
+        checkpoint.revision,
+        anchor.number,
+        anchor.hash,
+    );
+    progress.acceptCollectionBase(checkpoint, collectionId, anchor);
+}
+
+function applyEmptyCatchup(collectionId: number) {
+    const progress = new SqliteChainProgress();
+    const blocks = Array.from({ length: 5 }, (_, i) => ({
+        ...buildBlock(101 + i),
+        parentHash: TEST_ANCHOR_HASH,
+    }));
+    db.writeTransaction(() => {
+        const expected = progress.chainProgress(1)!;
+        progress.assertChainRange(expected, blocks);
+        persistCanonicalBlocks(expected.checkpoint, blocks, () => false);
+        progress.advanceChain(expected, blocks);
+        progress.advanceCollection(
+            progress.collectionProgress(1, collectionId)!,
+            blocks,
+        );
+    })();
 }

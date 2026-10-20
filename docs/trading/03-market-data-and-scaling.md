@@ -31,7 +31,12 @@ display state meet.
 
 OpenSea envelope, order identity and protocol alias readers live in
 `shared/opensea/payload.ts`. The shared offer parser owns WETH unit price and
-complete scope classification; indexer ingestion, bidder reads and bid-book
+complete scope classification. It keeps signed original size separate from the
+source remainder. Multi-unit prices divide by original units for both full-only
+and partial-fill orders; a source remainder changes quantity, never unit price.
+Every explicit protocol item must have a recognized type. An unclassifiable item
+rejects the quote instead of silently reducing its original NFT count.
+Indexer ingestion, bidder reads and bid-book
 projection use those same semantics. Generic trait matching and deduplication
 live in `shared/trading/offer-trait-criteria.ts`. Every string and numeric
 constraint participates in matching and scope identity. Malformed constraints
@@ -39,6 +44,15 @@ reject the offer instead of leaving a broader scope, and exact NFT identifier
 `0` remains distinct from the Seaport criteria wildcard.
 Declared competitor selectors reuse `shared/trading/trait-competition.ts`,
 which keeps literal values separate from all-values selectors during lookup.
+
+Direct recovery of a tracked order checks its matching identity and source
+status before parsing active-offer terms. Only explicit `FULFILLED`, `EXPIRED`, or `CANCELLED` responses (or legacy
+cancellation, finalization, or expiry evidence when status is absent) complete
+recovery without a cancellation. `INACTIVE`, unknown statuses, `markedInvalid`,
+missing records, and lookup failures do not prove terminality. Active records
+still require the shared parser. Cancellation uses the saved order identity and
+protocol independently of priceability; ordinary bidder recovery retains an
+unresolved order instead of replacing it.
 
 ## Collection Snapshot Traversal
 
@@ -185,6 +199,18 @@ their existing collection endpoint paths. This does not introduce another
 background polling lane or change snapshot freshness and stream scheduling.
 
 ## Bid-Book Display Selection
+
+Market-row `quantity` represents remaining NFT units. For indexed fixed-amount
+Seaport buy orders, the read API also returns nullable `originalQuantity` and
+`fillableQuantity`: original signed units and remaining units covered by balance
+and allowance at validation. Capacity is not reserved across offers. Bot snapshot
+rows carry source remainder without claiming a validated funding capacity.
+Validation storage retains the last validated quantities while a refresh is
+pending. Indexed bid-book rows and current asks require fresh, usable canonical
+proof with positive remaining quantity and funding capacity. Pending order
+validation or a maker requirement not covered by that proof excludes the row
+from these read models. Returned indexed bid-book rows expose the proof time as
+`validatedAt` and have `validationPending=false`.
 
 After a successful snapshot, the projection sidecar writes parsed offer rows and
 snapshot metadata to SQLite. Backend reads use that source only when all of

@@ -87,7 +87,7 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
                 this.save(next);
             }
             if (
-                !this.checks.complete({
+                !this.checks.handoffToRecovery({
                     checkpoint: input.checkpoint,
                     chainId: input.checkpoint.chainId,
                     blockNumber: input.checkedBlock,
@@ -174,6 +174,40 @@ export class SqliteReorgRecoveries implements ReorgRecoveryStore {
                 plan: input.plan,
                 snapshot: input.snapshot,
             });
+            if (input.next) this.save(input.next);
+            else this.remove(input.expected.chainId);
+        })();
+    }
+
+    commitRestoredAgreement(
+        input: Parameters<ReorgRecoveryStore["commitRestoredAgreement"]>[0],
+    ): void {
+        db.writeTransaction(() => {
+            this.assertCurrent(input.expected);
+            if (
+                input.proof.history.checkpoint.chainId !==
+                    input.expected.chainId ||
+                input.proof.history.checkpoint.revision !==
+                    input.expected.revision ||
+                input.proof.history.toBlock !== input.expected.checkedBlock ||
+                (input.next === null) !==
+                    (input.expected.resumeFrom === null) ||
+                (input.next &&
+                    (input.next.chainId !== input.expected.chainId ||
+                        input.next.recoveryId !== input.expected.recoveryId ||
+                        input.next.version !== input.expected.version + 1 ||
+                        input.next.revision !== input.expected.revision ||
+                        input.next.fromBlock !== input.expected.resumeFrom))
+            )
+                throw new ChainSyncConflict(
+                    "Restored agreement does not match retained recovery",
+                );
+            this.storage.assertReorgHistoryUnchanged(input.proof.history);
+            // Do not discharge disputes merely because the original proof
+            // window agrees: later mismatches may have coalesced into this
+            // journal, or a fresh conflict may have arrived during its RPC.
+            // Each survives until its existing generation-fenced check agrees.
+            this.checks.resumeDisputes(input.proof.history.checkpoint);
             if (input.next) this.save(input.next);
             else this.remove(input.expected.chainId);
         })();

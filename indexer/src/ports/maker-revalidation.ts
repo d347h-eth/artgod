@@ -3,13 +3,10 @@ import type {
     MakerPassBoundary,
     MakerRevalidationRun,
     MakerValidationCandidate,
-    MakerValidationResolution,
-    MakerValidationCheckpointEntry,
     MakerWakeup,
 } from "../domain/maker-revalidation.js";
 import type { QueueDeliveryOrigin, QueueReplayBoundary } from "./queue.js";
-import type { ChainSyncCheckpoint } from "../domain/chain-sync.js";
-import type { OrderValidationEvidence } from "../domain/order-validation-demand.js";
+import type { QueueName } from "../domain/queues.js";
 
 /** Domain projection behavior used inside the checkpoint adapter's write transaction. */
 export interface MakerOrderProjectionPort {
@@ -20,24 +17,19 @@ export interface MakerOrderProjectionPort {
         boundary: MakerPassBoundary,
         limit: number,
     ): MakerValidationCandidate[];
-    applyMakerResolution(
-        payload: OrderUpdateByMakerPayload,
-        resolution: MakerValidationResolution,
-    ): number | null;
 }
 
 export interface MakerRevalidationStore {
-    captureSyncCheckpoint(chainId: number): ChainSyncCheckpoint;
     /** Hand off a background hint through the existing outbox before main validation. */
     scheduleWakeup(run: MakerRevalidationRun, now: number): void;
     admit(input: {
         jobId: string;
         payload: OrderUpdateByMakerPayload;
         origin?: QueueDeliveryOrigin;
-        /** Trusted enqueue time enables conservative scope coalescing; absent means an independent pass. */
-        requiredAt?: number;
+        /** Stable source identity; absent defaults to the durable input job identity. */
+        observationKey?: string;
         now: number;
-    }): MakerRevalidationRun;
+    }): MakerRevalidationRun | null;
     claim(
         runId: string,
         owner: string,
@@ -47,19 +39,12 @@ export interface MakerRevalidationStore {
         chainId: number;
         runId: string;
         step: number;
-        origin?: QueueDeliveryOrigin;
+        queueName: QueueName;
+        origin: QueueDeliveryOrigin;
     }): MakerRevalidationRun | null;
-    next(run: MakerRevalidationRun, limit: number): MakerValidationCandidate[];
-    /** Effects or durable demand admission, cursor and scan completion commit atomically,
-     * guarded by the lease fence. Handoff is allowed only for the isolated candidate. */
-    checkpoint(
-        run: MakerRevalidationRun,
-        resolutions: MakerValidationCheckpointEntry[],
-        complete: boolean,
-        now: number,
-        evidence: OrderValidationEvidence | null,
-    ): MakerRevalidationRun;
-    renew(run: MakerRevalidationRun, now: number): boolean;
+    /** Expand one bounded page into ordinary demand and advance the cursor atomically.
+     * Completion means durable accounting, never successful protocol validation. */
+    expand(run: MakerRevalidationRun, now: number): MakerRevalidationRun;
     release(run: MakerRevalidationRun, now: number, error?: unknown): void;
     cleanup(boundary: QueueReplayBoundary, limit: number): number;
     listWakeups(now: number, limit: number): MakerWakeup[];

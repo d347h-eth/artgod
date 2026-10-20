@@ -18,6 +18,7 @@ export {
 
 // Fillability states that maker balance, approval, ownership, or counter changes can still transition.
 export const ORDER_REVALIDATABLE_FILLABILITY_STATUS = {
+    Unvalidated: ORDER_STATUS.Unvalidated,
     Fillable: ORDER_STATUS.Fillable,
     NoBalance: ORDER_STATUS.NoBalance,
     NoApproval: ORDER_STATUS.NoApproval,
@@ -129,6 +130,7 @@ export type OrderRecord = {
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -137,9 +139,60 @@ export type OrderRecord = {
     sourceStatus: OrderSourceStatus;
     seaportData?: SeaportOrderData | null;
     seaportDataSourceKind?: OrderSeaportDataSourceKind | null;
+    /** Block of the current protocol result (execution or verified snapshot).
+     * Retained independently of disposable demand coverage for rollback/retirement. */
     blockNumber?: number | null;
     txHash?: string | null;
     logIndex?: number | null;
 };
 
-export type OrderValidationResult = { status: OrderStatus; reason: string };
+/** Quantities are one snapshot: original signed units, protocol remainder and
+ * independently funded/approved capacity. Capacity is not a wallet reservation. */
+export type OrderQuantities = {
+    original: string;
+    remaining: string;
+    fillable: string;
+};
+/** Bounded explanations of a protocol validation result, shared by validators,
+ * callers and reporting. These are not order-update commands or source events. */
+export const ORDER_VALIDATION_REASON = {
+    MissingProtocol: "missing-protocol",
+    ProtocolError: "protocol-error",
+    OrderHashMismatch: "order-hash-mismatch",
+    BadSignature: "bad-signature",
+    SignatureError: "signature-error",
+    NotActive: "not-active",
+    Expired: "expired",
+    Cancelled: "cancelled",
+    Filled: "filled",
+    CounterMismatch: "counter-mismatch",
+    UnsupportedConduit: "unsupported-conduit",
+    UnsupportedConduitChannel: "unsupported-conduit-channel",
+    MissingPrice: "missing-price",
+    UnsupportedPayment: "unsupported-payment",
+    InvalidFillFraction: "invalid-fill-fraction",
+    UnknownSide: "unknown-side",
+    MissingTokenId: "missing-token-id",
+    OwnerMismatch: "owner-mismatch",
+    Approved: "approved",
+    MissingApproval: "missing-approval",
+    NoBalance: "no-balance",
+    NoAllowance: "no-allowance",
+    NativeFundsAvailable: "native-ok",
+    Erc20FundsAvailable: "erc20-ok",
+} as const;
+
+export type OrderValidationReason =
+    (typeof ORDER_VALIDATION_REASON)[keyof typeof ORDER_VALIDATION_REASON];
+
+export type OrderValidationResult = {
+    /** Drives fillability/quantity projection; strict snapshot read failures throw
+     * instead of supplying a result to commit. */
+    status: OrderStatus;
+    /** Explains the result for diagnostics and bounded summary counts. It does
+     * not independently select lifecycle transitions, queue routing or retries. */
+    reason: OrderValidationReason;
+    /** Unbounded diagnostic detail, kept separate from the semantic reason. */
+    error?: string;
+    quantities?: OrderQuantities;
+};

@@ -1,3 +1,4 @@
+import { SEAPORT_ITEM_TYPE as FILL_ITEM_TYPE } from "./seaport.js";
 import { ORDER_SIDE, type OrderSide } from "./orders.js";
 
 // Protocol identity and execution currency shared by decoding and fill readers.
@@ -13,15 +14,8 @@ export const FILL_ITEM_SIDE = {
     Consideration: "consideration",
 } as const;
 export type FillItemSide = (typeof FILL_ITEM_SIDE)[keyof typeof FILL_ITEM_SIDE];
-// Seaport's concrete item vocabulary; Blur execution facts map to the same model.
-export const FILL_ITEM_TYPE = {
-    Native: 0,
-    Erc20: 1,
-    Erc721: 2,
-    Erc1155: 3,
-    Criteria721: 4,
-    Criteria1155: 5,
-} as const;
+// Execution facts use the protocol item vocabulary, including Blur mappings.
+export { SEAPORT_ITEM_TYPE as FILL_ITEM_TYPE } from "./seaport.js";
 export type FillExecutionItem = {
     index: number;
     side: FillItemSide;

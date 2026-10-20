@@ -562,12 +562,22 @@ describe("bootstrap storage", () => {
             tokenId: "1074",
             attempts: 2,
             owner: "0x1111111111111111111111111111111111111111",
+            block: {
+                chainId: 1,
+                blockNumber: 200,
+                blockHash: `0x${"22".repeat(32)}`,
+            },
         });
         storage.markOwnershipTaskSucceeded({
             runId: 77,
             tokenId: "1074",
             attempts: 3,
             owner: "0x2222222222222222222222222222222222222222",
+            block: {
+                chainId: 1,
+                blockNumber: 200,
+                blockHash: `0x${"22".repeat(32)}`,
+            },
         });
 
         expect(storage.getOwnershipTaskCounts(77)).toEqual({

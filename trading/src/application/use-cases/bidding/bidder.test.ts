@@ -63,7 +63,7 @@ class FakeBiddingService {
     public activeOffers: unknown[] = [];
     public activeOffersImpl?: (job: BidderJob) => Promise<unknown[]>;
     public orderLookupResult: BiddingOrderRecoveryResult = {
-        status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
     };
     public orderLookups: Array<{
         orderHash: string;
@@ -3619,7 +3619,7 @@ describe("Bidder stream refresh", () => {
         ]);
     });
 
-    it("treats an already-absent tracked active order as cancelled", async () => {
+    it("completes cancellation for a terminal tracked order", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [];
         const recordedCancellations: Array<{
@@ -3680,7 +3680,7 @@ describe("Bidder stream refresh", () => {
         assert.ok(recordedCancellations[0]?.completedAt);
     });
 
-    it("keeps tracked active order retryable when recovery is inconclusive", async () => {
+    it("cancels by saved identity when recovery is inconclusive", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [];
         biddingService.orderLookupResult = {
@@ -3700,14 +3700,9 @@ describe("Bidder stream refresh", () => {
         job.state.activeProtocolAddress = "0xprotocol";
         job.state.currentPrice = 5n;
 
-        await assert.rejects(
-            () => bidder.cancelActiveOffersForJob(job),
-            /Unable to prove tracked active order status/,
-        );
-
-        assert.deepEqual(biddingService.canceledOrderIds, []);
-        assert.equal(job.state.activeOrderId, "0xmine");
-        assert.equal(job.state.activeProtocolAddress, "0xprotocol");
+        assert.equal(await bidder.cancelActiveOffersForJob(job), 1);
+        assert.deepEqual(biddingService.canceledOrderIds, ["0xmine"]);
+        assert.equal(job.state.activeOrderId, undefined);
     });
 
     it("refreshes only token jobs whose cached metadata matches every trait criterion", async () => {

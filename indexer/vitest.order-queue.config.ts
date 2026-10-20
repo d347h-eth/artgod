@@ -5,6 +5,7 @@ export default defineConfig({
         include: [
             "integration/order-queue-healing.test.ts",
             "integration/order-backlog.test.ts",
+            "integration/order-source-admission.test.ts",
         ],
         fileParallelism: false,
     },

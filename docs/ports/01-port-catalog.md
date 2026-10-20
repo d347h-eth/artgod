@@ -82,7 +82,6 @@ profile exporters use the configured Tempo and Pyroscope URLs.
 | `42740` | backend-api                             | `config/settings.manifest.toml` |
 | `42741` | scheduler-worker                        | `config/settings.manifest.toml` |
 | `42742` | sync-worker                             | `config/settings.manifest.toml` |
-| `42743` | reorg-worker                            | `config/settings.manifest.toml` |
 | `42744` | domain-worker                           | `config/settings.manifest.toml` |
 | `42745` | offchain-ingest-worker                  | `config/settings.manifest.toml` |
 | `42746` | opensea-stream-worker                   | `config/settings.manifest.toml` |

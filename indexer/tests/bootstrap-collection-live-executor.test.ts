@@ -30,6 +30,7 @@ import {
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../src/ports/bootstrap-steps.js";
+import { syncBlockFixture } from "./helpers/chain-fixture.js";
 
 const TEST_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
 const TEST_TRACE_ID = "trace-1";
@@ -96,6 +97,37 @@ describe("bootstrap collection-live executor", () => {
             BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         ]);
     });
+
+    it.each([
+        { appliedBlock: 104 },
+        { appliedBlock: null },
+        { anchorHash: "replaced-anchor" },
+    ])(
+        "keeps stale backfill completion nonterminal when the applied view changed: %j",
+        async (view) => {
+            const harness = createHarness({
+                metadataCounts: cleanCounts(3),
+                imageCacheCounts: cleanCounts(0),
+                ownershipCounts: cleanCounts(3),
+                ...view,
+            });
+            const result = await harness.executor.complete({
+                run: harness.run,
+                step: collectionLiveStep(harness.run.runId),
+                traceId: TEST_TRACE_ID,
+                sourceJobId: TEST_SOURCE_JOB_ID,
+            });
+            expect(result.outcome).toBe(
+                BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress,
+            );
+            expect(harness.collectionFinishes).toEqual([]);
+            expect(harness.succeededSteps).toEqual([]);
+            expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
+            expect(harness.cleanupDeletedRows).toEqual(
+                emptyCleanupDeletedRows(),
+            );
+        },
+    );
 
     it("defers final stats when a bootstrap extension was requested", async () => {
         const harness = createHarness({
@@ -184,6 +216,8 @@ function createHarness(input: {
     imageCacheCounts: BootstrapTaskCounts;
     ownershipCounts: BootstrapTaskCounts;
     requestExtensionKey?: CollectionExtensionKey | null;
+    appliedBlock?: number | null;
+    anchorHash?: string;
 }): Harness {
     const run = buildRun({
         status: BOOTSTRAP_RUN_STATUS.Backfill,
@@ -283,6 +317,28 @@ function createHarness(input: {
             stepsPort,
             temporaryDataPort,
             queuePort,
+            {
+                collectionProgress: () => ({
+                    collectionId: run.collectionId,
+                    checkpoint: { chainId: run.chainId, revision: 0 },
+                    anchor: {
+                        ...syncBlockFixture(100),
+                        hash: input.anchorHash ?? run.anchorBlockHash!,
+                    },
+                    applied: syncBlockFixture(input.appliedBlock ?? 105),
+                }),
+                validationCheckpoint: () =>
+                    input.appliedBlock === null
+                        ? null
+                        : {
+                              chainId: run.chainId,
+                              revision: 0,
+                              collectionId: run.collectionId,
+                              block: syncBlockFixture(
+                                  input.appliedBlock ?? 105,
+                              ),
+                          },
+            },
         ),
         run,
         events,

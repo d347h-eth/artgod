@@ -1,3 +1,6 @@
+import { makerValidationWorkflow } from "./helpers/maker-validation-workflow.js";
+import { eventValidationRequest } from "../src/domain/order-validation-demand.js";
+import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import {
     afterEach,
     beforeAll,
@@ -13,14 +16,18 @@ import { SqliteCurrentAsks } from "@artgod/shared/database/current-asks";
 import { logger } from "@artgod/shared/utils";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import { ApplyOrderUpdate } from "../src/application/orders/apply-order-update.js";
-import {
-    AdmitOrderValidation,
-    ValidateOrderDemand,
-} from "../src/application/orders/validate-order-demand.js";
+import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
-import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
-import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
+import {
+    ORDER_UPDATE_REASON,
+    type OrderUpdateByIdPayload,
+} from "../src/domain/order-jobs.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_SOURCE_STATUS,
+    ORDER_STATUS,
+} from "../src/domain/orders.js";
 import {
     makerUpdateQueue,
     orderUpdateQueue,
@@ -38,6 +45,7 @@ import {
 } from "../src/infra/observability/domain-processing-metric-contract.js";
 import {
     HEAVY_MAKER,
+    heavyMakerBlock,
     seedHeavyMaker,
     heavyMakerHint,
     tokenSaleHint,
@@ -85,7 +93,7 @@ it("shares FIFO validation capacity and releases permits after failure without s
 
 describe("order processing boundaries", () => {
     loadTestEnv();
-    beforeAll(async () => {
+    beforeEach(async () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
     });
@@ -105,42 +113,51 @@ describe("order processing boundaries", () => {
             QUEUE_NAMES.OrdersUpdateByToken,
         );
         for (const reason of [
-            ORDER_UPDATE_REASON.Fill,
+            ORDER_UPDATE_REASON.Validation,
             ORDER_UPDATE_REASON.Cancel,
+            ORDER_UPDATE_REASON.SourceExecution,
         ])
             expect(
-                orderUpdateQueue({ chainId: 1, orderId: sale.id, reason }),
+                orderUpdateQueue({
+                    chainId: 1,
+                    orderId: sale.id,
+                    source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                    reason,
+                }),
             ).toBe(QUEUE_NAMES.OrderLifecycle);
-        expect(
+        expect(() =>
             orderUpdateQueue({
                 chainId: 1,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-            }),
-        ).toBe(QUEUE_NAMES.OrdersUpdateById);
-        expect(
-            orderUpdateQueue({
-                chainId: 1,
-                orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-                sourceStatus: ORDER_SOURCE_STATUS.Active,
-            }),
-        ).toBe(QUEUE_NAMES.OrderLifecycle);
+                reason: ORDER_UPDATE_REASON.Fill,
+            } as unknown as OrderUpdateByIdPayload),
+        ).toThrow("source");
     });
 
-    it("applies a sold-token fact while validation capacity is occupied and removes the shared current ask", async () => {
+    it("retains a source sale while validation capacity is occupied and immediately hides its stale current ask", async () => {
         const telemetry = await processingTelemetry();
         const { sale, small } = seedHeavyMaker(1);
-        const validate = vi.fn(async () => ({
-            status: ORDER_STATUS.Fillable,
-            reason: "fixture",
-        }));
-        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, validate);
-        const store = new SqliteOrderValidationDemand(domain);
+        const work = makerValidationWorkflow();
+        const originalRead = work.rpc.readContract.bind(work.rpc);
+        vi.spyOn(work.rpc, "readContract").mockImplementation(async (params) =>
+            params.functionName === "ownerOf"
+                ? sale.maker
+                : originalRead(params),
+        );
+        await work.prepare();
+        work.demand.admit(
+            eventValidationRequest(
+                1,
+                sale.id,
+                HEAVY_MAKER.blockNumber,
+                HEAVY_MAKER.blockHash,
+            ),
+            Date.now(),
+        );
+        await work.validateReady();
         const processor = new ApplyOrderUpdate({
             chainId: 1,
-            validation: new AdmitOrderValidation(1, store, telemetry.hooks),
-            lifecycle: domain,
+            lifecycle: work.orders,
             observability: telemetry.hooks,
         });
         const asks = new SqliteCurrentAsks(db.raw, [HEAVY_MAKER.weth]);
@@ -153,62 +170,74 @@ describe("order processing boundaries", () => {
                 HEAVY_MAKER.now,
             );
         expect(ask()?.id).toBe(sale.id);
-        const admission = new FairOrderValidationAdmission(1);
+        const validate = vi.fn(async () => ({
+            status: ORDER_STATUS.Fillable,
+            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+        }));
         const blocked = Promise.withResolvers<void>();
         const started = Promise.withResolvers<void>();
         const validator = new ValidateOrderDemand({
             chainId: 1,
-            store,
-            admission,
-            createSnapshot: async () => {
+            store: work.demand,
+            admission: new FairOrderValidationAdmission(1),
+            createSnapshot: async ({ checkpoint }) => {
                 started.resolve();
                 await blocked.promise;
                 return {
                     validate,
                     canAccept: () => true,
                     finish: async () => {},
-                    readCounts: () => ({ perOrder: 0, shared: 0, other: 0 }),
-                    proof: {
-                        observedAt: HEAVY_MAKER.now * 1_000,
-                        blockNumber: HEAVY_MAKER.blockNumber,
-                    },
+                    readCounts: () => ({
+                        perOrder: 0,
+                        shared: 0,
+                        other: 0,
+                        statusBatches: 0,
+                    }),
+                    proof: { observedAt: Date.now(), block: checkpoint.block },
                 };
             },
         });
-        await processor.execute(
-            {
-                chainId: 1,
-                orderId: small.id,
-                reason: ORDER_UPDATE_REASON.Validation,
-            },
-            HEAVY_MAKER.now * 1_000,
+        work.demand.admit(
+            eventValidationRequest(
+                1,
+                small.id,
+                HEAVY_MAKER.blockNumber,
+                HEAVY_MAKER.blockHash,
+            ),
+            Date.now(),
         );
         const active = validator.executeBatch();
         await started.promise;
-        await processor.execute(
-            {
+        try {
+            await processor.execute({
                 chainId: 1,
                 collectionId: sale.collectionId,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Fill,
-                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                sourceStatus: ORDER_SOURCE_STATUS.Active,
+                reason: ORDER_UPDATE_REASON.SourceExecution,
                 observedAt: HEAVY_MAKER.now,
-            },
-            HEAVY_MAKER.now * 1_000,
-        );
-        expect(ask()).toBeUndefined();
-        expect(store.get(1, small.id)?.pending).toBe(true);
-        expect(validate).not.toHaveBeenCalled();
-        blocked.resolve();
+            });
+            expect(ask()).toBeUndefined();
+            expect(work.demand.get(1, sale.id)?.pending).toBe(true);
+            expect(work.demand.get(1, small.id)?.pending).toBe(true);
+            expect(validate).not.toHaveBeenCalled();
+            expect(
+                db
+                    .prepare(
+                        "SELECT fillability_status,quantity FROM orders WHERE id=?",
+                    )
+                    .get(sale.id),
+            ).toEqual({
+                fillability_status: ORDER_STATUS.Fillable,
+                quantity: "1",
+            });
+        } finally {
+            blocked.resolve();
+        }
         await active;
         expect(validate).toHaveBeenCalledOnce();
-        expect(store.get(1, small.id)?.pending).toBe(false);
-        expect(
-            await telemetry.value(METRIC.Operations, {
-                [LABEL.Operation]: OPERATION.DemandAdmit,
-                [LABEL.Result]: RESULT.Success,
-            }),
-        ).toBe(1);
+        expect(work.demand.get(1, small.id)?.pending).toBe(false);
         expect(
             await telemetry.value(METRIC.Operations, {
                 [LABEL.Operation]: OPERATION.Lifecycle,
@@ -216,40 +245,34 @@ describe("order processing boundaries", () => {
             }),
         ).toBe(1);
         expect(telemetry.apm.spans.map((span) => span.name)).toEqual([
-            OPERATION.DemandAdmit,
             OPERATION.Lifecycle,
         ]);
     });
 
     it("preserves unsupported and wrong-chain updates for retry instead of acknowledging a no-op", async () => {
-        const validation = { execute: vi.fn() };
-        const lifecycle = { handleOrderUpdateById: vi.fn() };
+        const lifecycle = {
+            handleOrderUpdateById: vi.fn(),
+        };
         const processor = new ApplyOrderUpdate({
             chainId: 1,
-            validation,
             lifecycle,
         });
         await expect(
-            processor.execute(
-                {
-                    chainId: 1,
-                    orderId: "fixture",
-                    reason: "unsupported-future-update",
-                },
-                0,
-            ),
+            processor.execute({
+                chainId: 1,
+                orderId: "fixture",
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                reason: "unsupported-future-update",
+            }),
         ).rejects.toThrow("Unsupported");
         await expect(
-            processor.execute(
-                {
-                    chainId: 2,
-                    orderId: "fixture",
-                    reason: ORDER_UPDATE_REASON.Fill,
-                },
-                0,
-            ),
+            processor.execute({
+                chainId: 2,
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                orderId: "fixture",
+                reason: ORDER_UPDATE_REASON.Fill,
+            }),
         ).rejects.toThrow("identity");
-        expect(validation.execute).not.toHaveBeenCalled();
         expect(lifecycle.handleOrderUpdateById).not.toHaveBeenCalled();
     });
 });

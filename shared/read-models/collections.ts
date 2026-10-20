@@ -3011,6 +3011,7 @@ function buildCheapestListingValues(params: {
         ...params.supportedCurrencies,
         params.nowSeconds,
         params.nowSeconds,
+        params.nowSeconds * 1_000,
     ];
 }
 

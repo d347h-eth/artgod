@@ -6,8 +6,8 @@ import {
 } from "./chain-sync.js";
 import { assertSyncBlockHeaders } from "./sync-result.js";
 
-// Capture the complete bounded local window, including missing heights, before
-// RPC. Newly filled holes must invalidate this evidence at rollback commit.
+// Capture a complete connected window of already accepted lineage before RPC.
+// Missing local ancestry is an unready view, never an invitation to guess.
 export type ReorgHistorySnapshot = {
     checkpoint: ChainSyncCheckpoint;
     fromBlock: number;
@@ -15,19 +15,48 @@ export type ReorgHistorySnapshot = {
     headers: readonly SyncBlockHeader[];
 };
 
+export const REORG_HISTORY_PROOF = {
+    Ancestor: "ancestor",
+    RestoredAgreement: "restored_agreement",
+} as const;
+
 export type ReorgAncestorProof = {
+    kind: typeof REORG_HISTORY_PROOF.Ancestor;
     fork: VerifiedChainBlock;
     history: ReorgHistorySnapshot;
 };
 
-// Sparse repair can insert a canonical header above an older orphan. A match is
-// an ancestor only below every divergence in the bounded local history. Stored
-// parent identities also reveal divergence at a height whose header is missing.
+export type ReorgRestoredAgreement = {
+    kind: typeof REORG_HISTORY_PROOF.RestoredAgreement;
+    history: ReorgHistorySnapshot;
+};
+
+export type ReorgHistoryProof = ReorgAncestorProof | ReorgRestoredAgreement;
+
+export function assertReorgHistory(history: ReorgHistorySnapshot): void {
+    if (
+        !Number.isSafeInteger(history.fromBlock) ||
+        history.fromBlock < 0 ||
+        !Number.isSafeInteger(history.toBlock) ||
+        history.toBlock < history.fromBlock ||
+        history.headers.length !== history.toBlock - history.fromBlock + 1 ||
+        history.headers.some(
+            (block, index) => block.number !== history.fromBlock + index,
+        )
+    )
+        throw new ChainSyncConflict("Incomplete accepted ancestor window");
+    assertSyncBlockHeaders(history.headers);
+}
+
+// A match is an ancestor only below every divergence within the supported
+// accepted window. Neither replacement RPC nor historical import fills holes
+// in old-branch evidence that the chain owner should already have retained.
 export function proveReorgAncestor(input: {
     history: ReorgHistorySnapshot;
     canonicalBlocks: readonly SyncBlockHeader[];
-}): ReorgAncestorProof | null {
+}): ReorgHistoryProof | null {
     const { history, canonicalBlocks } = input;
+    assertReorgHistory(history);
     assertSyncBlockHeaders(canonicalBlocks);
     if (
         canonicalBlocks.length !== history.toBlock - history.fromBlock + 1 ||
@@ -39,7 +68,7 @@ export function proveReorgAncestor(input: {
     const canonical = new Map(
         canonicalBlocks.map((block) => [block.number, block]),
     );
-    let firstDivergence = history.toBlock;
+    let firstDivergence: number | null = null;
     for (const stored of history.headers) {
         const current = canonical.get(stored.number);
         if (!current)
@@ -50,10 +79,20 @@ export function proveReorgAncestor(input: {
             stored.hash !== current.hash ||
             stored.timestamp !== current.timestamp
         )
-            firstDivergence = Math.min(firstDivergence, stored.number);
+            firstDivergence = Math.min(
+                firstDivergence ?? stored.number,
+                stored.number,
+            );
         if (stored.number > 0 && stored.parentHash !== current.parentHash)
-            firstDivergence = Math.min(firstDivergence, stored.number - 1);
+            firstDivergence = Math.min(
+                firstDivergence ?? stored.number - 1,
+                stored.number - 1,
+            );
     }
+    // A previous disagreement is evidence to verify, not proof that the
+    // accepted chain must be replaced. In particular, its base may still agree.
+    if (firstDivergence === null)
+        return { kind: REORG_HISTORY_PROOF.RestoredAgreement, history };
     let fork: SyncBlockHeader | undefined;
     for (const stored of history.headers) {
         const current = canonical.get(stored.number)!;
@@ -67,6 +106,10 @@ export function proveReorgAncestor(input: {
             fork = current;
     }
     return fork
-        ? { fork: { ...fork, chainId: history.checkpoint.chainId }, history }
+        ? {
+              kind: REORG_HISTORY_PROOF.Ancestor,
+              fork: { ...fork, chainId: history.checkpoint.chainId },
+              history,
+          }
         : null;
 }

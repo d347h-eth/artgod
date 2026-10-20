@@ -9,6 +9,7 @@ import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { ViemWebSocketHeadSource } from "../infra/rpc/viem-ws.js";
+import { SqliteChainProgress } from "../infra/storage/sqlite-chain-progress.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
@@ -76,6 +77,7 @@ async function main() {
         const stopSchedulerWorker = await startSchedulerWorker(
             rpc,
             queue,
+            new SqliteChainProgress(),
             config,
             {
                 headSource,

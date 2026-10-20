@@ -3,6 +3,9 @@ import type { ChainBlockReference, ChainSyncCheckpoint } from "./chain-sync.js";
 /** A recent stored block owns a delayed hash check until verification or recovery handoff. */
 export type PendingCanonicalCheck = ChainBlockReference & {
     checkpoint: ChainSyncCheckpoint;
+    // Retained claims carry a generation. Callers requesting a new check need
+    // only identify the block; an omitted generation denotes an original check.
+    generation?: number;
 };
 export type CanonicalCheckPolicy = {
     observedHeadBlock: number;

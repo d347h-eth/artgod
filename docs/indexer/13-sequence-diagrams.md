@@ -14,19 +14,24 @@ sequenceDiagram
     participant DB as SQLite
     participant Domain as Domain Worker
 
-    RPC-->>Scheduler: Head update (WS)
-    Scheduler->>RPC: Poll head (HTTP)
-    Scheduler->>NATS: Publish realtime jobs within the recent tail
-    NATS-->>Sync: Deliver realtime job
-    Sync->>RPC: Fetch logs, extensions, headers, transactions and receipts
-    Sync->>DB: Atomic facts, coverage, balances, pending hash checks and follow-up intent
-    Sync->>NATS: ACK successful acquisition
+    RPC-->>Scheduler: Head update wakes HTTP sampling
+    Scheduler->>DB: Capture local admission watermark
+    Scheduler->>RPC: Read head (HTTP)
+    Scheduler->>DB: Retain sampled target and admission coverage
+    Scheduler->>NATS: Publish realtime wakeup
+    NATS-->>Sync: Deliver wakeup
+    Sync->>Sync: Wake the serial coordinator
+    Sync->>NATS: ACK wakeup
+    loop Retained current target has an unapplied prefix
+        Sync->>RPC: Fetch next connected logs, headers, transactions and receipts
+        Sync->>DB: Atomic facts, ownership, canonical order effects, checks, maker wakeups and applied progress
+    end
     Domain->>DB: Read due required follow-ups
-    Domain->>NATS: Publish domain, order and refresh jobs
+    Domain->>NATS: Publish activity/metadata jobs and compact maker continuations
     Domain->>DB: Remove accepted sync intent; retry failed publication
-    NATS-->>Domain: Deliver domain and order jobs
+    NATS-->>Domain: Deliver projections and maker continuations
     Domain->>DB: Check event origin hash before admission
-    Domain->>DB: Project activities, metadata and orders
+    Domain->>DB: Project activities/metadata; expand maker scopes into ordinary demand
 ```
 
 ## Perpetual Collection Gap Repair
@@ -35,7 +40,7 @@ sequenceDiagram
 sequenceDiagram
     participant Scanner as Sync Worker Gap Discovery
     participant DB as SQLite
-    participant Sync as Sync Worker Automatic Executor
+    participant Sync as Sync Coordinator
     participant RPC as RPC Node
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
@@ -49,7 +54,7 @@ sequenceDiagram
     end
     loop Continuous bounded passes; poll only when idle or waiting
         Sync->>DB: Check newest pending height and due HEAD-check times
-        Sync->>Sync: Wait for preceding current-state backfill
+        Sync->>Sync: Prioritize current applied prefixes and retained recovery
         Sync->>RPC: Read HEAD when a range or HEAD check is due
         opt Collection HEAD check overdue by 30 minutes
             Sync->>DB: Find newest missing blocks above pending range or cursor
@@ -68,7 +73,7 @@ sequenceDiagram
     Domain->>NATS: Publish required jobs with stable IDs
     Domain->>DB: Remove accepted intent or retain retry with capped delay
     Note over Scanner,DB: Completed cycles wait until the next recheck; saved check time includes downtime
-    Note over Sync,DB: Newest eligible retry holds older history; recent tail belongs to realtime
+    Note over Sync,DB: Historical repair cannot advance accepted current-state prefixes
     Note over Sync,Domain: Failed publication repeats no RPC acquisition
 ```
 
@@ -76,30 +81,29 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Reorg as Reorg Worker
     participant RPC as RPC Node
     participant DB as SQLite
-    participant Sync as Sync Worker Automatic Executor
+    participant Sync as Sync Coordinator
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
 
-    Reorg->>DB: Read one eligible pending stored hash and revision
-    Reorg->>RPC: Fresh header differs from stored hash
-    Reorg->>DB: Atomically retain mismatch and clear its pending check
+    Sync->>DB: Read one eligible pending stored hash and revision
+    Sync->>RPC: Fresh header differs from stored hash
+    Sync->>DB: Atomically retain mismatch and clear its pending check
     alt Retention fails
-        Reorg->>DB: Leave check pending with durable retry time
+        Sync->>DB: Leave check pending with durable retry time
     else Mismatch retained
-        Reorg->>RPC: Complete bounded common-ancestor proof
+        Sync->>RPC: Complete bounded common-ancestor proof
         alt Proof unavailable
-            Reorg->>DB: Retain awaiting_ancestor with delayed retry
+            Sync->>DB: Retain awaiting_ancestor with delayed retry
         else Verified ancestor
-            Reorg->>RPC: ownerOf at exact fork hash, requireCanonical
-            Reorg->>DB: Atomic checkpoints, rollback, revision and resync range
+            Sync->>RPC: ownerOf at exact fork hash, requireCanonical
+            Sync->>DB: Atomic checkpoints, rollback, revision and resync range
         end
     end
-    loop Reorg startup and proof polling, independent of HEAD changes
-        Reorg->>DB: Read due awaiting_ancestor
-        Reorg->>RPC: Retry bounded proof and exact-hash snapshot
+    loop Coordinator passes, independent of HEAD changes
+        Sync->>DB: Read due awaiting_ancestor
+        Sync->>RPC: Retry bounded proof and exact-hash snapshot
     end
     loop Continuous bounded sync passes
         Sync->>DB: Read one retained canonical range and eligible collections
@@ -194,102 +198,87 @@ does not publish a second broker envelope or imply validation completion.
 
 ## Order Admission and Validation
 
-Consumers and executors here are separate tasks inside the same per-chain
-domain-worker process. Lifecycle facts can commit while RPC validation is busy.
-Demand, broad-maker and token validation share two FIFO permits. See
+Source consumers, maker expansion and ordinary validation are separate tasks in
+one domain worker. The sync worker alone advances canonical applied state.
+Only ordinary validation uses the two FIFO RPC permits. See
 [processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
-for the durable state and [ports](12-ports-and-adapters.md#order-processing-ports)
-for the application boundaries.
+and [ports](12-ports-and-adapters.md#order-processing-ports).
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant NATS as NATS JetStream
-    participant Consumer as Order Consumers
+    participant Source as Source Consumer
+    participant Sync as Sync Coordinator
     participant DB as SQLite
-    participant Demand as Demand Executors
+    participant Demand as Ordinary Validator
     participant RPC as RPC Node
 
-    NATS-->>Consumer: Deliver upsert, validation hint or lifecycle fact
-    alt Upsert
-        Consumer->>DB: Commit canonical changes and needed demand together
-    else By-ID validation hint
-        Consumer->>DB: Coalesce current requirement or resolve unnecessary work
-    else Fill, cancel or source observation
-        Consumer->>DB: Apply guarded lifecycle effects without RPC
-    end
-    Consumer-->>NATS: ACK after committed effects or durable admission
-
-    loop Poll due demand and resume expired leases
-        Demand->>Demand: Acquire shared FIFO permit
-        Demand->>DB: Claim bounded current revisions and generations
-        opt Eligible claims remain
-            Demand->>RPC: Full validations at a fresh pinned block
-            Demand->>RPC: Verify block hash, head and snapshot lifetime
-            alt Snapshot verified
-                Demand->>DB: Atomically apply guarded results and captured coverage
-                Note over DB: Newer or changed requirements stay pending
-            else Dependency or snapshot failure
-                Demand->>DB: Retain unfinished demand with retry state
-            end
+    Source->>DB: Commit observation, declaration and causal demand
+    Note over Source,DB: Sale is an observation; no receipt lookup or terminal assertion
+    Source-->>Source: ACK after durable admission
+    Sync->>RPC: Sample head after source admission
+    Sync->>RPC: Acquire connected required ranges
+    Sync->>DB: Commit facts, canonical effects, maker wakeups and applied progress
+    Note over Sync,DB: No duplicate canonical by-ID or maker event publication
+    loop Poll ready demand
+        Demand->>DB: Check causal barrier and shared/collection coverage
+        Demand->>Demand: Acquire FIFO capacity
+        Demand->>DB: Claim revisions, generations, lease and exact checkpoint
+        Demand->>RPC: Full validation at supplied block hash
+        Demand->>RPC: Fresh canonicality and snapshot-lifetime verification
+        alt Compatible proof and claim remain current
+            Demand->>DB: Commit result, independent proof and covered demand
+        else RPC uncertainty, dispute or changed claim
+            Demand->>DB: Keep unfinished demand retryable; retain dispute if needed
         end
-        Demand->>DB: Release any unconsumed claims without coverage
-        Demand->>Demand: Release permit and yield before next batch
+        Demand->>DB: Release unconsumed claims
+        Demand->>Demand: Release capacity and yield
     end
 ```
 
 ## Maker Checkpoint and Recovery
 
-Each delivery runs one bounded step. The checkpoint owns the atomic boundary
-between order effects or handoff, cursor movement and continuation intent.
-The outbox publishes afterward; its sent receipt alone is not completion proof.
-See [durable maker progress](07-domain-orders.md#durable-maker-progress) for
-isolation, follow-up generations, lease fencing and replay cleanup.
+A maker step expands a finite candidate page into ordinary demand without RPC.
+The checkpoint commits that handoff, cursor and next continuation together.
+The outbox's sent receipt is publication evidence, not execution completion.
 
 ```mermaid
 sequenceDiagram
     autonumber
+    participant Sync as Sync Writer
     participant NATS as NATS JetStream
-    participant Maker as Maker or Token Processor
+    participant Maker as Maker or Token Handler
     participant DB as SQLite
-    participant RPC as RPC Node
     participant Outbox as Outbox Publisher
     participant Recovery as Maker Recovery
 
-    NATS-->>Maker: Scoped hint or run/step continuation
-    Maker->>DB: Admit or resume finite pass and claim lease
-    Maker->>Maker: Acquire shared FIFO permit
-    Maker->>RPC: Validate one bounded step at a fresh snapshot
-    alt Results verified or isolated handoff available
-        alt Successful validation results
-            Maker->>RPC: Verify snapshot before committing results
-            Maker->>DB: Commit effects, cursor and continuation intent together
-        else Persisted isolated candidate read fails again
-            Maker->>DB: Commit per-order demand, cursor and continuation intent together
-            Note over DB: No failed result becomes validation coverage
-        end
-    else Shared, snapshot or checkpoint failure
-        Maker->>DB: Keep previous cursor and retryable run
+    opt Canonical maker event
+        Sync->>DB: Check indexed candidates and admit relevant scope
+        Sync->>DB: Retain one continuation atomically with applied progress
     end
-    Maker->>Maker: Release permit and lease
-    alt Checkpoint committed
-        Maker-->>NATS: ACK after durable checkpoint
-    else Step failed
-        Maker-->>NATS: Delivery fails; saved run retains unfinished work
+    NATS-->>Maker: Fresh source scope or chain/run/step continuation
+    Maker->>Maker: Verify transport identity, owning queue and delivery receipt
+    Maker->>DB: Admit or resume retained pass and claim lease
+    alt Bounded expansion succeeds
+        Maker->>DB: Commit ordinary demand, cursor and continuation
+        Maker-->>NATS: ACK
+    else Expansion fails after admission
+        Maker->>DB: Durably release lease with failure
+        Maker-->>NATS: ACK only after recovery owns unfinished work
+    else Admission or release remains uncertain
+        Maker-->>NATS: Retain delivery for retry
     end
-
-    opt Scan or newer generation still needs a step
+    opt Pass or newer generation still needs a step
         Outbox->>DB: Read committed continuation
-        Outbox->>NATS: Publish next step behind ready work
-        Outbox->>DB: Record publication receipt
+        Outbox->>NATS: Publish compact next step
+        Outbox->>DB: Record stream/sequence receipt
     end
-
-    loop Bounded recovery and receipt cleanup
-        Recovery->>DB: Read idle unfinished runs and delivery receipts
-        Recovery->>NATS: Check publication identity and consumer ACK floors
-        Recovery->>DB: Repair missing wakeups and reap eligible completed receipts
+    loop Periodic bounded recovery and cleanup
+        Recovery->>DB: Read unfinished runs and contributing delivery receipts
+        Recovery->>NATS: Verify publication and each consumer ACK boundary
+        Recovery->>DB: Repair missing wakeups; reap eligible completed receipts
     end
-    Note over DB: Completed maker scan may coexist with pending per-order demand
+    Note over DB: Completed expansion may coexist with unfinished ordinary demand
 ```
 
 ## Canonical Metadata Refresh + Collection Extension Artifacts

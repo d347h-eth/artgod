@@ -71,6 +71,8 @@ export type RpcTransaction = {
 
 export type RpcTransactionReceipt = {
     transactionHash: Hex;
+    blockNumber: number;
+    blockHash: Hex;
     logs: RpcLog[];
 };
 
@@ -114,6 +116,16 @@ export interface RpcProviderPort {
         contracts: readonly RpcContractRead[];
         blockNumber: number;
     }): Promise<readonly RpcContractReadResult[]>;
+    /** Optional aggregate with the same exact-hash guarantee as a single read. */
+    readContractsAtBlock?(input: {
+        contracts: readonly RpcContractRead[];
+        block: ChainBlockReference;
+    }): Promise<readonly RpcContractReadResult[]>;
+    /** Native balances obey the same block identity as contract state. */
+    getBalanceAtBlock(
+        address: Hex,
+        block: ChainBlockReference,
+    ): Promise<bigint>;
     getBalance(
         address: Hex,
         options?: { blockNumber: number },

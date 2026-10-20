@@ -1,6 +1,26 @@
 import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
 import type { ReorgResyncRange } from "./reorg-recovery.js";
 import type { SyncGapRepairBatch } from "./sync-gap-repair.js";
+import type {
+    AppliedChainProgress,
+    CollectionAppliedProgress,
+} from "./chain-sync.js";
+
+export const SYNC_APPLICATION_KIND = {
+    Historical: "historical",
+    Applied: "applied",
+} as const;
+
+/** Acquisition carries the exact prefix it intends to extend. Collection-only
+ * catch-up can connect an older installed base to accepted shared history, but
+ * cannot advance shared progress or validate before reaching the shared base. */
+export type SyncApplication =
+    | { kind: typeof SYNC_APPLICATION_KIND.Historical }
+    | {
+          kind: typeof SYNC_APPLICATION_KIND.Applied;
+          chain: AppliedChainProgress | null;
+          collections: readonly CollectionAppliedProgress[];
+      };
 
 export const SYNC_WORK_COMPLETION = {
     Unmanaged: "unmanaged",

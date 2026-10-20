@@ -42,13 +42,11 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
     - Executes retained automatic gap/reorg ranges in one bounded serial loop.
     - Discovers missing live-collection coverage from `HEAD - REORG_DEPTH` through each anchor.
     - Retains delayed hash checks atomically when saving recent blocks.
-    - Atomically retains domain and order follow-ups with data and acquisition progress.
-
-- Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
+    - Atomically retains order effects, relevant maker continuations and domain follow-ups with applied progress.
     - Drains eligible pending hash checks from SQLite, including after downtime.
     - Retains known mismatches and retries ancestor proof at startup and periodically.
     - Atomically rolls back orphaned blocks and retains bounded canonical resync.
-    - The sync runtime executes those ranges directly; the domain runtime publishes required follow-ups.
+    - Runs forward application and recovery in one single-flight coordinator pass; the domain runtime publishes required follow-ups.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.
@@ -145,7 +143,7 @@ These assumptions are relied on by the implementation and should be preserved in
     - metadata domain fetches and stores token metadata
     - activity domain writes activity rows
     - successful metadata writes fan out collection-extension artifact refresh jobs when an enabled install exists
-5. Saving recent blocks atomically retains pending hash checks. The reorg worker verifies them at the configured depth, even after downtime moves them outside the realtime tail.
+5. Saving recent blocks atomically retains pending hash checks. The sync coordinator verifies them at the configured depth, even after downtime moves them outside the realtime tail.
 6. A mismatch atomically hands off to retained rollback and canonical resync.
 7. The sync worker continuously revisits live collection coverage in bounded descending windows. Durable scan cursors and one pending repair per collection survive restart; 30-minute checks give newer holes priority, and completed cycles wait until their next check.
 

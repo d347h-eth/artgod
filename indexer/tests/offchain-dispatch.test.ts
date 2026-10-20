@@ -19,6 +19,8 @@ import {
     type TokenAttributeSourceKind,
 } from "@artgod/shared/types/token-attributes";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
+import { normalizeSeaportOrderData } from "../src/application/offchain/seaport-order-data.js";
+import { computeSeaportOrderHash } from "../src/domain/seaport-protocol.js";
 import {
     ACTIVITY_JOB_KIND,
     type ActivityUpsertPayload,
@@ -38,6 +40,7 @@ import {
 import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SOURCE_STATUS,
 } from "../src/domain/orders.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
@@ -145,9 +148,7 @@ describe("offchain dispatch", () => {
         expect(upsert.payload.localTokenSetStatus).toBe(
             ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         );
-        const orders = new SqliteOrdersDomain(WETH, async () => {
-            throw new Error("Unexpected validation during order upsert");
-        });
+        const orders = new SqliteOrdersDomain(WETH);
         await orders.handleOrderUpsert(upsert.payload);
         const row = db
             .prepare(
@@ -234,6 +235,9 @@ describe("offchain dispatch", () => {
         >[];
         consideration[0].itemType = 2;
         consideration[0].identifierOrCriteria = "0";
+        record.order_hash = computeSeaportOrderHash(
+            normalizeSeaportOrderData(record)!,
+        );
         const payload: OffchainOrderRawPayload = {
             source: OFFCHAIN_ORDER_SOURCE.OpenSea,
             chainId: 1,
@@ -257,9 +261,7 @@ describe("offchain dispatch", () => {
         expect(upsert.payload.sourceScopeKind).toBe(
             ORDER_SOURCE_SCOPE_KIND.Token,
         );
-        const orders = new SqliteOrdersDomain(WETH, async () => {
-            throw new Error("Unexpected validation during order upsert");
-        });
+        const orders = new SqliteOrdersDomain(WETH);
         await orders.handleOrderUpsert(upsert.payload);
         expect(
             db
@@ -635,20 +637,26 @@ describe("offchain dispatch", () => {
         });
         expect(update).toBeDefined();
         expect(update?.queue).toBe(QUEUE_NAMES.OrderLifecycle);
-        const domain = new SqliteOrdersDomain(WETH, async () => {
-            throw new Error("A cancellation must not validate an absent order");
-        });
+        const domain = new SqliteOrdersDomain(WETH);
         await domain.handleOrderUpdateById(update!.payload);
         expect(
             db
                 .prepare(
-                    "SELECT valid_until,expires_at FROM market_order_retirements WHERE order_id=?",
+                    "SELECT source_id,source_status,expires_at FROM order_source_observations WHERE order_id=?",
                 )
                 .get(orderId),
         ).toEqual({
-            valid_until: validUntil,
-            expires_at: validUntil + POLICY.orderReorgGraceSeconds,
+            source_id: OFFCHAIN_ORDER_SOURCE.OpenSea,
+            source_status: ORDER_SOURCE_STATUS.Cancelled,
+            expires_at: (validUntil + POLICY.orderReorgGraceSeconds) * 1000,
         });
+        expect(
+            db
+                .prepare(
+                    "SELECT 1 FROM market_order_retirements WHERE order_id=?",
+                )
+                .get(orderId),
+        ).toBeUndefined();
     });
 
     it.each(["item_sold", "item_transferred"])(

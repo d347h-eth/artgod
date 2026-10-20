@@ -20,9 +20,6 @@ scrape_configs:
           - targets: ["127.0.0.1:42742"]
             labels:
                 runtime: "sync-worker"
-          - targets: ["127.0.0.1:42743"]
-            labels:
-                runtime: "reorg-worker"
           - targets: ["127.0.0.1:42744"]
             labels:
                 runtime: "domain-worker"

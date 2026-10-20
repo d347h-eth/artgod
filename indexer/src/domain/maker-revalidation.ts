@@ -1,12 +1,14 @@
-import type { OrderUpdateByMakerPayload } from "./order-jobs.js";
+import type {
+    OrderMakerContinuationPayload,
+    OrderUpdateByMakerPayload,
+} from "./order-jobs.js";
 import {
     SYNC_WORK_CLASS,
     decodeSyncWorkClass,
     strongestSyncWorkClass,
     type SyncWorkClass,
 } from "@artgod/shared/types/sync-work-class";
-import type { OrderRecord, OrderValidationResult } from "./orders.js";
-import type { QueueDeliveryOrigin } from "./jobs.js";
+import type { OrderRecord } from "./orders.js";
 import type { JobEnvelope, QueuePublication } from "./jobs.js";
 import { ORDER_JOB_KIND } from "./order-jobs.js";
 import type { QueueName } from "./queues.js";
@@ -19,20 +21,14 @@ import {
     GLOBAL_MAKER_TRIGGER_REASON,
 } from "./maker-triggers.js";
 
-export const MAKER_REVALIDATION_STATUS = {
-    Pending: "pending",
-    // The finite scan is complete: work was resolved or durably admitted to demand.
-    // This status alone is not proof that every order has validated successfully.
-    Completed: "completed",
-} as const;
+import { MAKER_REVALIDATION_STATUS } from "@artgod/shared/market-data/order-validation";
+export { MAKER_REVALIDATION_STATUS } from "@artgod/shared/market-data/order-validation";
+
 export const MAKER_REVALIDATION_POLICY = Object.freeze({
     batchOrders: 100,
     leaseMs: 120_000,
-    renewEveryMs: 30_000,
     admissionRetryMs: 1_000,
-    isolateAfterFailures: 2,
     cleanupRows: 100,
-    stepBudgetMs: 5_000,
     recoveryPollMs: 5_000,
     recoveryGraceMs: 30_000,
     recoveryRows: 25,
@@ -66,17 +62,21 @@ export type MakerRevalidationRun = MakerPassBoundary & {
     resolvedOrders: number;
     /** Cumulative handoffs, not the current number of unfinished demands. */
     deferredOrders: number;
-    isolateOrderId: string | null;
     failures: number;
     wakeupOutboxId: number | null;
     wakeupGeneration: number;
-    scopeKey: string | null;
+    scopeKey: string;
     generation: number;
     passGeneration: number;
     passStartedAt: number;
+    chainRevision: number;
+    /** One locally retained source admission is shared by the finite expansion. */
+    admissionSequence: number;
+    requestedAdmissionSequence: number;
+    observationKey: string | null;
+    requestedObservationKey: string | null;
     requestedAt: number;
     requestedPayload: OrderUpdateByMakerPayload;
-    origin?: QueueDeliveryOrigin;
 };
 
 const MAKER_VALIDATION_SCOPE = {
@@ -113,79 +113,42 @@ export function makerValidationScopeKey(
     ]);
 }
 
-function makerAdmissionIncludes(
-    payload: OrderUpdateByMakerPayload,
-    at: number,
-    required: OrderUpdateByMakerPayload,
-    requiredAt: number,
-): boolean {
-    return (
-        !(
-            decodeSyncWorkClass(required.workClass) === SYNC_WORK_CLASS.Main &&
-            decodeSyncWorkClass(payload.workClass) === SYNC_WORK_CLASS.GapRepair
-        ) &&
-        at >= requiredAt &&
-        (payload.blockNumber ?? -1) >= (required.blockNumber ?? -1) &&
-        !(
-            payload.blockNumber === required.blockNumber &&
-            payload.blockHash &&
-            required.blockHash &&
-            payload.blockHash !== required.blockHash
-        )
-    );
-}
-
-/** Represented work may still live in per-order demand after a maker scan finishes.
- * Requests newer than that admission need one complete follow-up generation. */
+/** Canonical requirements are ordered by accepted height, never delivery time.
+ * Source owners supply stable observation identities after duplicate classification. */
 export function advancesMakerDemand(
     run: MakerRevalidationRun,
     payload: OrderUpdateByMakerPayload,
-    requiredAt: number,
+    observationKey: string | null,
 ): boolean {
-    if (
-        makerAdmissionIncludes(
-            run.payload,
-            run.passStartedAt,
-            payload,
-            requiredAt,
-        )
-    )
-        return false;
+    if (payload.blockNumber == null)
+        return observationKey !== run.requestedObservationKey;
+    const previous = run.requestedPayload;
     return (
-        run.generation === run.passGeneration ||
-        !makerAdmissionIncludes(
-            run.requestedPayload,
-            run.requestedAt,
-            payload,
-            requiredAt,
-        )
+        previous.blockNumber == null ||
+        payload.blockNumber > previous.blockNumber ||
+        (payload.blockNumber === previous.blockNumber &&
+            payload.blockHash !== previous.blockHash)
     );
 }
 
 export function mergeMakerRequirements(
     run: MakerRevalidationRun,
     payload: OrderUpdateByMakerPayload,
-    requiredAt: number,
 ): OrderUpdateByMakerPayload {
     const previous = run.requestedPayload;
-    const newer =
-        (payload.blockNumber ?? -1) > (previous.blockNumber ?? -1) ||
-        ((payload.blockNumber ?? -1) === (previous.blockNumber ?? -1) &&
-            requiredAt >= run.requestedAt);
-    const selected = newer ? payload : previous;
-    // Keep legacy absence stable, and canonicalize property order after promotion.
+    const selected =
+        (payload.blockNumber ?? -1) >= (previous.blockNumber ?? -1)
+            ? payload
+            : previous;
     return canonicalMakerRequest(
         previous.workClass === undefined && payload.workClass === undefined
             ? selected
             : {
                   ...selected,
-                  workClass:
-                      run.status === MAKER_REVALIDATION_STATUS.Completed
-                          ? decodeSyncWorkClass(payload.workClass)
-                          : strongestSyncWorkClass(
-                                decodeSyncWorkClass(previous.workClass),
-                                decodeSyncWorkClass(payload.workClass),
-                            ),
+                  workClass: strongestSyncWorkClass(
+                      decodeSyncWorkClass(previous.workClass),
+                      decodeSyncWorkClass(payload.workClass),
+                  ),
               },
     );
 }
@@ -200,19 +163,7 @@ export type MakerValidationCandidate = {
     order: OrderRecord;
     revision: number;
     currentAtTrigger: boolean;
-    validationCovered?: boolean;
 };
-export type MakerValidationResolution = {
-    candidate: MakerValidationCandidate;
-    // Null resolves a candidate deliberately excluded by bootstrap-anchor policy.
-    validation: OrderValidationResult | null;
-};
-
-/** Deferred entries have no validation result and cannot establish protocol coverage. */
-export type MakerValidationCheckpointEntry =
-    | MakerValidationResolution
-    | { candidate: MakerValidationCandidate; covered: true }
-    | { candidate: MakerValidationCandidate; deferredError: string };
 
 export class MakerRevalidationConflict extends Error {}
 
@@ -228,16 +179,17 @@ export type MakerWakeup = {
 export function makerContinuationJob(
     run: MakerRevalidationRun,
     now: number,
-): JobEnvelope<OrderUpdateByMakerPayload> {
+): JobEnvelope<OrderMakerContinuationPayload> {
     return {
         jobId: `orders:update:maker:continue:${run.runId}:${run.step}:${run.wakeupGeneration}`,
-        kind: ORDER_JOB_KIND.UpdateByMaker,
+        kind: ORDER_JOB_KIND.ContinueMaker,
         queue: makerUpdateQueue(run.payload),
         chainId: run.chainId,
         workClass: makerWorkClass(run),
         payload: {
-            ...run.payload,
-            continuation: { runId: run.runId, step: run.step },
+            chainId: run.chainId,
+            runId: run.runId,
+            step: run.step,
         },
         attempt: 0,
         scheduledAt: now,
@@ -260,6 +212,14 @@ export function canonicalMakerRequest(
         (!Number.isSafeInteger(payload.blockNumber) || payload.blockNumber < 0)
     )
         throw new Error("Invalid maker trigger block");
+    if (
+        (payload.blockNumber == null) !== (payload.blockHash == null) ||
+        (payload.blockHash != null &&
+            !/^0x[0-9a-f]{64}$/i.test(payload.blockHash))
+    )
+        throw new Error(
+            "Maker canonical trigger requires block number and hash",
+        );
     // Work admitted to this domain is current-order validation. The envelope
     // can still classify a raw historical hint as background admission work.
     decodeSyncWorkClass(payload.workClass);

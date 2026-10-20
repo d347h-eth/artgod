@@ -1,3 +1,8 @@
+import { installHeavyMakerValidationChain } from "./helpers/heavy-maker-validation-fixture.js";
+import {
+    eventValidationRequest,
+    observedOrderValidationRequest,
+} from "../src/domain/order-validation-demand.js";
 import {
     afterEach,
     beforeAll,
@@ -27,8 +32,8 @@ import {
     BatchedHeavyMakerRpc,
     HEAVY_MAKER,
     heavyMakerOrder,
+    heavyMakerBlock,
     seedHeavyMaker,
-    warmConduits,
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -45,15 +50,13 @@ import {
 } from "../src/infra/observability/domain-processing-metric-contract.js";
 
 const now = HEAVY_MAKER.now * 1_000;
-const request = (
-    orderId: string,
-    minimumBlock: number | null = HEAVY_MAKER.blockNumber,
-) => ({
-    chainId: HEAVY_MAKER.chainId,
-    orderId,
-    requiredAt: now - 1_000,
-    minimumBlock,
-});
+const request = (orderId: string, minimumBlock = HEAVY_MAKER.blockNumber) =>
+    eventValidationRequest(
+        HEAVY_MAKER.chainId,
+        orderId,
+        minimumBlock,
+        HEAVY_MAKER.blockHash,
+    );
 
 function workflow(
     count: number,
@@ -64,17 +67,15 @@ function workflow(
     } = {},
 ) {
     const other = seedHeavyMaker(count);
+    const chain = installHeavyMakerValidationChain();
     const rpc = options.rpc ?? new BatchedHeavyMakerRpc();
-    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-        throw new Error("Unexpected singleton validation");
-    });
+    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
     const store = new SqliteOrderValidationDemand(domain);
     const admission = new FairOrderValidationAdmission(2);
     const createSnapshot = vi.fn(
         createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
             rpc,
-            conduits: warmConduits,
             conduitController: HEAVY_MAKER.controller,
         }),
     );
@@ -91,6 +92,7 @@ function workflow(
             store.admit(request(id), now);
     })();
     return {
+        chain,
         rpc,
         domain,
         store,
@@ -112,17 +114,19 @@ class DelayedBatchRpc extends BatchedHeavyMakerRpc {
         await new Promise((resolve) => setTimeout(resolve, 10));
         this.active--;
     }
-    override async readContract<T>(
-        input: Parameters<RpcProviderPort["readContract"]>[0],
+    override async readContractAtBlock<T>(
+        input: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
     ): Promise<T> {
         await this.delay();
-        return super.readContract<T>(input);
+        return super.readContractAtBlock<T>(input);
     }
-    override async readContracts(
-        input: Parameters<NonNullable<RpcProviderPort["readContracts"]>>[0],
+    override async readContractsAtBlock(
+        input: Parameters<
+            NonNullable<RpcProviderPort["readContractsAtBlock"]>
+        >[0],
     ) {
         await this.delay();
-        return super.readContracts(input);
+        return super.readContractsAtBlock(input);
     }
     override async getBlockNumber() {
         await this.delay();
@@ -144,7 +148,9 @@ describe("bounded demand validation batches", () => {
         vi.spyOn(Date, "now").mockReturnValue(now);
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
-        db.exec("DELETE FROM orders; DELETE FROM collections;");
+        db.exec(
+            "DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections; DELETE FROM chain_sync_progress; DELETE FROM chain_head_samples; DELETE FROM chain_sync_targets; DELETE FROM chain_sync_revisions;",
+        );
     });
     afterEach(() => vi.restoreAllMocks());
 
@@ -161,16 +167,18 @@ describe("bounded demand validation batches", () => {
         }
         expect(reports.map((r) => r.covered)).toEqual([100, 100, 50]);
         expect(work.createSnapshot).toHaveBeenCalledTimes(3);
-        expect(head).toHaveBeenCalledTimes(6);
-        expect(block).toHaveBeenCalledTimes(6);
+        expect(head).not.toHaveBeenCalled();
+        expect(block).toHaveBeenCalledTimes(3);
         expect(work.rpc.reads).toEqual({
             getOrderStatus: 250,
             getCounter: 3,
             allowance: 3,
             balanceOf: 3,
+            getConduit: 3,
+            getChannels: 3,
         });
-        expect(work.rpc.batches).toHaveLength(13);
-        expect(work.rpc.virtualMs).toBe(220);
+        expect(work.rpc.exactBatches).toHaveLength(13);
+        expect(work.rpc.virtualMs).toBe(280);
         expect(
             db
                 .prepare(
@@ -301,48 +309,53 @@ describe("bounded demand validation batches", () => {
         expect(await work.processor.executeBatch()).toBeUndefined();
     });
 
-    it("reports bounded cheap progress when an entire candidate page is obsolete", async () => {
+    it("keeps obsolete candidates outside ready selection without leases or RPC", async () => {
         const work = workflow(POLICY.batchOrders + 1);
         db.prepare("UPDATE orders SET source_status=?").run(
-            ORDER_SOURCE_STATUS.Cancelled,
+            ORDER_SOURCE_STATUS.Inactive,
         );
-        expect(await work.processor.executeBatch()).toMatchObject({
-            scanned: POLICY.batchOrders,
-            claimed: 0,
-            validated: 0,
-            resolvedUnneeded: POLICY.batchOrders,
-        });
-        expect(await work.processor.executeBatch()).toMatchObject({
-            scanned: 1,
-            resolvedUnneeded: 1,
-        });
         expect(await work.processor.executeBatch()).toBeUndefined();
         expect(work.createSnapshot).not.toHaveBeenCalled();
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM order_validation_demand WHERE lease_until>0",
+                )
+                .get(),
+        ).toEqual({ count: 0 });
     });
 
-    it("defers future trigger and observation requirements while completing ready orders", async () => {
+    it("leaves sampled future-head and unsampled source requirements waiting without RPC failures", async () => {
         const work = workflow(3);
         work.store.admit(
-            request(work.ids[0]!, HEAVY_MAKER.blockNumber + 1),
+            observedOrderValidationRequest(1, work.ids[0]!, "future-head"),
+            now,
+        );
+        work.chain.progress.recordHeadSample(
+            work.chain.progress.captureHeadSample(1),
+            heavyMakerBlock(HEAVY_MAKER.blockNumber + 1),
             now,
         );
         work.store.admit(
-            { ...request(work.ids[1]!), requiredAt: now + 1_000 },
+            observedOrderValidationRequest(1, work.ids[1]!, "later-source"),
             now,
         );
         expect(await work.processor.executeBatch()).toMatchObject({
             validated: 1,
             covered: 1,
-            retried: 2,
+            retried: 0,
         });
         for (const id of work.ids.slice(0, 2))
             expect(work.store.get(1, id)).toMatchObject({
                 pending: true,
-                failures: 1,
+                failures: 0,
                 proofRevision: null,
+                leaseOwner: null,
             });
-        vi.mocked(Date.now).mockReturnValue(now + POLICY.retryBaseMs);
+        expect(await work.processor.executeBatch()).toBeUndefined();
         work.rpc.blockNumber++;
+        work.chain.advance(work.rpc.blockNumber);
+        work.chain.sample();
         expect(await work.processor.executeBatch()).toMatchObject({
             covered: 2,
             retried: 0,
@@ -506,7 +519,7 @@ describe("bounded demand validation batches", () => {
                 "UPDATE orders SET state_revision=state_revision+1 WHERE id=?",
             ).run(work.ids[0]);
             work.store.admit(
-                { ...request(work.ids[1]!), requiredAt: now },
+                observedOrderValidationRequest(1, work.ids[1]!, "during-rpc"),
                 now,
             );
             db.prepare("UPDATE orders SET source_status=? WHERE id=?").run(
@@ -527,6 +540,7 @@ describe("bounded demand validation batches", () => {
             pending: false,
             proofAt: null,
         });
+        work.chain.sample();
         expect(await work.processor.executeBatch()).toMatchObject({
             covered: 2,
         });
@@ -629,7 +643,6 @@ describe("bounded demand validation batches", () => {
                 work.store.admit(
                     {
                         ...request(work.ids[admitted++]!),
-                        requiredAt: Date.now(),
                     },
                     Date.now(),
                 );
@@ -641,14 +654,15 @@ describe("bounded demand validation batches", () => {
                 collectionId: work.other.sale.collectionId,
                 orderId: work.other.sale.id,
                 reason: "fixture-fill",
-                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                source: "opensea",
+                sourceStatus: ORDER_SOURCE_STATUS.Inactive,
                 observedAt: HEAVY_MAKER.now,
             });
             expect(
                 db
                     .prepare("SELECT source_status FROM orders WHERE id=?")
                     .get(work.other.sale.id),
-            ).toEqual({ source_status: ORDER_SOURCE_STATUS.Filled });
+            ).toEqual({ source_status: ORDER_SOURCE_STATUS.Inactive });
             let competingFinished = false;
             const competing = work.admission.run(async () => {
                 competingFinished = true;
@@ -673,7 +687,7 @@ describe("bounded demand validation batches", () => {
             expect(rpc.maximumActive).toBe(2);
             expect(work.rpc.reads.getOrderStatus).toBe(1_300);
             const calls =
-                rpc.batches.length +
+                rpc.exactBatches.length +
                 (rpc.reads.getCounter ?? 0) +
                 (rpc.reads.allowance ?? 0) +
                 (rpc.reads.balanceOf ?? 0);

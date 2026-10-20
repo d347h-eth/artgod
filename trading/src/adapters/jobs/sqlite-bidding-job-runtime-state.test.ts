@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
-import { beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -16,6 +16,13 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobRuntimeState } from "./sqlite-bidding-job-runtime-state.js";
+import { FailedOfferCancellationReconciler } from "../../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
+import {
+    BIDDING_ORDER_RECOVERY_REASON,
+    BIDDING_ORDER_RECOVERY_STATUS,
+    type BiddingService,
+    type OrderCancellation,
+} from "../../application/use-cases/bidding/bidding-service.js";
 
 const RECOVERABLE_RETRY_CUTOFF = "9999-01-01T00:00:00.000Z";
 const BEFORE_RECORDED_RETRY_CUTOFF = "1970-01-01T00:00:00.000Z";
@@ -80,13 +87,134 @@ function seedBiddingJob(collectionId: number): void {
 
 describe("SqliteBiddingJobRuntimeState", () => {
     let collectionId = 0;
+    let databasePath: string;
 
     beforeEach(async () => {
-        setDbPath(await createTempDbPath());
+        databasePath = await createTempDbPath();
+        setDbPath(databasePath);
         await createMigrationRunner().runMigrations();
         collectionId = seedCollection();
         seedBiddingJob(collectionId);
     });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each(["expired", "lookup-error", "dry-run", "terminal-command"])(
+        "reaches a live cancellation behind 25 unresolved %s records across reopen",
+        async (scenario) => {
+            const batchSize = 25;
+            const retryMs = 300_000;
+            let now = Date.now();
+            vi.spyOn(Date, "now").mockImplementation(() => now);
+            let repository = new SqliteBiddingJobRuntimeState();
+            const liveOrder = `order-${batchSize}`;
+            for (let index = 0; index <= batchSize; index++) {
+                repository.recordJobOfferCancellation({
+                    jobId: "job-token",
+                    jobRevision: 1,
+                    orderId: `order-${index}`,
+                    priceWei: "1",
+                    protocolAddress:
+                        "0x0000000000000068f116a894984e2db1123eb395",
+                    placedAt: null,
+                    expirationTimeMs:
+                        scenario === "expired" && index < batchSize
+                            ? now - 60_000
+                            : now + 3_600_000,
+                    makerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    requestedAt: new Date(
+                        now - 600_000 + index * 1000,
+                    ).toISOString(),
+                    completedAt: null,
+                    cancellationError:
+                        scenario === "terminal-command"
+                            ? null
+                            : "Previous cancellation failure",
+                });
+            }
+            db.prepare(
+                "UPDATE trading_bidding_order_cancellations SET updated_at = requested_at",
+            ).run();
+            if (scenario === "terminal-command") {
+                db.prepare(
+                    "INSERT INTO trading_job_commands(job_id, bot_kind, command_kind, status, requested_revision, payload_json) VALUES (?, ?, ?, ?, 2, '{}')",
+                ).run(
+                    "job-token",
+                    TRADING_BOT_KIND.Bidding,
+                    TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                    TRADING_JOB_COMMAND_STATUS.Completed,
+                );
+            }
+            const previousOutcomes = () =>
+                db
+                    .prepare(
+                        "SELECT order_id, completed_at, cancellation_error, updated_at FROM trading_bidding_order_cancellations WHERE order_id <> ? ORDER BY order_id",
+                    )
+                    .all(liveOrder);
+            const before = previousOutcomes();
+            const lookups: string[] = [];
+            const cancellations: string[] = [];
+            const service = {
+                async getOrder(id: string) {
+                    lookups.push(id);
+                    if (
+                        id !== liveOrder &&
+                        (scenario === "lookup-error" ||
+                            scenario === "terminal-command")
+                    )
+                        throw new Error("Lookup unavailable");
+                    return {
+                        status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                        reason: BIDDING_ORDER_RECOVERY_REASON.LookupUnavailable,
+                    };
+                },
+                async cancelRecoveredOrder(order: OrderCancellation) {
+                    cancellations.push(order.id);
+                },
+            } as BiddingService;
+            const reconcile = (dryRun: boolean) =>
+                new FailedOfferCancellationReconciler(repository, service, {
+                    chainId: 1,
+                    batchSize,
+                    cancellationRetryMs: retryMs,
+                    dryRun,
+                }).reconcileFailedCancellations();
+
+            assert.equal(await reconcile(scenario === "dry-run"), 0);
+            assert.equal(lookups.length, batchSize);
+            assert.ok(!lookups.includes(liveOrder));
+            assert.deepEqual(previousOutcomes(), before);
+            assert.equal(
+                (
+                    db
+                        .prepare(
+                            "SELECT MIN(reconciliation_retry_at) AS retry_at FROM trading_bidding_order_cancellations WHERE order_id <> ?",
+                        )
+                        .get(liveOrder) as { retry_at: number }
+                ).retry_at,
+                now + retryMs,
+            );
+
+            // A new process must not need an in-memory cursor to reach the live obligation.
+            setDbPath(databasePath);
+            repository = new SqliteBiddingJobRuntimeState();
+            assert.equal(await reconcile(false), 1);
+            assert.deepEqual(cancellations, [liveOrder]);
+            assert.equal(lookups.at(-1), liveOrder);
+            assert.equal(await reconcile(false), 0);
+            assert.equal(lookups.length, batchSize + 1);
+            assert.deepEqual(previousOutcomes(), before);
+
+            now += retryMs + 1;
+            const due = repository.listRecoverableOfferCancellations({
+                chainId: 1,
+                limit: batchSize,
+                now,
+                retryCutoff: new Date(now - retryMs).toISOString(),
+            });
+            assert.equal(due.length, batchSize); // Unresolved obligations remain recoverable.
+        },
+    );
 
     it("records placed order timing with runtime state", () => {
         const runtimeState = new SqliteBiddingJobRuntimeState();
@@ -287,7 +415,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
     });
 
-    it("lists recoverable offer cancellations and marks proven-absent rows completed", () => {
+    it("lists recoverable offer cancellations and marks terminal rows completed", () => {
         const runtimeState = new SqliteBiddingJobRuntimeState();
 
         runtimeState.recordJobOfferCancellation({
@@ -313,6 +441,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                now: Date.now(),
                 retryCutoff: BEFORE_RECORDED_RETRY_CUTOFF,
             }),
             [],
@@ -322,6 +451,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                now: Date.now(),
                 retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [
@@ -370,6 +500,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                now: Date.now(),
                 retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [],
@@ -444,6 +575,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                now: Date.now(),
                 retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [
@@ -474,6 +606,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                now: Date.now(),
                 retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [

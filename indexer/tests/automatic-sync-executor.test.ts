@@ -1,1369 +1,631 @@
-import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
-import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { COLLECTION_STATUS } from "@artgod/shared/types";
-import {
-    AutomaticSyncExecutor,
-    AUTOMATIC_SYNC_POLICY,
-    startAutomaticSyncLoop,
-} from "../src/application/automatic-sync-executor.js";
-import {
-    BackfillExecutionGate,
-    BACKFILL_EXECUTION_MODE,
-} from "../src/application/backfill-execution.js";
-import {
-    SyncGapScheduler,
-    SYNC_GAP_POLICY,
-} from "../src/application/sync-gap-scheduler.js";
-import { buildSyncFollowUps } from "../src/application/sync-range-processing.js";
-import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
+import { logger } from "@artgod/shared/utils";
+import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
+import { startAutomaticSyncLoop } from "../src/application/automatic-sync-executor.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
-import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
+import { allocateOrderValidationAdmission } from "../src/infra/orders/sqlite-order-validation-demand.js";
+import {
+    COORDINATED_SYNC_FIXTURE as F,
+    createCoordinatorFixture,
+    installedCoordinatorCollection,
+    retainInstalledCoordinatorBase,
+} from "./helpers/coordinated-sync-fixture.js";
+import { syncBlockFixture } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
-import {
-    insertCollection,
-    emptyOnChainData,
-    selectBalanceOwners,
-    transferFixture,
-} from "./helpers/ownership-fixture.js";
-import {
-    syncBlockFixture,
-    FINALIZED_SYNC_CHECK_POLICY,
-} from "./helpers/chain-fixture.js";
-import {
-    RecoveryRpc,
-    reorgRecoveryServices,
-    seedRecoveryHistory,
-    pendingRecoveryRange,
-    canonicalRecoveryBlock,
-    REORG_FIXTURE as F,
-} from "./helpers/reorg-recovery-fixture.js";
 
-describe("direct automatic sync execution", () => {
+describe("ordered automatic sync coordinator", () => {
     loadTestEnv();
     let now: number;
-    let dbPath: string;
+    let databasePath: string;
     beforeEach(async () => {
-        dbPath = await createTempDbPath();
-        setDbPath(dbPath);
+        databasePath = await createTempDbPath();
+        setDbPath(databasePath);
         await createMigrationRunner().runMigrations();
-        now = 1000;
+        now = 1_000;
+        vi.spyOn(logger, "info").mockImplementation(() => {});
+        vi.spyOn(logger, "warn").mockImplementation(() => {});
     });
+    afterEach(() => vi.restoreAllMocks());
 
-    function services(rpc = new RecoveryRpc(200)) {
-        return reorgRecoveryServices(rpc, {
-            now: () => now,
-            retryDelayMs: 100,
-        });
-    }
-    function scanner(s: ReturnType<typeof services>) {
-        return new SyncGapScheduler(s.registry, s.gaps, {
-            chainId: 1,
-            batchSize: 2,
-            now: () => now,
-        });
-    }
-    function retain(
-        s: ReturnType<typeof services>,
-        collectionId: number,
-        fromBlock: number,
-        toBlock: number,
+    async function drain(
+        executor: { runDue(): Promise<boolean> },
+        passes = 50,
     ) {
-        // These isolated repair fixtures have an already-covered newer tail.
-        cover(collectionId, toBlock + 1, F.Head - 1);
-        s.gaps.saveProgress({
-            chainId: 1,
-            collectionId,
-            expected: s.gaps.getProgress(1, collectionId),
-            progress: {
-                anchorBlock: 100,
-                cursorBlock: fromBlock - 1,
-                lastHeadCheckAt: now,
-                pending: {
-                    repairId: `repair:${collectionId}`,
-                    fromBlock,
-                    toBlock,
-                    retryAt: now,
-                },
-            },
-        });
+        for (let pass = 0; pass < passes; pass++)
+            if (!(await executor.runDue())) return;
+        throw new Error(
+            "Coordinator did not become idle within the bounded fixture",
+        );
     }
 
-    function cover(
-        collectionId: number,
-        from: number,
-        to: number,
-        missing: number[] = [],
-    ) {
-        const skip = new Set(missing);
-        const insert = db.prepare(
-            "INSERT OR IGNORE INTO collection_sync_blocks(chain_id,collection_id,block_number) VALUES(1,?,?)",
-        );
-        db.writeTransaction(() => {
-            for (let n = from; n <= to; n++)
-                if (!skip.has(n)) insert.run(collectionId, n);
-        })();
-    }
-
-    it("hands a mature stored orphan to durable recovery and resumes older gaps after restart", async () => {
-        const rpc = new RecoveryRpc(F.Fork, 200);
-        let s = services(rpc);
-        const f = seedRecoveryHistory();
-        cover(f.collectionId, F.Orphan + 1, 200);
-        db.prepare(
-            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number<=?",
-        ).run(f.collectionId, F.Orphan);
-        retain(s, f.collectionId, F.Fork, F.Orphan);
-        expect(s.checks.hasPending(1, now)).toBe(false);
-        expect(await s.executor.runDue()).toBe(false);
+    it("applies 901 before 902 even when the retained target skips straight to 902", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(902);
+        expect(await s.executor.runDue()).toBe(true);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
+        expect(s.storage.getBlockHash(F.chainId, 902)).toBeNull();
         expect(
-            s.checks.nextDue({ chainId: 1, now, upperBound: 200 }),
-        ).toMatchObject({
-            blockNumber: F.Orphan,
-            blockHash: syncBlockFixture(F.Orphan).hash,
-        });
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: F.Fork,
-            toBlock: F.Orphan,
-        });
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(900);
+        await drain(s.executor);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(902);
         expect(
-            db.prepare("SELECT COUNT(*) count FROM queue_outbox").get(),
-        ).toEqual({ count: 0 });
-
-        db.raw.close();
-        setDbPath(dbPath);
-        s = services(rpc);
-        expect(await s.recovery.checkDue()).toBe(true);
-        expect(s.recoveries.getRecovery(1)?.phase).toBe(
-            REORG_RECOVERY_PHASE.Resync,
-        );
-        expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
-            { owner: F.Owner, amount: "1" },
-        ]);
-        let passes = 0;
-        while (s.recoveries.getRecovery(1) && passes++ < 100)
-            expect(await s.executor.runDue()).toBe(true);
-        expect(s.recoveries.getRecovery(1)).toBeNull();
-        now += 101;
-        for (let pass = 0; pass < 10; pass++)
-            if (!(await s.executor.runDue())) break;
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-            canonicalRecoveryBlock(F.Orphan).hash,
-        );
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(902);
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                F.Anchor,
-                F.Orphan,
-            ),
-        ).toBe(F.Orphan - F.Anchor + 1);
-    });
-
-    it("recovers a competing stored fork during retained resync through polling after restart", async () => {
-        const rpc = new RecoveryRpc();
-        let s = services(rpc);
-        const f = seedRecoveryHistory();
-        retain(s, f.collectionId, 101, 102);
-        retainCanonicalCheckFixture(s.storage, F.Orphan);
-        expect(await s.recovery.checkDue()).toBe(true);
-        const previous = pendingRecoveryRange();
-
-        // Another acquisition saves its fork after rollback at the new revision.
-        s.storage.persistSyncResult({
-            checkpoint: s.storage.captureSyncCheckpoint(1),
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            blocks: [syncBlockFixture(F.Orphan)],
-            data: emptyOnChainData(),
-            collections: [s.registry.getCollection(1, f.collectionId)!],
-        });
-        expect(await s.executor.runDue()).toBe(false);
-        expect(pendingRecoveryRange()).toEqual(previous);
-        expect(
-            s.checks.nextDue({ chainId: 1, now, upperBound: F.Head }),
-        ).toMatchObject({ blockNumber: F.Orphan });
-
-        db.raw.close();
-        setDbPath(dbPath);
-        s = services(rpc);
-        now += 101;
-        await s.recovery.resumeDue();
-        expect(await s.recovery.checkDue()).toBe(true);
-        expect(s.storage.captureSyncCheckpoint(1).revision).toBe(2);
-        expect(pendingRecoveryRange()).toMatchObject({
-            fromBlock: previous.fromBlock,
-            revision: 2,
-        });
-        expect(pendingRecoveryRange().recoveryId).not.toBe(previous.recoveryId);
-
-        for (let pass = 0; pass < 4 && s.recoveries.getRecovery(1); pass++)
-            expect(await s.executor.runDue()).toBe(true);
-        expect(s.recoveries.getRecovery(1)).toBeNull();
-        now += 101;
-        for (let pass = 0; pass < 4; pass++)
-            if (!(await s.executor.runDue())) break;
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-            canonicalRecoveryBlock(F.Orphan).hash,
-        );
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                F.Anchor,
-                F.Orphan,
-            ),
-        ).toBe(F.Orphan - F.Anchor + 1);
-    });
-
-    it("keeps acquisition pending when conflict verification cannot be retained", async () => {
-        const rpc = new RecoveryRpc(F.Fork, 200),
-            s = services(rpc),
-            f = seedRecoveryHistory();
-        cover(f.collectionId, F.Orphan + 1, 200);
-        db.prepare(
-            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number<=?",
-        ).run(f.collectionId, F.Orphan);
-        retain(s, f.collectionId, F.Fork, F.Orphan);
-        db.exec(
-            "CREATE TEMP TRIGGER fail_conflict_check BEFORE UPDATE OF canonical_check_pending ON blocks WHEN NEW.canonical_check_pending=1 BEGIN SELECT RAISE(ABORT,'verification unavailable'); END;",
-        );
-        expect(await s.executor.runDue()).toBe(false);
-        expect(s.checks.hasPending(1, now)).toBe(false);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
-            F.Orphan,
-        );
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-            syncBlockFixture(F.Orphan).hash,
-        );
-        db.exec("DROP TRIGGER fail_conflict_check;");
-        now += 101;
-        expect(await s.executor.runDue()).toBe(false);
-        expect(s.checks.hasPending(1, now)).toBe(true);
-    });
-
-    it("does not rearm verification for ordinary acquisition fencing errors", async () => {
-        const s = services(new RecoveryRpc(200)),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const retainCheck = vi.spyOn(s.checks, "retain");
-        vi.spyOn(s.commit, "commitSyncRange").mockImplementationOnce(() => {
-            throw new ChainSyncConflict("Acquisition revision changed");
-        });
-        expect(await s.executor.runDue()).toBe(false);
-        expect(retainCheck).not.toHaveBeenCalled();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
-            102,
-        );
-    });
-
-    it("removes covered suffixes before fetching while retaining every older missing block", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        const logs = vi.spyOn(rpc, "getLogs");
-        cover(f.collectionId, 100, 106, [101, 102]);
-        retain(s, f.collectionId, 101, 106);
-        await s.executor.runDue();
-        expect(logs).not.toHaveBeenCalled();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: 101,
-            toBlock: 104,
-        });
-        await s.executor.runDue();
-        expect(logs).not.toHaveBeenCalled();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: 101,
-            toBlock: 102,
-        });
-        await s.executor.runDue();
-        expect(logs).toHaveBeenCalled();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toBeNull();
-    });
-
-    it("fetches only the newest still-missing part of a partially covered batch", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        cover(f.collectionId, 100, 106, [101, 102, 105]);
-        retain(s, f.collectionId, 101, 106);
-        const logs = vi.spyOn(rpc, "getLogs");
-        await s.executor.runDue();
-        expect(
-            logs.mock.calls.every(
-                ([range]) => range.fromBlock === 105 && range.toBlock === 105,
+            s.remote.state.logReads.every(
+                (range) => range.fromBlock === range.toBlock,
             ),
         ).toBe(true);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: 101,
-            toBlock: 104,
-        });
     });
 
-    it.each([null, 0])(
-        "fills newer holes despite 16 no-pending anchors above RPC HEAD (check time=%s)",
-        async (lastHeadCheckAt) => {
-            now = 2 * SYNC_GAP_POLICY.HeadRecheckIntervalMs;
-            const rpc = new RecoveryRpc(300);
-            vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
-            const s = reorgRecoveryServices(rpc, { now: () => now });
-            const blocked = Array.from(
-                { length: SYNC_GAP_POLICY.CollectionsPerPass },
-                (_, n) =>
-                    insertCollection({
-                        chainId: 1,
-                        slug: `anchor-above-head-${n}`,
-                        address: F.Owner,
-                        anchorBlock: 300,
-                    }),
-            );
-            for (const id of blocked)
-                expect(
-                    s.gaps.saveProgress({
-                        chainId: 1,
-                        collectionId: id,
-                        expected: null,
-                        progress: {
-                            anchorBlock: 300,
-                            cursorBlock: null,
-                            pending: null,
-                            lastHeadCheckAt,
-                        },
-                    }),
-                ).toBe(true);
-            const f = transferFixture();
-            retain(s, f.collectionId, 101, 102);
-            const expected = s.gaps.getProgress(1, f.collectionId)!;
-            expect(
-                s.gaps.saveProgress({
-                    chainId: 1,
-                    collectionId: f.collectionId,
-                    expected,
-                    progress: {
-                        ...expected,
-                        lastHeadCheckAt,
-                        pending: {
-                            ...expected.pending!,
-                            retryAt: now + AUTOMATIC_SYNC_POLICY.RetryDelayMs,
-                        },
-                    },
-                }),
-            ).toBe(true);
-            cover(f.collectionId, 103, 200, [199, 200]);
-            const detector = scanner(s);
-            const checkedAt = now;
-            // The bounded startup check visits the above-head page first.
-            await s.executor.runDue();
-            for (let pass = 0; pass < 6; pass++) {
-                await detector.scan(200);
-                await s.executor.runDue();
-                expect(
-                    s.storage.countCollectionSyncedBlocksInRange(
-                        1,
-                        f.collectionId,
-                        199,
-                        200,
-                    ),
-                ).toBe(2);
-                expect(
-                    s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt,
-                ).toBeGreaterThanOrEqual(checkedAt);
-                for (const id of blocked)
-                    expect(s.gaps.getProgress(1, id)).toEqual({
-                        anchorBlock: 300,
-                        cursorBlock: null,
-                        pending: null,
-                        lastHeadCheckAt,
-                    });
-                now += AUTOMATIC_SYNC_POLICY.PollMs;
-            }
-        },
-    );
-
-    it("finishes the running range before checking HEAD and replacing older progress", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
-        retain(s, f.collectionId, 101, 102);
-        cover(f.collectionId, 103, 200);
-        const old = s.gaps.getProgress(1, f.collectionId)!.pending;
-        const entered = Promise.withResolvers<void>(),
-            release = Promise.withResolvers<void>();
-        let held = false;
-        rpc.beforeLogs = async (filter) => {
-            if (filter.fromBlock !== 101 || held) return;
-            held = true;
-            entered.resolve();
-            await release.promise;
+    it("keeps shared and scoped catchup on the main lane when gap repair is disabled", async () => {
+        const s = createCoordinatorFixture({
+            now: () => now,
+            gapWorkEnabled: false,
+        });
+        const classes: string[] = [];
+        s.remote.state.beforeLogs = async () => {
+            classes.push(s.workScope.current());
         };
-        const running = s.executor.runDue();
-        await entered.promise;
-        db.prepare(
-            "DELETE FROM collection_sync_blocks WHERE chain_id=1 AND collection_id=? AND block_number IN (199,200)",
-        ).run(f.collectionId);
-        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
-        await scanner(s).scan(200);
-        expect(s.executor.runDue()).toBe(running);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toEqual(old);
-        release.resolve();
-        await running;
+        s.sample(904);
+        await drain(s.executor);
+        expect(new Set(classes)).toEqual(new Set([SYNC_WORK_CLASS.Main]));
+        expect(s.historical.state.logReads).toHaveLength(0);
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                101,
-                102,
-            ),
-        ).toBe(2);
-        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
-            1000,
-        );
-        await s.executor.runDue();
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                199,
-                200,
-            ),
-        ).toBe(2);
-        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
-            now,
-        );
-        expect(s.gaps.getProgress(1, f.collectionId)?.cursorBlock).toBe(198);
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id)
+                ?.block.number,
+        ).toBe(904);
+        expect(s.gaps.getProgress(F.chainId, s.collections[0]!.id)).toBeNull();
     });
 
-    it("repairs a downtime hole before older saved work without waiting 30 minutes", async () => {
-        const rpc = new RecoveryRpc(300, 201),
-            s = services(rpc),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        cover(f.collectionId, 103, 200, [199, 200]);
-        const prior = s.gaps.getProgress(1, f.collectionId)!;
-        now += 60_000;
+    it("holds a source admission until a later sample and both applied prefixes cover it", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(902);
+        const sequence = db.writeTransaction(() =>
+            allocateOrderValidationAdmission(F.chainId),
+        )();
+        expect(s.progress.admissionBarrier(F.chainId, sequence)).toBeNull();
+        s.sample(902);
+        const barrier = s.progress.admissionBarrier(F.chainId, sequence)!;
+        expect(barrier.blockNumber).toBe(902);
+        expect(
+            s.progress.validationCheckpoint(
+                F.chainId,
+                s.collections[0]!.id,
+                barrier,
+            ),
+        ).toBeNull();
+        await s.executor.runDue(); // Shared 901.
+        await s.executor.runDue(); // Collection 901.
+        await s.executor.runDue(); // Shared 902 is insufficient by itself.
+        expect(
+            s.progress.validationCheckpoint(
+                F.chainId,
+                s.collections[0]!.id,
+                barrier,
+            ),
+        ).toBeNull();
         await s.executor.runDue();
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                199,
-                200,
-            ),
-        ).toBe(2);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                101,
-                102,
-            ),
-        ).toBe(0);
-        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
-            now,
-        );
-        expect(prior.lastHeadCheckAt).toBe(1000);
+            s.progress.validationCheckpoint(
+                F.chainId,
+                s.collections[0]!.id,
+                barrier,
+            )?.block.number,
+        ).toBe(902);
     });
 
-    it("repairs a newly eligible hole before older work without waiting for the broader timer", async () => {
-        const rpc = new RecoveryRpc(300, 201),
-            s = services(rpc),
-            f = transferFixture();
-        const head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
-        retain(s, f.collectionId, 101, 106);
-        cover(f.collectionId, 107, 200);
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.toBlock).toBe(
-            104,
-        );
-        const lookup = vi.spyOn(s.gaps, "findNewestGap");
-        cover(f.collectionId, 201, 203, [202]);
-        head.mockResolvedValue(204);
-        now += 1000;
-        await s.executor.runDue();
-        expect(lookup).toHaveBeenCalledWith(
-            1,
-            f.collectionId,
-            { fromBlock: 201, toBlock: 203 },
-            2,
-        );
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                202,
-                202,
-            ),
-        ).toBe(1);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                101,
-                104,
-            ),
-        ).toBe(0);
-        expect(s.gaps.getProgress(1, f.collectionId)?.lastHeadCheckAt).toBe(
-            1000,
-        );
-    });
-
-    it("finishes incremental check pages before fetching older work when a later collection has the newer hole", async () => {
-        const rpc = new RecoveryRpc(300, 201),
-            s = services(rpc);
-        const head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
-        const ids = Array.from(
-            { length: SYNC_GAP_POLICY.CollectionsPerPass + 1 },
-            (_, index) =>
-                insertCollection({
-                    chainId: 1,
-                    slug: `incremental-${index}`,
-                    address: F.Owner,
-                    anchorBlock: 100,
-                }),
-        );
-        for (const id of ids) {
-            retain(s, id, 101, 110);
-            cover(id, 111, 200);
-        }
-        await s.executor.runDue();
-        await s.executor.runDue();
-        const last = ids.at(-1)!;
-        expect(s.gaps.getProgress(1, last)?.pending?.toBlock).toBe(110);
-        for (const id of ids) cover(id, 201, 203, id === last ? [202] : []);
-        head.mockResolvedValue(204);
-        now += 1000;
-        const reads = rpc.logReads;
-        await s.executor.runDue();
-        expect(rpc.logReads).toBe(reads);
-        expect(s.gaps.getProgress(1, last)?.pending?.toBlock).toBe(110);
-        await s.executor.runDue();
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, last, 202, 202),
-        ).toBe(1);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, last, 109, 110),
-        ).toBe(0);
-    });
-
-    it("finishes all resume-check pages before spending RPC on older pending ranges", async () => {
-        const rpc = new RecoveryRpc(300, 201),
-            s = services(rpc);
-        const ids = Array.from(
-            { length: SYNC_GAP_POLICY.CollectionsPerPass + 1 },
-            (_, index) => {
-                const id = insertCollection({
-                    chainId: 1,
-                    slug: `resume-page-${index}`,
-                    address: `0x${String(index + 1).padStart(40, "0")}`,
-                    anchorBlock: 100,
-                });
-                retain(s, id, 101, 102);
-                cover(
-                    id,
-                    103,
-                    200,
-                    index === SYNC_GAP_POLICY.CollectionsPerPass
-                        ? [199, 200]
-                        : [],
-                );
-                return id;
-            },
-        );
-        const logs = vi.spyOn(rpc, "getLogs");
-        expect(await s.executor.runDue()).toBe(true);
-        expect(logs).not.toHaveBeenCalled();
-        expect(await s.executor.runDue()).toBe(true);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                ids.at(-1)!,
-                199,
-                200,
-            ),
-        ).toBe(2);
-        for (const id of ids)
-            expect(
-                s.storage.countCollectionSyncedBlocksInRange(1, id, 101, 102),
-            ).toBe(0);
-    });
-
-    it("checks HEAD and selects replacement work after waiting for another backfill", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(201);
-        retain(s, f.collectionId, 101, 102);
-        cover(f.collectionId, 103, 200, [199, 200]);
-        const gate = new BackfillExecutionGate(),
-            release = Promise.withResolvers<void>();
-        const holder = gate.run(
-            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-            () => release.promise,
-        );
-        const head = vi.spyOn(rpc, "getBlockNumber");
-        const executor = new AutomaticSyncExecutor({
-            reorgDepth: 1,
-            rpc,
-            storage: s.storage,
-            commit: s.commit,
-            canonicalChecks: s.checks,
-            gaps: s.gaps,
-            gapWorkEnabled: true,
-            workScope: new RpcWorkScope(),
-            gapScheduler: scanner(s),
-            recoveries: s.recoveries,
-            collectionsPort: s.registry,
-            collectionExtensions: { getInstall: () => null },
-            chainId: 1,
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
-            wethAddress: F.Weth,
-            batchSize: 2,
-            gate,
+    it("does not let one failing collection starve another ready scope", async () => {
+        const s = createCoordinatorFixture({
             now: () => now,
+            collectionCount: 2,
         });
-        const waiting = executor.runDue();
-        await Promise.resolve();
-        expect(head).not.toHaveBeenCalled();
-        now += SYNC_GAP_POLICY.HeadRecheckIntervalMs;
-        release.resolve();
-        await holder;
-        await waiting;
+        const [failed, healthy] = s.collections;
+        s.remote.state.beforeLogs = async (filter) => {
+            if (filter.address === failed!.address)
+                throw new Error("collection provider failure");
+        };
+        s.sample(902);
+        await drain(s.executor);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(902);
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                101,
-                102,
-            ),
-        ).toBe(0);
+            s.progress.collectionProgress(F.chainId, failed!.id)?.applied
+                .number,
+        ).toBe(900);
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                199,
-                200,
-            ),
-        ).toBe(2);
-        expect(head).toHaveBeenCalledTimes(2);
+            s.progress.collectionProgress(F.chainId, healthy!.id)?.applied
+                .number,
+        ).toBe(902);
+        expect(
+            db
+                .prepare(
+                    "SELECT retry_at FROM collection_sync_progress WHERE collection_id=?",
+                )
+                .get(failed!.id),
+        ).toEqual({ retry_at: now + F.retryDelayMs });
+        s.remote.state.beforeLogs = undefined;
+        now += F.retryDelayMs;
+        await drain(s.executor);
+        expect(
+            s.progress.collectionProgress(F.chainId, failed!.id)?.applied
+                .number,
+        ).toBe(902);
     });
 
-    it("does no RPC polling when idle and executes at most one bounded range per pass", async () => {
-        const rpc = new RecoveryRpc(200),
-            head = vi.spyOn(rpc, "getBlockNumber"),
-            s = services(rpc);
-        await s.executor.runDue();
-        expect(head).not.toHaveBeenCalled();
-        const first = insertCollection({
-            chainId: 1,
-            slug: "first",
-            address: F.Owner,
-            anchorBlock: 100,
-        });
-        const second = insertCollection({
-            chainId: 1,
-            slug: "second",
-            address: F.OrphanOwner,
-            anchorBlock: 100,
-        });
-        retain(s, first, 101, 102);
-        retain(s, second, 103, 104);
-        await s.executor.runDue();
+    it("retains a failed shared range and its retry time across database reopening", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(902);
+        s.remote.state.beforeLogs = async () => {
+            throw new Error("provider offline");
+        };
+        expect(await s.executor.runDue()).toBe(true);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(900);
+        const calls = s.remote.state.logReads.length;
+        db.raw.close();
+        setDbPath(databasePath);
+        const resumed = s.restart();
+        expect(await resumed.executor.runDue()).toBe(false);
+        expect(s.remote.state.logReads).toHaveLength(calls);
+        s.remote.state.beforeLogs = undefined;
+        now += F.retryDelayMs;
+        await drain(resumed.executor);
         expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, first, 101, 102),
-        ).toBe(0);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, second, 103, 104),
-        ).toBe(2);
-        expect(s.gaps.getProgress(1, first)?.pending).not.toBeNull();
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, first)?.pending).toBeNull();
-        expect(head).toHaveBeenCalledTimes(4);
+            resumed.progress.validationCheckpoint(
+                F.chainId,
+                s.collections[0]!.id,
+            )?.block.number,
+        ).toBe(902);
+        expect(resumed.progress.headTarget(F.chainId)?.blockNumber).toBe(902);
     });
 
-    it("holds older history while the newest batch awaits retry", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc);
-        const first = insertCollection({
-                chainId: 1,
-                slug: "bad",
-                address: F.Owner,
-                anchorBlock: 100,
-            }),
-            second = insertCollection({
-                chainId: 1,
-                slug: "good",
-                address: F.OrphanOwner,
-                anchorBlock: 100,
+    it("accepts a fresh joining ownership base only after shared history reaches its anchor", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        const joining = installedCoordinatorCollection("joining", 902);
+        retainInstalledCoordinatorBase(joining.id, 902);
+        s.sample(904);
+        await s.executor.runDue();
+        expect(s.progress.collectionProgress(F.chainId, joining.id)).toBeNull();
+        await s.executor.runDue();
+        expect(s.progress.collectionProgress(F.chainId, joining.id)).toBeNull();
+        await s.executor.runDue();
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(902);
+        await s.executor.runDue();
+        expect(
+            s.progress.collectionProgress(F.chainId, joining.id)?.anchor.number,
+        ).toBe(902);
+        await drain(s.executor);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, joining.id)?.block
+                .number,
+        ).toBe(904);
+        const reads = s.remote.state.logReads.filter(
+            (filter) => filter.address === joining.address,
+        );
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.every((range) => range.fromBlock > 902)).toBe(true);
+    });
+
+    async function newerSharedBaseWithSlowCollection() {
+        const s = createCoordinatorFixture({
+            now: () => now,
+            collectionCount: 0,
+        });
+        // Only the fast bootstrap has installed balances when shared startup runs.
+        db.exec("DELETE FROM chain_sync_progress; DELETE FROM blocks;");
+        const slow = installedCoordinatorCollection("slow-older", 898);
+        const fast = installedCoordinatorCollection("fast-newer", 901);
+        retainInstalledCoordinatorBase(fast.id, 901);
+        s.sample(904);
+        await drain(s.executor);
+        retainInstalledCoordinatorBase(slow.id, 898);
+        return { ...s, slow, fast };
+    }
+
+    it("joins an older late-installed collection prefix without lowering shared authority", async () => {
+        const s = await newerSharedBaseWithSlowCollection();
+        await s.executor.runDue(); // Accept 898; scoped 899.
+        expect(
+            s.progress.collectionProgress(F.chainId, s.slow.id)?.applied.number,
+        ).toBe(899);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.slow.id),
+        ).toBeNull();
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.fast.id)?.block.number,
+        ).toBe(904);
+        await s.executor.runDue(); // Scoped 900 still has not joined shared base.
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.slow.id),
+        ).toBeNull();
+        await s.executor.runDue(); // Exact shared 901 joins both prefixes.
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.slow.id)?.block.number,
+        ).toBe(901);
+        await drain(s.executor);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.slow.id)?.block.number,
+        ).toBe(904);
+        expect(s.progress.chainProgress(F.chainId)).toMatchObject({
+            anchor: { number: 901 },
+            applied: { number: 904 },
+        });
+        expect(s.historical.state.logReads).toHaveLength(0);
+    });
+
+    it("rejects an older collection's competing join and retains the shared dispute", async () => {
+        const s = await newerSharedBaseWithSlowCollection();
+        await s.executor.runDue();
+        await s.executor.runDue();
+        s.remote.state.headers.set(901, {
+            ...syncBlockFixture(901),
+            hash: `0x${"c".repeat(64)}`,
+        });
+        await s.executor.runDue();
+        expect(
+            s.progress.collectionProgress(F.chainId, s.slow.id)?.applied.number,
+        ).toBe(900);
+        expect(s.progress.chainProgress(F.chainId)?.anchor.number).toBe(901);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.slow.id),
+        ).toBeNull();
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.fast.id),
+        ).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT disputed_from FROM chain_sync_progress WHERE chain_id=?",
+                )
+                .get(F.chainId),
+        ).toEqual({ disputed_from: 901 });
+    });
+
+    it("fences older-prefix acquisition when its collection base changes during RPC", async () => {
+        const s = await newerSharedBaseWithSlowCollection();
+        s.remote.state.beforeLogs = async (filter) => {
+            if (filter.address === s.slow.address)
+                db.prepare(
+                    "UPDATE collections SET bootstrap_anchor_block=899 WHERE collection_id=?",
+                ).run(s.slow.id);
+        };
+        await s.executor.runDue();
+        expect(
+            s.progress.collectionProgress(F.chainId, s.slow.id)?.applied.number,
+        ).toBe(898);
+        expect(s.storage.getBlockHash(F.chainId, 899)).toBeNull();
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.fast.id)?.block.number,
+        ).toBe(904);
+    });
+
+    it("defers failed older-base verification while healthy applied scopes and another base progress", async () => {
+        const s = await newerSharedBaseWithSlowCollection();
+        const other = installedCoordinatorCollection("other-older", 899);
+        retainInstalledCoordinatorBase(other.id, 899);
+        s.remote.state.beforeBlock = async (number) => {
+            if (number === 898) throw new Error("older anchor unavailable");
+        };
+        s.sample(905);
+        await s.executor.runDue();
+        expect(s.progress.collectionProgress(F.chainId, s.slow.id)).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT retry_at FROM collection_ownership_bases WHERE collection_id=?",
+                )
+                .get(s.slow.id),
+        ).toEqual({ retry_at: now + F.retryDelayMs });
+        await drain(s.executor);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.fast.id)?.block.number,
+        ).toBe(905);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, other.id)?.block.number,
+        ).toBe(905);
+        expect(
+            s.remote.state.blockReads.filter((number) => number === 898),
+        ).toHaveLength(1);
+        // Retry eligibility survives adapter/database restart.
+        db.raw.close();
+        setDbPath(databasePath);
+        const resumed = s.restart();
+        expect(await resumed.executor.runDue()).toBe(false);
+        s.remote.state.beforeBlock = undefined;
+        now += F.retryDelayMs;
+        await drain(resumed.executor);
+        expect(
+            resumed.progress.validationCheckpoint(F.chainId, s.slow.id)?.block
+                .number,
+        ).toBe(905);
+    });
+
+    it("retries a rejected candidate without advancing either prefix or publishing its facts", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(901);
+        s.remote.state.headers.set(901, syncBlockFixture(902));
+        expect(await s.executor.runDue()).toBe(true);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(900);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(900);
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
+        ).toEqual({ count: 0 });
+        expect(s.storage.getBlockHash(F.chainId, 901)).toBeNull();
+        s.remote.state.headers.delete(901);
+        now += F.retryDelayMs;
+        await drain(s.executor);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id)
+                ?.block.number,
+        ).toBe(901);
+    });
+
+    it("gates validation immediately when collection replay disputes an accepted shared header", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.remote.state.head = 901; // The accepted tip is not maturity-check due.
+        s.sample(901);
+        await s.executor.runDue(); // Shared 901, collection still 900.
+        const original = syncBlockFixture(901);
+        s.remote.state.headers.set(901, {
+            ...original,
+            hash: `0x${"a".repeat(64)}`,
+        });
+        await s.executor.runDue(); // Coherent competing child of accepted 900.
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(900);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id),
+        ).toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT canonical_check_disputed FROM blocks WHERE chain_id=? AND block_number=?",
+                )
+                .get(F.chainId, 901),
+        ).toEqual({ canonical_check_disputed: 1 });
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
+        ).toEqual({ count: 1 });
+
+        // Only the recovery owner's fresh confirmation clears this dispute.
+        s.remote.state.headers.delete(901);
+        now += F.retryDelayMs;
+        await drain(s.executor);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id)
+                ?.block.number,
+        ).toBe(901);
+        expect(
+            db
+                .prepare(
+                    "SELECT canonical_check_disputed FROM blocks WHERE chain_id=? AND block_number=?",
+                )
+                .get(F.chainId, 901),
+        ).toEqual({ canonical_check_disputed: 0 });
+    });
+
+    it("rolls back a range and its outbox when progress acceptance fails", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(901);
+        const advance = vi
+            .spyOn(s.progress, "advanceChain")
+            .mockImplementationOnce(() => {
+                throw new ChainSyncConflict("writer fence");
             });
-        cover(first, 100, 200, [105, 106]);
-        cover(second, 100, 200, [101, 102]);
-        retain(s, first, 105, 106);
-        retain(s, second, 101, 102);
-        vi.spyOn(rpc, "getLogs").mockRejectedValueOnce(
-            new Error("provider unavailable"),
-        );
         await s.executor.runDue();
-        expect(s.gaps.getProgress(1, first)?.pending?.retryAt).toBe(1100);
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, second)?.pending).not.toBeNull();
-        expect(s.gaps.getProgress(1, first)?.pending).not.toBeNull();
-        now += 100;
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, first)?.pending).toBeNull();
-        expect(s.gaps.getProgress(1, second)?.pending).not.toBeNull();
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, second)?.pending).toBeNull();
+        expect(s.storage.getBlockHash(F.chainId, 901)).toBeNull();
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(900);
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
+        ).toEqual({ count: 0 });
+        advance.mockRestore();
+        now += F.retryDelayMs;
+        await drain(s.executor);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
     });
 
-    it("processes ready peers at the newest height while another peer awaits retry", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc);
-        const retrying = insertCollection({
-            chainId: 1,
-            slug: "retrying-peer",
-            address: F.Owner,
-            anchorBlock: 100,
-        });
-        const ready = insertCollection({
-            chainId: 1,
-            slug: "ready-peer",
-            address: F.OrphanOwner,
-            anchorBlock: 100,
-        });
-        const older = insertCollection({
-            chainId: 1,
-            slug: "older-peer",
-            address: F.Weth,
-            anchorBlock: 100,
-        });
-        retain(s, retrying, 105, 106);
-        retain(s, ready, 105, 106);
-        retain(s, older, 101, 102);
-        const repair = s.gaps
-            .listDueRepairsAtNewestPendingHeight({
-                upperBound: Number.MAX_SAFE_INTEGER,
-                chainId: 1,
-                now,
-                limit: 16,
-            })
-            .find((r) => r.collectionId === retrying)!;
-        s.gaps.deferRetry(1, repair, now + 100);
+    it("uses a deferred RPC budget delay without discarding the target", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(901);
+        s.remote.state.beforeLogs = async () => {
+            throw new RpcBudgetDeferred(200);
+        };
         await s.executor.runDue();
-        expect(s.gaps.getProgress(1, ready)?.pending).toBeNull();
-        expect(s.gaps.getProgress(1, retrying)?.pending).not.toBeNull();
-        expect(s.gaps.getProgress(1, older)?.pending).not.toBeNull();
+        expect(
+            db
+                .prepare(
+                    "SELECT retry_at FROM chain_sync_progress WHERE chain_id=?",
+                )
+                .get(F.chainId),
+        ).toEqual({ retry_at: now + 200 });
+        expect(s.progress.headTarget(F.chainId)?.blockNumber).toBe(901);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(900);
     });
 
-    it("reselects a newer collection range that appears while waiting for another backfill", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const gate = new BackfillExecutionGate(),
-            release = Promise.withResolvers<void>();
-        const holder = gate.run(
-            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-            () => release.promise,
-        );
-        const executor = new AutomaticSyncExecutor({
-            reorgDepth: 1,
-            rpc,
-            storage: s.storage,
-            commit: s.commit,
-            canonicalChecks: s.checks,
-            gaps: s.gaps,
-            gapWorkEnabled: true,
-            workScope: new RpcWorkScope(),
-            gapScheduler: scanner(s),
-            recoveries: s.recoveries,
-            collectionsPort: s.registry,
-            collectionExtensions: { getInstall: () => null },
-            chainId: 1,
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
-            wethAddress: F.Weth,
-            batchSize: 2,
-            gate,
-            now: () => now,
+    it("coalesces concurrent passes and performs only one acquired range", async () => {
+        const s = createCoordinatorFixture({ now: () => now });
+        s.sample(904);
+        let release!: () => void;
+        let entered!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+            entered = resolve;
         });
-        const waiting = executor.runDue();
-        await Promise.resolve();
-        const newer = insertCollection({
-            chainId: 1,
-            slug: "new-range-while-waiting",
-            address: F.Owner,
-            anchorBlock: 100,
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
         });
-        retain(s, newer, 105, 106);
-        release.resolve();
-        await holder;
-        await waiting;
-        expect(s.gaps.getProgress(1, newer)?.pending).toBeNull();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).not.toBeNull();
-    });
-
-    it("coalesces polling and drains admitted work before shutdown", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const entered = Promise.withResolvers<void>(),
-            release = Promise.withResolvers<void>();
-        rpc.beforeLogs = async () => {
-            entered.resolve();
-            await release.promise;
+        s.remote.state.beforeLogs = async () => {
+            entered();
+            await held;
         };
         const first = s.executor.runDue();
-        expect(s.executor.runDue()).toBe(first);
-        await entered.promise;
-        const stop = startAutomaticSyncLoop(s.executor, 10);
+        await waiting;
+        const second = s.executor.runDue();
+        expect(second).toBe(first);
+        release();
+        await Promise.all([first, second]);
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(900);
+    });
+
+    it("repairs retained history with the historical provider and leaves applied authority unchanged", async () => {
+        const s = createCoordinatorFixture({
+            now: () => now,
+            gapWorkEnabled: true,
+        });
+        // An installed snapshot is an ownership base, not imported history at
+        // the anchor. Foreground can finish before this older factual gap.
+        s.sample(904);
+        for (let pass = 0; pass < 8; pass++) await s.executor.runDue();
+        const before = s.progress.validationCheckpoint(
+            F.chainId,
+            s.collections[0]!.id,
+        );
+        expect(before?.block.number).toBe(904);
+        await drain(s.executor);
+        expect(s.historical.state.logReads.length).toBeGreaterThan(0);
+        expect(
+            s.historical.state.logReads.every((range) => range.toBlock <= 900),
+        ).toBe(true);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id),
+        ).toEqual(before);
+        expect(
+            s.storage.countCollectionSyncedBlocksInRange(
+                F.chainId,
+                s.collections[0]!.id,
+                900,
+                904,
+            ),
+        ).toBe(5);
+    });
+
+    it("keeps a failed historical gap across restart and retries only when due", async () => {
+        const s = createCoordinatorFixture({
+            now: () => now,
+            gapWorkEnabled: true,
+        });
+        s.historical.state.beforeLogs = async () => {
+            throw new Error("historical endpoint unavailable");
+        };
+        await drain(s.executor);
+        expect(
+            s.gaps.getProgress(F.chainId, s.collections[0]!.id)?.pending,
+        ).toMatchObject({
+            fromBlock: 900,
+            toBlock: 900,
+            retryAt: now + F.retryDelayMs,
+        });
+        db.raw.close();
+        setDbPath(databasePath);
+        const resumed = s.restart();
+        const calls = s.historical.state.logReads.length;
+        await drain(resumed.executor);
+        expect(s.historical.state.logReads).toHaveLength(calls);
+        s.historical.state.beforeLogs = undefined;
+        now += F.retryDelayMs;
+        await drain(resumed.executor);
+        expect(
+            resumed.gaps.getProgress(F.chainId, s.collections[0]!.id)?.pending,
+        ).toBeNull();
+        expect(resumed.progress.chainProgress(F.chainId)?.applied.number).toBe(
+            900,
+        );
+    });
+
+    it("finishes canonical rollback and ordered resync with gap repair disabled", async () => {
+        const s = createCoordinatorFixture({
+            now: () => now,
+            gapWorkEnabled: false,
+        });
+        s.sample(904);
+        await drain(s.executor);
+        const fork = 902;
+        for (let number = fork + 1; number <= 904; number++) {
+            const block = syncBlockFixture(number);
+            s.remote.state.headers.set(number, {
+                ...block,
+                hash: syncBlockFixture(number + 10_000).hash,
+                parentHash:
+                    number === fork + 1
+                        ? syncBlockFixture(fork).hash
+                        : syncBlockFixture(number - 1 + 10_000).hash,
+            });
+        }
+        s.checks.retain(
+            {
+                chainId: F.chainId,
+                checkpoint: s.storage.captureSyncCheckpoint(F.chainId),
+                blockNumber: 904,
+                blockHash: syncBlockFixture(904).hash,
+            },
+            { disputed: true },
+        );
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id),
+        ).toBeNull();
+        await drain(s.executor);
+        expect(s.recoveries.getRecovery(F.chainId)).toBeNull();
+        expect(s.storage.captureSyncCheckpoint(F.chainId).revision).toBe(1);
+        const replacement = s.remote.state.headers.get(904)!;
+        expect(
+            s.progress.validationCheckpoint(F.chainId, s.collections[0]!.id)
+                ?.block,
+        ).toMatchObject({ number: replacement.number, hash: replacement.hash });
+        expect(s.historical.state.logReads).toHaveLength(0);
+    });
+});
+
+describe("automatic sync loop lifecycle", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("wakes idle retained work without waiting for the poll timer", async () => {
+        vi.useFakeTimers();
+        const executor = { runDue: vi.fn(async () => false) };
+        const loop = startAutomaticSyncLoop(executor, 10_000);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(executor.runDue).toHaveBeenCalledTimes(1);
+        loop.wake();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(executor.runDue).toHaveBeenCalledTimes(2);
+        await loop.stop();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(executor.runDue).toHaveBeenCalledTimes(2);
+    });
+
+    it("waits for the active bounded range before stopping", async () => {
+        let release!: (busy: boolean) => void;
+        const executor = {
+            runDue: vi.fn(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        release = resolve;
+                    }),
+            ),
+        };
+        const loop = startAutomaticSyncLoop(executor);
         let stopped = false;
-        const stopping = stop().then(() => {
+        const stop = loop.stop().then(() => {
             stopped = true;
         });
         await Promise.resolve();
         expect(stopped).toBe(false);
-        release.resolve();
-        await stopping;
-        expect(stopped).toBe(true);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toBeNull();
-        const reads = rpc.logReads;
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        expect(rpc.logReads).toBe(reads);
-    });
-
-    it.each(["pause", "anchor", "purge"])(
-        "rejects all writes when a gap member changes by %s during RPC",
-        async (change) => {
-            const rpc = new RecoveryRpc(200),
-                s = services(rpc),
-                f = transferFixture();
-            retain(s, f.collectionId, 101, 102);
-            let changed = false;
-            rpc.beforeLogs = async () => {
-                if (changed) return;
-                changed = true;
-                if (change === "pause")
-                    db.prepare(
-                        "UPDATE collections SET status = ? WHERE collection_id = ?",
-                    ).run(COLLECTION_STATUS.Paused, f.collectionId);
-                if (change === "anchor")
-                    db.prepare(
-                        "UPDATE collections SET bootstrap_anchor_block = 101 WHERE collection_id = ?",
-                    ).run(f.collectionId);
-                if (change === "purge")
-                    db.prepare(
-                        "DELETE FROM collections WHERE collection_id = ?",
-                    ).run(f.collectionId);
-            };
-            await s.executor.runDue();
-            expect(
-                s.storage.countCollectionSyncedBlocksInRange(
-                    1,
-                    f.collectionId,
-                    101,
-                    102,
-                ),
-            ).toBe(0);
-            expect(
-                db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-            ).toEqual({ count: 0 });
-            expect(s.storage.getBlockHash(1, 101)).toBeNull();
-        },
-    );
-
-    it("reloads gap eligibility after waiting for the current-state gate", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const gate = new BackfillExecutionGate(),
-            release = Promise.withResolvers<void>();
-        const holder = gate.run(
-            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-            () => release.promise,
-        );
-        const executor = new AutomaticSyncExecutor({
-            reorgDepth: 1,
-            rpc,
-            storage: s.storage,
-            commit: s.commit,
-            canonicalChecks: s.checks,
-            gaps: s.gaps,
-            gapWorkEnabled: true,
-            workScope: new RpcWorkScope(),
-            gapScheduler: scanner(s),
-            recoveries: s.recoveries,
-            collectionsPort: s.registry,
-            collectionExtensions: { getInstall: () => null },
-            chainId: 1,
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
-            wethAddress: F.Weth,
-            batchSize: 2,
-            gate,
-            now: () => now,
-        });
-        const running = executor.runDue();
-        await Promise.resolve();
-        db.prepare(
-            "UPDATE collections SET status = ? WHERE collection_id = ?",
-        ).run(COLLECTION_STATUS.Paused, f.collectionId);
-        release.resolve();
-        await holder;
-        await running;
-        expect(rpc.logReads).toBe(0);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).not.toBeNull();
-    });
-
-    it("rolls back facts, balance, coverage and required publications when advancing gap progress fails", () => {
-        const s = services(),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDueRepairsAtNewestPendingHeight({
-            upperBound: Number.MAX_SAFE_INTEGER,
-            chainId: 1,
-            now,
-            limit: 1,
-        })[0];
-        const data = emptyOnChainData();
-        data.collectionScoped.nftTransferEvents.push(
-            f.transfer(102, 1, F.Owner, F.OrphanOwner),
-        );
-        const result = {
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            checkpoint: s.storage.captureSyncCheckpoint(1),
-            blocks: [101, 102].map(syncBlockFixture),
-            data,
-            collections: [s.registry.getCollection(1, f.collectionId)!],
-        };
-        const followUps = buildSyncFollowUps(
-            1,
-            result.collections,
-            { fromBlock: 101, toBlock: 102 },
-            [
-                {
-                    fanoutId: repair.repairId,
-                    sourceJobId: repair.repairId,
-                    sourceKind: "fixture",
-                },
-            ],
-            "backfill",
-            data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
-        );
-        db.exec(
-            "CREATE TEMP TRIGGER fail_gap_progress BEFORE UPDATE ON collection_sync_gap_scans WHEN NEW.pending_job_id IS NULL BEGIN SELECT RAISE(ABORT, 'progress unavailable'); END;",
-        );
-        expect(() =>
-            s.commit.commitSyncRange({
-                result,
-                followUps,
-                completion: {
-                    kind: SYNC_WORK_COMPLETION.GapRepair,
-                    batch: { fromBlock: 101, toBlock: 102, repairs: [repair] },
-                    retryAt: now,
-                },
-            }),
-        ).toThrow("progress unavailable");
-        expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
-        expect(s.storage.getBlockHash(1, 101)).toBeNull();
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending?.repairId).toBe(
-            repair.repairId,
-        );
-        expect(
-            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 0 });
-    });
-
-    it("rolls back a shared acquisition after the second member's progress write fails", async () => {
-        const s = services(),
-            first = insertCollection({
-                chainId: 1,
-                slug: "first-member",
-                address: F.Owner,
-                anchorBlock: 100,
-            }),
-            second = insertCollection({
-                chainId: 1,
-                slug: "second-member",
-                address: F.OrphanOwner,
-                anchorBlock: 100,
-            });
-        retain(s, first, 101, 102);
-        retain(s, second, 101, 102);
-        db.exec(
-            `CREATE TEMP TRIGGER fail_second_member BEFORE UPDATE ON collection_sync_gap_scans WHEN NEW.collection_id = ${second} AND NEW.pending_job_id IS NULL BEGIN SELECT RAISE(ABORT, 'member progress unavailable'); END;`,
-        );
-        await s.executor.runDue();
-        for (const id of [first, second]) {
-            expect(
-                s.storage.countCollectionSyncedBlocksInRange(1, id, 101, 102),
-            ).toBe(0);
-            expect(s.gaps.getProgress(1, id)?.pending).toMatchObject({
-                fromBlock: 101,
-                toBlock: 102,
-                retryAt: 1100,
-            });
-        }
-        expect(
-            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 0 });
-        db.exec("DROP TRIGGER fail_second_member;");
-        now += 100;
-        await s.executor.runDue();
-        for (const id of [first, second])
-            expect(s.gaps.getProgress(1, id)?.pending).toBeNull();
-    });
-
-    it("does not complete a gap from an incomplete header result", () => {
-        const s = services(),
-            f = transferFixture();
-        retain(s, f.collectionId, 101, 102);
-        const repair = s.gaps.listDueRepairsAtNewestPendingHeight({
-            upperBound: Number.MAX_SAFE_INTEGER,
-            chainId: 1,
-            now,
-            limit: 1,
-        })[0];
-        expect(() =>
-            s.commit.commitSyncRange({
-                result: {
-                    checkpoint: s.storage.captureSyncCheckpoint(1),
-                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-                    blocks: [syncBlockFixture(102)],
-                    data: emptyOnChainData(),
-                    collections: [s.registry.getCollection(1, f.collectionId)!],
-                },
-                followUps: [],
-                completion: {
-                    kind: SYNC_WORK_COMPLETION.GapRepair,
-                    batch: { fromBlock: 101, toBlock: 102, repairs: [repair] },
-                    retryAt: now,
-                },
-            }),
-        ).toThrow(ChainSyncConflict);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).not.toBeNull();
-        expect(s.storage.getBlockHash(1, 102)).toBeNull();
-    });
-
-    it("keeps gap progress paused while disabled and still completes canonical reorg resync", async () => {
-        const rpc = new RecoveryRpc();
-        const s = reorgRecoveryServices(rpc, {
-            now: () => now,
-            gapWorkEnabled: false,
-        });
-        const f = seedRecoveryHistory();
-        retain(s, f.collectionId, 101, 102);
-        const pending = s.gaps.getProgress(1, f.collectionId);
-        const head = vi.spyOn(rpc, "getBlockNumber");
-        const logs = vi.spyOn(rpc, "getLogs");
-        expect(await s.executor.runDue()).toBe(false);
-        expect(head).not.toHaveBeenCalled();
-        expect(logs).not.toHaveBeenCalled();
-        expect(s.gaps.getProgress(1, f.collectionId)).toEqual(pending);
-
-        await s.recovery.checkBlock(
-            retainCanonicalCheckFixture(s.storage, F.Orphan),
-        );
-        expect(s.recoveries.getRecovery(1)?.phase).toBe(
-            REORG_RECOVERY_PHASE.Resync,
-        );
-        await s.executor.runDue();
-        await s.executor.runDue();
-        expect(s.recoveries.getRecovery(1)).toBeNull();
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-            canonicalRecoveryBlock(F.Orphan).hash,
-        );
-        expect(s.gaps.getProgress(1, f.collectionId)).toEqual(pending);
-    });
-
-    it("prioritizes retained resync and atomically rolls back acquisition if continuation storage fails", async () => {
-        const s = services(new RecoveryRpc());
-        const f = seedRecoveryHistory();
-        await s.recovery.checkBlock(
-            retainCanonicalCheckFixture(s.storage, F.Orphan),
-        );
-        const range = pendingRecoveryRange();
-        retain(s, f.collectionId, 101, 102);
-        db.exec(
-            "CREATE TEMP TRIGGER fail_resync_progress BEFORE UPDATE ON chain_reorg_recoveries WHEN NEW.range_from > OLD.range_from BEGIN SELECT RAISE(ABORT, 'continuation unavailable'); END;",
-        );
-        await s.executor.runDue();
-        expect(pendingRecoveryRange()).toEqual(range);
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBeNull();
-        expect(
-            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 0 });
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).not.toBeNull();
-        db.exec("DROP TRIGGER fail_resync_progress;");
-        now += 100;
-        await s.executor.runDue();
-        expect(pendingRecoveryRange()).toMatchObject({
-            fromBlock: 107,
-            toBlock: 107,
-        });
-    });
-
-    it("rejects acquisition after an earlier mismatch replaces its recovery during RPC", async () => {
-        const rpc = new RecoveryRpc(),
-            s = services(rpc),
-            f = seedRecoveryHistory();
-        await s.recovery.checkBlock(
-            retainCanonicalCheckFixture(s.storage, F.Orphan),
-        );
-        const old = pendingRecoveryRange();
-        const original = rpc.getBlock.bind(rpc);
-        let newer = false;
-        rpc.getBlock = async (number) =>
-            newer ? canonicalRecoveryBlock(number, 103) : original(number);
-        rpc.beforeLogs = async () => {
-            if (newer) return;
-            newer = true;
-            await s.recovery.checkBlock(
-                retainCanonicalCheckFixture(s.storage, 104),
-            );
-        };
-        await s.executor.runDue();
-        expect(s.recoveries.getRecovery(1)).toMatchObject({
-            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
-            checkedBlock: 104,
-            revision: 1,
-        });
-        expect(s.recoveries.getRecovery(1)!.recoveryId).not.toBe(
-            old.recoveryId,
-        );
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                f.collectionId,
-                105,
-                106,
-            ),
-        ).toBe(0);
-        expect(
-            db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-        ).toEqual({ count: 0 });
-    });
-
-    it("retains gap intent above a temporarily shortened head without acquiring it", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc),
-            f = transferFixture();
-        retain(s, f.collectionId, 106, 107);
-        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(105);
-        await s.executor.runDue();
-        expect(rpc.logReads).toBe(0);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: 106,
-            toBlock: 107,
-        });
-        await scanner(s).scan(105);
-        expect(s.gaps.getProgress(1, f.collectionId)?.pending).toMatchObject({
-            fromBlock: 106,
-            toBlock: 107,
-        });
-    });
-    it("leaves the recent tail to realtime and selects only eligible history", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc);
-        const head = vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(107);
-        const recent = transferFixture().collectionId;
-        cover(recent, 100, 110, [108, 109, 110]);
-        retain(s, recent, 108, 110);
-        const historical = insertCollection({
-            chainId: 1,
-            slug: "eligible-history",
-            address: F.Owner,
-            anchorBlock: 100,
-        });
-        cover(historical, 100, 110, [101, 102]);
-        retain(s, historical, 101, 102);
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, recent)?.pending?.toBlock).toBe(110);
-        expect(s.gaps.getProgress(1, historical)?.pending).toBeNull();
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(
-                1,
-                historical,
-                101,
-                102,
-            ),
-        ).toBe(2);
-        head.mockResolvedValue(111);
-        now += AUTOMATIC_SYNC_POLICY.PollMs;
-        await s.executor.runDue();
-        expect(s.gaps.getProgress(1, recent)?.pending).toMatchObject({
-            fromBlock: 108,
-            toBlock: 108,
-        });
-    });
-
-    it("uses the configured 32-block boundary and includes the anchor only when mature", async () => {
-        const rpc = new RecoveryRpc(200, 131);
-        const head = vi.spyOn(rpc, "getBlockNumber");
-        const s = reorgRecoveryServices(rpc, {
-            now: () => now,
-            reorgDepth: 32,
-        });
-        const id = insertCollection({
-            chainId: 1,
-            slug: "anchor-at-tail-boundary",
-            address: F.Owner,
-            anchorBlock: 100,
-        });
-        const logs = vi.spyOn(rpc, "getLogs");
-        expect(await s.executor.runDue()).toBe(false);
-        expect(s.gaps.getProgress(1, id)).toBeNull();
-        expect(logs).not.toHaveBeenCalled();
-        now += AUTOMATIC_SYNC_POLICY.PollMs;
-        head.mockResolvedValue(132);
-        expect(await s.executor.runDue()).toBe(true);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, id, 100, 100),
-        ).toBe(1);
-        expect(
-            s.storage.countCollectionSyncedBlocksInRange(1, id, 101, 132),
-        ).toBe(0);
-        expect(s.checks.hasPending(1, now)).toBe(false);
-    });
-
-    it.each([0, 10, 31, 32])(
-        "does no historical fetching before a positive history boundary at HEAD=%s",
-        async (head) => {
-            const rpc = new RecoveryRpc(200, head);
-            const s = reorgRecoveryServices(rpc, {
-                now: () => now,
-                reorgDepth: 32,
-            });
-            insertCollection({
-                chainId: 1,
-                slug: "young-chain",
-                address: F.Owner,
-                anchorBlock: 1,
-            });
-            const logs = vi.spyOn(rpc, "getLogs");
-            expect(await s.executor.runDue()).toBe(false);
-            expect(logs).not.toHaveBeenCalled();
-        },
-    );
-
-    it("reconsiders global priority after trimming a full page of covered suffixes", async () => {
-        const rpc = new RecoveryRpc(200),
-            s = services(rpc);
-        const logs = vi.spyOn(rpc, "getLogs");
-        const older: number[] = [];
-        for (
-            let index = 0;
-            index < SYNC_GAP_POLICY.CollectionsPerPass + 1;
-            index++
-        ) {
-            const id = insertCollection({
-                chainId: 1,
-                slug: `covered-suffix-${index}`,
-                address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
-                anchorBlock: 100,
-            });
-            const last = index === SYNC_GAP_POLICY.CollectionsPerPass;
-            cover(id, 100, 106, [last ? 106 : 105]);
-            retain(s, id, last ? 106 : 105, 106);
-            if (!last) older.push(id);
-        }
-        await s.executor.runDue();
-        // Finish the second startup page before examining repair selection.
-        await s.executor.runDue();
-        expect(logs).not.toHaveBeenCalled();
-        expect(
-            older.every(
-                (id) => s.gaps.getProgress(1, id)?.pending?.toBlock === 105,
-            ),
-        ).toBe(true);
-        await s.executor.runDue();
-        expect(logs).toHaveBeenCalled();
-        expect(
-            logs.mock.calls.every(
-                ([filter]) =>
-                    filter.fromBlock === 106 && filter.toBlock === 106,
-            ),
-        ).toBe(true);
-        expect(
-            older.every(
-                (id) => s.gaps.getProgress(1, id)?.pending?.toBlock === 105,
-            ),
-        ).toBe(true);
-        logs.mockClear();
-        await s.executor.runDue();
-        expect(logs).toHaveBeenCalled();
-        expect(
-            logs.mock.calls.every(
-                ([filter]) =>
-                    filter.fromBlock === 105 && filter.toBlock === 105,
-            ),
-        ).toBe(true);
-        expect(older.every((id) => !s.gaps.getProgress(1, id)?.pending)).toBe(
-            true,
-        );
-    });
-
-    it("finds the globally newest range beyond the first 16 older rows and keeps membership bounded", () => {
-        const s = services();
-        const ids: number[] = [];
-        db.writeTransaction(() => {
-            for (let index = 0; index < 4096; index++) {
-                const id = insertCollection({
-                    chainId: 1,
-                    slug: `pending-${index}`,
-                    address: `0x${(index + 1).toString(16).padStart(40, "0")}`,
-                    anchorBlock: 100,
-                });
-                retain(s, id, 108, 110);
-                ids.push(id);
-            }
-        })();
-        const newestId = ids.at(-1)!;
-        retain(s, newestId, 199, 200);
-        const newest = s.gaps.listDueRepairsAtNewestPendingHeight({
-            upperBound: Number.MAX_SAFE_INTEGER,
-            chainId: 1,
-            now,
-            limit: 16,
-        });
-        expect(newest.map((repair) => repair.collectionId)).toEqual([newestId]);
-        s.gaps.deferRetry(1, newest[0], now + 100);
-        expect(
-            s.gaps.listDueRepairsAtNewestPendingHeight({
-                upperBound: Number.MAX_SAFE_INTEGER,
-                chainId: 1,
-                now,
-                limit: 16,
-            }),
-        ).toEqual([]);
-        now += 100;
-        expect(
-            s.gaps
-                .listDueRepairsAtNewestPendingHeight({
-                    upperBound: Number.MAX_SAFE_INTEGER,
-                    chainId: 1,
-                    now,
-                    limit: 16,
-                })
-                .map((repair) => repair.collectionId),
-        ).toEqual([newestId]);
-        db.prepare("UPDATE collections SET status=? WHERE collection_id=?").run(
-            COLLECTION_STATUS.Paused,
-            newestId,
-        );
-        expect(
-            s.gaps
-                .listDueRepairsAtNewestPendingHeight({
-                    upperBound: Number.MAX_SAFE_INTEGER,
-                    chainId: 1,
-                    now,
-                    limit: 16,
-                })
-                .map((repair) => repair.collectionId),
-        ).toEqual(ids.slice(0, 16));
+        release(true);
+        await stop;
+        expect(executor.runDue).toHaveBeenCalledTimes(1);
     });
 });

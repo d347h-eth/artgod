@@ -8,8 +8,7 @@ import { ORDER_SOURCE_STATUS } from "./orders.js";
 import { QUEUE_NAMES, type QueueName } from "./queues.js";
 import { UnsupportedJob } from "./unsupported-job.js";
 
-// Before targeted routing, one maker worker and one by-ID validator could run.
-// Preserve that aggregate order-validation capacity across all three paths.
+// One bounded validation lane owns RPC execution for ordinary and expanded scopes.
 export const ORDER_PROCESSING_POLICY = Object.freeze({
     concurrentValidations: 2,
 });
@@ -28,14 +27,11 @@ export function makerUpdateQueue(
         : QUEUE_NAMES.OrdersUpdateByMaker;
 }
 
-/** Definitive/source observations never enter coalescible validation demand. */
+/** Only source observations use this queue. Canonical effects are retained by
+ * the coordinator directly and cannot enter through source delivery. */
 export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
-    if (
-        !Object.values(ORDER_UPDATE_REASON).some(
-            (reason) => reason === payload.reason,
-        )
-    )
-        throw new UnsupportedJob("Unsupported order update reason");
+    if (typeof payload.source !== "string" || !payload.source.trim())
+        throw new UnsupportedJob("Order update is missing its source");
     if (payload.sourceStatus != null) {
         if (
             !Object.values(ORDER_SOURCE_STATUS).some(
@@ -43,14 +39,12 @@ export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
             )
         )
             throw new UnsupportedJob("Unsupported order source status");
-        return QUEUE_NAMES.OrderLifecycle;
     }
     switch (payload.reason) {
-        case ORDER_UPDATE_REASON.Fill:
         case ORDER_UPDATE_REASON.Cancel:
-            return QUEUE_NAMES.OrderLifecycle;
+        case ORDER_UPDATE_REASON.SourceExecution:
         case ORDER_UPDATE_REASON.Validation:
-            return QUEUE_NAMES.OrdersUpdateById;
+            return QUEUE_NAMES.OrderLifecycle;
         default:
             throw new UnsupportedJob("Unsupported order update reason");
     }
@@ -59,7 +53,6 @@ export function orderUpdateQueue(payload: OrderUpdateByIdPayload): QueueName {
 const CONSUMER_PREFIX = {
     [QUEUE_NAMES.OrdersUpdateByMaker]: "orders-update-by-maker",
     [QUEUE_NAMES.OrdersUpdateByToken]: "orders-update-by-token",
-    [QUEUE_NAMES.OrdersUpdateById]: "orders-update-by-id",
     [QUEUE_NAMES.OrderLifecycle]: "orders-lifecycle",
 } as const;
 

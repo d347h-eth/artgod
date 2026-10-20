@@ -225,16 +225,6 @@ export const LOCAL_DESKTOP_OBSERVABILITY_SCHEMA = {
           "validation": null
         },
         {
-          "key": "INDEXER_METRICS_PORT_REORG_WORKER",
-          "label": "indexer metrics port reorg worker",
-          "inputKind": "text",
-          "secret": false,
-          "options": [],
-          "help": "Prometheus metrics port for the reorg worker.",
-          "requiredForLaunch": false,
-          "validation": null
-        },
-        {
           "key": "INDEXER_METRICS_PORT_DOMAIN_WORKER",
           "label": "indexer metrics port domain worker",
           "inputKind": "text",
@@ -349,7 +339,6 @@ export const LOCAL_DESKTOP_OBSERVABILITY_SCHEMA = {
     "INDEXER_METRICS_ENABLED": "false",
     "INDEXER_METRICS_PORT_SCHEDULER_WORKER": "42741",
     "INDEXER_METRICS_PORT_SYNC_WORKER": "42742",
-    "INDEXER_METRICS_PORT_REORG_WORKER": "42743",
     "INDEXER_METRICS_PORT_DOMAIN_WORKER": "42744",
     "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER": "42745",
     "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER": "42746",

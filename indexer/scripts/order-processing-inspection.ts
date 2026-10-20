@@ -53,14 +53,14 @@ export function inspectOrderProcessing(
         return conn.transaction(() => {
             const demands = conn
                 .prepare(
-                    "SELECT order_id AS orderId,revision,generation,required_at AS requiredAt,minimum_block AS minimumBlock,lease_until AS leaseUntil,next_attempt_at AS nextAttemptAt,failures,last_error AS lastError FROM order_validation_demand WHERE pending=1 AND chain_id=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
+                    "SELECT order_id AS orderId,revision,generation,required_at AS requiredAt,minimum_block AS minimumBlock,admission_sequence AS admissionSequence,lease_until AS leaseUntil,next_attempt_at AS nextAttemptAt,failures,last_error AS lastError FROM order_validation_demand WHERE pending=1 AND chain_id=? ORDER BY next_attempt_at,lease_until,updated_at,order_id LIMIT ?",
                 )
                 .all(config.chainId, config.limit) as Array<{
                 requiredAt: number;
             }>;
             const makers = conn
                 .prepare(
-                    "SELECT run_id AS runId,source_job_id AS sourceJobId,status,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,isolate_order_id AS isolateOrderId,after_id AS afterId,upper_order_id AS upperOrderId,generation,pass_generation AS passGeneration,requested_at AS requestedAt,lease_until AS leaseUntil,failures,last_error AS lastError,wakeup_outbox_id AS wakeupOutboxId FROM maker_order_revalidation_runs WHERE status=? AND chain_id=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
+                    "SELECT run_id AS runId,source_job_id AS sourceJobId,status,step,resolved_orders AS resolvedOrders,deferred_orders AS deferredOrders,after_id AS afterId,upper_order_id AS upperOrderId,generation,pass_generation AS passGeneration,requested_at AS requestedAt,requested_admission_sequence AS requestedAdmissionSequence,lease_until AS leaseUntil,failures,last_error AS lastError,wakeup_outbox_id AS wakeupOutboxId FROM maker_order_revalidation_runs WHERE status=? AND chain_id=? ORDER BY recovery_checked_at,updated_at,run_id LIMIT ?",
                 )
                 .all(
                     MAKER_REVALIDATION_STATUS.Pending,

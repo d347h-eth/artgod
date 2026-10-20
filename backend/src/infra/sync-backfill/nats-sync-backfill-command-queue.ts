@@ -2,9 +2,7 @@ import { JSONCodec, connect } from "nats";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { resolveNatsJobSubjectPrefix } from "@artgod/shared/queue/nats-job-stream";
 import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
-    type BackfillOrderMaintenancePolicy,
     type BackfillSource,
 } from "@artgod/shared/types/sync-backfill";
 import type { SyncBackfillRangeCommand } from "../../application/use-cases/sync-backfill/schedule-sync-backfill.js";
@@ -15,7 +13,6 @@ type BackfillSyncPayload = {
     fromBlock: number;
     toBlock: number;
     source: BackfillSource;
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 };
 
 type JobEnvelope<TPayload> = {
@@ -90,8 +87,6 @@ export class NatsSyncBackfillCommandQueue {
                                 fromBlock: command.fromBlock,
                                 toBlock: command.toBlock,
                                 source: BACKFILL_SOURCE.ManualHistorical,
-                                orderMaintenancePolicy:
-                                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
                             },
                             attempt: 0,
                             scheduledAt: Date.now(),

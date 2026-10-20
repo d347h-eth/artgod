@@ -1,4 +1,9 @@
-import { ChainSyncConflict, type SyncBlockHeader } from "./chain-sync.js";
+import {
+    ChainSyncConflict,
+    StoredBlockHashConflict,
+    type AppliedChainProgress,
+    type SyncBlockHeader,
+} from "./chain-sync.js";
 import type { OnChainData } from "./onchain.js";
 import { SYNC_FOLLOW_UP_KIND, type SyncFollowUp } from "./sync-follow-ups.js";
 
@@ -35,6 +40,56 @@ export function assertSyncBlockHeaders(
             );
         }
     }
+}
+
+/** Current-state acquisition must extend the accepted prefix exactly once and
+ * in ascending order. Event-free blocks are still required lineage evidence.
+ * This assertion never mutates progress; only the complete application writer
+ * may advance it after committing critical effects. */
+export function assertAppliedSyncRange(
+    progress: AppliedChainProgress,
+    blocks: readonly SyncBlockHeader[],
+): void {
+    if (!blocks.length)
+        throw new ChainSyncConflict("Applied sync range is empty");
+    if (
+        progress.applied.number < progress.anchor.number ||
+        (progress.applied.number === progress.anchor.number &&
+            progress.applied.hash !== progress.anchor.hash)
+    )
+        throw new ChainSyncConflict("Applied progress contradicts its anchor");
+    assertSyncBlockHeaders([progress.anchor, progress.applied]);
+    assertSyncBlockHeaders(blocks);
+    for (const block of [progress.anchor, progress.applied, ...blocks]) {
+        if (
+            !block.hash ||
+            !block.parentHash ||
+            !Number.isSafeInteger(block.timestamp) ||
+            block.timestamp < 0
+        )
+            throw new ChainSyncConflict(
+                "Applied sync requires complete headers",
+            );
+    }
+    if (
+        blocks.some(
+            (block, index) =>
+                block.number !== progress.applied.number + index + 1,
+        )
+    )
+        throw new ChainSyncConflict(
+            "Applied sync range does not extend its expected predecessor",
+        );
+    if (blocks[0].parentHash !== progress.applied.hash)
+        throw new StoredBlockHashConflict(
+            {
+                chainId: progress.checkpoint.chainId,
+                blockNumber: progress.applied.number,
+                blockHash: progress.applied.hash,
+                checkpoint: progress.checkpoint,
+            },
+            blocks[0].parentHash,
+        );
 }
 
 // Validate persisted facts and ephemeral fanout hints together. A reorg between

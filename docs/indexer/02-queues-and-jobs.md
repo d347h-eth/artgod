@@ -13,11 +13,9 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `opensea-bootstrap`
 - `opensea-reconcile`
 - `offchain-orders-raw`
-- `orders-domain`
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-token`
-- `order-updates-by-id`
 - `order-lifecycle-updates`
 - `activity-upsert`
 - `collection-extension-artifacts`
@@ -62,7 +60,7 @@ Key details:
 Automatic gap history processing retains `gap_repair`. The orders domain checks
 relevance and saved validation results before admitting unmet current-order
 validation to `main`; maker/token continuations and both ordinary demand
-executors use main capacity. Legacy envelopes default to `main`.
+executors use main capacity. Envelopes without a work class default to `main`.
 Main uses the existing exact queue subject; background appends
 `.gap_repair` with a separate durable consumer named `<main-consumer>-gap_repair`.
 Both execute the same handler with separate slots. Quota waits are local
@@ -158,7 +156,7 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
 
 - If a job's `scheduledAt` is in the future, the worker nacks with delay.
 - If a handler throws, the message is nacked.
-- By-ID/lifecycle consumers retain their original envelopes on application
+- Source lifecycle consumers retain their original envelopes on application
   failure with a one-second retry delay; they have no attempt-based transfer to
   the log-only DLQ. Unsupported order jobs and malformed queue envelopes remain
   in their original queue with a 60-second retry delay and a visible error.
@@ -170,7 +168,7 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
   database reads and RPC errors after earlier journal-write deferrals. Ordinary
   DLQ exhaustion becomes safe only after durable recovery takes ownership.
 - Maker admission failures also retain the original delivery with a one-second
-  delay, including unavailable replay metadata or SQLite persistence. Before
+  delay, including unavailable delivery evidence or SQLite persistence. Before
   admission commits there may be no run for durable recovery to find.
 - If `attempt >= maxAttempts` and a `deadLetterQueue` is configured:
     - A dead-letter job is published with the original job and error info.
@@ -186,48 +184,22 @@ DLQ payload:
     - `sync.realtime.block`
     - `sync.backfill.range`
 
-`sync.backfill.range` payloads carry explicit origin and order-maintenance
-intent:
+`sync.backfill.range` carries the current request source and range:
 
 ```ts
-type BackfillRange = {
+type BackfillSyncPayload = {
     fromBlock: number;
     toBlock: number;
-    orderMaintenancePolicy: "current_state" | "skip_global_maker_revalidation";
+    source: "manual_historical" | "bootstrap_catchup";
 };
-type BackfillSyncPayload = BackfillRange &
-    (
-        | { source: "manual_historical" | "bootstrap_catchup" }
-        | {
-              source: "gap_repair";
-              repairs: Array<{
-                  collectionId: number;
-                  repairId: string;
-                  anchorBlock: number;
-                  fromBlock: number;
-                  toBlock: number;
-              }>;
-          }
-        | {
-              source: "reorg_recovery";
-              recovery: { recoveryId: string; revision: number };
-          }
-    );
 ```
 
-Manual historical backfills use `skip_global_maker_revalidation`, which
-preserves raw facts and activity projection while suppressing WETH/counter
-maker-wide order revalidation fanout. Reorg recovery, collection gap repair,
-bootstrap catch-up, and realtime processing use `current_state`.
-
-The sync worker decodes backfill source, range, policy and member/recovery shape
-before choosing a lane or selecting collections. Explicit `repairs` belong only
-to `gap_repair`; managed recovery identity belongs only to `reorg_recovery`.
-Unknown sources and inconsistent combinations are rejected without acquisition
-or fanout. Manual/bootstrap jobs keep global and collection-scoped routing.
-Automatic `gap_repair` and `reorg_recovery` shapes remain decodable for upgrade
-compatibility, but the handler ACKs them without acquisition or completion.
-SQLite owns their unfinished intent; no new automatic range is published.
+The decoder validates source, range and envelope before collection selection.
+Manual historical requests acquire facts and activity only. Bootstrap requests
+wake the coordinator, whose installed base and applied prefixes own current
+execution. Global and collection-scoped routing remain supported. No duplicate
+order-maintenance policy or automatic gap/reorg wire format is retained.
+Unknown or inconsistent input cannot acquire a range.
 
 The sync runtime reads `collection_sync_gap_scans` and `chain_reorg_recoveries`
 directly. Its one bounded serial executor shares a common pending gap suffix,
@@ -244,14 +216,18 @@ bounded retry policy and sent receipts. Event-specific rows retain originating
 block identity and are removed by rollback; DB range projections remain pending
 because they reread canonical facts, including unfinished pre-fork work.
 
-Recent stored blocks retain hash checks in SQLite; the reorg worker reads them
+Realtime deliveries wake the serial coordinator and ACK without acquiring
+blocks. The scheduler already retained the target; progress and retries survive
+lost wakeups. Bootstrap backfill deliveries also wake this owner. Only manual
+historical acquisitions hold a broker delivery during RPC and renew its lease
+through `touch`.
+
+Recent stored blocks retain hash checks in SQLite; the sync coordinator reads them
 directly. A failed header read or mismatch-retention transaction leaves the
-check pending with durable backoff. Recovery handoff consumes it atomically,
-without a check queue or DLQ. Manual/bootstrap backfills still renew long-running
-broker leases through `touch`.
+check pending with durable backoff. Recovery handoff retains the disagreement
+atomically, without a check queue or DLQ.
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
-    - `domain.orders.sync`
     - `domain.metadata.sync`
     - `domain.metadata.refresh`
     - `domain.metadata.refresh-range`
@@ -265,59 +241,58 @@ Domain sync payloads also carry an explicit projection contract:
     - used today for `domain.activity.sync`
 - `projection = current_state`
     - may mutate current-state/materialized tables
-    - used today for metadata and order-maintenance fanout
+    - used today for metadata fanout
 
 This split matters for historical backfill. Pre-anchor ranges are still imported as raw facts, but only anchor-eligible post-anchor windows are allowed to publish current-state work.
 
 - Order update jobs (`indexer/src/domain/order-jobs.ts`):
     - `orders.upsert`
     - `orders.update-by-maker`
+    - `orders.continue-maker`
     - `orders.update-by-id`
 
-Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers, NFT approvals, or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
+Source ingestion emits upserts and source-specific lifecycle observations.
+Canonical sync commits by-ID effects and validation demand directly in its writer;
+it does not publish duplicate by-ID messages or an orders-domain range message.
+A relevant canonical maker effect retains a run and one continuation atomically
+with applied progress. An indexed candidate check inside that writer suppresses
+empty scopes; there is no bidder cache or independent event publication filter.
 
-`orders.update-by-maker` now uses a scoped payload contract:
+`orders.update-by-maker` is a fresh scoped hint:
 
-- token-scoped updates include `scope = token`, `collectionId`, and `tokenId`
-- collection-scoped updates include `scope = collection` and `collectionId`
-- global updates include `scope = global` and omit collection/token attribution
+- token scope includes `collectionId` and `tokenId` and uses `order-updates-by-token`;
+- collection scope includes `collectionId` and uses `order-updates-by-maker`;
+- global scope omits collection/token attribution and uses `order-updates-by-maker`.
 
-Maker continuation envelopes retain that full payload and add a run/step
-reference. Each delivery resolves a bounded step, commits its results, cursor
-and next outbox wakeup atomically, then ACKs. A bounded recovery poll checks
-unfinished runs and broker publication evidence. See
-[durable maker progress](07-domain-orders.md#durable-maker-progress).
+`orders.continue-maker` carries only `{ chainId, runId, step }`. The retained run
+owns its scope, payload, finite selection boundary and generation. Resume checks
+chain, owning queue and step; late delivery cannot recreate a deleted run. Both
+maker consumers require delivery-origin evidence and enforce their scope route.
+Main and gap consumers still have independent ACK floors, so a run may retain
+multiple receipts even though its broad/token route is fixed.
 
-Ordinary by-ID validation hints admit one durable demand per current order before
-ACK; they no longer hold the mixed consumer across RPC. Upserts persist that
-demand in their own transaction without another queue envelope. A separate
-bounded poller validates captured revisions/generations and resumes expired
-leases after restart. Explicit fill/cancel/source updates retain their domain
-handlers. See [coalesced validation](07-domain-orders.md#coalesced-ordinary-validation).
+Maker steps expand bounded pages into ordinary validation demand without RPC.
+Cursor, demand and the next outbox continuation commit together. Preadmission
+failure retains the original delivery. After admission, a failed step ACKs only
+when its lease is durably released to recovery; uncertain release retries the
+message. Periodic recovery owns missing-wakeup repair and bounded ACK-based
+receipt cleanup. Publication success alone is not execution completion.
 
-New token-scoped hints and their continuations use `order-updates-by-token`;
-collection/global sweeps use `order-updates-by-maker`. New explicit fill/cancel
-and OpenSea source observations use `order-lifecycle-updates`. Both legacy
-consumers remain active and accept their original mixed payloads. No queue reset
-or bulk republish is part of this upgrade.
+`orders.update-by-id` is the existing payload kind for source updates on
+`order-lifecycle-updates`. Its handler requires source identity, collection and
+observation time; scheduling time and outer envelope fields do not replace them.
+Upserts and source updates retain observations and causal demand before ACK.
+No source message asserts canonical completion. Canonical payloads are internal
+writer inputs and are rejected on this source route. The obsolete standalone
+`order-updates-by-id` queue and its admission pacing have no current producer or
+consumer; old-format queue recovery is outside this implementation's scope.
 
-Lifecycle handling applies existing domain transitions without RPC. Broad maker,
-targeted token and ordinary-demand validation share FIFO admission with at most
-two active contexts per chain worker, preserving the previous aggregate capacity.
-Maker/token consumers are single-flight. Two bounded demand executors may use
-idle validation capacity; each yields and rejoins FIFO admission after its batch.
-Admission waits occur before claiming demand, and shutdown cancels queued waits.
-SQLite transactions remain synchronous
-and short; no transaction is held while waiting for RPC or an admission permit.
-Unknown order job kinds/reasons fail visibly and retain their original envelope.
-The new routes protect newly produced work; they do not let an old buried fill
-jump ahead of its legacy consumer's durable cursor.
-
-Legacy by-ID admission is paced at one envelope per five milliseconds (at most
-200/second before processing cost). Durable demand is bounded by live identities,
-not a fixed pending-row limit that would block later mixed-queue terminal facts.
-See the [operator procedure](18-order-queue-recovery.md) for bounded inspection,
-pause/resume, unknown input and useful-work measurements.
+Two bounded ordinary-demand executors share FIFO capacity for full RPC validation.
+They claim only ready demand at a coordinator checkpoint, resume expired leases,
+and yield between batches. Maker expansion and source admission use no validation
+permits. SQLite transactions stay synchronous; they do not span RPC or permit
+waits. Unsupported input remains visible and retained under the worker policy.
+See the [operator procedure](18-order-queue-recovery.md) for useful-work inspection.
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`
@@ -415,7 +390,7 @@ Collection extension job production/consumption:
 
 These jobs are produced by backend use cases and the scheduler, bootstrap, sync,
 domain, collection-extension, OpenSea, and offchain-ingest runtimes. They are
-consumed by the sync, reorg, domain, bootstrap, collection-extension,
+consumed by the sync, domain, bootstrap, collection-extension,
 offchain-ingest, and OpenSea runtimes.
 
 ## Current Limits and Future Direction

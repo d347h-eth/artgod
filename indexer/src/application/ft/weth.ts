@@ -2,7 +2,6 @@ import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import { GLOBAL_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
 import type { GlobalMakerTrigger } from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
-import type { BidderIndex } from "../bidder-index.js";
 
 const ERC20_EVENT_ABI = [
     {
@@ -39,11 +38,9 @@ const [APPROVAL_TOPIC] = encodeEventTopics({
 
 export const WETH_EVENT_FILTERS = ERC20_EVENT_ABI as unknown as RpcEvent[];
 
-// Decode WETH transfer/approval logs into maker triggers (ephemeral).
-export function decodeWethMakerInfos(
-    logs: RpcLog[],
-    bidderIndex: Pick<BidderIndex, "shouldEmit">,
-): GlobalMakerTrigger[] {
+// Decode the acquired range without consulting a stale process-local bidder
+// cache. The commit owner decides which retained orders an invalidation affects.
+export function decodeWethMakerInfos(logs: RpcLog[]): GlobalMakerTrigger[] {
     const infos = new Map<string, GlobalMakerTrigger>();
     for (const log of logs) {
         const topic0 = log.topics[0];
@@ -57,14 +54,12 @@ export function decodeWethMakerInfos(
             const to = args.to.toLowerCase();
             pushMakerInfo(
                 infos,
-                bidderIndex,
                 from,
                 GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
                 log,
             );
             pushMakerInfo(
                 infos,
-                bidderIndex,
                 to,
                 GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
                 log,
@@ -79,7 +74,6 @@ export function decodeWethMakerInfos(
             const owner = args.owner.toLowerCase();
             pushMakerInfo(
                 infos,
-                bidderIndex,
                 owner,
                 GLOBAL_MAKER_TRIGGER_REASON.ApprovalChange,
                 log,
@@ -104,13 +98,11 @@ function safeDecode(log: RpcLog, eventName: "Transfer" | "Approval") {
 
 function pushMakerInfo(
     infos: Map<string, GlobalMakerTrigger>,
-    bidderIndex: Pick<BidderIndex, "shouldEmit">,
     maker: string,
     reason: GlobalMakerTrigger["reason"],
     log: RpcLog,
 ) {
     if (!maker || maker === zeroAddress) return;
-    if (!bidderIndex.shouldEmit(maker)) return;
     if (infos.has(maker)) return;
     infos.set(maker, {
         maker,

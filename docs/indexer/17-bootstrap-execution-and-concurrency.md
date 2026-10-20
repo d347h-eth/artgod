@@ -28,17 +28,17 @@ runs, scheduler entry points, or processes.
 
 ## Current Configured Values
 
-| Setting                                                 | Current default | Main config surface                                              | Notes                                                              |
-| ------------------------------------------------------- | --------------: | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `BOOTSTRAP_METADATA_CONCURRENCY`                        |               8 | `IndexerConfig.bootstrap.metadataConcurrency`                    | Local worker-pool width inside the metadata step.                  |
-| `BOOTSTRAP_METADATA_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.metadataBatchSize`                      | Due task read/write batch size, not concurrency.                   |
-| `BOOTSTRAP_SNAPSHOT_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.snapshotBatchSize`                      | Ownership task seeding and processing batch size, not concurrency. |
-| `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE`                      |              50 | `IndexerConfig.bootstrap.imageCacheBatchSize`                    | Due image-cache task read batch size.                              |
-| `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY`                     |               4 | `IndexerConfig.bootstrap.imageCacheConcurrency`                  | Local worker-pool width inside the image-cache step.               |
-| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`   |               2 | `IndexerConfig.bootstrap.collectionExtensionArtifactConcurrency` | Queue max-in-flight for collection-extension artifact jobs.        |
-| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS` |           60000 | `IndexerConfig.bootstrap.collectionExtensionArtifactTaskLeaseMs` | Per artifact task lease duration.                                  |
-| `BACKFILL_BATCH_SIZE`                                   |              10 | `IndexerConfig.sync.backfillBatchSize`                           | Bootstrap catchup range chunk size.                                |
-| `BACKFILL_WORKER_COUNT`                                 |               1 | `IndexerConfig.sync.backfillWorkerCount`                         | Backfill sync queue max-in-flight.                                 |
+| Setting                                                 | Current default | Main config surface                                              | Notes                                                                                 |
+| ------------------------------------------------------- | --------------: | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `BOOTSTRAP_METADATA_CONCURRENCY`                        |               8 | `IndexerConfig.bootstrap.metadataConcurrency`                    | Local worker-pool width inside the metadata step.                                     |
+| `BOOTSTRAP_METADATA_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.metadataBatchSize`                      | Due task read/write batch size, not concurrency.                                      |
+| `BOOTSTRAP_SNAPSHOT_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.snapshotBatchSize`                      | Ownership task seeding and processing batch size, not concurrency.                    |
+| `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE`                      |              50 | `IndexerConfig.bootstrap.imageCacheBatchSize`                    | Due image-cache task read batch size.                                                 |
+| `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY`                     |               4 | `IndexerConfig.bootstrap.imageCacheConcurrency`                  | Local worker-pool width inside the image-cache step.                                  |
+| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`   |               2 | `IndexerConfig.bootstrap.collectionExtensionArtifactConcurrency` | Queue max-in-flight for collection-extension artifact jobs.                           |
+| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS` |           60000 | `IndexerConfig.bootstrap.collectionExtensionArtifactTaskLeaseMs` | Per artifact task lease duration.                                                     |
+| `BACKFILL_BATCH_SIZE`                                   |              10 | `IndexerConfig.sync.backfillBatchSize`                           | Historical backfill range chunk size; bootstrap sends one coordinator wakeup.         |
+| `BACKFILL_WORKER_COUNT`                                 |               1 | `IndexerConfig.sync.backfillWorkerCount`                         | Historical backfill queue max-in-flight; current catch-up belongs to the coordinator. |
 
 There is no dedicated OpenSea bootstrap concurrency setting. The OpenSea bootstrap worker currently subscribes with `maxInFlight: 1`.
 
@@ -362,8 +362,15 @@ Current model:
 - Ownership tasks are seeded from metadata task token ids.
 - Each pass reads up to `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` due ownership tasks.
 - Tasks are processed serially. Each task calls `ownerOf(tokenId)` at the anchor block.
-- Success writes a snapshot row and marks the ownership task succeeded in a transaction.
-- Once all ownership tasks succeed, `finalizeSnapshot` projects the snapshot into current ownership state at the anchor block.
+- Success writes a snapshot row and completes the task only when its captured
+  run/anchor identity still matches. Late reads from a reseeded anchor write nothing.
+- Once every task succeeds, installation captures the chain revision before a
+  fresh exact-anchor check. `finalizeSnapshot` fences that revision, current run,
+  anchor and active step lease, then writes balances and installed-base evidence
+  in one transaction. A failed base write rolls back balances too.
+- Duplicate installation preserves an existing base and never resets a collection
+  that has applied later blocks. Anchor selection and installation do not create
+  canonical headers or applied progress; the coordinator accepts the base.
 - Ownership is mandatory: terminal ownership task failures fail the bootstrap run and block collection liveness.
 
 Scaling boundary:
@@ -381,39 +388,35 @@ Scaling boundary:
   still blocks liveness. Neither scaling approach may finalize a partial
   snapshot or allow a stale step owner to overwrite newer state.
 
-### 10. Short Backfill
+### 10. Applied Catch-Up
 
-Current concurrency setting: `BACKFILL_WORKER_COUNT=1`.
+Current execution owner: the chain coordinator. Bootstrap retains and observes
+completion; it does not acquire or apply current-state ranges independently.
 
-Typed runtime config: yes, under sync config rather than bootstrap config.
+- The step records a collection-scoped target from `anchor + 1` to the freshly
+  observed head before publishing one `bootstrap_catchup` wakeup.
+- Coordinator acquisition sizing belongs to sync policy. Bootstrap does not
+  divide this wakeup into independent range jobs.
+- The coordinator accepts the installed ownership base, then applies shared
+  and collection effects through contiguous prefixes. Collection catch-up can
+  replay already accepted shared history. A late-installed older base first
+  extends its own prefix to the exact shared base; readiness is gated until
+  that join, without lowering shared progress.
+- At most one older anchor receives fresh verification per coordinator pass.
+  Failed verification retains its own retry time in the installed-base row;
+  bounded due selection continues serving healthy scopes and other bases.
+- Completion requires the current revision, the run's exact anchor identity,
+  and shared plus collection applied progress through the retained target.
+  Raw `collection_sync_blocks` history cannot complete the step.
+- No-post-anchor completion still requires an accepted installed base.
+- The retained target survives restart and wakeup loss. Progress checks resume
+  that target; the coordinator's periodic work owns missing acquisition.
+- Reorg recovery or an explicit disputed identity gates completion. There is
+  no separate bootstrap gap-recovery publication or delivery identity loop.
 
-Current model:
-
-- The bootstrap backfill step schedules collection-scoped current-state catchup ranges from `anchor + 1` to current head.
-- Range size is `BACKFILL_BATCH_SIZE=10`.
-- Jobs go to the shared `events-sync-backfill` queue.
-- The sync worker subscribes with `maxInFlight` equal to `BACKFILL_WORKER_COUNT`.
-- `BackfillExecutionGate` allows fully pre-anchor facts-only ranges to run in
-  parallel and serializes current-state-capable ranges within one sync-worker
-  process, in the order they enter that gate.
-- Bootstrap catchup is post-anchor and uses current-state order maintenance.
-  The gate does not sort by block number, coordinate other worker processes,
-  or prevent an earlier retried range from arriving after a later range.
-  Serialization is not proof of chronological apply order.
-
-Scaling boundary:
-
-- Raising `BACKFILL_WORKER_COUNT` allows overlapping pre-anchor facts-only
-  imports within the process. It does not parallelize that process's
-  current-state gate or establish cross-process ordering. Check resource
-  pressure and retry/idempotency behavior for the intended workload.
-- Clean current-state backfill parallelism needs a fetch/apply split:
-    - fetch logs/blocks in parallel for ranges,
-    - persist raw/fact data idempotently,
-    - apply current-state projections through an ordered per-collection barrier by block/log order,
-    - commit coverage only after ordered apply completes.
-- Another clean option is per-collection current-state lanes where independent collections can apply in parallel, but any shared contract/order side effects must be proven collection-scoped first.
-- Do not bypass `BackfillExecutionGate` just to make bootstrap faster. That would weaken ownership/order projection correctness.
+The bootstrap step keeps completed/total progress and its next check time.
+Collection-live consumes the retained finishing height, then independently
+rechecks accepted progress before finalization.
 
 ### 11. Collection Live
 
@@ -424,7 +427,12 @@ Typed runtime config: no.
 Current model:
 
 - The collection-live step depends on backfill.
-- It reads the backfill live block from step result, marks the collection bootstrap finished, marks the run completed, and cleans successful temporary data.
+- It reads the retained live block from the backfill result and rechecks the
+  run's exact anchor against current accepted shared/collection progress.
+- Unavailable or rewound progress keeps the step running. The status writer
+  reasserts the checkpoint atomically before making the collection live.
+- After that writer succeeds, the step marks the run completed and cleans
+  successful temporary data.
 - For runs without collection extensions, it records the final stats follow-up
   and queue-outbox intent during collection-live processing.
 - For runs with collection extensions, extension artifact terminality records
@@ -433,11 +441,9 @@ Current model:
 Scaling boundary:
 
 - No dedicated concurrency is needed. This is a small finalization step.
-- Collection-live uses its step lease and collection/run checks, with the
-  stale-owner write limitation described below. Do not treat this as a complete
-  finalization fence when changing concurrency.
-- If this multi-call finalization is hardened later, the important boundary is
-  one transaction after backfill coverage, not higher throughput.
+- The collection status writer fences chain revision, recovery state, and the
+  accepted checkpoint. Run/step bookkeeping and cleanup remain separate calls;
+  this is not a claim of atomic completion for the entire bootstrap run.
 
 ### 12. OpenSea Bootstrap
 
@@ -533,9 +539,10 @@ task workers as the only acceptable design.
 - Collection-extension task settlement is fenced, but artifact and trait writes
   occur first. Multi-process scaling needs idempotency/currentness proof or a
   fenced write boundary.
-- Current-state catch-up is serialized within one process, not ordered by a
-  durable block-range barrier. Retry and multi-process ordering remain concerns;
-  parallel fetch/apply work must preserve projection currentness explicitly.
+- Current-state catch-up has one runtime owner and durable expected-prefix/
+  revision fences. Independent replicated acquisition is not a supported
+  deployment contract; future parallel acquisition must preserve bounded
+  buffering and the same ordered acceptance boundary.
 
 The [unified backlog](../planning/01-unified-backlog.md) owns priority for these
 directions; this document owns the invariants any implementation must preserve.

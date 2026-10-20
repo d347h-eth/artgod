@@ -5,7 +5,10 @@ import {
     ChainSyncConflict,
     type SyncBlockHeader,
 } from "../src/domain/chain-sync.js";
-import type { ReorgHistorySnapshot } from "../src/domain/reorg-fork.js";
+import {
+    REORG_HISTORY_PROOF,
+    type ReorgHistorySnapshot,
+} from "../src/domain/reorg-fork.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 
 describe("canonical sync header reads", () => {
@@ -67,35 +70,32 @@ describe("canonical sync header reads", () => {
 });
 
 describe("verified common ancestor", () => {
-    function harness(stored: Record<number, string>) {
+    function localBranch(from = 100, to = 105, fork = 103): SyncBlockHeader[] {
+        return Array.from({ length: to - from + 1 }, (_, offset) => {
+            const number = from + offset;
+            return number < fork
+                ? block(number)
+                : {
+                      ...block(number),
+                      hash: block(number + 1000).hash,
+                      parentHash: block(
+                          number > fork ? number + 999 : number - 1,
+                      ).hash,
+                  };
+        });
+    }
+    function harness(headers = localBranch(), fromBlock = 100, toBlock = 105) {
         return {
             chainId: 1,
-            startBlock: 105,
+            startBlock: toBlock,
             reorgDepth: 5,
             storage: {
                 captureReorgHistory: vi.fn(
-                    ({
-                        chainId,
+                    (): ReorgHistorySnapshot => ({
+                        checkpoint: { chainId: 1, revision: 0 },
                         fromBlock,
                         toBlock,
-                    }: {
-                        chainId: number;
-                        fromBlock: number;
-                        toBlock: number;
-                    }): ReorgHistorySnapshot => ({
-                        checkpoint: { chainId, revision: 0 },
-                        fromBlock,
-                        toBlock,
-                        headers: Object.entries(stored)
-                            .map(([number, hash]) => ({
-                                ...block(Number(number)),
-                                hash,
-                            }))
-                            .filter(
-                                (header) =>
-                                    header.number >= fromBlock &&
-                                    header.number <= toBlock,
-                            ),
+                        headers,
                     }),
                 ),
             },
@@ -103,15 +103,11 @@ describe("verified common ancestor", () => {
         };
     }
 
-    it("continues across missing local history to a proven matching header", async () => {
-        const h = harness({ 103: block(203).hash, 101: block(101).hash });
+    it("proves the nearest ancestor from connected accepted history and independent fresh RPC", async () => {
+        const h = harness();
         expect(await findCommonAncestor(h)).toMatchObject({
-            fork: { ...block(101), chainId: 1 },
-            history: {
-                fromBlock: 100,
-                toBlock: 105,
-                checkpoint: { chainId: 1, revision: 0 },
-            },
+            fork: { ...block(102), chainId: 1 },
+            history: { fromBlock: 100, toBlock: 105 },
         });
         expect(h.rpc.getBlock.mock.calls).toEqual([
             [100, { fresh: true }],
@@ -124,86 +120,77 @@ describe("verified common ancestor", () => {
         ]);
     });
 
-    it("returns no ancestor when every available header disagrees", async () => {
-        const h = harness({ 104: block(204).hash, 100: block(200).hash });
-        expect(await findCommonAncestor(h)).toBeNull();
-    });
+    it.each(
+        [
+            [],
+            [block(100), block(102), block(103), block(104), block(105)],
+            [
+                block(100),
+                block(101),
+                { ...block(102), parentHash: block(500).hash },
+                block(103),
+                block(104),
+                block(105),
+            ],
+        ].map((headers) => ({ headers })),
+    )(
+        "rejects missing or disconnected accepted lineage before RPC: %j",
+        async ({ headers }) => {
+            const h = harness(headers);
+            await expect(findCommonAncestor(h)).rejects.toBeInstanceOf(
+                ChainSyncConflict,
+            );
+            expect(h.rpc.getBlock).not.toHaveBeenCalled();
+        },
+    );
 
-    it("does not infer an ancestor from entirely missing local history", async () => {
-        const h = harness({});
-        expect(await findCommonAncestor(h)).toBeNull();
-        expect(h.rpc.getBlock).not.toHaveBeenCalled();
-    });
-
-    it("does not search beyond the configured depth", async () => {
-        const h = harness({ 99: block(99).hash });
+    it("does not search outside supported depth when its entire window differs", async () => {
+        const h = harness(localBranch(100, 105, 99));
         expect(await findCommonAncestor(h)).toBeNull();
         expect(h.storage.captureReorgHistory.mock.calls).toEqual([
             [{ chainId: 1, fromBlock: 100, toBlock: 105 }],
         ]);
     });
 
-    it("selects the nearest actual match", async () => {
-        const h = harness({ 104: block(104).hash, 103: block(103).hash });
+    it("acquires only the window clamped to the accepted base by storage", async () => {
+        const h = harness(localBranch(103, 105, 105), 103, 105);
         expect(await findCommonAncestor(h)).toMatchObject({
             fork: { ...block(104), chainId: 1 },
         });
-        expect(h.rpc.getBlock).toHaveBeenCalledTimes(7);
+        expect(h.rpc.getBlock.mock.calls).toEqual([
+            [103, { fresh: true }],
+            [104, { fresh: true }],
+            [105, { fresh: true }],
+            [105, { fresh: true }],
+        ]);
     });
 
-    it("rejects a matching island above an earlier divergent stored header", async () => {
-        const h = harness({
-            104: block(104).hash,
-            103: block(203).hash,
-            102: block(102).hash,
-        });
-        expect(await findCommonAncestor(h)).toMatchObject({
-            fork: { ...block(102), chainId: 1 },
-        });
-    });
-
-    it("uses stored parent identity to reject a matching island over a missing divergent header", async () => {
-        const h = harness({});
-        const headers: SyncBlockHeader[] = [
-            block(102),
-            block(104),
-            {
-                ...block(105),
-                hash: block(205).hash,
-                parentHash: block(204).hash,
-            },
-        ];
-        h.storage.captureReorgHistory.mockReturnValue({
-            checkpoint: { chainId: 1, revision: 0 },
-            fromBlock: 100,
-            toBlock: 105,
-            headers,
-        });
-        expect(await findCommonAncestor(h)).toMatchObject({
-            fork: { ...block(102), chainId: 1 },
-        });
-    });
-
-    it("keeps recovery pending when a stored parent reveals divergence beyond the depth bound", async () => {
-        const h = harness({});
-        h.storage.captureReorgHistory.mockReturnValue({
-            checkpoint: { chainId: 1, revision: 0 },
-            fromBlock: 100,
-            toBlock: 105,
-            headers: [
-                block(100),
-                {
-                    ...block(101),
-                    hash: block(201).hash,
-                    parentHash: block(200).hash,
-                },
-            ],
-        });
+    it("cannot prove an ancestor when the accepted base itself is replaced", async () => {
+        const h = harness(localBranch(105, 105, 105), 105, 105);
         expect(await findCommonAncestor(h)).toBeNull();
     });
 
-    it("rejects a changing or mixed RPC chain while proving the entire window", async () => {
-        const h = harness({ 104: block(104).hash });
+    it.each([100, 105])(
+        "recognizes restored agreement through %s without inventing a divergence",
+        async (to) => {
+            const headers = Array.from({ length: to - 99 }, (_, i) =>
+                block(100 + i),
+            );
+            const h = harness(headers, 100, to);
+            expect(await findCommonAncestor(h)).toEqual({
+                kind: REORG_HISTORY_PROOF.RestoredAgreement,
+                history: {
+                    checkpoint: { chainId: 1, revision: 0 },
+                    fromBlock: 100,
+                    toBlock: to,
+                    headers,
+                },
+            });
+        },
+    );
+
+    it("rejects changing or mixed RPC lineage", async () => {
+        const h = harness();
         h.rpc.getBlock.mockImplementation(async (number) =>
             number === 103
                 ? { ...block(number), parentHash: block(202).hash }
@@ -214,21 +201,19 @@ describe("verified common ancestor", () => {
         );
     });
 
-    it("can prove genesis without reading negative block numbers", async () => {
-        const h = harness({ 0: block(0).hash });
-        expect(await findCommonAncestor({ ...h, startBlock: 2 })).toMatchObject(
-            {
-                fork: { ...block(0), chainId: 1 },
-            },
-        );
+    it("can prove genesis without reading negative heights", async () => {
+        const h = harness(localBranch(0, 2, 1), 0, 2);
+        expect(await findCommonAncestor(h)).toMatchObject({
+            fork: { ...block(0), chainId: 1 },
+        });
         expect(h.storage.captureReorgHistory.mock.calls).toEqual([
             [{ chainId: 1, fromBlock: 0, toBlock: 2 }],
         ]);
     });
 
-    it("does not accept a matching hash from a wrong-height RPC response", async () => {
-        const h = harness({ 104: block(104).hash });
-        h.rpc.getBlock.mockResolvedValue({ ...block(104), number: 103 });
+    it("does not accept a matching hash from a wrong-height response", async () => {
+        const h = harness();
+        h.rpc.getBlock.mockResolvedValue({ ...block(100), number: 99 });
         await expect(findCommonAncestor(h)).rejects.toBeInstanceOf(
             ChainSyncConflict,
         );

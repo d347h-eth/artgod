@@ -131,11 +131,10 @@ describe("address normalization at indexer write boundaries", () => {
 
     it("lowercases order address fields on upsert", async () => {
         db.prepare(
-            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (7,1,'order-fixture','0xabcd','erc721','ready','contract_all_tokens')",
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (7,1,'order-fixture','0xabcd000000000000000000000000000000000000','erc721','ready','contract_all_tokens')",
         ).run();
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            async () => ({ status: "fillable", reason: "test" }),
         );
 
         await domain.handleOrderUpsert({
@@ -155,7 +154,6 @@ describe("address normalization at indexer write boundaries", () => {
             source: "opensea",
             sourceStatus: ORDER_SOURCE_STATUS.Active,
             rawSourceKind: "stream",
-            validateAfterUpsert: true,
         });
 
         const row = db

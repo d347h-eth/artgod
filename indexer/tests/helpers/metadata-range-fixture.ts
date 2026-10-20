@@ -1,3 +1,4 @@
+import { createAppliedSyncFixture } from "./applied-sync-fixture.js";
 import { db } from "@artgod/shared/database";
 import { buildSyncFollowUps } from "../../src/application/sync-range-processing.js";
 import { createMetadataRefreshRangeHandler } from "../../src/application/metadata/refresh-range.js";
@@ -8,10 +9,7 @@ import {
     type MetadataRefreshRangePayload,
 } from "../../src/domain/domain-jobs.js";
 import { SYNC_WORK_COMPLETION } from "../../src/domain/sync-work.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    SYNC_JOB_KIND,
-} from "../../src/domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../../src/domain/sync-jobs.js";
 import type { JobEnvelope } from "../../src/domain/jobs.js";
 import type { QueuePort } from "../../src/ports/queue.js";
 import { SqliteMetadataDomain } from "../../src/infra/domain/metadata.js";
@@ -43,6 +41,11 @@ export function metadataRangeFixture(input: {
         anchorBlock: 100,
     });
     const collection = services.registry.getCollection(1, collectionId)!;
+    const accepted = createAppliedSyncFixture({
+        chainId: 1,
+        anchor: syncBlockFixture(100),
+        collections: [collection],
+    });
     let version = 0;
     const uriReads: Array<{ tokenId: string; version: number }> = [];
     const metadata = new SqliteMetadataDomain(
@@ -91,6 +94,20 @@ export function metadataRangeFixture(input: {
             txHash: syncBlockFixture(903).hash,
             logIndex: 1,
         });
+        const current = accepted.progress.chainProgress(1)!;
+        const blocks = Array.from(
+            { length: 103 - current.applied.number },
+            (_, i) => {
+                const number = current.applied.number + i + 1;
+                return number === 103 ? block : syncBlockFixture(number);
+            },
+        );
+        const result = accepted.applied({
+            blocks,
+            data,
+            shared: true,
+            collectionIds: [collectionId],
+        });
         const followUps = buildSyncFollowUps(
             1,
             [collection],
@@ -104,16 +121,10 @@ export function metadataRangeFixture(input: {
             ],
             "backfill",
             data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            result.application,
         );
         services.commit.commitSyncRange({
-            result: {
-                canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-                checkpoint: services.storage.captureSyncCheckpoint(1),
-                blocks: [syncBlockFixture(102), block],
-                data,
-                collections: [collection],
-            },
+            result,
             followUps,
             completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
         });

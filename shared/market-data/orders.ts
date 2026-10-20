@@ -1,5 +1,6 @@
 /** Canonical order vocabulary shared by ingestion and market read models. */
 export const ORDER_STATUS = {
+    Unvalidated: "unvalidated",
     Fillable: "fillable",
     Filled: "filled",
     Cancelled: "cancelled",

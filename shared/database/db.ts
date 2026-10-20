@@ -42,7 +42,7 @@ const sqliteBusyRetryWaitState = new Int32Array(
     new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
 );
 
-type SynchronousTransactionGuard<TResult> = [
+export type SynchronousTransactionGuard<TResult> = [
     Extract<TResult, PromiseLike<unknown>>,
 ] extends [never]
     ? unknown

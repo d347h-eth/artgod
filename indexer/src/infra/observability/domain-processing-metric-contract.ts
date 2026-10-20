@@ -40,7 +40,6 @@ export const DOMAIN_PROCESSING_RESULT = {
 export const MAKER_CHECKPOINT_OUTCOME = {
     Resolved: "resolved",
     Deferred: "deferred",
-    Validated: "validated",
 } as const;
 export const MAKER_CHECKPOINT_COUNTERS = Object.values(
     MAKER_CHECKPOINT_OUTCOME,

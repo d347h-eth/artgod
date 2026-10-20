@@ -4,16 +4,15 @@ export const REORG_RECOVERY_PHASE = {
     Resync: "resync",
 } as const;
 export const REORG_RECOVERY_POLICY = {
-    PollMs: 12_000,
     RetryDelayMs: 300_000,
 } as const;
 export const REORG_RECOVERY_LOG_COMPONENT = "ReorgRecovery";
 export const REORG_RECOVERY_LOG_ACTION = {
     Resume: "resume",
-    Poll: "poll",
     Check: "check",
     MismatchRetained: "mismatch_retained",
     RollbackCommitted: "rollback_committed",
+    AgreementRestored: "agreement_restored",
 } as const;
 
 export type ReorgResyncIdentity = { recoveryId: string; revision: number };
@@ -102,6 +101,32 @@ export function beginReorgResync(input: {
         ...base,
         phase: REORG_RECOVERY_PHASE.Resync,
         revision: input.recovery.revision + 1,
+        version: input.recovery.version + 1,
+        fromBlock,
+        toBlock: Math.min(input.head, fromBlock + input.batchSize - 1),
+        targetBlock: input.head,
+        retryAt: input.retryAt,
+    };
+}
+
+// Restored agreement preserves accepted state and its revision. Only an
+// interrupted acquisition needs a recovery range; ordinary forward sync already
+// owns the remaining head target when no previous resync was interrupted.
+export function resumeReorgAcquisition(input: {
+    recovery: AwaitingReorgAncestor;
+    head: number;
+    batchSize: number;
+    retryAt: number;
+}): ReorgResync {
+    const fromBlock = input.recovery.resumeFrom;
+    if (fromBlock === null || input.head < fromBlock)
+        throw new ChainSyncConflict(
+            "Restored recovery head is behind unfinished acquisition",
+        );
+    const { resumeFrom: _resumeFrom, phase: _phase, ...base } = input.recovery;
+    return {
+        ...base,
+        phase: REORG_RECOVERY_PHASE.Resync,
         version: input.recovery.version + 1,
         fromBlock,
         toBlock: Math.min(input.head, fromBlock + input.batchSize - 1),

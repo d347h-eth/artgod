@@ -1,5 +1,7 @@
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import { transferFixture } from "./helpers/ownership-fixture.js";
+import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
 import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
-import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
@@ -7,12 +9,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { processSyncRange } from "../src/application/sync-range-processing.js";
 import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
-import { startReorgRecoveryLoop } from "../src/application/reorg-recovery.js";
-import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
-import { runWorker } from "../src/application/worker-runner.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
-import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
 import {
     REORG_RECOVERY_PHASE,
     REORG_RECOVERY_LOG_COMPONENT,
@@ -20,22 +18,15 @@ import {
     type ReorgResyncRange,
 } from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
-import {
-    SYNC_JOB_KIND,
-    BACKFILL_SOURCE,
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    type BackfillSyncPayload,
-} from "../src/domain/sync-jobs.js";
+import { SYNC_JOB_KIND } from "../src/domain/sync-jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
-import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { syncBlockFixture } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import {
-    emptyOnChainData,
     selectBalanceOwners,
     selectTransferCount,
 } from "./helpers/ownership-fixture.js";
@@ -279,85 +270,29 @@ describe("durable production reorg recovery", () => {
         ]);
     });
 
-    it("does not let a repaired header hide an earlier orphan when choosing the rollback boundary", async () => {
+    it("finds an earlier fork from accepted connected history without waiting for collection gap repair", async () => {
+        const fixture = seedRecoveryHistory();
         const forkBlock = 102;
-        const fixture = seedRecoveryHistory(false);
-        fixture.persist([
-            {
-                ...fixture.transfer(103, 1, F.Owner, F.OrphanOwner),
-                tokenId: "2",
-            },
-        ]);
         rpc = new RecoveryRpc(forkBlock);
         reopen();
-        const gaps = new SqliteSyncGapStore();
-        const scheduler = new SyncGapScheduler(services.registry, gaps, {
-            chainId: F.ChainId,
-            batchSize: F.BatchSize,
-            now: () => now,
-        });
-        async function repairNext(expected: number[]) {
-            await scheduler.scan(F.Orphan);
-            const batch = planSyncGapRepairBatches(
-                gaps
-                    .listDueRepairsAtNewestPendingHeight({
-                        upperBound: Number.MAX_SAFE_INTEGER,
-                        chainId: F.ChainId,
-                        now,
-                        limit: 16,
-                    })
-                    .map((repair) => ({ repair, missing: repair })),
-                F.BatchSize,
-            )[0];
-            expect([batch.fromBlock, batch.toBlock]).toEqual(expected);
-            await services.executor.runDue();
-            await services.publishRetained(queue);
-        }
+        const logs = vi.spyOn(rpc, "getLogs");
         await services.recovery.checkBlock(
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
-        expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
-            REORG_RECOVERY_PHASE.AwaitingAncestor,
-        );
-
-        // Startup now repairs the newest eligible hole (106) before older work.
-        await services.executor.runDue();
-        expect(services.storage.getBlockHash(F.ChainId, 106)).toBe(
-            canonicalRecoveryBlock(106, forkBlock).hash,
-        );
-        // Descending collection repair then inserts canonical 104 between orphan
-        // 103 and 105. This matching island is above the genuine fork at 102.
-        await repairNext([104, 104]);
-        now += retryDelayMs;
-        await services.recovery.resumeDue();
-        expect(revision()).toBe(0);
-        expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
-            REORG_RECOVERY_PHASE.AwaitingAncestor,
-        );
-        expect(services.storage.getBlockHash(F.ChainId, 103)).toBe(
-            syncBlockFixture(103).hash,
-        );
-
-        await repairNext([101, 102]);
-        now += retryDelayMs;
-        reopen();
-        await services.recovery.resumeDue();
         expect(revision()).toBe(1);
-        expect(
-            db
-                .prepare(
-                    "SELECT token_id, block_number FROM erc721_ownership_checkpoints ORDER BY token_id",
-                )
-                .all(),
-        ).toEqual([
-            { token_id: "1", block_number: forkBlock },
-            { token_id: "2", block_number: forkBlock },
+        expect(pendingRecoveryRange()).toMatchObject({
+            fromBlock: 103,
+            toBlock: 104,
+        });
+        expect(logs).not.toHaveBeenCalled();
+        expect(owners(fixture.collectionId)).toEqual([
+            { owner: F.Owner, amount: "1" },
         ]);
         const ranges: number[][] = [];
-        while (services.recoveries.getRecovery(F.ChainId)) {
-            const job = pendingRecoveryRange();
-            ranges.push([job.fromBlock, job.toBlock]);
-            expect(await acquireAndPublish(job)).toBe(true);
+        while (services.recoveries.getRecovery(1)) {
+            const range = pendingRecoveryRange();
+            ranges.push([range.fromBlock, range.toBlock]);
+            expect(await acquireAndPublish(range)).toBe(true);
             expect(ranges.length).toBeLessThanOrEqual(3);
         }
         expect(ranges).toEqual([
@@ -365,192 +300,71 @@ describe("durable production reorg recovery", () => {
             [105, 106],
             [107, 107],
         ]);
-        for (const tokenId of ["1", "2"]) {
-            expect(
-                selectBalanceOwners(F.ChainId, fixture.collectionId, tokenId),
-            ).toEqual([{ owner: F.Owner, amount: "1" }]);
-            expect(
-                selectTransferCount(F.ChainId, fixture.collectionId, tokenId),
-            ).toBe(0);
-        }
-        for (const number of [103, 104, 105])
-            expect(services.storage.getBlockHash(F.ChainId, number)).toBe(
-                canonicalRecoveryBlock(number, forkBlock).hash,
-            );
         expect(
-            services.storage.countCollectionSyncedBlocksInRange(
-                F.ChainId,
-                fixture.collectionId,
-                F.Anchor,
-                F.Head,
-            ),
-        ).toBe(8);
-        const completedGaps = new SqliteSyncGapStore();
-        expect(
-            completedGaps.findGap(
-                F.ChainId,
-                fixture.collectionId,
-                { fromBlock: F.Anchor, toBlock: F.Head },
-                F.BatchSize,
-            ),
-        ).toBeNull();
-        expect(
-            completedGaps.getProgress(F.ChainId, fixture.collectionId)?.pending,
-        ).toBeNull();
-        for (const queueName of [
-            QUEUE_NAMES.ActivityDomain,
-            QUEUE_NAMES.OrdersDomain,
-            QUEUE_NAMES.MetadataDomain,
-        ]) {
-            const publishedRanges = queue.jobs
-                .filter((job) => job.queue === queueName)
-                .map((job) => {
-                    const payload = job.payload as {
-                        fromBlock: number;
-                        toBlock: number;
-                    };
-                    return [payload.fromBlock, payload.toBlock];
-                });
-            expect(publishedRanges).toEqual(expect.arrayContaining(ranges));
-        }
+            services.progress.collectionProgress(1, fixture.collectionId)
+                ?.applied.number,
+        ).toBe(F.Head);
+        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
     });
 
     it.each([false, true])(
-        "rejects ancestor proof if a lower header appears during ownership reads (divergent=%s)",
+        "fences concurrent historical imports while ancestor ownership proof is in flight (divergent=%s)",
         async (divergent) => {
             const fixture = seedRecoveryHistory();
             rpc.beforeOwnerRead = async () => {
                 rpc.beforeOwnerRead = undefined;
-                const header = syncBlockFixture(divergent ? 10_103 : 103);
-                fixture.storage.persistSyncResult({
-                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-                    checkpoint: fixture.storage.captureSyncCheckpoint(
-                        F.ChainId,
+                const header = syncBlockFixture(divergent ? 10103 : 103);
+                expect(() =>
+                    fixture.commit(
+                        fixture.historical({
+                            blocks: [
+                                { ...header, number: 103, timestamp: 103 },
+                            ],
+                            collectionIds: [fixture.collectionId],
+                        }),
                     ),
-                    blocks: [{ ...header, number: 103, timestamp: 103 }],
-                    data: emptyOnChainData(),
-                    collections: [
-                        services.registry.getCollection(
-                            F.ChainId,
-                            fixture.collectionId,
-                        )!,
-                    ],
-                });
+                ).toThrow(ChainSyncConflict);
             };
             await services.recovery.checkBlock(
                 retainCanonicalCheckFixture(services.storage, F.Orphan),
             );
-            expect(revision()).toBe(0);
-            expect(owners(fixture.collectionId)).toEqual([
-                { owner: F.OrphanOwner, amount: "1" },
-            ]);
-            expect(services.recoveries.getRecovery(F.ChainId)?.phase).toBe(
-                REORG_RECOVERY_PHASE.AwaitingAncestor,
+            expect(revision()).toBe(1);
+            expect(services.storage.getBlockHash(1, 103)).toBe(
+                syncBlockFixture(103).hash,
             );
-            expect(
-                db
-                    .prepare("SELECT last_error FROM chain_reorg_recoveries")
-                    .get(),
-            ).toEqual({
-                last_error: expect.stringContaining("ancestor history changed"),
-            });
-            expect(
-                db
-                    .prepare(
-                        "SELECT COUNT(*) AS count FROM erc721_ownership_checkpoints",
-                    )
-                    .get(),
-            ).toEqual({ count: 0 });
-            expect(
-                db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
-            ).toEqual({ count: 0 });
-            if (!divergent) {
-                now += retryDelayMs;
-                await services.recovery.resumeDue();
-                expect(revision()).toBe(1);
-            }
+            expect(owners(fixture.collectionId)).toEqual([
+                { owner: F.Owner, amount: "1" },
+            ]);
         },
     );
 
-    it("hands off the DB check to retained recovery, fills missing ancestors through actual gap processing, then recovers at stationary HEAD after reopen", async () => {
-        const fixture = seedRecoveryHistory(false);
+    it("resumes retained ancestor proof after restart at stationary HEAD without historical gap acquisition", async () => {
+        const fixture = seedRecoveryHistory();
+        rpc.beforeOwnerRead = async () => {
+            throw new Error("snapshot temporarily unavailable");
+        };
         await services.recovery.checkBlock(
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
-        expect(services.recoveries.getRecovery(1)).toMatchObject({
-            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
-            checkedBlock: F.Orphan,
-        });
-        expect(owners(fixture.collectionId)).toEqual([
-            { owner: F.OrphanOwner, amount: "1" },
-        ]);
+        expect(services.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.AwaitingAncestor,
+        );
         expect(revision()).toBe(0);
         reopen();
-        const gaps = new SqliteSyncGapStore();
-        const scheduler = new SyncGapScheduler(services.registry, gaps, {
-            chainId: 1,
-            batchSize: F.BatchSize,
-            now: () => now,
-        });
-        vi.spyOn(rpc, "getBlockNumber").mockResolvedValue(F.Head + 1);
-        const repaired: number[][] = [];
-        for (let i = 0; i < 3; i++) {
-            await scheduler.scan(F.Head);
-            const batch = planSyncGapRepairBatches(
-                gaps
-                    .listDueRepairsAtNewestPendingHeight({
-                        upperBound: Number.MAX_SAFE_INTEGER,
-                        chainId: 1,
-                        now,
-                        limit: 16,
-                    })
-                    .map((repair) => ({ repair, missing: repair })),
-                F.BatchSize,
-            )[0];
-            repaired.push([batch.fromBlock, batch.toBlock]);
-            await services.executor.runDue();
-            await services.publishRetained(queue);
-        }
-        expect(repaired).toEqual([
-            [106, 107],
-            [103, 104],
-            [101, 102],
-        ]);
-        expect(
-            services.storage.countCollectionSyncedBlocksInRange(
-                1,
-                fixture.collectionId,
-                100,
-                107,
-            ),
-        ).toBe(8);
-        // No new HEAD or broker check: startup continuation alone retries proof.
+        rpc.beforeOwnerRead = undefined;
         now += retryDelayMs;
-        reopen();
-        const stopRecovery = startReorgRecoveryLoop(services.recovery);
-        await stopRecovery();
+        await services.recovery.resumeDue();
         expect(revision()).toBe(1);
+        expect(rpc.logReads).toBe(0);
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.Owner, amount: "1" },
         ]);
-        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
-        expect(pendingRecoveryRange()).toMatchObject({
-            fromBlock: 105,
-            toBlock: 106,
-        });
-        while (services.recoveries.getRecovery(1)) {
-            const job = pendingRecoveryRange();
-            await drainQueueOutbox(services.outbox, queue);
-            expect(await acquireAndPublish(job)).toBe(true);
-        }
+        while (services.recoveries.getRecovery(1))
+            expect(await acquireAndPublish(pendingRecoveryRange())).toBe(true);
         expect(
-            services.storage.countCollectionSyncedBlocksInRange(
-                1,
-                fixture.collectionId,
-                100,
-                107,
-            ),
-        ).toBe(8);
+            services.progress.collectionProgress(1, fixture.collectionId)
+                ?.applied.number,
+        ).toBe(F.Head);
         expect(
             await services.acquireRecoveryRange({
                 chainId: 1,
@@ -690,7 +504,7 @@ describe("durable production reorg recovery", () => {
         );
         const first = pendingRecoveryRange();
         reopen();
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         expect(await services.acquireRecoveryRange(first)).toBe(true);
         expect(pendingRecoveryRange()).toMatchObject({
             fromBlock: 107,
@@ -709,7 +523,7 @@ describe("durable production reorg recovery", () => {
         expect(
             db
                 .prepare("SELECT status FROM queue_outbox WHERE queue_name = ?")
-                .get(QUEUE_NAMES.OrdersDomain),
+                .get(QUEUE_NAMES.MetadataDomain),
         ).toEqual({ status: QUEUE_OUTBOX_STATUS.FailedRetry });
         reopen();
         queue.failureQueue = undefined;
@@ -732,7 +546,7 @@ describe("durable production reorg recovery", () => {
                 await services.acquireRecoveryRange(pendingRecoveryRange()),
             ).toBe(true);
         const completedCalls = ranges.mock.calls.length;
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         for (let i = 0; i < 7; i++)
             await drainQueueOutbox(services.outbox, queue, {
                 maxAttempts: 1,
@@ -743,7 +557,7 @@ describe("durable production reorg recovery", () => {
                 .prepare(
                     "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
                 )
-                .all(QUEUE_NAMES.OrdersDomain),
+                .all(QUEUE_NAMES.MetadataDomain),
         ).toEqual([
             { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
             { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
@@ -763,10 +577,28 @@ describe("durable production reorg recovery", () => {
     });
 
     it("retains unsupported recovery across an orphaned bootstrap anchor without changing ownership", async () => {
-        const fixture = seedRecoveryHistory();
+        const fixture = transferFixture();
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(F.Orphan, fixture.collectionId);
+        const applied = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: syncBlockFixture(F.Anchor),
+            collections: [],
+        });
+        applied.commit(
+            applied.applied({
+                blocks: [101, 102, 103, 104, 105].map(syncBlockFixture),
+                shared: true,
+                collectionIds: [],
+            }),
+        );
+        services.checks.confirmCanonicalBlock({
+            chainId: 1,
+            blockNumber: F.Anchor,
+            blockHash: syncBlockFixture(F.Anchor).hash,
+            checkpoint: services.storage.captureSyncCheckpoint(1),
+        });
         const bootstrap = new SqliteBootstrapStorage();
         bootstrap.insertSnapshotRows([
             {
@@ -779,7 +611,7 @@ describe("durable production reorg recovery", () => {
                 anchorBlock: F.Orphan,
             },
         ]);
-        bootstrap.finalizeSnapshot({
+        finalizeBootstrapSnapshotFixture(bootstrap, {
             runId: 1,
             chainId: 1,
             collectionId: fixture.collectionId,
@@ -805,17 +637,22 @@ describe("durable production reorg recovery", () => {
         expect(owners(fixture.collectionId)).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
         ]);
-        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(1);
+        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
         expect(services.storage.getBlockHash(1, F.Orphan)).toBe(
             syncBlockFixture(F.Orphan).hash,
         );
         expect(
             db.prepare("SELECT last_error FROM chain_reorg_recoveries").get(),
-        ).toEqual({ last_error: expect.stringContaining("bootstrap anchor") });
+        ).toEqual({
+            last_error: expect.stringContaining("retained applied base"),
+        });
     });
 
     it("polls an earlier mismatch while retained ancestor proof is deferred", async () => {
         rpc = new RecoveryRpc(F.Fork - 1);
+        rpc.beforeOwnerRead = async () => {
+            throw new Error("snapshot temporarily unavailable");
+        };
         services = reorgRecoveryServices(rpc, { now: () => now, retryDelayMs });
         const fixture = seedRecoveryHistory();
         retainCanonicalCheckFixture(services.storage, F.Orphan);
@@ -873,38 +710,41 @@ describe("durable production reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)?.recoveryId).toBe(
             "new-earlier-mismatch",
         );
-        // Retained proof has no ancestor in its bounded window; do not invent one.
         await services.recovery.resumeDue();
+        // The superseding earlier mismatch agrees again. It must not trigger
+        // an unnecessary rollback or erase the original later disagreement.
         expect(revision()).toBe(0);
+        expect(services.recoveries.getRecovery(1)).toBeNull();
+        expect(await services.recovery.checkDue()).toBe(true);
+        expect(await services.recovery.checkDue()).toBe(true);
+        expect(revision()).toBe(1);
     });
 
-    it("rejects a new affected token discovered while the snapshot is in flight", async () => {
+    it("blocks a new applied token while recovery ownership is in flight", async () => {
         const fixture = seedRecoveryHistory();
         rpc.beforeOwnerRead = async () => {
             rpc.beforeOwnerRead = undefined;
-            fixture.persist([
-                {
-                    ...fixture.transfer(106, 1, F.Owner, F.OrphanOwner),
-                    tokenId: "2",
-                },
-            ]);
+            expect(() =>
+                fixture.persist([
+                    {
+                        ...fixture.transfer(106, 1, F.Owner, F.OrphanOwner),
+                        tokenId: "2",
+                    },
+                ]),
+            ).toThrow(ChainSyncConflict);
         };
         await services.recovery.checkBlock(
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
-        expect(revision()).toBe(0);
-        expect(selectTransferCount(1, fixture.collectionId, "2")).toBe(1);
-        expect(
-            db.prepare("SELECT last_error FROM chain_reorg_recoveries").get(),
-        ).toEqual({ last_error: expect.stringContaining("scope changed") });
-        now += retryDelayMs;
-        await services.recovery.resumeDue();
         expect(revision()).toBe(1);
         expect(selectTransferCount(1, fixture.collectionId, "2")).toBe(0);
+        expect(owners(fixture.collectionId)).toEqual([
+            { owner: F.Owner, amount: "1" },
+        ]);
     });
 
     it("rejects pre-rollback realtime persistence through the actual range pipeline", async () => {
-        seedRecoveryHistory();
+        const fixture = seedRecoveryHistory();
         let released!: () => void;
         let entered!: () => void;
         const enteredPromise = new Promise<void>((resolve) => {
@@ -930,11 +770,13 @@ describe("durable production reorg recovery", () => {
                 1,
                 "realtime",
             ),
-            range: { fromBlock: 107, toBlock: 107 },
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
+            range: { fromBlock: 106, toBlock: 107 },
+            application: fixture.applied({
+                blocks: [106, 107].map(syncBlockFixture),
+                shared: true,
+                collectionIds: [fixture.collectionId],
+            }).application,
             wethAddress: F.Weth,
-            orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             sources: [
                 {
                     fanoutId: "realtime",
@@ -962,7 +804,7 @@ describe("durable production reorg recovery", () => {
         );
         const old = pendingRecoveryRange();
         expect(await services.acquireRecoveryRange(old)).toBe(true);
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         await services.publishRetained(queue);
         const previousId = services.recoveries.getRecovery(1)!.recoveryId,
             previousGetBlock = rpc.getBlock.bind(rpc);
@@ -991,7 +833,10 @@ describe("durable production reorg recovery", () => {
                 .prepare(
                     "SELECT job_json FROM queue_outbox WHERE queue_name = ? AND status = ?",
                 )
-                .all(QUEUE_NAMES.OrdersDomain, QUEUE_OUTBOX_STATUS.FailedRetry),
+                .all(
+                    QUEUE_NAMES.MetadataDomain,
+                    QUEUE_OUTBOX_STATUS.FailedRetry,
+                ),
         ).toEqual([
             expect.objectContaining({
                 job_json: expect.stringContaining('"fromBlock":105'),
@@ -1000,21 +845,34 @@ describe("durable production reorg recovery", () => {
         expect(await services.acquireRecoveryRange(old)).toBe(false);
     });
 
-    it("does not complete or acquire a retained reorg range when all eligible collections are paused", async () => {
+    it("continues shared recovery while collections are paused and catches each scope up after resume", async () => {
         const fixture = seedRecoveryHistory();
         await services.recovery.checkBlock(
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
-        const range = pendingRecoveryRange();
         db.prepare(
             "UPDATE collections SET status = ? WHERE collection_id = ?",
         ).run(COLLECTION_STATUS.Paused, fixture.collectionId);
         await services.executor.runDue();
-        expect(rpc.logReads).toBe(0);
-        expect(pendingRecoveryRange()).toEqual(range);
+        expect(rpc.logReads).toBe(2);
+        expect(services.progress.chainProgress(1)?.applied.number).toBe(106);
+        expect(
+            services.progress.collectionProgress(1, fixture.collectionId)
+                ?.applied.number,
+        ).toBe(F.Fork);
+        expect(pendingRecoveryRange()).toMatchObject({
+            fromBlock: 107,
+            toBlock: 107,
+        });
         db.prepare(
             "UPDATE collections SET status = ? WHERE collection_id = ?",
         ).run(COLLECTION_STATUS.Bootstrapping, fixture.collectionId);
-        expect(await services.acquireRecoveryRange(range)).toBe(true);
+        expect(
+            await services.acquireRecoveryRange(pendingRecoveryRange()),
+        ).toBe(true);
+        expect(
+            services.progress.collectionProgress(1, fixture.collectionId)
+                ?.applied.number,
+        ).toBe(F.Head);
     });
 });

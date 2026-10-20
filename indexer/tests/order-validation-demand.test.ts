@@ -1,4 +1,9 @@
-import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { installHeavyMakerValidationChain } from "./helpers/heavy-maker-validation-fixture.js";
+import {
+    eventValidationRequest,
+    observedOrderValidationRequest,
+    type ClaimedOrderValidation,
+} from "../src/domain/order-validation-demand.js";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import {
     afterEach,
@@ -13,55 +18,53 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
-import { SqliteConduitRegistry } from "../src/infra/conduits/sqlite.js";
 import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
-import {
-    AdmitOrderValidation,
-    ValidateOrderDemand,
-} from "../src/application/orders/validate-order-demand.js";
+import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import {
     ORDER_VALIDATION_DEMAND_OUTCOME as OUTCOME,
     ORDER_VALIDATION_DEMAND_POLICY as POLICY,
 } from "../src/domain/order-validation-demand.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SOURCE_STATUS,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_STATUS,
 } from "../src/domain/orders.js";
 import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
-import type { ConduitRegistryPort } from "../src/ports/conduits.js";
 import {
     HEAVY_MAKER,
     HeavyMakerRpc,
     heavyMakerOrder,
     seedHeavyMaker,
-    warmConduits,
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
 const now = HEAVY_MAKER.now * 1_000;
 const order = heavyMakerOrder(0);
-const request = {
-    chainId: order.chainId,
-    orderId: order.id,
-    requiredAt: now - 1_000,
-    minimumBlock: HEAVY_MAKER.blockNumber,
+const request = eventValidationRequest(
+    order.chainId,
+    order.id,
+    HEAVY_MAKER.blockNumber,
+    HEAVY_MAKER.blockHash,
+);
+const fillable = {
+    status: ORDER_STATUS.Fillable,
+    reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
 };
-const fillable = { status: ORDER_STATUS.Fillable, reason: "fixture" };
-const proof = {
+const proof = (claim: ClaimedOrderValidation) => ({
     observedAt: now,
-    blockNumber: HEAVY_MAKER.blockNumber,
-    checkpoint: { chainId: HEAVY_MAKER.chainId, revision: 0 },
-};
+    block: claim.checkpoint.block,
+    checkpoint: claim.checkpoint,
+    admissionSequence: claim.demand.admissionSequence,
+});
 
-function workflow(conduits: ConduitRegistryPort = warmConduits) {
+function workflow() {
+    const chain = installHeavyMakerValidationChain();
     const rpc = new HeavyMakerRpc();
-    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-        throw new Error("Demand must use the strict injected snapshot");
-    });
+    const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
     const store = new SqliteOrderValidationDemand(domain);
     const processor = new ValidateOrderDemand({
         admission: new FairOrderValidationAdmission(2),
@@ -70,11 +73,10 @@ function workflow(conduits: ConduitRegistryPort = warmConduits) {
         createSnapshot: createSeaportOrderValidationFactory({
             chainId: HEAVY_MAKER.chainId,
             rpc,
-            conduits,
             conduitController: HEAVY_MAKER.controller,
         }),
     });
-    return { rpc, domain, store, processor };
+    return { chain, rpc, domain, store, processor };
 }
 
 function upsert(): OrderUpsertPayload {
@@ -96,7 +98,6 @@ function upsert(): OrderUpsertPayload {
         sourceStatus: ORDER_SOURCE_STATUS.Active,
         rawSourceKind: "rest",
         seaportData: order.seaportData,
-        validateAfterUpsert: true,
         observedAt: HEAVY_MAKER.now,
     };
 }
@@ -113,18 +114,17 @@ describe("durable ordinary validation demand", () => {
         vi.spyOn(Date, "now").mockReturnValue(now);
         for (const level of ["info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
-        db.exec("DELETE FROM orders; DELETE FROM collections;");
+        db.exec(
+            "DELETE FROM orders; DELETE FROM blocks; DELETE FROM collections; DELETE FROM chain_sync_progress; DELETE FROM chain_head_samples; DELETE FROM chain_sync_targets; DELETE FROM chain_sync_revisions;",
+        );
         seedHeavyMaker(1);
     });
     afterEach(() => vi.restoreAllMocks());
 
-    it("coalesces old observation buckets into one current-revision validation and bounded storage", async () => {
+    it("coalesces exact repeated event identities into one current-revision validation and bounded storage", async () => {
         const work = workflow();
         for (let bucket = 0; bucket < 2_000; bucket++)
-            work.store.admit(
-                { ...request, requiredAt: now - (bucket + 1) * 300_000 },
-                now,
-            );
+            work.store.admit(request, now);
         expect(
             db
                 .prepare(
@@ -135,16 +135,11 @@ describe("durable ordinary validation demand", () => {
         await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(1);
         for (let bucket = 0; bucket < 2_000; bucket++)
-            expect(
-                work.store.admit(
-                    { ...request, requiredAt: now - (bucket + 1) * 300_000 },
-                    now,
-                ),
-            ).toBe(OUTCOME.Covered);
+            expect(work.store.admit(request, now)).toBe(OUTCOME.Covered);
         expect(await work.processor.executeBatch()).toBeUndefined();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
-            proofRevision: 0,
+            proofRevision: 1,
             proofAt: now,
             proofBlock: HEAVY_MAKER.blockNumber,
         });
@@ -161,46 +156,34 @@ describe("durable ordinary validation demand", () => {
         expect(work.rpc.reads.getOrderStatus).toBe(1);
     });
 
-    it("retries conduit storage failure without changing order status or recording coverage", async () => {
-        vi.spyOn(logger, "debug").mockImplementation(() => {});
-        db.exec(
-            "DELETE FROM seaport_conduit_channels; DELETE FROM seaport_conduits;",
-        );
-        const work = workflow(new SqliteConduitRegistry());
+    it("retries uncertain exact-block conduit reads without recording order failure", async () => {
+        const work = workflow();
         work.store.admit(request, now);
-        db.exec(
-            "CREATE TEMP TRIGGER reject_conduit BEFORE INSERT ON seaport_conduits BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END;",
-        );
-        try {
-            expect(await work.processor.executeBatch()).toMatchObject({
-                applied: 0,
-                covered: 0,
-                retried: 1,
-            });
-            expect(
-                work.store.get(request.chainId, request.orderId),
-            ).toMatchObject({
-                pending: true,
-                proofRevision: null,
-                failures: 1,
-            });
-            expect(
-                db
-                    .prepare("SELECT fillability_status FROM orders WHERE id=?")
-                    .get(order.id),
-            ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
-        } finally {
-            db.exec("DROP TRIGGER reject_conduit");
-        }
+        work.rpc.onRead = ({ functionName }) => {
+            if (functionName === "getConduit")
+                throw new Error("fixture conduit unavailable");
+        };
+        expect(await work.processor.executeBatch()).toMatchObject({
+            applied: 0,
+            covered: 0,
+            retried: 1,
+        });
+        expect(work.store.get(1, order.id)).toMatchObject({
+            pending: true,
+            proofRevision: null,
+            failures: 1,
+        });
+        expect(
+            db
+                .prepare("SELECT fillability_status FROM orders WHERE id=?")
+                .get(order.id),
+        ).toEqual({ fillability_status: ORDER_STATUS.Fillable });
+        work.rpc.onRead = undefined;
         vi.mocked(Date.now).mockReturnValue(now + POLICY.retryBaseMs);
         expect(await work.processor.executeBatch()).toMatchObject({
             applied: 1,
             covered: 1,
             retried: 0,
-        });
-        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
-            pending: false,
-            failures: 0,
         });
     });
 
@@ -230,13 +213,17 @@ describe("durable ordinary validation demand", () => {
         work.rpc.onRead = () => {
             if (triggered) return;
             triggered = true;
-            work.store.admit({ ...request, requiredAt: now }, now);
+            work.store.admit(
+                observedOrderValidationRequest(1, order.id, "during-rpc"),
+                now,
+            );
         };
         await work.processor.executeBatch();
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: true,
             generation: 2,
         });
+        work.chain.sample();
         await work.processor.executeBatch();
         expect(work.rpc.reads.getOrderStatus).toBe(2);
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
@@ -264,11 +251,11 @@ describe("durable ordinary validation demand", () => {
         expect(work.rpc.reads.getOrderStatus).toBe(2);
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
             pending: false,
-            proofRevision: 1,
+            proofRevision: 2,
         });
     });
 
-    it("keeps a source cancellation that arrives during validation and performs no further RPC", async () => {
+    it("keeps source withdrawal that arrives during validation and performs no further RPC", async () => {
         const work = workflow();
         work.store.admit(request, now);
         work.rpc.onRead = async () => {
@@ -276,7 +263,8 @@ describe("durable ordinary validation demand", () => {
             await work.domain.handleOrderUpdateById({
                 chainId: request.chainId,
                 orderId: order.id,
-                sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+                source: "opensea",
+                sourceStatus: ORDER_SOURCE_STATUS.Inactive,
                 reason: "fixture-source-cancel",
                 observedAt: HEAVY_MAKER.now + 1,
             });
@@ -288,7 +276,7 @@ describe("durable ordinary validation demand", () => {
             db
                 .prepare("SELECT source_status FROM orders WHERE id=?")
                 .get(order.id),
-        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Cancelled });
+        ).toEqual({ source_status: ORDER_SOURCE_STATUS.Inactive });
         expect(work.store.admit(request, now)).toBe(OUTCOME.Unneeded);
     });
 
@@ -324,6 +312,12 @@ describe("durable ordinary validation demand", () => {
                 { ...request, minimumBlock: HEAVY_MAKER.blockNumber + 1 },
                 now,
             ),
+        ).toBe(OUTCOME.Unneeded); // A future hash is not accepted canonical evidence.
+        expect(
+            work.store.admit(
+                observedOrderValidationRequest(1, order.id, "future-sale"),
+                now,
+            ),
         ).toBe(OUTCOME.Pending);
         db.prepare("DELETE FROM orders WHERE id=?").run(order.id);
         expect(work.store.get(request.chainId, request.orderId)).toBe(null);
@@ -338,6 +332,7 @@ describe("durable ordinary validation demand", () => {
         db.raw.close();
         setDbPath(dbPath);
         const restarted = workflow();
+        restarted.chain.sample();
         await restarted.processor.executeBatch();
         expect(restarted.rpc.reads.getOrderStatus).toBe(1);
         expect(
@@ -395,7 +390,7 @@ describe("durable ordinary validation demand", () => {
         ).claims[0]!;
         work.store.completeBatch(
             [{ claim: old, result: fillable }],
-            proof,
+            proof(old),
             now + POLICY.leaseMs + 2,
         );
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
@@ -403,7 +398,7 @@ describe("durable ordinary validation demand", () => {
         );
         work.store.completeBatch(
             [{ claim: resumed, result: fillable }],
-            proof,
+            proof(resumed),
             now + POLICY.leaseMs + 2,
         );
         expect(work.store.get(request.chainId, request.orderId)?.pending).toBe(
@@ -421,7 +416,7 @@ describe("durable ordinary validation demand", () => {
             .get(order.id);
         try {
             await expect(
-                work.domain.handleOrderUpsert({ ...upsert(), price: "555" }),
+                work.domain.handleOrderUpsert(upsert()),
             ).rejects.toThrow("fixture commit failed");
             expect(
                 db
@@ -434,26 +429,31 @@ describe("durable ordinary validation demand", () => {
         }
     });
 
-    it("rejects cross-chain admission before touching current state", () => {
+    it("does not admit another chain's order identity", () => {
         const work = workflow();
-        expect(() =>
-            new AdmitOrderValidation(2, work.store).execute(request),
-        ).toThrow("chain mismatch");
-        expect(work.store.get(request.chainId, request.orderId)).toBe(null);
+        expect(work.store.admit({ ...request, chainId: 2 }, now)).toBe(
+            OUTCOME.Unneeded,
+        );
+        expect(work.store.get(1, order.id)).toBeNull();
     });
 
-    it("keeps canonical demand independent from an older trigger's changed anchor", async () => {
+    it("retains source demand when the collection anchor no longer matches accepted progress", async () => {
         const work = workflow();
         work.store.admit(request, now);
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(HEAVY_MAKER.blockNumber + 1, order.collectionId);
-        work.store.admit({ ...request, minimumBlock: null }, now);
-        await work.processor.executeBatch();
-        expect(work.rpc.reads.getOrderStatus).toBe(1);
-        expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
-            pending: false,
+        work.store.admit(
+            observedOrderValidationRequest(1, order.id, "changed-anchor"),
+            now,
+        );
+        work.chain.sample();
+        expect(await work.processor.executeBatch()).toBeUndefined();
+        expect(work.rpc.reads).toEqual({});
+        expect(work.store.get(1, order.id)).toMatchObject({
+            pending: true,
             anchorIndependent: true,
+            failures: 0,
         });
     });
 
@@ -499,10 +499,7 @@ describe("durable ordinary validation demand", () => {
         work.store.admit(request, now);
         await work.processor.executeBatch();
         work.store.admit(
-            {
-                ...request,
-                requiredAt: now + 1,
-            },
+            observedOrderValidationRequest(1, order.id, "new-source"),
             now + 1,
         );
         expect(work.store.get(request.chainId, request.orderId)).toMatchObject({
@@ -513,7 +510,7 @@ describe("durable ordinary validation demand", () => {
     it("releases deferred quota waits without recording a validation failure or losing demand", async () => {
         const work = workflow();
         work.store.admit(request, now);
-        vi.spyOn(work.rpc, "getBlockNumber").mockRejectedValue(
+        vi.spyOn(work.rpc, "readContractAtBlock").mockRejectedValue(
             new Error("snapshot wrapper", { cause: new RpcBudgetDeferred() }),
         );
         const report = await work.processor.executeBatch();

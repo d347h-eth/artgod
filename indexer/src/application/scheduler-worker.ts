@@ -7,8 +7,12 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
+import type { ChainProgressPort } from "../ports/chain-progress.js";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
-import { realtimeWindowStart } from "../domain/chain-sync.js";
+import {
+    ChainSyncConflict,
+    realtimeWindowStart,
+} from "../domain/chain-sync.js";
 
 export type SchedulerWorkerOptions = {
     pollIntervalMs?: number;
@@ -16,11 +20,12 @@ export type SchedulerWorkerOptions = {
     apm?: ApmPort;
 };
 
-// Scheduler-worker runtime: perform a blocking bootstrap (head fetch + initial schedule),
-// then start non-blocking WS/poller loops that enqueue new heads in the background.
+// Head observations are coordinator scheduling evidence, not canonical progress.
+// Retain their captured admission watermark before publishing optional wakeups.
 export async function startSchedulerWorker(
-    rpc: Pick<RpcProviderPort, "getBlockNumber">,
+    rpc: Pick<RpcProviderPort, "getBlockNumber" | "getBlock">,
     queue: Pick<QueuePort, "publish">,
+    progress: Pick<ChainProgressPort, "captureHeadSample" | "recordHeadSample">,
     config: {
         chainId: IndexerConfig["chainId"];
         sync: Pick<IndexerConfig["sync"], "reorgDepth">;
@@ -54,7 +59,8 @@ export async function startSchedulerWorker(
     };
 
     if (options.headSource) {
-        // Non-blocking: WS head listener pushes new heads into the scheduler-worker.
+        // WS notifications only wake scheduling. They cannot bind admissions to
+        // a head that may have been observed before the local admission existed.
         stopHeadSource = await options.headSource.start(
             (headNumber) => {
                 logger.debug("Scheduler-worker WS head received", {
@@ -89,8 +95,9 @@ export async function startSchedulerWorker(
 
     const poll = async () => {
         if (stopped) return;
-        // Poller is authoritative and fills any gaps missed by the WS path.
-        const current = await rpc.getBlockNumber();
+        // Sample even at stationary HEAD: new admissions need a later remote
+        // observation, not a newly mined block or a per-order RPC read.
+        const current = await sampleCurrentHead();
         logger.debug("Scheduler-worker poll head received", {
             component: "IndexerSchedulerWorker",
             action: "poll",
@@ -133,9 +140,9 @@ export async function startSchedulerWorker(
     };
 
     async function bootstrapRealtimeScheduling(): Promise<void> {
-        // Realtime bootstrap covers the recent reorg window; gap repair has its
-        // own bounded, collection-scoped sweep after this head is established.
-        // This blocking step ensures the first scheduled range is based on a known head.
+        // Bound the advisory wakeup tail. Durable target and applied progress
+        // let the coordinator catch up across older ranges independently.
+        // Record the first remote observation before scheduling any wakeup.
         await apm.withSpan(
             "scheduler-worker.bootstrap.realtime",
             {
@@ -143,12 +150,24 @@ export async function startSchedulerWorker(
                 reorgDepth,
             },
             async () => {
-                const head = await rpc.getBlockNumber();
+                const head = await sampleCurrentHead();
                 const start = realtimeWindowStart(head, reorgDepth);
                 await scheduleRealtimeRange(queue, config.chainId, start, head);
                 lastScheduled = head;
             },
         );
+    }
+
+    async function sampleCurrentHead(): Promise<number> {
+        // Capturing after RPC would incorrectly include hints received during
+        // that read. Retention also fences a rollback while the read is active.
+        const request = progress.captureHeadSample(config.chainId);
+        const number = await rpc.getBlockNumber();
+        const head = await rpc.getBlock(number, { fresh: true });
+        if (head.number !== number)
+            throw new ChainSyncConflict("Head sample returned the wrong block");
+        progress.recordHeadSample(request, head, Date.now());
+        return number;
     }
 
     async function scheduleRealtimeForHead(headNumber: number): Promise<void> {
