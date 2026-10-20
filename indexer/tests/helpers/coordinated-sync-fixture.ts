@@ -3,7 +3,6 @@ import {
     AutomaticSyncExecutor,
     type AutomaticSyncObserver,
 } from "../../src/application/automatic-sync-executor.js";
-import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { RecoverChainReorg } from "../../src/application/reorg-recovery.js";
 import { RollbackChainRange } from "../../src/application/reorg-rollback.js";
 import { SyncGapScheduler } from "../../src/application/sync-gap-scheduler.js";
@@ -141,7 +140,6 @@ export function createCoordinatorFixture(
         const gaps = new SqliteSyncGapStore();
         const coordination = new SqliteSyncCoordination(progress);
         const workScope = new RpcWorkScope();
-        const gate = new BackfillExecutionGate();
         const batchSize =
             options.batchSize ?? COORDINATED_SYNC_FIXTURE.batchSize;
         const recovery = new RecoverChainReorg(
@@ -199,7 +197,6 @@ export function createCoordinatorFixture(
             }),
             gapWorkEnabled: options.gapWorkEnabled ?? false,
             workScope,
-            gate,
             batchSize,
             reorgDepth: COORDINATED_SYNC_FIXTURE.reorgDepth,
             wethAddress: COORDINATED_SYNC_FIXTURE.weth,
@@ -217,7 +214,6 @@ export function createCoordinatorFixture(
             gaps,
             coordination,
             workScope,
-            gate,
             recovery,
             commit,
             executor,

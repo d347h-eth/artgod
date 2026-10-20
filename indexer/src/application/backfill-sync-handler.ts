@@ -19,10 +19,6 @@ import type {
 } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import {
-    BackfillExecutionGate,
-    BACKFILL_EXECUTION_MODE,
-} from "./backfill-execution.js";
-import {
     domainSyncSource,
     processSyncRange,
     resolveBackfillCollections,
@@ -50,7 +46,6 @@ export function createBackfillSyncHandler(input: {
         CollectionScopeResolverPort;
     extensions: Pick<CollectionExtensionInstallPort, "getInstall">;
     wakeCurrentSync(): void;
-    gate: Pick<BackfillExecutionGate, "run">;
 }): (job: JobEnvelope) => Promise<void> {
     return async (incoming) => {
         if (incoming.kind !== SYNC_JOB_KIND.BackfillRange) return;
@@ -85,40 +80,36 @@ export function createBackfillSyncHandler(input: {
             fromBlock: job.payload.fromBlock,
             toBlock: job.payload.toBlock,
         };
-        const executionMode = BACKFILL_EXECUTION_MODE.ParallelFactsOnly;
-        await input.gate.run(executionMode, async () => {
-            const { data, blocks } = await processSyncRange({
-                rpc: input.rpc,
-                storage: input.storage,
-                commit: input.commit,
-                canonicalChecks: input.canonicalChecks,
-                collectionScopeResolver: input.collectionsPort,
-                collectionExtensions: input.extensions,
-                chainId: input.chainId,
-                reorgDepth: input.reorgDepth,
-                collections,
-                range,
-                application: { kind: SYNC_APPLICATION_KIND.Historical },
-                wethAddress: input.wethAddress,
-                orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
-                sources: [domainSyncSource(job)],
-                mode: "backfill",
-                completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
-            });
-            logger.info("Backfill range acquired", {
-                component: SYNC_WORKER_LOG_COMPONENT,
-                action: BACKFILL_SYNC_LOG_ACTION,
-                ...range,
-                source: job.payload.source,
-                orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
-                collectionIds: collections.map((collection) => collection.id),
-                backfillExecutionMode: executionMode,
-                backfillWorkerCount: input.workerCount,
-                blocks: blocks.length,
-                transfers: data.collectionScoped.nftTransferEvents.length,
-                nftApprovals: data.collectionScoped.nftApprovalEvents.length,
-                balanceDeltas: data.collectionScoped.nftBalanceDeltas.length,
-            });
+        const { data, blocks } = await processSyncRange({
+            rpc: input.rpc,
+            storage: input.storage,
+            commit: input.commit,
+            canonicalChecks: input.canonicalChecks,
+            collectionScopeResolver: input.collectionsPort,
+            collectionExtensions: input.extensions,
+            chainId: input.chainId,
+            reorgDepth: input.reorgDepth,
+            collections,
+            range,
+            application: { kind: SYNC_APPLICATION_KIND.Historical },
+            wethAddress: input.wethAddress,
+            orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
+            sources: [domainSyncSource(job)],
+            mode: "backfill",
+            completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
+        });
+        logger.info("Backfill range acquired", {
+            component: SYNC_WORKER_LOG_COMPONENT,
+            action: BACKFILL_SYNC_LOG_ACTION,
+            ...range,
+            source: job.payload.source,
+            orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
+            collectionIds: collections.map((collection) => collection.id),
+            backfillWorkerCount: input.workerCount,
+            blocks: blocks.length,
+            transfers: data.collectionScoped.nftTransferEvents.length,
+            nftApprovals: data.collectionScoped.nftApprovalEvents.length,
+            balanceDeltas: data.collectionScoped.nftBalanceDeltas.length,
         });
     };
 }

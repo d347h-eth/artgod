@@ -44,7 +44,6 @@ describe("backfill ingress under coordinated authority", () => {
             collectionsPort: s.registry,
             extensions: { getInstall: () => null },
             wakeCurrentSync: wake,
-            gate: s.gate,
         });
         return { ...s, handler, wake };
     }
@@ -192,6 +191,53 @@ describe("backfill ingress under coordinated authority", () => {
         expect(
             db.prepare("SELECT COUNT(*) AS count FROM queue_outbox").get(),
         ).toEqual({ count: 0 });
+    });
+
+    it("commits historical facts while current acquisition waits without advancing its prefix", async () => {
+        const s = fixture();
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        s.remote.state.beforeLogs = async () => {
+            entered.resolve();
+            await release.promise;
+        };
+        s.sample(901);
+        const current = s.executor.runDue();
+        await entered.promise;
+        try {
+            await s.handler(
+                job(
+                    {
+                        source: BACKFILL_SOURCE.ManualHistorical,
+                        fromBlock: 900,
+                        toBlock: 900,
+                        orderMaintenancePolicy:
+                            POLICY.SkipGlobalMakerRevalidation,
+                    },
+                    s.collections[0]!.id,
+                ),
+            );
+            expect(
+                s.storage.countCollectionSyncedBlocksInRange(
+                    F.chainId,
+                    s.collections[0]!.id,
+                    900,
+                    900,
+                ),
+            ).toBe(1);
+            expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(
+                900,
+            );
+            expect(s.storage.getBlockHash(F.chainId, 901)).toBeNull();
+        } finally {
+            release.resolve();
+            await current;
+        }
+        expect(s.progress.chainProgress(F.chainId)?.applied.number).toBe(901);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(900);
     });
 
     it("rejects malformed or other-chain hints before wakeup and acquisition", async () => {

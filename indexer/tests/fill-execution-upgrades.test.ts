@@ -33,10 +33,6 @@ import { AutomaticSyncExecutor } from "../src/application/automatic-sync-executo
 import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
-import {
-    BACKFILL_EXECUTION_MODE,
-    BackfillExecutionGate,
-} from "../src/application/backfill-execution.js";
 import { buildManualHistoricalBackfillJobs } from "../src/application/manual-backfill-trigger.js";
 import { decodeSeaportFills } from "../src/application/fills/seaport.js";
 import {
@@ -238,8 +234,7 @@ describe("fill execution schema adoption", () => {
             // Runtime backfill starts after every current migration, not at the
             // isolated fill-adoption boundary used by the migration-only cases.
             await createMigrationRunner().runMigrations();
-            const { outbox, gate, publish, handler } = replayServices(tx);
-            const admission = vi.spyOn(gate, "run");
+            const { outbox, publish, handler } = replayServices(tx);
             const [job] = buildManualHistoricalBackfillJobs({
                 chainId: 1,
                 collectionId,
@@ -252,9 +247,6 @@ describe("fill execution schema adoption", () => {
             expect(publish).not.toHaveBeenCalled();
             expect(saleCount()).toBe(0);
             await drainQueueOutbox(outbox, { publish });
-            expect(admission.mock.calls[0][0]).toBe(
-                BACKFILL_EXECUTION_MODE.ParallelFactsOnly,
-            );
             expect(count("fill_executions")).toBe(1);
             expect(count("fills")).toBe(2);
             const fills = decodeSeaportFills(tx, new Set([CONTRACT]));
@@ -780,7 +772,6 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
             },
         },
     });
-    const gate = new BackfillExecutionGate();
     const rpc = bundleRpc(tx, headBlock);
     const activities = new SqliteActivityDomain([zeroAddress]);
     const publish = vi.fn<QueuePort["publish"]>(async (_queue, job) => {
@@ -803,7 +794,6 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         collectionsPort: registry,
         extensions: { getInstall: () => null },
         wakeCurrentSync() {},
-        gate,
     });
     const executor = new AutomaticSyncExecutor({
         reorgDepth: 1,
@@ -817,7 +807,6 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         commit,
         collectionsPort: registry,
         collectionExtensions: { getInstall: () => null },
-        gate,
         gaps,
         recoveries,
         progress,
@@ -847,7 +836,6 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         registry,
         gaps,
         outbox,
-        gate,
         publish,
         handler,
         executor,

@@ -48,12 +48,12 @@ export interface Erc721RollbackSnapshotPort {
 
 export class RollbackChainRange {
     constructor(
-        private readonly storage: ReorgRollbackStore,
+        private readonly storage: Pick<ReorgRollbackStore, "prepareRollback">,
         private readonly ownership: Erc721RollbackSnapshotPort,
     ) {}
 
-    // Preparing reads RPC without a writer; the caller chooses the atomic commit
-    // boundary (plain rollback or rollback plus a durable recovery continuation).
+    // Preparing reads RPC without a writer. Recovery commits this candidate
+    // together with its durable continuation through the owning storage contract.
     async prepare(fork: VerifiedChainBlock): Promise<{
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
@@ -67,9 +67,5 @@ export class RollbackChainRange {
             tokens: plan.tokens,
         });
         return { plan, snapshot };
-    }
-
-    async execute(fork: VerifiedChainBlock): Promise<void> {
-        this.storage.rollbackFromBlock(await this.prepare(fork));
     }
 }

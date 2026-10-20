@@ -9,10 +9,6 @@ import { gapConsumerName } from "@artgod/shared/queue/nats-job-stream";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { bindRpcValidationFactory } from "../src/runtime/rpc-budget.js";
 import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
-import {
-    BackfillExecutionGate,
-    BACKFILL_EXECUTION_MODE as MODE,
-} from "../src/application/backfill-execution.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { ORDER_VALIDATION_REASON, ORDER_STATUS } from "../src/domain/orders.js";
@@ -122,34 +118,6 @@ describe("pipeline work allocation", () => {
         expect(entered.slice(-2)).toEqual(["main-1", "main-2"]);
         both.resolve();
         await Promise.all([main1, main2]);
-    });
-
-    it("finishes a running gap range then admits manual work ahead of a waiting gap range", async () => {
-        const gate = new BackfillExecutionGate();
-        const release = Promise.withResolvers<void>();
-        const order: string[] = [];
-        const first = gate.run(
-            MODE.SerializedCurrentState,
-            async () => {
-                order.push("gap-1");
-                await release.promise;
-            },
-            CLASS.GapRepair,
-        );
-        const gap = gate.run(
-            MODE.SerializedCurrentState,
-            async () => {
-                order.push("gap-2");
-            },
-            CLASS.GapRepair,
-        );
-        const manual = gate.run(MODE.SerializedCurrentState, async () => {
-            order.push("manual");
-        });
-        await Promise.resolve();
-        release.resolve();
-        await Promise.all([first, gap, manual]);
-        expect(order).toEqual(["gap-1", "manual", "gap-2"]);
     });
 
     it("creates separate durable slots and retains quota deferrals even after many broker deliveries", async () => {

@@ -22,10 +22,7 @@ import {
     type SyncWorkCompletion,
     type SyncApplication,
 } from "../domain/sync-work.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    SYNC_JOB_KIND,
-} from "../domain/sync-jobs.js";
+import { BACKFILL_ORDER_MAINTENANCE_POLICY, SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { DomainSyncSource } from "../domain/domain-jobs.js";
 import type {
@@ -41,10 +38,6 @@ import type {
 import type { ChainProgressPort } from "../ports/chain-progress.js";
 import type { SyncCoordinationPort } from "../ports/sync-coordination.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
-import {
-    BACKFILL_EXECUTION_MODE,
-    type BackfillExecutionGate,
-} from "./backfill-execution.js";
 import {
     processSyncRange,
     type SyncRangeInput,
@@ -82,11 +75,7 @@ const LOG_ACTION = { Range: "range", Poll: "poll" } as const;
 
 type AutomaticSyncInput = Omit<
     SyncRangeInput,
-    | "collections"
-    | "range"
-    | "orderMaintenancePolicy"
-    | "collectionScopeResolver"
-    | "application"
+    "collections" | "range" | "orderMaintenancePolicy" | "collectionScopeResolver" | "application"
 > & {
     commit: SyncRangeCommitPort;
     canonicalChecks: Pick<CanonicalChecksPort, "retain">;
@@ -104,7 +93,6 @@ type AutomaticSyncInput = Omit<
     progress: ChainProgressPort;
     coordination: SyncCoordinationPort;
     historicalRpc: RpcProviderPort;
-    gate: Pick<BackfillExecutionGate, "run">;
     batchSize: number;
     reorgDepth: number;
     retryDelayMs?: number;
@@ -152,16 +140,11 @@ export class AutomaticSyncExecutor {
         // owner. One delayed check per pass cannot starve foreground catch-up.
         const progressed = await this.input.workScope.run(
             SYNC_WORK_CLASS.Main,
-            () =>
-                this.input.gate.run(
-                    BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-                    async () => {
-                        await this.input.recovery.resumeDue();
-                        const checked = await this.input.recovery.checkDue();
-                        return (await this.runCurrentState()) || checked;
-                    },
-                    SYNC_WORK_CLASS.Main,
-                ),
+            async () => {
+                await this.input.recovery.resumeDue();
+                const checked = await this.input.recovery.checkDue();
+                return (await this.runCurrentState()) || checked;
+            },
         );
         if (progressed) return true;
         if (
@@ -171,99 +154,84 @@ export class AutomaticSyncExecutor {
             !this.input.gapScheduler.hasCollections()
         )
             return false;
-        return this.input.workScope.run(SYNC_WORK_CLASS.GapRepair, () =>
-            this.input.gate.run(
-                BACKFILL_EXECUTION_MODE.ParallelFactsOnly,
-                async () => {
-                    // Reselect after any manual/recovery work admitted ahead of this pass.
-                    if (
-                        this.input.recoveries.getRecovery(this.input.chainId)
-                            ?.phase === REORG_RECOVERY_PHASE.Resync
-                    )
-                        return false;
-                    // Reuse a briefly observed HEAD for local-only discovery pages.
-                    // Fetch-and-save work always reads a fresh HEAD before selection.
-                    let freshHead =
-                        !this.discoveryHead ||
-                        this.now() - this.discoveryHead.readAt >=
-                            AUTOMATIC_SYNC_POLICY.PollMs ||
-                        this.input.gapScheduler.hasHeadRechecksDue();
-                    let head = freshHead
-                        ? await this.readHead()
-                        : this.discoveryHead!.block;
-                    const revision = this.input.storage.captureSyncCheckpoint(
-                        this.input.chainId,
-                    ).revision;
-                    if (
-                        this.discoveryRevision !== null &&
-                        revision !== this.discoveryRevision
-                    )
-                        this.input.gapScheduler.resetDiscovery();
-                    this.discoveryRevision = revision;
-                    let upperBound = automaticGapUpperBound(
-                        head,
-                        this.input.reorgDepth,
-                    );
-                    if (upperBound < 1) return false;
-                    if (this.resumeHeadCheckPending) {
-                        // Restart-required settings also reenable gap filling here.
-                        // Complete every bounded collection page before older work.
-                        if (this.input.gapScheduler.recheckOnResume(upperBound))
-                            return true;
-                        this.resumeHeadCheckPending = false;
-                    }
-                    this.input.gapScheduler.recheckFromHead(upperBound);
-                    if (
-                        this.input.gapScheduler.recheckNewlyEligible(upperBound)
-                    )
-                        return true;
-                    const moreToScan =
-                        await this.input.gapScheduler.scan(upperBound);
-                    let pending = this.dueGaps(upperBound);
-                    if (pending.length && !freshHead) {
-                        head = await this.readHead();
-                        upperBound = automaticGapUpperBound(
-                            head,
-                            this.input.reorgDepth,
-                        );
-                        this.input.gapScheduler.recheckFromHead(upperBound);
-                        if (
-                            this.input.gapScheduler.recheckNewlyEligible(
-                                upperBound,
-                            )
-                        )
-                            return true;
-                        pending = this.dueGaps(upperBound);
-                    }
-                    // Coverage may have been committed since discovery or while waiting
-                    // for the gate. Inspect only the next bounded window before RPC.
-                    const candidates = pending.flatMap((repair) => {
-                        const candidate =
-                            this.input.gaps.reconcileRepairCoverage({
-                                chainId: this.input.chainId,
-                                repair,
-                                batchSize: this.input.batchSize,
-                                now: this.now(),
-                            });
-                        return candidate ? [candidate] : [];
-                    });
-                    // Removing a covered suffix can reveal newer work beyond this
-                    // bounded page. Reconsider global priority before fetching.
-                    const newestReady = this.dueGaps(upperBound)[0]?.toBlock;
-                    const batch = planSyncGapRepairBatches(
-                        candidates.filter(
-                            (candidate) =>
-                                candidate.repair.toBlock === newestReady,
-                        ),
-                        this.input.batchSize,
-                    )[0];
-                    return batch
-                        ? this.runGapRepair(batch)
-                        : pending.length > 0 || moreToScan;
-                },
-                SYNC_WORK_CLASS.GapRepair,
-            ),
-        );
+        return this.input.workScope.run(SYNC_WORK_CLASS.GapRepair, async () => {
+            // Reload retained recovery before background discovery.
+            if (
+                this.input.recoveries.getRecovery(this.input.chainId)?.phase ===
+                REORG_RECOVERY_PHASE.Resync
+            )
+                return false;
+            // Reuse a briefly observed HEAD for local-only discovery pages.
+            // Fetch-and-save work always reads a fresh HEAD before selection.
+            let freshHead =
+                !this.discoveryHead ||
+                this.now() - this.discoveryHead.readAt >=
+                    AUTOMATIC_SYNC_POLICY.PollMs ||
+                this.input.gapScheduler.hasHeadRechecksDue();
+            let head = freshHead
+                ? await this.readHead()
+                : this.discoveryHead!.block;
+            const revision = this.input.storage.captureSyncCheckpoint(
+                this.input.chainId,
+            ).revision;
+            if (
+                this.discoveryRevision !== null &&
+                revision !== this.discoveryRevision
+            )
+                this.input.gapScheduler.resetDiscovery();
+            this.discoveryRevision = revision;
+            let upperBound = automaticGapUpperBound(
+                head,
+                this.input.reorgDepth,
+            );
+            if (upperBound < 1) return false;
+            if (this.resumeHeadCheckPending) {
+                // Restart-required settings also reenable gap filling here.
+                // Complete every bounded collection page before older work.
+                if (this.input.gapScheduler.recheckOnResume(upperBound))
+                    return true;
+                this.resumeHeadCheckPending = false;
+            }
+            this.input.gapScheduler.recheckFromHead(upperBound);
+            if (this.input.gapScheduler.recheckNewlyEligible(upperBound))
+                return true;
+            const moreToScan = await this.input.gapScheduler.scan(upperBound);
+            let pending = this.dueGaps(upperBound);
+            if (pending.length && !freshHead) {
+                head = await this.readHead();
+                upperBound = automaticGapUpperBound(
+                    head,
+                    this.input.reorgDepth,
+                );
+                this.input.gapScheduler.recheckFromHead(upperBound);
+                if (this.input.gapScheduler.recheckNewlyEligible(upperBound))
+                    return true;
+                pending = this.dueGaps(upperBound);
+            }
+            // Manual history may have committed coverage during discovery.
+            // Inspect only the next bounded window before RPC.
+            const candidates = pending.flatMap((repair) => {
+                const candidate = this.input.gaps.reconcileRepairCoverage({
+                    chainId: this.input.chainId,
+                    repair,
+                    batchSize: this.input.batchSize,
+                    now: this.now(),
+                });
+                return candidate ? [candidate] : [];
+            });
+            // Removing a covered suffix can reveal newer work beyond this
+            // bounded page. Reconsider global priority before fetching.
+            const newestReady = this.dueGaps(upperBound)[0]?.toBlock;
+            const batch = planSyncGapRepairBatches(
+                candidates.filter(
+                    (candidate) => candidate.repair.toBlock === newestReady,
+                ),
+                this.input.batchSize,
+            )[0];
+            return batch
+                ? this.runGapRepair(batch)
+                : pending.length > 0 || moreToScan;
+        });
     }
 
     private dueGaps(upperBound: number) {

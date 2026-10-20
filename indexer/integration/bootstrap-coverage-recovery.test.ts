@@ -24,7 +24,6 @@ import {
 } from "../src/application/bootstrap-backfill-executor.js";
 import { BootstrapCollectionLiveExecutor } from "../src/application/bootstrap-collection-live-executor.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
-import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { runWorker } from "../src/application/worker-runner.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
@@ -170,7 +169,6 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 wakeCurrentSync: () => {
                     wakes++;
                 },
-                gate: new BackfillExecutionGate(),
             });
             stop = await runWorker(
                 queue!,

@@ -22,7 +22,10 @@ import {
     selectTransferCount,
     transferFixture,
 } from "./helpers/ownership-fixture.js";
-import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
+import {
+    commitRollbackFixture,
+    prepareAndCommitRollbackFixture,
+} from "./helpers/rollback-fixture.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 
 const A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -107,7 +110,7 @@ describe("verified reorg ownership rollback", () => {
             });
             const before = persistedState();
             await expect(
-                f.rollback.execute({
+                prepareAndCommitRollbackFixture(f.storage, f.rollback, {
                     ...block(fromBlock - 1),
                     chainId: 1,
                 }),
@@ -132,7 +135,10 @@ describe("verified reorg ownership rollback", () => {
             return A;
         });
         await expect(
-            f.rollback.execute({ ...block(100), chainId: 1 }),
+            prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+                ...block(100),
+                chainId: 1,
+            }),
         ).rejects.toThrow(ChainSyncConflict);
         expect(before).toBeDefined();
         expect(persistedState()).toEqual(before);
@@ -153,7 +159,11 @@ describe("verified reorg ownership rollback", () => {
                 "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,0,105,?)",
             ).run(chainId, other, other, block(105).hash);
             const before = persistedState();
-            const attempt = f.rollback.execute({ ...block(104), chainId: 1 });
+            const attempt = prepareAndCommitRollbackFixture(
+                f.storage,
+                f.rollback,
+                { ...block(104), chainId: 1 },
+            );
             if (chainId === 1) {
                 await expect(attempt).rejects.toThrow(ChainSyncConflict);
                 expect(persistedState()).toEqual(before);
@@ -169,7 +179,10 @@ describe("verified reorg ownership rollback", () => {
     it("restores the fork owner despite missing history and an empty canonical resync", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]); // A -> B at 102 is missing.
-        await f.rollback.execute({ ...block(100), chainId: 1 });
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+            ...block(100),
+            chainId: 1,
+        });
         f.owner().commit(
             f.owner().applied({
                 blocks: [101, 102, 103].map(block),
@@ -205,7 +218,10 @@ describe("verified reorg ownership rollback", () => {
     it("retains a fork checkpoint through old repairs and allows newer transfers", async () => {
         const f = rollbackHarness(C);
         f.persist([f.transfer(105, 1, C, D)]);
-        await f.rollback.execute({ ...block(104), chainId: 1 });
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+            ...block(104),
+            chainId: 1,
+        });
         f.persist([f.transfer(102, 1, A, B)]);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: C, amount: "1" },
@@ -254,7 +270,10 @@ describe("verified reorg ownership rollback", () => {
         const checkpoint = f.storage.captureSyncCheckpoint(1);
         const orphan = f.transfer(103, 1, B, C);
         f.persist([orphan]);
-        await f.rollback.execute({ ...block(100), chainId: 1 });
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+            ...block(100),
+            chainId: 1,
+        });
         const data = emptyOnChainData();
         data.collectionScoped.nftTransferEvents = [orphan];
         expect(() =>
@@ -289,7 +308,10 @@ describe("verified reorg ownership rollback", () => {
             return A;
         });
         await expect(
-            f.rollback.execute({ ...block(100), chainId: 1 }),
+            prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+                ...block(100),
+                chainId: 1,
+            }),
         ).rejects.toThrow(ChainSyncConflict);
         expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -313,7 +335,10 @@ describe("verified reorg ownership rollback", () => {
                         hash: block(101).hash,
                     });
             await expect(
-                f.rollback.execute({ ...block(100), chainId: 1 }),
+                prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+                    ...block(100),
+                    chainId: 1,
+                }),
             ).rejects.toThrow();
             expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -334,7 +359,10 @@ describe("verified reorg ownership rollback", () => {
         );
         try {
             await expect(
-                f.rollback.execute({ ...block(100), chainId: 1 }),
+                prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+                    ...block(100),
+                    chainId: 1,
+                }),
             ).rejects.toThrow("fixture checkpoint failure");
             expect(selectTransferCount(1, f.collectionId, "1")).toBe(1);
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
@@ -387,7 +415,10 @@ describe("verified reorg ownership rollback", () => {
     it("rejects reinstallation of a different bootstrap snapshot without replacing accepted ownership", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]);
-        await f.rollback.execute({ ...block(100), chainId: 1 });
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, {
+            ...block(100),
+            chainId: 1,
+        });
         const bootstrap = new SqliteBootstrapStorage();
         bootstrap.insertSnapshotRows([
             {

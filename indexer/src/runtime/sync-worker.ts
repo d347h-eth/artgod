@@ -6,7 +6,6 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
-import { BackfillExecutionGate } from "../application/backfill-execution.js";
 import {
     createBackfillSyncHandler,
     SYNC_WORKER_LOG_COMPONENT,
@@ -159,7 +158,6 @@ async function main() {
         const collectionExtensions = new SqliteCollectionExtensions(
             config.debugPayloads,
         );
-        const backfillExecutionGate = new BackfillExecutionGate();
 
         const automaticSync = startAutomaticSyncLoop(
             new AutomaticSyncExecutor({
@@ -188,7 +186,6 @@ async function main() {
                     },
                 ),
                 recoveries: reorgRecoveries,
-                gate: backfillExecutionGate,
                 batchSize: config.sync.backfillBatchSize,
                 reorgDepth: config.sync.reorgDepth,
                 observer: new AutomaticSyncMetrics(runtimeMetrics.metrics),
@@ -240,7 +237,6 @@ async function main() {
                 collectionsPort: collectionRegistry,
                 extensions: collectionExtensions,
                 wakeCurrentSync: () => automaticSync.wake(),
-                gate: backfillExecutionGate,
             }),
             {
                 workScope: rpcAllocation.workScope,

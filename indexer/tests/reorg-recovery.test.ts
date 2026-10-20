@@ -18,10 +18,7 @@ import {
     type ReorgResyncRange,
 } from "../src/domain/reorg-recovery.js";
 import { QUEUE_OUTBOX_STATUS } from "../src/domain/queue-outbox.js";
-import {
-    SYNC_JOB_KIND,
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-} from "../src/domain/sync-jobs.js";
+import { SYNC_JOB_KIND, BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import type { QueueMessage, QueuePort } from "../src/ports/queue.js";
@@ -507,7 +504,7 @@ describe("durable production reorg recovery", () => {
         );
         const first = pendingRecoveryRange();
         reopen();
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         expect(await services.acquireRecoveryRange(first)).toBe(true);
         expect(pendingRecoveryRange()).toMatchObject({
             fromBlock: 107,
@@ -526,7 +523,7 @@ describe("durable production reorg recovery", () => {
         expect(
             db
                 .prepare("SELECT status FROM queue_outbox WHERE queue_name = ?")
-                .get(QUEUE_NAMES.OrdersDomain),
+                .get(QUEUE_NAMES.MetadataDomain),
         ).toEqual({ status: QUEUE_OUTBOX_STATUS.FailedRetry });
         reopen();
         queue.failureQueue = undefined;
@@ -549,7 +546,7 @@ describe("durable production reorg recovery", () => {
                 await services.acquireRecoveryRange(pendingRecoveryRange()),
             ).toBe(true);
         const completedCalls = ranges.mock.calls.length;
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         for (let i = 0; i < 7; i++)
             await drainQueueOutbox(services.outbox, queue, {
                 maxAttempts: 1,
@@ -560,7 +557,7 @@ describe("durable production reorg recovery", () => {
                 .prepare(
                     "SELECT status, attempts FROM queue_outbox WHERE queue_name = ?",
                 )
-                .all(QUEUE_NAMES.OrdersDomain),
+                .all(QUEUE_NAMES.MetadataDomain),
         ).toEqual([
             { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
             { status: QUEUE_OUTBOX_STATUS.FailedRetry, attempts: 7 },
@@ -774,8 +771,7 @@ describe("durable production reorg recovery", () => {
                 collectionIds: [fixture.collectionId],
             }).application,
             wethAddress: F.Weth,
-            orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            orderMaintenancePolicy: BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             sources: [
                 {
                     fanoutId: "realtime",
@@ -803,7 +799,7 @@ describe("durable production reorg recovery", () => {
         );
         const old = pendingRecoveryRange();
         expect(await services.acquireRecoveryRange(old)).toBe(true);
-        queue.failureQueue = QUEUE_NAMES.OrdersDomain;
+        queue.failureQueue = QUEUE_NAMES.MetadataDomain;
         await services.publishRetained(queue);
         const previousId = services.recoveries.getRecovery(1)!.recoveryId,
             previousGetBlock = rpc.getBlock.bind(rpc);
@@ -832,7 +828,10 @@ describe("durable production reorg recovery", () => {
                 .prepare(
                     "SELECT job_json FROM queue_outbox WHERE queue_name = ? AND status = ?",
                 )
-                .all(QUEUE_NAMES.OrdersDomain, QUEUE_OUTBOX_STATUS.FailedRetry),
+                .all(
+                    QUEUE_NAMES.MetadataDomain,
+                    QUEUE_OUTBOX_STATUS.FailedRetry,
+                ),
         ).toEqual([
             expect.objectContaining({
                 job_json: expect.stringContaining('"fromBlock":105'),

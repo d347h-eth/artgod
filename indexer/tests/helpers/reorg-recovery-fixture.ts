@@ -13,7 +13,6 @@ import {
     type AutomaticSyncObserver,
 } from "../../src/application/automatic-sync-executor.js";
 import { SyncGapScheduler } from "../../src/application/sync-gap-scheduler.js";
-import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../../src/application/queue-outbox/drainer.js";
 import { SqliteSyncGapStore } from "../../src/infra/storage/sqlite-sync-gaps.js";
 import { SqliteSyncRangeCommit } from "../../src/infra/storage/sqlite-sync-range-commit.js";
@@ -200,7 +199,6 @@ export function reorgRecoveryServices(
         chainId: REORG_FIXTURE.ChainId,
         wethAddress: REORG_FIXTURE.Weth,
         batchSize: REORG_FIXTURE.BatchSize,
-        gate: new BackfillExecutionGate(),
         ...options,
     });
     return {

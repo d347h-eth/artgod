@@ -43,7 +43,6 @@ const SELLER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const BUYER = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const TX = `0x${"ab".repeat(32)}` as Hex;
 import { AutomaticSyncExecutor } from "../src/application/automatic-sync-executor.js";
-import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
 import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
 
@@ -107,7 +106,6 @@ describe("shared collection gap acquisition", () => {
                         j.collectionId === id &&
                         [
                             DOMAIN_JOB_KIND.ActivitySync,
-                            DOMAIN_JOB_KIND.OrdersSync,
                             DOMAIN_JOB_KIND.MetadataSync,
                         ].includes(j.kind as never),
                 ),
@@ -120,7 +118,6 @@ describe("shared collection gap acquisition", () => {
                             j.collectionId === id &&
                             [
                                 DOMAIN_JOB_KIND.ActivitySync,
-                                DOMAIN_JOB_KIND.OrdersSync,
                                 DOMAIN_JOB_KIND.MetadataSync,
                             ].includes(j.kind as never),
                     )
@@ -717,7 +714,6 @@ async function run(
         workScope: new RpcWorkScope(),
         gapScheduler: h.scheduler,
         recoveries: h.recoveries,
-        gate: new BackfillExecutionGate(),
         batchSize: h.batchSize,
         now: h.now,
         retryDelayMs: 100,

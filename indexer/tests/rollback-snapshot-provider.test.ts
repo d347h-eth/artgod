@@ -21,6 +21,7 @@ import { encodeErrorResult, encodeFunctionResult } from "viem";
 import { ViemRpcProvider } from "../src/infra/rpc/viem.js";
 import { RpcRollbackOwnershipSnapshot } from "../src/infra/ownership/rpc-rollback-snapshot.js";
 import { RollbackChainRange } from "../src/application/reorg-rollback.js";
+import { prepareAndCommitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -160,7 +161,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
 
     it("retains the exact fork hash when a consistent divergent endpoint cannot serve it", async () => {
         const f = harness({ divergent: true });
-        await f.rollback.execute(CANONICAL);
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, CANONICAL);
         f.owner().commit(
             f.owner().applied({
                 blocks: [104, 105, 106, 107].map(block),
@@ -197,7 +198,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
                 }),
             },
         });
-        await f.rollback.execute(CANONICAL);
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, CANONICAL);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
         expect(
             db
@@ -210,7 +211,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
 
     it("does not use token absence from another fork to erase a canonical owner", async () => {
         const f = harness({ divergent: true, divergentAbsence: true });
-        await f.rollback.execute(CANONICAL);
+        await prepareAndCommitRollbackFixture(f.storage, f.rollback, CANONICAL);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: OWNER, amount: "1" },
         ]);
@@ -232,7 +233,13 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
         "leaves all rollback state untouched for $message",
         async (callError) => {
             const f = harness({ callError });
-            await expect(f.rollback.execute(CANONICAL)).rejects.toThrow();
+            await expect(
+                prepareAndCommitRollbackFixture(
+                    f.storage,
+                    f.rollback,
+                    CANONICAL,
+                ),
+            ).rejects.toThrow();
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
                 { owner: ORPHAN_OWNER, amount: "1" },
             ]);

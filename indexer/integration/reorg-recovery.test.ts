@@ -20,7 +20,6 @@ import { planSyncGapRepairBatches } from "../src/domain/sync-gap-repair.js";
 import { startQueueOutboxDrainer } from "../src/application/queue-outbox/drainer.js";
 import { SyncGapScheduler } from "../src/application/sync-gap-scheduler.js";
 import { createBackfillSyncHandler } from "../src/application/backfill-sync-handler.js";
-import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
@@ -104,7 +103,6 @@ describe("isolated broker and process reorg recovery", () => {
         });
         for (const name of [
             QUEUE_NAMES.ActivityDomain,
-            QUEUE_NAMES.OrdersDomain,
             QUEUE_NAMES.MetadataDomain,
         ])
             stops.push(
@@ -566,7 +564,7 @@ describe("isolated broker and process reorg recovery", () => {
             await services.executor.runDue();
         await services.publishRetained(queue);
         await waitForFixture(
-            () => fanout.length === 8,
+            () => fanout.length === 6,
             "required reorg fanout",
         );
         expect(selectBalanceOwners(1, collectionId, "1")).toEqual([
@@ -598,7 +596,6 @@ describe("isolated broker and process reorg recovery", () => {
             collectionsPort: services.registry,
             extensions: { getInstall: () => null },
             wakeCurrentSync() {},
-            gate: new BackfillExecutionGate(),
         });
         stops.push(
             await runWorker(
@@ -623,12 +620,11 @@ describe("isolated broker and process reorg recovery", () => {
             dbPath,
             natsUrl: broker.url,
             prefix,
-            role: ROLE.All,
+            role: ROLE.Coordinator,
             publication: PUBLICATION.Healthy,
             retryDelayMs: 300,
             ackWaitMs: 150,
             extendLeaseMs: 25,
-            resume: true,
             publish: true,
             ...overrides,
         };
@@ -757,9 +753,8 @@ describe("isolated broker and process reorg recovery", () => {
 
     it("resumes atomic rollback after process death before publication and a broker restart", async () => {
         const first = await worker({
-            role: ROLE.Reorg,
+            role: ROLE.Checks,
             publish: false,
-            resume: false,
         });
         await retainCheck();
         await first.wait(
@@ -828,7 +823,7 @@ describe("isolated broker and process reorg recovery", () => {
         expect(deadLetters).toHaveLength(0);
         await services.recovery.checkBlock(check);
         expect(revision()).toBe(1);
-        const resumed = await worker({ role: ROLE.Resync });
+        const resumed = await worker({ role: ROLE.Coordinator });
         await complete();
         await resumed.stop();
     });
@@ -839,8 +834,7 @@ describe("isolated broker and process reorg recovery", () => {
         );
         const retained = pendingRecoveryRange();
         const interrupted = await worker({
-            role: ROLE.Resync,
-            resume: false,
+            role: ROLE.Coordinator,
             publish: false,
             holdAcquisition: true,
         });
@@ -875,8 +869,7 @@ describe("isolated broker and process reorg recovery", () => {
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
         const acquired = await worker({
-            role: ROLE.Resync,
-            resume: false,
+            role: ROLE.Coordinator,
             publish: false,
         });
         await acquired.wait(
@@ -908,8 +901,7 @@ describe("isolated broker and process reorg recovery", () => {
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
         const first = await worker({
-            role: ROLE.Resync,
-            resume: false,
+            role: ROLE.Coordinator,
             publication: PUBLICATION.HoldMetadata,
         });
         await first.wait(
@@ -972,7 +964,6 @@ describe("isolated broker and process reorg recovery", () => {
             .find((j) => j.queue === QUEUE_NAMES.MetadataDomain)!;
         const publisher = await worker({
             role: ROLE.Publisher,
-            resume: false,
             publication: PUBLICATION.Ambiguous,
         });
         await publisher.wait(
@@ -994,7 +985,7 @@ describe("isolated broker and process reorg recovery", () => {
             "required publication accepted and removed",
         );
         await waitForFixture(
-            () => fanout.length === 8,
+            () => fanout.length === 6,
             "all required publications delivered",
         );
         await publisher.stop();
@@ -1011,8 +1002,7 @@ describe("isolated broker and process reorg recovery", () => {
             retainCanonicalCheckFixture(services.storage, F.Orphan),
         );
         const failing = await worker({
-            role: ROLE.Resync,
-            resume: false,
+            role: ROLE.Coordinator,
             publication: PUBLICATION.FailMetadata,
         });
         await waitForFixture(() => {
@@ -1047,8 +1037,7 @@ describe("isolated broker and process reorg recovery", () => {
 
     it("checks one stored identity while slow ownership RPC leaves recovery durable", async () => {
         const delayed = await worker({
-            role: ROLE.Reorg,
-            resume: false,
+            role: ROLE.Checks,
             publish: false,
             ownerDelayMs: 550,
         });
@@ -1071,8 +1060,7 @@ describe("isolated broker and process reorg recovery", () => {
 
     it("remains idempotent across DB recovery restart and a lost obsolete hint ACK", async () => {
         const delayed = await worker({
-            role: ROLE.Reorg,
-            resume: false,
+            role: ROLE.Checks,
             publish: false,
             extendLeaseMs: 0,
             ownerDelayMs: 550,
@@ -1158,8 +1146,7 @@ describe("isolated broker and process reorg recovery", () => {
             }),
         );
         const snapshot = await worker({
-            role: ROLE.Reorg,
-            resume: false,
+            role: ROLE.Checks,
             publish: false,
             ownerDelayMs: 5,
         });
@@ -1199,8 +1186,7 @@ describe("isolated broker and process reorg recovery", () => {
 
     it("retries atomic rollback under a competing SQLite writer process", async () => {
         const checking = await worker({
-            role: ROLE.Reorg,
-            resume: false,
+            role: ROLE.Checks,
             publish: false,
             holdOwner: true,
             sqliteBusyTimeoutMs: 80,
@@ -1239,8 +1225,7 @@ describe("isolated broker and process reorg recovery", () => {
 
     it("rejects stale rollback prepared in one process after another commits the recovery", async () => {
         const first = await worker({
-            role: ROLE.Reorg,
-            resume: false,
+            role: ROLE.Checks,
             publish: false,
             holdOwner: true,
         });
@@ -1251,7 +1236,6 @@ describe("isolated broker and process reorg recovery", () => {
         );
         const competitor = await worker({
             role: ROLE.Direct,
-            resume: false,
             publish: false,
         });
         competitor.child.send(COMMAND.Check);

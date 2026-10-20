@@ -4,10 +4,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { startReorgRecoveryLoop } from "../../src/application/reorg-recovery.js";
 import { startAutomaticSyncLoop } from "../../src/application/automatic-sync-executor.js";
 import { createBackfillSyncHandler } from "../../src/application/backfill-sync-handler.js";
-import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { startQueueOutboxDrainer } from "../../src/application/queue-outbox/drainer.js";
 import { runWorker } from "../../src/application/worker-runner.js";
 import { QUEUE_NAMES } from "../../src/domain/queues.js";
@@ -82,7 +80,15 @@ rpc.beforeOwnerRead = async () => {
 };
 const services = reorgRecoveryServices(rpc, {
     retryDelayMs: config.retryDelayMs,
+    gapWorkEnabled: config.role !== ROLE.Checks,
 });
+if (config.role === ROLE.Checks) {
+    // Focused proof tests keep acquisition unavailable at the selection port.
+    // They still run the real coordinator, recovery, writer and polling loop;
+    // full coordinator cases below cover acquisition and restart end to end.
+    services.coordination.sharedDue = () => false;
+    services.coordination.nextCollectionCatchup = () => null;
+}
 if (config.sqliteBusyTimeoutMs !== undefined)
     db.raw.pragma(`busy_timeout = ${config.sqliteBusyTimeoutMs}`);
 const transport = await NatsJetStreamQueue.connect({
@@ -200,21 +206,8 @@ const check = async () => {
         });
     }
 };
-if (config.role === ROLE.Reorg)
-    stops.push(
-        startReorgRecoveryLoop(
-            {
-                resumeDue: () =>
-                    config.resume
-                        ? services.recovery.resumeDue()
-                        : Promise.resolve(),
-                checkDue: () => services.recovery.checkDue(),
-            },
-            20,
-        ),
-    );
 let syncLoop: ReturnType<typeof startAutomaticSyncLoop> | undefined;
-if (config.role === ROLE.All || config.role === ROLE.Resync)
+if (config.role === ROLE.Coordinator)
     stops.push(
         await runWorker(
             queue,
@@ -240,11 +233,10 @@ if (config.role === ROLE.All || config.role === ROLE.Resync)
                 collectionsPort: services.registry,
                 extensions: { getInstall: () => null },
                 wakeCurrentSync: () => syncLoop?.wake(),
-                gate: new BackfillExecutionGate(),
             }),
         ),
     );
-if (config.role === ROLE.All || config.role === ROLE.Resync) {
+if (config.role === ROLE.Coordinator || config.role === ROLE.Checks) {
     const runDue = services.executor.runDue.bind(services.executor);
     syncLoop = startAutomaticSyncLoop(
         {
