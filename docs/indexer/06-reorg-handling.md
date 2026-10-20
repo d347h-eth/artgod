@@ -188,8 +188,21 @@ them without REST reconciliation. Source observations remain separate from canon
 invalidates orphaned chain proof; source availability neither restores that proof
 nor independently declares protocol completion. Certified surviving proofs below
 the fork are rebound to the new revision inside the same writer; old in-flight
-validation claims are not. See
-[order quantities](07-domain-orders.md#partial-fills-and-quantities).
+validation claims are not.
+
+Before rebinding proofs, that same transaction transfers pending canonical maker
+requirements to the new revision and fences old leases. Surviving passes keep
+their finite boundaries, cursors and delivery receipts. Maker requirements
+coalesce event heights, so an orphaned maximum may hide an earlier surviving
+invalidation. Rollback conservatively caps that requirement at the exact verified
+ancestor; it does not discard the scope or reconstruct event history. A surviving
+older pass retains a full follow-up when the ancestor is later than its current
+requirement. An already promoted orphaned pass keeps its cursor: earlier pages
+are covered by rollback's ordinary-demand reconciliation, while remaining pages
+use the ancestor requirement. This may cause an unnecessary revalidation when
+all events were orphaned, but cannot expose an uncovered old proof. The helper
+pages maker runs inside the existing writer; it adds no executor or per-order scan.
+See [order quantities](07-domain-orders.md#partial-fills-and-quantities).
 
 ## Resync After Rollback
 

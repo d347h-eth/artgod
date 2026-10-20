@@ -4,6 +4,7 @@ import {
     invalidateOrderValidationFromBlock,
     rebindSurvivingOrderValidationProofs,
 } from "../orders/sqlite-order-validation-demand.js";
+import { reconcileMakerRevalidationsAfterRollback } from "../orders/sqlite-maker-revalidation-rollback.js";
 import { db } from "@artgod/shared/database";
 import {
     captureChainSyncCheckpoint,
@@ -681,10 +682,18 @@ export class SqliteStorage
                 null,
             );
             advanceChainSyncRevision(chainId);
+            const newRevision = captureChainSyncCheckpoint(chainId).revision;
+            reconcileMakerRevalidationsAfterRollback({
+                chainId,
+                fromBlock,
+                previousRevision: plan.checkpoint.revision,
+                newRevision,
+                now: Date.now(),
+            });
             rebindSurvivingOrderValidationProofs(
                 chainId,
                 fromBlock,
-                captureChainSyncCheckpoint(chainId).revision,
+                newRevision,
             );
             new SqliteChainProgress().rewindAfterRollback(chainId, {
                 number: snapshot.block.blockNumber,
