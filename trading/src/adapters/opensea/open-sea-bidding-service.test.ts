@@ -208,7 +208,13 @@ function makeOffer(
         protocol_address: "0xprotocol",
         protocol_data: {
             parameters: {
-                offer: [{ token: WETH, startAmount: priceWei }],
+                offer: [
+                    {
+                        itemType: SEAPORT_ITEM_TYPE.Erc20,
+                        token: WETH,
+                        startAmount: priceWei,
+                    },
+                ],
                 consideration: [
                     {
                         itemType,
@@ -1099,7 +1105,13 @@ describe("OpenSeaBiddingService", () => {
             protocol_address: protocolAddress,
             protocol_data: {
                 parameters: {
-                    offer: [{ token: WETH, amount: "1000000000000000000" }],
+                    offer: [
+                        {
+                            itemType: SEAPORT_ITEM_TYPE.Erc20,
+                            token: WETH,
+                            amount: "1000000000000000000",
+                        },
+                    ],
                     consideration: [
                         {
                             token: collectionAddress,
@@ -1131,7 +1143,13 @@ describe("OpenSeaBiddingService", () => {
             maker: { address: makerAddress },
             protocol_data: {
                 parameters: {
-                    offer: [{ token: WETH, amount: "1000000000000000000" }],
+                    offer: [
+                        {
+                            itemType: SEAPORT_ITEM_TYPE.Erc20,
+                            token: WETH,
+                            amount: "1000000000000000000",
+                        },
+                    ],
                     consideration: [{ itemType: 2, token: collectionAddress }],
                 },
             },

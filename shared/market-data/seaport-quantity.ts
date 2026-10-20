@@ -2,8 +2,8 @@ import { asRecord, toBigInt } from "../offchain/normalizer-utils.js";
 import { seaportIsNftItem, seaportItemType } from "./seaport.js";
 
 /** Original NFT units, before applying any fill fraction or source remainder.
- * Zero means no matching NFTs; null means an NFT item is incomplete/invalid,
- * so callers cannot safely infer a quantity from the remaining items. */
+ * Zero means no matching NFTs; null means an item cannot be classified or an
+ * NFT is incomplete/invalid. Dropping either would invent a smaller denominator. */
 export function seaportNftQuantity(
     items: unknown,
     collectionAddress?: string,
@@ -11,9 +11,9 @@ export function seaportNftQuantity(
     if (!Array.isArray(items)) return 0n;
     let quantity = 0n;
     for (const item of items) {
-        if (!item || typeof item !== "object") continue;
-        const itemType = item.itemType ?? item.item_type;
-        if (itemType != null && seaportItemType(itemType) === null) return null;
+        if (!item || typeof item !== "object") return null;
+        const itemType = seaportItemType(item.itemType ?? item.item_type);
+        if (itemType === null) return null;
         if (!seaportIsNftItem(itemType)) continue;
         const token = asRecord(item).token;
         if (typeof token !== "string" || token.trim() === "") return null;

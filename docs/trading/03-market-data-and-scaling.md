@@ -34,6 +34,8 @@ OpenSea envelope, order identity and protocol alias readers live in
 complete scope classification. It keeps signed original size separate from the
 source remainder. Multi-unit prices divide by original units for both full-only
 and partial-fill orders; a source remainder changes quantity, never unit price.
+Every explicit protocol item must have a recognized type. An unclassifiable item
+rejects the quote instead of silently reducing its original NFT count.
 Indexer ingestion, bidder reads and bid-book
 projection use those same semantics. Generic trait matching and deduplication
 live in `shared/trading/offer-trait-criteria.ts`. Every string and numeric

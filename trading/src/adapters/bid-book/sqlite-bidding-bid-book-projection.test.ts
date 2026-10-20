@@ -219,6 +219,69 @@ describe("SqliteBiddingBidBookProjection", () => {
         },
     );
 
+    it("excludes unclassifiable protocol items without projecting an inflated unit price", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        db.prepare(
+            "UPDATE collections SET address=? WHERE collection_id=?",
+        ).run(partialOffer.criteria.contract.address, collectionId);
+        const { remaining_quantity: _, ...raw } = structuredClone(partialOffer);
+        const first = raw.protocol_data.parameters.consideration[0];
+        first.startAmount = "50";
+        first.endAmount = "50";
+        const second = { ...first };
+        const fee = raw.protocol_data.parameters.consideration[1];
+        raw.protocol_data.parameters.consideration.push(second);
+        const invalidItems = [
+            { ...second, itemType: undefined },
+            { ...second, itemType: null },
+            null,
+            "item",
+            [],
+        ];
+        const offers = [
+            raw,
+            ...invalidItems.map((item, index) => ({
+                ...raw,
+                order_hash: `unclassifiable-item-${index}`,
+                protocol_data: {
+                    parameters: {
+                        ...raw.protocol_data.parameters,
+                        consideration: [first, fee, item],
+                    },
+                },
+            })),
+        ];
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "unclassifiable-item-regression",
+        );
+        assert.deepEqual(
+            db
+                .prepare(
+                    "SELECT order_id,price_wei,quantity FROM trading_bidding_bid_book_rows",
+                )
+                .all(),
+            [
+                {
+                    order_id: raw.order_hash,
+                    price_wei: "60000000000000000",
+                    quantity: "100",
+                },
+            ],
+        );
+    });
+
     it("excludes exhausted and malformed thin offers on both price paths from the snapshot projection", async () => {
         const projection = new SqliteBiddingBidBookProjection(
             1,

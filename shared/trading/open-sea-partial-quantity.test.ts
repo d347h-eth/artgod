@@ -19,7 +19,7 @@ function priceFixture(): {
             offer: Array<{ startAmount: unknown; endAmount: unknown }>;
             consideration: Array<{
                 token?: string;
-                itemType: unknown;
+                itemType?: unknown;
                 startAmount: unknown;
                 endAmount: unknown;
             }>;
@@ -107,6 +107,39 @@ describe("OpenSea partial offer quantity", () => {
                 expect(
                     extractOpenSeaWethUnitPrice(raw, { collectionAddress }),
                 ).toBeNull();
+        },
+    );
+
+    it.each([undefined, null, "unknown"])(
+        "rejects an unclassifiable NFT item without shrinking the unit-price denominator (%s)",
+        (itemType) => {
+            const raw = priceFixture();
+            delete raw.remaining_quantity;
+            const first = raw.protocol_data.parameters.consideration[0];
+            first.startAmount = "50";
+            first.endAmount = "50";
+            const second = { ...first };
+            raw.protocol_data.parameters.consideration.push(second);
+            expect(parseOpenSeaBiddingOffer(raw)).toMatchObject({
+                price: 60_000_000_000_000_000n,
+                originalQuantity: 100n,
+                quantity: 100n,
+            });
+
+            if (itemType === undefined) delete second.itemType;
+            else second.itemType = itemType;
+            expect(parseOpenSeaBiddingOffer(raw)).toBeNull();
+        },
+    );
+
+    it.each([undefined, null, "item", 1, []])(
+        "rejects an unclassifiable protocol array member without using a thin price fallback (%j)",
+        (item) => {
+            const raw = priceFixture();
+            (raw.protocol_data.parameters.consideration as unknown[]).push(
+                item,
+            );
+            expect(parseOpenSeaBiddingOffer(raw)).toBeNull();
         },
     );
 
