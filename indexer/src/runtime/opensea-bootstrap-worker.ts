@@ -1,10 +1,9 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { db, setDbPath } from "@artgod/shared/database";
+import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { BOOTSTRAP_STEP_KEY } from "@artgod/shared/bootstrap/pipeline";
-import { zeroAddress } from "viem";
 import { loadOpenSeaConfig } from "../config/opensea.js";
-import { SqliteDailyListingPrices } from "../infra/storage/sqlite-daily-listing-prices.js";
+import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import { runWorker } from "../application/worker-runner.js";
 import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-sync.js";
 import {
@@ -64,10 +63,7 @@ async function main() {
         const collections = new SqliteCollectionRegistry();
         const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
         const sourceState = new SqliteOrderSourceStateStore(
-            new SqliteDailyListingPrices(db, [
-                zeroAddress,
-                config.tokens.wethAddress,
-            ]),
+            new SqliteOrdersDomain(config.tokens.wethAddress),
         );
         const bootstrapSteps = new SqliteBootstrapSteps();
         const api = new OpenSeaApiAdapter({

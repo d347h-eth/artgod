@@ -6,11 +6,8 @@ import {
 } from "../../domain/orders.js";
 import {
     aggregateOrderAvailability,
-    ORDER_OBSERVATION_KIND,
-    orderObservationKey,
     sourceAvailabilityAfterObservation,
 } from "../../domain/order-observation.js";
-import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
 
 type SourceObservationRow = {
     observation_key: string;
@@ -117,55 +114,31 @@ export class SqliteOrderObservations {
             | undefined;
     }
 
-    /** REST absence withdraws one source, never the declaration or another
-     * source. Recheck local freshness in the same writer as both projections. */
-    withdrawIfUnobserved(input: {
+    /** The reconciliation writer checks this immediately before applying an
+     * ordinary source observation, so a concurrent local observation wins. */
+    isUnobservedSource(input: {
         chainId: number;
         collectionId: number;
         orderId: string;
         sourceId: string;
         observedThrough: number;
-        startedAt: number;
-    }): { availabilityChange: AvailabilityChange | undefined } | undefined {
+    }): boolean {
         if (!db.raw.inTransaction)
             throw new Error(
-                "Order withdrawal requires its reconciliation writer",
+                "Source freshness requires its reconciliation writer",
             );
-        const key = orderObservationKey(
-            input.sourceId,
-            ORDER_OBSERVATION_KIND.Update,
-            [
-                input.orderId,
-                ORDER_UPDATE_REASON.Validation,
-                ORDER_SOURCE_STATUS.Inactive,
-                null,
-                input.startedAt,
-            ],
-        );
-        const changed = db
+        return !!db
             .prepare(
-                `UPDATE order_source_observations
-                 SET source_status=?,observation_key=?,source_observed_at=NULL,admitted_at=?
-                 WHERE chain_id=? AND collection_id=? AND order_id=? AND source_id=? AND source_status=? AND admitted_at<=?`,
+                "SELECT 1 FROM order_source_observations WHERE chain_id=? AND collection_id=? AND order_id=? AND source_id=? AND source_status=? AND admitted_at<=?",
             )
-            .run(
-                ORDER_SOURCE_STATUS.Inactive,
-                key,
-                input.startedAt,
+            .get(
                 input.chainId,
                 input.collectionId,
                 input.orderId,
                 input.sourceId,
                 ORDER_SOURCE_STATUS.Active,
                 input.observedThrough,
-            ).changes;
-        if (!changed) return;
-        return {
-            availabilityChange: this.projectAvailability(
-                input.chainId,
-                input.orderId,
-            ),
-        };
+            );
     }
 
     private availability(chainId: number, orderId: string): OrderSourceStatus {

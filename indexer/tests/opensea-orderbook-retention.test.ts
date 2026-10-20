@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { zeroAddress } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
@@ -10,6 +9,7 @@ import {
 } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { SqliteDailyListingPrices } from "../src/infra/storage/sqlite-daily-listing-prices.js";
 import { loadOpenSeaConfig } from "../src/config/opensea.js";
@@ -30,13 +30,17 @@ describe("streamed orderbook reconciliation", () => {
             "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug) VALUES (99,1,'fixture','0xcollection','erc721','ready','contract_all_tokens','fixture')",
         ).run();
         sourceState = new SqliteOrderSourceStateStore(
-            new SqliteDailyListingPrices(db, [
-                zeroAddress,
+            new SqliteOrdersDomain(
                 config.tokens.wethAddress,
-            ]),
+                undefined,
+                () => NOW,
+            ),
         );
     });
-    afterEach(() => db.raw.close());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        db.raw.close();
+    });
 
     const begin = () =>
         sourceState.beginObservation({
@@ -129,11 +133,9 @@ describe("streamed orderbook reconciliation", () => {
         db.prepare("UPDATE orders SET side='sell',token_id='1'").run();
         db.prepare("UPDATE orders SET side='buy' WHERE id='bid'").run();
         db.prepare("UPDATE orders SET token_id='2' WHERE id='fresh-ask'").run();
-        const refreshSeller = vi.fn();
-        sourceState = new SqliteOrderSourceStateStore(
-            { refreshSeller },
-            () => NOW,
-        );
+        const refreshSeller = vi
+            .spyOn(SqliteDailyListingPrices.prototype, "refreshSeller")
+            .mockImplementation(() => {});
 
         const observation = begin();
         expect(await observation.complete()).toBe(3);
@@ -156,14 +158,12 @@ describe("streamed orderbook reconciliation", () => {
     it("rolls back order deactivation if the coupled price refresh fails", async () => {
         order("ask");
         db.prepare("UPDATE orders SET side='sell',token_id='1'").run();
-        sourceState = new SqliteOrderSourceStateStore(
-            {
-                refreshSeller: () => {
-                    throw new Error("fixture price failure");
-                },
-            },
-            () => NOW,
-        );
+        vi.spyOn(
+            SqliteDailyListingPrices.prototype,
+            "refreshSeller",
+        ).mockImplementation(() => {
+            throw new Error("fixture price failure");
+        });
 
         const observation = begin();
         await expect(observation.complete()).rejects.toThrow(

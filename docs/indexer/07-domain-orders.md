@@ -80,7 +80,9 @@ availability and never becomes an onchain cancellation. A create/REST copy does
 not undo that same source's explicit cancellation; an explicit subsequent source
 update can reopen it. Chain rollback does not modify source observations.
 Completed REST crawls withdraw absent source observations through the same
-atomic availability owner. Selection and each bounded write recheck that
+source-observation owner. A changed withdrawal retains causal validation demand
+when another source keeps the order available; source facts, demand and current
+asks change atomically. Selection and each bounded write recheck that
 source's local freshness; another source's recent activity cannot hide an
 OpenSea withdrawal. Repeated observations coalesce local freshness writes
 without creating another validation admission. Reconciliation leaves that

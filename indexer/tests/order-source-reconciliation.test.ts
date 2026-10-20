@@ -35,10 +35,7 @@ describe("source-owned REST reconciliation", () => {
         ).run(declaration.contract);
         orders = new SqliteOrdersDomain(H.weth, undefined, () => clock);
         demands = new SqliteOrderValidationDemand(orders);
-        sourceState = new SqliteOrderSourceStateStore(
-            { refreshSeller: vi.fn() },
-            () => clock,
-        );
+        sourceState = new SqliteOrderSourceStateStore(orders);
     });
     afterEach(() => {
         vi.restoreAllMocks();
@@ -98,9 +95,39 @@ describe("source-owned REST reconciliation", () => {
             expect(aggregate()).toEqual({
                 source_status: ORDER_SOURCE_STATUS.Active,
             });
-            expect(demands.get(1, declaration.id)).toEqual(before);
+            expect(demands.get(1, declaration.id)).toMatchObject({
+                pending: true,
+                generation: before!.generation + 1,
+                admissionSequence: before!.admissionSequence + 1,
+            });
+            const withdrawn = demands.get(1, declaration.id);
+            expect(await withdraw()).toBe(0);
+            expect(demands.get(1, declaration.id)).toEqual(withdrawn);
         },
     );
+
+    it("rolls back source withdrawal when the coupled validation admission fails", async () => {
+        await upsert();
+        await upsert(PEER);
+        const before = demands.get(1, declaration.id);
+        vi.spyOn(
+            SqliteOrderValidationDemand.prototype,
+            "admit",
+        ).mockImplementation(() => {
+            throw new Error("fixture admission failure");
+        });
+        await expect(withdraw()).rejects.toThrow("fixture admission failure");
+        expect(source()).toMatchObject({
+            source_status: ORDER_SOURCE_STATUS.Active,
+        });
+        expect(aggregate()).toEqual({
+            source_status: ORDER_SOURCE_STATUS.Active,
+        });
+        expect(demands.get(1, declaration.id)).toEqual(before);
+        expect(
+            db.prepare("SELECT * FROM market_order_observations").all(),
+        ).toEqual([]);
+    });
 
     it("keeps withdrawal through neutral sale and unrelated inactive observations", async () => {
         await upsert();

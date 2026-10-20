@@ -1,8 +1,7 @@
 import { db } from "@artgod/shared/database";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
-import { ORDER_SIDE, ORDER_SOURCE_STATUS } from "../../domain/orders.js";
-import type { SqliteDailyListingPrices } from "../storage/sqlite-daily-listing-prices.js";
-import { SqliteOrderObservations } from "../orders/sqlite-order-observations.js";
+import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
+import type { OrderSourceReconciliationPort } from "../../ports/domain-handlers.js";
 import type {
     OrderSourceStatePort,
     OrderSourceObservation,
@@ -12,14 +11,7 @@ let nextObservation = 0;
 
 /** Streaming membership is connection-local, not a JS payload array or durable receipt archive. */
 export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
-    private readonly observations = new SqliteOrderObservations();
-    constructor(
-        private readonly listingPrices: Pick<
-            SqliteDailyListingPrices,
-            "refreshSeller"
-        >,
-        private readonly nowSeconds = () => Math.floor(Date.now() / 1000),
-    ) {}
+    constructor(private readonly orders: OrderSourceReconciliationPort) {}
 
     beginObservation(input: {
         chainId: number;
@@ -51,9 +43,7 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
         // order inactive because it was absent from an older REST page.
         const observedThrough =
             (input.startedAt - POLICY.orderRevalidationSeconds) * 1_000;
-        const listingPrices = this.listingPrices;
-        const observations = this.observations;
-        const nowSeconds = this.nowSeconds;
+        const orders = this.orders;
         return {
             recordActiveOrder(orderId) {
                 if (closed || completed || !admitted()) return false;
@@ -87,56 +77,14 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                         POLICY.maintenanceBatchRows,
                     ) as { id: string }[];
                     if (!rows.length) break;
-                    changed += db.writeTransaction(() => {
-                        if (!admitted()) return 0;
-                        let count = 0;
-                        const sellers = new Map<
-                            string,
-                            { token_id: string; maker: string }
-                        >();
-                        for (const row of rows) {
-                            const withdrawal =
-                                observations.withdrawIfUnobserved({
-                                    chainId: input.chainId,
-                                    collectionId: input.collectionId,
-                                    orderId: row.id,
-                                    sourceId: input.source,
-                                    observedThrough,
-                                    startedAt: input.startedAt * 1_000,
-                                });
-                            if (!withdrawal) continue;
-                            count++;
-                            const changedOrder = withdrawal.availabilityChange;
-                            if (
-                                changedOrder?.side === ORDER_SIDE.Sell &&
-                                changedOrder.token_id !== null
-                            ) {
-                                sellers.set(
-                                    JSON.stringify([
-                                        changedOrder.token_id,
-                                        changedOrder.maker,
-                                    ]),
-                                    {
-                                        token_id: changedOrder.token_id,
-                                        maker: changedOrder.maker,
-                                    },
-                                );
-                            }
-                        }
-                        // Commit the orderbook change and today's feed price together.
-                        // Refresh each affected seller once, not once per missing order.
-                        const now = nowSeconds();
-                        for (const seller of sellers.values())
-                            listingPrices.refreshSeller(
-                                {
-                                    chain_id: input.chainId,
-                                    collection_id: input.collectionId,
-                                    ...seller,
-                                },
-                                now,
-                            );
-                        return count;
-                    })();
+                    changed += orders.withdrawMissingSources({
+                        chainId: input.chainId,
+                        collectionId: input.collectionId,
+                        source: input.source,
+                        orderIds: rows.map((row) => row.id),
+                        observedThrough,
+                        startedAt: input.startedAt,
+                    });
                     after = rows[rows.length - 1]!.id;
                     await new Promise<void>((resolve) => setImmediate(resolve));
                 }

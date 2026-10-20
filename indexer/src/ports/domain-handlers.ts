@@ -30,6 +30,21 @@ export interface OrdersDomainPort {
     handleOrderUpsert(payload: OrderUpsertPayload): Promise<void>;
 }
 
+/** A bounded crawl page uses the ordinary observation owner for atomic source
+ * withdrawal, aggregate availability, causal demand and current-price refresh. */
+export interface OrderSourceReconciliationPort {
+    withdrawMissingSources(input: {
+        chainId: number;
+        collectionId: number;
+        source: string;
+        orderIds: readonly string[];
+        /** Latest eligible local observation time, in milliseconds. */
+        observedThrough: number;
+        /** Conservative crawl start, in seconds. */
+        startedAt: number;
+    }): number;
+}
+
 export interface MetadataDomainPort {
     handleDomainSync(
         context: DomainSyncContext,

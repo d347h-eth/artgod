@@ -415,55 +415,90 @@ describe("permanent daily listings and current asks", () => {
         ).toEqual({ listing_price_at: observedAt });
     });
 
-    it("refreshes a seller price when REST marks the cheaper ask absent, before midnight freezes the row", async () => {
-        now = FIRST - 10 + POLICY.utcDaySeconds - 1;
-        vi.setSystemTime(now * 1000);
-        order("cheaper", "10");
-        order("remaining", "20");
-        db.prepare("UPDATE orders SET source=?,observed_at=?").run(
-            OFFCHAIN_ORDER_SOURCE.OpenSea,
-            now - 3600,
-        );
-        db.writeTransaction(() => {
-            const observations = new SqliteOrderObservations();
-            for (const id of ["cheaper", "remaining"])
-                observations.retain({
-                    chainId: 1,
-                    collectionId: 1,
-                    orderId: id,
-                    sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
-                    observationKey: id,
-                    status: ORDER_SOURCE_STATUS.Active,
-                    declaration: true,
-                    now: (now - 3600) * 1_000,
-                });
-        })();
-        await event("cheaper", now - 500);
-        const pinned = list().items[0]!;
-        const observation = new SqliteOrderSourceStateStore(
-            prices,
-            () => now,
-        ).beginObservation({
-            chainId: 1,
-            collectionId: 1,
-            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
-            startedAt: now,
-        });
-        try {
-            observation.recordActiveOrder("remaining");
-            expect(await observation.complete()).toBe(1);
-        } finally {
-            observation.close();
-        }
-        expect(list().items[0]).toMatchObject({
-            id: pinned.id,
-            occurredAt: pinned.occurredAt,
-            price: "20",
-        });
-        now++;
-        prices.refreshBatch(now);
-        expect(list().items[0]).toMatchObject({ id: pinned.id, price: "20" });
-    });
+    it.each([false, true])(
+        "refreshes a seller price after REST withdrawal before midnight, another source active=%s",
+        async (anotherSource) => {
+            now = FIRST - 10 + POLICY.utcDaySeconds - 1;
+            vi.setSystemTime(now * 1000);
+            order("cheaper", "10");
+            order("remaining", "20");
+            db.prepare("UPDATE orders SET source=?,observed_at=?").run(
+                OFFCHAIN_ORDER_SOURCE.OpenSea,
+                now - 3600,
+            );
+            db.writeTransaction(() => {
+                const observations = new SqliteOrderObservations();
+                for (const id of ["cheaper", "remaining"])
+                    observations.retain({
+                        chainId: 1,
+                        collectionId: 1,
+                        orderId: id,
+                        sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                        observationKey: id,
+                        status: ORDER_SOURCE_STATUS.Active,
+                        declaration: true,
+                        now: (now - 3600) * 1_000,
+                    });
+                if (anotherSource)
+                    observations.retain({
+                        chainId: 1,
+                        collectionId: 1,
+                        orderId: "cheaper",
+                        sourceId: "peer-fixture",
+                        observationKey: "peer-fixture:cheaper",
+                        status: ORDER_SOURCE_STATUS.Active,
+                        declaration: true,
+                        now: (now - 3600) * 1_000,
+                    });
+            })();
+            await event("cheaper", now - 500);
+            const pinned = list().items[0]!;
+            const observation = new SqliteOrderSourceStateStore(
+                orders,
+            ).beginObservation({
+                chainId: 1,
+                collectionId: 1,
+                source: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                startedAt: now,
+            });
+            try {
+                observation.recordActiveOrder("remaining");
+                expect(await observation.complete()).toBe(1);
+            } finally {
+                observation.close();
+            }
+            expect(
+                db
+                    .prepare(
+                        "SELECT source_status FROM orders WHERE id='cheaper'",
+                    )
+                    .get(),
+            ).toEqual({
+                source_status: anotherSource
+                    ? ORDER_SOURCE_STATUS.Active
+                    : ORDER_SOURCE_STATUS.Inactive,
+            });
+            if (anotherSource)
+                expect(
+                    db
+                        .prepare(
+                            "SELECT pending FROM order_validation_demand WHERE order_id='cheaper'",
+                        )
+                        .get(),
+                ).toEqual({ pending: 1 });
+            expect(list().items[0]).toMatchObject({
+                id: pinned.id,
+                occurredAt: pinned.occurredAt,
+                price: "20",
+            });
+            now++;
+            prices.refreshBatch(now);
+            expect(list().items[0]).toMatchObject({
+                id: pinned.id,
+                price: "20",
+            });
+        },
+    );
 
     it("uses identical daily rows for token, maker-filtered and unfiltered activity APIs", async () => {
         await event("one");

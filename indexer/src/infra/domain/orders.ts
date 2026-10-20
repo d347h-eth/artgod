@@ -55,6 +55,7 @@ import {
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
+    ORDER_SIDE,
 } from "../../domain/orders.js";
 import type {
     OrderUpdateByIdPayload,
@@ -62,7 +63,10 @@ import type {
     OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
 import { ORDER_UPDATE_REASON } from "../../domain/order-jobs.js";
-import type { OrdersDomainPort } from "../../ports/domain-handlers.js";
+import type {
+    OrdersDomainPort,
+    OrderSourceReconciliationPort,
+} from "../../ports/domain-handlers.js";
 import type {
     OrderLocalTokenSetStatus,
     OrderRecord,
@@ -190,7 +194,8 @@ export class SqliteOrdersDomain
         OrdersDomainPort,
         MakerOrderProjectionPort,
         OrderValidationProjectionPort,
-        CanonicalOrderProjectionPort
+        CanonicalOrderProjectionPort,
+        OrderSourceReconciliationPort
 {
     private readonly listingPrices: SqliteDailyListingPrices;
     private readonly retirements: SqliteOrderRetirements;
@@ -465,7 +470,14 @@ export class SqliteOrdersDomain
         if (!payload.source)
             throw new Error("Order observation is missing its source");
         const observation = db.writeTransaction(() => {
-            return this.applySourceObservation(payload);
+            const observation = this.applySourceObservation(payload);
+            if (observation?.listing)
+                this.listingPrices.refreshOrder(
+                    payload.chainId,
+                    payload.orderId,
+                    this.nowSeconds(),
+                );
+            return observation;
         })();
         if (observation)
             observeBestEffort(() =>
@@ -477,9 +489,67 @@ export class SqliteOrdersDomain
             );
     }
 
-    private applySourceObservation(
-        payload: OrderUpdateByIdPayload,
-    ): { changed: boolean; availability: OrderSourceStatus } | undefined {
+    withdrawMissingSources(
+        input: Parameters<
+            OrderSourceReconciliationPort["withdrawMissingSources"]
+        >[0],
+    ): number {
+        return db.writeTransaction(() => {
+            let count = 0;
+            const sellers = new Map<
+                string,
+                { tokenId: string; maker: string }
+            >();
+            for (const orderId of input.orderIds) {
+                if (
+                    !this.observations.isUnobservedSource({
+                        ...input,
+                        sourceId: input.source,
+                        orderId,
+                    })
+                )
+                    continue;
+                const observation = this.applySourceObservation({
+                    chainId: input.chainId,
+                    collectionId: input.collectionId,
+                    orderId,
+                    source: input.source,
+                    sourceStatus: ORDER_SOURCE_STATUS.Inactive,
+                    reason: ORDER_UPDATE_REASON.Validation,
+                    observedAt: input.startedAt,
+                });
+                if (!observation) continue;
+                count++;
+                if (observation.listing)
+                    sellers.set(
+                        JSON.stringify(observation.listing),
+                        observation.listing,
+                    );
+            }
+            // Source facts, newly pending evidence and today's ask change
+            // together. Refresh once per seller even when several orders vanish.
+            const now = this.nowSeconds();
+            for (const seller of sellers.values())
+                this.listingPrices.refreshSeller(
+                    {
+                        chain_id: input.chainId,
+                        collection_id: input.collectionId,
+                        token_id: seller.tokenId,
+                        maker: seller.maker,
+                    },
+                    now,
+                );
+            return count;
+        })();
+    }
+
+    private applySourceObservation(payload: OrderUpdateByIdPayload):
+        | {
+              changed: boolean;
+              availability: OrderSourceStatus;
+              listing?: { tokenId: string; maker: string };
+          }
+        | undefined {
         const row = this.selectOrderById.get({
             chainId: payload.chainId,
             orderId: payload.orderId,
@@ -519,7 +589,8 @@ export class SqliteOrdersDomain
             validUntil: row?.valid_until ?? payload.validUntil,
             now,
         });
-        if (!row) return;
+        if (!row)
+            return { changed: false, availability: observation.availability };
         const changed = this.observations.projectAvailability(
             payload.chainId,
             payload.orderId,
@@ -534,15 +605,15 @@ export class SqliteOrdersDomain
                 ),
                 now,
             );
-        if (changed)
-            this.listingPrices.refreshOrder(
-                payload.chainId,
-                payload.orderId,
-                this.nowSeconds(),
-            );
+        const projectionAffected = Boolean(changed) || observation.changed;
         return {
             changed: Boolean(changed),
             availability: observation.availability,
+            ...(projectionAffected &&
+            row.side === ORDER_SIDE.Sell &&
+            row.token_id !== null
+                ? { listing: { tokenId: row.token_id, maker: row.maker } }
+                : {}),
         };
     }
 
