@@ -516,16 +516,16 @@ describe("durable coordinated chain progress", () => {
             "INSERT INTO chain_reorg_recoveries(chain_id,recovery_id,version,revision,checked_block,stored_hash,observed_hash,phase,retry_at,range_from,range_to,target_block) VALUES (1,'replay',0,0,901,'old','new',?,0,901,901,901)",
         ).run(REORG_RECOVERY_PHASE.Resync);
         expect(() =>
-            progress.assertAcceptedRange(checkpoint(), [block(901)]),
+            progress.assertCollectionReplayRange(checkpoint(), [block(901)]),
         ).not.toThrow();
         expect(() =>
             progress.assertHistoricalRange(checkpoint(), [block(901)]),
         ).toThrow(ChainSyncConflict);
         expect(() =>
-            progress.assertAcceptedRange(checkpoint(), [block(902)]),
+            progress.assertCollectionReplayRange(checkpoint(), [block(902)]),
         ).toThrow(ChainSyncConflict);
         expect(() =>
-            progress.assertAcceptedRange(checkpoint(), [
+            progress.assertCollectionReplayRange(checkpoint(), [
                 { ...block(901), hash: "other" },
             ]),
         ).toThrow(ChainSyncConflict);

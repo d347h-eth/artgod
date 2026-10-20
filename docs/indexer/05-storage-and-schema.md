@@ -69,8 +69,15 @@ by both shared and collection progress, checks its exact retained identity, and
 rejects it while recovery is retained. A later applied tip does not by itself
 invalidate an older still-canonical proof.
 
-These storage contracts are covered by `chain-sync-progress.test.ts` and
-`coordinated-chain-progress.test.ts`. They are the foundation for the coordinated
+Migration `085_head_sample_retention.sql` adds a bounded cleanup cursor and
+admission-pin indexes. `SqliteChainProgress.pruneHeadSamples` retains the latest
+current-revision sample and mappings still needed by pending order/maker work or
+active validation leases. The market-data maintenance cadence calls this owner;
+completed proofs use their stored admission scalar without pinning old samples.
+Canonical headers are not pruned by normal maintenance.
+
+These storage contracts are covered by `chain-sync-progress.test.ts`,
+`coordinated-chain-progress.test.ts` and `chain-history-retention.test.ts`. They are the foundation for the coordinated
 runtime cutover; storage tests alone do not establish end-to-end pipeline
 integration.
 
@@ -322,7 +329,7 @@ checkpoint itself if no newer transfer exists. Snapshot attribution in
 `nft_balances` uses the fork block and a zero transaction hash/log index. Checkpoints
 survive restarts, cascade on collection purge and are cleared when bootstrap
 finalization replaces the ownership snapshot. Only tokens affected by rollback
-are checkpointed; the reorg worker does not scan the whole collection inventory.
+are checkpointed; the sync coordinator does not scan the whole collection inventory.
 
 Sync persistence validates every result's block identities before writing facts
 or collection coverage. It rejects mismatched fact/header hashes, conflicting
@@ -339,7 +346,7 @@ recent block's check is saved atomically with its facts, coverage, balances and
 required follow-ups. A mature historical import does not create a delayed check.
 Duplicate imports preserve pending/completed status for the same hash.
 
-The reorg worker conditionally clears a matching check, or atomically transfers a
+The sync coordinator conditionally clears a matching check, or atomically transfers a
 mismatch to `chain_reorg_recoveries`. Errors retain the row with bounded retry
 backoff; no broker delivery budget can discard it. Rollback deletes orphan checks
 with their blocks. Eligibility depends on fresh HEAD and the configured depth,

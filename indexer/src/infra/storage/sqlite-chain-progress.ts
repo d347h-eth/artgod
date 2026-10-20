@@ -2,6 +2,7 @@ import { db } from "@artgod/shared/database";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import {
     ChainSyncConflict,
+    StoredBlockHashConflict,
     type AppliedChainProgress,
     type ChainBlockReference,
     type ChainSyncCheckpoint,
@@ -26,6 +27,7 @@ import {
 } from "./sqlite-chain-revisions.js";
 import { persistCanonicalBlocks } from "./sqlite-canonical-headers.js";
 import { SqliteCanonicalChecks } from "./sqlite-canonical-checks.js";
+import { MAKER_REVALIDATION_STATUS } from "../../domain/maker-revalidation.js";
 
 type ProgressRow = {
     chain_id: number;
@@ -128,13 +130,10 @@ export class SqliteChainProgress implements ChainProgressPort {
         anchor: SyncBlockHeader,
     ): void {
         db.writeTransaction(() => {
-            this.assertAvailable(checkpoint);
+            this.assertAvailable(checkpoint, true);
             const chain = this.requireChain(checkpoint.chainId);
-            this.assertMember(checkpoint.chainId, anchor);
-            if (
-                anchor.number < chain.anchor.number ||
-                anchor.number > chain.applied.number
-            )
+            assertSyncBlockHeaders([anchor]);
+            if (anchor.number > chain.applied.number)
                 throw new ChainSyncConflict(
                     "Collection base is outside applied chain history",
                 );
@@ -154,6 +153,12 @@ export class SqliteChainProgress implements ChainProgressPort {
                 throw new ChainSyncConflict(
                     "Collection ownership base has not been installed at this identity",
                 );
+            // A slow bootstrap may install an older base after shared startup.
+            // Its own replay must join the shared base before granting proof
+            // readiness; this never lowers the shared anchor or its effects.
+            if (anchor.number >= chain.anchor.number)
+                this.assertMember(checkpoint.chainId, anchor);
+            else persistCanonicalBlocks(checkpoint, [anchor], () => false);
             const current = this.collectionProgress(
                 checkpoint.chainId,
                 collectionId,
@@ -282,6 +287,134 @@ export class SqliteChainProgress implements ChainProgressPort {
         );
     }
 
+    pruneHeadSamples({ now, limit }: { now: number; limit: number }): {
+        examined: number;
+        removed: number;
+    } {
+        if (
+            !Number.isSafeInteger(limit) ||
+            limit < 1 ||
+            !Number.isSafeInteger(now)
+        )
+            throw new Error("Invalid head sample retention batch");
+        const cursor = db
+            .prepare(
+                "SELECT after_chain_id AS chainId,after_revision AS revision,after_admission_watermark AS watermark FROM chain_head_sample_cleanup WHERE singleton=1",
+            )
+            .get() as
+            | { chainId: number; revision: number; watermark: number }
+            | undefined;
+        const rows = db
+            .prepare(
+                "SELECT chain_id AS chainId,revision,admission_watermark AS watermark FROM chain_head_samples WHERE (chain_id,revision,admission_watermark)>(?,?,?) ORDER BY chain_id,revision,admission_watermark LIMIT ?",
+            )
+            .all(
+                cursor?.chainId ?? -1,
+                cursor?.revision ?? -1,
+                cursor?.watermark ?? -1,
+                limit,
+            ) as {
+            chainId: number;
+            revision: number;
+            watermark: number;
+        }[];
+        if (!rows.length) {
+            if (cursor)
+                db.writeTransaction(() =>
+                    db
+                        .prepare(
+                            "DELETE FROM chain_head_sample_cleanup WHERE singleton=1",
+                        )
+                        .run(),
+                )();
+            return { examined: 0, removed: 0 };
+        }
+
+        const previous = db.prepare(
+            "SELECT COALESCE(MAX(admission_watermark),0) AS watermark FROM chain_head_samples WHERE chain_id=? AND revision=? AND admission_watermark<?",
+        );
+        const latest = db.prepare(
+            "SELECT MAX(admission_watermark) AS watermark FROM chain_head_samples WHERE chain_id=? AND revision=?",
+        );
+        const pending = db.prepare(
+            "SELECT 1 FROM order_validation_demand WHERE chain_id=? AND pending=1 AND admission_sequence>? AND admission_sequence<=? LIMIT 1",
+        );
+        const claim = db.prepare(
+            "SELECT 1 FROM order_validation_demand WHERE chain_id=? AND claim_chain_revision=? AND claim_admission_sequence>? AND claim_admission_sequence<=? AND lease_owner IS NOT NULL AND lease_until>? LIMIT 1",
+        );
+        const makerPass = db.prepare(
+            "SELECT 1 FROM maker_order_revalidation_runs WHERE chain_id=? AND status=? AND admission_sequence>? AND admission_sequence<=? LIMIT 1",
+        );
+        const makerFollowup = db.prepare(
+            "SELECT 1 FROM maker_order_revalidation_runs WHERE chain_id=? AND status=? AND requested_admission_sequence>? AND requested_admission_sequence<=? LIMIT 1",
+        );
+        const remove = db.prepare(
+            "DELETE FROM chain_head_samples WHERE chain_id=? AND revision=? AND admission_watermark=?",
+        );
+        return db.writeTransaction(() => {
+            let removed = 0;
+            for (const row of rows) {
+                const currentRevision = captureChainSyncCheckpoint(
+                    row.chainId,
+                ).revision;
+                const current = row.revision === currentRevision;
+                // This sample also fences overlapping late head reads. Keep it
+                // even when no order currently needs its admission interval.
+                if (
+                    current &&
+                    row.watermark ===
+                        (
+                            latest.get(row.chainId, row.revision) as {
+                                watermark: number;
+                            }
+                        ).watermark
+                )
+                    continue;
+                const lower = (
+                    previous.get(row.chainId, row.revision, row.watermark) as {
+                        watermark: number;
+                    }
+                ).watermark;
+                if (
+                    claim.get(
+                        row.chainId,
+                        row.revision,
+                        lower,
+                        row.watermark,
+                        now,
+                    ) ||
+                    (current &&
+                        (pending.get(row.chainId, lower, row.watermark) ||
+                            makerPass.get(
+                                row.chainId,
+                                MAKER_REVALIDATION_STATUS.Pending,
+                                lower,
+                                row.watermark,
+                            ) ||
+                            makerFollowup.get(
+                                row.chainId,
+                                MAKER_REVALIDATION_STATUS.Pending,
+                                lower,
+                                row.watermark,
+                            )))
+                )
+                    continue;
+                // Pin checks and deletion share the writer: new admission or a
+                // lease renewal cannot lose its mapping between these actions.
+                removed += remove.run(
+                    row.chainId,
+                    row.revision,
+                    row.watermark,
+                ).changes;
+            }
+            const last = rows[rows.length - 1];
+            db.prepare(
+                "INSERT INTO chain_head_sample_cleanup(singleton,after_chain_id,after_revision,after_admission_watermark) VALUES (1,?,?,?) ON CONFLICT(singleton) DO UPDATE SET after_chain_id=excluded.after_chain_id,after_revision=excluded.after_revision,after_admission_watermark=excluded.after_admission_watermark",
+            ).run(last.chainId, last.revision, last.watermark);
+            return { examined: rows.length, removed };
+        })();
+    }
+
     validationCheckpoint(
         chainId: number,
         collectionId: number,
@@ -305,7 +438,8 @@ export class SqliteChainProgress implements ChainProgressPort {
             )
                 return null;
             const number = Math.min(chain.applied.number, scope.applied.number);
-            if (number < scope.anchor.number) return null;
+            if (number < Math.max(scope.anchor.number, chain.anchor.number))
+                return null;
             if (
                 barrier &&
                 (barrier.chainId !== chainId ||
@@ -337,7 +471,13 @@ export class SqliteChainProgress implements ChainProgressPort {
             checkpoint.chainId,
             checkpoint.collectionId,
         )!;
-        if (checkpoint.block.number < scope.anchor.number)
+        if (
+            checkpoint.block.number <
+            Math.max(
+                scope.anchor.number,
+                this.requireChain(checkpoint.chainId).anchor.number,
+            )
+        )
             throw new ChainSyncConflict(
                 "Validation predates the collection base",
             );
@@ -377,9 +517,10 @@ export class SqliteChainProgress implements ChainProgressPort {
         }
     }
 
-    /** Collection catch-up replays already accepted shared history, including
-     * recovery resync; it cannot admit a new header or outrun shared effects. */
-    assertAcceptedRange(
+    /** Collection catch-up can connect an older installed base to shared history.
+     * Its own predecessor fence authorizes below-base lineage; every overlapping
+     * shared identity must match and readiness waits until those prefixes join. */
+    assertCollectionReplayRange(
         checkpoint: ChainSyncCheckpoint,
         blocks: readonly SyncBlockHeader[],
     ): void {
@@ -387,14 +528,12 @@ export class SqliteChainProgress implements ChainProgressPort {
         const chain = this.requireChain(checkpoint.chainId);
         assertSyncBlockHeaders(blocks);
         for (const block of blocks) {
-            if (
-                block.number < chain.anchor.number ||
-                block.number > chain.applied.number
-            )
+            if (block.number > chain.applied.number)
                 throw new ChainSyncConflict(
                     "Collection replay is outside applied shared history",
                 );
-            this.assertMember(checkpoint.chainId, block);
+            if (block.number >= chain.anchor.number)
+                this.assertMember(checkpoint.chainId, block);
         }
     }
 
@@ -573,6 +712,19 @@ export class SqliteChainProgress implements ChainProgressPort {
 
     private assertMember(chainId: number, block: SyncBlockHeader): void {
         const stored = this.header(chainId, block.number);
+        // Replay checks membership before the facts writer. Preserve the same
+        // explicit-disagreement contract here so its rejected transaction still
+        // asks the recovery owner to gate and freshly verify the stored branch.
+        if (stored && stored.hash !== block.hash)
+            throw new StoredBlockHashConflict(
+                {
+                    chainId,
+                    checkpoint: captureChainSyncCheckpoint(chainId),
+                    blockNumber: block.number,
+                    blockHash: stored.hash,
+                },
+                block.hash,
+            );
         if (
             !stored ||
             stored.hash !== block.hash ||

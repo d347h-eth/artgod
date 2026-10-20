@@ -6,12 +6,8 @@ import {
     AUTOMATIC_SYNC_METRIC_LABEL,
     AutomaticSyncMetrics,
 } from "../src/infra/observability/automatic-sync-metrics.js";
-import {
-    RecoveryRpc,
-    reorgRecoveryServices,
-} from "./helpers/reorg-recovery-fixture.js";
+import { createCoordinatorFixture } from "./helpers/coordinated-sync-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
-import { insertCollection } from "./helpers/ownership-fixture.js";
 import { processingTelemetry } from "./helpers/processing-observability.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -23,41 +19,21 @@ describe("committed automatic sync progress", () => {
     });
 
     function fixture(observer: AutomaticSyncMetrics) {
-        const rpc = new RecoveryRpc(200);
-        const services = reorgRecoveryServices(rpc, { observer });
-        for (let index = 1; index <= 2; index++) {
-            const id = insertCollection({
-                chainId: 1,
-                slug: `metrics-${index}`,
-                address: `0x${String(index).padStart(40, "0")}`,
-                anchorBlock: 105,
-            });
-            services.gaps.saveProgress({
-                chainId: 1,
-                collectionId: id,
-                expected: null,
-                progress: {
-                    anchorBlock: 105,
-                    cursorBlock: null,
-                    lastHeadCheckAt: Date.now(),
-                    pending: {
-                        repairId: `metrics:${id}`,
-                        fromBlock: 105,
-                        toBlock: 106,
-                        retryAt: 0,
-                    },
-                },
-            });
-        }
-        return { ...services, rpc };
+        const services = createCoordinatorFixture({
+            observer,
+            collectionCount: 2,
+            batchSize: 2,
+        });
+        services.sample(902);
+        return services;
     }
 
-    it("counts one shared range once and counts each processed collection-block pair", async () => {
+    it("counts the shared range once and counts each scoped collection-block pair", async () => {
         const telemetry = await processingTelemetry();
         const h = fixture(new AutomaticSyncMetrics(telemetry.metrics));
         await h.executor.runDue();
         const labels = {
-            [AUTOMATIC_SYNC_METRIC_LABEL.Kind]: SYNC_WORK_COMPLETION.GapRepair,
+            [AUTOMATIC_SYNC_METRIC_LABEL.Kind]: SYNC_WORK_COMPLETION.Unmanaged,
         };
         expect(
             await telemetry.value("automatic_sync_ranges_total", labels),
@@ -70,19 +46,33 @@ describe("committed automatic sync progress", () => {
                 "automatic_sync_collection_blocks_total",
                 labels,
             ),
+        ).toBe(0);
+        await h.executor.runDue();
+        await h.executor.runDue();
+        expect(
+            await telemetry.value("automatic_sync_ranges_total", labels),
+        ).toBe(3);
+        expect(
+            await telemetry.value("automatic_sync_blocks_total", labels),
+        ).toBe(6);
+        expect(
+            await telemetry.value(
+                "automatic_sync_collection_blocks_total",
+                labels,
+            ),
         ).toBe(4);
         expect(
             await telemetry.value(
                 "automatic_sync_range_duration_seconds_count",
                 labels,
             ),
-        ).toBe(1);
+        ).toBe(3);
         expect(
             await telemetry.value(
                 "automatic_sync_last_completed_block",
                 labels,
             ),
-        ).toBe(106);
+        ).toBe(902);
         expect(
             await telemetry.value(
                 "automatic_sync_last_completed_timestamp_seconds",
@@ -99,7 +89,9 @@ describe("committed automatic sync progress", () => {
     it("emits no success progress when the atomic commit fails", async () => {
         const telemetry = await processingTelemetry();
         const h = fixture(new AutomaticSyncMetrics(telemetry.metrics));
-        vi.spyOn(h.gaps, "recordRepairProgress").mockReturnValue(false);
+        vi.spyOn(h.progress, "advanceChain").mockImplementationOnce(() => {
+            throw new Error("progress write failed");
+        });
         await h.executor.runDue();
         expect(await telemetry.metrics.metricsText()).not.toContain(
             "automatic_sync_ranges_total",
@@ -123,14 +115,18 @@ describe("committed automatic sync progress", () => {
             db
                 .prepare("SELECT COUNT(*) AS count FROM collection_sync_blocks")
                 .get(),
-        ).toEqual({ count: 4 });
+        ).toEqual({ count: 0 });
+        expect(h.progress.chainProgress(1)?.applied.number).toBe(902);
+        await h.executor.runDue();
+        expect(h.progress.chainProgress(1)?.applied.number).toBe(902);
         expect(
-            h.gaps.listDueRepairsAtNewestPendingHeight({
-                chainId: 1,
-                now: Date.now(),
-                upperBound: 106,
-                limit: 16,
-            }),
-        ).toEqual([]);
+            h.progress.collectionProgress(1, h.collections[0]!.id)?.applied
+                .number,
+        ).toBe(902);
+        expect(
+            h.remote.state.logReads.filter(
+                (filter) => filter.address === h.collections[0]!.address,
+            ).length,
+        ).toBeGreaterThan(0);
     });
 });

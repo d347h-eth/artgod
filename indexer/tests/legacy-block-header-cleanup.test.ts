@@ -1,3 +1,4 @@
+import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -12,13 +13,15 @@ import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import { eventSyncFollowUp } from "../src/domain/sync-follow-ups.js";
 import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
+import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
+import { COLLECTION_STANDARD } from "../src/domain/collections.js";
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import {
     emptyOnChainData,
     insertCollection,
     selectBalanceOwners,
-    transferFixture,
 } from "./helpers/ownership-fixture.js";
 import {
     FINALIZED_SYNC_CHECK_POLICY,
@@ -28,7 +31,6 @@ import {
     canonicalRecoveryBlock,
     RecoveryRpc,
     reorgRecoveryServices,
-    seedRecoveryHistory,
     REORG_FIXTURE as F,
 } from "./helpers/reorg-recovery-fixture.js";
 
@@ -51,10 +53,18 @@ describe("legacy mixed-fork header cleanup", () => {
     ) {
         const rpc = new RecoveryRpc();
         const services = reorgRecoveryServices(rpc, options);
-        const f = withTransfer ? seedRecoveryHistory() : transferFixture();
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection({
+            chainId: 1,
+            slug: "legacy-header-fixture",
+            address: contract,
+            anchorBlock: F.Anchor,
+        });
+        const f = { collectionId, contract };
         const collection = services.registry.getCollection(1, f.collectionId)!;
         const persist = (numbers: number[], canonical = false) =>
             services.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 checkpoint: services.storage.captureSyncCheckpoint(1),
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 collections: [collection],
@@ -63,7 +73,42 @@ describe("legacy mixed-fork header cleanup", () => {
                 ),
                 data: emptyOnChainData(),
             });
-        if (!withTransfer) persist([F.Anchor, F.Fork, F.Orphan]);
+        persist([F.Anchor, F.Fork, F.Orphan]);
+        if (withTransfer) {
+            const data = emptyOnChainData();
+            data.collectionScoped.nftTransferEvents.push({
+                collectionId,
+                contract,
+                tokenId: "1",
+                from: F.Owner,
+                to: F.OrphanOwner,
+                amount: "1",
+                kind: COLLECTION_STANDARD.Erc721,
+                blockNumber: F.Orphan,
+                blockHash: syncBlockFixture(F.Orphan).hash,
+                txHash: syncBlockFixture(F.Orphan).hash,
+                logIndex: 0,
+            });
+            services.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
+                checkpoint: services.storage.captureSyncCheckpoint(1),
+                canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
+                collections: [collection],
+                blocks: [syncBlockFixture(F.Orphan)],
+                data,
+            });
+            db.prepare(
+                "INSERT INTO nft_balances(chain_id,collection_id,contract_address,token_id,owner,amount,last_block_number,last_block_hash,last_block_timestamp,last_tx_hash,last_log_index) VALUES(1,?,?, '1',?,'1',?,?,?,?,0)",
+            ).run(
+                collectionId,
+                contract,
+                F.OrphanOwner,
+                F.Orphan,
+                syncBlockFixture(F.Orphan).hash,
+                F.Orphan,
+                syncBlockFixture(F.Orphan).hash,
+            );
+        }
         persist([F.Orphan + 1], true);
         db.prepare("UPDATE blocks SET created_at=? WHERE chain_id=1").run(
             "2000-01-01 00:00:00",
@@ -92,7 +137,7 @@ describe("legacy mixed-fork header cleanup", () => {
         );
     }
 
-    it("preserves unused identities and all coverage until verified rollback, then reacquires canonical history", async () => {
+    it("preserves sparse identities and coverage without promoting them to applied recovery authority", async () => {
         const s = fixture();
         const otherCollection = insertCollection({
             chainId: 1,
@@ -114,6 +159,7 @@ describe("legacy mixed-fork header cleanup", () => {
             anchorBlock: 100,
         });
         s.storage.persistSyncResult({
+            application: { kind: SYNC_APPLICATION_KIND.Historical },
             checkpoint: s.storage.captureSyncCheckpoint(2),
             canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             collections: [s.registry.getCollection(2, otherChainCollection)!],
@@ -131,15 +177,15 @@ describe("legacy mixed-fork header cleanup", () => {
         expect(s.storage.captureSyncCheckpoint(1)).toEqual(checkpoint);
         expect(s.storage.captureSyncCheckpoint(2)).toEqual(otherCheckpoint);
 
-        // Only the canonical owner may invalidate history after fresh proof.
+        // A legacy sparse island cannot manufacture the accepted ancestry that
+        // current recovery requires. Retain the check without rewriting facts.
         expect(await s.recovery.checkDue()).toBe(true);
-        expect(s.storage.getBlockHash(1, F.Orphan)).toBeNull();
-        expect(s.storage.captureSyncCheckpoint(1).revision).toBe(
-            checkpoint.revision + 1,
-        );
-        expect(await s.executor.runDue()).toBe(true);
         expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
-            canonicalRecoveryBlock(F.Orphan).hash,
+            syncBlockFixture(F.Orphan).hash,
+        );
+        expect(s.storage.captureSyncCheckpoint(1)).toEqual(checkpoint);
+        expect(s.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.AwaitingAncestor,
         );
         expect(s.storage.getBlockHash(2, F.Orphan)).toBe(
             syncBlockFixture(F.Orphan).hash,
@@ -376,16 +422,16 @@ describe("legacy mixed-fork header cleanup", () => {
                 upperBound: F.Head,
             })!;
             await s.recovery.checkBlock(child);
-            // The child's old parent identity still proves older divergence:
-            // a matching repair island must not hide missing orphan history.
-            expect(s.storage.getBlockHash(1, F.Orphan)).toBeNull();
-            expect(s.storage.getBlockHash(1, F.Orphan + 1)).toBeNull();
+            // Sparse/disconnected old rows cannot supply an accepted connected
+            // ancestor window. The migration and checks retain the discrepancy.
             expect(s.recoveries.getRecovery(1)?.phase).toBe(
-                REORG_RECOVERY_PHASE.Resync,
+                REORG_RECOVERY_PHASE.AwaitingAncestor,
             );
-            expect(await s.executor.runDue()).toBe(true);
             expect(s.storage.getBlockHash(1, F.Orphan)).toBe(
                 canonicalRecoveryBlock(F.Orphan).hash,
+            );
+            expect(s.storage.getBlockHash(1, F.Orphan + 1)).toBe(
+                syncBlockFixture(F.Orphan + 1).hash,
             );
         },
     );
@@ -472,7 +518,7 @@ describe("legacy mixed-fork header cleanup", () => {
                 anchorBlock: F.Orphan,
             },
         ]);
-        bootstrap.finalizeSnapshot({
+        finalizeBootstrapSnapshotFixture(bootstrap, {
             runId: 1,
             chainId: 1,
             collectionId: s.collectionId,
@@ -481,6 +527,23 @@ describe("legacy mixed-fork header cleanup", () => {
             anchorHash: canonicalRecoveryBlock(F.Orphan).hash,
             anchorTimestamp: F.Orphan,
         });
+        const accepted = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: canonicalRecoveryBlock(F.Orphan),
+            collections: [s.registry.getCollection(1, s.collectionId)!],
+        });
+        accepted.commit(
+            accepted.applied({
+                shared: true,
+                collectionIds: [s.collectionId],
+                blocks: [
+                    {
+                        ...syncBlockFixture(F.Orphan + 1),
+                        parentHash: canonicalRecoveryBlock(F.Orphan).hash,
+                    },
+                ],
+            }),
+        );
         await createMigrationRunner().runMigrations();
         expect(await s.recovery.checkDue()).toBe(true); // Matching anchor.
         expect(await s.recovery.checkDue()).toBe(true); // Orphaned child.

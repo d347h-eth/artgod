@@ -362,8 +362,15 @@ Current model:
 - Ownership tasks are seeded from metadata task token ids.
 - Each pass reads up to `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` due ownership tasks.
 - Tasks are processed serially. Each task calls `ownerOf(tokenId)` at the anchor block.
-- Success writes a snapshot row and marks the ownership task succeeded in a transaction.
-- Once all ownership tasks succeed, `finalizeSnapshot` projects the snapshot into current ownership state at the anchor block.
+- Success writes a snapshot row and completes the task only when its captured
+  run/anchor identity still matches. Late reads from a reseeded anchor write nothing.
+- Once every task succeeds, installation captures the chain revision before a
+  fresh exact-anchor check. `finalizeSnapshot` fences that revision, current run,
+  anchor and active step lease, then writes balances and installed-base evidence
+  in one transaction. A failed base write rolls back balances too.
+- Duplicate installation preserves an existing base and never resets a collection
+  that has applied later blocks. Anchor selection and installation do not create
+  canonical headers or applied progress; the coordinator accepts the base.
 - Ownership is mandatory: terminal ownership task failures fail the bootstrap run and block collection liveness.
 
 Scaling boundary:
@@ -392,7 +399,12 @@ completion; it does not acquire or apply current-state ranges independently.
   divide this wakeup into independent range jobs.
 - The coordinator accepts the installed ownership base, then applies shared
   and collection effects through contiguous prefixes. Collection catch-up can
-  replay already accepted shared history.
+  replay already accepted shared history. A late-installed older base first
+  extends its own prefix to the exact shared base; readiness is gated until
+  that join, without lowering shared progress.
+- At most one older anchor receives fresh verification per coordinator pass.
+  Failed verification retains its own retry time in the installed-base row;
+  bounded due selection continues serving healthy scopes and other bases.
 - Completion requires the current revision, the run's exact anchor identity,
   and shared plus collection applied progress through the retained target.
   Raw `collection_sync_blocks` history cannot complete the step.
@@ -527,9 +539,10 @@ task workers as the only acceptable design.
 - Collection-extension task settlement is fenced, but artifact and trait writes
   occur first. Multi-process scaling needs idempotency/currentness proof or a
   fenced write boundary.
-- Current-state catch-up is serialized within one process, not ordered by a
-  durable block-range barrier. Retry and multi-process ordering remain concerns;
-  parallel fetch/apply work must preserve projection currentness explicitly.
+- Current-state catch-up has one runtime owner and durable expected-prefix/
+  revision fences. Independent replicated acquisition is not a supported
+  deployment contract; future parallel acquisition must preserve bounded
+  buffering and the same ordered acceptance boundary.
 
 The [unified backlog](../planning/01-unified-backlog.md) owns priority for these
 directions; this document owns the invariants any implementation must preserve.

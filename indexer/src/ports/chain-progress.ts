@@ -58,12 +58,20 @@ export interface ChainProgressPort extends ValidationCheckpointPort {
         admissionSequence: number,
     ): ChainHeadSample | null;
     retainDispute(check: PendingCanonicalCheck): void;
+    /** Bounded retention pass. Outstanding admission mappings and the current
+     * revision's latest watermark remain stable; accepted proofs use scalars. */
+    pruneHeadSamples(input: { now: number; limit: number }): {
+        examined: number;
+        removed: number;
+    };
 }
 
 /** Range acceptance and effects share one writer. Checking only header presence
  * is insufficient to authorize a projection or publish applied progress. */
 export interface AppliedRangeProgressPort {
-    assertAcceptedRange(
+    /** Requires the caller's collection predecessor assertion. Below-shared-base
+     * replay connects an installed snapshot; overlapping shared identities match. */
+    assertCollectionReplayRange(
         checkpoint: ChainSyncCheckpoint,
         blocks: readonly SyncBlockHeader[],
     ): void;

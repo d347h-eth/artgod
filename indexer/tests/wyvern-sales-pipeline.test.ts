@@ -1,3 +1,4 @@
+import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { zeroAddress } from "viem";
@@ -91,6 +92,7 @@ describe("Wyvern historical sale projection", () => {
                     expected.length,
                 );
                 storage.persistSyncResult({
+                    application: { kind: SYNC_APPLICATION_KIND.Historical },
                     canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     checkpoint: storage.captureSyncCheckpoint(1),
                     blocks: [block],

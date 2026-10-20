@@ -1,181 +1,60 @@
 import type { CollectionRecord } from "../domain/collections.js";
-import type { JobEnvelope } from "../domain/jobs.js";
-import type { CollectionMakerTrigger, OnChainData } from "../domain/onchain.js";
 import {
-    MAKER_TRIGGER_SCOPE,
-    ORDER_JOB_KIND,
-    ORDER_UPDATE_REASON,
-    type OrderUpdateByIdPayload,
-    type OrderUpdateByMakerPayload,
-} from "../domain/order-jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
-import { orderUpdateQueue } from "../domain/order-processing.js";
+    buildCanonicalOrderEffects,
+    canonicalOrderEffectId,
+} from "../domain/canonical-order-effects.js";
+import type { JobEnvelope } from "../domain/jobs.js";
+import type { OnChainData } from "../domain/onchain.js";
+import { MAKER_TRIGGER_SCOPE, ORDER_JOB_KIND } from "../domain/order-jobs.js";
+import {
+    makerUpdateQueue,
+    orderUpdateQueue,
+} from "../domain/order-processing.js";
 import type { BackfillOrderMaintenancePolicy } from "../domain/sync-jobs.js";
 import {
     eventSyncFollowUp,
     type SyncFollowUp,
 } from "../domain/sync-follow-ups.js";
-import { allowsGlobalMakerRevalidation } from "./backfill-order-maintenance.js";
 
-// Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.
+/** Optional delivery uses the same domain classification as synchronous core
+ * invalidation; it cannot introduce another set of lifecycle rules. */
 export function buildOrderUpdateFollowUps(
     chainId: number,
     collections: CollectionRecord[],
     data: OnChainData,
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
+    applyingShared: boolean,
 ): SyncFollowUp[] {
-    const followUps: SyncFollowUp[] = [];
-    for (const makerTrigger of data.collectionScoped.makerTriggers) {
-        const maker = makerTrigger.maker.toLowerCase();
-        const job = isTokenScopedMakerTrigger(makerTrigger)
-            ? buildTokenScopedMakerJob(chainId, maker, makerTrigger)
-            : buildCollectionScopedMakerJob(chainId, maker, makerTrigger);
-        followUps.push(eventSyncFollowUp(job, makerTrigger));
-    }
-
-    if (allowsGlobalMakerRevalidation(orderMaintenancePolicy)) {
-        for (const makerTrigger of data.global.makerTriggers) {
-            if (
-                !canAnyCollectionProjectCurrentStateAt(
-                    collections,
-                    makerTrigger.blockNumber,
-                )
-            ) {
-                continue;
-            }
-            const maker = makerTrigger.maker.toLowerCase();
-            const job: JobEnvelope<OrderUpdateByMakerPayload> = {
-                jobId: `orders:update:maker:${chainId}:${maker}:global:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-                kind: ORDER_JOB_KIND.UpdateByMaker,
-                queue: QUEUE_NAMES.OrdersUpdateByMaker,
-                payload: {
-                    chainId,
-                    scope: MAKER_TRIGGER_SCOPE.Global,
-                    maker: makerTrigger.maker,
-                    reason: makerTrigger.reason,
-                    blockNumber: makerTrigger.blockNumber,
-                    blockHash: makerTrigger.blockHash,
-                    txHash: makerTrigger.txHash,
-                    logIndex: makerTrigger.logIndex,
-                },
-                attempt: 0,
-                scheduledAt: Date.now(),
-                chainId,
-            };
-            followUps.push(eventSyncFollowUp(job, makerTrigger));
-        }
-    }
-
-    for (const fill of data.collectionScoped.fillEvents) {
-        if (!fill.orderId) continue;
-        followUps.push(
-            buildOrderUpdateById(
-                chainId,
-                fill.orderId,
-                ORDER_UPDATE_REASON.Fill,
-                fill,
-            ),
-        );
-    }
-
-    for (const cancel of data.global.cancelEvents) {
-        if (!cancel.orderId) continue;
-        if (
-            !canAnyCollectionProjectCurrentStateAt(
-                collections,
-                cancel.blockNumber,
-            )
-        ) {
-            continue;
-        }
-        followUps.push(
-            buildOrderUpdateById(
-                chainId,
-                cancel.orderId,
-                ORDER_UPDATE_REASON.Cancel,
-                cancel,
-            ),
-        );
-    }
-
-    for (const order of data.collectionScoped.orderInfos) {
-        if (!order.orderId) continue;
-        followUps.push(
-            buildOrderUpdateById(
-                chainId,
-                order.orderId,
-                ORDER_UPDATE_REASON.Validation,
-                order,
-            ),
-        );
-    }
-    return followUps;
-}
-
-function buildTokenScopedMakerJob(
-    chainId: number,
-    maker: string,
-    makerTrigger: Extract<CollectionMakerTrigger, { tokenId: string }>,
-): JobEnvelope<OrderUpdateByMakerPayload> {
-    return {
-        jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-        kind: ORDER_JOB_KIND.UpdateByMaker,
-        queue: QUEUE_NAMES.OrdersUpdateByToken,
-        payload: {
-            chainId,
-            scope: MAKER_TRIGGER_SCOPE.Token,
-            maker: makerTrigger.maker,
-            collectionId: makerTrigger.collectionId,
-            contract: makerTrigger.contract,
-            tokenId: makerTrigger.tokenId,
-            reason: makerTrigger.reason,
-            blockNumber: makerTrigger.blockNumber,
-            blockHash: makerTrigger.blockHash,
-            txHash: makerTrigger.txHash,
-            logIndex: makerTrigger.logIndex,
-        },
-        attempt: 0,
-        scheduledAt: Date.now(),
+    return buildCanonicalOrderEffects({
         chainId,
-        collectionId: makerTrigger.collectionId,
-    };
-}
-
-function buildCollectionScopedMakerJob(
-    chainId: number,
-    maker: string,
-    makerTrigger: Exclude<CollectionMakerTrigger, { tokenId: string }>,
-): JobEnvelope<OrderUpdateByMakerPayload> {
-    return {
-        jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:collection:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-        kind: ORDER_JOB_KIND.UpdateByMaker,
-        queue: QUEUE_NAMES.OrdersUpdateByMaker,
-        payload: {
+        collections,
+        data,
+        orderMaintenancePolicy,
+        applyingShared,
+    }).map((effect) => {
+        const queue =
+            effect.kind === ORDER_JOB_KIND.UpdateById
+                ? orderUpdateQueue(effect.payload)
+                : makerUpdateQueue(effect.payload);
+        const job: JobEnvelope = {
+            jobId: canonicalOrderEffectId(effect),
+            kind: effect.kind,
+            queue,
+            payload: effect.payload,
+            attempt: 0,
+            scheduledAt: Date.now(),
             chainId,
-            scope: MAKER_TRIGGER_SCOPE.Collection,
-            maker: makerTrigger.maker,
-            collectionId: makerTrigger.collectionId,
-            contract: makerTrigger.contract,
-            reason: makerTrigger.reason,
-            blockNumber: makerTrigger.blockNumber,
-            blockHash: makerTrigger.blockHash,
-            txHash: makerTrigger.txHash,
-            logIndex: makerTrigger.logIndex,
-        },
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-        collectionId: makerTrigger.collectionId,
-    };
+            ...(effect.kind === ORDER_JOB_KIND.UpdateByMaker &&
+            effect.payload.scope !== MAKER_TRIGGER_SCOPE.Global
+                ? { collectionId: effect.payload.collectionId }
+                : {}),
+        };
+        return eventSyncFollowUp(job, effect.payload);
+    });
 }
 
-function isTokenScopedMakerTrigger(
-    trigger: CollectionMakerTrigger,
-): trigger is Extract<CollectionMakerTrigger, { tokenId: string }> {
-    return "tokenId" in trigger;
-}
-
-// Coarse gate for global triggers.
+// Acquisition uses this coarse gate to decide whether global event reads can
+// affect any current scope. Exact per-collection acceptance belongs to the owner.
 export function canAnyCollectionProjectCurrentStateAt(
     collections: CollectionRecord[],
     blockNumber: number,
@@ -183,35 +62,4 @@ export function canAnyCollectionProjectCurrentStateAt(
     return collections.some((collection) =>
         collection.canProjectCurrentStateAt(blockNumber),
     );
-}
-
-function buildOrderUpdateById(
-    chainId: number,
-    orderId: string,
-    reason: string,
-    attribution: {
-        blockNumber: number;
-        blockHash: string;
-        txHash: string;
-        logIndex: number;
-    },
-): SyncFollowUp {
-    const job: JobEnvelope<OrderUpdateByIdPayload> = {
-        jobId: `orders:update:id:${chainId}:${orderId}:${attribution.blockNumber}:${attribution.logIndex}`,
-        kind: ORDER_JOB_KIND.UpdateById,
-        queue: orderUpdateQueue({ chainId, orderId, reason }),
-        payload: {
-            chainId,
-            orderId,
-            reason,
-            blockNumber: attribution.blockNumber,
-            blockHash: attribution.blockHash,
-            txHash: attribution.txHash,
-            logIndex: attribution.logIndex,
-        },
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-    };
-    return eventSyncFollowUp(job, attribution);
 }

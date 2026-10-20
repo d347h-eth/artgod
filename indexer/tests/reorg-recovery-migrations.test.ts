@@ -1,5 +1,4 @@
 import { retainCanonicalCheckFixture } from "./helpers/reorg-recovery-fixture.js";
-import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { copyFile, mkdtemp, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -28,6 +27,7 @@ import {
     selectBalanceOwners,
 } from "./helpers/ownership-fixture.js";
 import { syncBlockFixture } from "./helpers/chain-fixture.js";
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
 import {
     RecoveryRpc,
     reorgRecoveryServices,
@@ -175,10 +175,12 @@ describe("integrated reorg recovery migration upgrades", () => {
                 retry_policy: QUEUE_OUTBOX_RETRY_POLICY.Bounded,
             },
         ]);
-        await services.executor.runDue();
+        // A retained pre-upgrade range is not an installed current-state base.
+        // Migration preserves it; the new coordinator cannot manufacture proof.
+        expect(await services.executor.runDue()).toBe(false);
         expect(pendingRecoveryRange()).toMatchObject({
-            fromBlock: 107,
-            toBlock: 107,
+            fromBlock: 105,
+            toBlock: 106,
         });
         expect(
             services.storage.countCollectionSyncedBlocksInRange(
@@ -187,7 +189,7 @@ describe("integrated reorg recovery migration upgrades", () => {
                 105,
                 106,
             ),
-        ).toBe(2);
+        ).toBe(0);
         expect(db.raw.pragma("foreign_key_check")).toEqual([]);
     });
     it.each(["main", "feature"])(
@@ -203,7 +205,7 @@ describe("integrated reorg recovery migration upgrades", () => {
             );
             const initial = filenames.filter((file) =>
                 first === "main"
-                    ? !FEATURE_MIGRATIONS.has(file)
+                    ? file < "074" && !FEATURE_MIGRATIONS.has(file)
                     : file !== MAIN_MIGRATION,
             );
             for (const file of initial)
@@ -235,6 +237,15 @@ describe("integrated reorg recovery migration upgrades", () => {
             );
             async function beginRecovery() {
                 const services = reorgRecoveryServices(new RecoveryRpc());
+                const collection = services.registry.getCollection(
+                    1,
+                    collectionId,
+                )!;
+                const applied = createAppliedSyncFixture({
+                    chainId: 1,
+                    anchor: syncBlockFixture(F.Anchor),
+                    collections: [collection],
+                });
                 const data = emptyOnChainData();
                 data.collectionScoped.nftTransferEvents.push({
                     collectionId,
@@ -249,18 +260,18 @@ describe("integrated reorg recovery migration upgrades", () => {
                     txHash: syncBlockFixture(F.Orphan).hash,
                     logIndex: 1,
                 });
-                services.storage.persistSyncResult({
-                    canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-                    checkpoint: services.storage.captureSyncCheckpoint(1),
-                    blocks: [
-                        syncBlockFixture(F.Fork),
-                        syncBlockFixture(F.Orphan),
-                    ],
-                    collections: [
-                        services.registry.getCollection(1, collectionId)!,
-                    ],
-                    data,
-                });
+                applied.commit(
+                    applied.applied({
+                        shared: true,
+                        collectionIds: [collectionId],
+                        blocks: Array.from(
+                            { length: F.Orphan - F.Anchor },
+                            (_, index) =>
+                                syncBlockFixture(F.Anchor + index + 1),
+                        ),
+                        data,
+                    }),
+                );
                 await services.recovery.checkBlock(
                     retainCanonicalCheckFixture(services.storage, F.Orphan),
                 );

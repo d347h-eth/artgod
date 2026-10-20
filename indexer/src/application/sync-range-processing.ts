@@ -6,17 +6,16 @@ import {
 import { syncRange, type SyncRange } from "./sync.js";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
-import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
+import {
+    SYNC_APPLICATION_KIND,
+    SYNC_WORK_COMPLETION,
+    type SyncApplication,
+} from "../domain/sync-work.js";
 import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 import { resolveIndexerCollectionExtension } from "./collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
-import type { BidderIndex } from "./bidder-index.js";
 import { decodeWethMakerInfos, WETH_EVENT_FILTERS } from "./ft/weth.js";
-import { shouldFetchWethMakerLogs } from "./backfill-order-maintenance.js";
-import {
-    canAnyCollectionProjectCurrentStateAt,
-    buildOrderUpdateFollowUps,
-} from "./order-update-fanout.js";
+import { buildOrderUpdateFollowUps } from "./order-update-fanout.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -35,7 +34,10 @@ import type { Hex, RpcBlock, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort, SyncRangeResult } from "../ports/storage.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
 import type { SyncWorkCompletion } from "../domain/sync-work.js";
-import { StoredBlockHashConflict } from "../domain/chain-sync.js";
+import {
+    ChainSyncConflict,
+    StoredBlockHashConflict,
+} from "../domain/chain-sync.js";
 import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
 import type {
     CollectionRegistryPort,
@@ -52,7 +54,7 @@ export async function acquireSyncRange(input: {
     reorgDepth: number;
     collections: CollectionRecord[];
     range: SyncRange;
-    bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">;
+    application: SyncApplication;
     wethAddress: string;
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 }): Promise<SyncRangeResult> {
@@ -64,11 +66,26 @@ export async function acquireSyncRange(input: {
         chainId,
         collections,
         range,
-        bidderIndex,
+        application,
         wethAddress,
         orderMaintenancePolicy,
     } = input;
     const checkpoint = storage.captureSyncCheckpoint(chainId);
+    if (application.kind === SYNC_APPLICATION_KIND.Applied) {
+        for (const expected of [
+            application.chain,
+            ...application.collections,
+        ]) {
+            if (
+                expected &&
+                (expected.checkpoint.chainId !== chainId ||
+                    expected.checkpoint.revision !== checkpoint.revision)
+            )
+                throw new ChainSyncConflict(
+                    "Sync application predates the current chain revision",
+                );
+        }
+    }
     // Classify maturity at fetch time. A delayed commit must retain the check
     // required by data fetched while unconfirmed; historical imports add none.
     const observedHeadBlock = await rpc.getBlockNumber();
@@ -85,18 +102,12 @@ export async function acquireSyncRange(input: {
         range,
         extensionWatchSpecs,
     );
-    await appendWethMakerInfos(
-        rpc,
-        range,
-        wethAddress,
-        bidderIndex,
-        data,
-        collections,
-        orderMaintenancePolicy,
-    );
+    if (application.kind === SYNC_APPLICATION_KIND.Applied && application.chain)
+        await appendWethMakerInfos(rpc, range, wethAddress, data);
     const blocks = await fetchCanonicalSyncBlocks({ rpc, ...range });
     return {
         checkpoint,
+        application,
         canonicalCheck: { observedHeadBlock, reorgDepth: input.reorgDepth },
         blocks,
         data,
@@ -126,6 +137,7 @@ export async function processSyncRange(
         input.mode,
         result.data,
         input.orderMaintenancePolicy,
+        result.application,
     ).map((followUp) => ({
         ...followUp,
         job: {
@@ -146,7 +158,7 @@ export async function processSyncRange(
         // A failed sync writer cannot retain work inside its rolled-back transaction.
         // Let the existing reorg owner freshly verify this exact stored identity.
         if (error instanceof StoredBlockHashConflict)
-            input.canonicalChecks.retain(error.check);
+            input.canonicalChecks.retain(error.check, { disputed: true });
         throw error;
     }
     return result;
@@ -171,6 +183,7 @@ export function buildSyncFollowUps(
     mode: DomainSyncMode,
     data: OnChainData,
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
+    application: SyncApplication,
 ): SyncFollowUp[] {
     const followUps: SyncFollowUp[] = [];
     const collectionIds = new Set(
@@ -229,7 +242,10 @@ export function buildSyncFollowUps(
         followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: activityJob });
 
         // Skip current-state fanout for fully pre-anchor ranges.
-        if (!hasAnyCurrentStateProjection(targetCollections, range)) {
+        if (
+            application.kind === SYNC_APPLICATION_KIND.Historical ||
+            !hasAnyCurrentStateProjection(targetCollections, range)
+        ) {
             continue;
         }
 
@@ -256,7 +272,7 @@ export function buildSyncFollowUps(
         followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: ordersJob });
         followUps.push({ kind: SYNC_FOLLOW_UP_KIND.Range, job: metadataJob });
     }
-    if (!hasAnyCurrentStateProjection(collections, range)) return followUps;
+    if (application.kind === SYNC_APPLICATION_KIND.Historical) return followUps;
     const currentStateData = filterCurrentStateOnChainData(collections, data);
 
     // Retain every post-anchor event hint, including hints absent from raw facts.
@@ -266,6 +282,7 @@ export function buildSyncFollowUps(
             collections,
             currentStateData,
             orderMaintenancePolicy,
+            application.chain !== null,
         ),
     );
     followUps.push(
@@ -418,33 +435,15 @@ async function appendWethMakerInfos(
     rpc: RpcProviderPort,
     range: SyncRange,
     wethAddress: string,
-    bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">,
     data: OnChainData,
-    collections: CollectionRecord[],
-    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
 ): Promise<void> {
-    // WETH triggers only matter for current-state maker revalidation.
-    if (
-        !shouldFetchWethMakerLogs({
-            orderMaintenancePolicy,
-            range,
-            bidderIndexActive: bidderIndex.isActive(),
-            hasCurrentStateProjection: hasAnyCurrentStateProjection(
-                collections,
-                range,
-            ),
-        })
-    ) {
-        return;
-    }
-
     const logs = await rpc.getLogs({
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
         address: wethAddress as Hex,
         events: WETH_EVENT_FILTERS,
     });
-    const makers = decodeWethMakerInfos(logs, bidderIndex);
+    const makers = decodeWethMakerInfos(logs);
     data.global.makerTriggers.push(...makers);
 }
 
@@ -517,20 +516,7 @@ function filterCurrentStateOnChainData(
                     data.collectionScoped.collectionExtensionEventMedia,
                 ),
         },
-        global: {
-            cancelEvents: data.global.cancelEvents.filter((event) =>
-                canAnyCollectionProjectCurrentStateAt(
-                    collections,
-                    event.blockNumber,
-                ),
-            ),
-            makerTriggers: data.global.makerTriggers.filter((event) =>
-                canAnyCollectionProjectCurrentStateAt(
-                    collections,
-                    event.blockNumber,
-                ),
-            ),
-        },
+        global: data.global,
     };
 }
 

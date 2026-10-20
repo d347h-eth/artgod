@@ -565,12 +565,18 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 - each task calls `ownerOf(tokenId)` at the anchor block through the shared
   resilient bootstrap RPC lane (manual-scope ownership is currently re-read after
   enumeration rather than cached across steps)
-- successful tasks persist snapshot rows
+- successful tasks persist snapshot rows only while their exact run/anchor task
+  identity still matches; a late response cannot complete a reseeded task
 - task retries use the bootstrap retry policy
 - ownership is mandatory: terminal ownership task failures fail the bootstrap
   run and block collection liveness
-- once all ownership tasks succeed, snapshot rows finalize the base
-  `nft_balances` state
+- once all ownership tasks succeed, installation freshly verifies the exact
+  anchor and atomically writes `nft_balances` plus `collection_ownership_bases`
+  under the captured chain revision, run identity and active step lease
+- installation never resets an already applied collection; duplicate installation
+  preserves post-anchor ownership and the original installed base
+- selecting an anchor or installing a base creates no canonical headers or
+  applied cursor; the coordinator alone accepts that base
 
 ### 7. Wait for applied catch-up
 
@@ -586,6 +592,12 @@ with every new head. Raw historical coverage does not prove current effects
 were applied. Missing progress remains visible on the bootstrap step; the
 coordinator's durable periodic work owns acquisition even if the queue wakeup
 is lost. Bootstrap does not run a separate missing-gap publication loop.
+
+A slow bootstrap may finish an anchor older than the first installed shared
+base. The coordinator freshly verifies that anchor, catches up its collection
+prefix on the main lane, and requires an exact join with shared history before
+validation becomes available. A failed anchor read has its own durable retry
+time and does not stop healthy collections. Shared progress is never lowered.
 
 A range with no post-anchor blocks still waits for the coordinator to accept the
 installed ownership base. Selecting an anchor or storing snapshot rows alone
@@ -605,7 +617,7 @@ When enabled, that OpenSea flow does:
    bootstrapping once the slug, non-null OpenSea status, and enabled
    stream-ingestion state are visible
 
-This OpenSea work runs in parallel with the short onchain backfill.
+This OpenSea work runs in parallel with coordinator-owned onchain catch-up.
 
 When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
 

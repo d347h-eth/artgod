@@ -1,4 +1,4 @@
-import { db, type SynchronousTransactionGuard } from "@artgod/shared/database";
+import { db } from "@artgod/shared/database";
 import {
     StoredBlockHashConflict,
     type ChainSyncCheckpoint,
@@ -6,7 +6,6 @@ import {
 } from "../../domain/chain-sync.js";
 import { assertSyncBlockHeaders } from "../../domain/sync-result.js";
 import { assertChainSyncCheckpoint } from "./sqlite-chain-revisions.js";
-import { SqliteCanonicalChecks } from "./sqlite-canonical-checks.js";
 
 /** All header writers share the same identity fence. The caller owns the writer
  * transaction and any facts or coverage; a header alone never means range sync. */
@@ -49,32 +48,5 @@ export function persistCanonicalBlocks(
                 block.timestamp,
                 pendingCheck(block) ? 1 : 0,
             );
-    }
-}
-
-/** Validation can observe a block before sync. Commit its header/check with the
- * effects, and rearm a conflicting stored identity outside the failed writer. */
-export function writeWithCanonicalBlock<T>(
-    evidence: {
-        checkpoint: ChainSyncCheckpoint;
-        block: SyncBlockHeader;
-    } | null,
-    write: (() => T) & SynchronousTransactionGuard<T>,
-): T {
-    try {
-        const operation = (() => {
-            if (evidence)
-                persistCanonicalBlocks(
-                    evidence.checkpoint,
-                    [evidence.block],
-                    () => true,
-                );
-            return write();
-        }) as typeof write;
-        return db.writeTransaction(operation)();
-    } catch (error) {
-        if (error instanceof StoredBlockHashConflict)
-            new SqliteCanonicalChecks().retain(error.check);
-        throw error;
     }
 }

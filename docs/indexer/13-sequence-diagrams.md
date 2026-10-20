@@ -35,7 +35,7 @@ sequenceDiagram
 sequenceDiagram
     participant Scanner as Sync Worker Gap Discovery
     participant DB as SQLite
-    participant Sync as Sync Worker Automatic Executor
+    participant Sync as Sync Coordinator
     participant RPC as RPC Node
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
@@ -76,30 +76,29 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Reorg as Reorg Worker
     participant RPC as RPC Node
     participant DB as SQLite
-    participant Sync as Sync Worker Automatic Executor
+    participant Sync as Sync Coordinator
     participant Domain as Domain Worker Outbox Drainer
     participant NATS as NATS JetStream
 
-    Reorg->>DB: Read one eligible pending stored hash and revision
-    Reorg->>RPC: Fresh header differs from stored hash
-    Reorg->>DB: Atomically retain mismatch and clear its pending check
+    Sync->>DB: Read one eligible pending stored hash and revision
+    Sync->>RPC: Fresh header differs from stored hash
+    Sync->>DB: Atomically retain mismatch and clear its pending check
     alt Retention fails
-        Reorg->>DB: Leave check pending with durable retry time
+        Sync->>DB: Leave check pending with durable retry time
     else Mismatch retained
-        Reorg->>RPC: Complete bounded common-ancestor proof
+        Sync->>RPC: Complete bounded common-ancestor proof
         alt Proof unavailable
-            Reorg->>DB: Retain awaiting_ancestor with delayed retry
+            Sync->>DB: Retain awaiting_ancestor with delayed retry
         else Verified ancestor
-            Reorg->>RPC: ownerOf at exact fork hash, requireCanonical
-            Reorg->>DB: Atomic checkpoints, rollback, revision and resync range
+            Sync->>RPC: ownerOf at exact fork hash, requireCanonical
+            Sync->>DB: Atomic checkpoints, rollback, revision and resync range
         end
     end
-    loop Reorg startup and proof polling, independent of HEAD changes
-        Reorg->>DB: Read due awaiting_ancestor
-        Reorg->>RPC: Retry bounded proof and exact-hash snapshot
+    loop Coordinator passes, independent of HEAD changes
+        Sync->>DB: Read due awaiting_ancestor
+        Sync->>RPC: Retry bounded proof and exact-hash snapshot
     end
     loop Continuous bounded sync passes
         Sync->>DB: Read one retained canonical range and eligible collections

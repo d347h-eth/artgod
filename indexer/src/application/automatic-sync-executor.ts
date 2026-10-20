@@ -4,20 +4,23 @@ import {
     type SyncWorkClass,
 } from "@artgod/shared/types/sync-work-class";
 import { logger } from "@artgod/shared/utils";
-import { automaticGapUpperBound } from "../domain/chain-sync.js";
+import {
+    automaticGapUpperBound,
+    ChainSyncConflict,
+    StoredBlockHashConflict,
+} from "../domain/chain-sync.js";
 import {
     isCurrentSyncGapRepair,
     planSyncGapRepairBatches,
     type SyncGapRepairBatch,
 } from "../domain/sync-gap-repair.js";
-import {
-    REORG_RECOVERY_PHASE,
-    type ReorgResyncRange,
-} from "../domain/reorg-recovery.js";
+import { REORG_RECOVERY_PHASE } from "../domain/reorg-recovery.js";
 import {
     SYNC_WORK_COMPLETION,
+    SYNC_APPLICATION_KIND,
     AUTOMATIC_GAP_WORK_POLICY,
     type SyncWorkCompletion,
+    type SyncApplication,
 } from "../domain/sync-work.js";
 import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
@@ -31,14 +34,19 @@ import type {
 } from "../ports/collections.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
 import type { CanonicalChecksPort } from "../ports/canonical-checks.js";
-import type { ReorgRecoveryStore } from "./reorg-recovery.js";
+import type {
+    RecoverChainReorg,
+    ReorgRecoveryStore,
+} from "./reorg-recovery.js";
+import type { ChainProgressPort } from "../ports/chain-progress.js";
+import type { SyncCoordinationPort } from "../ports/sync-coordination.js";
+import type { RpcProviderPort } from "../ports/rpc.js";
 import {
     BACKFILL_EXECUTION_MODE,
     type BackfillExecutionGate,
 } from "./backfill-execution.js";
 import {
     processSyncRange,
-    resolveBackfillCollections,
     type SyncRangeInput,
 } from "./sync-range-processing.js";
 import {
@@ -67,6 +75,7 @@ export interface AutomaticSyncObserver {
 export const AUTOMATIC_SYNC_POLICY = {
     PollMs: 12_000,
     RetryDelayMs: AUTOMATIC_GAP_WORK_POLICY.RetryDelayMs,
+    CollectionBasesPerPass: 64,
 } as const;
 const LOG_COMPONENT = "AutomaticSyncExecutor";
 const LOG_ACTION = { Range: "range", Poll: "poll" } as const;
@@ -77,6 +86,7 @@ type AutomaticSyncInput = Omit<
     | "range"
     | "orderMaintenancePolicy"
     | "collectionScopeResolver"
+    | "application"
 > & {
     commit: SyncRangeCommitPort;
     canonicalChecks: Pick<CanonicalChecksPort, "retain">;
@@ -90,6 +100,10 @@ type AutomaticSyncInput = Omit<
     gapWorkEnabled: boolean;
     workScope: { run<T>(workClass: SyncWorkClass, task: () => T): T };
     recoveries: Pick<ReorgRecoveryStore, "getRecovery" | "deferResync">;
+    recovery: Pick<RecoverChainReorg, "resumeDue" | "checkDue">;
+    progress: ChainProgressPort;
+    coordination: SyncCoordinationPort;
+    historicalRpc: RpcProviderPort;
     gate: Pick<BackfillExecutionGate, "run">;
     batchSize: number;
     reorgDepth: number;
@@ -105,6 +119,7 @@ export class AutomaticSyncExecutor {
     private discoveryHead: { block: number; readAt: number } | null = null;
     private discoveryRevision: number | null = null;
     private resumeHeadCheckPending = true;
+    private preferShared = true;
     private readonly now: () => number;
     private readonly retryDelayMs: number;
 
@@ -133,21 +148,32 @@ export class AutomaticSyncExecutor {
     }
 
     private async run(): Promise<boolean> {
-        const recovery = this.input.recoveries.getRecovery(this.input.chainId);
-        if (recovery?.phase === REORG_RECOVERY_PHASE.Resync) {
-            if (recovery.retryAt > this.now()) return false;
-            return this.input.workScope.run(SYNC_WORK_CLASS.Main, () =>
-                this.runReorgResync(),
-            );
-        }
+        // Proof, rollback and forward acceptance are serial transitions of this
+        // owner. One delayed check per pass cannot starve foreground catch-up.
+        const progressed = await this.input.workScope.run(
+            SYNC_WORK_CLASS.Main,
+            () =>
+                this.input.gate.run(
+                    BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+                    async () => {
+                        await this.input.recovery.resumeDue();
+                        const checked = await this.input.recovery.checkDue();
+                        return (await this.runCurrentState()) || checked;
+                    },
+                    SYNC_WORK_CLASS.Main,
+                ),
+        );
+        if (progressed) return true;
         if (
+            !this.input.coordination.canAdvance(this.input.chainId) ||
+            this.input.recoveries.getRecovery(this.input.chainId) ||
             !this.input.gapWorkEnabled ||
             !this.input.gapScheduler.hasCollections()
         )
             return false;
         return this.input.workScope.run(SYNC_WORK_CLASS.GapRepair, () =>
             this.input.gate.run(
-                BACKFILL_EXECUTION_MODE.SerializedCurrentState,
+                BACKFILL_EXECUTION_MODE.ParallelFactsOnly,
                 async () => {
                     // Reselect after any manual/recovery work admitted ahead of this pass.
                     if (
@@ -290,11 +316,17 @@ export class AutomaticSyncExecutor {
             };
         });
         try {
-            await this.process(collections, batch, sources, {
-                kind: SYNC_WORK_COMPLETION.GapRepair,
+            await this.process(
+                collections,
                 batch,
-                retryAt: this.now(),
-            });
+                sources,
+                {
+                    kind: SYNC_WORK_COMPLETION.GapRepair,
+                    batch,
+                    retryAt: this.now(),
+                },
+                { kind: SYNC_APPLICATION_KIND.Historical },
+            );
             return true;
         } catch (error) {
             for (const repair of repairs)
@@ -312,71 +344,197 @@ export class AutomaticSyncExecutor {
         }
     }
 
-    private async runReorgResync(): Promise<boolean> {
-        return this.input.gate.run(
-            BACKFILL_EXECUTION_MODE.SerializedCurrentState,
-            async () => {
-                const current = this.input.recoveries.getRecovery(
-                    this.input.chainId,
+    private async runCurrentState(): Promise<boolean> {
+        const { chainId, progress, coordination } = this.input;
+        let chain = progress.chainProgress(chainId);
+        if (!chain) {
+            const base = coordination.firstInstalledBase(chainId);
+            if (!base) return false;
+            const anchor = await this.input.rpc.getBlock(base.blockNumber, {
+                fresh: true,
+            });
+            if (
+                anchor.number !== base.blockNumber ||
+                anchor.hash !== base.blockHash
+            )
+                throw new ChainSyncConflict(
+                    "Installed ownership base is no longer canonical",
                 );
+            progress.initializeChain(base.checkpoint, anchor);
+            chain = progress.chainProgress(chainId)!;
+        }
+        if (!coordination.canAdvance(chainId)) return false;
+        const bases = coordination.unacceptedCollectionBases(
+            chainId,
+            this.now(),
+            AUTOMATIC_SYNC_POLICY.CollectionBasesPerPass,
+        );
+        let acceptedBases = 0;
+        let verifiedOlderBase = false;
+        for (const base of bases) {
+            if (!base.acceptedHeader && verifiedOlderBase) continue;
+            if (!base.acceptedHeader) verifiedOlderBase = true;
+            coordination.recordBaseAttempt(base, this.now(), 0);
+            try {
+                const anchor =
+                    base.acceptedHeader ??
+                    (await this.input.rpc.getBlock(base.anchor.number, {
+                        fresh: true,
+                    }));
                 if (
-                    current?.phase !== REORG_RECOVERY_PHASE.Resync ||
-                    current.retryAt > this.now()
+                    anchor.number !== base.anchor.number ||
+                    anchor.hash !== base.anchor.hash
                 )
-                    return false;
-                const collections = resolveBackfillCollections(
-                    this.input.collectionsPort,
-                    this.input.chainId,
-                    null,
-                );
-                if (!collections.length) return false;
-                const range: ReorgResyncRange = {
-                    chainId: current.chainId,
-                    recoveryId: current.recoveryId,
-                    revision: current.revision,
-                    fromBlock: current.fromBlock,
-                    toBlock: current.toBlock,
-                };
-                const id = `sync:reorg:${current.recoveryId}:${current.fromBlock}-${current.toBlock}`;
-                try {
-                    await this.process(
-                        collections,
-                        range,
-                        [
-                            {
-                                fanoutId: id,
-                                sourceJobId: id,
-                                sourceKind: SYNC_JOB_KIND.BackfillRange,
-                            },
-                        ],
-                        {
-                            kind: SYNC_WORK_COMPLETION.ReorgResync,
-                            range,
-                            batchSize: this.input.batchSize,
-                            retryAt: this.now(),
-                        },
+                    throw new ChainSyncConflict(
+                        "Installed collection base is no longer canonical",
                     );
-                    return true;
-                } catch (error) {
-                    this.input.recoveries.deferResync({
-                        range,
-                        retryAt:
-                            this.now() +
-                            (error instanceof RpcBudgetDeferred
-                                ? error.retryAfterMs
-                                : this.retryDelayMs),
-                        error: String(error),
+                progress.acceptCollectionBase(
+                    base.checkpoint,
+                    base.collectionId,
+                    anchor,
+                );
+                acceptedBases++;
+            } catch (error) {
+                if (error instanceof StoredBlockHashConflict)
+                    this.input.canonicalChecks.retain(error.check, {
+                        disputed: true,
                     });
+                coordination.recordBaseAttempt(
+                    base,
+                    this.now(),
+                    this.now() +
+                        (error instanceof RpcBudgetDeferred
+                            ? error.retryAfterMs
+                            : this.retryDelayMs),
+                );
+                if (!(error instanceof RpcBudgetDeferred))
                     this.logFailure(
-                        SYNC_WORK_COMPLETION.ReorgResync,
-                        range,
+                        SYNC_WORK_COMPLETION.Unmanaged,
+                        {
+                            fromBlock: base.anchor.number,
+                            toBlock: base.anchor.number,
+                        },
                         error,
                     );
-                    return false;
-                }
-            },
-            SYNC_WORK_CLASS.Main,
-        );
+            }
+        }
+        // Base acceptance may have detected a competing retained identity.
+        if (!coordination.canAdvance(chainId)) return acceptedBases > 0;
+
+        const recovery = this.input.recoveries.getRecovery(chainId);
+        const resync =
+            recovery?.phase === REORG_RECOVERY_PHASE.Resync ? recovery : null;
+        const target =
+            resync?.targetBlock ?? progress.headTarget(chainId)?.blockNumber;
+        const sharedReady =
+            target !== undefined &&
+            target > chain.applied.number &&
+            coordination.sharedDue(chainId, this.now()) &&
+            (!resync || resync.retryAt <= this.now());
+        const scope = coordination.nextCollectionCatchup(chainId, this.now());
+        if (!sharedReady && !scope) return acceptedBases > 0;
+
+        let application: SyncApplication;
+        let collections: CollectionRecord[];
+        let range: SyncRange;
+        let completion: SyncWorkCompletion = {
+            kind: SYNC_WORK_COMPLETION.Unmanaged,
+        };
+        if (sharedReady && (this.preferShared || !scope)) {
+            application = {
+                kind: SYNC_APPLICATION_KIND.Applied,
+                chain,
+                collections: [],
+            };
+            collections = [];
+            range = {
+                fromBlock: chain.applied.number + 1,
+                toBlock: Math.min(
+                    target!,
+                    chain.applied.number + this.input.batchSize,
+                ),
+            };
+            if (resync) {
+                if (resync.fromBlock !== range.fromBlock)
+                    throw new ChainSyncConflict(
+                        "Recovery range is not the next applied prefix",
+                    );
+                range.toBlock = resync.toBlock;
+                completion = {
+                    kind: SYNC_WORK_COMPLETION.ReorgResync,
+                    range: {
+                        chainId,
+                        recoveryId: resync.recoveryId,
+                        revision: resync.revision,
+                        ...range,
+                    },
+                    batchSize: this.input.batchSize,
+                    retryAt: this.now(),
+                };
+            }
+            this.preferShared = false;
+        } else {
+            if (!scope) return false;
+            const collection = this.input.collectionsPort.getCollection(
+                chainId,
+                scope.collectionId,
+            );
+            if (!collection) return false;
+            application = {
+                kind: SYNC_APPLICATION_KIND.Applied,
+                chain: null,
+                collections: [scope],
+            };
+            collections = [collection];
+            range = {
+                fromBlock: scope.applied.number + 1,
+                toBlock: Math.min(
+                    chain.applied.number,
+                    scope.applied.number + this.input.batchSize,
+                ),
+            };
+            this.preferShared = true;
+        }
+        // Each pass has one bounded range and no speculative future buffer.
+        // Failed scopes retain their own retry time, so ready scopes remain selectable.
+        coordination.recordAttempt(application, this.now(), 0);
+        const scopeId = application.chain
+            ? "shared"
+            : application.collections[0]!.collectionId;
+        const id = `sync:applied:${chainId}:${chain.checkpoint.revision}:${scopeId}:${range.fromBlock}-${range.toBlock}`;
+        try {
+            await this.process(
+                collections,
+                range,
+                [
+                    {
+                        fanoutId: id,
+                        sourceJobId: id,
+                        sourceKind: SYNC_JOB_KIND.BackfillRange,
+                    },
+                ],
+                completion,
+                application,
+            );
+            return true;
+        } catch (error) {
+            const retryAt =
+                this.now() +
+                (error instanceof RpcBudgetDeferred
+                    ? error.retryAfterMs
+                    : this.retryDelayMs);
+            coordination.recordAttempt(application, this.now(), retryAt);
+            if (completion.kind === SYNC_WORK_COMPLETION.ReorgResync)
+                this.input.recoveries.deferResync({
+                    range: completion.range,
+                    retryAt,
+                    error: String(error),
+                });
+            if (!(error instanceof RpcBudgetDeferred))
+                this.logFailure(completion.kind, range, error);
+            // Reconsider another ready scope without waiting for this retry.
+            return true;
+        }
     }
 
     private async process(
@@ -384,17 +542,21 @@ export class AutomaticSyncExecutor {
         range: SyncRange,
         sources: DomainSyncSource[],
         completion: SyncWorkCompletion,
+        application: SyncApplication,
     ): Promise<void> {
         const startedAtMs = this.now();
         const result = await processSyncRange({
-            rpc: this.input.rpc,
+            rpc:
+                application.kind === SYNC_APPLICATION_KIND.Historical
+                    ? this.input.historicalRpc
+                    : this.input.rpc,
             storage: this.input.storage,
             commit: this.input.commit,
             canonicalChecks: this.input.canonicalChecks,
             collectionExtensions: this.input.collectionExtensions,
             chainId: this.input.chainId,
             reorgDepth: this.input.reorgDepth,
-            bidderIndex: this.input.bidderIndex,
+            application,
             wethAddress: this.input.wethAddress,
             collectionScopeResolver: this.input.collectionsPort,
             collections,
@@ -403,7 +565,9 @@ export class AutomaticSyncExecutor {
             completion,
             mode: "backfill",
             orderMaintenancePolicy:
-                BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                application.kind === SYNC_APPLICATION_KIND.Applied
+                    ? BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState
+                    : BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
         });
         const completedAtMs = this.now();
         observeBestEffort(() =>
@@ -448,13 +612,15 @@ export class AutomaticSyncExecutor {
 export function startAutomaticSyncLoop(
     executor: Pick<AutomaticSyncExecutor, "runDue">,
     pollMs: number = AUTOMATIC_SYNC_POLICY.PollMs,
-): () => Promise<void> {
+): { wake(): void; stop(): Promise<void> } {
     if (!Number.isSafeInteger(pollMs) || pollMs < 1)
         throw new Error("Invalid automatic sync polling interval");
     let stopped = false;
+    let wakeRequested = false;
     let resume: (() => void) | undefined;
     const active = (async () => {
         while (!stopped) {
+            wakeRequested = false;
             let busy = false;
             try {
                 busy = await executor.runDue();
@@ -473,7 +639,7 @@ export function startAutomaticSyncLoop(
                         resume = undefined;
                         resolve();
                     },
-                    busy ? 0 : pollMs,
+                    busy || wakeRequested ? 0 : pollMs,
                 );
                 resume = () => {
                     clearTimeout(timer);
@@ -483,9 +649,15 @@ export function startAutomaticSyncLoop(
             });
         }
     })();
-    return async () => {
-        stopped = true;
-        resume?.();
-        await active;
+    return {
+        wake: () => {
+            wakeRequested = true;
+            resume?.();
+        },
+        stop: async () => {
+            stopped = true;
+            resume?.();
+            await active;
+        },
     };
 }

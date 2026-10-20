@@ -1,4 +1,5 @@
-import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import { createCanonicalOrderEffectsFixture } from "./helpers/canonical-order-effects-fixture.js";
 import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -19,13 +20,9 @@ import {
     QUEUE_OUTBOX_STATUS,
 } from "../src/domain/queue-outbox.js";
 import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
-import type { SyncRangeResult } from "../src/ports/storage.js";
 import type { QueuePort } from "../src/ports/queue.js";
 import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
-import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
-import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
 import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
-import { SqliteSyncRangeCommit } from "../src/infra/storage/sqlite-sync-range-commit.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -77,13 +74,23 @@ describe("atomic sync follow-up retention", () => {
             txHash: f.transfer(103, 2, OWNER, NEXT).txHash,
             logIndex: 2,
         });
-        const result: SyncRangeResult = {
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            checkpoint: f.storage.captureSyncCheckpoint(1),
+        db.prepare(
+            "INSERT INTO orders(id,chain_id,collection_id,kind,side,maker,contract_address,currency,quantity,source_status,fillability_status) VALUES ('fixture-bid',1,?,'seaport','buy',?,?,?,'1','active','fillable')",
+        ).run(f.collectionId, OWNER, f.contract, REORG_FIXTURE.Weth);
+        const applied = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: block(100),
+            collections: [loadCollection(1, f.collectionId)],
+            orderEffects: createCanonicalOrderEffectsFixture(
+                REORG_FIXTURE.Weth,
+            ),
+        });
+        const result = applied.applied({
             blocks: [101, 102, 103].map(block),
             data,
-            collections: [loadCollection(1, f.collectionId)],
-        };
+            shared: true,
+            collectionIds: [f.collectionId],
+        });
         const followUps = buildSyncFollowUps(
             1,
             result.collections,
@@ -92,24 +99,15 @@ describe("atomic sync follow-up retention", () => {
             "backfill",
             data,
             POLICY,
+            result.application,
         );
-        const outbox = new SqliteQueueOutbox();
         return {
             ...f,
+            ...applied,
             result,
             followUps,
             completion: { kind: SYNC_WORK_COMPLETION.Unmanaged },
-            outbox,
-            commit: new SqliteSyncRangeCommit({
-                storage: f.storage,
-                outbox,
-                gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(
-                    f.storage,
-                    new SqliteCanonicalChecks(),
-                ),
-                collections: new SqliteCollectionRegistry(),
-            }),
+            commit: applied.writer,
         };
     }
 
@@ -132,10 +130,14 @@ describe("atomic sync follow-up retention", () => {
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
         expect(count("nft_transfer_events")).toBe(0);
         expect(count("queue_outbox")).toBe(0);
-        expect(count("blocks")).toBe(0);
+        expect(count("maker_order_revalidation_runs")).toBe(0);
+        expect(count("blocks")).toBe(1); // Explicit accepted anchor survives.
+        expect(f.progress.chainProgress(1)?.applied.number).toBe(100);
         db.exec("DROP TRIGGER fail_sync_followup;");
         f.commit.commitSyncRange(f);
         expect(count("queue_outbox")).toBe(4);
+        expect(count("maker_order_revalidation_runs")).toBe(1);
+        expect(f.progress.chainProgress(1)?.applied.number).toBe(103);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: NEXT, amount: "1" },
         ]);
@@ -144,7 +146,7 @@ describe("atomic sync follow-up retention", () => {
     it("retains ephemeral hints across reopen and retries publication beyond the ordinary budget", async () => {
         const f = fixture();
         f.commit.commitSyncRange(f);
-        f.commit.commitSyncRange(f); // same acquisition identities are idempotent
+        expect(() => f.commit.commitSyncRange(f)).toThrow(ChainSyncConflict); // A replay cannot apply the same prefix twice.
         expect(count("queue_outbox")).toBe(4);
         setDbPath(dbPath);
         const outbox = new SqliteQueueOutbox();
@@ -190,28 +192,31 @@ describe("atomic sync follow-up retention", () => {
         const f = transferFixture();
         const rpc = new RecoveryRpc(200);
         const headers = vi.spyOn(rpc, "getBlock");
-        const outbox = new SqliteQueueOutbox();
+        const applied = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: block(100),
+            collections: [loadCollection(1, f.collectionId)],
+            orderEffects: createCanonicalOrderEffectsFixture(
+                REORG_FIXTURE.Weth,
+            ),
+        });
+        const outbox = applied.outbox;
         await processSyncRange({
             reorgDepth: 3,
             canonicalChecks: new SqliteCanonicalChecks(),
             rpc,
             storage: f.storage,
-            commit: new SqliteSyncRangeCommit({
-                storage: f.storage,
-                outbox,
-                gaps: new SqliteSyncGapStore(),
-                recoveries: new SqliteReorgRecoveries(
-                    f.storage,
-                    new SqliteCanonicalChecks(),
-                ),
-                collections: new SqliteCollectionRegistry(),
-            }),
+            commit: applied.writer,
+            application: applied.applied({
+                blocks: [101, 102, 103].map(block),
+                shared: true,
+                collectionIds: [f.collectionId],
+            }).application,
             collectionScopeResolver: new SqliteCollectionRegistry(),
             collectionExtensions: { getInstall: () => null },
             chainId: 1,
             collections: [loadCollection(1, f.collectionId)],
             range: { fromBlock: 101, toBlock: 103 },
-            bidderIndex: { isActive: () => false, shouldEmit: () => false },
             wethAddress: REORG_FIXTURE.Weth,
             orderMaintenancePolicy: POLICY,
             sources: [SOURCE],
@@ -287,7 +292,6 @@ describe("atomic sync follow-up retention", () => {
 
     it("removes orphan event publications but preserves unfinished range publications and canonical pre-fork hints", () => {
         const f = fixture();
-        f.result.blocks = [100, 101, 102, 103].map(block);
         f.result.data.global.makerTriggers.push({
             ...f.result.data.global.makerTriggers[0],
             blockNumber: 101,
@@ -297,11 +301,12 @@ describe("atomic sync follow-up retention", () => {
         f.followUps = buildSyncFollowUps(
             1,
             f.result.collections,
-            { fromBlock: 100, toBlock: 103 },
+            { fromBlock: 101, toBlock: 103 },
             [SOURCE],
             "backfill",
             f.result.data,
             POLICY,
+            f.result.application,
         );
         f.commit.commitSyncRange(f);
         const jobs = f.outbox
@@ -344,7 +349,8 @@ describe("atomic sync follow-up retention", () => {
             throw new Error("missing fixture event");
         event.block.blockHash = block(999).hash;
         expect(() => f.commit.commitSyncRange(f)).toThrow(ChainSyncConflict);
-        expect(count("blocks")).toBe(0);
+        expect(count("blocks")).toBe(1); // Explicit accepted anchor survives.
+        expect(f.progress.chainProgress(1)?.applied.number).toBe(100);
         expect(count("queue_outbox")).toBe(0);
     });
 

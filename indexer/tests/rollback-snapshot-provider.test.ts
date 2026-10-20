@@ -50,7 +50,7 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
     });
     beforeEach(() =>
         db.exec(
-            "DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_revisions;",
+            "DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_head_samples; DELETE FROM chain_sync_targets; DELETE FROM chain_sync_revisions;",
         ),
     );
     afterEach(() => vi.unstubAllGlobals());
@@ -161,13 +161,16 @@ describe("rollback snapshots through the weighted RPC adapter", () => {
     it("retains the exact fork hash when a consistent divergent endpoint cannot serve it", async () => {
         const f = harness({ divergent: true });
         await f.rollback.execute(CANONICAL);
-        f.storage.persistSyncResult({
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            checkpoint: f.storage.captureSyncCheckpoint(1),
-            blocks: [104, 105, 106, 107].map(block),
-            data: emptyOnChainData(),
-            collections: [loadCollection(1, f.collectionId)],
-        });
+        f.owner().commit(
+            f
+                .owner()
+                .applied({
+                    blocks: [104, 105, 106, 107].map(block),
+                    data: emptyOnChainData(),
+                    shared: true,
+                    collectionIds: [f.collectionId],
+                }),
+        );
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: OWNER, amount: "1" },
         ]);

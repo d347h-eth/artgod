@@ -1,3 +1,5 @@
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import { commitRollbackFixture } from "./helpers/rollback-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -15,7 +17,6 @@ import {
 } from "../src/application/sync-gap-scheduler.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
-import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -29,7 +30,7 @@ describe("durable collection gap scanning", () => {
     });
     beforeEach(() =>
         db.exec(
-            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM queue_outbox;",
+            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM queue_outbox; DELETE FROM chain_sync_progress;",
         ),
     );
 
@@ -104,8 +105,20 @@ describe("durable collection gap scanning", () => {
         const first = h.due()[0];
         expect(first).toMatchObject({ fromBlock: 101, toBlock: 101 });
         h.finish(first);
+        const applied = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: block(100),
+            collections: [],
+        });
+        applied.commit(
+            applied.applied({
+                blocks: Array.from({ length: 10 }, (_, i) => block(101 + i)),
+                shared: true,
+                collectionIds: [],
+            }),
+        );
         commitRollbackFixture({
-            storage: new SqliteStorage(),
+            storage: applied.storage,
             chainId: 1,
             fromBlock: 108,
             owners: [],

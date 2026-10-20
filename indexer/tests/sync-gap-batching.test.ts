@@ -1,3 +1,6 @@
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import { SqliteSyncCoordination } from "../src/infra/storage/sqlite-sync-coordination.js";
+import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
 import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,9 +24,7 @@ import {
 } from "../src/domain/sync-jobs.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../src/ports/rpc.js";
 import type { QueuePort } from "../src/ports/queue.js";
-import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteSyncGapStore } from "../src/infra/storage/sqlite-sync-gaps.js";
-import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import {
     insertCollection,
@@ -44,9 +45,7 @@ const TX = `0x${"ab".repeat(32)}` as Hex;
 import { AutomaticSyncExecutor } from "../src/application/automatic-sync-executor.js";
 import { BackfillExecutionGate } from "../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../src/application/queue-outbox/drainer.js";
-import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 import { SqliteReorgRecoveries } from "../src/infra/storage/sqlite-reorg-recoveries.js";
-import { SqliteSyncRangeCommit } from "../src/infra/storage/sqlite-sync-range-commit.js";
 
 describe("shared collection gap acquisition", () => {
     loadTestEnv();
@@ -56,11 +55,11 @@ describe("shared collection gap acquisition", () => {
     });
     beforeEach(() =>
         db.exec(
-            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox; DELETE FROM chain_reorg_recoveries;",
+            "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox; DELETE FROM chain_reorg_recoveries; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_targets;",
         ),
     );
 
-    it("acquires one range and shared receipt, retains separate coverage, owners and scoped follow-ups", async () => {
+    it("acquires one historical range and shared receipt, retains separate facts and scoped activity follow-ups", async () => {
         const h = harness(),
             first = seed(0),
             second = seed(1),
@@ -100,9 +99,7 @@ describe("shared collection gap acquisition", () => {
         });
         for (const id of [first, second]) {
             expect(coverage(id)).toBe(11);
-            expect(selectBalanceOwners(1, id, "1")).toEqual([
-                { owner: BUYER, amount: "1" },
-            ]);
+            expect(selectBalanceOwners(1, id, "1")).toEqual([]);
             expect(h.store.getProgress(1, id)?.pending).toBeNull();
             expect(
                 published.filter(
@@ -114,7 +111,7 @@ describe("shared collection gap acquisition", () => {
                             DOMAIN_JOB_KIND.MetadataSync,
                         ].includes(j.kind as never),
                 ),
-            ).toHaveLength(3);
+            ).toHaveLength(1);
             const source = `${batch.repairs.find((r) => r.collectionId === id)!.repairId}:range:101-110`;
             expect(
                 published
@@ -139,7 +136,7 @@ describe("shared collection gap acquisition", () => {
         expect(rpc.getBlock).toHaveBeenCalledTimes(11);
     });
 
-    it("keeps a collection at its anchor facts-only inside the shared range", async () => {
+    it("keeps every historical collection facts-only, including a collection at its anchor", async () => {
         const h = harness(),
             first = seed(0),
             atAnchor = seed(1);
@@ -157,7 +154,7 @@ describe("shared collection gap acquisition", () => {
                 .map((j) => j.kind),
         ).toEqual([DOMAIN_JOB_KIND.ActivitySync]);
         expect(published.filter((j) => j.collectionId === first)).toHaveLength(
-            3,
+            1,
         );
         expect(coverage(first)).toBe(1);
         expect(coverage(atAnchor)).toBe(1);
@@ -218,7 +215,7 @@ describe("shared collection gap acquisition", () => {
         > = {};
         for (const mode of ["separate", "shared"]) {
             db.exec(
-                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox;",
+                "DELETE FROM collections; DELETE FROM blocks; DELETE FROM transactions; DELETE FROM queue_outbox; DELETE FROM chain_reorg_recoveries; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_targets;",
             );
             const h = harness(),
                 first = seed(0),
@@ -239,12 +236,12 @@ describe("shared collection gap acquisition", () => {
                 chainId: 1,
                 collections: [h.registry.getCollection(1, busy)!],
                 range: { fromBlock: 101, toBlock: 109 },
-                bidderIndex: { isActive: () => false, shouldEmit: () => false },
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 wethAddress: CONTRACTS[0],
                 orderMaintenancePolicy:
                     BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
             });
-            h.storage.persistSyncResult(covered);
+            h.applied.commit(covered);
             rpc.getBlock.mockClear();
             rpc.getLogs.mockClear();
             rpc.getTransaction.mockClear();
@@ -282,14 +279,10 @@ describe("shared collection gap acquisition", () => {
                 expect(coverage(id)).toBe(11);
             }
             for (let token = 1; token <= 9; token++) {
-                expect(selectBalanceOwners(1, busy, String(token))).toEqual([
-                    { owner: BUYER, amount: "1" },
-                ]);
+                expect(selectBalanceOwners(1, busy, String(token))).toEqual([]);
                 expect(selectTransferCount(1, busy, String(token))).toBe(1);
             }
-            expect(selectBalanceOwners(1, first, "10")).toEqual([
-                { owner: BUYER, amount: "1" },
-            ]);
+            expect(selectBalanceOwners(1, first, "10")).toEqual([]);
             expect(rpc.getTransaction.mock.calls.map(([hash]) => hash)).toEqual(
                 [logs[9].transactionHash],
             );
@@ -334,7 +327,7 @@ describe("shared collection gap acquisition", () => {
         const failed = vi.fn(async (j: JobEnvelope) => {
             if (
                 j.collectionId === second &&
-                j.kind === DOMAIN_JOB_KIND.OrdersSync
+                j.kind === DOMAIN_JOB_KIND.ActivitySync
             )
                 throw new Error("fanout unavailable");
         });
@@ -347,7 +340,7 @@ describe("shared collection gap acquisition", () => {
         const failedJob = failed.mock.calls.find(
             ([j]) =>
                 j.collectionId === second &&
-                j.kind === DOMAIN_JOB_KIND.OrdersSync,
+                j.kind === DOMAIN_JOB_KIND.ActivitySync,
         )![0];
         h.restart();
         const accepted: JobEnvelope[] = [];
@@ -610,21 +603,27 @@ describe("bounded gap batch planning", () => {
 });
 
 function harness(batchSize = 10) {
-    const registry = new SqliteCollectionRegistry(),
-        store = new SqliteSyncGapStore(),
-        storage = new SqliteStorage(),
-        outbox = new SqliteQueueOutbox(),
-        recoveries = new SqliteReorgRecoveries(
-            storage,
-            new SqliteCanonicalChecks(),
-        );
-    const commit = new SqliteSyncRangeCommit({
-        storage,
-        outbox,
-        gaps: store,
-        recoveries,
-        collections: registry,
+    // Shared protocol sync can be accepted before a collection ownership base
+    // is installed. Historical collection enrichment must not synthesize one.
+    const applied = createAppliedSyncFixture({
+        chainId: 1,
+        anchor: block(100),
+        collections: [],
     });
+    applied.commit(
+        applied.applied({
+            blocks: Array.from({ length: 15 }, (_, i) => block(101 + i)),
+            shared: true,
+            collectionIds: [],
+        }),
+    );
+    const { registry, storage, outbox, progress } = applied;
+    const store = new SqliteSyncGapStore();
+    const recoveries = new SqliteReorgRecoveries(
+        storage,
+        new SqliteCanonicalChecks(),
+    );
+    const commit = applied.writer;
     let now = 1000;
     const create = () =>
         new SyncGapScheduler(registry, store, {
@@ -633,6 +632,8 @@ function harness(batchSize = 10) {
             now: () => now,
         });
     return {
+        applied,
+        progress,
         registry,
         store,
         storage,
@@ -702,6 +703,10 @@ async function run(
         reorgDepth: 1,
         chainId: 1,
         rpc,
+        historicalRpc: rpc,
+        progress: h.progress,
+        coordination: new SqliteSyncCoordination(h.progress),
+        recovery: { resumeDue: async () => false, checkDue: async () => false },
         storage: h.storage,
         commit: h.commit,
         canonicalChecks: new SqliteCanonicalChecks(),
@@ -716,7 +721,6 @@ async function run(
         batchSize: h.batchSize,
         now: h.now,
         retryDelayMs: 100,
-        bidderIndex: { isActive: () => false, shouldEmit: () => false },
         wethAddress: CONTRACTS[0],
     });
     await executor.runDue();

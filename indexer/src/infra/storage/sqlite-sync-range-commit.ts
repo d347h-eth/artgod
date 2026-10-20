@@ -1,5 +1,6 @@
 import { db } from "@artgod/shared/database";
 import { ChainSyncConflict } from "../../domain/chain-sync.js";
+import { buildCanonicalOrderEffects } from "../../domain/canonical-order-effects.js";
 import {
     assertSyncBlocksCoverRange,
     assertSyncFollowUpsMatchBlocks,
@@ -9,7 +10,11 @@ import {
     remainingSyncGapRepairRange,
 } from "../../domain/sync-gap-repair.js";
 import { isCurrentReorgRange } from "../../domain/reorg-recovery.js";
-import { SYNC_WORK_COMPLETION } from "../../domain/sync-work.js";
+import {
+    SYNC_APPLICATION_KIND,
+    SYNC_WORK_COMPLETION,
+} from "../../domain/sync-work.js";
+import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../../domain/sync-jobs.js";
 import type {
     SyncRangeCommit,
     SyncRangeCommitPort,
@@ -19,6 +24,8 @@ import type { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 import type { SyncGapStorePort } from "../../application/sync-gap-scheduler.js";
 import type { ReorgRecoveryStore } from "../../application/reorg-recovery.js";
 import type { CollectionRegistryPort } from "../../ports/collections.js";
+import type { AppliedRangeProgressPort } from "../../ports/chain-progress.js";
+import type { CanonicalOrderEffectsPort } from "../../ports/canonical-order-effects.js";
 
 // Composition injects adapters for the same SQLite database. One writer validates
 // ownership and commits facts, required follow-ups and acquisition progress.
@@ -37,6 +44,9 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
                 "getRecovery" | "completeResyncRange"
             >;
             collections: Pick<CollectionRegistryPort, "getCollection">;
+            progress: AppliedRangeProgressPort;
+            orderEffects: CanonicalOrderEffectsPort;
+            now?: () => number;
         },
     ) {}
 
@@ -45,6 +55,7 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
         const chainId = result.checkpoint.chainId;
         db.writeTransaction(() => {
             this.assertCurrent(input);
+            this.assertApplication(input);
             assertSyncFollowUpsMatchBlocks({
                 chainId,
                 blocks: result.blocks,
@@ -54,6 +65,33 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
                 followUps,
             });
             this.ports.storage.persistSyncResult(result);
+            if (result.application.kind === SYNC_APPLICATION_KIND.Applied) {
+                const { application } = result;
+                const selectedCollections = new Set(
+                    application.collections.map((scope) => scope.collectionId),
+                );
+                this.ports.orderEffects.retain({
+                    checkpoint: result.checkpoint,
+                    effects: buildCanonicalOrderEffects({
+                        chainId,
+                        collections: result.collections.filter((collection) =>
+                            selectedCollections.has(collection.id),
+                        ),
+                        data: result.data,
+                        orderMaintenancePolicy:
+                            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+                        applyingShared: application.chain !== null,
+                    }),
+                    now: (this.ports.now ?? Date.now)(),
+                });
+                if (application.chain)
+                    this.ports.progress.advanceChain(
+                        application.chain,
+                        result.blocks,
+                    );
+                for (const scope of application.collections)
+                    this.ports.progress.advanceCollection(scope, result.blocks);
+            }
             for (const followUp of followUps)
                 this.ports.outbox.enqueueSyncFollowUp({
                     followUp,
@@ -88,6 +126,64 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
                     );
             }
         })();
+    }
+
+    private assertApplication({ result }: SyncRangeCommit): void {
+        const { application, checkpoint, blocks } = result;
+        if (!application)
+            throw new ChainSyncConflict(
+                "Sync acquisition has no application authority",
+            );
+        if (application.kind === SYNC_APPLICATION_KIND.Historical) {
+            this.ports.progress.assertHistoricalRange(checkpoint, blocks);
+            return;
+        }
+        if (
+            application.kind !== SYNC_APPLICATION_KIND.Applied ||
+            (!application.chain && !application.collections.length)
+        )
+            throw new ChainSyncConflict(
+                "Applied sync acquisition has no prefix to advance",
+            );
+        const scopes = application.chain
+            ? [application.chain, ...application.collections]
+            : application.collections;
+        if (
+            scopes.some(
+                (scope) =>
+                    scope.checkpoint.chainId !== checkpoint.chainId ||
+                    scope.checkpoint.revision !== checkpoint.revision,
+            )
+        )
+            throw new ChainSyncConflict(
+                "Applied sync checkpoint differs from acquisition",
+            );
+        const acquired = new Set(
+            result.collections
+                .filter(
+                    (collection) => collection.chainId === checkpoint.chainId,
+                )
+                .map((collection) => collection.id),
+        );
+        const selected = new Set<number>();
+        for (const scope of application.collections) {
+            if (
+                !acquired.has(scope.collectionId) ||
+                selected.has(scope.collectionId)
+            )
+                throw new ChainSyncConflict(
+                    "Applied collection scope differs from acquisition",
+                );
+            selected.add(scope.collectionId);
+        }
+        if (application.chain)
+            this.ports.progress.assertChainRange(application.chain, blocks);
+        for (const scope of application.collections)
+            this.ports.progress.assertCollectionRange(scope, blocks);
+        // Collection-only catch-up must join exact shared identities. An older
+        // installed base may first extend its own bounded pre-shared lineage.
+        if (!application.chain)
+            this.ports.progress.assertCollectionReplayRange(checkpoint, blocks);
     }
 
     private assertCurrent({ result, completion }: SyncRangeCommit): void {

@@ -1,12 +1,12 @@
 # Reorg Handling
 
-The reorg worker verifies pending stored block hashes and retains known mismatches
+The sync coordinator verifies pending stored block hashes and retains known mismatches
 until ancestor proof, atomic rollback and canonical resync resolve them. SQLite
 owns unfinished checks from the block commit onward, including across downtime.
 
 Primary file:
 
-- `indexer/src/runtime/reorg-worker.ts`
+- `indexer/src/runtime/sync-worker.ts`
 
 Supporting files:
 
@@ -24,36 +24,40 @@ Supporting files:
 
 ## Pending Hash Checks
 
-Every sync range records the observed RPC HEAD before fetching blocks. Saving a
-block newer than `HEAD - REORG_DEPTH + 1` sets `blocks.canonical_check_pending`
+Every sync range records the observed RPC HEAD before fetching blocks. Saving an
+accepted recent block newer than `HEAD - REORG_DEPTH + 1` sets `blocks.canonical_check_pending`
 inside the same transaction as its facts, coverage and required follow-ups.
 Already mature historical imports need no delayed check. Repeated imports of the
 same hash preserve an unfinished check and never rearm a completed one.
 
-Order validation can observe a head before range sync. Both demand and maker
-commits retain the complete verified header and its pending check in `blocks`
-atomically with their results. This records no `collection_sync_blocks` coverage.
-Checks survive demand cleanup and order retirement, so replacing an unsynced
-validation head still triggers the ordinary rollback path.
+Order validation consumes a checkpoint selected from the sync coordinator's
+contiguous applied chain and collection progress. Validation never inserts headers
+or advances sync progress. Its committed proof retains that checkpoint's block
+identity and revision; a conflicting fresh read retains a dispute for coordinator
+recovery.
 
 An explicit disagreement with a stored header during sync or validation rearms verification
 even for mature history or a completed check. The owning commit boundary retains
 that check outside its failed writer transaction, fenced by the stored hash
-and chain revision. An already pending check keeps its retry time. The sync
-request remains pending until the existing reorg worker freshly verifies and,
+and chain revision. Explicit disputes gate progress and become due immediately;
+ordinary retained checks preserve backoff. A generation fences confirmation RPC
+already in flight when another conflict arrives. The sync request remains
+pending until the coordinator freshly verifies and,
 when needed, recovers the conflicting history.
 
 The existing depth convention is unchanged: block N becomes eligible when HEAD
-reaches `N + REORG_DEPTH - 1`. This delays only verification; realtime data is
-fetched and saved immediately. Pending rows remain eligible after they age beyond
+reaches `N + REORG_DEPTH - 1`. This delays only verification; the coordinator applies the next required prefix
+without waiting for maturity. Pending rows remain eligible after they age beyond
 today's realtime window. The scheduler neither schedules nor tracks these checks;
 there is no hash-check queue, message or broker consumer.
 
-For each eligible row, the reorg worker:
+For each eligible row, the sync coordinator:
 
 1. Captures the stored chain, height, hash and chain revision.
 2. Fetches the canonical header freshly, bypassing the block cache.
-3. On a match, clears the pending flag conditionally on that identity and revision.
+3. On a match, clears only the captured check generation, repairs any source
+   barrier at that height, and removes that dispute gate. Other disputes and
+   retained recovery remain gated.
 4. On a mismatch, retains recovery and clears the pending flag in one transaction.
 5. Attempts ancestor verification and rollback through the existing recovery flow.
 
@@ -73,14 +77,15 @@ replacement recent blocks retain their own checks when saved.
   revision. A transaction committing its data and required downstream publication
   intent advances this phase; coverage or broker acceptance alone does not.
 
-The reorg runtime resumes due recovery before reading pending checks. It drains
-eligible checks one at a time, yielding between them, and polls every 12 seconds
-when idle or waiting. The sync runtime executes retained resync continuously
-through its automatic executor, independently of head changes. Failed checks,
+The sync coordinator resumes due recovery and reads pending checks in the same
+serial executor that applies forward ranges. It polls every 12 seconds when idle
+or waiting and executes retained resync independently of head changes. Failed checks,
 acquisition and proof retry after five minutes. Proof errors remain visible in
 logs and persisted `last_error`;
-no ancestor guess or hot retry loop is used. Missing-header gap repair can make
-later proof succeed even when HEAD stays unchanged.
+no ancestor guess or hot retry loop is used. Recovery acquires replacement
+headers independently of forward ingestion. Missing accepted local lineage
+remains an invariant failure; historical gap repair does not manufacture proof
+of the old branch.
 
 A newer mismatch during resync carries the earliest unacquired resync block into
 its replacement workflow. Stale proof cannot commit over a newer recovery or
@@ -120,18 +125,18 @@ is removed from SQLite. See the
 
 The fork point search (`findCommonAncestor()`):
 
-- Captures the sparse local headers and chain revision over the entire
-  `reorgDepth` window through the mismatched block in one read transaction.
-- Reads a fresh, parent-linked canonical RPC window and rechecks its tip, reusing
-  the sync pipeline's header acquisition contract.
-- Compares every stored header and parent identity. A parent mismatch can reveal
-  divergence at a height whose local header is missing.
-- Returns the most recent matching stored header below every observed divergence,
-  together with its local history evidence. A canonical header inserted by gap
-  repair above an earlier orphan cannot authorize an incomplete rollback.
-- Returns `null` when no such header exists inside the bound. Recovery remains
-  pending without changing facts, balances or revision. Gap repair can still fill
-  missing proof headers; ancestor search does not reject those sparse repairs.
+- Captures the chain revision and complete connected accepted window through
+  the mismatched block in one read transaction. The lower bound is the greater
+  of the configured `reorgDepth` boundary and the accepted shared-chain base.
+- Rejects holes, parent mismatches, and a checked height outside the shared
+  applied prefix before making replacement RPC calls.
+- Reads the same clamped window from fresh, parent-linked canonical RPC headers
+  and rechecks its tip, reusing sync's header acquisition contract.
+- Returns the nearest matching ancestor below every observed divergence,
+  together with its captured local history evidence.
+- Returns `null` when no matching ancestor exists within the retained window.
+  Replacing the accepted base or exceeding the supported depth keeps recovery
+  pending; it never expands the bound or guesses missing ancestry.
 
 ## Rollback Strategy
 
@@ -158,8 +163,8 @@ requested fork. Unknown RPC failures leave local state untouched; only a
 recognized nonexistent-token revert establishes absent ownership.
 
 One SQLite transaction validates that the recovery and rollback plan are still
-current and that the complete local proof window is unchanged, including newly
-filled holes and parent metadata. It writes the fork ownership checkpoints (including absent tokens), removes
+current and that the complete connected local proof window and its parent
+metadata remain unchanged. It writes the fork ownership checkpoints (including absent tokens), removes
 orphaned facts and coverage, advances the chain sync revision, retains resync
 progress. Failure retaining the resync state rolls back every part of the
 transaction. RPC remains outside the
@@ -168,19 +173,22 @@ revision before fetching RPC data; work fetched before a committed rollback is
 rejected when it tries to persist. An affected token added while RPC reads are in
 progress also invalidates the rollback plan and requires a fresh attempt.
 
-Fork checkpoints describe ownership at the end of their block. Historical repair
-facts at that block or earlier cannot replace the checkpoint; newer transfers
-can. This keeps ownership correct even when the rollback encountered missing
-history and canonical resync produces no transfer events. Bootstrap finalization
-replaces the collection's checkpoints along with its ownership snapshot.
+Fork checkpoints describe ownership at the end of their block. Historical facts
+cannot replace the checkpoint. Only later transfers accepted through the
+collection prefix can update current ownership. This keeps ownership correct even when the rollback encountered missing
+history and canonical resync produces no transfer events. Initial bootstrap installation
+records its ownership snapshot and installed-base identity atomically; a duplicate
+installation cannot replace already applied state.
 
 Signed Seaport declarations are retained when their protocol result is orphaned.
 The rollback writer marks those results `unvalidated`, removes their funded
 capacity and retains validation demand against the new fork. It also rebinds
 pending orphaned block requirements. The ordinary demand executors revalidate
-them without REST reconciliation. An orphaned canonical `filled` result also
-clears its source `filled` blocker back to `active`; source cancellations remain
-unchanged. See
+them without REST reconciliation. Source observations remain separate from canonical terminality. Rollback
+invalidates orphaned chain proof; source availability neither restores that proof
+nor independently declares protocol completion. Certified surviving proofs below
+the fork are rebound to the new revision inside the same writer; old in-flight
+validation claims are not. See
 [order quantities](07-domain-orders.md#partial-fills-and-quantities).
 
 ## Resync After Rollback
@@ -191,20 +199,19 @@ Rollback captures the current head and starts resync over:
 rollbackFrom -> currentHead
 ```
 
-The workflow retains one range capped by `BACKFILL_BATCH_SIZE`. The sync worker's
-`AutomaticSyncExecutor` reads it directly, reloads live and bootstrapping
-collections through the existing backfill selection after entering the
-current-state gate, and uses the shared sync pipeline. Selection does not require
-a bootstrap anchor; current-state projection remains anchor-gated. An empty
-eligible set leaves recovery pending.
+The workflow retains one shared range capped by `BACKFILL_BATCH_SIZE`. The
+coordinator acquires its next shared prefix on the main lane, even when no
+collection is currently eligible or historical gap filling is disabled. Its
+transaction validates recovery identity, revision and predecessor, applies shared
+protocol effects, retains follow-ups, and advances the range or clears recovery.
+Collections independently replay their missing accepted prefix afterward; a
+paused collection catches up when resumed. Validation for a collection remains
+limited to both its own and shared progress.
 
-One transaction revalidates recovery ID, revision and exact range; persists
-canonical data/coverage/balances; retains every required follow-up in the outbox;
-and advances the next bounded range or clears recovery. Failure in any part
-leaves the previous range intact. A crash before commit retries acquisition;
-a crash afterward retries publications from the outbox without another RPC read.
-No automatic range publication, broker lease, delivery generation or continuation
-message is needed. Old queued `reorg_recovery` hints are ACKed without acquisition.
+A crash before commit retries acquisition; a crash afterward retries publications
+from the outbox without another RPC read. No automatic range publication, broker
+lease, delivery generation or continuation message owns recovery. Old queued
+`reorg_recovery` hints are ACKed without acquisition.
 
 The domain worker retries required publications indefinitely with capped backoff
 and stable, revision-qualified IDs. Acquisition completion means publication
@@ -222,29 +229,33 @@ and no interrupted earlier acquisition remains, rollback completes recovery
 without inventing a range. A newer mismatch or revision change rearms bounded
 proof and preserves the earliest unacquired range.
 
-Normal composition requires the reorg worker for proof/rollback, sync worker for
-acquisition, and domain worker for outbox publication. Restart does not repeat a
-committed rollback. Realtime remains outside the backfill gate; transaction-time
-revision checks reject pre-rollback RPC results. Full pause/shutdown/purge
-coordination for already admitted work remains deferred.
+The sync runtime owns proof, rollback and acquisition through one transition
+gate; the domain runtime publishes retained outbox work. Restart does not repeat
+a committed rollback. Transaction-time revision checks reject pre-rollback RPC
+results. Full pause/shutdown/purge coordination for already admitted work remains
+deferred.
 
 ## Safety Rules
 
 - The worker never schedules ranges that start at or below block 0.
 - If no common ancestor is verified, keep recovery pending and warn.
-- Rollback at or below any retained collection bootstrap anchor is refused,
-  before ownership RPC and again inside the atomic rollback writer. State and
-  revision remain intact; the retained recovery records the refusal for retry.
+- Rollback at or below the accepted shared base or any installed collection
+  ownership base is refused before ownership RPC and again inside the atomic
+  rollback writer. A merely selected bootstrap anchor has no such authority.
+  A joining collection below the shared base cannot validate until its prefix
+  joins that base. Its older lineage does not extend the supported shared reorg
+  window. State and revision remain intact on refusal; recovery retains it for retry.
   Automatic
   recovery of that case is outside the current contract; purge and rebootstrap
   the affected collection.
 
-Current order results retain their verified block in `orders.block_number`,
-independently of demand reuse/lease cleanup. A trigger-only rollback may clear
+Current order results retain an independent proof height/hash, chain revision,
+order revision and admission sequence, separately from lifecycle provenance and
+demand lease cleanup. A trigger-only rollback may clear
 request coverage while retaining a pre-fork result; a later deeper rollback must
-still invalidate that result from its own attribution. Terminal retirement copies
-this attribution into its marker before deleting the order and demand. Independent
-source cancellation markers remain protected by their source reason.
+still invalidate that result from its own attribution. Terminal retirement requires evidence supporting terminality; an earlier
+fillable validation cannot provide sale attribution. Source availability has its
+own provenance and cannot become a canonical retirement fact.
 
 ## Current Limits and Future Direction
 
@@ -252,6 +263,22 @@ Pending checks provide one delayed verification for blocks saved before maturity
 There are no medium- or long-horizon rechecks of completed blocks. A reorg deeper
 than the configured confirmation depth remains outside this guarantee. Any future
 tiers must preserve bounded ancestor search and idempotent retained resync.
+
+### Lineage and admission retention
+
+Normal maintenance does not prune canonical headers. This existing unbounded
+header retention preserves shared/collection anchors, accepted prefixes, ordinary
+proof identities, pending checks and unfinished recovery windows. HEAD advancing
+cannot remove the ancestor window of an older unfinished check. Adding header
+pruning requires an explicit retention design for all of those dependencies.
+
+Remote head samples have a separate bounded cleanup pass. It retains the latest
+current-revision watermark, exact mappings for pending order admissions, unexpired
+validation claims, and both admission generations of pending maker scopes.
+Committed proofs retain their own admission scalar and canonical block identity;
+they do not need their old remote sample mapping. Cleanup examines at most 500
+samples per batch, resumes through a durable cursor, and shares the existing
+market-data maintenance cadence. Pins are rechecked in the deletion writer.
 
 ### Deferred Ownership Workload Scaling
 

@@ -1,4 +1,9 @@
 import { SqliteCanonicalChecks } from "../src/infra/storage/sqlite-canonical-checks.js";
+import { SqliteChainProgress } from "../src/infra/storage/sqlite-chain-progress.js";
+import { SqliteSyncCoordination } from "../src/infra/storage/sqlite-sync-coordination.js";
+import { RecoverChainReorg } from "../src/application/reorg-recovery.js";
+import { RollbackChainRange } from "../src/application/reorg-rollback.js";
+import { RpcRollbackOwnershipSnapshot } from "../src/infra/ownership/rpc-rollback-snapshot.js";
 import { RpcWorkScope } from "../src/infra/rpc/work-scope.js";
 import {
     copyFile,
@@ -61,13 +66,6 @@ import { syncBlockFixture } from "./helpers/chain-fixture.js";
 // Filenames and legacy columns are deliberately asserted at the storage boundary.
 const UPGRADE = "064_fill_execution_facts.sql";
 const COVERAGE_RESET = "067_reset_collection_sale_coverage.sql";
-const AUTOMATIC_SYNC_SCHEMA = new Set([
-    "068_recent_gap_checks.sql",
-    "069_newest_gap_priority.sql",
-    "070_sync_work_allocation.sql",
-    "071_order_validation_chain_revision.sql",
-    "072_pending_canonical_checks.sql",
-]);
 const BUNDLE_FIXTURE =
     "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json";
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
@@ -255,9 +253,7 @@ describe("fill execution schema adoption", () => {
             expect(saleCount()).toBe(0);
             await drainQueueOutbox(outbox, { publish });
             expect(admission.mock.calls[0][0]).toBe(
-                postAnchor
-                    ? BACKFILL_EXECUTION_MODE.SerializedCurrentState
-                    : BACKFILL_EXECUTION_MODE.ParallelFactsOnly,
+                BACKFILL_EXECUTION_MODE.ParallelFactsOnly,
             );
             expect(count("fill_executions")).toBe(1);
             expect(count("fills")).toBe(2);
@@ -335,7 +331,7 @@ describe("fill execution schema adoption", () => {
                 if (
                     name.endsWith(".sql") &&
                     name > UPGRADE &&
-                    (name < COVERAGE_RESET || AUTOMATIC_SYNC_SCHEMA.has(name))
+                    name !== COVERAGE_RESET
                 )
                     await copyFile(
                         join(source, name),
@@ -760,6 +756,13 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
     const outbox = new SqliteQueueOutbox();
     const gaps = new SqliteSyncGapStore();
     const canonicalChecks = new SqliteCanonicalChecks();
+    const progress = new SqliteChainProgress();
+    // Current runtime has an explicitly accepted shared base independent of the
+    // legacy factual rows under migration. History never promotes those rows.
+    progress.initializeChain(
+        storage.captureSyncCheckpoint(1),
+        bundleBlock(tx, headBlock),
+    );
     const recoveries = new SqliteReorgRecoveries(storage, canonicalChecks);
     const commit = new SqliteSyncRangeCommit({
         storage,
@@ -767,6 +770,15 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         gaps,
         recoveries,
         collections: registry,
+        progress,
+        orderEffects: {
+            retain({ effects }) {
+                if (effects.length)
+                    throw new Error(
+                        "Historical replay must not apply current order effects",
+                    );
+            },
+        },
     });
     const gate = new BackfillExecutionGate();
     const rpc = bundleRpc(tx, headBlock);
@@ -790,7 +802,7 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         commit,
         collectionsPort: registry,
         extensions: { getInstall: () => null },
-        bidderIndex: { isActive: () => false, shouldEmit: () => false },
+        wakeCurrentSync() {},
         gate,
     });
     const executor = new AutomaticSyncExecutor({
@@ -800,14 +812,27 @@ function replayServices(tx: EnhancedTransaction, headBlock = tx.blockNumber) {
         batchSize: 2,
         wethAddress: zeroAddress,
         rpc,
+        historicalRpc: rpc,
         storage,
         commit,
         collectionsPort: registry,
         collectionExtensions: { getInstall: () => null },
-        bidderIndex: { isActive: () => false, shouldEmit: () => false },
         gate,
         gaps,
         recoveries,
+        progress,
+        coordination: new SqliteSyncCoordination(progress),
+        recovery: new RecoverChainReorg(
+            rpc,
+            storage,
+            recoveries,
+            new RollbackChainRange(
+                storage,
+                new RpcRollbackOwnershipSnapshot(rpc),
+            ),
+            canonicalChecks,
+            { chainId: 1, batchSize: 2, reorgDepth: 1, now: () => 1000 },
+        ),
         now: () => 1000,
         gapWorkEnabled: true,
         workScope: new RpcWorkScope(),
@@ -849,24 +874,7 @@ function bundleRpc(
         getBlock: async (number) => {
             expect(number).toBeGreaterThanOrEqual(tx.blockNumber - 1);
             expect(number).toBeLessThanOrEqual(headBlock);
-            if (number !== tx.blockNumber) {
-                return {
-                    ...syncBlockFixture(number),
-                    parentHash:
-                        number === tx.blockNumber + 1
-                            ? (tx.blockHash as Hex)
-                            : syncBlockFixture(number - 1).hash,
-                    timestamp: TIMESTAMP + (number - tx.blockNumber) * 12,
-                    transactions: [],
-                };
-            }
-            return {
-                number,
-                hash: tx.blockHash as Hex,
-                parentHash: syncBlockFixture(number - 1).hash,
-                timestamp: TIMESTAMP,
-                transactions: [tx.txHash as Hex],
-            };
+            return bundleBlock(tx, number);
         },
         getLogs: async (filter) =>
             filter.fromBlock <= tx.blockNumber &&
@@ -888,8 +896,29 @@ function bundleRpc(
         }),
         readContract: unexpected,
         readContractAtBlock: unexpected,
+        getBalanceAtBlock: unexpected,
         getBalance: unexpected,
     };
+}
+
+function bundleBlock(tx: EnhancedTransaction, number: number) {
+    return number === tx.blockNumber
+        ? {
+              number,
+              hash: tx.blockHash as Hex,
+              parentHash: syncBlockFixture(number - 1).hash,
+              timestamp: TIMESTAMP,
+              transactions: [tx.txHash as Hex],
+          }
+        : {
+              ...syncBlockFixture(number),
+              parentHash:
+                  number === tx.blockNumber + 1
+                      ? (tx.blockHash as Hex)
+                      : syncBlockFixture(number - 1).hash,
+              timestamp: TIMESTAMP + (number - tx.blockNumber) * 12,
+              transactions: [],
+          };
 }
 
 function count(table: string): number {

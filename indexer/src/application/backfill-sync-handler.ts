@@ -5,7 +5,10 @@ import {
     SYNC_JOB_KIND,
     decodeBackfillSyncJob,
 } from "../domain/sync-jobs.js";
-import { SYNC_WORK_COMPLETION } from "../domain/sync-work.js";
+import {
+    SYNC_APPLICATION_KIND,
+    SYNC_WORK_COMPLETION,
+} from "../domain/sync-work.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import type { SyncRangeCommitPort } from "../ports/sync-range-commit.js";
@@ -15,10 +18,9 @@ import type {
     CollectionScopeResolverPort,
 } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
-import type { BidderIndex } from "./bidder-index.js";
 import {
     BackfillExecutionGate,
-    resolveBackfillExecutionMode,
+    BACKFILL_EXECUTION_MODE,
 } from "./backfill-execution.js";
 import {
     domainSyncSource,
@@ -47,7 +49,7 @@ export function createBackfillSyncHandler(input: {
     > &
         CollectionScopeResolverPort;
     extensions: Pick<CollectionExtensionInstallPort, "getInstall">;
-    bidderIndex: Pick<BidderIndex, "isActive" | "shouldEmit">;
+    wakeCurrentSync(): void;
     gate: Pick<BackfillExecutionGate, "run">;
 }): (job: JobEnvelope) => Promise<void> {
     return async (incoming) => {
@@ -67,6 +69,12 @@ export function createBackfillSyncHandler(input: {
             job.payload.source === BACKFILL_SOURCE.ReorgRecovery
         )
             return;
+        if (job.payload.source === BACKFILL_SOURCE.BootstrapCatchup) {
+            // The installed base and sampled target already retain this work.
+            // A broker hint never grants permission to apply out of order.
+            input.wakeCurrentSync();
+            return;
+        }
         const collections = resolveBackfillCollections(
             input.collectionsPort,
             input.chainId,
@@ -77,7 +85,7 @@ export function createBackfillSyncHandler(input: {
             fromBlock: job.payload.fromBlock,
             toBlock: job.payload.toBlock,
         };
-        const executionMode = resolveBackfillExecutionMode(collections, range);
+        const executionMode = BACKFILL_EXECUTION_MODE.ParallelFactsOnly;
         await input.gate.run(executionMode, async () => {
             const { data, blocks } = await processSyncRange({
                 rpc: input.rpc,
@@ -90,7 +98,7 @@ export function createBackfillSyncHandler(input: {
                 reorgDepth: input.reorgDepth,
                 collections,
                 range,
-                bidderIndex: input.bidderIndex,
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 wethAddress: input.wethAddress,
                 orderMaintenancePolicy: job.payload.orderMaintenancePolicy,
                 sources: [domainSyncSource(job)],

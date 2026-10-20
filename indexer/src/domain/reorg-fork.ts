@@ -6,8 +6,8 @@ import {
 } from "./chain-sync.js";
 import { assertSyncBlockHeaders } from "./sync-result.js";
 
-// Capture the complete bounded local window, including missing heights, before
-// RPC. Newly filled holes must invalidate this evidence at rollback commit.
+// Capture a complete connected window of already accepted lineage before RPC.
+// Missing local ancestry is an unready view, never an invitation to guess.
 export type ReorgHistorySnapshot = {
     checkpoint: ChainSyncCheckpoint;
     fromBlock: number;
@@ -20,14 +20,30 @@ export type ReorgAncestorProof = {
     history: ReorgHistorySnapshot;
 };
 
-// Sparse repair can insert a canonical header above an older orphan. A match is
-// an ancestor only below every divergence in the bounded local history. Stored
-// parent identities also reveal divergence at a height whose header is missing.
+export function assertReorgHistory(history: ReorgHistorySnapshot): void {
+    if (
+        !Number.isSafeInteger(history.fromBlock) ||
+        history.fromBlock < 0 ||
+        !Number.isSafeInteger(history.toBlock) ||
+        history.toBlock < history.fromBlock ||
+        history.headers.length !== history.toBlock - history.fromBlock + 1 ||
+        history.headers.some(
+            (block, index) => block.number !== history.fromBlock + index,
+        )
+    )
+        throw new ChainSyncConflict("Incomplete accepted ancestor window");
+    assertSyncBlockHeaders(history.headers);
+}
+
+// A match is an ancestor only below every divergence within the supported
+// accepted window. Neither replacement RPC nor historical import fills holes
+// in old-branch evidence that the chain owner should already have retained.
 export function proveReorgAncestor(input: {
     history: ReorgHistorySnapshot;
     canonicalBlocks: readonly SyncBlockHeader[];
 }): ReorgAncestorProof | null {
     const { history, canonicalBlocks } = input;
+    assertReorgHistory(history);
     assertSyncBlockHeaders(canonicalBlocks);
     if (
         canonicalBlocks.length !== history.toBlock - history.fromBlock + 1 ||

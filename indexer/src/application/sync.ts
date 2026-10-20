@@ -80,51 +80,35 @@ export async function syncRange(
     const addresses = collections.map(
         (collection) => collection.address as Hex,
     );
-    if (addresses.length === 0) {
-        return {
-            transactions: [],
-            collectionScoped: {
-                nftTransferEvents: [],
-                nftApprovalEvents: [],
-                nftBalanceDeltas: [],
-                fillEvents: [],
-                orderInfos: [],
-                makerTriggers: [],
-                metadataRefreshEvents: [],
-                metadataRefreshRangeEvents: [],
-                collectionExtensionEvents: [],
-                collectionExtensionEventMedia: [],
-            },
-            global: {
-                cancelEvents: [],
-                makerTriggers: [],
-            },
-        };
-    }
-
     // Query only transfer events for tracked collections within the range.
-    const logs = await rpc.getLogs({
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        address: addresses.length === 1 ? addresses[0] : addresses,
-        events: NFT_TRANSFER_EVENTS,
-    });
+    const logs = addresses.length
+        ? await rpc.getLogs({
+              fromBlock: range.fromBlock,
+              toBlock: range.toBlock,
+              address: addresses.length === 1 ? addresses[0] : addresses,
+              events: NFT_TRANSFER_EVENTS,
+          })
+        : [];
 
     // NFT approvals change sell-order executability without changing ownership.
-    const nftApprovalLogs = await rpc.getLogs({
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        address: addresses.length === 1 ? addresses[0] : addresses,
-        events: NFT_APPROVAL_EVENTS,
-    });
+    const nftApprovalLogs = addresses.length
+        ? await rpc.getLogs({
+              fromBlock: range.fromBlock,
+              toBlock: range.toBlock,
+              address: addresses.length === 1 ? addresses[0] : addresses,
+              events: NFT_APPROVAL_EVENTS,
+          })
+        : [];
 
     // Metadata refresh triggers (e.g. ERC-4906) for tracked collections.
-    const metadataRefreshLogs = await rpc.getLogs({
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        address: addresses.length === 1 ? addresses[0] : addresses,
-        events: METADATA_REFRESH_EVENT_FILTERS,
-    });
+    const metadataRefreshLogs = addresses.length
+        ? await rpc.getLogs({
+              fromBlock: range.fromBlock,
+              toBlock: range.toBlock,
+              address: addresses.length === 1 ? addresses[0] : addresses,
+              events: METADATA_REFRESH_EVENT_FILTERS,
+          })
+        : [];
 
     const seaportLogs = await rpc.getLogs({
         fromBlock: range.fromBlock,

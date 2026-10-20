@@ -1,3 +1,4 @@
+import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -182,7 +183,7 @@ describe("canonical sync persistence", () => {
     });
     beforeEach(() => {
         db.exec(
-            "DELETE FROM fill_executions; DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM transactions; DELETE FROM collection_sync_blocks; DELETE FROM blocks; DELETE FROM chain_sync_revisions;",
+            "DELETE FROM fill_executions; DELETE FROM nft_balances; DELETE FROM nft_transfer_events; DELETE FROM collections; DELETE FROM transactions; DELETE FROM collection_sync_blocks; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_head_samples; DELETE FROM chain_sync_targets; DELETE FROM chain_sync_revisions;",
         );
     });
 
@@ -229,6 +230,7 @@ describe("canonical sync persistence", () => {
                 const data = emptyOnChainData();
                 data.collectionScoped.fillEvents = [original];
                 f.storage.persistSyncResult({
+                    application: { kind: SYNC_APPLICATION_KIND.Historical },
                     canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     ...f,
                     blocks: [block(102)],
@@ -243,6 +245,7 @@ describe("canonical sync persistence", () => {
             ];
             expect(() =>
                 f.storage.persistSyncResult({
+                    application: { kind: SYNC_APPLICATION_KIND.Historical },
                     canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     ...f,
                     blocks: [block(102), block(103)],
@@ -261,6 +264,7 @@ describe("canonical sync persistence", () => {
         const data = dataWithAllFacts(f.transfer(102, 1, B, C));
         const original = data.collectionScoped.fillEvents[0]!;
         f.storage.persistSyncResult({
+            application: { kind: SYNC_APPLICATION_KIND.Historical },
             canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             ...f,
             blocks: [block(102)],
@@ -280,6 +284,7 @@ describe("canonical sync persistence", () => {
             },
         ];
         f.storage.persistSyncResult({
+            application: { kind: SYNC_APPLICATION_KIND.Historical },
             canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
             ...f,
             blocks: [block(102)],
@@ -323,6 +328,7 @@ describe("canonical sync persistence", () => {
             ];
             expect(() =>
                 f.storage.persistSyncResult({
+                    application: { kind: SYNC_APPLICATION_KIND.Historical },
                     canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     ...f,
                     blocks: [block(102), block(103)],
@@ -346,6 +352,7 @@ describe("canonical sync persistence", () => {
         });
         expect(() =>
             f.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 ...f,
                 blocks: [block(102)],
@@ -367,6 +374,7 @@ describe("canonical sync persistence", () => {
             factGroups(data)[name]![0]!.blockHash = ORPHAN_HASH;
             expect(() =>
                 f.storage.persistSyncResult({
+                    application: { kind: SYNC_APPLICATION_KIND.Historical },
                     canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                     ...f,
                     blocks: [block(102)],
@@ -384,6 +392,7 @@ describe("canonical sync persistence", () => {
         data.collectionScoped.nftTransferEvents.push(f.transfer(101, 2, B, C));
         expect(() =>
             f.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 ...f,
                 blocks: [block(102)],
@@ -398,6 +407,7 @@ describe("canonical sync persistence", () => {
         const before = snapshot();
         expect(() =>
             f.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 ...f,
                 blocks: [block(102), { ...block(101), hash: ORPHAN_HASH }],
@@ -412,6 +422,7 @@ describe("canonical sync persistence", () => {
         const before = snapshot();
         expect(() =>
             f.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 ...f,
                 blocks: [
@@ -433,6 +444,7 @@ describe("canonical sync persistence", () => {
         const before = snapshot();
         expect(() =>
             f.storage.persistSyncResult({
+                application: { kind: SYNC_APPLICATION_KIND.Historical },
                 canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
                 ...f,
                 blocks: [block(102), conflict],
@@ -442,7 +454,7 @@ describe("canonical sync persistence", () => {
         expect(snapshot()).toEqual(before);
     });
 
-    it("accepts sparse, out-of-order history and repeated identical headers idempotently", () => {
+    it("accepts out-of-order facts within a connected applied range and historical replays idempotently", () => {
         const f = transferFixture();
         const events = [
             f.transfer(103, 1, B, C),
@@ -451,7 +463,7 @@ describe("canonical sync persistence", () => {
         ];
         f.persist(events);
         f.persist(events);
-        expect(f.storage.countBlocksInRange(1, 101, 103)).toBe(2);
+        expect(f.storage.countBlocksInRange(1, 101, 103)).toBe(3);
         expect(
             f.storage.countCollectionSyncedBlocksInRange(
                 1,
@@ -459,7 +471,7 @@ describe("canonical sync persistence", () => {
                 101,
                 103,
             ),
-        ).toBe(2);
+        ).toBe(3);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: C, amount: "1" },
         ]);
@@ -484,13 +496,16 @@ describe("canonical sync persistence", () => {
             ...f.transfer(102, 1, B, D),
             blockHash: ORPHAN_HASH,
         });
-        f.storage.persistSyncResult({
-            canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-            ...f,
-            checkpoint: f.storage.captureSyncCheckpoint(1),
-            blocks: [{ ...block(102), hash: ORPHAN_HASH }],
-            data,
-        });
+        f.owner().commit(
+            f
+                .owner()
+                .applied({
+                    blocks: [{ ...block(102), hash: ORPHAN_HASH }],
+                    data,
+                    shared: true,
+                    collectionIds: [f.collectionId],
+                }),
+        );
         expect(f.storage.getBlockHash(1, 102)).toBe(ORPHAN_HASH);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: D, amount: "1" },

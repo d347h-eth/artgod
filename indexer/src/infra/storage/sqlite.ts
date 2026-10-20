@@ -1,5 +1,9 @@
 import { persistCanonicalBlocks } from "./sqlite-canonical-headers.js";
-import { invalidateOrderValidationFromBlock } from "../orders/sqlite-order-validation-demand.js";
+import { SqliteChainProgress } from "./sqlite-chain-progress.js";
+import {
+    invalidateOrderValidationFromBlock,
+    rebindSurvivingOrderValidationProofs,
+} from "../orders/sqlite-order-validation-demand.js";
 import { db } from "@artgod/shared/database";
 import {
     captureChainSyncCheckpoint,
@@ -31,8 +35,11 @@ import {
     type CanonicalCheckPolicy,
 } from "../../domain/canonical-check.js";
 import type { ReorgForkStore } from "../../application/reorg-fork.js";
-import type { ReorgHistorySnapshot } from "../../domain/reorg-fork.js";
-import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
+import {
+    assertReorgHistory,
+    type ReorgHistorySnapshot,
+} from "../../domain/reorg-fork.js";
+import { ORDER_STATUS } from "../../domain/orders.js";
 import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
 import {
     ChainSyncConflict,
@@ -40,6 +47,7 @@ import {
     type SyncBlockHeader,
 } from "../../domain/chain-sync.js";
 import { assertSyncResultMatchesBlocks } from "../../domain/sync-result.js";
+import { SYNC_APPLICATION_KIND } from "../../domain/sync-work.js";
 import {
     assertSameErc721Tokens,
     resolveErc721Ownership,
@@ -132,7 +140,8 @@ export class SqliteStorage
         standard: string;
     }>(
         "SELECT c.collection_id AS collectionId, c.address AS contract, t.token_id AS tokenId FROM (" +
-            "SELECT collection_id, token_id FROM nft_transfer_events WHERE chain_id = @chainId AND block_number >= @fromBlock AND kind = @standard " +
+            "SELECT t.collection_id, t.token_id FROM nft_transfer_events t JOIN collection_sync_progress p ON p.chain_id=t.chain_id AND p.collection_id=t.collection_id " +
+            "WHERE t.chain_id = @chainId AND t.block_number >= @fromBlock AND t.kind = @standard AND t.block_number>p.anchor_block AND t.block_number<=p.applied_block " +
             "UNION SELECT collection_id, token_id FROM nft_balances WHERE chain_id = @chainId AND last_block_number >= @fromBlock " +
             "UNION SELECT collection_id, token_id FROM erc721_ownership_checkpoints WHERE chain_id = @chainId AND block_number >= @fromBlock" +
             ") t JOIN collections c ON c.collection_id = t.collection_id " +
@@ -244,9 +253,9 @@ export class SqliteStorage
     private selectBalance = db.prepare<[number, number, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
     );
-    private selectLatestTransfer = db.prepare<[number, number, string]>(
+    private selectLatestTransfer = db.prepare<[number, number, string, number]>(
         "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
-            "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+            "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND block_number<=? " +
             "ORDER BY block_number DESC, log_index DESC LIMIT 1",
     );
     private deleteTokenBalances = db.prepare<[number, number, string]>(
@@ -276,6 +285,7 @@ export class SqliteStorage
     }>(
         "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = @chainId AND block_number >= @fromBlock " +
+            "AND EXISTS (SELECT 1 FROM collection_sync_progress p WHERE p.chain_id=nft_transfer_events.chain_id AND p.collection_id=nft_transfer_events.collection_id AND nft_transfer_events.block_number>p.anchor_block AND nft_transfer_events.block_number<=p.applied_block) " +
             "AND (@afterBlock IS NULL OR block_number < @afterBlock " +
             "OR (block_number = @afterBlock AND log_index < @afterLog) " +
             "OR (block_number = @afterBlock AND log_index = @afterLog AND (collection_id, token_id, tx_hash) > (@afterCollection, @afterToken, @afterTx))) " +
@@ -335,12 +345,6 @@ export class SqliteStorage
     private deleteMetadataFromBlock = db.prepare<[number, number]>(
         "DELETE FROM token_metadata WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
     );
-    private deleteOrdersFromBlock = db.prepare<[number, number]>(
-        // Source cancellation remains definitive even when this row also has a
-        // rolled-back chain outcome. Normal cleanup retires its payload later.
-        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ? " +
-            `AND source_status<>'${ORDER_SOURCE_STATUS.Cancelled}'`,
-    );
     private resetOrderFillability = db.prepare<
         [string, number, number, string, string, string, string]
     >(
@@ -365,6 +369,7 @@ export class SqliteStorage
 
     persistSyncResult({
         checkpoint,
+        application,
         canonicalCheck,
         blocks,
         data,
@@ -376,29 +381,29 @@ export class SqliteStorage
             this.assertSyncCheckpoint(checkpoint);
             assertSyncResultMatchesBlocks({ blocks, data });
             const blockMeta = buildBlockMeta(blocks);
-            const currentStateCollections = new Map(
-                collections.map((collection) => [collection.id, collection]),
-            );
             this.persistBlocks(checkpoint, blocks, canonicalCheck);
             this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
-            const inserted = this.persistTransfers(chainId, data, blockMeta);
+            const transfers = this.persistTransfers(chainId, data, blockMeta);
             this.persistFills(chainId, data, blockMeta);
             this.persistCollectionExtensionEvents(chainId, data, blockMeta);
             this.persistCollectionExtensionEventMedia(chainId, data, blockMeta);
-            const currentStateTransfers = inserted.filter((event) => {
-                const collection = currentStateCollections.get(
-                    event.collectionId,
+            if (application.kind === SYNC_APPLICATION_KIND.Applied) {
+                const appliedCollections = new Set(
+                    application.collections.map((scope) => scope.collectionId),
                 );
-                return Boolean(
-                    collection?.canProjectCurrentStateAt(event.blockNumber),
+                // A historical import may have retained these facts already.
+                // Exactly-once projection belongs to the accepted collection
+                // prefix, not to whether the raw INSERT happened to be new.
+                this.applyBalanceUpdatesFromEvents(
+                    chainId,
+                    transfers.filter((event) =>
+                        appliedCollections.has(event.collectionId),
+                    ),
+                    blockMeta,
+                    blocks[blocks.length - 1]!.number,
                 );
-            });
-            this.applyBalanceUpdatesFromEvents(
-                chainId,
-                currentStateTransfers,
-                blockMeta,
-            );
+            }
         });
         run();
     }
@@ -415,22 +420,50 @@ export class SqliteStorage
         fromBlock: number;
         toBlock: number;
     }): ReorgHistorySnapshot {
-        // A deferred read transaction gives the revision and sparse headers one
-        // snapshot, without acquiring the writer or keeping it open across RPC.
-        return db.raw.transaction(() => ({
-            checkpoint: this.captureSyncCheckpoint(input.chainId),
-            fromBlock: input.fromBlock,
-            toBlock: input.toBlock,
-            headers: this.selectReorgHeaders.all(
+        // The accepted base is the earliest supported recovery boundary. Capture
+        // the connected prefix without a writer or a transaction across RPC.
+        return db.raw.transaction(() => {
+            const checkpoint = this.captureSyncCheckpoint(input.chainId);
+            const progress = new SqliteChainProgress().chainProgress(
                 input.chainId,
-                input.fromBlock,
+            );
+            if (
+                !progress ||
+                progress.checkpoint.revision !== checkpoint.revision ||
+                input.toBlock < progress.anchor.number ||
+                input.toBlock > progress.applied.number
+            )
+                throw new ChainSyncConflict(
+                    "Ancestor window is outside accepted chain history",
+                );
+            const fromBlock = Math.max(input.fromBlock, progress.anchor.number);
+            const headers = this.selectReorgHeaders.all(
+                input.chainId,
+                fromBlock,
                 input.toBlock,
-            ) as SyncBlockHeader[],
-        }))();
+            ) as SyncBlockHeader[];
+            const history = {
+                checkpoint,
+                fromBlock,
+                toBlock: input.toBlock,
+                headers,
+            };
+            assertReorgHistory(history);
+            if (
+                (fromBlock === progress.anchor.number &&
+                    headers[0].hash !== progress.anchor.hash) ||
+                (input.toBlock === progress.applied.number &&
+                    headers[headers.length - 1].hash !== progress.applied.hash)
+            )
+                throw new ChainSyncConflict(
+                    "Ancestor window lost its accepted boundary identity",
+                );
+            return history;
+        })();
     }
 
     // The recovery adapter holds its rollback writer through this validation and
-    // the commit; a revision alone cannot fence intervening sparse header inserts.
+    // the commit; a revision alone cannot fence changed local lineage.
     assertReorgHistoryUnchanged(expected: ReorgHistorySnapshot): void {
         this.assertSyncCheckpoint(expected.checkpoint);
         const current = this.captureReorgHistory({
@@ -439,6 +472,8 @@ export class SqliteStorage
             toBlock: expected.toBlock,
         });
         if (
+            current.fromBlock !== expected.fromBlock ||
+            current.toBlock !== expected.toBlock ||
             current.headers.length !== expected.headers.length ||
             current.headers.some((header, index) => {
                 const previous = expected.headers[index];
@@ -510,12 +545,14 @@ export class SqliteStorage
     ): void {
         const { anchorBlock } = db
             .prepare(
-                "SELECT MAX(bootstrap_anchor_block) AS anchorBlock FROM collections WHERE chain_id=?",
+                "SELECT MAX(anchor_block) AS anchorBlock FROM (" +
+                    "SELECT anchor_block FROM chain_sync_progress WHERE chain_id=? " +
+                    "UNION ALL SELECT anchor_block FROM collection_ownership_bases WHERE chain_id=?)",
             )
-            .get(chainId) as { anchorBlock: number | null };
+            .get(chainId, chainId) as { anchorBlock: number | null };
         if (!CollectionRecord.canRollbackFromBlock(anchorBlock, fromBlock))
             throw new ChainSyncConflict(
-                `Rollback from block ${fromBlock} crosses retained collection bootstrap anchor ${anchorBlock}`,
+                `Rollback from block ${fromBlock} crosses retained applied base ${anchorBlock}`,
             );
     }
 
@@ -621,7 +658,6 @@ export class SqliteStorage
             // Roll back protocol observations while retaining signed declarations.
             // This also fences quantity results whose proof lies on the old fork.
             invalidateOrderValidationFromBlock(chainId, fromBlock, Date.now());
-            this.deleteOrdersFromBlock.run(chainId, fromBlock);
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
@@ -645,6 +681,17 @@ export class SqliteStorage
                 null,
             );
             advanceChainSyncRevision(chainId);
+            rebindSurvivingOrderValidationProofs(
+                chainId,
+                fromBlock,
+                captureChainSyncCheckpoint(chainId).revision,
+            );
+            new SqliteChainProgress().rewindAfterRollback(chainId, {
+                number: snapshot.block.blockNumber,
+                hash: snapshot.block.blockHash,
+                parentHash: snapshot.block.parentHash,
+                timestamp: snapshot.block.blockTimestamp,
+            });
         });
         run();
     }
@@ -685,16 +732,19 @@ export class SqliteStorage
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
     ): OnChainData["collectionScoped"]["nftTransferEvents"] {
-        // Transfers are immutable; insert once (ignore duplicates).
-        const inserted: OnChainData["collectionScoped"]["nftTransferEvents"] =
-            [];
+        // Return each immutable transfer once even when historical acquisition
+        // stored it first. The applied-range writer owns projection idempotency.
+        const transfers = new Map<
+            string,
+            OnChainData["collectionScoped"]["nftTransferEvents"][number]
+        >();
         for (const event of data.collectionScoped.nftTransferEvents) {
             const contract = event.contract.toLowerCase();
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 event.blockNumber,
             );
-            const result = this.insertTransfer.run(
+            this.insertTransfer.run(
                 chainId,
                 event.collectionId,
                 contract,
@@ -709,11 +759,20 @@ export class SqliteStorage
                 event.logIndex,
                 event.kind,
             );
-            if (result.changes > 0) {
-                inserted.push(event);
-            }
+            const identity = JSON.stringify([
+                event.txHash,
+                event.logIndex,
+                event.collectionId,
+                event.tokenId,
+            ]);
+            const previous = transfers.get(identity);
+            if (previous && !isDeepStrictEqual(previous, event))
+                throw new ChainSyncConflict(
+                    "Conflicting transfer facts in one acquisition",
+                );
+            transfers.set(identity, event);
         }
-        return inserted;
+        return [...transfers.values()];
     }
 
     private persistFills(
@@ -857,23 +916,21 @@ export class SqliteStorage
         }
     }
 
-    // Projects newly inserted post-anchor transfers into current balances.
-    // ERC721 uses the latest transfer or verified fork ownership checkpoint;
-    // ERC1155 applies each transfer's balance deltas once.
+    // Projects a newly accepted contiguous collection range. Historical facts
+    // beyond this range cannot influence ownership at its published checkpoint.
     private applyBalanceUpdatesFromEvents(
         chainId: number,
         events: OnChainData["collectionScoped"]["nftTransferEvents"],
         blockMeta: Map<number, BlockMeta>,
+        appliedThrough: number,
     ): void {
         for (const event of events) {
             if (event.kind === COLLECTION_STANDARD.Erc721) {
-                // Gap repairs can arrive behind realtime or newer backfills.
-                // Project the latest persisted transfer, including burns, rather
-                // than letting delivery order determine the token's owner.
                 const latest = this.selectLatestTransfer.get(
                     chainId,
                     event.collectionId,
                     event.tokenId,
+                    appliedThrough,
                 ) as TransferRow | undefined;
                 const checkpoint = this.selectOwnershipCheckpoint.get(
                     chainId,
