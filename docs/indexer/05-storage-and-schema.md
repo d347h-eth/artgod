@@ -83,27 +83,33 @@ integration.
 
 ## Order validation recovery
 
-Migrations 056–061 introduce durable maker scans, continuation publication,
-per-order demand and delivery-origin receipts. Migration 061 adds
-`isolate_order_id` and cumulative `deferred_orders` to
-`maker_order_revalidation_runs`; existing cursors and completed scans remain
-intact. A known failed order is admitted to `order_validation_demand` in the same
-write transaction that moves its maker cursor and replaces the continuation.
+Migrations 056–061 introduced maker scans, publication receipts and ordinary
+demand. The revamp consolidates RPC work into ordinary demand and uses maker runs
+only for bounded expansion. Migration 088 removes the redundant inline maker
+origin columns and their obsolete index; `maker_validation_delivery_origins` is
+the sole receipt representation. Current admission writes complete scope, original
+source payload, current pass payload and requested next-generation payload.
+Migration 088 discards only unsupported null-scope/source/requested-payload
+runs and their linked wakeups, releasing unique identities without reconstructing
+excluded old work. Current-format pending runs, leases and receipts are preserved.
+Historical nullable DDL remains; current inserts and runtime types use complete fields.
 
-Maker `completed` means its finite scan resolved or durably handed off all work.
-It is not full validation proof: pending demand owns unfinished handoffs, even
-after maker receipt cleanup. `resolved_orders` excludes pending handoffs;
-`deferred_orders` counts transfers over the run's generations, not current
-remaining work. See [durable maker progress](07-domain-orders.md#durable-maker-progress).
+The original payload detects reuse of a source job identity, the current payload
+fixes finite pass coverage, and the requested payload retains later requirements.
+Those meanings remain distinct. Main and gap consumers may both contribute
+receipts; cleanup requires their stream-incarnation and ACK-floor evidence.
+One compact chain/run/step continuation points at the retained payload.
 
-Migration `071_order_validation_chain_revision.sql` adds `proof_chain_revision`
-to `order_validation_demand` and removes its work class. Full ordinary, maker
-and token validation share the same saved validation record. Reuse requires the
-current order revision and chain revision, plus the requested event block or
-source observation time. A historical event does not use its eventual delivery
-time as a new observation. Chain rollback invalidates earlier saved validation
-records without needing a separate per-order cleanup pass. Needed validations
-use main RPC capacity; historical hint admission remains background work.
+Maker `completed` means its finite expansion resolved or admitted ordinary demand
+for every selected candidate. It is not full validation proof. `resolved_orders`
+excludes pending handoffs; `deferred_orders` counts admissions across generations,
+not currently unfinished orders. Demand, cursor and next wakeup share one writer.
+See [durable maker progress](07-domain-orders.md#durable-maker-progress).
+
+Ordinary proof reuse requires the current order and chain revision plus coverage
+of both canonical block requirements and causal source admission sequences.
+Historical delivery time never replaces a canonical block requirement. Rollback
+invalidates orphan proofs and retains needed demand in its own transaction.
 
 ## Core Tables (Onchain)
 
@@ -156,11 +162,12 @@ which side is canonical; published work can still reference a header after its
 outbox row is removed. The existing canonical owner verifies identities before
 performing any rollback and cleanup.
 
-Validation snapshots also retain their full headers here, with pending canonical
-checks in the same transaction as maker or by-ID results. A validation header
-never marks collection sync coverage. Sync, rollback and validation use one
-header writer that rejects a different hash at an occupied height; the reorg
-owner must resolve that disagreement first.
+Validation selects an existing accepted checkpoint and verifies that exact
+height/hash before committing order proof and results. Successful validation
+does not insert headers, schedule canonical checks or advance sync coverage.
+A conflicting RPC observation retains a dispute for the coordinator; it cannot
+replace the accepted header. The sync/recovery owners control header acceptance
+and resolve conflicting identities before current application resumes.
 
 ### `collection_sync_blocks`
 

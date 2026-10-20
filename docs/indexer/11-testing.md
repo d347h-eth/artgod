@@ -9,42 +9,19 @@ Primary files:
 - `indexer/tests/helpers/test-helpers.ts`
 - `indexer/tests/helpers/fixture-paths.ts`
 - `indexer/vitest.config.ts`
-- `indexer/vitest.workspace.ts`
 
 ## Current Test Layout
 
-The indexer test suite is split into two Vitest projects.
+The normal runner uses `indexer/vitest.config.ts` and includes
+`tests/**/*.test.ts`. Database suites create independent disposable files through
+the maintained helpers; each test worker owns its SQLite singleton. The obsolete
+workspace configuration with retired executor lists has been removed. This cleanup
+does not change the active runner's isolation or parallelism.
 
-### Unit project
-
-Configured in `indexer/vitest.workspace.ts` as `name: "unit"`.
-
-Characteristics:
-
-- runs under normal parallelism
-- includes pure/unit tests that do not mutate the shared SQLite singleton
-- covers normalization, decoding, validation helpers, API adapters, and other isolated logic
-
-### DB-backed project
-
-Configured in `indexer/vitest.workspace.ts` as `name: "db"`.
-
-Characteristics:
-
-- includes suites that call `setDbPath()` and mutate the shared SQLite singleton
-- runs serially (`fileParallelism: false`, `maxConcurrency: 1`)
-- covers canonical order persistence, token sets, metadata stats, offchain dispatch, and smoke test wiring
-
-Current DB-backed files include:
-
-- `tests/metadata-stats.test.ts`
-- `tests/token-sets.test.ts`
-- `tests/smoke.test.ts`
-- `tests/offchain-dispatch.test.ts`
-- `tests/orders-raw-source.test.ts`
-- `tests/orders-update-by-maker.test.ts`
-
-This keeps only the shared-DB suites serialized instead of slowing down the entire test suite.
+Private broker fixtures have explicit configurations and commands for order queues,
+reorg/restart behavior and OpenSea reconciliation. They use maintained child-worker
+bundles and existing provisioned tools, never a live application store. The smoke
+test has its own external/container prerequisites described below.
 
 ## Running Tests
 
@@ -241,7 +218,7 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
 - `tests/sync-blocks.test.ts` covers fresh header reads, tip rechecking, changing
   ranges and complete bounded ancestor proof. Sparse or disconnected local
   history cannot be promoted to an accepted lineage or supply a guessed fork.
-- `tests/backfill-execution.test.ts` preserves serialization of current-state
+- `tests/automatic-sync-executor.test.ts` preserves serialization of current-state
   ranges and parallel execution of facts-only ranges.
 - `tests/continuous-gap-loop.test.ts` verifies immediate bounded continuation,
   idle/error backoff, nonoverlapping passes and graceful stop without idle delay.
@@ -312,7 +289,7 @@ outbox, SQLite and range/fanout implementations across:
 - required publication beyond ordinary retry limits, without DLQ or reacquisition;
 - durable recovery ownership through slow ownership reads without a check queue;
 - a 401-token serial rollback snapshot with controlled per-read latency, recording
-  completion time and process RSS while keeping one bounded resync continuation;
+  completion time and process RSS while retaining one bounded resync obligation;
 - ordered shared resync plus collection replay, independent of historical gap
   repair, including restart after a committed check handoff and lost obsolete
   automatic-hint ACK;
@@ -445,8 +422,8 @@ This command bundles a maintained child worker using the existing esbuild
 dependency, starts the pinned NATS version on private loopback, and retains
 synthetic stores/logs under worktree `tmp/`. It downloads nothing and never opens
 app-data storage. `integration/order-queue-healing.test.ts` covers the 9,339-order
-scope with small-maker/token fairness, two validation permits, canonical lifecycle
-work while reads are blocked, persistent per-order failure, and worker/broker
+scope with small-maker/token fairness, two validation permits, source withdrawal
+while ordinary validation reads are blocked, persistent per-order failure, and worker/broker
 restart over retained stores. Maker completion records demand expansion; ordinary
 proof completion is asserted separately. Lease recovery uses an injected clock
 instead of waiting two real minutes.
@@ -458,7 +435,7 @@ checkpoint. Restart preserves the admitted requirement and resumes it only after
 shared and collection progress cover its later sample.
 
 `integration/order-backlog.test.ts` drains 10,002 supported current-format
-validation/lifecycle envelopes plus 1,000 arriving hints. It stops/resumes the
+source revalidation/lifecycle envelopes plus 1,000 arriving hints. It stops/resumes the
 child, bounds demand identities without per-envelope outbox rows, and checks
 committed domain state. Malformed bytes and an unsupported future envelope remain
 stored through broker restart. Results and bounded samples stay under
@@ -473,7 +450,7 @@ migrations, domain transitions, read models and HTTP adapters. Run it with
 rendered fixture for sold-token asks and retained daily history; it remains
 separate from native/live queue qualification.
 
-`tests/legacy-order-admission.test.ts` injects demand/terminal transaction failures
+`tests/source-order-delivery.test.ts` injects demand/terminal transaction failures
 and failed ACKs, checks retained retries beyond the normal ceiling, and verifies
 explicit no-RPC admission. `tests/order-processing-inspection.test.ts` verifies
 the read-only progress tool's explicit inputs, bounded samples and unchanged
@@ -720,14 +697,45 @@ screenshots in a project-local task-artifact directory without secrets.
 - `smoke.test.ts` still reads `WETH_ADDRESS` from the loaded test environment
   when building child-process input rather than consuming the same typed config
   boundary as production composition.
-- The DB-backed project intentionally owns migration and repository behavior;
-  adding an in-memory mock for those tests would hide the contracts they exist
-  to verify.
+- Database integration fixtures intentionally use real migrations and adapters;
+  replacing them with in-memory doubles would hide their persistence contracts.
 
 The partial-fill lifecycle regressions also cover terminal-demand cleanup followed
 by rollback, successive forks, retirement attribution and source cancellation,
-impossible cumulative fractions, source receipt resolution, retained pre-sale
-proofs and lagging providers catching up without another source message.
-`order-execution-block.test.ts` verifies fresh receipt/block inclusion and rejected
-canonicality evidence. Shared thin-price parser and snapshot projection tests
+impossible cumulative fractions, causal source admission, retained pre-sale
+proofs and lagging providers catching up without another source message. Source
+receipt prerequisites and their obsolete test executor have been removed; pinned
+checkpoint and dispute tests cover validation canonicality. Shared thin-price parser and snapshot projection tests
 exclude exhausted/malformed remainders on both fallback paths.
+
+## Sync and order simplification qualification
+
+`tests/maker-revalidation-rollback.test.ts` exercises the real storage rollback
+and positive-read guard. It covers immediate invalidation across revisions,
+current/requested and intermediate coalesced requirements, promoted partial
+passes, exact ancestor rebinding, repeated rollback, stale leases, source/receipt
+identity, new-event coalescing and atomic failure. No separate recovery loop or
+synthetic proof bypass is used.
+
+The [mechanism reconciliation](19-order-processing-cleanup.md) maps the removed
+paths and retained obligations. `canonical-maker-admission.test.ts` verifies no
+run or queue work for irrelevant WETH owners, one coalesced continuation for a
+relevant scope, persistence after reopen, and rollback of admission/progress when
+wakeup retention fails. `canonical-order-effects.test.ts` retains scope/anchor,
+chain attribution and direct by-ID effect coverage. `sync-follow-ups.test.ts`
+uses actual metadata events for required-publication/reorg proofs after canonical
+order publications are removed.
+
+The reorg process fixture constructs `AutomaticSyncExecutor` and
+`startAutomaticSyncLoop`, as production does. Focused check/rollback cases disable
+forward work selection to inspect the durable handoff; full coordinator cases
+exercise acquisition and restart. There is no alternate fixture recovery loop.
+The coordinator suite verifies overlapping calls share one pass; the manual
+backfill handler suite proves facts-only history can complete during a blocked
+current-range RPC without acquiring a second current-state authority.
+
+`source-order-delivery.test.ts` and `order-queue-contracts.test.ts` exercise the
+actual lifecycle/upsert boundary with explicit source provenance and observation
+time. Canonical messages cannot enter the source route. Private broker backlog
+fixtures publish supported source observations; they no longer retain a dead
+by-ID route or pacing executor just to run a benchmark.

@@ -17,19 +17,17 @@ Primary files:
 Sync jobs are defined in `indexer/src/domain/sync-jobs.ts`:
 
 - `sync.realtime.block` with payload `{ blockNumber }`
-- `sync.backfill.range` with payload
-  `{ fromBlock, toBlock, source, orderMaintenancePolicy }`
+- `sync.backfill.range` with payload `{ fromBlock, toBlock, source }`
 
-Backfill `source` identifies whether the range is `manual_historical`,
-`reorg_recovery`, `bootstrap_catchup`, or `gap_repair`.
-`orderMaintenancePolicy` is `current_state` for repair/catch-up work and
-`skip_global_maker_revalidation` for manual historical enrichment.
+Backfill `source` is `manual_historical` or `bootstrap_catchup`. The source
+selects the ingress behavior; no second maintenance-policy field exists.
 
 The scheduler retains remote head samples before publishing realtime wakeups.
 Bootstrap retains its catch-up target and publishes one scoped wakeup. Their
-handlers acknowledge promptly without acquiring blocks. Obsolete automatic
-recovery/gap hints are also acknowledged; SQLite retains the executable work.
-Only `manual_historical` queue requests acquire ranges directly.
+handlers acknowledge promptly without acquiring blocks. Only `manual_historical`
+queue requests acquire ranges directly, through Historical writer acceptance.
+Automatic gap/reorg ranges belong to retained SQLite intent and the coordinator;
+they have no producer or accepted payload on this queue.
 
 ## Sync Worker Flow
 
@@ -317,7 +315,6 @@ raw coverage and an anchor comparison cannot grant that authority.
 
 The acquisition transaction retains domain follow-ups with an explicit projection split:
 
-- `domain.orders.sync`
 - `domain.metadata.sync`
 - `domain.activity.sync`
 
@@ -337,26 +334,20 @@ Current behavior:
     - activities are a historical-safe feed projection over persisted facts
 - `domain.metadata.sync`
     - published only for accepted collection application with `projection = current_state`
-- `domain.orders.sync`
-    - published only for accepted collection application
-    - remains a placeholder; canonical order effects already commit synchronously
 
-Order maintenance then continues through dedicated update queues:
+Canonical order effects are retained directly in the same writer before applied
+progress advances. By-ID effects update protocol state or ordinary validation
+demand without another broker delivery. Maker effects perform an indexed
+candidate existence check; an admitted scope retains one existing compact
+continuation. Repeated effects coalesce into that scope and its current wakeup.
+Unknown WETH owners create no order outbox message and no maker run. WETH logs
+are read once per shared applied range; no bidder cache gates correctness.
 
-- `orders.update-by-maker`
-- `orders.update-by-id`
-
-`orders.update-by-maker` now carries a discriminated scope:
-
-- token-scoped updates include `collectionId + tokenId`
-- collection-scoped updates include `collectionId` only
-- global updates carry maker-wide invalidation reasons only
-
-Historical ranges emit activity follow-ups only. Shared/scoped applied ranges
-retain their canonical effects synchronously and may publish corresponding
-optional order wakeups. Maker handlers expand durable per-order demand; validators
-read a coordinator checkpoint and cannot advance it. Bootstrap wakeups do not
-acquire independently; completion observes both accepted prefixes.
+Historical ranges emit activity follow-ups only. Maker handlers expand durable
+per-order demand; validators read a coordinator checkpoint and cannot advance it.
+Bootstrap wakeups do not acquire independently; completion observes both accepted
+prefixes. The coordinator's single-flight execution owns current acquisition
+serialization; historical facts-only work relies on its explicit writer contract.
 
 ## Current Limits and Future Direction
 
@@ -416,10 +407,10 @@ already belongs to the coordinator and its durable ordered-prefix fence; see
 Before implementation, decide which runtime owns the feeder, whether the first
 model supports both chain-wide and collection-scoped runs, the default admitted
 window, and run-history retention. The existing `BackfillSyncPayload` source and
-manual order-maintenance policy remain authoritative throughout.
+Historical writer boundary remain authoritative throughout.
 
 The current Admin action always schedules historical enrichment. A later
-operator surface should expose that policy in run/status output rather than
+operator surface should expose that historical intent in run/status output rather than
 making operators infer it. Any future current-state repair command must retain requirements for the existing
 coordinator instead of granting a historical job projection authority. A direct
 collection-, maker-, or orderbook-scoped command to revalidate current local

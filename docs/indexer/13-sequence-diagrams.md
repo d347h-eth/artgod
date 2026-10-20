@@ -19,14 +19,14 @@ sequenceDiagram
     Scheduler->>NATS: Publish realtime jobs within the recent tail
     NATS-->>Sync: Deliver realtime job
     Sync->>RPC: Fetch logs, extensions, headers, transactions and receipts
-    Sync->>DB: Atomic facts, coverage, balances, pending hash checks and follow-up intent
+    Sync->>DB: Atomic facts, ownership, canonical order effects, checks, maker wakeups and applied progress
     Sync->>NATS: ACK successful acquisition
     Domain->>DB: Read due required follow-ups
-    Domain->>NATS: Publish domain, order and refresh jobs
+    Domain->>NATS: Publish activity/metadata jobs and compact maker continuations
     Domain->>DB: Remove accepted sync intent; retry failed publication
-    NATS-->>Domain: Deliver domain and order jobs
+    NATS-->>Domain: Deliver projections and maker continuations
     Domain->>DB: Check event origin hash before admission
-    Domain->>DB: Project activities, metadata and orders
+    Domain->>DB: Project activities/metadata; expand maker scopes into ordinary demand
 ```
 
 ## Perpetual Collection Gap Repair
@@ -193,123 +193,87 @@ does not publish a second broker envelope or imply validation completion.
 
 ## Order Admission and Validation
 
-Consumers and executors here are separate tasks inside the same per-chain
-domain-worker process. Lifecycle facts can commit while RPC validation is busy.
-Demand, broad-maker and token validation share two FIFO permits. See
+Source consumers, maker expansion and ordinary validation are separate tasks in
+one domain worker. The sync worker alone advances canonical applied state.
+Only ordinary validation uses the two FIFO RPC permits. See
 [processing ownership](07-domain-orders.md#processing-ownership-and-retained-state)
-for the durable state and [ports](12-ports-and-adapters.md#order-processing-ports)
-for the application boundaries.
+and [ports](12-ports-and-adapters.md#order-processing-ports).
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant NATS as NATS JetStream
-    participant Consumer as Order Consumers
+    participant Source as Source Consumer
+    participant Sync as Sync Coordinator
     participant DB as SQLite
-    participant Demand as Demand Executors
+    participant Demand as Ordinary Validator
     participant RPC as RPC Node
 
-    NATS-->>Consumer: Deliver upsert, validation hint or lifecycle fact
-    alt Upsert
-        Consumer->>DB: Commit canonical changes and needed demand together
-    else Source execution observation
-        Consumer->>DB: Classify retained signed terms
-        alt Full-only order
-            Consumer->>DB: Apply guarded source-filled observation without RPC
-        else Partial or unknown Seaport order
-            Consumer->>NATS: Publish source-execution-validation to order-updates-by-id
-            Note over Consumer,NATS: ACK source observation only after publication; no receipt RPC here
-        else Order not stored
-            Note over Consumer,DB: Ignore; later upsert retains optimistic admission and validation
+    Source->>DB: Commit observation, declaration and causal demand
+    Note over Source,DB: Sale is an observation; no receipt lookup or terminal assertion
+    Source-->>Source: ACK after durable admission
+    Sync->>RPC: Sample head after source admission
+    Sync->>RPC: Acquire connected required ranges
+    Sync->>DB: Commit facts, canonical effects, maker wakeups and applied progress
+    Note over Sync,DB: No duplicate canonical by-ID or maker event publication
+    loop Poll ready demand
+        Demand->>DB: Check causal barrier and shared/collection coverage
+        Demand->>Demand: Acquire FIFO capacity
+        Demand->>DB: Claim revisions, generations, lease and exact checkpoint
+        Demand->>RPC: Full validation at supplied block hash
+        Demand->>RPC: Fresh canonicality and snapshot-lifetime verification
+        alt Compatible proof and claim remain current
+            Demand->>DB: Commit result, independent proof and covered demand
+        else RPC uncertainty, dispute or changed claim
+            Demand->>DB: Keep unfinished demand retryable; retain dispute if needed
         end
-    else Source execution validation on order-updates-by-id
-        alt Missing or malformed transaction hash
-            Note over Consumer,NATS: Log and discard; no observation-time substitute
-        else Valid transaction hash
-            Consumer->>DB: Capture canonical revision
-            Consumer->>RPC: Fresh receipt and block; verify transaction inclusion
-            Note over Consumer,NATS: Unavailable/noncanonical receipt retains validation delivery
-            Consumer->>DB: Admit execution-block requirement with captured revision
-        end
-    else By-ID validation hint
-        Consumer->>DB: Coalesce current requirement with execution block/revision fence, or resolve unnecessary work
-    else Canonical partial-order execution
-        Consumer->>DB: Admit block-scoped demand, preserve validated order state
-    else Full-only execution, cancel or source observation
-        Consumer->>DB: Apply guarded lifecycle effects without RPC
-    end
-    Consumer-->>NATS: ACK after committed effects, durable handoff or explicit no-work decision
-
-    loop Poll due demand and resume expired leases
-        Demand->>Demand: Acquire shared FIFO permit
-        Demand->>DB: Claim bounded current revisions and generations
-        opt Eligible claims remain
-            Demand->>RPC: Full validations at a fresh pinned block
-            Demand->>RPC: Verify block hash, head and snapshot lifetime
-            alt Snapshot verified
-                Demand->>DB: Atomically apply guarded results, retained block attribution and captured coverage
-                Note over DB: Newer or changed requirements stay pending; canonical partial fills retain last validated state
-            else Dependency or snapshot failure
-                Demand->>DB: Retain unfinished demand with retry state
-            end
-        end
-        Demand->>DB: Release any unconsumed claims without coverage
-        Demand->>Demand: Release permit and yield before next batch
+        Demand->>DB: Release unconsumed claims
+        Demand->>Demand: Release capacity and yield
     end
 ```
 
 ## Maker Checkpoint and Recovery
 
-Each delivery runs one bounded step. The checkpoint owns the atomic boundary
-between order effects or handoff, cursor movement and continuation intent.
-The outbox publishes afterward; its sent receipt alone is not completion proof.
-See [durable maker progress](07-domain-orders.md#durable-maker-progress) for
-isolation, follow-up generations, lease fencing and replay cleanup.
+A maker step expands a finite candidate page into ordinary demand without RPC.
+The checkpoint commits that handoff, cursor and next continuation together.
+The outbox's sent receipt is publication evidence, not execution completion.
 
 ```mermaid
 sequenceDiagram
     autonumber
+    participant Sync as Sync Writer
     participant NATS as NATS JetStream
-    participant Maker as Maker or Token Processor
+    participant Maker as Maker or Token Handler
     participant DB as SQLite
-    participant RPC as RPC Node
     participant Outbox as Outbox Publisher
     participant Recovery as Maker Recovery
 
-    NATS-->>Maker: Scoped hint or run/step continuation
-    Maker->>DB: Admit or resume finite pass and claim lease
-    Maker->>Maker: Acquire shared FIFO permit
-    Maker->>RPC: Validate one bounded step at a fresh snapshot
-    alt Results verified or isolated handoff available
-        alt Successful validation results
-            Maker->>RPC: Verify snapshot before committing results
-            Maker->>DB: Commit effects, cursor and continuation intent together
-        else Persisted isolated candidate read fails again
-            Maker->>DB: Commit per-order demand, cursor and continuation intent together
-            Note over DB: No failed result becomes validation coverage
-        end
-    else Shared, snapshot or checkpoint failure
-        Maker->>DB: Keep previous cursor and retryable run
+    opt Canonical maker event
+        Sync->>DB: Check indexed candidates and admit relevant scope
+        Sync->>DB: Retain one continuation atomically with applied progress
     end
-    Maker->>Maker: Release permit and lease
-    alt Checkpoint committed
-        Maker-->>NATS: ACK after durable checkpoint
-    else Step failed
-        Maker-->>NATS: Delivery fails; saved run retains unfinished work
+    NATS-->>Maker: Fresh source scope or chain/run/step continuation
+    Maker->>Maker: Verify transport identity, owning queue and delivery receipt
+    Maker->>DB: Admit or resume retained pass and claim lease
+    alt Bounded expansion succeeds
+        Maker->>DB: Commit ordinary demand, cursor and continuation
+        Maker-->>NATS: ACK
+    else Expansion fails after admission
+        Maker->>DB: Durably release lease with failure
+        Maker-->>NATS: ACK only after recovery owns unfinished work
+    else Admission or release remains uncertain
+        Maker-->>NATS: Retain delivery for retry
     end
-
-    opt Scan or newer generation still needs a step
+    opt Pass or newer generation still needs a step
         Outbox->>DB: Read committed continuation
-        Outbox->>NATS: Publish next step behind ready work
-        Outbox->>DB: Record publication receipt
+        Outbox->>NATS: Publish compact next step
+        Outbox->>DB: Record stream/sequence receipt
     end
-
-    loop Bounded recovery and receipt cleanup
-        Recovery->>DB: Read idle unfinished runs and delivery receipts
-        Recovery->>NATS: Check publication identity and consumer ACK floors
-        Recovery->>DB: Repair missing wakeups and reap eligible completed receipts
+    loop Periodic bounded recovery and cleanup
+        Recovery->>DB: Read unfinished runs and contributing delivery receipts
+        Recovery->>NATS: Verify publication and each consumer ACK boundary
+        Recovery->>DB: Repair missing wakeups; reap eligible completed receipts
     end
-    Note over DB: Completed maker scan may coexist with pending per-order demand
+    Note over DB: Completed expansion may coexist with unfinished ordinary demand
 ```
 
 ## Canonical Metadata Refresh + Collection Extension Artifacts

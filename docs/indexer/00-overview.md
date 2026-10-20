@@ -42,11 +42,11 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
     - Executes retained automatic gap/reorg ranges in one bounded serial loop.
     - Discovers missing live-collection coverage from `HEAD - REORG_DEPTH` through each anchor.
     - Retains delayed hash checks atomically when saving recent blocks.
-    - Atomically retains domain and order follow-ups with data and acquisition progress.
+    - Atomically retains order effects, relevant maker continuations and domain follow-ups with applied progress.
     - Drains eligible pending hash checks from SQLite, including after downtime.
     - Retains known mismatches and retries ancestor proof at startup and periodically.
     - Atomically rolls back orphaned blocks and retains bounded canonical resync.
-    - Runs forward application and recovery through one transition gate; the domain runtime publishes required follow-ups.
+    - Runs forward application and recovery in one single-flight coordinator pass; the domain runtime publishes required follow-ups.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
     - Consumes domain jobs plus order upsert/update jobs.

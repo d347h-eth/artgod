@@ -158,8 +158,8 @@ Partial progress retains the same repair ID with its older contiguous remainder.
 Acquisition completion clears or advances repair intent. Domain-worker drains
 the required follow-ups from `queue_outbox` separately; publication failures
 retry there without reacquiring RPC data. Failed acquisition defers its exact
-members for five minutes, retaining newest-height priority. Old queued gap
-hints are acknowledged without acquisition; upgrade retains their SQLite intent.
+members for five minutes, retaining newest-height priority. The retained SQLite
+intent is the only automatic gap-work handoff; no broker range format is needed.
 
 Scan limits belong to `SYNC_GAP_POLICY`, executor timing to
 `AUTOMATIC_SYNC_POLICY`; the runtime uses the existing typed
@@ -177,7 +177,7 @@ have finished consuming the published jobs.
 
 Normal runtime composition creates one scheduler per chain. Its serialized head
 cursor and active gap-scan promise coordinate only that process. The sync
-worker's execution gate is process-local. Durable expected-prefix and revision
+worker's active coordinator pass is process-local. Durable expected-prefix and revision
 checks reject stale or out-of-order current-state commits, including across
 rollback. They do not provide exclusive RPC acquisition across independently
 started coordinators.

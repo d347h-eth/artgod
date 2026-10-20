@@ -42,7 +42,7 @@ and [operator procedure](18-order-queue-recovery.md).
 - [Observability and metrics](10-observability-and-metrics.md)
 - [Testing](11-testing.md)
 - [Order queue recovery](18-order-queue-recovery.md)
-- [Deferred order-processing cleanup](19-order-processing-cleanup.md) — removal
-  inventory for a follow-up after queue healing; not current runtime behavior.
+- [Order-processing reconciliation](19-order-processing-cleanup.md) — completed
+  removal decisions, retained mechanisms and verification ownership.
 - [RPC interaction catalog](../rpc/01-http-rpc-interaction-catalog.md)
 - [Backlog and status history](../planning/01-unified-backlog.md)

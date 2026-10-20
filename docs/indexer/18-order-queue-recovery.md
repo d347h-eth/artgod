@@ -15,7 +15,7 @@ With the intended existing broker available, inspect a bounded sample:
 
 ```sh
 yarn workspace @artgod/indexer inspect:queue -- \
-  --queue order-updates-by-id --limit 2000 --samples 3
+  --queue order-lifecycle-updates --limit 2000 --samples 3
 yarn workspace @artgod/indexer inspect:queue -- \
   --queue order-updates-by-maker --limit 100 --samples 3
 ```
@@ -51,7 +51,7 @@ manually.
 
 Use inspector source compatible with the store's migration level. The current
 inspector uses source admission sequences and the bounded maker expansion schema,
-including migration 086. Use the matching older inspector for an older running
+including migration 088 for the sole maker delivery-receipt representation. Use the matching older inspector for an older running
 app instead of upgrading its live database merely to inspect it.
 For which process drains or reaps each table, see
 [processing ownership and retained state](07-domain-orders.md#processing-ownership-and-retained-state).
@@ -64,22 +64,20 @@ For which process drains or reaps each table, see
 2. Start the patched application through its normal supervisor. There is no
    separate mutating drain script and no temporary replacement consumer.
 3. Compare broker pending/unacknowledged counts and durable progress at the start
-   and end of the window. Inspect the by-ID, maker,
-   `order-lifecycle-updates` and `order-updates-by-token` queues. Confirm that a
+   and end of the window. Inspect `orders-upsert`, `order-lifecycle-updates`,
+   `order-updates-by-maker` and `order-updates-by-token`. Confirm that a
    new source observation makes an old current ask unusable while its demand
    waits for coordinator progress. Source observations do not change canonical
    ownership or sale activity; only accepted chain application does.
 4. Stop infra through the supervisor when the chosen window ends, or earlier if
    repeated storage/RPC failures, rising useful-work age, resource pressure or a
    stuck unsupported envelope warrants review. Graceful stop finishes admitted
-   operations; a forced stop can replay only uncommitted maker work or unfinished
-   demand. It does not acknowledge those obligations away.
+   operations; a forced stop can replay unacknowledged deliveries and resume unfinished
+   durable work, including deliveries committed before an ACK was lost. It does not acknowledge those obligations away.
 5. Resume through the same supervisor and stores. Broker cursors, maker
    checkpoints and demand generations are the saved progress. Do not reset them.
 
-The by-ID consumer is single-flight and spaces admission by at least 5 ms
-(at most 200 envelopes/second before processing cost). Time spent in SQLite makes
-it slower. Source deliveries persist source-specific availability and ordinary
+The source lifecycle consumer is single-flight. Source deliveries persist source-specific availability and ordinary
 validation demand before ACK; no receipt lookup or validation RPC holds the
 consumer slot. A source sale is an observation that sync may not have seen yet,
 not a canonical terminal order fact or a claimed block requirement.
@@ -109,11 +107,19 @@ coordinator restores its accepted lineage. The validator never adds headers or
 advances sync to make its own result eligible. Maker scan completion therefore
 means expansion has finished, not that every order has validated.
 
+Maker continuations carry only chain/run/step identity and resume the stored
+payload. The owning broad/token route is enforced. A failed admitted step yields
+to durable recovery only after release succeeds; uncertain admission/release
+retains its message. Periodic recovery is the sole replay-cleanup scheduler.
+All contributing main/gap consumer receipts must be settled before cleanup.
+Pre-upgrade message formats and the retired by-ID queue are not recovered by this
+implementation; the current-runtime procedure is not an old-queue migration.
+
 Do not cap the durable demand backlog by stopping on an arbitrary pending-row
-count: that would bury later terminal facts behind legacy validation hints again.
+count: each admitted identity must retain its unmet obligation.
 Demand occupies at most one row per live order, maker coverage one row per
 compatible scope, and a maker run at most one current continuation. This bounds
-auxiliary cardinality by useful identities, not by six million old envelopes.
+auxiliary cardinality by useful identities, rather than raw delivery count.
 Valid orderbooks and incoming distinct work can still grow; there is no fixed
 maximum database size or guarantee of recovery at every arrival rate.
 
@@ -142,13 +148,13 @@ histogram complements the inspector's explicitly requested global inventory.
 | A pending maker has failed/missing wakeup                   | The bounded recovery poll repairs it after its grace period using publication evidence. Inspect `lastError` and the stored queue; do not manufacture a new full sweep.                                                                                                                                                   |
 | Demand stays pending without increasing failures            | Its prerequisites may be incomplete or behind sync. Inspect admission/sample and shared/collection applied progress before treating it as a failed validation.                                                                                                                                                           |
 | Demand `failures` / `nextAttemptAt` increases               | RPC/storage uncertainty remains pending with bounded retry delay; it has not been treated as protocol invalidity.                                                                                                                                                                                                        |
-| `Queue work failed; retry retained`                         | By-ID/lifecycle application failed. The original envelope remains with a one-second retry delay, including after five failures. Correct the underlying failure before judging throughput.                                                                                                                                |
+| `Queue work failed; retry retained`                         | Source lifecycle application failed. The original envelope remains with a one-second retry delay, including after five failures. Correct the underlying failure before judging throughput.                                                                                                                               |
 | `Unsupported queue work retained`                           | The original envelope/bytes remain with a 60-second retry delay. Inspect its sequence/payload and review compatibility. A single-flight queue can be held up by that envelope; no automatic skip, purge or log-only DLQ transfer is authorized.                                                                          |
 
 Unknown and malformed input is not an acknowledged no-op. Source updates ACK
 only after atomic observation and demand admission, or an explicit current-state
 no-work decision. Canonical cancellation is applied in the sync writer before
-applied progress advances; redundant queue hints cannot replace that transaction.
+applied progress advances; there is no second canonical order queue delivery.
 A failed ACK can replay
 the same domain operation without duplicating its durable obligation.
 

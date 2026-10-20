@@ -100,9 +100,8 @@ also change it.
 with cumulative `totalResolved` / `totalDeferred`. Deferred entries own durable
 per-order demand; they are not successful validations. `status=completed` means
 the finite maker scan finished resolving/admitting its work. It can coexist with
-pending demand. `validated` still excludes failed reads and is not durable proof
-by itself. The bounded maker inspector includes `isolateOrderId` and
-`deferredOrders`; the latter is cumulative across generations, not remaining work.
+pending demand. The bounded maker inspector includes `deferredOrders`, which
+is cumulative across generations, not remaining work.
 Inspect pending demand to establish whether delegated validation has completed.
 
 ### Order processing metrics and APM
@@ -133,39 +132,39 @@ All series inherit `worker` and `chain_id`. Additional labels have finite values
 there are no maker, order, token, run, job, error-text or RPC-URL metric labels.
 Duration and age histograms use explicit **seconds** buckets.
 
-| Metric suffix                                                                      | Additional labels     | Meaning                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `processing_operations_total`                                                      | `operation`, `result` | Completed instrumented operations, success/failure before retry catches.                                                                                                                                                                                                 |
-| `processing_duration_seconds`                                                      | `operation`, `result` | Duration of those operations. Nested stage durations overlap; do not add them together.                                                                                                                                                                                  |
-| `processing_active`                                                                | `operation`           | Concurrent calls to each instrumented operation.                                                                                                                                                                                                                         |
-| `order_demand_batches_total`                                                       | —                     | Nonempty bounded demand reports, including current-state skips and retries. Idle claims do not increment it.                                                                                                                                                             |
-| `order_demand_orders_total`                                                        | `outcome`             | `scanned`, `claimed`, `validated`, `applied`, `covered`, `resolvedUnneeded`, `followup`, `retried`, `released`, `lostClaims`, with the same meanings and overlaps as the progress log above.                                                                             |
-| `order_demand_batch_duration_seconds`                                              | —                     | Report duration, including selection and retry bookkeeping, excluding capacity wait.                                                                                                                                                                                     |
-| `order_demand_sampled_age_seconds`                                                 | —                     | One observation per nonempty report: age of its oldest sampled requirement at report time. Not global oldest backlog age; repeated attempts can resample a requirement.                                                                                                  |
-| `order_maker_checkpoints_total`                                                    | `end`                 | Successful atomic checkpoints by `completed`, `count_budget`, `time_budget`, `followup_generation`. Completion means the finite scan ended.                                                                                                                              |
-| `order_maker_checkpoint_orders_total`                                              | `outcome`             | `resolved`, `deferred`, `validated` at committed checkpoints. Deferred means durable demand handoff; validated means returned validation results in that checkpoint, not necessarily applied current-state changes. Rolled-back checkpoints increment none of these.     |
-| `order_validation_contract_reads_total`                                            | `path`, `kind`        | Demand/maker logical read accounting, including failed attempts with an established snapshot. `kind` is `perOrder`, `shared`, `other` or `statusBatches`; the last counts aggregate port calls, not individual logical reads. These are not HTTP/billing request totals. |
-| `order_validation_active`, `order_validation_waiting`, `order_validation_capacity` | —                     | O(1) in-memory FIFO capacity/pressure, shared by demand, maker and token work.                                                                                                                                                                                           |
-| `order_validation_wait_seconds`                                                    | `result`              | Time to `granted` capacity, including immediate grants, or `cancelled` waiting. Graceful shutdown cancellation is expected.                                                                                                                                              |
-| `order_maker_recovery_total`                                                       | `outcome`             | Bounded wakeup checks: `checked`, `recovered`, `failed`. Counts can overlap; a recovered row had its replacement wakeup committed.                                                                                                                                       |
-| `order_maker_receipts_cleaned_total`                                               | —                     | Completed run receipts actually removed after replay-boundary proof, through admission or periodic recovery cleanup.                                                                                                                                                     |
-| `queue_outbox_publications_total`                                                  | `queue`, `status`     | Persisted `sent`, `failed_retry` and `failed_terminal` outcomes, including maker continuations and metadata publications. Sent means publication receipt persisted, not consumer completion.                                                                             |
+| Metric suffix                                                                      | Additional labels     | Meaning                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `processing_operations_total`                                                      | `operation`, `result` | Completed instrumented operations, success/failure before retry catches.                                                                                                                                                                                                        |
+| `processing_duration_seconds`                                                      | `operation`, `result` | Duration of those operations. Nested stage durations overlap; do not add them together.                                                                                                                                                                                         |
+| `processing_active`                                                                | `operation`           | Concurrent calls to each instrumented operation.                                                                                                                                                                                                                                |
+| `order_demand_batches_total`                                                       | —                     | Nonempty bounded demand reports, including current-state skips and retries. Idle claims do not increment it.                                                                                                                                                                    |
+| `order_demand_orders_total`                                                        | `outcome`             | `scanned`, `claimed`, `validated`, `applied`, `covered`, `resolvedUnneeded`, `followup`, `retried`, `released`, `lostClaims`, with the same meanings and overlaps as the progress log above.                                                                                    |
+| `order_demand_batch_duration_seconds`                                              | —                     | Report duration, including selection and retry bookkeeping, excluding capacity wait.                                                                                                                                                                                            |
+| `order_demand_sampled_age_seconds`                                                 | —                     | One observation per nonempty report: age of its oldest sampled requirement at report time. Not global oldest backlog age; repeated attempts can resample a requirement.                                                                                                         |
+| `order_maker_checkpoints_total`                                                    | `end`                 | Successful atomic checkpoints by `completed`, `count_budget`, `time_budget`, `followup_generation`. Completion means the finite scan ended.                                                                                                                                     |
+| `order_maker_checkpoint_orders_total`                                              | `outcome`             | `resolved` and `deferred` at committed expansion checkpoints. Deferred means durable ordinary-demand admission; neither value counts RPC validation results. Rolled-back checkpoints increment neither.                                                                         |
+| `order_validation_contract_reads_total`                                            | `path`, `kind`        | Ordinary validation logical read accounting, including failed attempts with an established snapshot. `kind` is `perOrder`, `shared`, `other` or `statusBatches`; the last counts aggregate port calls, not individual logical reads. These are not HTTP/billing request totals. |
+| `order_validation_active`, `order_validation_waiting`, `order_validation_capacity` | —                     | O(1) in-memory FIFO capacity/pressure, used by the ordinary validation executors.                                                                                                                                                                                               |
+| `order_validation_wait_seconds`                                                    | `result`              | Time to `granted` capacity, including immediate grants, or `cancelled` waiting. Graceful shutdown cancellation is expected.                                                                                                                                                     |
+| `order_maker_recovery_total`                                                       | `outcome`             | Bounded wakeup checks: `checked`, `recovered`, `failed`. Counts can overlap; a recovered row had its replacement wakeup committed.                                                                                                                                              |
+| `order_maker_receipts_cleaned_total`                                               | —                     | Completed run receipts actually removed after replay-boundary proof, through periodic recovery cleanup.                                                                                                                                                                         |
+| `queue_outbox_publications_total`                                                  | `queue`, `status`     | Persisted `sent`, `failed_retry` and `failed_terminal` outcomes, including maker continuations and metadata publications. Sent means publication receipt persisted, not consumer completion.                                                                                    |
 
 Metrics are process-local observations, not a transactional audit ledger. An
 abrupt exit can lose an observation immediately after a DB commit. A successful
 poll/recovery/drain operation also does not imply every order validated or every
 publication succeeded: use the durable outcome counters and child failures.
-`orders.validationDemand.admit` measures the by-ID admission use case; atomic
-upsert/checkpoint admissions also exist, so it is not a global admission counter.
+Atomic upsert, canonical and maker demand admissions have their owning operation
+boundaries; there is no standalone by-ID admission span.
 No new DB-wide count or age scan runs on the metrics path. Use `inspect:orders`
 for durable inventory, including explicit `--counts` when needed.
 
 APM uses the same stable operation names as the operation metrics:
 
-- `orders.validationDemand.{admit,claim,batch,snapshot,validate,verify,commit}`:
+- `orders.validationDemand.{claim,batch,snapshot,validate,verify,commit}`:
   covers background validation after broker ACK, with child phases under each
   claimed batch. Claim spans also cover idle and skip-only selection.
-- `orders.maker.{admit,step,snapshot,validate,verify,checkpoint}`: covers bounded
+- `orders.maker.{admit,checkpoint}`: covers bounded
   maker/token work, with run/step attributes for correlation to checkpoint logs.
 - `orders.maker.{recover,recoverWakeup,cleanup}`: covers periodic recovery,
   individual bounded broker probes and replay-safe receipt removal.
@@ -177,9 +176,9 @@ APM uses the same stable operation names as the operation metrics:
 
 Validation, snapshot verification, checkpoint, publication and recovery-check
 spans see errors **before** existing catches convert them into retry or handoff.
-For an isolated failing maker order, the validation child fails while its parent
-step can succeed by committing durable demand. No per-order validation span is
-created inside a batch. Shared APM supplies the established trace/profile context.
+Maker expansion commits ordinary demand without validation child spans.
+Per-order validation failures belong to the ordinary batch and its retained retry
+state. Shared APM supplies the established trace/profile context.
 
 Useful PromQL queries with the default runtime prefix:
 

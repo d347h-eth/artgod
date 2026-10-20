@@ -20,15 +20,14 @@ Primary owners:
 
 ## Inputs
 
-`orders.upsert` carries a normalized declaration. Both accepted by-ID consumers
-pass source updates through the same atomic owner. A source update must identify
+`orders.upsert` carries a normalized declaration. The lifecycle consumer
+passes source updates through the same atomic owner. A source update must identify
 its source; an onchain hint must identify an accepted block number and hash.
 Canonical sync retains essential order and maker invalidations in its writer,
-before publishing applied progress. Queue delivery is therefore a wakeup or
-redundant hint, never the only durable record of an essential invalidation.
+before publishing applied progress. Canonical by-ID effects require no queue message. A maker scope with eligible
+orders retains one compact continuation in that same transaction; an irrelevant
+maker creates neither a run nor an outbox message.
 
-The `domain.orders.sync` range consumer remains a no-op. Removing its vocabulary
-and transport plumbing is separate deferred cleanup; it owns no state authority.
 Historical acquisition emits facts/projection work without current-order effects.
 
 ## Processing ownership and retained state
@@ -135,7 +134,7 @@ own receipt-based execution/fill decoding and activity facts separately.
 Hashless OpenSea sales can still invalidate the reported seller/token scope.
 A source observation for an order absent locally is retained without inventing
 an order or a completed sale. A later declaration receives its own new barrier.
-Both accepted update consumers ACK only after durable admission or an explicit
+The source lifecycle consumer ACKs only after durable admission or an explicit
 no-work decision; failed admission writes retry normally.
 
 ## Partial fills and quantities
@@ -214,7 +213,10 @@ quantities. An unsupported shape with unknown units stays an observation; reader
 must not invent one executable NFT from a null quantity.
 A pending maker scope blocks only orders whose proof has not covered its exact
 canonical requirement or source admission sequence; a completed early page need
-not wait for the whole maker's scan.
+not wait for the whole maker's scan. Rollback transfers pending canonical
+scope requirements before rebinding surviving proofs. If a coalesced requirement
+is orphaned, it conservatively requires the verified ancestor so a surviving
+intermediate invalidation cannot disappear; see [rollback](06-reorg-handling.md).
 
 ### Durable maker progress
 
@@ -225,7 +227,17 @@ need no run. A later order still receives its own initial causal admission.
 
 Each run captures a finite order boundary and expands bounded pages into ordinary
 demand. Demand admission and cursor/continuation commit together. Scope generation,
-lease, publication and replay guards survive restart. New arrivals do not extend
+lease, publication and replay guards survive restart. Continuations carry only
+`chainId`, `runId` and `step`; the retained run owns its scope and current payload.
+The transport handler enforces token versus broad routing for fresh hints and
+resumes, and requires the current delivery receipt before execution. Direct
+canonical admission has no broker origin.
+
+A failed step is ACKed only after its lease is durably released to maker recovery.
+Uncertain admission or release retains the delivery for retry. Periodic maker
+recovery alone schedules bounded replay cleanup. Per-consumer receipts remain in
+`maker_validation_delivery_origins`: main and gap consumers can both contribute
+to one run, so one receipt is insufficient. New arrivals do not extend
 a pass indefinitely. All current validation uses main capacity; optional history
 never supplies current-state authority.
 
@@ -345,8 +357,8 @@ non-zero local collection-set root.
 
 ### `orders.update-by-id`
 
-Both supported by-ID routes use `ApplyOrderUpdate` and the same durable source or
-canonical admission. Canonical hints are redundant with sync-writer effects.
+`ApplyOrderUpdate` admits source observations on the lifecycle queue. Canonical
+by-ID effects are direct sync-writer inputs and never use this source route.
 Source cancellation changes availability only; source sale requests validation.
 
 ### `orders.update-by-maker`

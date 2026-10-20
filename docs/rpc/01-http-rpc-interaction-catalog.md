@@ -304,8 +304,8 @@ writes; see [orders](../indexer/07-domain-orders.md#bounded-status-aggregates).
 
 - Runtime: `indexer/src/runtime/sync-worker.ts`.
 - Main use case: compare locally stored block hashes against RPC block hashes,
-  prove ancestors and recover divergent state through the same transition gate
-  that owns forward application.
+  prove ancestors and recover divergent state through the same single-flight coordinator
+  pass that owns forward application.
 - HTTP lane: `primary-http-rpc`.
 - RPC method paths: block reads and current head reads.
 - Resilience: full indexer HTTP adapter coverage.

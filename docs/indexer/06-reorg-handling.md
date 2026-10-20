@@ -223,8 +223,9 @@ limited to both its own and shared progress.
 
 A crash before commit retries acquisition; a crash afterward retries publications
 from the outbox without another RPC read. No automatic range publication, broker
-lease, delivery generation or continuation message owns recovery. Old queued
-`reorg_recovery` hints are ACKed without acquisition.
+lease, delivery generation or continuation message owns recovery. The queue
+decoder accepts only current manual/bootstrap requests; it has no automatic
+recovery payload.
 
 The domain worker retries required publications indefinitely with capped backoff
 and stable, revision-qualified IDs. Acquisition completion means publication
