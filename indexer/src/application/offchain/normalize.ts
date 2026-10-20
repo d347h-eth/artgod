@@ -99,17 +99,6 @@ export type NormalizedOffchainMetadataRefresh = {
     reason: "metadata_updated";
 };
 
-export type ExistingOrderActivityContext = {
-    side: "buy" | "sell" | null;
-    sourceScopeKind: string | null;
-    contract: string;
-    tokenId: string | null;
-    maker: string;
-    taker: string | null;
-    price: string | null;
-    currency: string | null;
-};
-
 export function normalizeOffchainOrder(
     raw: OffchainOrderRawPayload,
 ): NormalizedOffchainOrder | null {
@@ -293,7 +282,6 @@ export function normalizeOffchainMetadataRefresh(
 
 export function normalizeOffchainActivity(
     raw: OffchainOrderRawPayload,
-    existingOrder: ExistingOrderActivityContext | null,
 ): ActivityUpsertPayload | null {
     if (!raw.source) {
         throw new Error("Missing offchain order source");
@@ -351,47 +339,6 @@ export function normalizeOffchainActivity(
                 eventType: raw.eventType,
                 validFrom: order.validFrom ?? null,
                 validUntil: order.validUntil ?? null,
-            },
-        };
-    }
-
-    if (
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemCancelled ||
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidate ||
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidation
-    ) {
-        if (
-            !existingOrder ||
-            existingOrder.sourceScopeKind !== ACTIVITY_SCOPE_KIND.Token ||
-            !existingOrder.tokenId ||
-            !existingOrder.side
-        ) {
-            return null;
-        }
-
-        return {
-            chainId: raw.chainId,
-            collectionId: raw.collectionId,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind:
-                existingOrder.side === "sell"
-                    ? ACTIVITY_KIND.ListingCancelled
-                    : ACTIVITY_KIND.BidCancelled,
-            contract: existingOrder.contract,
-            tokenId: existingOrder.tokenId,
-            occurredAt,
-            sourceKind: "offchain",
-            sourceName: raw.source,
-            sourceEventKey: raw.dedupeKey,
-            orderId: raw.orderId ?? null,
-            maker: existingOrder.maker,
-            taker: existingOrder.taker,
-            side: existingOrder.side,
-            amount: parseStreamQuantity(raw.payload),
-            price: existingOrder.price,
-            currency: existingOrder.currency,
-            payload: {
-                eventType: raw.eventType,
             },
         };
     }

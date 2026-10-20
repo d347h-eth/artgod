@@ -52,8 +52,7 @@ export async function dispatchOffchainPayload(
 ): Promise<DispatchOffchainPayloadResult> {
     let handled = false;
     let upsertedOrderId: string | null = null;
-    // Cancellation history no longer needs to read an existing canonical payload for enrichment.
-    const activity = normalizeOffchainActivity(payload, null);
+    const activity = normalizeOffchainActivity(payload);
     if (
         activity &&
         retainsOffchainActivity(activity.kind) &&
