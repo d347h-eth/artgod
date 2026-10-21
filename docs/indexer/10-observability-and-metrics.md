@@ -247,7 +247,7 @@ ingestion or rendered Grafana panels.
   existing files, so Alloy can tail late-started wallet-bound bot logs while
   still using `tail_from_end`.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api*.log`, `/var/log/artgod/frontend-web*.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-*.log`, `/var/log/artgod/frontend-web*.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`. The backend pattern covers both launcher `backend-api.log` and desktop `backend-YYYY-MM-DD.log` files through the same target.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.

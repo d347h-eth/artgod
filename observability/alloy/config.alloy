@@ -6,7 +6,8 @@ logging {
 local.file_match "artgod_backend_logs" {
   path_targets = [
     {
-      __path__ = "/var/log/artgod/backend-api*.log",
+      // Match launcher backend-api.log and desktop backend-YYYY-MM-DD.log.
+      __path__ = "/var/log/artgod/backend-*.log",
       app      = "artgod",
       runtime  = "backend-api",
       host     = "local-dev",
