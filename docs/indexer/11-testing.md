@@ -175,12 +175,12 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
   read failures cannot consume the pending DB check.
 - `tests/reorg-restored-agreement.test.ts` covers transient disagreement at the
   accepted base, restart, coalesced later mismatches, stale generations and
-  revisions, newer installed bases and interrupted resync. Genuine base
-  replacement remains gated.
+  revisions, newly accepted collection checkpoints and interrupted resync.
+  Recovery requires a proven ancestor; a collection snapshot cannot veto it.
 - `tests/reorg-filled-order-validation.test.ts` follows decoded transfer/fill
   receipts through terminal full validation, maintenance, coordinator rollback,
   replacement acquisition and full validation to a usable order again. It uses
-  synthetic RPC data with production owners and a stipulated installed base.
+  synthetic RPC data with production owners and a stipulated accepted collection checkpoint.
 - `tests/pending-canonical-checks.test.ts` covers atomic recent-block retention,
   unchanged maturity thresholds, duplicate imports, fresh-hash/revision fences,
   downtime beyond the realtime tail, durable retries and atomic recovery handoff.
@@ -198,19 +198,22 @@ deterministic RPC/broker test doubles. They do not use a live chain, broker, or 
 - `tests/automatic-sync-executor.test.ts`, `tests/sqlite-sync-coordination.test.ts`
   and `tests/backfill-sync-handler.test.ts` use real migrated adapters to verify
   ascending shared/scoped prefixes, gap-disabled foreground catch-up, source
-  barriers waiting for both prefixes, fair failed-scope retries, installed joining
-  bases, restart, candidate rejection, atomic outbox/progress rollback and
+  barriers waiting for both prefixes, fair failed-scope retries, explicitly delegated joining
+  collections, restart, candidate rejection, atomic outbox/progress rollback and
   independent historical imports. Wakeups never acquire out of order.
 - `tests/chain-sync-progress.test.ts`, `tests/coordinated-chain-progress.test.ts` and
   `tests/chain-history-retention.test.ts` cover exact predecessor/hash contracts,
   empty-block continuity, source sampling and dispute gates, bounded connected
-  recovery windows, installed-base protection and bounded sample cleanup with
+  recovery windows, authoritative bootstrap invalidation and bounded sample cleanup with
   pending/claimed admission mappings retained.
-- `tests/bootstrap-ownership-installation.test.ts` proves atomic installed-base
-  handoff, run/lease/anchor/revision fences, stale task completion rejection and
-  duplicate installation preserving applied ownership. Bootstrap backfill/live
-  tests require accepted progress instead of raw coverage and recheck it before
-  final collection liveness.
+- `tests/bootstrap-ownership-installation.test.ts` proves atomic snapshot writes,
+  run/lease/anchor/revision fences and rejection after accepted collection progress.
+  Coordinator/lifecycle tests prove pre-Backfill exclusion, retained-target limits,
+  independent retries and crash resumption. `tests/bootstrap-finalization.test.ts`
+  checks fresh anchor depth and the atomic live/step/core-run transition.
+  `tests/reorg-bootstrap-invalidation.test.ts` checks real rollback cleanup and
+  late writer rejection. `tests/opensea-live-lifecycle.test.ts` checks post-live
+  snapshot scheduling, stale completion and live-only stream admission.
 - `tests/sync-follow-ups.test.ts` covers atomic data/outbox failure, ephemeral
   hints across reopen, required retry beyond ordinary limits, lost publication
   replies without RPC, stable IDs, accepted-row cleanup, orphan publication

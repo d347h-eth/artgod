@@ -196,8 +196,8 @@ type BackfillSyncPayload = {
 
 The decoder validates source, range and envelope before collection selection.
 Manual historical requests acquire facts and activity only. Bootstrap requests
-wake the coordinator, whose installed base and applied prefixes own current
-execution. Global and collection-scoped routing remain supported. No duplicate
+wake the coordinator, whose current Backfill authorization and applied prefixes
+own current execution. Global and collection-scoped routing remain supported. No duplicate
 order-maintenance policy or automatic gap/reorg wire format is retained.
 Unknown or inconsistent input cannot acquire a range.
 
@@ -324,6 +324,13 @@ state is committed.
 - `sourceEventAt` (source-derived timestamp or `null`)
 - raw source payload
 
+OpenSea stream subscriptions select live collections with enabled stream
+ingestion. Publication checks the current collection again for cached routes;
+the raw consumer also drops deliveries when the collection is missing, no
+longer live, or paused. Bootstrap does not retain stream deliveries for later
+replay. The post-live REST snapshot and periodic reconciliation recover source
+coverage eventually.
+
 For incomplete OpenSea sold events, validated seller/token identifiers can still
 produce an `orders.update-by-maker` hint on `order-updates-by-token` without an
 exact-order filled update. Hashless sales use distinct NFT/seller/transaction
@@ -376,8 +383,8 @@ The dedicated queue keeps collection-specific artifact retries isolated from can
 OpenSea job production/consumption:
 
 - `opensea.collection.bootstrap`
-    - produced by `bootstrap-worker`
-    - consumed by `opensea-bootstrap-worker`
+    - produced by `bootstrap-worker` after `collection_live`, or by the backend's explicit post-live OpenSea setup action
+    - consumed by `opensea-bootstrap-worker`; a completed core bootstrap run can still have pending OpenSea side steps
 - `opensea.collection.reconcile`
     - produced by `opensea-reconcile-scheduler-worker`
     - consumed by `opensea-reconcile-worker`

@@ -91,7 +91,7 @@ of the old branch.
 
 Fresh proof may also establish that the complete accepted window agrees again.
 That outcome does not require rollback: the recovery writer preserves accepted
-facts, installed bases and chain revision. It atomically returns every retained
+facts, collection checkpoints and chain revision. It atomically returns every retained
 individual dispute to the existing canonical checks and preserves any interrupted
 resync range. Progress stays gated until fresh generation-fenced checks confirm
 those identities. This includes later disagreements coalesced into the earlier
@@ -140,11 +140,13 @@ is removed from SQLite. See the
 
 The fork point search (`findCommonAncestor()`):
 
-- Captures the chain revision and complete connected accepted window through
-  the mismatched block in one read transaction. The lower bound is the greater
-  of the configured `reorgDepth` boundary and the accepted shared-chain base.
-- Rejects holes, parent mismatches, and a checked height outside the shared
-  applied prefix before making replacement RPC calls.
+- Captures the chain revision and complete connected retained window through
+  the mismatched block in one read transaction. Initialization retains a linked
+  predecessor window below the first shared applied block, so that starting
+  height is not a recovery veto. The configured `reorgDepth` still bounds search.
+- Rejects holes, parent mismatches, and a checked height beyond the shared
+  applied tip before making replacement RPC calls. A retained check below the
+  initial applied base is supported only when its history connects to that base.
 - Reads the same clamped window from fresh, parent-linked canonical RPC headers
   and rechecks its tip, reusing sync's header acquisition contract.
 - Returns the nearest matching ancestor below every observed divergence,
@@ -153,8 +155,8 @@ The fork point search (`findCommonAncestor()`):
   window, including a single accepted-base header, does not invent an earlier
   fork or require rollback.
 - Returns `null` when no matching ancestor exists within the retained window.
-  Replacing the accepted base or exceeding the supported depth keeps recovery
-  pending; it never expands the bound or guesses missing ancestry.
+  Missing or deeper-than-retained ancestry keeps recovery pending; it never
+  guesses a fork or resets the chain from an unproven replacement snapshot.
 
 ## Rollback Strategy
 
@@ -182,7 +184,16 @@ recognized nonexistent-token revert establishes absent ownership.
 
 One SQLite transaction validates that the recovery and rollback plan are still
 current and that the complete connected local proof window and its parent
-metadata remain unchanged. It writes the fork ownership checkpoints (including absent tokens), removes
+metadata remain unchanged. It fails all in-flight bootstrap runs on the chain,
+revokes their step leases, and clears their derived collection output. A collection
+that is already live, including one retrying metadata on its completed bootstrap
+run, is invalidated only when its ownership anchor is orphaned. Invalidated
+collections return to `prepared` and require a fresh bootstrap; configuration,
+failed-run diagnostics, trading declarations and cancellation obligations remain.
+The shared collection cleanup owner also serves explicit operator purge.
+
+The transaction writes the fork ownership checkpoints for surviving collections
+(including absent tokens), removes
 orphaned facts and coverage, advances the chain sync revision, retains resync
 progress. Failure retaining the resync state rolls back every part of the
 transaction. RPC remains outside the
@@ -194,9 +205,15 @@ progress also invalidates the rollback plan and requires a fresh attempt.
 Fork checkpoints describe ownership at the end of their block. Historical facts
 cannot replace the checkpoint. Only later transfers accepted through the
 collection prefix can update current ownership. This keeps ownership correct even when the rollback encountered missing
-history and canonical resync produces no transfer events. Initial bootstrap installation
-records its ownership snapshot and installed-base identity atomically; a duplicate
-installation cannot replace already applied state.
+history and canonical resync produces no transfer events. A verified ancestor
+below the original shared starting block rewinds that starting point as well.
+No collection snapshot can veto an otherwise proven chain rollback. Bootstrap
+metadata, ownership, image and extension outputs check their current run in
+their final writer. Ordinary metadata and extension output also compare the
+collection lifecycle, anchor, current run and chain revision captured before
+acquisition. A response arriving after invalidation cannot recreate removed
+data; valid paused collections and explicit Backfill work can still finish
+enrichment.
 
 Signed Seaport declarations are retained when their protocol result is orphaned.
 The rollback writer marks those results `unvalidated`, removes their funded
@@ -271,15 +288,15 @@ deferred.
 
 - The worker never schedules ranges that start at or below block 0.
 - If no common ancestor is verified, keep recovery pending and warn.
-- Rollback at or below the accepted shared base or any installed collection
-  ownership base is refused before ownership RPC and again inside the atomic
-  rollback writer. A merely selected bootstrap anchor has no such authority.
-  A joining collection below the shared base cannot validate until its prefix
-  joins that base. Its older lineage does not extend the supported shared reorg
-  window. State and revision remain intact on refusal; recovery retains it for retry.
-  Automatic
-  recovery of that case is outside the current contract; purge and rebootstrap
-  the affected collection.
+- An ownership snapshot is subordinate to verified chain history. Crossing its
+  anchor invalidates that collection instead of blocking recovery for every
+  collection on the chain. Rebuilding the collection requires a new bootstrap;
+  recovery does not attempt automatic ownership resnapshotting.
+- Failed/replaced bootstrap runs cannot publish late output. Cleanup and run
+  invalidation commit with rollback, or none of those transitions commit.
+- A fork beyond the retained connected lineage or configured search depth
+  remains unsupported. This limit does not make a bootstrap anchor authoritative
+  over a verified ancestor.
 
 Current order results retain an independent proof height/hash, chain revision,
 order revision and admission sequence, separately from lifecycle provenance and
@@ -299,7 +316,7 @@ tiers must preserve bounded ancestor search and idempotent retained resync.
 ### Lineage and admission retention
 
 Normal maintenance does not prune canonical headers. This existing unbounded
-header retention preserves shared/collection anchors, accepted prefixes, ordinary
+header retention preserves initialization predecessors, shared/collection anchors, accepted prefixes, ordinary
 proof identities, pending checks and unfinished recovery windows. HEAD advancing
 cannot remove the ancestor window of an older unfinished check. Adding header
 pruning requires an explicit retention design for all of those dependencies.

@@ -37,12 +37,14 @@ realtime/backfill queue adapters, and the existing historical gap scanner.
 1. The coordinator resumes retained recovery and checks a due canonical identity
    before selecting forward work. Explicit disputes and ancestor recovery gate
    current progress; ordinary delayed maturity checks do not.
-2. An installed ownership base supplies the initial shared anchor. Selecting a
-   bootstrap anchor alone cannot initialize progress. Additional installed bases
-   inside that prefix reuse its exact header. A slow bootstrap with an older
-   installed base receives fresh anchor verification and bounded collection-only
-   replay until it joins the exact shared base. Shared authority never moves
-   backward; validation remains unavailable below that join.
+2. Per-chain processing starts at the retained head target minus
+   `REORG_DEPTH`, independently of any collection. Connected predecessor headers
+   are retained for recovery. Each collection remains excluded until its final
+   Backfill step retains its exact run-owned range. The coordinator then verifies
+   that run's anchor and applies its collection prefix only through that target.
+   An older collection anchor receives fresh verification and collection-only
+   replay to join the chain's accepted history; it never rewinds other progress.
+   Ordinary advancing-head collection sync starts only after the live transition.
 3. Each pass acquires one bounded range: either the next shared-chain prefix or
    the next collection prefix through already accepted shared history. Empty
    blocks still advance with complete linked headers. Per-scope retry times and

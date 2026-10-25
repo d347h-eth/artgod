@@ -258,6 +258,22 @@ never supplies current-state authority.
 
 ## REST Reconciliation Freshness
 
+Initial OpenSea snapshot work starts after local collection finalization. It
+retains its non-blocking bootstrap steps while the core run is already completed.
+Stream subscriptions, publication and raw consumption require the current live
+collection and enabled stream ingestion. Neither stream buffering during
+bootstrap nor a gap-free snapshot/stream handover is required: the snapshot and
+periodic live-only reconciliation provide eventual source coverage. Their
+completion never gates onchain liveness or recovery.
+
+Starting another bootstrap clears OpenSea readiness and freshness but preserves
+the source identity and operator stream preference. Snapshot and reconciliation
+work checks the admitted collection lifecycle and latest bootstrap run identity
+inside its writer before publishing readiness, completion or retry state. Source
+withdrawals use the same identity, preventing an older scan from withdrawing
+replacement state. Explicit post-live metadata retries do not revoke a successful
+CollectionLive handoff or block unfinished OpenSea side steps.
+
 `OpenSeaReconcilePolicy` owns the automatic age thresholds: periodic and retry
 requests use `OPENSEA_RECONCILE_INTERVAL_MS` (15 minutes by default); startup
 requests use `OPENSEA_STALE_START_THRESHOLD_MS` (30 minutes). A successful

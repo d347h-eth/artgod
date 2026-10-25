@@ -110,3 +110,18 @@ register, commit boundaries and exact local outcomes. Passing disposable tests
 is not live-provider, rendered/native, remote-CI, merge or release qualification.
 Funding-only validation, broader event capture, generic queue backpressure,
 rollback scaling and unrelated startup storage recovery remain separate work.
+
+## Bootstrap lifecycle simplification
+
+The later bootstrap correction removes `collection_ownership_bases` and its
+installed/accepted lifecycle. The existing current run, successful Ownership
+step, retained Backfill range and collection checkpoint now own the handoff.
+Ordinary collection sync starts only at live; delegated Backfill stops at its
+fixed target. Per-chain startup retains independent ancestry and no collection
+snapshot can veto proven rollback. Reorg invalidation reuses the same collection
+cleanup owner as operator purge while preserving configuration, failed-run
+diagnostics and cancellation obligations. Final live publication and core run
+completion share one writer. OpenSea's first snapshot follows that transition,
+using the existing non-blocking steps and worker. These changes add no executor,
+queue or table. See [bootstrap](14-collection-bootstrap.md) and
+[reorg handling](06-reorg-handling.md) for the current contracts.

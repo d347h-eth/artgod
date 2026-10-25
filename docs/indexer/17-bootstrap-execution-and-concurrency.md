@@ -140,7 +140,10 @@ Current model:
 - The bootstrap worker consumes the `collection-bootstrap` queue with `maxInFlight: 1`.
 - Each main-scheduler invocation claims at most one ready step per run
   iteration; timer and queue-triggered invocations can overlap.
-- Anchor work reads current head, subtracts reorg depth, persists the anchor block/hash/timestamp, and marks the step terminal.
+- Anchor work reads current head and subtracts reorg depth. One current-run and
+  active-lease guarded writer publishes the anchor block/hash/timestamp, collection
+  bootstrap start, run phase, step success and event. A late RPC reply from a
+  failed or replaced run cannot restore its collection state.
 - Embedded extension installation runs immediately after successful anchoring when the run requested an embedded extension.
 
 Scaling boundary:
@@ -366,11 +369,10 @@ Current model:
   run/anchor identity still matches. Late reads from a reseeded anchor write nothing.
 - Once every task succeeds, installation captures the chain revision before a
   fresh exact-anchor check. `finalizeSnapshot` fences that revision, current run,
-  anchor and active step lease, then writes balances and installed-base evidence
-  in one transaction. A failed base write rolls back balances too.
-- Duplicate installation preserves an existing base and never resets a collection
-  that has applied later blocks. Anchor selection and installation do not create
-  canonical headers or applied progress; the coordinator accepts the base.
+  anchor and active step lease, then writes balances in one transaction.
+- Same-run crash retries may reinstall before Backfill acceptance. Installation
+  after collection progress exists is rejected, preserving later ownership.
+  Installing a snapshot never authorizes normal collection sync.
 - Ownership is mandatory: terminal ownership task failures fail the bootstrap run and block collection liveness.
 
 Scaling boundary:
@@ -397,20 +399,23 @@ completion; it does not acquire or apply current-state ranges independently.
   observed head before publishing one `bootstrap_catchup` wakeup.
 - Coordinator acquisition sizing belongs to sync policy. Bootstrap does not
   divide this wakeup into independent range jobs.
-- The coordinator accepts the installed ownership base, then applies shared
-  and collection effects through contiguous prefixes. Collection catch-up can
-  replay already accepted shared history. A late-installed older base first
-  extends its own prefix to the exact shared base; readiness is gated until
-  that join, without lowering shared progress.
+- Only the current run's successful Ownership step and retained final Backfill
+  range authorize coordinator acceptance. The collection then catches up through
+  already accepted chain history, stopping at its retained target until live.
+  An older collection anchor is freshly verified and replays its own prefix to
+  join the chain history without rewinding another collection.
 - At most one older anchor receives fresh verification per coordinator pass.
-  Failed verification retains its own retry time in the installed-base row;
-  bounded due selection continues serving healthy scopes and other bases.
+  Failed verification retains `baseRetryAt` in the existing Backfill result,
+  independently of scheduler health checks. Invalid/terminal steps are skipped
+  before bounded selection, so they cannot hide healthy scopes.
 - Completion requires the current revision, the run's exact anchor identity,
   and shared plus collection applied progress through the retained target.
   Raw `collection_sync_blocks` history cannot complete the step.
-- No-post-anchor completion still requires an accepted installed base.
-- The retained target survives restart and wakeup loss. Progress checks resume
-  that target; the coordinator's periodic work owns missing acquisition.
+- No-post-anchor completion still requires an accepted collection checkpoint.
+- The retained target survives restart and wakeup loss. The run phase is published
+  before the range, and terminal Backfill status plus its finishing result share
+  one update, so neither crash boundary can strand a dependent live step.
+  Progress checks resume that target; periodic coordination owns acquisition.
 - Reorg recovery or an explicit disputed identity gates completion. There is
   no separate bootstrap gap-recovery publication or delivery identity loop.
 
@@ -427,23 +432,23 @@ Typed runtime config: no.
 Current model:
 
 - The collection-live step depends on backfill.
-- It reads the retained live block from the backfill result and rechecks the
-  run's exact anchor against current accepted shared/collection progress.
-- Unavailable or rewound progress keeps the step running. The status writer
-  reasserts the checkpoint atomically before making the collection live.
-- After that writer succeeds, the step marks the run completed and cleans
-  successful temporary data.
-- For runs without collection extensions, it records the final stats follow-up
-  and queue-outbox intent during collection-live processing.
-- For runs with collection extensions, extension artifact terminality records
-  that final follow-up instead, so extension-owned traits are included.
+- It reads the retained finishing block, rechecks accepted progress, freshly
+  verifies the run's exact anchor hash and samples head. The explicit final
+  invariant requires `HEAD - anchor >= REORG_DEPTH`.
+- One SQLite transaction fences the run, step lease, chain revision, recovery
+  state and accepted checkpoint; it marks the collection live, the live step
+  successful and the core run completed, recording the completion event.
+- For runs without extensions, that transaction retains the final statistics
+  follow-up in the existing queue outbox. Extension artifact terminality retains
+  the equivalent follow-up when extension-owned traits are ready.
+- Successful temporary-task cleanup follows this atomic transition. Non-blocking
+  side steps remain schedulable after core completion. Explicit post-live metadata
+  retries retain their existing completion reconciliation behavior.
 
-Scaling boundary:
-
-- No dedicated concurrency is needed. This is a small finalization step.
-- The collection status writer fences chain revision, recovery state, and the
-  accepted checkpoint. Run/step bookkeeping and cleanup remain separate calls;
-  this is not a claim of atomic completion for the entire bootstrap run.
+No RPC or broker call occurs in the final writer. A changed run, lost lease,
+recovery or rewound progress prevents publication. Anchor depth is a supported
+reorg-window condition, not absolute finality; a deeper orphaned snapshot requires
+collection invalidation and a new bootstrap.
 
 ### 12. OpenSea Bootstrap
 
@@ -454,7 +459,8 @@ Typed runtime config: no. The OpenSea runtime has page size, retry, stale-start,
 Current model:
 
 - Bootstrap plans OpenSea side-lane steps only when OpenSea integration is enabled and an explicit slug exists.
-- After metadata and ownership, bootstrap schedules one OpenSea bootstrap job.
+- After `collection_live` succeeds and the core run is completed, bootstrap schedules one OpenSea bootstrap job. The non-blocking steps retain their existing run-page tracking and restart recovery after core completion.
+- The worker requires the current live collection and the successful finalization of its originating bootstrap run. A queued job for a failed or removed run does not start a snapshot.
 - The OpenSea bootstrap worker subscribes with `maxInFlight: 1`.
 - The worker marks identity running/succeeded, snapshot running, then calls `OpenSeaOrderbookSync.syncCollection`.
 - The orderbook sync paginates listings serially, then offers serially.
@@ -462,6 +468,17 @@ Current model:
 - When the REST snapshot completes, the source-state store marks missing orders
   inactive for the run's active order id set, the collection OpenSea state is
   marked ready, and the source run is completed.
+- Current collection lifecycle and latest bootstrap run identity guard scan
+  membership, source withdrawals and readiness/completion/failure writes inside
+  their writer transactions. Existing run identity also fences replacements with
+  identical timestamps; no extra persisted generation is needed.
+- Successful `collection_live` is the core-completion fact. Explicit post-live
+  metadata retries may temporarily change run status without blocking the OpenSea
+  side steps that completion reconciliation is waiting for.
+- Stream subscriptions, event publication and raw consumption require a live
+  collection with stream ingestion enabled. The initial snapshot and periodic
+  live-only reconciliation provide eventual coverage without a bootstrap stream
+  backlog or a gap-free handover requirement.
 
 Scaling boundary:
 

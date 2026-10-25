@@ -50,10 +50,15 @@ Migration `077_coordinated_chain_progress.sql` introduces explicit applied
 evidence, implemented by `SqliteChainProgress`. It does not backfill readiness
 from existing `blocks` or `collection_sync_blocks` rows.
 
-- `chain_sync_progress` retains the shared protocol base, applied identity,
-  rollback revision and immediate dispute gate.
-- `collection_ownership_bases` records an installed bootstrap ownership base.
-  Choosing an anchor alone cannot establish this evidence.
+- `chain_sync_progress` has one row per chain: its independent processing start,
+  applied identity, rollback revision and immediate dispute gate. Startup retains
+  connected predecessor headers for recovery without claiming applied effects
+  before that start. A proven rollback can move the start to its ancestor.
+- Migration `090_bootstrap_catchup_authority.sql` removes
+  `collection_ownership_bases`. The current run's successful Ownership step and
+  retained Backfill range authorize acceptance directly. Backfill's `baseRetryAt`
+  result field retains anchor-verification backoff independently of the step
+  scheduler's health-check timestamp.
 - `collection_sync_progress` retains the accepted base and contiguous applied
   identity for each collection. A joining collection does not lower another
   collection's usable checkpoint.
@@ -168,6 +173,14 @@ does not insert headers, schedule canonical checks or advance sync coverage.
 A conflicting RPC observation retains a dispute for the coordinator; it cannot
 replace the accepted header. The sync/recovery owners control header acceptance
 and resolve conflicting identities before current application resumes.
+
+The shared starting height does not prevent rollback to a verified predecessor.
+Initialization retains connected ancestry below it for bounded reorg proof.
+Confirmed rollback fails in-flight bootstrap runs and removes their invalid
+derived data in the same writer; an orphaned live ownership anchor also invalidates
+its collection. Collection configuration, failed bootstrap history and outstanding
+trading cancellation obligations survive through the shared collection cleanup
+owner. A fresh bootstrap is required before ordinary collection sync resumes.
 
 ### `collection_sync_blocks`
 
