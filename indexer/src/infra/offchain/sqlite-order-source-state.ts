@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
+import {
+    captureOpenSeaSyncIdentity,
+    isCurrentOpenSeaSyncIdentity,
+} from "./sqlite-opensea-sync-identity.js";
 import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 import type { OrderSourceReconciliationPort } from "../../ports/domain-handlers.js";
 import type {
@@ -30,12 +34,12 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
         const insert = db.raw.prepare(
             `INSERT OR IGNORE INTO ${name}(id) VALUES (?)`,
         );
+        const lifecycle = captureOpenSeaSyncIdentity(
+            input.chainId,
+            input.collectionId,
+        );
         const admitted = () =>
-            !!db
-                .prepare<
-                    [number, number]
-                >("SELECT 1 FROM collections WHERE chain_id=? AND collection_id=?")
-                .get(input.chainId, input.collectionId);
+            lifecycle !== null && isCurrentOpenSeaSyncIdentity(lifecycle);
         let closed = false;
         let completed = false;
         // Unchanged stream observations coalesce their timestamp writes. Leave
@@ -71,20 +75,26 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                 const select = db.raw.prepare(
                     `SELECT id FROM ${missing} WHERE id>? ORDER BY id LIMIT ?`,
                 );
-                while (!closed) {
+                while (!closed && admitted()) {
                     const rows = select.all(
                         after,
                         POLICY.maintenanceBatchRows,
                     ) as { id: string }[];
                     if (!rows.length) break;
-                    changed += orders.withdrawMissingSources({
-                        chainId: input.chainId,
-                        collectionId: input.collectionId,
-                        source: input.source,
-                        orderIds: rows.map((row) => row.id),
-                        observedThrough,
-                        startedAt: input.startedAt,
-                    });
+                    // The lifecycle recheck and withdrawals share the writer;
+                    // a reset in another process cannot land between them.
+                    changed += db.writeTransaction(() =>
+                        admitted()
+                            ? orders.withdrawMissingSources({
+                                  chainId: input.chainId,
+                                  collectionId: input.collectionId,
+                                  source: input.source,
+                                  orderIds: rows.map((row) => row.id),
+                                  observedThrough,
+                                  startedAt: input.startedAt,
+                              })
+                            : 0,
+                    )();
                     after = rows[rows.length - 1]!.id;
                     await new Promise<void>((resolve) => setImmediate(resolve));
                 }

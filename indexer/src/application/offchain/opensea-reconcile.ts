@@ -13,16 +13,21 @@ import type { OpenSeaReconcilePolicy } from "../../domain/opensea-reconcile-poli
 import type { CollectionRegistryPort } from "../../ports/collections.js";
 import type { OpenSeaOrderbookRunsPort } from "../../ports/opensea-orderbook-runs.js";
 import type { QueuePort } from "../../ports/queue.js";
-import type { OpenSeaOrderbookSync } from "./opensea-orderbook-sync.js";
+import {
+    type OpenSeaSyncLifecyclePort,
+    type OpenSeaOrderbookSync,
+} from "./opensea-orderbook-sync.js";
 
-type ReconcileCollections = Pick<
-    CollectionRegistryPort,
-    | "listCollectionsForOpenSeaReconcile"
-    | "markOpenSeaReconcileStarted"
-    | "markOpenSeaReconcileCompleted"
-    | "markOpenSeaReady"
-    | "setOpenSeaStatus"
->;
+type ReconcileCollections = OpenSeaSyncLifecyclePort &
+    Pick<
+        CollectionRegistryPort,
+        | "getCollection"
+        | "listCollectionsForOpenSeaReconcile"
+        | "markOpenSeaReconcileStarted"
+        | "markOpenSeaReconcileCompleted"
+        | "markOpenSeaReady"
+        | "setOpenSeaStatus"
+    >;
 
 export async function handleReconcileJob(
     queue: Pick<QueuePort, "publish">,
@@ -59,30 +64,43 @@ export async function handleReconcileJob(
         return;
     }
 
-    const runId = orderbookRuns.startRun({
-        chainId: collection.chainId,
-        collectionId: collection.id,
-        kind: OPENSEA_ORDERBOOK_RUN_KIND.Reconcile,
-    });
+    const identity = collections.captureOpenSeaSyncIdentity(collection);
+    if (!identity) return;
+    let runId = 0;
+    if (
+        !collections.commitOpenSeaSync(identity, () => {
+            runId = orderbookRuns.startRun({
+                chainId: collection.chainId,
+                collectionId: collection.id,
+                kind: OPENSEA_ORDERBOOK_RUN_KIND.Reconcile,
+            });
+            collections.markOpenSeaReconcileStarted(
+                collection.chainId,
+                collection.id,
+            );
+        })
+    )
+        return;
     logger.info("OpenSea reconcile started", { ...context, runId });
 
     try {
-        collections.markOpenSeaReconcileStarted(
-            collection.chainId,
-            collection.id,
-        );
         const result = await sync.syncCollection(
             collection,
             OPENSEA_ORDERBOOK_RUN_KIND.Reconcile,
             runId,
         );
-        orderbookRuns.completeRun(runId);
-        collections.markOpenSeaReady(collection.chainId, collection.id);
-        // Completion is the freshness authority. Never advance it for a failed scan.
-        collections.markOpenSeaReconcileCompleted(
-            collection.chainId,
-            collection.id,
-        );
+        if (
+            !collections.commitOpenSeaSync(identity, () => {
+                orderbookRuns.completeRun(runId);
+                collections.markOpenSeaReady(collection.chainId, collection.id);
+                // Completion is the freshness authority. Never advance it for a failed scan.
+                collections.markOpenSeaReconcileCompleted(
+                    collection.chainId,
+                    collection.id,
+                );
+            })
+        )
+            return;
         logger.info("OpenSea reconcile completed", {
             ...context,
             runId,
@@ -90,13 +108,18 @@ export async function handleReconcileJob(
             ...result,
         });
     } catch (error) {
-        orderbookRuns.failRun(runId, String(error));
-        collections.setOpenSeaStatus(
-            collection.chainId,
-            collection.id,
-            OPENSEA_COLLECTION_STATUS.Retrying,
-            String(error),
-        );
+        if (
+            !collections.commitOpenSeaSync(identity, () => {
+                orderbookRuns.failRun(runId, String(error));
+                collections.setOpenSeaStatus(
+                    collection.chainId,
+                    collection.id,
+                    OPENSEA_COLLECTION_STATUS.Retrying,
+                    String(error),
+                );
+            })
+        )
+            return;
         await queue.publish(
             OPENSEA_QUEUE_NAME.Reconcile,
             createReconcileJob(

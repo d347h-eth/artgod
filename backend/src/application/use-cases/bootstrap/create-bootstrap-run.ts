@@ -199,7 +199,7 @@ export class CreateBootstrapRunUseCase {
         });
         const plannedSteps = planBootstrapRunSteps({
             imageCache: requestImageCache.config,
-            openseaSlug,
+            openseaSlug: collection.openseaSlug,
             openseaIntegration: this.openseaIntegration,
             requestExtensionKey,
             sharedContract: input.sharedContract,
@@ -220,7 +220,7 @@ export class CreateBootstrapRunUseCase {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             requestSlug: slug,
-            requestOpenseaSlug: openseaSlug,
+            requestOpenseaSlug: collection.openseaSlug,
             requestAddress: address,
             requestStandard: COLLECTION_STANDARD.Erc721,
             imageSourceField,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
 import { OpenSeaOrderbookSync } from "../src/application/offchain/opensea-orderbook-sync.js";
@@ -27,8 +28,8 @@ describe("streamed orderbook reconciliation", () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
         db.prepare(
-            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug) VALUES (99,1,'fixture','0xcollection','erc721','ready','contract_all_tokens','fixture')",
-        ).run();
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind,opensea_slug) VALUES (99,1,'fixture','0xcollection','erc721',?,'contract_all_tokens','fixture')",
+        ).run(COLLECTION_STATUS.Live);
         sourceState = new SqliteOrderSourceStateStore(
             new SqliteOrdersDomain(
                 config.tokens.wethAddress,
@@ -197,6 +198,37 @@ describe("streamed orderbook reconciliation", () => {
         ).toEqual([]);
         observation.close();
         expect(tempTables()).toEqual([]);
+    });
+
+    it("closes an old scan when the collection starts a new bootstrap", async () => {
+        order("surviving-observation");
+        const observation = begin();
+        db.prepare(
+            "UPDATE collections SET status=?,bootstrap_finished_at=NULL WHERE collection_id=99",
+        ).run(COLLECTION_STATUS.Bootstrapping);
+        expect(observation.recordActiveOrder("late")).toBe(false);
+        expect(await observation.complete()).toBe(0);
+        expect(status("surviving-observation").source_status).toBe(
+            ORDER_SOURCE_STATUS.Active,
+        );
+        expect(
+            db.prepare("SELECT * FROM market_order_observations").all(),
+        ).toEqual([]);
+        observation.close();
+    });
+
+    it("cannot resume an old scan against a later completed collection lifecycle", async () => {
+        order("surviving-observation");
+        const observation = begin();
+        db.prepare(
+            "UPDATE collections SET bootstrap_finished_at='2030-01-01 00:00:00' WHERE collection_id=99",
+        ).run();
+        expect(observation.recordActiveOrder("late")).toBe(false);
+        expect(await observation.complete()).toBe(0);
+        expect(status("surviving-observation").source_status).toBe(
+            ORDER_SOURCE_STATUS.Active,
+        );
+        observation.close();
     });
 
     it("releases its temporary membership tables when an upstream crawl fails", async () => {

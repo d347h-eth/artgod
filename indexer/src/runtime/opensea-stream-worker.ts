@@ -3,22 +3,8 @@ import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadOpenSeaConfig } from "../config/opensea.js";
 import type { CollectionRecord } from "../domain/collections.js";
-import {
-    OFFCHAIN_OBSERVATION_CHANNEL,
-    OFFCHAIN_JOB_KIND,
-    OFFCHAIN_ORDER_SOURCE,
-    type OffchainOrderRawPayload,
-} from "../domain/offchain-jobs.js";
-import type { JobEnvelope } from "../domain/jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
-import {
-    getOpenSeaEventContract,
-    getOpenSeaEventType,
-    getOpenSeaOrderId,
-    getOpenSeaSourceEventAt,
-} from "@artgod/shared/opensea/payload";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import { getOpenSeaStreamDedupeKey } from "../application/offchain/opensea-stream-identity.js";
+import { publishOpenSeaStreamEvent } from "../application/offchain/opensea-stream-publisher.js";
 import { OpenSeaStreamAdapter } from "../infra/offchain/opensea-stream.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
@@ -82,7 +68,7 @@ async function main() {
                 const existing = subscriptions.get(slug);
                 if (!existing) {
                     const unsubscribe = stream.subscribe(slug, (event) => {
-                        handleOpenSeaEvent(
+                        publishOpenSeaStreamEvent(
                             queue,
                             collections,
                             slug,
@@ -167,58 +153,6 @@ async function main() {
 }
 
 main();
-
-async function handleOpenSeaEvent(
-    queue: NatsJetStreamQueue,
-    collections: SqliteCollectionRegistry,
-    slug: string,
-    routedCollections: Map<string, CollectionRecord[]>,
-    rawEvent: unknown,
-): Promise<void> {
-    const eventType = getOpenSeaEventType(rawEvent);
-    if (!eventType) return;
-
-    const contract = getOpenSeaEventContract(rawEvent);
-    const scopedCollections = routedCollections.get(slug) ?? [];
-
-    if (scopedCollections.length === 0) {
-        return;
-    }
-
-    for (const collection of scopedCollections) {
-        if (contract && collection.address.toLowerCase() !== contract) {
-            continue;
-        }
-        const receivedAt = Date.now();
-        const orderId = getOpenSeaOrderId(rawEvent);
-        const rawPayload: OffchainOrderRawPayload = {
-            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
-            chainId: collection.chainId,
-            collectionId: collection.id,
-            receivedAt,
-            channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
-            dedupeKey: getOpenSeaStreamDedupeKey(rawEvent, receivedAt),
-            eventType,
-            orderId,
-            runId: null,
-            sourceEventAt: getOpenSeaSourceEventAt(rawEvent),
-            payload: rawEvent,
-        };
-        const job: JobEnvelope<OffchainOrderRawPayload> = {
-            jobId: `offchain:raw:${collection.chainId}:${collection.id}:${rawPayload.dedupeKey}`,
-            kind: OFFCHAIN_JOB_KIND.OrderRaw,
-            queue: QUEUE_NAMES.OffchainOrdersRaw,
-            payload: rawPayload,
-            attempt: 0,
-            scheduledAt: receivedAt,
-            traceId: orderId ?? rawPayload.dedupeKey,
-            chainId: collection.chainId,
-            collectionId: collection.id,
-        };
-        await queue.publish(QUEUE_NAMES.OffchainOrdersRaw, job);
-        collections.touchOpenSeaStreamEvent(collection.chainId, collection.id);
-    }
-}
 
 function groupCollectionsBySlug(
     collections: CollectionRecord[],
