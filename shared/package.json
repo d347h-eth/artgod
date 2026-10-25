@@ -114,6 +114,7 @@
         "./observability/log-reporting": "./observability/log-reporting.ts",
         "./queue/nats-job-stream": "./queue/nats-job-stream.ts",
         "./database": "./database/db.ts",
+        "./database/collection-data-cleanup": "./database/collection-data-cleanup.ts",
         "./database/current-asks": "./database/current-asks.ts",
         "./database/storage-policy": "./database/storage-policy.ts",
         "./market-data/seaport": "./market-data/seaport.ts",

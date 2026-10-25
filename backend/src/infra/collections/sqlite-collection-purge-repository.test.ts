@@ -3,8 +3,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
-import { beforeEach, describe, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { SqliteCollectionDataCleanup } from "@artgod/shared/database/collection-data-cleanup";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
@@ -45,6 +46,39 @@ describe("SqliteCollectionPurgeRepository", () => {
         );
         seedCollectionScopedRows(collectionId, COLLECTION_ADDRESS);
         seedCollectionScopedRows(otherCollectionId, OTHER_COLLECTION_ADDRESS);
+    });
+
+    it("invalidates derived outputs while retaining configuration, run history and cancellation obligations", () => {
+        const cleanup = new SqliteCollectionDataCleanup();
+        expect(() =>
+            cleanup.invalidateCollectionData({ chainId: 1, collectionId }),
+        ).toThrow("lifecycle writer");
+        db.writeTransaction(() =>
+            cleanup.invalidateCollectionData({ chainId: 1, collectionId }),
+        )();
+        for (const table of [
+            "collections",
+            "bootstrap_runs",
+            "trading_jobs",
+            "trading_bidding_order_cancellations",
+            "collection_scope_tokens",
+            "collection_settings",
+        ])
+            assert.equal(countRows(table, collectionId), 1, table);
+        for (const table of [
+            "tokens",
+            "orders",
+            "activities",
+            "nft_balances",
+            "token_metadata",
+            "bootstrap_metadata_snapshot_tasks",
+            "bootstrap_ownership_snapshot_tasks",
+            "queue_outbox",
+        ])
+            assert.equal(countRows(table, collectionId), 0, table);
+        assert.equal(countRows("tokens", otherCollectionId), 1);
+        assert.equal(countRows("orders", otherCollectionId), 1);
+        assert.equal(countBootstrapRunSteps(collectionId), 1);
     });
 
     it("retains full cross-collection execution items until the last attribution is purged", () => {
