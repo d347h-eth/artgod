@@ -621,7 +621,8 @@ export class SqliteOrdersDomain
         // Admission, tombstone checks and mutation share the writer snapshot.
         // There is no network work inside this transaction.
         const outcome = db.writeTransaction(() => {
-            const outcome = this.applyOrderUpsert(payload);
+            const now = this.nowSeconds();
+            const outcome = this.applyOrderUpsert(payload, now);
             if (outcome.validationNeeded && outcome.observationKey) {
                 this.validationDemand.admit(
                     observedOrderValidationRequest(
@@ -629,15 +630,27 @@ export class SqliteOrdersDomain
                         payload.orderId,
                         outcome.observationKey,
                     ),
-                    this.nowSeconds() * 1_000,
+                    now * 1_000,
                 );
             }
+            // New validation demand can make a previously proven ask ineligible.
+            // Refresh only after retaining it, so daily prices use the same asks
+            // as current orderbook readers when this transaction commits.
+            if (outcome.observationKey)
+                this.listingPrices.refreshOrder(
+                    payload.chainId,
+                    payload.orderId,
+                    now,
+                );
             return outcome;
         })();
         observeBestEffort(() => this.mutations?.upserted(outcome.changed));
     }
 
-    private applyOrderUpsert(payload: OrderUpsertPayload): {
+    private applyOrderUpsert(
+        payload: OrderUpsertPayload,
+        now: number,
+    ): {
         changed: boolean;
         validationNeeded: boolean;
         observationKey: string | null;
@@ -647,7 +660,6 @@ export class SqliteOrdersDomain
             validationNeeded: false,
             observationKey: null,
         };
-        const now = this.nowSeconds();
         const observedAt = now;
         const existingRow = this.selectOrderById.get({
             chainId: payload.chainId,
@@ -862,8 +874,6 @@ export class SqliteOrdersDomain
             "UPDATE orders SET validation_ready=? WHERE chain_id=? AND id=? AND validation_ready<>?",
         ).run(ready, payload.chainId, payload.orderId, ready);
         if (retired) this.retirements.forget(payload.chainId, payload.orderId);
-        this.listingPrices.refreshOrder(payload.chainId, payload.orderId, now);
-
         return {
             changed: result.changes > 0,
             validationNeeded: observation.changed || result.changes > 0,
