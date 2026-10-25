@@ -85,7 +85,7 @@ export async function handleReconcileJob(
 
     try {
         const result = await sync.syncCollection(
-            collection,
+            identity,
             OPENSEA_ORDERBOOK_RUN_KIND.Reconcile,
             runId,
         );

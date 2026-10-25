@@ -1,3 +1,4 @@
+import { captureOpenSeaSyncIdentity } from "../src/infra/offchain/sqlite-opensea-sync-identity.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -51,8 +52,7 @@ describe("source-owned REST reconciliation", () => {
         });
     const begin = () =>
         sourceState.beginObservation({
-            chainId: 1,
-            collectionId: 9,
+            identity: captureOpenSeaSyncIdentity(1, 9)!,
             source: SOURCE,
             startedAt: clock,
         });

@@ -1,3 +1,4 @@
+import { captureOpenSeaSyncIdentity } from "../src/infra/offchain/sqlite-opensea-sync-identity.js";
 import { seedOrderEvidence } from "@artgod/shared/testing/order-evidence";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -456,8 +457,7 @@ describe("permanent daily listings and current asks", () => {
             const observation = new SqliteOrderSourceStateStore(
                 orders,
             ).beginObservation({
-                chainId: 1,
-                collectionId: 1,
+                identity: captureOpenSeaSyncIdentity(1, 1)!,
                 source: OFFCHAIN_ORDER_SOURCE.OpenSea,
                 startedAt: now,
             });

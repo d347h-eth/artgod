@@ -1,14 +1,12 @@
 import { db } from "@artgod/shared/database";
 import { MARKET_DATA_STORAGE_POLICY as POLICY } from "@artgod/shared/market-data/storage-policy";
-import {
-    captureOpenSeaSyncIdentity,
-    isCurrentOpenSeaSyncIdentity,
-} from "./sqlite-opensea-sync-identity.js";
+import { isCurrentOpenSeaSyncIdentity } from "./sqlite-opensea-sync-identity.js";
 import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 import type { OrderSourceReconciliationPort } from "../../ports/domain-handlers.js";
 import type {
     OrderSourceStatePort,
     OrderSourceObservation,
+    OpenSeaSyncIdentity,
 } from "../../application/offchain/opensea-orderbook-sync.js";
 
 let nextObservation = 0;
@@ -18,8 +16,7 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
     constructor(private readonly orders: OrderSourceReconciliationPort) {}
 
     beginObservation(input: {
-        chainId: number;
-        collectionId: number;
+        identity: OpenSeaSyncIdentity;
         source: string;
         startedAt: number;
     }): OrderSourceObservation {
@@ -34,12 +31,7 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
         const insert = db.raw.prepare(
             `INSERT OR IGNORE INTO ${name}(id) VALUES (?)`,
         );
-        const lifecycle = captureOpenSeaSyncIdentity(
-            input.chainId,
-            input.collectionId,
-        );
-        const admitted = () =>
-            lifecycle !== null && isCurrentOpenSeaSyncIdentity(lifecycle);
+        const admitted = () => isCurrentOpenSeaSyncIdentity(input.identity);
         let closed = false;
         let completed = false;
         // Unchanged stream observations coalesce their timestamp writes. Leave
@@ -64,8 +56,8 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                         `INSERT INTO ${missing}(id) SELECT o.order_id FROM order_source_observations o WHERE chain_id=? AND collection_id=? AND source_id=? AND source_status=? AND admitted_at<=? AND NOT EXISTS(SELECT 1 FROM ${name} a WHERE a.id=o.order_id)`,
                     )
                     .run(
-                        input.chainId,
-                        input.collectionId,
+                        input.identity.chainId,
+                        input.identity.collectionId,
                         input.source,
                         ORDER_SOURCE_STATUS.Active,
                         observedThrough,
@@ -86,8 +78,8 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                     changed += db.writeTransaction(() =>
                         admitted()
                             ? orders.withdrawMissingSources({
-                                  chainId: input.chainId,
-                                  collectionId: input.collectionId,
+                                  chainId: input.identity.chainId,
+                                  collectionId: input.identity.collectionId,
                                   source: input.source,
                                   orderIds: rows.map((row) => row.id),
                                   observedThrough,
@@ -107,8 +99,8 @@ export class SqliteOrderSourceStateStore implements OrderSourceStatePort {
                             "INSERT INTO market_order_observations(chain_id,collection_id,observed_at) VALUES (?,?,?) " +
                                 "ON CONFLICT(chain_id,collection_id) DO UPDATE SET observed_at=excluded.observed_at WHERE excluded.observed_at>observed_at",
                         ).run(
-                            input.chainId,
-                            input.collectionId,
+                            input.identity.chainId,
+                            input.identity.collectionId,
                             input.startedAt,
                         );
                     })();

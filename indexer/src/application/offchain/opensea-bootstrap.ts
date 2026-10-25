@@ -165,7 +165,7 @@ export async function handleOpenSeaBootstrapJob(
             return;
 
         await sync.syncCollection(
-            collection,
+            identity,
             OPENSEA_ORDERBOOK_RUN_KIND.Snapshot,
             runId,
         );
