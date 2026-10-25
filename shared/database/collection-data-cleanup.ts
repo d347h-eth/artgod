@@ -37,6 +37,8 @@ const INVALIDATION_RETAINED_TABLES = new Set([
     "trading_jobs",
     "trading_job_commands",
     "trading_bidding_job_specs",
+    // Tier rules remain operator intent even without any referencing job.
+    "trading_bidding_price_tiers",
     "trading_bidding_job_runtime_state",
     "trading_bidding_order_cancellations",
     "trading_bidding_competition_presets",

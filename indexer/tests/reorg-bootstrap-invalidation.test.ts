@@ -9,7 +9,20 @@ import {
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
-import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_STANDARD,
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    COLLECTION_STATUS,
+    TRADING_BOT_KIND,
+    TRADING_JOB_STATUS,
+    TRADING_JOB_TARGET_KIND,
+    TRADING_JOB_COMMAND_KIND,
+    TRADING_JOB_COMMAND_STATUS,
+    TRADING_BIDDING_COLLECTION_SETTING_KEY,
+    TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND as Floor,
+    TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND as Ceiling,
+    TRADING_BIDDING_PRICE_TIER_DELTA_KIND as Delta,
+} from "@artgod/shared/types";
 import { BootstrapAnchorExecutor } from "../src/application/bootstrap-anchor-executor.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
@@ -112,6 +125,208 @@ describe("authoritative reorg bootstrap invalidation", () => {
             )
             .get(id);
     }
+
+    it.each([false, true])(
+        "preserves complete operator declarations across rollback (collection has jobs: %s)",
+        async (hasJobs) => {
+            const healthy = seedRecoveryHistory();
+            // This Live anchor is mature at HEAD 107 with depth 3. A proven
+            // replacement of 104 invalidates it without relying on an invalid
+            // bootstrap finalization fixture.
+            const target = collection(101, 1, 104, true);
+            const tierId = `tier-${target.collectionId}`;
+            const insertTier = db.prepare(
+                "INSERT INTO trading_bidding_price_tiers(tier_id,chain_id,collection_id,name,status,sort_order,parent_tier_id,floor_config_json,ceiling_config_json,delta_wei,revision,archived_at) VALUES (?,1,?,?,?,?,?,?,?,?,?,?)",
+            );
+            const fixedFloor = JSON.stringify({
+                kind: Floor.Fixed,
+                valueEth: "1",
+            });
+            const fixedCeiling = JSON.stringify({
+                kind: Ceiling.Fixed,
+                valueEth: "2",
+            });
+            insertTier.run(
+                tierId,
+                target.collectionId,
+                "Root",
+                TRADING_JOB_STATUS.Enabled,
+                3,
+                null,
+                fixedFloor,
+                fixedCeiling,
+                "1000000000000000",
+                4,
+                null,
+            );
+            for (const [index, status] of [
+                TRADING_JOB_STATUS.Enabled,
+                TRADING_JOB_STATUS.Paused,
+                TRADING_JOB_STATUS.Archived,
+            ].entries()) {
+                insertTier.run(
+                    `${tierId}-${status}`,
+                    target.collectionId,
+                    `Child ${status}`,
+                    status,
+                    index,
+                    tierId,
+                    JSON.stringify({
+                        kind: Floor.ParentDelta,
+                        deltaKind: Delta.Percent,
+                        percent: "10",
+                    }),
+                    JSON.stringify({
+                        kind: Ceiling.ParentDelta,
+                        deltaKind: Delta.Absolute,
+                        deltaEth: "0.5",
+                    }),
+                    "2000000000000000",
+                    2,
+                    status === TRADING_JOB_STATUS.Archived
+                        ? "2026-10-25T00:00:00Z"
+                        : null,
+                );
+            }
+            insertTier.run(
+                "unaffected-tier",
+                healthy.collectionId,
+                "Unaffected",
+                TRADING_JOB_STATUS.Enabled,
+                0,
+                null,
+                fixedFloor,
+                fixedCeiling,
+                "1000000000000000",
+                1,
+                null,
+            );
+            db.prepare(
+                "INSERT INTO collection_settings(chain_id,collection_id,setting_key,value_json) VALUES (1,?,?,?)",
+            ).run(
+                target.collectionId,
+                TRADING_BIDDING_COLLECTION_SETTING_KEY.DefaultDeltaWei,
+                JSON.stringify("123000000000000"),
+            );
+            db.prepare(
+                "INSERT INTO collection_scope_tokens(chain_id,collection_id,token_id) VALUES (1,?,'1')",
+            ).run(target.collectionId);
+            db.prepare(
+                "INSERT INTO collection_extension_installs(chain_id,collection_id,extension_key,config_json) VALUES (1,?,'fixture-extension',?)",
+            ).run(target.collectionId, JSON.stringify({ enabled: true }));
+            db.prepare(
+                "INSERT INTO collection_customization_features(chain_id,collection_id,feature_key,selected_source,user_config_json) VALUES (1,?,'fixture-feature',?,?)",
+            ).run(
+                target.collectionId,
+                COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                JSON.stringify({ label: "Custom" }),
+            );
+            db.prepare(
+                "INSERT INTO trading_bidding_competition_presets(preset_id,chain_id,collection_id,revision) VALUES ('fixture-preset',1,?,1)",
+            ).run(target.collectionId);
+            db.prepare(
+                "INSERT INTO trading_bidding_competition_preset_versions(version_id,preset_id,revision,target_traits_json,extra_traits_json) VALUES ('fixture-version','fixture-preset',1,'[]','[]')",
+            ).run();
+            if (hasJobs) {
+                db.prepare(
+                    "INSERT INTO trading_jobs(job_id,bot_kind,chain_id,collection_id,status,target_kind) VALUES ('fixture-job',?,1,?,?,?)",
+                ).run(
+                    TRADING_BOT_KIND.Bidding,
+                    target.collectionId,
+                    TRADING_JOB_STATUS.Paused,
+                    TRADING_JOB_TARGET_KIND.Collection,
+                );
+                // Saved prices deliberately differ from the tier's current rule:
+                // chain recovery must not silently reapply operator pricing.
+                db.prepare(
+                    "INSERT INTO trading_bidding_job_specs(job_id,floor_wei,ceiling_wei,delta_wei,price_tier_id,competition_preset_version_id) VALUES ('fixture-job','1200000000000000000','1800000000000000000','500000000000000',?,'fixture-version')",
+                ).run(tierId);
+                db.prepare(
+                    "INSERT INTO trading_bidding_job_runtime_state(job_id,active_order_id) VALUES ('fixture-job','still-needs-cancellation')",
+                ).run();
+                db.prepare(
+                    "INSERT INTO trading_job_commands(job_id,bot_kind,command_kind,status,requested_revision,payload_json) VALUES ('fixture-job',?,?,?,1,'{}')",
+                ).run(
+                    TRADING_BOT_KIND.Bidding,
+                    TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                    TRADING_JOB_COMMAND_STATUS.Pending,
+                );
+                db.prepare(
+                    "INSERT INTO trading_bidding_order_cancellations(order_id,job_id,chain_id,collection_id,maker,requested_at) VALUES ('still-needs-cancellation','fixture-job',1,?,?,'2026-10-25T00:00:00Z')",
+                ).run(target.collectionId, F.Owner);
+            }
+            const declaredTables = [
+                "trading_bidding_price_tiers",
+                "trading_jobs",
+                "trading_bidding_job_specs",
+                "trading_bidding_job_runtime_state",
+                "trading_job_commands",
+                "trading_bidding_order_cancellations",
+                "collection_settings",
+                "collection_scope_tokens",
+                "collection_extension_installs",
+                "collection_customization_features",
+                "trading_bidding_competition_presets",
+                "trading_bidding_competition_preset_versions",
+            ];
+            const declarations = () =>
+                Object.fromEntries(
+                    declaredTables.map((table) => [
+                        table,
+                        db
+                            .prepare(`SELECT * FROM ${table} ORDER BY rowid`)
+                            .all(),
+                    ]),
+                );
+            const before = declarations();
+            const beforeFork = reorgRecoveryServices(new RecoveryRpc(F.Head));
+            beforeFork.progress.acceptCollectionBase(
+                beforeFork.storage.captureSyncCheckpoint(1),
+                target.collectionId,
+                syncBlockFixture(104),
+            );
+            for (
+                let attempt = 0;
+                attempt < 8 &&
+                beforeFork.progress.collectionProgress(1, target.collectionId)
+                    ?.applied.number !== F.Orphan;
+                attempt++
+            ) {
+                await beforeFork.executor.runDue();
+            }
+            expect(
+                beforeFork.progress.collectionProgress(1, target.collectionId)
+                    ?.applied.number,
+            ).toBe(F.Orphan);
+            const services = reorgRecoveryServices(new RecoveryRpc(103));
+            await services.recovery.checkBlock(
+                retainCanonicalCheckFixture(services.storage, F.Orphan),
+            );
+            expect(services.storage.captureSyncCheckpoint(1).revision).toBe(1);
+            expect(state(target.collectionId)).toMatchObject({
+                collectionStatus: COLLECTION_STATUS.Prepared,
+                runStatus: BOOTSTRAP_RUN_STATUS.Failed,
+            });
+            expect(
+                db
+                    .prepare(
+                        "SELECT 1 FROM token_metadata WHERE collection_id=?",
+                    )
+                    .get(target.collectionId),
+            ).toBeUndefined();
+            expect(
+                services.progress.collectionProgress(1, target.collectionId),
+            ).toBeNull();
+            expect(declarations()).toEqual(before);
+            expect(
+                db
+                    .prepare(
+                        "SELECT status FROM collections WHERE collection_id=?",
+                    )
+                    .get(healthy.collectionId),
+            ).toEqual({ status: COLLECTION_STATUS.Live });
+        },
+    );
 
     it.each([false, true])(
         "rejects an anchor RPC reply after confirmed recovery (replacement run: %s)",

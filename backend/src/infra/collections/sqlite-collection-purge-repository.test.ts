@@ -8,6 +8,12 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { SqliteCollectionDataCleanup } from "@artgod/shared/database/collection-data-cleanup";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND as Floor,
+    TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND as Ceiling,
+} from "@artgod/shared/types";
+import { SqliteBiddingPriceTiersRepository } from "../trading/sqlite-bidding-price-tiers-repository.js";
+import { resolveBiddingJobPricing } from "../../application/use-cases/trading/bidding-job-pricing.js";
+import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
@@ -50,6 +56,24 @@ describe("SqliteCollectionPurgeRepository", () => {
 
     it("invalidates derived outputs while retaining configuration, run history and cancellation obligations", () => {
         const cleanup = new SqliteCollectionDataCleanup();
+        const priceTierReadPort = new SqliteBiddingPriceTiersRepository();
+        const resolveTier = () =>
+            resolveBiddingJobPricing({
+                chainId: 1,
+                collectionId,
+                input: {
+                    priceTierId: `tier-${collectionId}`,
+                    deltaEth: "0.001",
+                },
+                priceTierReadPort,
+            });
+        const pricingBefore = resolveTier();
+        const tierBefore = priceTierReadPort.getPriceTierById(
+            `tier-${collectionId}`,
+        );
+        const jobSpecBefore = db
+            .prepare("SELECT * FROM trading_bidding_job_specs WHERE job_id=?")
+            .get(`job-${collectionId}`);
         expect(() =>
             cleanup.invalidateCollectionData({ chainId: 1, collectionId }),
         ).toThrow("lifecycle writer");
@@ -60,6 +84,7 @@ describe("SqliteCollectionPurgeRepository", () => {
             "collections",
             "bootstrap_runs",
             "trading_jobs",
+            "trading_bidding_price_tiers",
             "trading_bidding_order_cancellations",
             "collection_scope_tokens",
             "collection_settings",
@@ -79,6 +104,22 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("tokens", otherCollectionId), 1);
         assert.equal(countRows("orders", otherCollectionId), 1);
         assert.equal(countBootstrapRunSteps(collectionId), 1);
+        expect(
+            priceTierReadPort.getPriceTierById(`tier-${collectionId}`),
+        ).toEqual(tierBefore);
+        expect(
+            db
+                .prepare(
+                    "SELECT * FROM trading_bidding_job_specs WHERE job_id=?",
+                )
+                .get(`job-${collectionId}`),
+        ).toEqual(jobSpecBefore);
+        expect(resolveTier()).toMatchObject({
+            floorWei: pricingBefore.floorWei,
+            ceilingWei: pricingBefore.ceilingWei,
+            deltaWei: pricingBefore.deltaWei,
+            priceTierId: pricingBefore.priceTierId,
+        });
     });
 
     it("retains full cross-collection execution items until the last attribution is purged", () => {
@@ -194,6 +235,7 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("activities", collectionId), 0);
         assert.equal(countRows("bootstrap_runs", collectionId), 0);
         assert.equal(countRows("trading_jobs", collectionId), 0);
+        assert.equal(countRows("trading_bidding_price_tiers", collectionId), 0);
         assert.equal(countRows("token_extension_artifacts", collectionId), 0);
         assert.equal(
             countRows(
@@ -242,6 +284,10 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("activities", otherCollectionId), 1);
         assert.equal(countRows("bootstrap_runs", otherCollectionId), 1);
         assert.equal(countRows("trading_jobs", otherCollectionId), 1);
+        assert.equal(
+            countRows("trading_bidding_price_tiers", otherCollectionId),
+            1,
+        );
         assert.equal(
             countRows("token_extension_artifacts", otherCollectionId),
             1,
@@ -615,8 +661,13 @@ function seedTradingRows(collectionId: number): void {
     db.prepare(
         "INSERT INTO trading_bidding_price_tiers " +
             "(tier_id, chain_id, collection_id, name, status, sort_order, floor_config_json, ceiling_config_json) " +
-            "VALUES (?, 1, ?, 'base', 'enabled', 1, '{}', '{}')",
-    ).run(tierId, collectionId);
+            "VALUES (?, 1, ?, 'base', 'enabled', 1, ?, ?)",
+    ).run(
+        tierId,
+        collectionId,
+        JSON.stringify({ kind: Floor.Fixed, valueEth: "1" }),
+        JSON.stringify({ kind: Ceiling.Fixed, valueEth: "2" }),
+    );
     db.prepare(
         "INSERT INTO trading_jobs " +
             "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id) " +
