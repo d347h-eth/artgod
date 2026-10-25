@@ -62,8 +62,10 @@ rescheduled, so the oldest run IDs cannot monopolize the bounded selection.
 Startup-sweep candidates fill only slots left after due work. The orchestrator
 claims ready steps using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
 a lane claims at most one step per run iteration. Step leases are renewed while
-the processor runs only for the unexpired owner, and lease release is fenced by owner. Generic progress and
-terminal-settlement writes do not carry that owner predicate.
+the processor runs only for the unexpired owner, and lease release is fenced by
+owner. Orchestrator failure settlement carries that owner as well. Backfill
+writes use the current run, anchor and unexpired step claim in one writer;
+generic progress/success writers elsewhere do not yet carry that owner predicate.
 Temporary shared-RPC allocation deferrals release the step back to ready at the
 allocator's retry time, preserving its failure allowance and saved progress.
 
@@ -412,10 +414,12 @@ completion; it does not acquire or apply current-state ranges independently.
   and shared plus collection applied progress through the retained target.
   Raw `collection_sync_blocks` history cannot complete the step.
 - No-post-anchor completion still requires an accepted collection checkpoint.
-- The retained target survives restart and wakeup loss. The run phase is published
-  before the range, and terminal Backfill status plus its finishing result share
-  one update, so neither crash boundary can strand a dependent live step.
-  Progress checks resume that target; periodic coordination owns acquisition.
+- The retained target survives restart and wakeup loss. Run phase, first target
+  and queued event commit atomically under the current run, exact anchor and
+  unexpired step lease. Progress and terminal status/result use the same writer
+  boundary. Delayed HEAD responses cannot replace the first retained range or
+  overwrite a replacement worker's successful handoff. Progress checks prefer
+  that retained range over queue payloads; periodic coordination owns acquisition.
 - Reorg recovery or an explicit disputed identity gates completion. There is
   no separate bootstrap gap-recovery publication or delivery identity loop.
 

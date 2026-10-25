@@ -190,7 +190,10 @@ that is already live, including one retrying metadata on its completed bootstrap
 run, is invalidated only when its ownership anchor is orphaned. Invalidated
 collections return to `prepared` and require a fresh bootstrap; configuration,
 failed-run diagnostics, trading declarations and cancellation obligations remain.
-The shared collection cleanup owner also serves explicit operator purge.
+Price tiers survive unconditionally, including unused tiers and collections with
+no jobs; their graphs, saved job prices, commands and operator settings are not
+chain-derived state. The shared collection cleanup owner also serves explicit
+operator purge, which separately removes both declarations and derived data.
 
 The transaction writes the fork ownership checkpoints for surviving collections
 (including absent tokens), removes
@@ -312,6 +315,23 @@ Pending checks provide one delayed verification for blocks saved before maturity
 There are no medium- or long-horizon rechecks of completed blocks. A reorg deeper
 than the configured confirmation depth remains outside this guarantee. Any future
 tiers must preserve bounded ancestor search and idempotent retained resync.
+
+### Deferred Chain Recovery Instrumentation
+
+`BKL-074` (review finding RS-01) is explicitly deferred. The system does not yet
+provide general recovery tooling for conflicts older than its supported
+`REORG_DEPTH` window. For example, disconnected historical headers at 497–499
+with accepted chain progress starting at 900 can retain a disagreement that
+normal recovery cannot prove through connected ancestry. Provider agreement
+returning, including after restart, does not by itself resolve that state.
+
+Future explicit chain recovery tooling should expose the disputed block/hash,
+accepted checkpoints, missing ancestry and blocked processing, then provide a
+reviewable recovery procedure appropriate to that evidence. It must distinguish
+restored agreement from a real deep fork and preserve operator declarations.
+Neither clearing a gate without proof nor guessing an ancestor is acceptable.
+This is deferred instrumentation and recovery work, not an automatic repair
+added to the current bootstrap/validation corrections.
 
 ### Lineage and admission retention
 

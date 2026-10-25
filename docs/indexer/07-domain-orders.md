@@ -94,7 +94,11 @@ freshness bucket alone so observations arriving during a crawl win.
 2. Bind the declaration to its collection, signed NFT side/contract/identifier
    and immutable order identity. Derive supported quote currency and exact unit
    price from signed payment terms, then merge immutable terms.
-3. Atomically retain the per-source observation, declaration and causal demand.
+3. Atomically retain the per-source observation, declaration and causal demand,
+   then refresh today's listing price using the resulting eligible orders in that
+   same writer. When another eligible listing exists, it replaces a cheaper
+   listing awaiting validation. With no eligible listing, the existing last-known
+   daily price remains historical information; it is not an executable ask.
 4. Wait for a coordinator head sample captured after admission, then for shared
    and collection applied progress to cover that sample.
 5. Claim ready demand, perform full validation, and commit fenced evidence.
@@ -270,8 +274,10 @@ Starting another bootstrap clears OpenSea readiness and freshness but preserves
 the source identity and operator stream preference. Snapshot and reconciliation
 work checks the admitted collection lifecycle and latest bootstrap run identity
 inside its writer before publishing readiness, completion or retry state. Source
-withdrawals use the same identity, preventing an older scan from withdrawing
-replacement state. Explicit post-live metadata retries do not revoke a successful
+withdrawals use the same identity captured by the worker before starting the
+scan. The scan uses its captured slug/address, and observation creation never
+adopts a replacement identity from the database. Existing final writers recheck
+that identity, preventing an older scan from withdrawing replacement state. Explicit post-live metadata retries do not revoke a successful
 CollectionLive handoff or block unfinished OpenSea side steps.
 
 `OpenSeaReconcilePolicy` owns the automatic age thresholds: periodic and retry

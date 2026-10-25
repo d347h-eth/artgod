@@ -150,14 +150,14 @@ These assumptions are relied on by the implementation and should be preserved in
 ### OpenSea offchain flow
 
 1. Bootstrap completes local metadata + ownership capture for a collection.
-2. Bootstrap schedules short onchain backfill and, when OpenSea is enabled, an OpenSea bootstrap job in parallel.
-3. OpenSea bootstrap worker resolves OpenSea slug, marks offchain snapshot running, and streams the full orderbook through the offchain raw queue.
+2. Bootstrap delegates its final onchain Backfill, then atomically transitions the collection to Live and completes its core run. Only then does an enabled OpenSea snapshot step become eligible.
+3. OpenSea bootstrap worker uses the persisted verified slug, marks the snapshot running, and streams the full orderbook through the offchain raw queue.
 4. If OpenSea was skipped during bootstrap, the backend can enqueue the same OpenSea bootstrap job later for a live collection with a persisted slug.
-5. OpenSea stream worker maintains live subscriptions for collections with known
+5. OpenSea stream worker maintains subscriptions only for Live collections with a known
    OpenSea slug while their stream ingestion gate is enabled, and publishes raw
    events into the same offchain raw queue.
 6. Offchain ingest worker skips queued OpenSea stream payloads for collections
-   whose stream ingestion gate has since been paused, records raw observations
+   that are no longer Live or whose stream ingestion gate has since been paused, records raw observations
    for accepted payloads, and normalizes:
     - canonical order upserts
     - source-status updates by order id

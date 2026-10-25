@@ -392,8 +392,8 @@ projection jobs and removes orphan event-specific hints.
 
 This chain-wide workflow has no collection foreign key. Purging one collection
 cascades its ownership checkpoints and gap-scan rows, while keeping chain recovery
-for other collections. An empty admitted collection set leaves resync pending;
-full lifecycle cancellation remains deferred. See
+for other collections. Chain recovery and resync can complete with no admitted
+collections; collection-specific work applies only to eligible collections. See
 [reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
 
 ### Deferred Balance Completeness and Provenance
