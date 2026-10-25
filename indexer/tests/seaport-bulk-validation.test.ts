@@ -1,3 +1,5 @@
+import { validationChainFixture } from "./helpers/validation-chain-fixture.js";
+import { heavyMakerCheckpoint } from "./fixtures/heavy-maker.js";
 import {
     afterEach,
     beforeAll,
@@ -17,6 +19,7 @@ import { validateSeaportOrder } from "../src/application/offchain/seaport-valida
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { ValidateOrderDemand } from "../src/application/orders/validate-order-demand.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
@@ -69,7 +72,6 @@ function snapshotFactory(rpc: BulkListingRpc) {
     return createSeaportOrderValidationFactory({
         chainId: capturedBulkOrder().chainId,
         rpc,
-        conduits: warmConduits,
         conduitController: HEAVY_MAKER.controller,
     });
 }
@@ -89,12 +91,17 @@ describe.each(["scalar", "snapshot"] as const)(
                 return validateSeaportOrder(
                     rpc,
                     warmConduits,
-                    { conduitController: HEAVY_MAKER.controller },
+                    {
+                        conduitController: HEAVY_MAKER.controller,
+                        timestamp: BULK_ORDER_OBSERVED_AT,
+                    },
                     order,
                 );
             const snapshot = await snapshotFactory(rpc)({
-                chainId: order.chainId,
-                minimumBlock: null,
+                checkpoint: heavyMakerCheckpoint(
+                    await rpc.getBlock(rpc.blockNumber),
+                    order.collectionId,
+                ),
                 candidates: [order],
             });
             const result = await snapshot.validate(order);
@@ -106,15 +113,20 @@ describe.each(["scalar", "snapshot"] as const)(
             const order = capturedBulkOrder();
             const rpc = new BulkListingRpc();
             const read = vi.spyOn(rpc, "readContract");
+            const exactRead = vi.spyOn(rpc, "readContractAtBlock");
             expect(await validate(order, rpc)).toEqual({
                 status: ORDER_STATUS.Fillable,
-                reason: "approved",
+                reason: ORDER_VALIDATION_REASON.Approved,
+                quantities: { original: "1", remaining: "1", fillable: "1" },
             });
             expect(rpc.reads).toEqual({
                 getOrderStatus: 1,
                 getCounter: 1,
                 ownerOf: 1,
                 isApprovedForAll: 1,
+                ...(mode === "snapshot"
+                    ? { getConduit: 1, getChannels: 1 }
+                    : {}),
             });
             expect(read).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -124,8 +136,10 @@ describe.each(["scalar", "snapshot"] as const)(
             );
             if (mode === "snapshot")
                 expect(
-                    read.mock.calls.every(
-                        ([params]) => params.blockNumber === rpc.blockNumber,
+                    exactRead.mock.calls.every(
+                        ([params]) =>
+                            params.block.blockNumber === rpc.blockNumber &&
+                            params.block.blockHash === rpc.blockHash,
                     ),
                 ).toBe(true);
         });
@@ -165,7 +179,7 @@ describe.each(["scalar", "snapshot"] as const)(
             const rpc = new BulkListingRpc();
             expect(await validate(order, rpc)).toEqual({
                 status: ORDER_STATUS.Invalid,
-                reason: "bad-signature",
+                reason: ORDER_VALIDATION_REASON.BadSignature,
             });
             expect(rpc.reads).toEqual({});
         });
@@ -178,16 +192,16 @@ describe("stored bulk listing recovery", () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
     });
-    beforeEach(() => db.exec("DELETE FROM orders; DELETE FROM collections;"));
+    beforeEach(() =>
+        db.exec(
+            "DELETE FROM orders; DELETE FROM collections; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_revisions; DELETE FROM chain_head_samples;",
+        ),
+    );
 
     async function staleListing() {
         const order = capturedBulkOrder();
         const rpc = new BulkListingRpc();
-        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-            throw new Error(
-                "Recovery must use the runtime validation snapshot",
-            );
-        });
+        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth);
         const store = new SqliteOrderValidationDemand(domain);
         const processor = new ValidateOrderDemand({
             admission: new FairOrderValidationAdmission(2),
@@ -196,7 +210,7 @@ describe("stored bulk listing recovery", () => {
             createSnapshot: snapshotFactory(rpc),
         });
         db.prepare(
-            "INSERT INTO collections (chain_id,collection_id,slug,address,standard,status,token_scope_kind,bootstrap_anchor_block) VALUES (?,?,'bulk-listing',?,'erc721','live','contract_all_tokens',0)",
+            "INSERT INTO collections (chain_id,collection_id,slug,address,standard,status,token_scope_kind,bootstrap_anchor_block) VALUES (?,?,'bulk-listing',?,'erc721','live','contract_all_tokens',999)",
         ).run(order.chainId, order.collectionId, order.contract);
         const oldTime =
             BULK_ORDER_OBSERVED_AT -
@@ -210,10 +224,15 @@ describe("stored bulk listing recovery", () => {
             sourceScopeKind: order.sourceScopeKind!,
             rawSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Stream,
             observedAt: oldTime,
-            validateAfterUpsert: true,
         };
         vi.mocked(Date.now).mockReturnValue(oldTime * 1_000);
         await domain.handleOrderUpsert(payload);
+        const chain = validationChainFixture({
+            chainId: order.chainId,
+            rpc,
+            collectionIds: [order.collectionId],
+        });
+        await chain.apply();
         const claim = store.claimBatch(
             order.chainId,
             "old-verifier",
@@ -227,14 +246,16 @@ describe("stored bulk listing recovery", () => {
                     claim,
                     result: {
                         status: ORDER_STATUS.Invalid,
-                        reason: "signature-error:Error: invalid signature length",
+                        reason: ORDER_VALIDATION_REASON.SignatureError,
+                        error: "Error: invalid signature length",
                     },
                 },
             ],
             {
                 observedAt: oldTime * 1_000,
-                blockNumber: rpc.blockNumber,
-                checkpoint: store.captureSyncCheckpoint(order.chainId),
+                block: await rpc.getBlock(rpc.blockNumber),
+                checkpoint: claim.checkpoint,
+                admissionSequence: claim.demand.admissionSequence,
             },
             oldTime * 1_000,
         );
@@ -258,6 +279,8 @@ describe("stored bulk listing recovery", () => {
             seaportData: { ...order.seaportData!, signature: null },
             observedAt: BULK_ORDER_OBSERVED_AT,
         });
+        store.scheduleDue(order.chainId, Date.now());
+        await chain.apply();
         expect(store.get(order.chainId, order.id)?.pending).toBe(true);
         expect(ask()).toBeUndefined();
         return { order, rpc, domain, store, processor, ask };
@@ -317,6 +340,7 @@ describe("stored bulk listing recovery", () => {
                     collectionId: work.order.collectionId,
                     orderId: work.order.id,
                     reason: ORDER_UPDATE_REASON.Cancel,
+                    source: "opensea",
                     sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
                     observedAt: BULK_ORDER_OBSERVED_AT + 1,
                 });
@@ -328,7 +352,7 @@ describe("stored bulk listing recovery", () => {
                 .prepare("SELECT source_status FROM orders WHERE id=?")
                 .get(work.order.id),
         ).toEqual({
-            source_status: ORDER_SOURCE_STATUS.Cancelled,
+            source_status: ORDER_SOURCE_STATUS.Inactive,
         });
     });
 
@@ -338,8 +362,10 @@ describe("stored bulk listing recovery", () => {
             throw new Error("synthetic RPC outage");
         };
         const snapshot = await snapshotFactory(rpc)({
-            chainId: capturedBulkOrder().chainId,
-            minimumBlock: null,
+            checkpoint: heavyMakerCheckpoint(
+                await rpc.getBlock(rpc.blockNumber),
+                capturedBulkOrder().collectionId,
+            ),
         });
         await expect(snapshot.validate(capturedBulkOrder())).rejects.toThrow(
             OrderValidationSnapshotUnavailable,

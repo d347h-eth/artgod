@@ -21,9 +21,9 @@ flowchart LR
         Backend[Backend HTTP adapters<br/>and use cases]
         Cache[Backend query cache]
         NATS[NATS JetStream<br/>wake-ups and work delivery]
-        Scheduler[Scheduler and reorg workers]
+        Scheduler[Scheduler worker]
         Bootstrap[Bootstrap workers<br/>durable step scheduler]
-        Ingest[Sync and offchain ingest workers]
+        Ingest[Sync coordinator and offchain ingest workers]
         Domain[Domain workers<br/>orders, metadata, activities]
         Extensions[Collection-extension worker]
         Recovery[Dead-letter worker]
@@ -67,7 +67,6 @@ flowchart LR
     Backend -->|token URI and owner resolution| RPC
 
     Scheduler -->|scheduled work| NATS
-    NATS -->|reorg work| Scheduler
     NATS --> Bootstrap
     Bootstrap -->|follow-up work| NATS
     NATS --> Ingest
@@ -79,9 +78,9 @@ flowchart LR
     NATS --> Recovery
     NATS --> Trading
 
-    Scheduler -->|scheduling and reorg state| DB
+    Scheduler -->|scheduling state| DB
     Bootstrap -->|runs, steps, tasks, snapshots| DB
-    Ingest -->|blocks and raw observations| DB
+    Ingest -->|applied chain, reorg state and raw observations| DB
     Domain -->|canonical projections and stats| DB
     Extensions -->|artifacts and extension traits| DB
     Trading -->|jobs, commands, runtime state, bid-book projection| DB

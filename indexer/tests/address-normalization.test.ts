@@ -1,3 +1,4 @@
+import { seedBootstrapRunFixture } from "./helpers/bootstrap-run-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -26,6 +27,7 @@ describe("address normalization at indexer write boundaries", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM bootstrap_runs;",
                 "DELETE FROM bootstrap_metadata_snapshot_tasks;",
                 "DELETE FROM nft_balance_snapshots;",
                 "DELETE FROM orders;",
@@ -76,20 +78,10 @@ describe("address normalization at indexer write boundaries", () => {
         expect(row?.address).toBe("0xabcd000000000000000000000000000000000000");
     });
 
-    it("lowercases bootstrap snapshot and metadata-task contract fields", () => {
+    it("lowercases bootstrap metadata-task contract fields", () => {
         const storage = new SqliteBootstrapStorage();
 
-        storage.insertSnapshotRows([
-            {
-                runId: 1,
-                chainId: 1,
-                collectionId: 7,
-                contract: "0xAbCd000000000000000000000000000000000000",
-                tokenId: "5081",
-                owner: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
-                anchorBlock: 100,
-            },
-        ]);
+        seedBootstrapRunFixture(1, 7);
         storage.insertMetadataTasks([
             {
                 runId: 1,
@@ -104,14 +96,6 @@ describe("address normalization at indexer write boundaries", () => {
             },
         ]);
 
-        const snapshot = db
-            .prepare<{
-                contract_address: string;
-                owner: string;
-            }>(
-                "SELECT contract_address, owner FROM nft_balance_snapshots LIMIT 1",
-            )
-            .get();
         const task = db
             .prepare<{
                 contract_address: string;
@@ -120,10 +104,6 @@ describe("address normalization at indexer write boundaries", () => {
             )
             .get();
 
-        expect(snapshot).toEqual({
-            contract_address: "0xabcd000000000000000000000000000000000000",
-            owner: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        });
         expect(task?.contract_address).toBe(
             "0xabcd000000000000000000000000000000000000",
         );
@@ -131,11 +111,10 @@ describe("address normalization at indexer write boundaries", () => {
 
     it("lowercases order address fields on upsert", async () => {
         db.prepare(
-            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (7,1,'order-fixture','0xabcd','erc721','ready','contract_all_tokens')",
+            "INSERT INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (7,1,'order-fixture','0xabcd000000000000000000000000000000000000','erc721','ready','contract_all_tokens')",
         ).run();
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            async () => ({ status: "fillable", reason: "test" }),
         );
 
         await domain.handleOrderUpsert({
@@ -155,7 +134,6 @@ describe("address normalization at indexer write boundaries", () => {
             source: "opensea",
             sourceStatus: ORDER_SOURCE_STATUS.Active,
             rawSourceKind: "stream",
-            validateAfterUpsert: true,
         });
 
         const row = db

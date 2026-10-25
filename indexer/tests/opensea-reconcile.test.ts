@@ -24,6 +24,8 @@ import type { JobEnvelope } from "../src/domain/jobs.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../src/infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../src/infra/offchain/sqlite-order-source-state.js";
+import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
+import { SqliteOrderObservations } from "../src/infra/orders/sqlite-order-observations.js";
 import { OFFCHAIN_ORDER_SOURCE } from "../src/domain/offchain-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -57,6 +59,45 @@ describe("OpenSea reconciliation admission", () => {
         db.raw.close();
         vi.restoreAllMocks();
     });
+
+    it.each([false, true])(
+        "rejects a lifecycle reset at the final reconciliation writer (failure=%s)",
+        async (fail) => {
+            const commit = collections.commitOpenSeaSync.bind(collections);
+            let resolved = false;
+            sync.syncCollection.mockImplementation(async () => {
+                resolved = true;
+                if (fail) throw new Error("fixture late reconcile failure");
+                return { activeOrders: 0, deactivatedOrders: 0 };
+            });
+            vi.spyOn(collections, "commitOpenSeaSync").mockImplementation(
+                (identity, write) => {
+                    if (resolved)
+                        db.prepare(
+                            "UPDATE collections SET status=?,opensea_status=NULL,opensea_ready_at=NULL,opensea_reconcile_completed_at=NULL WHERE collection_id=99",
+                        ).run(COLLECTION_STATUS.Bootstrapping);
+                    return commit(identity, write);
+                },
+            );
+            await handleReconcileJob(
+                queue,
+                collections,
+                runs,
+                sync,
+                freshness,
+                { baseDelayMs: 10, maxDelayMs: 100 },
+                job(),
+                () => Date.now(),
+            );
+            expect(collections.getCollection(1, 99)).toMatchObject({
+                status: COLLECTION_STATUS.Bootstrapping,
+                openseaStatus: null,
+                openseaReadyAt: null,
+                openseaReconcileCompletedAt: null,
+            });
+            expect(queue.publish).not.toHaveBeenCalled();
+        },
+    );
 
     function seed(id: number) {
         db.prepare(
@@ -256,9 +297,9 @@ describe("OpenSea reconciliation admission", () => {
         async (reason) => {
             collections.markOpenSeaReconcileCompleted(1, 99);
             const writes = db.prepare("SELECT total_changes() AS n").get();
-            const sourceState = new SqliteOrderSourceStateStore({
-                refreshSeller: vi.fn(),
-            });
+            const sourceState = new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(loadOpenSeaConfig().tokens.wethAddress),
+            );
             const begin = vi.spyOn(sourceState, "beginObservation");
             const api = { forEachListing: vi.fn(), forEachOffer: vi.fn() };
             const pipeline = new OpenSeaOrderbookSync(api, queue, sourceState);
@@ -272,6 +313,29 @@ describe("OpenSea reconciliation admission", () => {
             expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(
                 writes,
             );
+        },
+    );
+
+    it.each([false, true])(
+        "does not publish old scan completion or retry after the collection leaves live (failure=%s)",
+        async (fail) => {
+            const ready = vi.spyOn(collections, "markOpenSeaReady");
+            const complete = vi.spyOn(
+                collections,
+                "markOpenSeaReconcileCompleted",
+            );
+            sync.syncCollection.mockImplementationOnce(async () => {
+                db.prepare(
+                    "UPDATE collections SET status=?,opensea_status=NULL WHERE collection_id=99",
+                ).run(COLLECTION_STATUS.Bootstrapping);
+                if (fail) throw new Error("late scan failed");
+                return { activeOrders: 0, deactivatedOrders: 0 };
+            });
+            await handle();
+            expect(ready).not.toHaveBeenCalled();
+            expect(complete).not.toHaveBeenCalled();
+            expect(queue.publish).not.toHaveBeenCalled();
+            expect(collections.getCollection(1, 99)?.openseaStatus).toBeNull();
         },
     );
 
@@ -371,6 +435,18 @@ describe("OpenSea reconciliation admission", () => {
             ORDER_SOURCE_STATUS.Active,
             ORDER_STATUS.Fillable,
         );
+        db.writeTransaction(() =>
+            new SqliteOrderObservations().retain({
+                chainId: 1,
+                collectionId: 99,
+                orderId: "absent",
+                sourceId: OFFCHAIN_ORDER_SOURCE.OpenSea,
+                observationKey: "absent",
+                status: ORDER_SOURCE_STATUS.Active,
+                declaration: true,
+                now: 0,
+            }),
+        )();
         let fail = true;
         type Api = ConstructorParameters<typeof OpenSeaOrderbookSync>[0];
         const api = {
@@ -405,7 +481,9 @@ describe("OpenSea reconciliation admission", () => {
         const pipeline = new OpenSeaOrderbookSync(
             api,
             queue,
-            new SqliteOrderSourceStateStore({ refreshSeller: vi.fn() }),
+            new SqliteOrderSourceStateStore(
+                new SqliteOrdersDomain(loadOpenSeaConfig().tokens.wethAddress),
+            ),
         );
         await handle(job(), pipeline);
         expect(events).toEqual(["listings", "offers"]);

@@ -32,10 +32,6 @@ pub(crate) const INDEXER_WORKERS: &[(&str, &str)] = &[
         "indexer/dist-desktop/sync-worker.mjs",
     ),
     (
-        "indexer-reorg-worker",
-        "indexer/dist-desktop/reorg-worker.mjs",
-    ),
-    (
         "indexer-domain-worker",
         "indexer/dist-desktop/domain-worker.mjs",
     ),

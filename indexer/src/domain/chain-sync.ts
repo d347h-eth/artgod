@@ -19,6 +19,55 @@ export type SyncBlockHeader = {
     timestamp: number;
 };
 
+/** Durable current-state coverage starts at an explicitly accepted base anchor.
+ * Stored headers alone do not establish this applied prefix. */
+export type AppliedChainProgress = {
+    checkpoint: ChainSyncCheckpoint;
+    anchor: SyncBlockHeader;
+    applied: SyncBlockHeader;
+};
+
+export type CollectionAppliedProgress = AppliedChainProgress & {
+    collectionId: number;
+};
+
+/** Validation receives one coherent point covered by its collection and shared
+ * protocol progress. It cannot select or advance that point itself. */
+export type ValidationCheckpoint = ChainSyncCheckpoint & {
+    collectionId: number;
+    block: SyncBlockHeader;
+};
+
+/** Progress beyond the candidate does not invalidate its proof. Only a changed
+ * chain revision or an already newer proof can make this position obsolete.
+ * Canonical membership, recovery, demand and claim ownership are separate commit
+ * guards; this predicate cannot establish them from block heights alone. */
+export function canCommitValidationCheckpoint(input: {
+    candidate: ValidationCheckpoint;
+    current: ChainSyncCheckpoint;
+    previous: ValidationCheckpoint | null;
+}): boolean {
+    const { candidate, current, previous } = input;
+    if (
+        candidate.chainId !== current.chainId ||
+        candidate.revision !== current.revision
+    )
+        return false;
+    if (!previous) return true;
+    if (
+        previous.chainId !== candidate.chainId ||
+        previous.collectionId !== candidate.collectionId ||
+        previous.revision > candidate.revision
+    )
+        return false;
+    if (previous.revision < candidate.revision) return true;
+    return (
+        candidate.block.number > previous.block.number ||
+        (candidate.block.number === previous.block.number &&
+            candidate.block.hash === previous.block.hash)
+    );
+}
+
 /** Recent blocks belong to realtime; automatic missing history ends immediately below. */
 export function automaticGapUpperBound(
     head: number,

@@ -17,7 +17,6 @@ import {
     BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME,
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveCollectionPort,
-    type BootstrapCollectionLiveQueuePort,
     type BootstrapCollectionLiveRunsPort,
     type BootstrapCollectionLiveStepsPort,
     type BootstrapCollectionLiveTemporaryDataPort,
@@ -30,6 +29,7 @@ import {
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../src/ports/bootstrap-steps.js";
+import { syncBlockFixture } from "./helpers/chain-fixture.js";
 
 const TEST_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
 const TEST_TRACE_ID = "trace-1";
@@ -96,6 +96,37 @@ describe("bootstrap collection-live executor", () => {
             BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         ]);
     });
+
+    it.each([
+        { appliedBlock: 104 },
+        { appliedBlock: null },
+        { anchorHash: "replaced-anchor" },
+    ])(
+        "keeps stale backfill completion nonterminal when the applied view changed: %j",
+        async (view) => {
+            const harness = createHarness({
+                metadataCounts: cleanCounts(3),
+                imageCacheCounts: cleanCounts(0),
+                ownershipCounts: cleanCounts(3),
+                ...view,
+            });
+            const result = await harness.executor.complete({
+                run: harness.run,
+                step: collectionLiveStep(harness.run.runId),
+                traceId: TEST_TRACE_ID,
+                sourceJobId: TEST_SOURCE_JOB_ID,
+            });
+            expect(result.outcome).toBe(
+                BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress,
+            );
+            expect(harness.collectionFinishes).toEqual([]);
+            expect(harness.succeededSteps).toEqual([]);
+            expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
+            expect(harness.cleanupDeletedRows).toEqual(
+                emptyCleanupDeletedRows(),
+            );
+        },
+    );
 
     it("defers final stats when a bootstrap extension was requested", async () => {
         const harness = createHarness({
@@ -184,6 +215,8 @@ function createHarness(input: {
     imageCacheCounts: BootstrapTaskCounts;
     ownershipCounts: BootstrapTaskCounts;
     requestExtensionKey?: CollectionExtensionKey | null;
+    appliedBlock?: number | null;
+    anchorHash?: string;
 }): Harness {
     const run = buildRun({
         status: BOOTSTRAP_RUN_STATUS.Backfill,
@@ -202,11 +235,36 @@ function createHarness(input: {
     const cleanupDeletedRows = emptyCleanupDeletedRows();
 
     const collectionPort: BootstrapCollectionLiveCollectionPort = {
-        markBootstrapFinished: (chainId, collectionId, lastSyncedBlock) => {
+        markBootstrapFinished: ({
+            chainId,
+            collectionId,
+            lastSyncedBlock,
+            finalStats,
+        }) => {
             if (chainId !== run.chainId || collectionId !== run.collectionId) {
                 return false;
             }
             collectionFinishes.push({ chainId, collectionId, lastSyncedBlock });
+            succeededSteps.push({
+                runId: run.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.CollectionLive,
+            });
+            run.status = BOOTSTRAP_RUN_STATUS.Completed;
+            events.push({
+                runId: run.runId,
+                chainId,
+                collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
+                eventLevel: "info",
+                message: "Bootstrap collection live",
+                payloadJson: null,
+            });
+            if (finalStats)
+                statsRecomputeRequests.push({
+                    bootstrapRunId: run.runId,
+                    payload: finalStats.statsJob.payload,
+                    traceId: finalStats.traceId,
+                });
             return true;
         },
     };
@@ -226,9 +284,6 @@ function createHarness(input: {
             runId === run.runId && stepKey === BOOTSTRAP_STEP_KEY.Backfill
                 ? backfillStep
                 : null,
-        markStepSucceeded: (runId, stepKey) => {
-            succeededSteps.push({ runId, stepKey });
-        },
         markStepFailedTerminal: () => {},
     };
     const temporaryDataPort: BootstrapCollectionLiveTemporaryDataPort = {
@@ -270,19 +325,42 @@ function createHarness(input: {
         getCollectionExtensionArtifactTaskCounts: () =>
             collectionExtensionArtifactCounts,
     };
-    const queuePort: BootstrapCollectionLiveQueuePort = {
-        enqueueBootstrapFinalStats: async (request) => {
-            statsRecomputeRequests.push(request);
-        },
-    };
-
     return {
         executor: new BootstrapCollectionLiveExecutor(
             collectionPort,
             runsPort,
             stepsPort,
             temporaryDataPort,
-            queuePort,
+            {
+                collectionProgress: () => ({
+                    collectionId: run.collectionId,
+                    checkpoint: { chainId: run.chainId, revision: 0 },
+                    anchor: {
+                        ...syncBlockFixture(100),
+                        hash: input.anchorHash ?? run.anchorBlockHash!,
+                    },
+                    applied: syncBlockFixture(input.appliedBlock ?? 105),
+                }),
+                validationCheckpoint: () =>
+                    input.appliedBlock === null
+                        ? null
+                        : {
+                              chainId: run.chainId,
+                              revision: 0,
+                              collectionId: run.collectionId,
+                              block: syncBlockFixture(
+                                  input.appliedBlock ?? 105,
+                              ),
+                          },
+            },
+            {
+                getBlockNumber: async () => 132,
+                getBlock: async (number) => ({
+                    ...syncBlockFixture(number),
+                    hash: run.anchorBlockHash! as `0x${string}`,
+                }),
+            },
+            32,
         ),
         run,
         events,
@@ -294,7 +372,12 @@ function createHarness(input: {
 }
 
 function collectionLiveStep(runId: number): BootstrapStepRecord {
-    return step(runId, BOOTSTRAP_STEP_KEY.CollectionLive, null);
+    return {
+        ...step(runId, BOOTSTRAP_STEP_KEY.CollectionLive, null),
+        status: BOOTSTRAP_STEP_STATUS.Running,
+        leaseOwner: "live-test",
+        leaseUntil: Date.now() + 60_000,
+    };
 }
 
 function backfillStepWithLiveBlock(

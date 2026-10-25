@@ -13,7 +13,8 @@
         "queue/nats-job-stream-policy.json",
         "market-data/recovery-runtime.json",
         "testing/fixtures/opensea-ranged-offers.json",
-        "testing/fixtures/opensea-cambria-offers.json"
+        "testing/fixtures/opensea-cambria-offers.json",
+        "testing/fixtures/opensea-partial-collection-offer.json"
     ],
     "exclude": ["node_modules", "build"]
 }

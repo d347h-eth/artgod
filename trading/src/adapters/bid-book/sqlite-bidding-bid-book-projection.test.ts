@@ -13,8 +13,13 @@ import {
 } from "@artgod/shared/types";
 import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
 import {
+    SEAPORT_ITEM_TYPE,
+    SEAPORT_ORDER_TYPE,
+} from "@artgod/shared/market-data/seaport";
+import {
     capturedOpenSeaRangedOfferFixtures,
     capturedOpenSeaCambriaRestOffers,
+    capturedOpenSeaPartialCollectionOffer as partialOffer,
 } from "@artgod/shared/testing/opensea-offers";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
@@ -162,6 +167,183 @@ describe("SqliteBiddingBidBookProjection", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it.each([SEAPORT_ORDER_TYPE.FullOpen, SEAPORT_ORDER_TYPE.FullRestricted])(
+        "projects the same full-only type %s unit price when source remainder is added",
+        async (orderType) => {
+            const projection = new SqliteBiddingBidBookProjection(
+                1,
+                OWNER_ADDRESS,
+                WETH_ADDRESS,
+            );
+            const orderId = `full-only-${orderType}`;
+            for (const remainingQuantity of [undefined, 100]) {
+                const offer = makeOpenSeaOffer({
+                    orderHash: orderId,
+                    offerer: OTHER_ADDRESS,
+                    priceWei: "6000000000000000000",
+                    nftItemType: SEAPORT_ITEM_TYPE.Erc1155,
+                    identifierOrCriteria: "7",
+                    criteria: undefined,
+                    nftAmount: "100",
+                    orderType,
+                    remainingQuantity,
+                });
+                await projection.replaceCollectionBidBook(
+                    {
+                        collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                        refreshedAt: Date.now(),
+                        offers: [offer],
+                        metrics: createCollectionOfferSnapshotMetrics({
+                            offerCount: 1,
+                        }),
+                    },
+                    "full-only-unit-price",
+                );
+                assert.deepEqual(
+                    db
+                        .prepare(
+                            "SELECT order_id,price_wei,quantity FROM trading_bidding_bid_book_rows",
+                        )
+                        .all(),
+                    [
+                        {
+                            order_id: orderId,
+                            price_wei: "60000000000000000",
+                            quantity: "100",
+                        },
+                    ],
+                );
+            }
+        },
+    );
+
+    it("excludes unclassifiable protocol items without projecting an inflated unit price", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        db.prepare(
+            "UPDATE collections SET address=? WHERE collection_id=?",
+        ).run(partialOffer.criteria.contract.address, collectionId);
+        const { remaining_quantity: _, ...raw } = structuredClone(partialOffer);
+        const first = raw.protocol_data.parameters.consideration[0];
+        first.startAmount = "50";
+        first.endAmount = "50";
+        const second = { ...first };
+        const fee = raw.protocol_data.parameters.consideration[1];
+        raw.protocol_data.parameters.consideration.push(second);
+        const invalidItems = [
+            { ...second, itemType: undefined },
+            { ...second, itemType: null },
+            null,
+            "item",
+            [],
+        ];
+        const offers = [
+            raw,
+            ...invalidItems.map((item, index) => ({
+                ...raw,
+                order_hash: `unclassifiable-item-${index}`,
+                protocol_data: {
+                    parameters: {
+                        ...raw.protocol_data.parameters,
+                        consideration: [first, fee, item],
+                    },
+                },
+            })),
+        ];
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "unclassifiable-item-regression",
+        );
+        assert.deepEqual(
+            db
+                .prepare(
+                    "SELECT order_id,price_wei,quantity FROM trading_bidding_bid_book_rows",
+                )
+                .all(),
+            [
+                {
+                    order_id: raw.order_hash,
+                    price_wei: "60000000000000000",
+                    quantity: "100",
+                },
+            ],
+        );
+    });
+
+    it("excludes exhausted and malformed thin offers on both price paths from the snapshot projection", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        db.prepare(
+            "UPDATE collections SET address=? WHERE collection_id=?",
+        ).run(partialOffer.criteria.contract.address, collectionId);
+        const {
+            protocol_data: _,
+            remaining_quantity: __,
+            price,
+            ...thin
+        } = partialOffer;
+        const base = {
+            ...thin,
+            maker: partialOffer.protocol_data.parameters.offerer,
+        };
+        const offers: unknown[] = [];
+        let id = 0;
+        for (const alias of ["remaining_quantity", "remainingQuantity"]) {
+            for (const value of [0, -1, "malformed"]) {
+                for (const path of [
+                    { price },
+                    { currentPrice: price.value, paymentToken: WETH_ADDRESS },
+                ]) {
+                    offers.push({
+                        ...base,
+                        ...path,
+                        [alias]: value,
+                        order_hash: `0x${String(++id).padStart(64, "0")}`,
+                    });
+                }
+            }
+        }
+        const validId = `0x${String(++id).padStart(64, "0")}`;
+        offers.push({
+            ...base,
+            price,
+            remaining_quantity: 1,
+            order_hash: validId,
+        });
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                refreshedAt: Date.now(),
+                offers,
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: offers.length,
+                }),
+            },
+            "thin-record-regression",
+        );
+        assert.deepEqual(
+            db
+                .prepare(
+                    "SELECT order_id,quantity FROM trading_bidding_bid_book_rows",
+                )
+                .all(),
+            [{ order_id: validId, quantity: "1" }],
+        );
     });
 
     it("projects captured REST range scopes without broadening their criteria", async () => {

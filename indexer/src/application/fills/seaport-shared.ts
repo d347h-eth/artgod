@@ -1,3 +1,8 @@
+import {
+    seaportIsConcreteNftItem,
+    seaportIsPaymentItem,
+    seaportIsNftItem,
+} from "@artgod/shared/market-data/seaport";
 import { zeroAddress } from "viem";
 import {
     FILL_ITEM_SIDE,
@@ -20,7 +25,7 @@ export function hasTrackedNft(
     collections: Set<string>,
 ): boolean {
     for (const item of items) {
-        if (!isNftItem(item.itemType)) continue;
+        if (!seaportIsNftItem(item.itemType)) continue;
         const token = item.token.toLowerCase();
         if (!collections.has(token)) continue;
         return true;
@@ -62,7 +67,7 @@ export function resolveSeaportOrderSide(
           : ORDER_SIDE.Buy;
 }
 
-// Ignore criteria-based items (itemType 4/5) until we add resolvers or logs-based matching.
+// Ignore criteria-based items until we add resolvers or logs-based matching.
 export function findTrackedNftItem(
     items: readonly SeaportItem[],
     collections: Set<string>,
@@ -78,8 +83,7 @@ export function findTrackedNftItems(
     const out: Array<{ contract: string; tokenId: string; amount: string }> =
         [];
     for (const item of items) {
-        if (!isNftItem(item.itemType)) continue;
-        if (item.itemType >= 4) continue;
+        if (!seaportIsConcreteNftItem(item.itemType)) continue;
         const token = item.token.toLowerCase();
         if (!collections.has(token)) continue;
         out.push({
@@ -91,9 +95,7 @@ export function findTrackedNftItems(
     return out;
 }
 
-export function isCurrencyItem(itemType: number): boolean {
-    return itemType === 0 || itemType === 1;
-}
+export const isCurrencyItem = seaportIsPaymentItem;
 
 export function sumAmounts(values: bigint[]): bigint {
     return values.reduce((acc, value) => acc + value, 0n);
@@ -102,8 +104,4 @@ export function sumAmounts(values: bigint[]): bigint {
 export function normalizeCurrency(currency: string): string {
     const lowered = currency.toLowerCase();
     return lowered === zeroAddress ? zeroAddress : lowered;
-}
-
-function isNftItem(itemType: number): boolean {
-    return itemType >= 2 && itemType <= 5;
 }

@@ -48,7 +48,12 @@ type PersistedBiddingBidBookRowBase = {
     encodedTokenIds: string | null;
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;
+    /** Remaining units; funding capacity is a separate snapshot, not a reservation. */
     quantity: string;
+    originalQuantity?: string | null;
+    fillableQuantity?: string | null;
+    validationPending?: boolean;
+    validatedAt?: number | null;
     currencyAddress: string | null;
     currencySymbol: string | null;
     protocolAddress: string | null;
@@ -187,7 +192,12 @@ type BiddingBidBookRowViewBase = {
     };
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;
+    /** Remaining units; funding capacity is a separate snapshot, not a reservation. */
     quantity: string;
+    originalQuantity?: string | null;
+    fillableQuantity?: string | null;
+    validationPending?: boolean;
+    validatedAt?: number | null;
     currencyAddress: string | null;
     currencySymbol: string | null;
     protocolAddress: string | null;
@@ -318,6 +328,18 @@ function mapPersistedBidRowToView(
         price: bid.price,
         bidLimits: bid.bidLimits,
         quantity: bid.quantity,
+        ...(bid.originalQuantity === undefined
+            ? {}
+            : { originalQuantity: bid.originalQuantity }),
+        ...(bid.fillableQuantity === undefined
+            ? {}
+            : { fillableQuantity: bid.fillableQuantity }),
+        ...(bid.validationPending === undefined
+            ? {}
+            : { validationPending: bid.validationPending }),
+        ...(bid.validatedAt === undefined
+            ? {}
+            : { validatedAt: bid.validatedAt }),
         currencyAddress: bid.currencyAddress,
         currencySymbol: bid.currencySymbol,
         protocolAddress: bid.protocolAddress,

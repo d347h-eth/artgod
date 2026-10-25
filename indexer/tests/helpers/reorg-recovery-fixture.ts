@@ -1,4 +1,8 @@
-import { FINALIZED_SYNC_CHECK_POLICY } from "./chain-fixture.js";
+import { createAppliedSyncFixture } from "./applied-sync-fixture.js";
+import { createCanonicalOrderEffectsFixture } from "./canonical-order-effects-fixture.js";
+import { SqliteChainProgress } from "../../src/infra/storage/sqlite-chain-progress.js";
+import { SqliteSyncCoordination } from "../../src/infra/storage/sqlite-sync-coordination.js";
+import type { NftTransferEvent } from "../../src/domain/onchain.js";
 import { SqliteCanonicalChecks } from "../../src/infra/storage/sqlite-canonical-checks.js";
 import { RpcWorkScope } from "../../src/infra/rpc/work-scope.js";
 import { db } from "@artgod/shared/database";
@@ -9,7 +13,6 @@ import {
     type AutomaticSyncObserver,
 } from "../../src/application/automatic-sync-executor.js";
 import { SyncGapScheduler } from "../../src/application/sync-gap-scheduler.js";
-import { BackfillExecutionGate } from "../../src/application/backfill-execution.js";
 import { drainQueueOutbox } from "../../src/application/queue-outbox/drainer.js";
 import { SqliteSyncGapStore } from "../../src/infra/storage/sqlite-sync-gaps.js";
 import { SqliteSyncRangeCommit } from "../../src/infra/storage/sqlite-sync-range-commit.js";
@@ -148,16 +151,37 @@ export function reorgRecoveryServices(
     const recoveries = new SqliteReorgRecoveries(storage, checks);
     const gaps = new SqliteSyncGapStore();
     const registry = new SqliteCollectionRegistry();
+    const progress = new SqliteChainProgress();
+    const coordination = new SqliteSyncCoordination(progress);
     const commit = new SqliteSyncRangeCommit({
+        progress,
+        orderEffects: createCanonicalOrderEffectsFixture(REORG_FIXTURE.Weth),
         storage,
         outbox,
         gaps,
         recoveries,
         collections: registry,
     });
+    const recovery = new RecoverChainReorg(
+        rpc,
+        storage,
+        recoveries,
+        new RollbackChainRange(storage, new RpcRollbackOwnershipSnapshot(rpc)),
+        checks,
+        {
+            chainId: REORG_FIXTURE.ChainId,
+            reorgDepth: 3,
+            batchSize: REORG_FIXTURE.BatchSize,
+            ...options,
+        },
+    );
     const executor = new AutomaticSyncExecutor({
         reorgDepth: 1,
         rpc,
+        historicalRpc: rpc,
+        recovery,
+        progress,
+        coordination,
         storage,
         commit,
         canonicalChecks: checks,
@@ -173,27 +197,14 @@ export function reorgRecoveryServices(
         }),
         collectionExtensions: { getInstall: () => null },
         chainId: REORG_FIXTURE.ChainId,
-        bidderIndex: { isActive: () => false, shouldEmit: () => false },
         wethAddress: REORG_FIXTURE.Weth,
         batchSize: REORG_FIXTURE.BatchSize,
-        gate: new BackfillExecutionGate(),
         ...options,
     });
-    const recovery = new RecoverChainReorg(
-        rpc,
-        storage,
-        recoveries,
-        new RollbackChainRange(storage, new RpcRollbackOwnershipSnapshot(rpc)),
-        checks,
-        {
-            chainId: REORG_FIXTURE.ChainId,
-            reorgDepth: 3,
-            batchSize: REORG_FIXTURE.BatchSize,
-            ...options,
-        },
-    );
     return {
         storage,
+        progress,
+        coordination,
         outbox,
         gaps,
         commit,
@@ -210,7 +221,30 @@ export function reorgRecoveryServices(
                 )
             )
                 return false;
-            await executor.runDue();
+            for (
+                let pass = 0;
+                pass < 8 &&
+                isCurrentReorgRange(
+                    recoveries.getRecovery(range.chainId),
+                    range,
+                );
+                pass++
+            ) {
+                if (!(await executor.runDue())) break;
+            }
+            // A shared recovery range and collection catch-up are separate
+            // coordinator passes. The fixture completes the installed scopes.
+            for (
+                let pass = 0;
+                pass < 8 &&
+                coordination.nextCollectionCatchup(
+                    range.chainId,
+                    (options.now ?? Date.now)(),
+                );
+                pass++
+            ) {
+                if (!(await executor.runDue())) break;
+            }
             return !isCurrentReorgRange(
                 recoveries.getRecovery(range.chainId),
                 range,
@@ -221,22 +255,44 @@ export function reorgRecoveryServices(
     };
 }
 
-export function seedRecoveryHistory(includeAncestor = true) {
+export function seedRecoveryHistory() {
     const fixture = transferFixture();
     const collections = [
         new SqliteCollectionRegistry().getCollection(1, fixture.collectionId)!,
     ];
-    fixture.storage.persistSyncResult({
-        canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
-        checkpoint: fixture.storage.captureSyncCheckpoint(1),
-        blocks: [
-            REORG_FIXTURE.Anchor,
-            ...(includeAncestor ? [REORG_FIXTURE.Fork] : []),
-        ].map(syncBlockFixture),
-        data: emptyOnChainData(),
+    const applied = createAppliedSyncFixture({
+        chainId: 1,
+        anchor: syncBlockFixture(REORG_FIXTURE.Anchor),
         collections,
+        orderEffects: createCanonicalOrderEffectsFixture(REORG_FIXTURE.Weth),
     });
-    fixture.persist([
+    new SqliteCanonicalChecks().confirmCanonicalBlock({
+        chainId: 1,
+        blockNumber: REORG_FIXTURE.Anchor,
+        blockHash: syncBlockFixture(REORG_FIXTURE.Anchor).hash,
+        checkpoint: applied.storage.captureSyncCheckpoint(1),
+    });
+    function persist(events: NftTransferEvent[]) {
+        const first = applied.progress.chainProgress(1)!.applied.number + 1;
+        const last = Math.max(...events.map((event) => event.blockNumber));
+        if (events.some((event) => event.blockNumber < first))
+            throw new Error(
+                "Recovery fixture events must extend the accepted prefix",
+            );
+        const data = emptyOnChainData();
+        data.collectionScoped.nftTransferEvents = events;
+        applied.commit(
+            applied.applied({
+                blocks: Array.from({ length: last - first + 1 }, (_, i) =>
+                    syncBlockFixture(first + i),
+                ),
+                data,
+                shared: true,
+                collectionIds: [fixture.collectionId],
+            }),
+        );
+    }
+    persist([
         fixture.transfer(
             REORG_FIXTURE.Orphan,
             1,
@@ -244,7 +300,7 @@ export function seedRecoveryHistory(includeAncestor = true) {
             REORG_FIXTURE.OrphanOwner,
         ),
     ]);
-    return fixture;
+    return { ...fixture, ...applied, persist };
 }
 
 export function pendingRecoveryRange(): ReorgResyncRange {

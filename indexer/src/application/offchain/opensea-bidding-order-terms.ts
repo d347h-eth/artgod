@@ -36,6 +36,7 @@ export type OpenSeaBiddingOrderTerms = {
     sourceEncodedTokenIds: string | null;
     localTokenSetStatus: OrderLocalTokenSetStatus;
     quantity: string;
+    originalQuantity: string | null;
     price: string;
     currency: string;
     validFrom: number | null;
@@ -134,6 +135,7 @@ function parseRequiredOpenSeaBiddingOrderTermsInner(
         sourceEncodedTokenIds: scope.sourceEncodedTokenIds,
         localTokenSetStatus: scope.localTokenSetStatus,
         quantity: parsed.quantity.toString(),
+        originalQuantity: parsed.originalQuantity?.toString() ?? null,
         price: parsed.price.toString(),
         currency,
         validFrom: parsed.validFrom ?? null,

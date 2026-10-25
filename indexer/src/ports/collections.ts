@@ -32,21 +32,6 @@ export interface CollectionRegistryPort {
         collectionId?: number,
     ): CollectionRecord[];
     upsertCollection(input: CollectionUpsertInput): void;
-    markBootstrapStarted(
-        chainId: number,
-        collectionId: number,
-        anchorBlock: number,
-    ): boolean;
-    markBootstrapSnapshotProgress(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
     markOpenSeaPending(chainId: number, collectionId: number): boolean;
     markOpenSeaIdentityRunning(chainId: number, collectionId: number): boolean;
     setOpenSeaSlug(

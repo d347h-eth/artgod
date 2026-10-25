@@ -1,3 +1,7 @@
+import {
+    seaportIsNftItem,
+    seaportIsPaymentItem,
+} from "@artgod/shared/market-data/seaport";
 import type { RawOrderPayload } from "./normalize.js";
 import {
     asObject,
@@ -17,8 +21,6 @@ import {
     parseOpenSeaOrderHash,
 } from "@artgod/shared/opensea/payload";
 
-const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
-const PAYMENT_ITEM_TYPES = new Set([0, 1]);
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export function normalizeOpenSeaRestOrder(
@@ -128,7 +130,7 @@ function findNftItem(items: unknown): Record<string, unknown> | null {
         if (!entry || typeof entry !== "object") continue;
         const item = entry as Record<string, unknown>;
         const itemType = Number(item.itemType);
-        if (!Number.isFinite(itemType) || !NFT_ITEM_TYPES.has(itemType)) {
+        if (!Number.isFinite(itemType) || !seaportIsNftItem(itemType)) {
             continue;
         }
         return item;
@@ -142,7 +144,7 @@ function findPaymentItem(items: unknown): Record<string, unknown> | null {
         if (!entry || typeof entry !== "object") continue;
         const item = entry as Record<string, unknown>;
         const itemType = Number(item.itemType);
-        if (!Number.isFinite(itemType) || !PAYMENT_ITEM_TYPES.has(itemType)) {
+        if (!Number.isFinite(itemType) || !seaportIsPaymentItem(itemType)) {
             continue;
         }
         return item;

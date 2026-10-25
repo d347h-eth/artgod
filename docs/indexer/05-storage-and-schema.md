@@ -44,29 +44,77 @@ Migrations are applied at runtime startup via `createMigrationRunner()`:
 
 The migration runner is invoked by the onchain workers and the OpenSea workers.
 
+### Applied checkpoint storage
+
+Migration `077_coordinated_chain_progress.sql` introduces explicit applied
+evidence, implemented by `SqliteChainProgress`. It does not backfill readiness
+from existing `blocks` or `collection_sync_blocks` rows.
+
+- `chain_sync_progress` has one row per chain: its independent processing start,
+  applied identity, rollback revision and immediate dispute gate. Startup retains
+  connected predecessor headers for recovery without claiming applied effects
+  before that start. A proven rollback can move the start to its ancestor.
+- Migration `090_bootstrap_catchup_authority.sql` removes
+  `collection_ownership_bases`. The current run's successful Ownership step and
+  retained Backfill range authorize acceptance directly. Backfill's `baseRetryAt`
+  result field retains anchor-verification backoff independently of the step
+  scheduler's health-check timestamp.
+- `collection_sync_progress` retains the accepted base and contiguous applied
+  identity for each collection. A joining collection does not lower another
+  collection's usable checkpoint.
+- `chain_sync_targets` retains remote scheduling observations separately from
+  canonical membership. `chain_head_samples` freezes the first successful target
+  for a captured local admission watermark; sampling cannot cover an observation
+  admitted after that remote read began.
+
+The progress adapter requires exact expected predecessors and connected headers.
+Its advance operations participate in the existing range writer, after core
+effects and critical invalidations. Validation only reads a checkpoint covered
+by both shared and collection progress, checks its exact retained identity, and
+rejects it while recovery is retained. A later applied tip does not by itself
+invalidate an older still-canonical proof.
+
+Migration `085_head_sample_retention.sql` adds a bounded cleanup cursor and
+admission-pin indexes. `SqliteChainProgress.pruneHeadSamples` retains the latest
+current-revision sample and mappings still needed by pending order/maker work or
+active validation leases. The market-data maintenance cadence calls this owner;
+completed proofs use their stored admission scalar without pinning old samples.
+Canonical headers are not pruned by normal maintenance.
+
+These storage contracts are covered by `chain-sync-progress.test.ts`,
+`coordinated-chain-progress.test.ts` and `chain-history-retention.test.ts`. They are the foundation for the coordinated
+runtime cutover; storage tests alone do not establish end-to-end pipeline
+integration.
+
 ## Order validation recovery
 
-Migrations 056–061 introduce durable maker scans, continuation publication,
-per-order demand and delivery-origin receipts. Migration 061 adds
-`isolate_order_id` and cumulative `deferred_orders` to
-`maker_order_revalidation_runs`; existing cursors and completed scans remain
-intact. A known failed order is admitted to `order_validation_demand` in the same
-write transaction that moves its maker cursor and replaces the continuation.
+Migrations 056–061 introduced maker scans, publication receipts and ordinary
+demand. The revamp consolidates RPC work into ordinary demand and uses maker runs
+only for bounded expansion. Migration 088 removes the redundant inline maker
+origin columns and their obsolete index; `maker_validation_delivery_origins` is
+the sole receipt representation. Current admission writes complete scope, original
+source payload, current pass payload and requested next-generation payload.
+Migration 088 discards only unsupported null-scope/source/requested-payload
+runs and their linked wakeups, releasing unique identities without reconstructing
+excluded old work. Current-format pending runs, leases and receipts are preserved.
+Historical nullable DDL remains; current inserts and runtime types use complete fields.
 
-Maker `completed` means its finite scan resolved or durably handed off all work.
-It is not full validation proof: pending demand owns unfinished handoffs, even
-after maker receipt cleanup. `resolved_orders` excludes pending handoffs;
-`deferred_orders` counts transfers over the run's generations, not current
-remaining work. See [durable maker progress](07-domain-orders.md#durable-maker-progress).
+The original payload detects reuse of a source job identity, the current payload
+fixes finite pass coverage, and the requested payload retains later requirements.
+Those meanings remain distinct. Main and gap consumers may both contribute
+receipts; cleanup requires their stream-incarnation and ACK-floor evidence.
+One compact chain/run/step continuation points at the retained payload.
 
-Migration `071_order_validation_chain_revision.sql` adds `proof_chain_revision`
-to `order_validation_demand` and removes its work class. Full ordinary, maker
-and token validation share the same saved validation record. Reuse requires the
-current order revision and chain revision, plus the requested event block or
-source observation time. A historical event does not use its eventual delivery
-time as a new observation. Chain rollback invalidates earlier saved validation
-records without needing a separate per-order cleanup pass. Needed validations
-use main RPC capacity; historical hint admission remains background work.
+Maker `completed` means its finite expansion resolved or admitted ordinary demand
+for every selected candidate. It is not full validation proof. `resolved_orders`
+excludes pending handoffs; `deferred_orders` counts admissions across generations,
+not currently unfinished orders. Demand, cursor and next wakeup share one writer.
+See [durable maker progress](07-domain-orders.md#durable-maker-progress).
+
+Ordinary proof reuse requires the current order and chain revision plus coverage
+of both canonical block requirements and causal source admission sequences.
+Historical delivery time never replaces a canonical block requirement. Rollback
+invalidates orphan proofs and retains needed demand in its own transaction.
 
 ## Core Tables (Onchain)
 
@@ -118,6 +166,21 @@ intact and does not advance revisions. A broken parent link cannot establish
 which side is canonical; published work can still reference a header after its
 outbox row is removed. The existing canonical owner verifies identities before
 performing any rollback and cleanup.
+
+Validation selects an existing accepted checkpoint and verifies that exact
+height/hash before committing order proof and results. Successful validation
+does not insert headers, schedule canonical checks or advance sync coverage.
+A conflicting RPC observation retains a dispute for the coordinator; it cannot
+replace the accepted header. The sync/recovery owners control header acceptance
+and resolve conflicting identities before current application resumes.
+
+The shared starting height does not prevent rollback to a verified predecessor.
+Initialization retains connected ancestry below it for bounded reorg proof.
+Confirmed rollback fails in-flight bootstrap runs and removes their invalid
+derived data in the same writer; an orphaned live ownership anchor also invalidates
+its collection. Collection configuration, failed bootstrap history and outstanding
+trading cancellation obligations survive through the shared collection cleanup
+owner. A fresh bootstrap is required before ordinary collection sync resumes.
 
 ### `collection_sync_blocks`
 
@@ -286,7 +349,7 @@ checkpoint itself if no newer transfer exists. Snapshot attribution in
 `nft_balances` uses the fork block and a zero transaction hash/log index. Checkpoints
 survive restarts, cascade on collection purge and are cleared when bootstrap
 finalization replaces the ownership snapshot. Only tokens affected by rollback
-are checkpointed; the reorg worker does not scan the whole collection inventory.
+are checkpointed; the sync coordinator does not scan the whole collection inventory.
 
 Sync persistence validates every result's block identities before writing facts
 or collection coverage. It rejects mismatched fact/header hashes, conflicting
@@ -303,7 +366,7 @@ recent block's check is saved atomically with its facts, coverage, balances and
 required follow-ups. A mature historical import does not create a delayed check.
 Duplicate imports preserve pending/completed status for the same hash.
 
-The reorg worker conditionally clears a matching check, or atomically transfers a
+The sync coordinator conditionally clears a matching check, or atomically transfers a
 mismatch to `chain_reorg_recoveries`. Errors retain the row with bounded retry
 backoff; no broker delivery budget can discard it. Rollback deletes orphan checks
 with their blocks. Eligibility depends on fresh HEAD and the configured depth,
@@ -329,8 +392,8 @@ projection jobs and removes orphan event-specific hints.
 
 This chain-wide workflow has no collection foreign key. Purging one collection
 cascades its ownership checkpoints and gap-scan rows, while keeping chain recovery
-for other collections. An empty admitted collection set leaves resync pending;
-full lifecycle cancellation remains deferred. See
+for other collections. Chain recovery and resync can complete with no admitted
+collections; collection-specific work applies only to eligible collections. See
 [reorg recovery](06-reorg-handling.md#durable-recovery-lifecycle).
 
 ### Deferred Balance Completeness and Provenance

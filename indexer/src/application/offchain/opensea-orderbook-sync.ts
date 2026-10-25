@@ -1,4 +1,5 @@
 import { logger } from "@artgod/shared/utils";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import type { CollectionRecord } from "../../domain/collections.js";
 import {
     OFFCHAIN_OBSERVATION_CHANNEL,
@@ -32,7 +33,7 @@ type OpenSeaOrderbookApiPort = {
 };
 
 export type OrderSourceObservation = {
-    /** False closes producer admission after collection deletion. */
+    /** False closes producer admission after the accepted source identity changes. */
     recordActiveOrder(orderId: string): boolean;
     complete(): Promise<number>;
     close(): void;
@@ -40,14 +41,51 @@ export type OrderSourceObservation = {
 
 export type OrderSourceStatePort = {
     beginObservation(input: {
-        chainId: number;
-        collectionId: number;
+        /** Identity accepted before the scan starts; never adopt a replacement. */
+        identity: OpenSeaSyncIdentity;
         source: string;
         startedAt: number;
     }): OrderSourceObservation;
 };
 
+export type OpenSeaSyncIdentity = {
+    chainId: number;
+    collectionId: number;
+    address: string;
+    slug: string | null;
+    bootstrapFinishedAt: string | null;
+    bootstrapRunId: number | null;
+};
+
+export interface OpenSeaSyncLifecyclePort {
+    captureOpenSeaSyncIdentity(
+        collection: CollectionRecord,
+    ): OpenSeaSyncIdentity | null;
+    /** Recheck the admitted lifecycle and commit only synchronous state changes
+     * in one writer. Marketplace requests and queue publication stay outside. */
+    commitOpenSeaSync(
+        identity: OpenSeaSyncIdentity,
+        write: () => void,
+    ): boolean;
+}
+
 class CollectionObservationClosed extends Error {}
+
+/** An awaited marketplace scan cannot publish readiness for a removed or newly
+ * bootstrapping collection. This uses the existing lifecycle, not chain progress. */
+export function isCurrentOpenSeaSync(
+    admitted: CollectionRecord,
+    current: CollectionRecord | null,
+): boolean {
+    return (
+        current?.status === COLLECTION_STATUS.Live &&
+        current.chainId === admitted.chainId &&
+        current.id === admitted.id &&
+        current.address === admitted.address &&
+        current.openseaSlug === admitted.openseaSlug &&
+        current.bootstrapFinishedAt === admitted.bootstrapFinishedAt
+    );
+}
 
 export class OpenSeaOrderbookSync {
     constructor(
@@ -57,32 +95,31 @@ export class OpenSeaOrderbookSync {
     ) {}
 
     async syncCollection(
-        collection: CollectionRecord,
+        identity: OpenSeaSyncIdentity,
         kind: OpenSeaOrderbookRunKind,
         runId: number,
     ): Promise<{ activeOrders: number; deactivatedOrders: number }> {
-        if (!collection.openseaSlug) {
+        if (!identity.slug) {
             throw new Error(
-                `Collection ${collection.id} missing OpenSea slug for ${kind}`,
+                `Collection ${identity.collectionId} missing OpenSea slug for ${kind}`,
             );
         }
 
         const observation = this.sourceState.beginObservation({
-            chainId: collection.chainId,
-            collectionId: collection.id,
+            identity,
             source: OFFCHAIN_ORDER_SOURCE.OpenSea,
             startedAt: Math.floor(Date.now() / 1000),
         });
         let activeOrders = 0;
         try {
             await this.api.forEachListing(
-                collection.openseaSlug,
-                collection.address,
+                identity.slug,
+                identity.address,
                 async (record) => {
                     if (!observation.recordActiveOrder(record.orderId))
                         throw new CollectionObservationClosed();
                     const orderId = await this.publishRestRecord(
-                        collection,
+                        identity,
                         kind,
                         runId,
                         record,
@@ -91,13 +128,13 @@ export class OpenSeaOrderbookSync {
                 },
             );
             await this.api.forEachOffer(
-                collection.openseaSlug,
-                collection.address,
+                identity.slug,
+                identity.address,
                 async (record) => {
                     if (!observation.recordActiveOrder(record.orderId))
                         throw new CollectionObservationClosed();
                     const orderId = await this.publishRestRecord(
-                        collection,
+                        identity,
                         kind,
                         runId,
                         record,
@@ -111,8 +148,8 @@ export class OpenSeaOrderbookSync {
             logger.info("OpenSea orderbook sync applied", {
                 component: "OpenSeaOrderbookSync",
                 action: "syncCollection",
-                chainId: collection.chainId,
-                collectionId: collection.id,
+                chainId: identity.chainId,
+                collectionId: identity.collectionId,
                 kind,
                 runId,
                 activeOrders,
@@ -130,7 +167,7 @@ export class OpenSeaOrderbookSync {
     }
 
     private async publishRestRecord(
-        collection: CollectionRecord,
+        identity: OpenSeaSyncIdentity,
         kind: OpenSeaOrderbookRunKind,
         runId: number,
         record: OpenSeaRestRecord,
@@ -142,8 +179,8 @@ export class OpenSeaOrderbookSync {
         const receivedAt = Date.now();
         const payload: OffchainOrderRawPayload = {
             source: OFFCHAIN_ORDER_SOURCE.OpenSea,
-            chainId: collection.chainId,
-            collectionId: collection.id,
+            chainId: identity.chainId,
+            collectionId: identity.collectionId,
             receivedAt,
             channel,
             dedupeKey: `${channel}:${runId}:${record.eventType}:${record.orderId}`,
@@ -154,15 +191,15 @@ export class OpenSeaOrderbookSync {
             payload: record.payload,
         };
         const job: JobEnvelope<OffchainOrderRawPayload> = {
-            jobId: `offchain:raw:${collection.chainId}:${collection.id}:${payload.dedupeKey}`,
+            jobId: `offchain:raw:${identity.chainId}:${identity.collectionId}:${payload.dedupeKey}`,
             kind: OFFCHAIN_JOB_KIND.OrderRaw,
             queue: QUEUE_NAMES.OffchainOrdersRaw,
             payload,
             attempt: 0,
             scheduledAt: receivedAt,
             traceId: record.orderId,
-            chainId: collection.chainId,
-            collectionId: collection.id,
+            chainId: identity.chainId,
+            collectionId: identity.collectionId,
         };
         await this.queue.publish(QUEUE_NAMES.OffchainOrdersRaw, job);
         return record.orderId;

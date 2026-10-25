@@ -1,4 +1,35 @@
 import { db } from "@artgod/shared/database";
+import { ChainSyncConflict } from "../../domain/chain-sync.js";
+import { SqliteChainProgress } from "../storage/sqlite-chain-progress.js";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+} from "@artgod/shared/bootstrap/pipeline";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_COLLECTION_LIVE_EVENT_PAYLOAD_FIELD,
+    type BootstrapCollectionLiveCollectionPort,
+    type BootstrapCollectionLiveCommit,
+} from "../../application/bootstrap-collection-live-executor.js";
+import { parseBootstrapBackfillLiveBlock } from "../../application/bootstrap-backfill-executor.js";
+import type {
+    BootstrapAnchorCollectionPort,
+    BootstrapAnchorCommit,
+} from "../../application/bootstrap-anchor-executor.js";
+import { assertBootstrapRunWritable } from "../bootstrap/sqlite-write-guard.js";
+import { SqliteBootstrapRuns } from "../bootstrap/sqlite-runs.js";
+import { SqliteBootstrapSteps } from "../bootstrap/sqlite-steps.js";
+import { SqliteMetadataRefreshFollowups } from "../metadata/sqlite-refresh-followups.js";
+import {
+    isCurrentOpenSeaSync,
+    type OpenSeaSyncIdentity,
+} from "../../application/offchain/opensea-orderbook-sync.js";
+import {
+    captureOpenSeaSyncIdentity,
+    isCurrentOpenSeaSyncIdentity,
+} from "../offchain/sqlite-opensea-sync-identity.js";
+import { SqliteQueueOutbox } from "../queue/sqlite-queue-outbox.js";
 import {
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
@@ -63,8 +94,14 @@ const RECONCILE_COMPLETED_MS =
 const LAST_OPENSEA_REFRESH_MS = `COALESCE(MAX(${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS}), ${SNAPSHOT_COMPLETED_MS}, ${RECONCILE_COMPLETED_MS})`;
 
 export class SqliteCollectionRegistry
-    implements CollectionRegistryPort, CollectionScopeResolverPort
+    implements
+        CollectionRegistryPort,
+        CollectionScopeResolverPort,
+        BootstrapCollectionLiveCollectionPort,
+        BootstrapAnchorCollectionPort
 {
+    constructor(private readonly now: () => number = Date.now) {}
+
     private selectOne = db.prepare<{ chainId: number; collectionId: number }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
@@ -99,12 +136,11 @@ export class SqliteCollectionRegistry
     private selectOpenSeaSubscription = db.prepare<{
         chainId: number;
         liveStatus: CollectionStatus;
-        bootstrappingStatus: CollectionStatus;
         streamIngestionStatus: OpenSeaStreamIngestionStatus;
     }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId " +
-            "AND status IN (@liveStatus, @bootstrappingStatus) " +
+            "AND status = @liveStatus " +
             "AND opensea_slug IS NOT NULL " +
             "AND opensea_status IS NOT NULL " +
             "AND opensea_stream_ingestion_status = @streamIngestionStatus",
@@ -166,16 +202,6 @@ export class SqliteCollectionRegistry
             "status = @status, " +
             "bootstrap_anchor_block = @anchorBlock, " +
             "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
-            "updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
-    );
-    private markSnapshotProgress = db.prepare<{
-        chainId: number;
-        collectionId: number;
-        lastSyncedBlock: number;
-    }>(
-        "UPDATE collections SET " +
-            "bootstrap_last_synced_block = @lastSyncedBlock, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
@@ -294,7 +320,8 @@ export class SqliteCollectionRegistry
         "UPDATE collections SET " +
             "opensea_last_stream_healthy_at = CURRENT_TIMESTAMP, " +
             "updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            `AND status = '${COLLECTION_STATUS.Live}' AND opensea_stream_ingestion_status = '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}'`,
     );
     private touchOpenSeaStreamEventStmt = db.prepare<{
         chainId: number;
@@ -304,7 +331,8 @@ export class SqliteCollectionRegistry
             "opensea_last_stream_event_at = CURRENT_TIMESTAMP, " +
             "opensea_last_stream_healthy_at = CURRENT_TIMESTAMP, " +
             "updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            `AND status = '${COLLECTION_STATUS.Live}' AND opensea_stream_ingestion_status = '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}'`,
     );
     private selectExplicitScopeToken = db.prepare<{
         chainId: number;
@@ -386,6 +414,35 @@ export class SqliteCollectionRegistry
         return rows.map(mapRow);
     }
 
+    captureOpenSeaSyncIdentity(
+        collection: CollectionRecord,
+    ): OpenSeaSyncIdentity | null {
+        return db.raw.transaction(() => {
+            if (
+                !isCurrentOpenSeaSync(
+                    collection,
+                    this.getCollection(collection.chainId, collection.id),
+                )
+            )
+                return null;
+            return captureOpenSeaSyncIdentity(
+                collection.chainId,
+                collection.id,
+            );
+        })();
+    }
+
+    commitOpenSeaSync(
+        identity: OpenSeaSyncIdentity,
+        write: () => void,
+    ): boolean {
+        return db.writeTransaction(() => {
+            if (!isCurrentOpenSeaSyncIdentity(identity)) return false;
+            write();
+            return true;
+        })();
+    }
+
     upsertCollection(input: CollectionUpsertInput): void {
         const persisted = input.toPersistence();
         this.upsert.run({
@@ -405,45 +462,170 @@ export class SqliteCollectionRegistry
         });
     }
 
-    markBootstrapStarted(
-        chainId: number,
-        collectionId: number,
-        anchorBlock: number,
-    ): boolean {
-        const result = this.markStarted.run({
-            chainId,
-            collectionId,
-            anchorBlock,
-            status: COLLECTION_STATUS.Bootstrapping,
-        });
-        return result.changes > 0;
+    markBootstrapStarted(input: BootstrapAnchorCommit): boolean {
+        return db.writeTransaction(() => {
+            const collection = this.getCollection(
+                input.chainId,
+                input.collectionId,
+            );
+            if (!collection) return false;
+            assertBootstrapRunWritable(input.runId, input);
+            const runs = new SqliteBootstrapRuns();
+            const steps = new SqliteBootstrapSteps();
+            const run = runs.getRun(input.runId)!;
+            const step = steps.getStep(input.runId, BOOTSTRAP_STEP_KEY.Anchor);
+            if (
+                run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+                (collection.status !== COLLECTION_STATUS.Prepared &&
+                    collection.status !== COLLECTION_STATUS.Bootstrapping) ||
+                step?.status !== BOOTSTRAP_STEP_STATUS.Running ||
+                step.leaseOwner !== input.leaseOwner ||
+                step.leaseUntil === null ||
+                step.leaseUntil <= this.now() ||
+                (run.anchorBlock !== null &&
+                    (run.anchorBlock !== input.anchorBlock ||
+                        run.anchorBlockHash !== input.anchorHash))
+            )
+                throw new ChainSyncConflict(
+                    "Bootstrap anchor selection lost its current claim",
+                );
+            runs.updateRunAnchor({
+                runId: input.runId,
+                anchorBlock: input.anchorBlock,
+                anchorHash: input.anchorHash,
+                anchorTimestamp: input.anchorTimestamp,
+            });
+            runs.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Metadata);
+            steps.markStepSucceeded(input.runId, BOOTSTRAP_STEP_KEY.Anchor);
+            runs.appendRunEvent({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+                eventLevel: "info",
+                message: "Bootstrap anchor selected",
+                payloadJson: JSON.stringify({
+                    anchorBlock: input.anchorBlock,
+                    anchorHash: input.anchorHash,
+                    anchorTimestamp: input.anchorTimestamp,
+                }),
+            });
+            this.markStarted.run({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                anchorBlock: input.anchorBlock,
+                status: COLLECTION_STATUS.Bootstrapping,
+            });
+            return true;
+        })();
     }
 
-    markBootstrapSnapshotProgress(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean {
-        const result = this.markSnapshotProgress.run({
-            chainId,
-            collectionId,
-            lastSyncedBlock,
-        });
-        return result.changes > 0;
-    }
+    markBootstrapFinished(input: BootstrapCollectionLiveCommit): boolean {
+        const { chainId, collectionId, lastSyncedBlock, checkpoint, anchor } =
+            input;
+        return db.writeTransaction(() => {
+            if (
+                checkpoint.chainId !== chainId ||
+                checkpoint.collectionId !== collectionId ||
+                checkpoint.block.number < lastSyncedBlock ||
+                !Number.isSafeInteger(input.headBlock) ||
+                !Number.isSafeInteger(input.reorgDepth) ||
+                input.reorgDepth < 0 ||
+                input.headBlock < lastSyncedBlock ||
+                input.headBlock - anchor.number < input.reorgDepth
+            )
+                throw new ChainSyncConflict(
+                    "Bootstrap completion lacks confirmed applied coverage",
+                );
+            const progress = new SqliteChainProgress();
+            progress.assertValidationCheckpoint(checkpoint);
+            const collection = this.getCollection(chainId, collectionId);
+            if (!collection) return false;
+            const runs = new SqliteBootstrapRuns();
+            const steps = new SqliteBootstrapSteps();
+            const run = runs.getRun(input.runId);
+            const liveStep = steps.getStep(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.CollectionLive,
+            );
+            const backfill = steps.getStep(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+            );
+            const scope = progress.collectionProgress(chainId, collectionId);
+            if (
+                !run ||
+                run.chainId !== chainId ||
+                run.collectionId !== collectionId ||
+                run.status === BOOTSTRAP_RUN_STATUS.Failed ||
+                run.anchorBlock !== anchor.number ||
+                run.anchorBlockHash !== anchor.hash ||
+                collection.bootstrapAnchorBlock !== anchor.number ||
+                scope?.anchor.number !== anchor.number ||
+                scope.anchor.hash !== anchor.hash ||
+                !backfill ||
+                (backfill.status !== BOOTSTRAP_STEP_STATUS.Succeeded &&
+                    backfill.status !== BOOTSTRAP_STEP_STATUS.Skipped) ||
+                parseBootstrapBackfillLiveBlock(backfill.resultJson) !==
+                    lastSyncedBlock ||
+                db
+                    .prepare(
+                        "SELECT 1 FROM bootstrap_runs WHERE chain_id=? AND collection_id=? AND run_id>? LIMIT 1",
+                    )
+                    .get(chainId, collectionId, input.runId)
+            )
+                throw new ChainSyncConflict(
+                    "Bootstrap finalization lost its run or anchor",
+                );
+            // A repeated reply after the atomic transition is harmless. It may
+            // still retry the existing idempotent cleanup and final-stat work.
+            if (
+                run.status === BOOTSTRAP_RUN_STATUS.Completed &&
+                collection.status === COLLECTION_STATUS.Live &&
+                liveStep?.status === BOOTSTRAP_STEP_STATUS.Succeeded
+            )
+                return true;
+            if (
+                run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+                collection.status !== COLLECTION_STATUS.Bootstrapping ||
+                liveStep?.status !== BOOTSTRAP_STEP_STATUS.Running ||
+                liveStep.leaseOwner !== input.leaseOwner ||
+                liveStep.leaseUntil === null ||
+                liveStep.leaseUntil <= this.now()
+            )
+                throw new ChainSyncConflict(
+                    "Bootstrap finalization lost its step lease",
+                );
 
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean {
-        const result = this.markFinished.run({
-            chainId,
-            collectionId,
-            lastSyncedBlock,
-            status: COLLECTION_STATUS.Live,
-        });
-        return result.changes > 0;
+            this.markFinished.run({
+                chainId,
+                collectionId,
+                lastSyncedBlock,
+                status: COLLECTION_STATUS.Live,
+            });
+            steps.markStepSucceeded(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.CollectionLive,
+            );
+            runs.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Completed);
+            runs.appendRunEvent({
+                runId: input.runId,
+                chainId,
+                collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
+                eventLevel: "info",
+                message: "Bootstrap collection live",
+                payloadJson: JSON.stringify({
+                    [BOOTSTRAP_COLLECTION_LIVE_EVENT_PAYLOAD_FIELD.LiveBlock]:
+                        lastSyncedBlock,
+                }),
+            });
+            if (input.finalStats)
+                new SqliteMetadataRefreshFollowups(
+                    new SqliteQueueOutbox(),
+                ).enqueueFinalStatsOnce({ run: input.finalStats });
+            return true;
+        })();
     }
 
     markOpenSeaPending(chainId: number, collectionId: number): boolean {
@@ -740,11 +922,11 @@ function syncStatusQuery(chainId: number): {
 function openSeaSubscriptionQuery(chainId: number): {
     chainId: number;
     liveStatus: CollectionStatus;
-    bootstrappingStatus: CollectionStatus;
     streamIngestionStatus: OpenSeaStreamIngestionStatus;
 } {
     return {
-        ...syncStatusQuery(chainId),
+        chainId,
+        liveStatus: COLLECTION_STATUS.Live,
         streamIngestionStatus: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
     };
 }

@@ -122,16 +122,6 @@ services:
                 "indexer/dist-desktop/sync-worker.mjs",
             ]
 
-    indexer-reorg-worker:
-        <<: *artgod-service
-        depends_on:
-            - nats
-        command:
-            [
-                "./scripts/deploy/run-node-runtime.sh",
-                "indexer/dist-desktop/reorg-worker.mjs",
-            ]
-
     indexer-domain-worker:
         <<: *artgod-service
         depends_on:

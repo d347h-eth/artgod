@@ -32,6 +32,9 @@ export type MetadataRefreshExtensionArtifactTaskSeed = {
 // MetadataRefreshFollowupRunInput is the durable guard for final stats release.
 export type MetadataRefreshFollowupRunInput = {
     runId: string;
+    // Bootstrap callers retain their owner until the final follow-up writer;
+    // this fence is not another persisted run identity.
+    bootstrapRunId?: number;
     chainId: number;
     collectionId: number;
     reason: string;
@@ -180,6 +183,7 @@ export function buildBootstrapFinalStatsFollowupRun(input: {
         sourceJobId: input.sourceJobId,
     };
     return {
+        bootstrapRunId: input.bootstrapRunId,
         runId: buildMetadataRefreshRunId({
             scope: METADATA_REFRESH_RUN_ID_SCOPE.Bootstrap,
             chainId: input.chainId,
@@ -210,6 +214,7 @@ export function buildBootstrapMetadataSnapshotStatsFollowupRun(input: {
         sourceJobId: input.sourceJobId,
     };
     return {
+        bootstrapRunId: input.bootstrapRunId,
         runId: buildMetadataRefreshRunId({
             scope: METADATA_REFRESH_RUN_ID_SCOPE.BootstrapMetadataSnapshot,
             chainId: input.chainId,

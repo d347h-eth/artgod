@@ -49,6 +49,14 @@ import {
     type BootstrapRunTaskCounts,
 } from "../../application/use-cases/bootstrap/types.js";
 
+// New bootstrap output must not inherit marketplace readiness from an older
+// lifecycle. Identity and the operator's stream toggle are intentionally retained.
+const RESET_OPENSEA_LIFECYCLE_SQL =
+    "opensea_status = NULL, opensea_ready_at = NULL, " +
+    "opensea_snapshot_started_at = NULL, opensea_snapshot_completed_at = NULL, " +
+    "opensea_reconcile_started_at = NULL, opensea_reconcile_completed_at = NULL, " +
+    "opensea_last_stream_event_at = NULL, opensea_last_stream_healthy_at = NULL, opensea_last_error = NULL, ";
+
 type CollectionRow = {
     chain_id: number;
     collection_id: number;
@@ -187,7 +195,8 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "scope_start_token_id = excluded.scope_start_token_id, " +
             "scope_total_supply = excluded.scope_total_supply, " +
             "deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), " +
-            "opensea_slug = excluded.opensea_slug, " +
+            "opensea_slug = COALESCE(excluded.opensea_slug, collections.opensea_slug), " +
+            RESET_OPENSEA_LIFECYCLE_SQL +
             "bootstrap_finished_at = NULL, updated_at = CURRENT_TIMESTAMP",
     );
 
@@ -201,6 +210,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
             "bootstrap_finished_at = NULL, " +
             "bootstrap_last_synced_block = NULL, " +
+            RESET_OPENSEA_LIFECYCLE_SQL +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );

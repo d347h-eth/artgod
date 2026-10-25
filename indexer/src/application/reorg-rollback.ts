@@ -22,14 +22,17 @@ export type Erc721RollbackSnapshot = {
 };
 
 export interface ReorgRollbackStore {
-    // Refuse crossing retained bootstrap anchors before ownership RPC.
+    // Capture ownership work for surviving collection snapshots before RPC.
+    // Bootstrap state cannot veto an authoritative chain rollback.
     prepareRollback(input: {
         chainId: number;
         fromBlock: number;
     }): ReorgRollbackPlan;
     // Atomically validate the plan, restore ownership, remove orphaned facts and
-    // coverage, and advance the chain revision. Recheck bootstrap anchors in the
-    // writer; failed validation writes nothing.
+    // coverage, invalidate bootstrap state, and advance the chain revision.
+    // Failed validation writes nothing. Retain signed order declarations,
+    // discard orphaned protocol results, and admit their validation in this same
+    // transaction; source reconciliation is not a rollback dependency.
     rollbackFromBlock(input: {
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
@@ -46,12 +49,12 @@ export interface Erc721RollbackSnapshotPort {
 
 export class RollbackChainRange {
     constructor(
-        private readonly storage: ReorgRollbackStore,
+        private readonly storage: Pick<ReorgRollbackStore, "prepareRollback">,
         private readonly ownership: Erc721RollbackSnapshotPort,
     ) {}
 
-    // Preparing reads RPC without a writer; the caller chooses the atomic commit
-    // boundary (plain rollback or rollback plus a durable recovery continuation).
+    // Preparing reads RPC without a writer. Recovery commits this candidate
+    // together with its durable continuation through the owning storage contract.
     async prepare(fork: VerifiedChainBlock): Promise<{
         plan: ReorgRollbackPlan;
         snapshot: Erc721RollbackSnapshot;
@@ -65,9 +68,5 @@ export class RollbackChainRange {
             tokens: plan.tokens,
         });
         return { plan, snapshot };
-    }
-
-    async execute(fork: VerifiedChainBlock): Promise<void> {
-        this.storage.rollbackFromBlock(await this.prepare(fork));
     }
 }

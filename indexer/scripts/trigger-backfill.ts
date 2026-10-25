@@ -1,10 +1,7 @@
 import { loadConfig } from "../src/config/index.js";
 import { buildManualHistoricalBackfillJobs } from "../src/application/manual-backfill-trigger.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
-    BACKFILL_SOURCE,
-} from "../src/domain/sync-jobs.js";
+import { BACKFILL_SOURCE } from "../src/domain/sync-jobs.js";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 
 type CliArgs = {
@@ -49,7 +46,7 @@ try {
 
 const scope = args.collectionId === undefined ? "all" : args.collectionId;
 console.log(
-    `Queued ${jobs.length} manual historical backfill jobs for chainId=${chainId} collectionId=${scope} range=${args.fromBlock}-${args.toBlock} batchSize=${batchSize} source=${BACKFILL_SOURCE.ManualHistorical} orderMaintenancePolicy=${BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation}`,
+    `Queued ${jobs.length} manual historical backfill jobs for chainId=${chainId} collectionId=${scope} range=${args.fromBlock}-${args.toBlock} batchSize=${batchSize} source=${BACKFILL_SOURCE.ManualHistorical}`,
 );
 
 function parseArgs(raw: string[]): CliArgs {

@@ -1,9 +1,9 @@
 # Scheduler-Worker Runtime
 
-The scheduler-worker translates chain head updates into realtime sync jobs while
-the sync worker discovers and repairs missing collection coverage. It is the only
-component allowed to publish realtime sync jobs. Reorg checks belong to the
-stored blocks and the reorg worker.
+The scheduler-worker samples remote chain heads and retains targets for the sync
+coordinator. It publishes realtime wakeups; those messages never authorize a
+particular block to be applied. The sync coordinator owns forward application,
+collection catch-up and reorg recovery.
 
 Implementation:
 
@@ -18,53 +18,43 @@ Implementation:
 - Optional WebSocket head source: emits head updates.
 - Queue port: publishes jobs to NATS.
 
-## Bootstrap Sequence
+## Head Sampling and Wakeups
 
-`startSchedulerWorker()` performs a blocking bootstrap before starting any background loops:
+`startSchedulerWorker()` captures the local admission watermark and chain
+revision before a fresh HTTP head-number/header read. It stores that sample
+before publishing the bounded recent realtime wakeup tail. A sample from a
+superseded revision cannot commit. The target remains executable after a lost
+publication or scheduler restart.
 
-1. Fetch current head via `rpc.getBlockNumber()`.
-2. Schedule realtime sync jobs for the recent reorg window only.
-3. Set `lastScheduled` based on the head.
+The HTTP poller repeats this sequence every 12 seconds, including at stationary
+HEAD. A source observation arriving during the read is excluded from its captured
+watermark and waits for a later sample. This supplies the source-neutral
+admission barrier without per-order head or receipt RPC.
 
-This ensures the scheduler-worker never publishes from an uninitialized head.
+The optional WebSocket source only schedules wakeups. Its notifications cannot
+satisfy admission requirements; the next fresh HTTP sample does that. WS and HTTP
+scheduling share a serialized `lastScheduled` cursor, and overlapping HTTP polls
+are coalesced. Queue job IDs remain deduplicated by chain and height.
 
-## Realtime Scheduling
-
-- The scheduler-worker maintains `lastScheduled` (last head seen and scheduled).
-- On each head update, it schedules jobs from `max(lastScheduled + 1, HEAD - REORG_DEPTH + 1)` to `head`. Older missed blocks belong to automatic history repair.
-- Jobs are published to `events-sync-realtime` with dedupe by jobId.
-- WS and HTTP scheduling share a serialized cursor; overlapping polls are coalesced.
-
-Important invariant:
-
-- The realtime window is always relative to the latest head.
-- Automatic gap repairs run separately from the realtime window and use each live collection's anchor as their lower bound.
+The queue's recent window bounds notification volume, not the amount of required
+catch-up. The coordinator always selects the next block after durable applied
+progress, even when an earlier wakeup was missed. Shared chain progress and each
+accepted collection prefix advance independently, in order. Neither is paused by
+`GAP_FILL_MODE=disabled`.
 
 ## Reorg Checks
 
 The scheduler has no hash-check cursor or queue. Saving recent blocks atomically
-retains their delayed checks in SQLite. The reorg worker drains eligible rows
+retains their delayed checks in SQLite. The sync coordinator drains eligible rows
 even after downtime moves them outside the realtime tail, then retains and
 resolves any mismatch. See [pending hash checks](06-reorg-handling.md#pending-hash-checks).
 
-## Head Sources
-
-The scheduler-worker supports two head sources:
-
-1. **WebSocket head source** (`ViemWebSocketHeadSource`)
-    - Non-blocking, event-driven.
-    - Emits heads to the scheduler-worker as soon as the node announces them.
-
-2. **HTTP poller**
-    - Runs on a fixed interval (default 12s).
-    - Authoritative: fills gaps if the WS path misses a block.
-
-The WS path and poller both call the same `handleHead()` function.
-
 ## Perpetual Collection Gap Repair
 
-Gap detection is enabled by default in the sync worker. Its automatic executor
-finds gaps and fetches/saves blocks continuously, including at stationary HEAD.
+Historical gap detection is enabled by default in the sync worker. The same
+coordinator runs it when no foreground range is ready, including at stationary
+HEAD. This lane imports facts and activity only; it never advances applied
+progress, ownership or current order effects.
 After a successful repair or a discovery page with more history to check, it
 yields to runtime work and starts the next pass immediately. A completed sweep,
 retry backoff, RPC lag, or paused allocation uses the 12-second idle poll.
@@ -137,8 +127,8 @@ replaces the pending range and moves the cursor just below that range. Older
 holes remain absent from coverage and will be rediscovered by backward scanning.
 Checks and replacement run inside the shared backfill gate, between attempts to
 fetch and save blocks. A running attempt finishes first; work waiting for the
-gate is selected again when it can start. Slow RPC or another current-state
-backfill can delay a due check; 30 minutes defines eligibility, not a deadline.
+gate is selected again when it can start. Slow RPC or foreground catch-up
+can delay a due check; 30 minutes defines eligibility, not a deadline.
 Conditional progress saves fence changed collection/repair state before commit.
 
 The scanner, owned by the sync worker, saves the next scan position and one repair intent per collection
@@ -159,18 +149,17 @@ For A pending 101–110 and B pending 110 alone, block 110 is shared and A retai
 logs and transaction/receipt reads; covered peers stay outside older remainders.
 
 The executor rechecks member liveness, anchor, repair ID and exact remaining
-bounds after entering the current-state gate. The sync commit rechecks those
-members again inside its SQLite writer. It atomically writes facts, coverage,
-anchor-gated balances, all required downstream publication intent and matching
-repair progress. A failed data, follow-up or progress write rolls back all of
-these. The anchor itself remains facts-only. Partial progress retains the same
-repair ID with its older contiguous remainder.
+bounds before acquisition. The sync commit rechecks those members inside its
+SQLite writer, together with the accepted shared-chain boundary. It atomically
+writes facts, coverage, required activity publication intent and matching repair
+progress. A failed data, follow-up or progress write rolls back all of these.
+Partial progress retains the same repair ID with its older contiguous remainder.
 
 Acquisition completion clears or advances repair intent. Domain-worker drains
 the required follow-ups from `queue_outbox` separately; publication failures
 retry there without reacquiring RPC data. Failed acquisition defers its exact
-members for five minutes, retaining newest-height priority. Old queued gap
-hints are acknowledged without acquisition; upgrade retains their SQLite intent.
+members for five minutes, retaining newest-height priority. The retained SQLite
+intent is the only automatic gap-work handoff; no broker range format is needed.
 
 Scan limits belong to `SYNC_GAP_POLICY`, executor timing to
 `AUTOMATIC_SYNC_POLICY`; the runtime uses the existing typed
@@ -188,10 +177,10 @@ have finished consuming the published jobs.
 
 Normal runtime composition creates one scheduler per chain. Its serialized head
 cursor and active gap-scan promise coordinate only that process. The sync
-worker's backfill execution gate is also process-local; realtime work is outside
-it. Transactional chain revisions and affected-token checks reject stale writes
-across rollback, but do not provide exclusive admission between independent
-scheduler instances.
+worker's active coordinator pass is process-local. Durable expected-prefix and revision
+checks reject stale or out-of-order current-state commits, including across
+rollback. They do not provide exclusive RPC acquisition across independently
+started coordinators.
 
 Concurrent scheduler failover is not an established deployment contract. Adding
 a distributed lock is outside the perpetual gap-detection change. If that
@@ -213,9 +202,9 @@ Operators can schedule a range through either current inbound adapter:
 
 The backend use case validates and splits the requested range; its outbound
 queue adapter and the CLI build explicit `manual_historical` jobs for
-`events-sync-backfill`. Their payload selects
-`skip_global_maker_revalidation`, preserving historical facts and token-scoped
-effects without treating old WETH/counter events as current maker state.
+`events-sync-backfill`. These jobs import historical facts and
+activities only; current order maintenance belongs to accepted coordinator
+ranges and ordinary validation demand.
 
 ## Runtime Entrypoint
 
@@ -232,12 +221,13 @@ effects without treating old WETH/counter events as current maker state.
 ### Automatic history boundary and completed searches
 
 Both backward discovery and the 30-minute newer-hole check end at
-`HEAD - REORG_DEPTH`. The latest `REORG_DEPTH` blocks belong to realtime.
+`HEAD - REORG_DEPTH`. The latest `REORG_DEPTH` blocks stay outside historical discovery; foreground
+application covers every required block through its retained target.
 Before fetching a repair, the executor rechecks at most one batch-sized coverage
 window per member. Covered suffixes are removed locally; older unfinished
 blocks and the saved scan cursor remain intact. Only still-missing common
-suffixes share RPC work. Realtime delayed beyond the tail can still overlap
-background work after that check.
+suffixes share RPC work. Foreground collection catch-up may reuse facts already imported by history.
+Applied progress, rather than fact insertion, authorizes its effects exactly once.
 
 A completed collection stays finished while peers search older windows. This
 completion bookkeeping is process-local. A completed cycle restarts after

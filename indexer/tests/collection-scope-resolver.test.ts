@@ -141,8 +141,8 @@ describe("collection scope resolver", () => {
                 collectionId: explicit,
                 fromTokenId: "35",
                 toTokenId: "35",
-                },
-            ]);
+            },
+        ]);
 
         expect(
             registry.resolveContractScopedCollectionIds(
@@ -205,7 +205,7 @@ describe("collection scope resolver", () => {
         );
     });
 
-    it("excludes paused collections from OpenSea stream subscriptions", () => {
+    it("subscribes only live enabled collections, including before marketplace warmup completes", () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
         const enabled = insertCollection({
@@ -217,7 +217,7 @@ describe("collection scope resolver", () => {
             scopeTotalSupply: null,
             status: COLLECTION_STATUS.Live,
             openseaSlug: "stream-enabled",
-            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
+            openseaStatus: OPENSEA_COLLECTION_STATUS.SnapshotRunning,
             openseaStreamIngestionStatus:
                 OPENSEA_STREAM_INGESTION_STATUS.Enabled,
         });
@@ -234,6 +234,17 @@ describe("collection scope resolver", () => {
             openseaStreamIngestionStatus:
                 OPENSEA_STREAM_INGESTION_STATUS.Paused,
         });
+        const bootstrapping = insertCollection({
+            chainId,
+            slug: "stream-bootstrapping",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Bootstrapping,
+            openseaSlug: "stream-bootstrapping",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
+        });
 
         const registry = new SqliteCollectionRegistry();
         const collectionIds = registry
@@ -241,6 +252,12 @@ describe("collection scope resolver", () => {
             .map((collection) => collection.id);
 
         expect(collectionIds).toEqual([enabled]);
+        expect(registry.touchOpenSeaStreamEvent(chainId, bootstrapping)).toBe(
+            false,
+        );
+        expect(registry.touchOpenSeaStreamHealthy(chainId, bootstrapping)).toBe(
+            false,
+        );
     });
 });
 

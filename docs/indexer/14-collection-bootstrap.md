@@ -565,50 +565,77 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 - each task calls `ownerOf(tokenId)` at the anchor block through the shared
   resilient bootstrap RPC lane (manual-scope ownership is currently re-read after
   enumeration rather than cached across steps)
-- successful tasks persist snapshot rows
+- successful tasks persist snapshot rows only while their exact run/anchor task
+  identity still matches; a late response cannot complete a reseeded task
 - task retries use the bootstrap retry policy
 - ownership is mandatory: terminal ownership task failures fail the bootstrap
   run and block collection liveness
-- once all ownership tasks succeed, snapshot rows finalize the base
-  `nft_balances` state
+- once all ownership tasks succeed, installation freshly verifies the exact
+  anchor and atomically writes `nft_balances` under the captured chain revision,
+  current run identity and active step lease
+- installation does not authorize normal sync. Same-run crash retries may replace
+  this snapshot only before collection progress is accepted; after that, a late
+  installation is rejected and cannot overwrite post-anchor changes
 
-### 7. Schedule short backfill
+### 7. Wait for applied catch-up
 
-- enqueue short backfill from `anchor + 1` to current head
-- bootstrap later checks block coverage before finishing the onchain bootstrap run
-- the short backfill is collection-scoped
-- this range is intentionally post-anchor so it can safely advance current-state tables
+- retain a finishing range from `anchor + 1` to the freshly observed head
+- publish one collection-scoped coordinator wakeup for that range
+- let the chain coordinator verify the current Backfill run's anchor, establish
+  its collection checkpoint, and apply the missing prefix through that target
+- finish only when both chain-wide WETH/protocol processing and collection
+  effects cover the retained target at the current revision and exact anchor
 
-On restart, the backfill executor resumes the retained range instead of
-extending it to a newer head. If collection coverage is missing, it reuses the
-indexed gap query to enqueue one missing batch through the same bootstrap
-catch-up path. This also recovers active bootstraps after migration 067 clears
-coverage whose original acquisition jobs were already acknowledged.
+Before this final Backfill delegation, the normal sync worker cannot accept or
+advance the collection. On restart the executor resumes the retained target,
+rather than extending it with every new head. Until the live transition the
+coordinator also stops collection application at that target. Raw historical
+coverage is not proof that current effects were applied. Periodic coordination
+survives a lost queue wakeup; bootstrap has no separate missing-gap loop.
 
-The step result retains the recovery range, delivery identity and retry time.
-The identity is written before publication and reused after an uncertain broker
-reply. An uncovered batch can receive a fresh identity after one minute, so an
-acknowledged delivery cannot indefinitely suppress reacquisition. Progress
-checks wait for the current batch or proceed to the next missing batch once it
-is covered. Collection-live still requires complete coverage of the original
-range; bootstrapping collections remain outside the live-only gap scanner.
+A slow bootstrap may have an anchor older than the per-chain processing start.
+The coordinator freshly verifies that anchor, catches up only that collection,
+and requires an exact join with chain history before validation becomes usable.
+Failed verification retains its own backoff in the existing Backfill step result;
+it neither changes bootstrap health-check timing nor hides other ready scopes.
+Even a range with no post-anchor blocks requires explicit Backfill authorization
+and an accepted collection checkpoint.
 
-### 8. Schedule OpenSea bootstrap
+Confirmed reorg rollback fails all in-flight pre-live runs on that chain and
+removes their derived data. A live collection whose anchor is orphaned is also
+invalidated for a fresh bootstrap. Collection configuration and failed-run
+history remain inspectable. Neither case can veto a proven chain rollback;
+late task outputs are fenced at their final writer. See
+[reorg handling](06-reorg-handling.md) for retained-ancestry limits.
 
-After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job only when OpenSea integration is enabled and the collection has an explicit OpenSea slug.
+### 8. Plan post-live OpenSea bootstrap
 
-When enabled, that OpenSea flow does:
+Bootstrap plans the non-blocking OpenSea steps only when the integration is
+enabled and the collection has an explicit OpenSea slug. Their first dependency
+is `collection_live`: the initial REST snapshot starts only after local
+finalization has made the collection `live` and completed the core run. Pending
+OpenSea steps remain tracked and recoverable on that completed run.
 
-1. read the persisted `collections.opensea_slug`
-2. mark OpenSea lifecycle state pending/running for that collection
-3. start the initial OpenSea orderbook snapshot
-4. let the stream worker independently subscribe while the collection is
-   bootstrapping once the slug, non-null OpenSea status, and enabled
-   stream-ingestion state are visible
+The OpenSea worker reads the persisted slug, marks the side lane pending/running,
+and scans the initial orderbook. Stream subscriptions independently start for
+live collections with an OpenSea identity, non-null OpenSea status, and enabled
+stream ingestion. Both the stream publisher and raw consumer recheck current
+collection eligibility, so a cached route or queued event cannot admit stream
+work while the collection is bootstrapping, paused, or removed.
 
-This OpenSea work runs in parallel with the short onchain backfill.
+This keeps source traffic out of onchain catch-up. Snapshot completion does not
+gate collection liveness or chain recovery. The snapshot and later reconciliations
+provide eventual source coverage; there is no gap-free snapshot/stream handover
+or stream backlog retained for the bootstrap interval.
 
-When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
+If the integration is disabled or the slug is absent when a previously planned
+side step is dispatched, the OpenSea steps are marked skipped. A new bootstrap
+clears old OpenSea readiness and freshness timestamps while preserving the slug
+and operator stream setting. Source withdrawals and snapshot/reconciliation
+readiness, completion and failure updates check the admitted lifecycle and latest
+bootstrap run identity in their writer transaction. A post-live metadata retry
+can change the run status without revoking its successful CollectionLive handoff
+or blocking unfinished OpenSea side steps.
 
 If a collection becomes `live` without OpenSea readiness, the collections table
 exposes `start opensea sync`, including for a missing persisted slug. The modal
@@ -628,7 +655,13 @@ is incorrect; missing local ownership is a separate resolution error.
 
 ### 9. Mark collection `live`
 
-When the short backfill is complete, the bootstrap worker marks the collection `status = live`.
+After applied catch-up completes, the collection-live step rechecks the current
+accepted checkpoint against the run's exact anchor and retained target. Fresh
+RPC checks require the same canonical anchor hash and `HEAD - anchor >= REORG_DEPTH`.
+One writer then reasserts current run/step lease, revision, recovery state and
+accepted coverage, and atomically sets the collection live, the live step
+successful and the core run completed. A rollback that failed the run prevents
+this publication and requires a fresh bootstrap.
 
 This means:
 

@@ -16,11 +16,13 @@ import type { TokenSetSchema } from "./token-sets.js";
 
 export const ORDER_JOB_KIND = {
     UpdateByMaker: "orders.update-by-maker",
+    ContinueMaker: "orders.continue-maker",
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
 export const ORDER_UPDATE_REASON = {
     Validation: "order",
+    SourceExecution: "source-execution",
     Fill: "fill",
     Cancel: "cancel",
 } as const;
@@ -37,8 +39,13 @@ type OrderUpdateByMakerAttribution = {
     blockHash?: string | null;
     txHash?: string | null;
     logIndex?: number | null;
-    /** Full original payload lets older workers conservatively process a continuation. */
-    continuation?: { runId: string; step: number };
+};
+
+/** Resume the retained finite pass; its selection payload belongs to the run. */
+export type OrderMakerContinuationPayload = {
+    chainId: number;
+    runId: string;
+    step: number;
 };
 
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.
@@ -70,21 +77,22 @@ export type OrderUpdateByMakerPayload =
     | CollectionScopedOrderUpdateByMakerPayload
     | GlobalOrderUpdateByMakerPayload;
 
-// Order update by id = explicit fill/cancel/on-chain order create for a single order.
+// An order-specific source observation. Canonical effects use CanonicalOrderUpdate.
 export type OrderUpdateByIdPayload = {
     chainId: number;
+    source: string;
     /** Present on source updates, including cancellation before its create arrives. */
     collectionId?: number;
     observedAt?: number;
     /** Original order expiry supplied by a source update, when available. */
     validUntil?: number | null;
     orderId: string;
+    /** Source observations retain ordinary causal demand. Only the sync owner's
+     * canonical effects may directly establish protocol terminal state. */
     reason: string;
+    /** Optional source metadata; never a receipt prerequisite or coverage proof. */
+    executionTransactionHash?: string | null;
     sourceStatus?: OrderSourceStatus | null;
-    blockNumber?: number | null;
-    blockHash?: string | null;
-    txHash?: string | null;
-    logIndex?: number | null;
 };
 
 export type OrderUpsertPayload = {
@@ -107,6 +115,7 @@ export type OrderUpsertPayload = {
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -116,7 +125,4 @@ export type OrderUpsertPayload = {
     rawSourceKind: "stream" | "rest";
     rawPayload?: unknown;
     seaportData?: SeaportOrderData | null;
-    // validateAfterUpsert is expected to be "true" by default to trigger onchain validation of the order,
-    // otherwise the order might be persisted optimistically as "fillable".
-    validateAfterUpsert: boolean;
 };

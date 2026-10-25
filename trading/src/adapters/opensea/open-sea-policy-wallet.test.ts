@@ -466,8 +466,6 @@ describe("OpenSeaPolicyWallet", () => {
 
         await service.cancelRecoveredOrder({
             id: ORDER_HASH,
-            maker: MAKER,
-            price: 1n,
             protocolAddress: OPENSEA_MAINNET_SECURITY_POLICY.seaportAddress,
         });
 
@@ -537,8 +535,7 @@ function createBiddingMandate(
                 {
                     collectionId: options.collectionId ?? COLLECTION_ID,
                     artgodSlug: "policy-test",
-                    contractAddress:
-                        options.collectionAddress ?? COLLECTION,
+                    contractAddress: options.collectionAddress ?? COLLECTION,
                     openseaSlug: options.collectionSlug ?? COLLECTION_SLUG,
                     maxUnitBidWei: "100",
                     maxQuantity: 1,

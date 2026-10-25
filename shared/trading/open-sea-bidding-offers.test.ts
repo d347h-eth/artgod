@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { SEAPORT_ITEM_TYPE } from "../market-data/seaport.js";
 import {
     capturedOpenSeaRangedOfferFixtures,
     capturedOpenSeaCambriaRestOffers,
@@ -39,6 +40,7 @@ function makeSnapshotOffer(params: {
                 offerer: params.maker,
                 offer: [
                     {
+                        itemType: SEAPORT_ITEM_TYPE.Erc20,
                         token: WETH_ADDRESS,
                         startAmount: params.priceWei,
                     },
@@ -575,6 +577,7 @@ describe("OpenSea bidding offer parser", () => {
                         offerer: MAKER_ADDRESS,
                         offer: [
                             {
+                                itemType: SEAPORT_ITEM_TYPE.Erc20,
                                 token: WETH_ADDRESS,
                                 amount: "1000000000000000000",
                             },

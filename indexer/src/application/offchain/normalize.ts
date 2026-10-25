@@ -56,6 +56,7 @@ export type RawOrderPayload = {
     sourceCriteriaRoot?: string | null;
     localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     quantity?: string | null;
+    originalQuantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -71,11 +72,12 @@ export type NormalizedOffchainOrder = RawOrderPayload & {
 };
 
 export type NormalizedOffchainOrderUpdateById = {
+    executionTransactionHash?: string | null;
     chainId: number;
     source: string;
     orderId: string;
     reason: OrderUpdateReason;
-    sourceStatus: OrderSourceStatus;
+    sourceStatus?: OrderSourceStatus;
     validUntil?: number | null;
 };
 
@@ -95,17 +97,6 @@ export type NormalizedOffchainMetadataRefresh = {
     tokenId: string;
     metadataUrl: string | null;
     reason: "metadata_updated";
-};
-
-export type ExistingOrderActivityContext = {
-    side: "buy" | "sell" | null;
-    sourceScopeKind: string | null;
-    contract: string;
-    tokenId: string | null;
-    maker: string;
-    taker: string | null;
-    price: string | null;
-    currency: string | null;
 };
 
 export function normalizeOffchainOrder(
@@ -144,6 +135,10 @@ export function normalizeOffchainOrder(
         sourceCriteriaRoot: order.sourceCriteriaRoot ?? null,
         localTokenSetStatus: order.localTokenSetStatus ?? null,
         quantity: normalizeOrderQuantity(order.quantity),
+        originalQuantity:
+            order.originalQuantity == null
+                ? null
+                : normalizeOrderQuantity(order.originalQuantity),
         price: order.price ?? null,
         currency: parseOptionalAddress(order.currency, "currency"),
         validFrom: order.validFrom ?? null,
@@ -168,6 +163,10 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         contract: assertString(value.contract, "contract"),
         tokenId: parseOptionalString(value.tokenId, "tokenId"),
         quantity: parseOptionalString(value.quantity, "quantity"),
+        originalQuantity: parseOptionalString(
+            value.originalQuantity,
+            "originalQuantity",
+        ),
         price: parseOptionalString(value.price, "price"),
         currency: parseOptionalString(value.currency, "currency"),
         sourceScopeKind: "token",
@@ -217,6 +216,7 @@ export function normalizeOffchainOrderUpdateById(
         source: raw.source,
         orderId: update.orderId,
         reason: update.reason,
+        executionTransactionHash: update.executionTransactionHash,
         sourceStatus: update.sourceStatus,
         validUntil: update.validUntil,
     };
@@ -282,7 +282,6 @@ export function normalizeOffchainMetadataRefresh(
 
 export function normalizeOffchainActivity(
     raw: OffchainOrderRawPayload,
-    existingOrder: ExistingOrderActivityContext | null,
 ): ActivityUpsertPayload | null {
     if (!raw.source) {
         throw new Error("Missing offchain order source");
@@ -340,47 +339,6 @@ export function normalizeOffchainActivity(
                 eventType: raw.eventType,
                 validFrom: order.validFrom ?? null,
                 validUntil: order.validUntil ?? null,
-            },
-        };
-    }
-
-    if (
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.ItemCancelled ||
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidate ||
-        raw.eventType === OPENSEA_STREAM_EVENT_TYPE.OrderInvalidation
-    ) {
-        if (
-            !existingOrder ||
-            existingOrder.sourceScopeKind !== ACTIVITY_SCOPE_KIND.Token ||
-            !existingOrder.tokenId ||
-            !existingOrder.side
-        ) {
-            return null;
-        }
-
-        return {
-            chainId: raw.chainId,
-            collectionId: raw.collectionId,
-            scopeKind: ACTIVITY_SCOPE_KIND.Token,
-            kind:
-                existingOrder.side === "sell"
-                    ? ACTIVITY_KIND.ListingCancelled
-                    : ACTIVITY_KIND.BidCancelled,
-            contract: existingOrder.contract,
-            tokenId: existingOrder.tokenId,
-            occurredAt,
-            sourceKind: "offchain",
-            sourceName: raw.source,
-            sourceEventKey: raw.dedupeKey,
-            orderId: raw.orderId ?? null,
-            maker: existingOrder.maker,
-            taker: existingOrder.taker,
-            side: existingOrder.side,
-            amount: parseStreamQuantity(raw.payload),
-            price: existingOrder.price,
-            currency: existingOrder.currency,
-            payload: {
-                eventType: raw.eventType,
             },
         };
     }

@@ -1,5 +1,4 @@
 import {
-    BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
@@ -16,7 +15,7 @@ export type ManualHistoricalBackfillInput = {
     nonce: string | number;
 };
 
-// Builds manual historical backfill jobs with explicit source/policy contract.
+// Builds manual historical backfill jobs with explicit source contract.
 export function buildManualHistoricalBackfillJobs(
     input: ManualHistoricalBackfillInput,
 ): Array<JobEnvelope<BackfillSyncPayload>> {
@@ -32,7 +31,11 @@ export function buildManualHistoricalBackfillJobs(
             ? null
             : parsePositiveInteger(input.collectionId, "collectionId");
     const jobs: Array<JobEnvelope<BackfillSyncPayload>> = [];
-    for (let start = input.fromBlock; start <= input.toBlock; start += batchSize) {
+    for (
+        let start = input.fromBlock;
+        start <= input.toBlock;
+        start += batchSize
+    ) {
         const end = Math.min(input.toBlock, start + batchSize - 1);
         const scope = collectionId ?? "all";
         jobs.push({
@@ -43,8 +46,6 @@ export function buildManualHistoricalBackfillJobs(
                 fromBlock: start,
                 toBlock: end,
                 source: BACKFILL_SOURCE.ManualHistorical,
-                orderMaintenancePolicy:
-                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
             },
             attempt: 0,
             scheduledAt: Date.now(),

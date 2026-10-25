@@ -20,7 +20,7 @@ describe("continuous automatic sync loop", () => {
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true)
             .mockResolvedValue(false);
-        stop = startAutomaticSyncLoop({ runDue });
+        stop = startAutomaticSyncLoop({ runDue }).stop;
         await vi.advanceTimersByTimeAsync(2);
         expect(runDue).toHaveBeenCalledTimes(3);
         await vi.advanceTimersByTimeAsync(AUTOMATIC_SYNC_POLICY.PollMs - 2);
@@ -35,7 +35,7 @@ describe("continuous automatic sync loop", () => {
             .mockRejectedValueOnce(new RpcBudgetDeferred())
             .mockRejectedValueOnce(new Error("RPC unavailable"))
             .mockResolvedValue(false);
-        stop = startAutomaticSyncLoop({ runDue }, 10);
+        stop = startAutomaticSyncLoop({ runDue }, 10).stop;
         await vi.advanceTimersByTimeAsync(9);
         expect(runDue).toHaveBeenCalledTimes(1);
         await vi.advanceTimersByTimeAsync(10);
@@ -47,7 +47,7 @@ describe("continuous automatic sync loop", () => {
     it("cancels the idle wait on shutdown and drains the current pass", async () => {
         const pending = Promise.withResolvers<boolean>();
         const runDue = vi.fn(() => pending.promise);
-        stop = startAutomaticSyncLoop({ runDue });
+        stop = startAutomaticSyncLoop({ runDue }).stop;
         await vi.advanceTimersByTimeAsync(60_000);
         expect(runDue).toHaveBeenCalledTimes(1);
         let ended = false;

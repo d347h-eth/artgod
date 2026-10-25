@@ -2,9 +2,8 @@ export const REORG_FIXTURE_CONSUMER = {
     Resync: "resync-recovery-fixture",
 } as const;
 export const REORG_FIXTURE_ROLE = {
-    All: "all",
-    Reorg: "reorg",
-    Resync: "resync",
+    Coordinator: "coordinator",
+    Checks: "checks",
     Publisher: "publisher",
     Direct: "direct",
     Writer: "writer",
@@ -44,7 +43,6 @@ export type ReorgFixtureConfig = {
     ackWaitMs: number;
     extendLeaseMs: number;
     publish: boolean;
-    resume: boolean;
     holdOwner?: boolean;
     holdAcquisition?: boolean;
     ownerDelayMs?: number;

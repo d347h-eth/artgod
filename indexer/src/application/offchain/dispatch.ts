@@ -52,8 +52,7 @@ export async function dispatchOffchainPayload(
 ): Promise<DispatchOffchainPayloadResult> {
     let handled = false;
     let upsertedOrderId: string | null = null;
-    // Cancellation history no longer needs to read an existing canonical payload for enrichment.
-    const activity = normalizeOffchainActivity(payload, null);
+    const activity = normalizeOffchainActivity(payload);
     if (
         activity &&
         retainsOffchainActivity(activity.kind) &&
@@ -162,6 +161,7 @@ export async function dispatchOffchainPayload(
                 tokenSetId,
                 tokenSetSchemaHash,
                 quantity: normalized.quantity ?? "1",
+                originalQuantity: normalized.originalQuantity ?? null,
                 price: normalized.price ?? null,
                 currency: normalized.currency ?? null,
                 validFrom: normalized.validFrom ?? null,
@@ -171,7 +171,6 @@ export async function dispatchOffchainPayload(
                 sourceStatus: "active",
                 rawSourceKind: normalized.rawSourceKind,
                 rawPayload: normalized.rawPayload,
-                validateAfterUpsert: true,
             },
             attempt: 0,
             scheduledAt: Date.now(),
@@ -186,16 +185,18 @@ export async function dispatchOffchainPayload(
     const updateById = normalizeOffchainOrderUpdateById(payload);
     if (updateById) {
         const updateJob: JobEnvelope<OrderUpdateByIdPayload> = {
-            jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus}`,
+            jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${payload.receivedAt}:${updateById.sourceStatus ?? updateById.reason}`,
             kind: ORDER_JOB_KIND.UpdateById,
             queue: orderUpdateQueue(updateById),
             payload: {
                 chainId: updateById.chainId,
+                source: updateById.source,
                 collectionId: payload.collectionId,
                 observedAt: offchainObservationSeconds(payload),
                 validUntil: updateById.validUntil,
                 orderId: updateById.orderId,
                 reason: updateById.reason,
+                executionTransactionHash: updateById.executionTransactionHash,
                 sourceStatus: updateById.sourceStatus,
             },
             attempt: 0,

@@ -65,6 +65,7 @@ import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { BootstrapLiveRunCompletionReconciler } from "../src/application/bootstrap-live-run-completion-reconciler.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
+import { loadTestEnv } from "./helpers/test-env.js";
 import {
     BootstrapEnumerationExecutor,
     BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME,
@@ -485,6 +486,7 @@ function producingEnumeration(runId: number, presentIds: string[]) {
 }
 
 describe("deployment input produced by anchored enumeration", () => {
+    loadTestEnv();
     beforeEach(async () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
@@ -722,6 +724,7 @@ describe("deployment input produced by anchored enumeration", () => {
 });
 
 describe("durable optional deployment lookup", () => {
+    loadTestEnv();
     beforeEach(async () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();

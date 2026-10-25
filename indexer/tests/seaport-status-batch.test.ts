@@ -3,7 +3,11 @@ import { logger } from "@artgod/shared/utils";
 import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
 import { OrderValidationSnapshotUnavailable } from "../src/domain/order-validation-failure.js";
 import { ORDER_VALIDATION_BATCH_POLICY as POLICY } from "../src/domain/order-validation-policy.js";
-import { ORDER_STATUS, type OrderRecord } from "../src/domain/orders.js";
+import {
+    ORDER_VALIDATION_REASON,
+    ORDER_STATUS,
+    type OrderRecord,
+} from "../src/domain/orders.js";
 import {
     RPC_CONTRACT_BATCH_MAX_CALLS,
     type RpcProviderPort,
@@ -12,7 +16,8 @@ import {
     BatchedHeavyMakerRpc,
     HEAVY_MAKER,
     heavyMakerOrder,
-    warmConduits,
+    heavyMakerBlock,
+    heavyMakerCheckpoint,
 } from "./fixtures/heavy-maker.js";
 
 const start = HEAVY_MAKER.now * 1_000;
@@ -20,15 +25,13 @@ function factory(rpc: RpcProviderPort, now: () => number = () => start) {
     return createSeaportOrderValidationFactory({
         rpc,
         chainId: HEAVY_MAKER.chainId,
-        conduits: warmConduits,
         conduitController: HEAVY_MAKER.controller,
         now,
     });
 }
-function scope(candidates: OrderRecord[]) {
+function scope(candidates: OrderRecord[], block = heavyMakerBlock()) {
     return {
-        chainId: HEAVY_MAKER.chainId,
-        minimumBlock: HEAVY_MAKER.blockNumber,
+        checkpoint: heavyMakerCheckpoint(block),
         candidates,
     };
 }
@@ -45,38 +48,42 @@ describe("Seaport status aggregates", () => {
         const orders = Array.from({ length: 55 }, (_, i) => heavyMakerOrder(i));
         const create = factory(rpc);
         const snapshot = await create(scope([...orders, orders[0]!]));
-        expect(rpc.batches).toHaveLength(0);
+        expect(rpc.exactBatches).toHaveLength(0);
         for (const order of orders)
             expect((await snapshot.validate(order)).status).toBe(
                 ORDER_STATUS.Fillable,
             );
         await snapshot.validate(orders[0]!);
         await snapshot.finish();
-        expect(rpc.batches.map((b) => b.contracts.length)).toEqual([
+        expect(rpc.exactBatches.map((b) => b.contracts.length)).toEqual([
             20, 20, 15,
         ]);
         expect(
-            rpc.batches.every(
+            rpc.exactBatches.every(
                 (b) =>
                     b.contracts.length <= RPC_CONTRACT_BATCH_MAX_CALLS &&
-                    b.blockNumber === HEAVY_MAKER.blockNumber,
+                    b.block.blockHash === HEAVY_MAKER.blockHash,
             ),
         ).toBe(true);
         expect(snapshot.readCounts()).toEqual({
             perOrder: 55,
-            shared: 3,
+            shared: 5,
             other: 0,
             statusBatches: 3,
         });
         expect(rpc.reads.getOrderStatus).toBe(55);
         rpc.blockNumber++;
         rpc.balance = 0n;
-        const next = await create(scope(orders.slice(0, 2)));
+        const next = await create(
+            scope(orders.slice(0, 2), heavyMakerBlock(rpc.blockNumber)),
+        );
         expect((await next.validate(orders[0]!)).status).toBe(
             ORDER_STATUS.NoBalance,
         );
         await next.finish();
-        expect(rpc.batches.at(-1)?.blockNumber).toBe(rpc.blockNumber);
+        expect(rpc.exactBatches.at(-1)?.block.blockNumber).toBe(
+            rpc.blockNumber,
+        );
         expect(rpc.reads.getOrderStatus).toBe(57);
     });
 
@@ -96,28 +103,28 @@ describe("Seaport status aggregates", () => {
         );
         expect(await snapshot.validate(wrongHash)).toMatchObject({
             status: ORDER_STATUS.Invalid,
-            reason: "order-hash-mismatch",
+            reason: ORDER_VALIDATION_REASON.OrderHashMismatch,
         });
-        expect(rpc.batches).toHaveLength(0);
+        expect(rpc.exactBatches).toHaveLength(0);
         await snapshot.validate(original);
         await snapshot.validate(other);
         await snapshot.finish();
         expect(
-            rpc.batches[0]?.contracts.slice(0, 2).map((c) => c.address),
+            rpc.exactBatches[0]?.contracts.slice(0, 2).map((c) => c.address),
         ).toEqual([HEAVY_MAKER.protocol, other.seaportData.protocolAddress]);
         expect(rpc.reads.getCounter).toBe(2);
     });
 
     it("falls back only for failed or malformed items, preserving independent terminal decisions", async () => {
         const rpc = new BatchedHeavyMakerRpc();
-        vi.spyOn(rpc, "readContracts").mockResolvedValue([
+        vi.spyOn(rpc, "readContractsAtBlock").mockResolvedValue([
             { error: new Error("one call reverted") },
             { value: [false, false, "0", "1"] },
             { value: null },
             { value: [false, true, 0n, 1n] },
             { value: [false, false, 1n, 1n] },
         ]);
-        const single = vi.spyOn(rpc, "readContract");
+        const single = vi.spyOn(rpc, "readContractAtBlock");
         const orders = Array.from({ length: 5 }, (_, i) => heavyMakerOrder(i));
         const snapshot = await factory(rpc)(scope(orders));
         const statuses = [];
@@ -142,7 +149,7 @@ describe("Seaport status aggregates", () => {
         "cools down %s across contexts and probes again later",
         async (failure) => {
             const rpc = new BatchedHeavyMakerRpc();
-            const aggregate = vi.spyOn(rpc, "readContracts");
+            const aggregate = vi.spyOn(rpc, "readContractsAtBlock");
             if (failure === "rejection")
                 aggregate.mockRejectedValue(new Error("provider limit"));
             else
@@ -166,7 +173,6 @@ describe("Seaport status aggregates", () => {
             }
             expect(aggregate).toHaveBeenCalledTimes(1);
             now += POLICY.statusBatchRetryAfterMs;
-            rpc.blockTimestamp = now / 1_000;
             const retry = await create(scope(orders));
             await retry.validate(orders[0]!);
             await retry.finish();
@@ -178,7 +184,7 @@ describe("Seaport status aggregates", () => {
 
     it("propagates failed individual fallback instead of committing invalid orders", async () => {
         const rpc = new BatchedHeavyMakerRpc();
-        vi.spyOn(rpc, "readContracts").mockRejectedValue(
+        vi.spyOn(rpc, "readContractsAtBlock").mockRejectedValue(
             new Error("batch unavailable"),
         );
         rpc.onRead = () => {
@@ -205,11 +211,9 @@ describe("Seaport status aggregates", () => {
         await snapshot.validate(orders[0]!);
         now += POLICY.admissionBudgetMs;
         expect(snapshot.canAccept()).toBe(false);
-        expect(rpc.batches).toHaveLength(1);
+        expect(rpc.exactBatches).toHaveLength(1);
         expect(rpc.reads.getOrderStatus).toBe(RPC_CONTRACT_BATCH_MAX_CALLS);
         rpc.blockHash = `0x${"cd".repeat(32)}`;
-        await expect(snapshot.finish()).rejects.toThrow(
-            "changed before commit",
-        );
+        await expect(snapshot.finish()).rejects.toThrow("rollback is required");
     });
 });

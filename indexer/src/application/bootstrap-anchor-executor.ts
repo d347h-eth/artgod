@@ -32,6 +32,7 @@ export const BOOTSTRAP_ANCHOR_FAILURE_CODE = {
 export type BootstrapAnchorInput = {
     run: BootstrapRunDefinition;
     reorgDepth: number;
+    leaseOwner: string;
 };
 
 export type BootstrapAnchorSelection = {
@@ -63,15 +64,11 @@ export interface BootstrapAnchorRpcPort {
 export interface BootstrapAnchorRunsPort {
     updateRunStatus(
         runId: number,
-        status: typeof BOOTSTRAP_RUN_STATUS.Failed | typeof BOOTSTRAP_RUN_STATUS.Metadata,
+        status:
+            | typeof BOOTSTRAP_RUN_STATUS.Failed
+            | typeof BOOTSTRAP_RUN_STATUS.Metadata,
         error?: { code: string; message: string } | null,
     ): void;
-    updateRunAnchor(input: {
-        runId: number;
-        anchorBlock: number;
-        anchorHash: string;
-        anchorTimestamp: number;
-    }): void;
     appendRunEvent(input: {
         runId: number;
         chainId: number;
@@ -84,8 +81,7 @@ export interface BootstrapAnchorRunsPort {
 }
 
 export interface BootstrapAnchorStepsPort {
-    markStepRunning(runId: number, stepKey: typeof BOOTSTRAP_STEP_KEY.Anchor): void;
-    markStepSucceeded(
+    markStepRunning(
         runId: number,
         stepKey: typeof BOOTSTRAP_STEP_KEY.Anchor,
     ): void;
@@ -97,12 +93,17 @@ export interface BootstrapAnchorStepsPort {
     }): void;
 }
 
+export type BootstrapAnchorCommit = BootstrapAnchorSelection & {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    leaseOwner: string;
+};
+
 export interface BootstrapAnchorCollectionPort {
-    markBootstrapStarted(
-        chainId: number,
-        collectionId: number,
-        anchorBlock: number,
-    ): boolean;
+    /** Atomically retain the current claimed run's anchor, complete its Anchor
+     * step and start the collection. Failed, replaced or expired claims reject. */
+    markBootstrapStarted(input: BootstrapAnchorCommit): boolean;
 }
 
 // Selects and persists the settled bootstrap anchor before token enumeration.
@@ -114,7 +115,9 @@ export class BootstrapAnchorExecutor {
         private readonly collectionPort: BootstrapAnchorCollectionPort,
     ) {}
 
-    async anchor(input: BootstrapAnchorInput): Promise<BootstrapAnchorExecutorResult> {
+    async anchor(
+        input: BootstrapAnchorInput,
+    ): Promise<BootstrapAnchorExecutorResult> {
         const { run } = input;
         if (!isBootstrapAnchorSupportedStandard(run.requestStandard)) {
             const message = `Unsupported standard: ${run.requestStandard}`;
@@ -124,10 +127,14 @@ export class BootstrapAnchorExecutor {
                 attempts: 1,
                 error: message,
             });
-            this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-                code: BOOTSTRAP_ANCHOR_FAILURE_CODE.UnsupportedStandard,
-                message,
-            });
+            this.runsPort.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Failed,
+                {
+                    code: BOOTSTRAP_ANCHOR_FAILURE_CODE.UnsupportedStandard,
+                    message,
+                },
+            );
             this.runsPort.appendRunEvent({
                 runId: run.runId,
                 chainId: run.chainId,
@@ -157,10 +164,14 @@ export class BootstrapAnchorExecutor {
                 attempts: 1,
                 error: message,
             });
-            this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-                code: BOOTSTRAP_ANCHOR_FAILURE_CODE.InvalidAnchor,
-                message,
-            });
+            this.runsPort.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Failed,
+                {
+                    code: BOOTSTRAP_ANCHOR_FAILURE_CODE.InvalidAnchor,
+                    message,
+                },
+            );
             return {
                 outcome: BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.InvalidAnchor,
                 run,
@@ -174,38 +185,22 @@ export class BootstrapAnchorExecutor {
             anchorHash: block.hash,
             anchorTimestamp: block.timestamp,
         };
-        this.runsPort.updateRunAnchor({
-            runId: run.runId,
-            anchorBlock,
-            anchorHash: anchor.anchorHash,
-            anchorTimestamp: anchor.anchorTimestamp,
-        });
-        this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Metadata);
-        this.stepsPort.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Anchor);
-        this.runsPort.appendRunEvent({
+        const updated = this.collectionPort.markBootstrapStarted({
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
-            eventLevel: "info",
-            message: "Bootstrap anchor selected",
-            payloadJson: JSON.stringify({
-                anchorBlock,
-                anchorHash: anchor.anchorHash,
-                anchorTimestamp: anchor.anchorTimestamp,
-            }),
+            leaseOwner: input.leaseOwner,
+            ...anchor,
         });
-
-        const updated = this.collectionPort.markBootstrapStarted(
-            run.chainId,
-            run.collectionId,
-            anchorBlock,
-        );
         if (!updated) {
-            this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-                code: BOOTSTRAP_ANCHOR_FAILURE_CODE.MissingCollection,
-                message: "Collection row is missing",
-            });
+            this.runsPort.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Failed,
+                {
+                    code: BOOTSTRAP_ANCHOR_FAILURE_CODE.MissingCollection,
+                    message: "Collection row is missing",
+                },
+            );
             return {
                 outcome: BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.CollectionMissing,
                 run,

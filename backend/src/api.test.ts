@@ -1,3 +1,4 @@
+import { seedOrderEvidence } from "@artgod/shared/testing/order-evidence";
 import {
     buildCompetitionPresetsPath,
     buildCompetitionPresetReapplyPreviewPath,
@@ -2191,15 +2192,27 @@ describe("backend api routes", () => {
             JSON.stringify([TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]),
             new Date().toISOString(),
         );
+        const runtimeSessionId = "own-signal-session";
         db.prepare(
             "INSERT INTO trading_bot_runtime_state " +
-                "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
-                "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
+                "(bot_kind, chain_id, wallet_id, address, runtime_session_id, state, heartbeat_at, started_at, updated_at, last_error) " +
+                "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, ?, NULL)",
         ).run(
             TRADING_BOT_KIND.Bidding,
+            runtimeSessionId,
             TRADING_BOT_RUNTIME_STATE.Running,
             new Date().toISOString(),
             new Date().toISOString(),
+            new Date().toISOString(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_runtime_authorized_collections " +
+                "(runtime_session_id, chain_id, wallet_id, collection_id, contract_address, opensea_slug, max_unit_bid_wei, max_quantity, published_at) " +
+                "VALUES (?, 1, 'wallet-own-signal', ?, ?, 'milady', '200000000000000000', 1, ?)",
+        ).run(
+            runtimeSessionId,
+            collection.collection_id,
+            MILADY_ADDRESS.toLowerCase(),
             new Date().toISOString(),
         );
         db.prepare(
@@ -8954,6 +8967,7 @@ function insertOrderFixture(input: {
         input.rawRestData ? JSON.stringify(input.rawRestData) : null,
         input.rawStreamData ? JSON.stringify(input.rawStreamData) : null,
     );
+    seedOrderEvidence(db.raw, input.id, Date.now());
 }
 
 function makeOpenSeaBuyOrderPayload(input: {

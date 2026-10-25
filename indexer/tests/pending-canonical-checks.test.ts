@@ -1,10 +1,12 @@
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import type { SyncRangeResult } from "../src/ports/storage.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { canonicalCheckUpperBound } from "../src/domain/canonical-check.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import { REORG_RECOVERY_PHASE } from "../src/domain/reorg-recovery.js";
-import { startReorgRecoveryLoop } from "../src/application/reorg-recovery.js";
+import { startAutomaticSyncLoop } from "../src/application/automatic-sync-executor.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import {
@@ -20,7 +22,6 @@ import {
 } from "./helpers/reorg-recovery-fixture.js";
 import { advanceChainSyncRevision } from "../src/infra/storage/sqlite-chain-revisions.js";
 import { DOMAIN_JOB_KIND } from "../src/domain/domain-jobs.js";
-import { BACKFILL_ORDER_MAINTENANCE_POLICY } from "../src/domain/sync-jobs.js";
 import { SYNC_WORK_COMPLETION } from "../src/domain/sync-work.js";
 import { buildSyncFollowUps } from "../src/application/sync-range-processing.js";
 
@@ -41,27 +42,71 @@ describe("DB-owned canonical hash checks", () => {
         });
         const f = transferFixture();
         const collection = s.registry.getCollection(1, f.collectionId)!;
-        function result(numbers: number[], head: number, depth = 3) {
+        const applied = createAppliedSyncFixture({
+            chainId: 1,
+            anchor: block(100),
+            collections: [collection],
+        });
+        s.checks.confirmCanonicalBlock({
+            chainId: 1,
+            blockNumber: 100,
+            blockHash: block(100).hash,
+            checkpoint: s.storage.captureSyncCheckpoint(1),
+        });
+        // A focused check fixture installs the preceding finalized prefix before
+        // returning the acquisition under test. Sparse headers grant no authority.
+        function result(
+            numbers: number[],
+            head: number,
+            depth = 3,
+        ): SyncRangeResult {
+            const current = applied.progress.chainProgress(1)!.applied.number;
+            const pending = numbers.filter((number) => number > current);
+            if (!pending.length)
+                return {
+                    ...applied.historical({
+                        blocks: numbers.map(block),
+                        collectionIds: [collection.id],
+                    }),
+                    canonicalCheck: {
+                        observedHeadBlock: head,
+                        reorgDepth: depth,
+                    },
+                };
+            const first = Math.min(...pending),
+                last = Math.max(...pending);
+            if (first > current + 1)
+                applied.commit(
+                    applied.applied({
+                        blocks: Array.from(
+                            { length: first - current - 1 },
+                            (_, i) => block(current + 1 + i),
+                        ),
+                        shared: true,
+                        collectionIds: [collection.id],
+                    }),
+                );
             return {
-                checkpoint: s.storage.captureSyncCheckpoint(1),
+                ...applied.applied({
+                    blocks: Array.from({ length: last - first + 1 }, (_, i) =>
+                        block(first + i),
+                    ),
+                    shared: true,
+                    collectionIds: [collection.id],
+                }),
                 canonicalCheck: { observedHeadBlock: head, reorgDepth: depth },
-                blocks: numbers.map(block),
-                collections: [collection],
-                data: emptyOnChainData(),
             };
         }
         const due = (upperBound = Number.MAX_SAFE_INTEGER) =>
             s.checks.nextDue({ chainId: 1, now, upperBound });
-        return { ...s, rpc, f, result, due };
+        return { ...s, rpc, f, result, due, persist: applied.commit };
     }
 
     it.each([1, 3, 32])(
         "retains only blocks fetched before the existing depth=%s threshold",
         (depth) => {
             const s = setup();
-            s.storage.persistSyncResult(
-                s.result([100, 101, 102, 103], 102 + depth - 1, depth),
-            );
+            s.persist(s.result([100, 101, 102, 103], 102 + depth - 1, depth));
             expect(s.due()?.blockNumber).toBe(103);
             expect(canonicalCheckUpperBound(102 + depth - 1, depth)).toBe(102);
         },
@@ -71,7 +116,7 @@ describe("DB-owned canonical hash checks", () => {
         const s = setup();
         expect(await s.recovery.checkDue()).toBe(false);
         const header = vi.spyOn(s.rpc, "getBlock");
-        s.storage.persistSyncResult(s.result([105], 105));
+        s.persist(s.result([105], 105));
         vi.spyOn(s.rpc, "getBlockNumber").mockResolvedValue(106);
         expect(await s.recovery.checkDue()).toBe(false);
         expect(header).not.toHaveBeenCalled();
@@ -84,7 +129,7 @@ describe("DB-owned canonical hash checks", () => {
 
     it("survives restart and validates a block far outside the current realtime tail", async () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 105));
+        s.persist(s.result([105], 105));
         db.raw.close();
         setDbPath(dbPath);
         const rpc = new RecoveryRpc(1000);
@@ -98,7 +143,7 @@ describe("DB-owned canonical hash checks", () => {
 
     it("rearms a mature or completed header only for an explicit conflict and preserves pending backoff", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 200));
+        s.persist(s.result([105], 200));
         const check = {
             chainId: 1,
             blockNumber: 105,
@@ -107,21 +152,21 @@ describe("DB-owned canonical hash checks", () => {
         };
         expect(s.due()).toBeNull();
         expect(s.checks.retain(check)).toBe(true);
-        expect(s.due()).toEqual(check);
+        expect(s.due()).toEqual({ ...check, generation: 0 });
         s.checks.defer(check, now + 100);
         expect(s.checks.retain(check)).toBe(true);
         expect(s.due()).toBeNull();
         now += 100;
-        expect(s.due()).toEqual(check);
+        expect(s.due()).toEqual({ ...check, generation: 0 });
         expect(s.checks.complete(check)).toBe(true);
         expect(s.due()).toBeNull();
         expect(s.checks.retain(check)).toBe(true);
-        expect(s.due()).toEqual(check);
+        expect(s.due()).toEqual({ ...check, generation: 0 });
     });
 
     it("rejects conflict retention against a replaced hash or rollback revision", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 200));
+        s.persist(s.result([105], 200));
         const check = {
             chainId: 1,
             blockNumber: 105,
@@ -139,12 +184,12 @@ describe("DB-owned canonical hash checks", () => {
 
     it("detects and rolls back an interrupted shallow reorg after its check ages beyond the tail", async () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([F.Anchor, F.Fork], 200));
+        s.persist(s.result([F.Anchor, F.Fork], 200));
         const recent = s.result([F.Orphan], F.Orphan);
         recent.data.collectionScoped.nftTransferEvents.push(
             s.f.transfer(F.Orphan, 1, F.Owner, F.OrphanOwner),
         );
-        s.storage.persistSyncResult(recent);
+        s.persist(recent);
         expect(selectBalanceOwners(1, s.f.collectionId, "1")).toEqual([
             { owner: F.OrphanOwner, amount: "1" },
         ]);
@@ -171,7 +216,7 @@ describe("DB-owned canonical hash checks", () => {
         const s = setup();
         const acquired = s.result([105], 105);
         vi.spyOn(s.rpc, "getBlockNumber").mockResolvedValue(1000);
-        s.storage.persistSyncResult(acquired);
+        s.persist(acquired);
         expect(s.due()?.blockNumber).toBe(105);
         await s.recovery.checkDue();
         expect(s.due()).toBeNull();
@@ -193,7 +238,7 @@ describe("DB-owned canonical hash checks", () => {
             ],
             "realtime",
             result.data,
-            BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            result.application,
         );
         db.exec(
             `CREATE TEMP TRIGGER fail_recent_followup BEFORE INSERT ON queue_outbox WHEN NEW.job_kind='${DOMAIN_JOB_KIND.MetadataSync}' BEGIN SELECT RAISE(ABORT,'followup unavailable'); END;`,
@@ -233,7 +278,7 @@ describe("DB-owned canonical hash checks", () => {
 
     it("keeps RPC errors pending with durable backoff, without preventing another eligible check", async () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([104, 105], 105));
+        s.persist(s.result([104, 105], 105));
         vi.spyOn(s.rpc, "getBlock").mockRejectedValueOnce(
             new Error("RPC unavailable"),
         );
@@ -250,17 +295,17 @@ describe("DB-owned canonical hash checks", () => {
 
     it("never rearms a verified block or drops an unfinished check during duplicate imports", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 105));
-        s.storage.persistSyncResult(s.result([105], 1000));
+        s.persist(s.result([105], 105));
+        s.persist(s.result([105], 1000));
         expect(s.due()).not.toBeNull();
         expect(s.checks.complete(s.due()!)).toBe(true);
-        s.storage.persistSyncResult(s.result([105], 105));
+        s.persist(s.result([105], 105));
         expect(s.due()).toBeNull();
     });
 
     it("makes matching verification conditional on the stored hash and chain revision", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 105));
+        s.persist(s.result([105], 105));
         const check = s.due()!;
         expect(s.checks.complete({ ...check, blockHash: "wrong-hash" })).toBe(
             false,
@@ -281,7 +326,7 @@ describe("DB-owned canonical hash checks", () => {
 
     it("cannot consume a mismatch before recovery retention commits", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([105], 105));
+        s.persist(s.result([105], 105));
         const check = s.due()!;
         db.exec(
             "CREATE TEMP TRIGGER fail_check_completion BEFORE UPDATE OF canonical_check_pending ON blocks WHEN NEW.canonical_check_pending=0 BEGIN SELECT RAISE(ABORT,'check writer unavailable'); END;",
@@ -313,17 +358,17 @@ describe("DB-owned canonical hash checks", () => {
 
     it("does not schedule delayed RPC checks for finalized imported history", () => {
         const s = setup();
-        s.storage.persistSyncResult(s.result([101, 102, 103, 104], 200));
+        s.persist(s.result([101, 102, 103, 104], 200));
         expect(s.checks.hasPending(1, now)).toBe(false);
     });
 
     it("keeps young chains below their maturity boundary and requires explicit policy", () => {
         const s = setup();
         expect(canonicalCheckUpperBound(5, 32)).toBe(0);
-        s.storage.persistSyncResult(s.result([101], 1, 32));
+        s.persist(s.result([101], 1, 32));
         expect(s.due(0)).toBeNull();
         expect(() =>
-            s.storage.persistSyncResult({
+            s.persist({
                 ...s.result([102], 102),
                 canonicalCheck: undefined!,
             }),
@@ -339,8 +384,8 @@ describe("DB-owned canonical hash checks", () => {
                 .mockResolvedValueOnce(true)
                 .mockImplementationOnce(() => gate.promise)
                 .mockResolvedValue(false);
-            const stop = startReorgRecoveryLoop(
-                { checkDue, resumeDue: vi.fn(async () => {}) },
+            const { stop } = startAutomaticSyncLoop(
+                { runDue: checkDue },
                 12_000,
             );
             await vi.advanceTimersByTimeAsync(1);

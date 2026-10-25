@@ -5,7 +5,6 @@ export { BOOTSTRAP_JOB_KIND } from "@artgod/shared/bootstrap/jobs";
 
 export const BOOTSTRAP_BACKFILL_JOB_ID_SCOPE = {
     Range: "sync:bootstrap",
-    Recovery: "sync:bootstrap:recovery",
 } as const;
 
 export type BootstrapMetadataSnapshotMode = BootstrapMetadataMode;

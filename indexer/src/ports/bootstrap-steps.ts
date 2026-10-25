@@ -91,17 +91,23 @@ export interface BootstrapStepsPort {
         stepKey: BootstrapStepKey;
         healthCheckAt: number;
     }): void;
+    /** Publish terminal status and its dependent-step handoff in the same write. */
     markStepSucceeded(
         runId: number,
         stepKey: BootstrapStepKey,
         progress?: BootstrapStepProgress,
+        result?: Record<string, unknown>,
     ): void;
     markStepSkipped(
         runId: number,
         stepKey: BootstrapStepKey,
         reason: string,
+        result?: Record<string, unknown>,
     ): void;
+    // Claimed processors supply their owner so a late failure cannot settle a
+    // replacement claim. Administrative/delegated writers have no step claim.
     markStepFailedRetry(input: {
+        leaseOwner?: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;
@@ -109,6 +115,7 @@ export interface BootstrapStepsPort {
         error: string;
     }): void;
     markStepFailedTerminal(input: {
+        leaseOwner?: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;

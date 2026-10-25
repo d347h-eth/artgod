@@ -1,3 +1,5 @@
+import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
+import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
 import { beforeAll, beforeEach, expect, it } from "vitest";
 import {
@@ -149,7 +151,11 @@ beforeAll(async () => {
     setDbPath(join(mkdtempSync(join(root, "run-")), "fixture.sqlite"));
     await createMigrationRunner().runMigrations();
 });
-beforeEach(() => db.exec("DELETE FROM fill_executions; DELETE FROM blocks"));
+beforeEach(() =>
+    db.exec(
+        "DELETE FROM fill_executions; DELETE FROM blocks; DELETE FROM chain_sync_progress; DELETE FROM chain_sync_revisions",
+    ),
+);
 
 async function attributedBundle(): Promise<FillEvent[]> {
     return decodeSeaportFills(await bundle(), new Set([CONTRACT])).map((f) => ({
@@ -164,6 +170,7 @@ function persist(fills: FillEvent[]) {
     const data = emptyOnChainData();
     data.collectionScoped.fillEvents = fills;
     storage.persistSyncResult({
+        application: { kind: SYNC_APPLICATION_KIND.Historical },
         canonicalCheck: FINALIZED_SYNC_CHECK_POLICY,
         checkpoint: storage.captureSyncCheckpoint(1),
         blocks: [syncBlockFixture(1)],
@@ -196,6 +203,18 @@ it("writes complete execution context atomically and idempotently, and rolls it 
         { amount: "1", unit_offset: "0" },
         { amount: "1", unit_offset: "1" },
     ]);
+    const accepted = createAppliedSyncFixture({
+        chainId: 1,
+        anchor: syncBlockFixture(0),
+        collections: [],
+    });
+    accepted.commit(
+        accepted.applied({
+            blocks: [syncBlockFixture(1)],
+            shared: true,
+            collectionIds: [],
+        }),
+    );
     commitRollbackFixture({ storage, chainId: 1, fromBlock: 1, owners: [] });
     for (const table of ["fill_executions", "fill_execution_items", "fills"])
         expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()).toEqual({

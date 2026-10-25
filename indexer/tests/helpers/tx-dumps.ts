@@ -111,6 +111,8 @@ export function createTxDumpRpc(
         }),
         getTransactionReceipt: async () => ({
             transactionHash: tx.txHash as Hex,
+            blockNumber: tx.blockNumber,
+            blockHash: tx.blockHash as Hex,
             logs: tx.receiptLogs,
         }),
         getLogs: async (filter) => {

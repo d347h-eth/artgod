@@ -8,6 +8,7 @@ import {
 } from "../src/application/offchain/opensea-normalize.js";
 import { resolveFixturePath } from "./helpers/fixture-paths.js";
 import { ORDER_SOURCE_STATUS } from "../src/domain/orders.js";
+import { ORDER_UPDATE_REASON } from "../src/domain/order-jobs.js";
 import { capturedOpenSeaRangedOfferFixtures } from "@artgod/shared/testing/opensea-offers";
 import { normalizeOpenSeaRestOrder } from "../src/application/offchain/opensea-rest-normalize.js";
 import { OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
@@ -370,14 +371,15 @@ describe("opensea normalizer", () => {
         });
     });
 
-    it("normalizes item_sold into a source filled update", async () => {
+    it("normalizes item_sold into a source execution without deciding exhaustion", async () => {
         const fixture = await readFixture("item_sold.json");
         const normalized = normalizeOpenSeaOrderUpdate(fixture);
         expect(normalized).toEqual({
             orderId:
                 "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
-            reason: "fill",
-            sourceStatus: "filled",
+            reason: ORDER_UPDATE_REASON.SourceExecution,
+            executionTransactionHash:
+                "0xe0066ad18c4678c965bb311720562aec6ae9ccac8c2a2175f0a51bb169a9cdc2",
             validUntil: null,
         });
     });

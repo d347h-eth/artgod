@@ -18,9 +18,11 @@ import type {
 import type { MarketDataCompactionPort } from "../../application/storage/compact-market-data.js";
 import {
     ORDER_RETIREMENT_REASON,
+    orderRetirementBlockNumber,
     orderRetirementReason,
 } from "../../domain/order-retention.js";
 import { SqliteOrderRetirements } from "./sqlite-order-retirements.js";
+import { SqliteChainProgress } from "./sqlite-chain-progress.js";
 import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 import { CURRENT_ASK_INDEX_SQL } from "@artgod/shared/database/current-asks";
 import {
@@ -62,6 +64,8 @@ export class SqliteMarketDataMaintenance
     private currentOrder?: BetterSqlite3Statement;
     private expiredMarkers?: BetterSqlite3Statement;
     private deleteMarker?: BetterSqlite3Statement;
+    private expiredObservations?: BetterSqlite3Statement;
+    private deleteObservation?: BetterSqlite3Statement;
     constructor(
         private readonly database: Pick<typeof db, "raw" | "writeTransaction">,
         private readonly availableBytes?: () => number,
@@ -348,7 +352,22 @@ export class SqliteMarketDataMaintenance
             now,
             POLICY.maintenanceBatchRows,
         ) as { chain_id: number; order_id: string }[];
-        if (!candidates.size && !markers.length) return 0;
+        this.expiredObservations ??= this.conn.prepare(
+            "SELECT chain_id,order_id,source_id FROM order_source_observations s WHERE expires_at<=? AND NOT EXISTS(SELECT 1 FROM orders o WHERE o.chain_id=s.chain_id AND o.id=s.order_id) ORDER BY expires_at LIMIT ?",
+        );
+        this.deleteObservation ??= this.conn.prepare(
+            "DELETE FROM order_source_observations WHERE chain_id=? AND order_id=? AND source_id=? AND expires_at<=? AND NOT EXISTS(SELECT 1 FROM orders o WHERE o.chain_id=order_source_observations.chain_id AND o.id=order_source_observations.order_id)",
+        );
+        const observations = this.expiredObservations.all(
+            now * 1_000,
+            POLICY.maintenanceBatchRows,
+        ) as { chain_id: number; order_id: string; source_id: string }[];
+        const samples = new SqliteChainProgress().pruneHeadSamples({
+            now: now * 1000,
+            limit: POLICY.maintenanceBatchRows,
+        });
+        if (!candidates.size && !markers.length && !observations.length)
+            return samples.examined;
         return this.database.writeTransaction(() => {
             const rows = [...candidates.values()];
             for (const row of rows) {
@@ -362,8 +381,20 @@ export class SqliteMarketDataMaintenance
             }
             for (const marker of markers)
                 this.deleteMarker!.run(marker.chain_id, marker.order_id, now);
-            // Nonzero while either family makes progress, including an empty orderbook.
-            return rows.length + markers.length;
+            for (const observation of observations)
+                this.deleteObservation!.run(
+                    observation.chain_id,
+                    observation.order_id,
+                    observation.source_id,
+                    now * 1_000,
+                );
+            // Every family is bounded and rechecked inside its owning writer.
+            return (
+                rows.length +
+                markers.length +
+                observations.length +
+                samples.examined
+            );
         })();
     }
 
@@ -388,9 +419,8 @@ export class SqliteMarketDataMaintenance
         };
         const reason = orderRetirementReason(input, now);
         if (
-            reason === ORDER_RETIREMENT_REASON.Terminal ||
-            (reason === ORDER_RETIREMENT_REASON.Stale &&
-                row.source_status === ORDER_SOURCE_STATUS.Inactive)
+            reason === ORDER_RETIREMENT_REASON.Stale &&
+            row.source_status === ORDER_SOURCE_STATUS.Inactive
         ) {
             this.retirements.record(
                 {
@@ -399,14 +429,13 @@ export class SqliteMarketDataMaintenance
                     orderId: String(row.id),
                     validUntil: input.validUntil,
                     retiredAt: input.lastObservedAt,
-                    blockNumber:
+                    blockNumber: orderRetirementBlockNumber(
+                        input,
                         row.block_number === null
                             ? null
                             : Number(row.block_number),
-                    reason:
-                        row.source_status === ORDER_SOURCE_STATUS.Cancelled
-                            ? ORDER_RETIREMENT_REASON.SourceCancelled
-                            : reason,
+                    ),
+                    reason,
                 },
                 now,
             );

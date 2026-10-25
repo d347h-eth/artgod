@@ -1,3 +1,6 @@
+import { seaportIsNftItem } from "@artgod/shared/market-data/seaport";
+import { declaredOrderQuote } from "../../domain/order-quantity.js";
+import { ORDER_SIDE } from "../../domain/orders.js";
 import type {
     SeaportConsiderationItem,
     SeaportOrderData,
@@ -11,9 +14,6 @@ import {
     toBigInt,
 } from "@artgod/shared/offchain/normalizer-utils";
 import { getOpenSeaProtocolData } from "@artgod/shared/opensea/payload";
-
-const NFT_ITEM_TYPES = new Set(["2", "3", "4", "5"]);
-const PAYMENT_ITEM_TYPES = new Set(["0", "1"]);
 
 export function normalizeSeaportOrderData(
     payload: Record<string, unknown>,
@@ -72,17 +72,20 @@ export function extractSeaportSellTerms(
     if (!seaportData) return null;
 
     const nftItem = findSingleNftItem(seaportData.offer);
-    const payment = sumFixedCurrencyItems(seaportData.consideration);
-    if (!nftItem || !payment) {
-        return null;
-    }
+    if (!nftItem) return null;
+    const quote = declaredOrderQuote({
+        side: ORDER_SIDE.Sell,
+        contract: nftItem.token,
+        seaportData,
+    });
+    if (quote.currency === null || quote.price === null) return null;
 
     return {
         maker: seaportData.offerer,
         contract: nftItem.token,
         tokenId: nftItem.identifierOrCriteria,
-        currency: payment.currency,
-        price: payment.amount,
+        currency: quote.currency,
+        price: quote.price,
         validFrom: toUnixSecondsNumber(seaportData.startTime),
         validUntil: toUnixSecondsNumber(seaportData.endTime),
     };
@@ -132,42 +135,11 @@ function normalizeUint(value: unknown, name: string): string {
 function findSingleNftItem(
     items: SeaportOrderItem[] | SeaportConsiderationItem[],
 ): SeaportOrderItem | SeaportConsiderationItem | null {
-    const nftItems = items.filter((item) => NFT_ITEM_TYPES.has(item.itemType));
+    const nftItems = items.filter((item) => seaportIsNftItem(item.itemType));
     if (nftItems.length !== 1) {
         return null;
     }
     return nftItems[0] ?? null;
-}
-
-function sumFixedCurrencyItems(
-    items: SeaportOrderItem[] | SeaportConsiderationItem[],
-): { currency: string; amount: string } | null {
-    const paymentItems = items.filter((item) =>
-        PAYMENT_ITEM_TYPES.has(item.itemType),
-    );
-    if (paymentItems.length === 0) {
-        return null;
-    }
-
-    const [first] = paymentItems;
-    if (!first) return null;
-    const currency = first.token.toLowerCase();
-
-    let total = 0n;
-    for (const item of paymentItems) {
-        if (item.token.toLowerCase() !== currency) {
-            return null;
-        }
-        if (item.startAmount !== item.endAmount) {
-            return null;
-        }
-        total += BigInt(item.startAmount);
-    }
-
-    return {
-        currency,
-        amount: total.toString(),
-    };
 }
 
 function toUnixSecondsNumber(value: string): number {

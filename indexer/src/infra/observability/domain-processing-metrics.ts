@@ -16,7 +16,7 @@ import {
 import { QUEUE_NAMES, type QueueName } from "../../domain/queues.js";
 import type { QueueOutboxStatus } from "../../domain/queue-outbox.js";
 import type { OrderValidationAdmissionObserver } from "../../ports/order-validation-admission.js";
-import type { MakerValidationBatch } from "../../ports/order-validation.js";
+import type { OrderValidationSnapshot } from "../../ports/order-validation.js";
 import {
     DOMAIN_PROCESSING_METRIC as METRIC,
     DOMAIN_PROCESSING_METRIC_LABEL as LABEL,
@@ -129,7 +129,7 @@ export class DomainProcessingMetrics
 
     contractReads(
         path: OrderValidationPath,
-        reads: ReturnType<MakerValidationBatch["readCounts"]>,
+        reads: ReturnType<OrderValidationSnapshot["readCounts"]>,
     ): void {
         for (const kind of VALIDATION_READ_COUNTERS)
             this.metrics.increment(METRIC.ContractReads, reads[kind] ?? 0, {

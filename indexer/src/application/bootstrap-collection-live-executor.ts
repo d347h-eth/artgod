@@ -4,10 +4,7 @@ import {
     isBootstrapStepTerminalStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
-import {
-    METADATA_STATS_RECOMPUTE_REASON,
-    type MetadataStatsRecomputePayload,
-} from "../domain/domain-jobs.js";
+import { METADATA_STATS_RECOMPUTE_REASON } from "../domain/domain-jobs.js";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../ports/bootstrap-steps.js";
 import {
@@ -17,11 +14,26 @@ import {
     type BootstrapTemporaryDataStoragePort,
 } from "./bootstrap-temporary-data-cleanup.js";
 import { parseBootstrapBackfillLiveBlock } from "./bootstrap-backfill-executor.js";
+import {
+    bootstrapAppliedCheckpoint,
+    type BootstrapAppliedProgressPort,
+} from "./bootstrap-applied-progress.js";
+import {
+    ChainSyncConflict,
+    type SyncBlockHeader,
+    type ValidationCheckpoint,
+} from "../domain/chain-sync.js";
+import type { RpcProviderPort } from "../ports/rpc.js";
+import {
+    buildBootstrapFinalStatsFollowupRun,
+    type MetadataRefreshFollowupRunInput,
+} from "./metadata/refresh-followups.js";
 
 // Collection-live executor outcomes are returned to runtime logs/tests.
 export const BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME = {
     Completed: "completed",
     CollectionMissing: "collection_missing",
+    AwaitingAppliedProgress: "awaiting_applied_progress",
 } as const;
 
 export type BootstrapCollectionLiveExecutorOutcome =
@@ -57,20 +69,28 @@ export type BootstrapCollectionLiveResult = {
     cleanup: BootstrapTemporaryDataCleanupResult;
 };
 
+/** Remote observations are checked again against local ownership in one writer.
+ * No bootstrap read installs canonical headers or advances accepted progress. */
+export type BootstrapCollectionLiveCommit = {
+    chainId: number;
+    collectionId: number;
+    runId: number;
+    leaseOwner: string;
+    lastSyncedBlock: number;
+    checkpoint: ValidationCheckpoint;
+    anchor: SyncBlockHeader;
+    headBlock: number;
+    reorgDepth: number;
+    finalStats: MetadataRefreshFollowupRunInput | null;
+};
+
 export interface BootstrapCollectionLiveCollectionPort {
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
+    /** Atomically publish collection live, successful core step and completed run.
+     * Reject a replaced run, revoked lease, changed anchor or recovery checkpoint. */
+    markBootstrapFinished(input: BootstrapCollectionLiveCommit): boolean;
 }
 
 export interface BootstrapCollectionLiveRunsPort extends BootstrapTemporaryDataRunsPort {
-    updateRunStatus(
-        runId: number,
-        status: typeof BOOTSTRAP_RUN_STATUS.Completed,
-        error?: null,
-    ): void;
     updateRunStatus(
         runId: number,
         status: typeof BOOTSTRAP_RUN_STATUS.Failed,
@@ -94,10 +114,6 @@ export interface BootstrapCollectionLiveStepsPort {
             | typeof BOOTSTRAP_STEP_KEY.Backfill
             | typeof BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
     ): BootstrapStepRecord | null;
-    markStepSucceeded(
-        runId: number,
-        stepKey: typeof BOOTSTRAP_STEP_KEY.CollectionLive,
-    ): void;
     markStepFailedTerminal(input: {
         runId: number;
         stepKey: typeof BOOTSTRAP_STEP_KEY.CollectionLive;
@@ -108,14 +124,6 @@ export interface BootstrapCollectionLiveStepsPort {
 
 export interface BootstrapCollectionLiveTemporaryDataPort extends BootstrapTemporaryDataStoragePort {}
 
-export interface BootstrapCollectionLiveQueuePort {
-    enqueueBootstrapFinalStats(input: {
-        bootstrapRunId: number;
-        payload: MetadataStatsRecomputePayload;
-        traceId: string;
-    }): Promise<void>;
-}
-
 // Finalizes collection liveness after the scheduler has terminalized backfill.
 export class BootstrapCollectionLiveExecutor {
     constructor(
@@ -123,8 +131,16 @@ export class BootstrapCollectionLiveExecutor {
         private readonly runsPort: BootstrapCollectionLiveRunsPort,
         private readonly stepsPort: BootstrapCollectionLiveStepsPort,
         private readonly temporaryDataPort: BootstrapCollectionLiveTemporaryDataPort,
-        private readonly queuePort: BootstrapCollectionLiveQueuePort,
-    ) {}
+        private readonly progress: BootstrapAppliedProgressPort,
+        private readonly rpc: Pick<
+            RpcProviderPort,
+            "getBlockNumber" | "getBlock"
+        >,
+        private readonly reorgDepth: number,
+    ) {
+        if (!Number.isSafeInteger(reorgDepth) || reorgDepth < 0)
+            throw new Error("Invalid bootstrap finalization depth");
+    }
 
     async complete(
         input: BootstrapCollectionLiveInput,
@@ -142,11 +158,71 @@ export class BootstrapCollectionLiveExecutor {
             );
         }
 
-        const updated = this.collectionPort.markBootstrapFinished(
-            input.run.chainId,
-            input.run.collectionId,
-            liveBlock,
-        );
+        const checkpoint =
+            input.run.anchorBlock !== null && input.run.anchorBlockHash !== null
+                ? bootstrapAppliedCheckpoint(this.progress, {
+                      chainId: input.run.chainId,
+                      collectionId: input.run.collectionId,
+                      anchorBlock: input.run.anchorBlock,
+                      anchorHash: input.run.anchorBlockHash,
+                  })
+                : null;
+        if (!checkpoint || checkpoint.block.number < liveBlock)
+            return {
+                outcome:
+                    BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress,
+                liveBlock,
+                cleanup: { deleted: false },
+            };
+
+        const headBlock = await this.rpc.getBlockNumber();
+        const anchor = await this.rpc.getBlock(input.run.anchorBlock!, {
+            fresh: true,
+        });
+        if (
+            anchor.number !== input.run.anchorBlock ||
+            anchor.hash !== input.run.anchorBlockHash
+        )
+            throw new ChainSyncConflict(
+                "Bootstrap finalization anchor changed",
+            );
+        if (
+            headBlock < liveBlock ||
+            headBlock - anchor.number < this.reorgDepth
+        )
+            return {
+                outcome:
+                    BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.AwaitingAppliedProgress,
+                liveBlock,
+                cleanup: { deleted: false },
+            };
+        if (!input.step.leaseOwner)
+            throw new ChainSyncConflict(
+                "Bootstrap finalization has no step lease",
+            );
+
+        const updated = this.collectionPort.markBootstrapFinished({
+            chainId: input.run.chainId,
+            collectionId: input.run.collectionId,
+            runId: input.run.runId,
+            leaseOwner: input.step.leaseOwner,
+            lastSyncedBlock: liveBlock,
+            checkpoint,
+            anchor,
+            headBlock,
+            reorgDepth: this.reorgDepth,
+            finalStats: input.run.requestExtensionKey
+                ? null
+                : buildBootstrapFinalStatsFollowupRun({
+                      bootstrapRunId: input.run.runId,
+                      chainId: input.run.chainId,
+                      collectionId: input.run.collectionId,
+                      statsReason:
+                          METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+                      sourceJobId: input.sourceJobId,
+                      traceId: input.traceId,
+                  }),
+        });
         if (!updated) {
             this.failCollectionLive(input);
             return {
@@ -157,26 +233,6 @@ export class BootstrapCollectionLiveExecutor {
             };
         }
 
-        this.stepsPort.markStepSucceeded(
-            input.run.runId,
-            BOOTSTRAP_STEP_KEY.CollectionLive,
-        );
-        this.runsPort.updateRunStatus(
-            input.run.runId,
-            BOOTSTRAP_RUN_STATUS.Completed,
-        );
-        this.runsPort.appendRunEvent({
-            runId: input.run.runId,
-            chainId: input.run.chainId,
-            collectionId: input.run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
-            eventLevel: "info",
-            message: "Bootstrap collection live",
-            payloadJson: JSON.stringify({
-                [BOOTSTRAP_COLLECTION_LIVE_EVENT_PAYLOAD_FIELD.LiveBlock]:
-                    liveBlock,
-            }),
-        });
         const cleanup = cleanupSuccessfulBootstrapTemporaryData({
             bootstrapStorage: this.temporaryDataPort,
             bootstrapRuns: this.runsPort,
@@ -187,19 +243,6 @@ export class BootstrapCollectionLiveExecutor {
                     input.run.runId,
                 ),
         });
-        if (!input.run.requestExtensionKey) {
-            await this.queuePort.enqueueBootstrapFinalStats({
-                bootstrapRunId: input.run.runId,
-                payload: {
-                    chainId: input.run.chainId,
-                    collectionId: input.run.collectionId,
-                    reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                    sourceJobId: input.sourceJobId,
-                },
-                traceId: input.traceId,
-            });
-        }
-
         return {
             outcome: BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.Completed,
             liveBlock,

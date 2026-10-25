@@ -4,12 +4,14 @@ import { logger } from "@artgod/shared/utils";
 import {
     computeSeaportOrderHash,
     resolveSeaportProtocolVersion,
-} from "../src/application/offchain/seaport-protocol.js";
+} from "../src/domain/seaport-protocol.js";
 import { validateSeaportOrder } from "../src/application/offchain/seaport-validate.js";
 import { normalizeOpenSeaEvent } from "../src/application/offchain/opensea-normalize.js";
 import {
+    ORDER_VALIDATION_REASON,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_STATUS,
+    ORDER_SIDE,
     type OrderRecord,
     type SeaportOrderData,
 } from "../src/domain/orders.js";
@@ -56,6 +58,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -65,7 +68,8 @@ describe("validateSeaportOrder", () => {
 
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
-            reason: "approved",
+            reason: ORDER_VALIDATION_REASON.Approved,
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(warnSpy).not.toHaveBeenCalled();
         expect(rpc.calledFunctions).toEqual([
@@ -78,6 +82,32 @@ describe("validateSeaportOrder", () => {
         warnSpy.mockRestore();
     });
 
+    it.each([null, undefined])(
+        "rejects a missing protocol status instead of assuming unfilled (%s)",
+        async (missing) => {
+            const rpc = new MockRpc();
+            vi.spyOn(rpc, "readContract").mockResolvedValueOnce(missing);
+            const result = await validateSeaportOrder(
+                rpc,
+                new MemoryConduitRegistry(),
+                {
+                    timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
+                    conduitController:
+                        "0x00000000f9490004c11cef243f5400493c00ad63",
+                },
+                buildOrderRecord({
+                    seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
+                }),
+            );
+            expect(result.status).toBe(ORDER_STATUS.Invalid);
+            expect(result.reason).toBe(ORDER_VALIDATION_REASON.ProtocolError);
+            expect(result.error).toContain(
+                "Invalid Seaport order status response",
+            );
+            expect(result.quantities).toBeUndefined();
+        },
+    );
+
     it("warns when a stream-derived order is missing a signature", async () => {
         const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
         const rpc = new MockRpc();
@@ -86,6 +116,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -95,7 +126,8 @@ describe("validateSeaportOrder", () => {
 
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
-            reason: "approved",
+            reason: ORDER_VALIDATION_REASON.Approved,
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(warnSpy).toHaveBeenCalledWith(
             "Seaport stream order missing signature",
@@ -115,6 +147,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -125,7 +158,7 @@ describe("validateSeaportOrder", () => {
 
         expect(result).toEqual({
             status: ORDER_STATUS.Invalid,
-            reason: "order-hash-mismatch",
+            reason: ORDER_VALIDATION_REASON.OrderHashMismatch,
         });
         expect(rpc.calledFunctions).toEqual([]);
     });
@@ -145,12 +178,12 @@ describe("validateSeaportOrder", () => {
             maker: normalized.maker,
             contract: normalized.contract,
         });
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
 
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1769383500,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
@@ -159,7 +192,7 @@ describe("validateSeaportOrder", () => {
         );
 
         expect(result.status).toBe(ORDER_STATUS.Fillable);
-        expect(result.reason).toBe("approved");
+        expect(result.reason).toBe(ORDER_VALIDATION_REASON.Approved);
         expect(rpc.calledFunctions).toEqual([
             "getOrderStatus",
             "getCounter",
@@ -168,8 +201,6 @@ describe("validateSeaportOrder", () => {
             "ownerOf",
             "isApprovedForAll",
         ]);
-
-        nowSpy.mockRestore();
     });
 
     it("verifies a compact OpenSea stream order signature with Seaport typed data", async () => {
@@ -185,12 +216,12 @@ describe("validateSeaportOrder", () => {
             conduitAddress: SEAPORT_CONDUIT,
             channels: [SEAPORT],
         });
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1777214700 * 1000);
 
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1777214700,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -210,7 +241,8 @@ describe("validateSeaportOrder", () => {
 
         expect(result).toEqual({
             status: ORDER_STATUS.Fillable,
-            reason: "erc20-ok",
+            reason: ORDER_VALIDATION_REASON.Erc20FundsAvailable,
+            quantities: { original: "1", remaining: "1", fillable: "1" },
         });
         expect(rpc.calledFunctions).toEqual([
             "getOrderStatus",
@@ -220,8 +252,6 @@ describe("validateSeaportOrder", () => {
             "allowance",
             "balanceOf",
         ]);
-
-        nowSpy.mockRestore();
     });
 
     it("invalidates a stream order when the recovered signer does not match maker", async () => {
@@ -231,11 +261,11 @@ describe("validateSeaportOrder", () => {
         if (!normalized) return;
 
         const rpc = new MockRpc();
-        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: 1769383500,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
@@ -246,10 +276,8 @@ describe("validateSeaportOrder", () => {
 
         expect(result).toEqual({
             status: ORDER_STATUS.Invalid,
-            reason: "bad-signature",
+            reason: ORDER_VALIDATION_REASON.BadSignature,
         });
-
-        nowSpy.mockRestore();
     });
 
     it("returns invalid instead of throwing when getOrderStatus fails", async () => {
@@ -262,6 +290,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -270,7 +299,8 @@ describe("validateSeaportOrder", () => {
         );
 
         expect(result.status).toBe(ORDER_STATUS.Invalid);
-        expect(result.reason).toContain("protocol-error:");
+        expect(result.reason).toBe(ORDER_VALIDATION_REASON.ProtocolError);
+        expect(result.error).toContain("forced failure");
         expect(errorSpy).toHaveBeenCalledWith(
             "Seaport getOrderStatus RPC failed",
             expect.objectContaining({
@@ -280,6 +310,69 @@ describe("validateSeaportOrder", () => {
         );
 
         errorSpy.mockRestore();
+    });
+
+    it.each(["getOrderStatus", "getCounter", "allowance", "balanceOf"])(
+        "keeps the buy-order reason bounded and preserves %s error details",
+        async (failFunction) => {
+            const errorSpy = vi
+                .spyOn(logger, "error")
+                .mockImplementation(() => {});
+            try {
+                const data = buildCompactSignatureCriteriaOfferData();
+                data.signature = null;
+                data.startTime = ACTIVE_ORDER_START_TIME;
+                data.endTime = ACTIVE_ORDER_END_TIME;
+                data.conduitKey = ZERO_BYTES32;
+                const result = await validateSeaportOrder(
+                    new MockRpc({ failFunction }),
+                    new MemoryConduitRegistry(),
+                    {
+                        timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
+                        conduitController: SEAPORT_CONDUIT,
+                    },
+                    buildOrderRecord({
+                        id: computeSeaportOrderHash(data),
+                        side: ORDER_SIDE.Buy,
+                        maker: data.offerer,
+                        contract: data.consideration[0]!.token,
+                        currency: data.offer[0]!.token,
+                        price: data.offer[0]!.startAmount,
+                        seaportData: data,
+                    }),
+                );
+                expect(result).toEqual({
+                    status: ORDER_STATUS.Invalid,
+                    reason: ORDER_VALIDATION_REASON.ProtocolError,
+                    error: `Error: forced failure for ${failFunction}`,
+                });
+            } finally {
+                errorSpy.mockRestore();
+            }
+        },
+    );
+
+    it("keeps signature errors separate from their reason code", async () => {
+        const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+        try {
+            const data = buildSeaportData();
+            data.signature = "0x12";
+            const result = await validateSeaportOrder(
+                new MockRpc(),
+                new MemoryConduitRegistry(),
+                {
+                    timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
+                    conduitController: SEAPORT_CONDUIT,
+                },
+                buildOrderRecord({ seaportData: data }),
+            );
+            expect(result.status).toBe(ORDER_STATUS.Invalid);
+            expect(result.reason).toBe(ORDER_VALIDATION_REASON.SignatureError);
+            expect(result.error).toEqual(expect.any(String));
+            expect(result.error!.length).toBeGreaterThan(0);
+        } finally {
+            errorSpy.mockRestore();
+        }
     });
 
     it("returns invalid instead of throwing when ownerOf fails", async () => {
@@ -292,6 +385,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
+                timestamp: Number(ACTIVE_ORDER_START_TIME) + 1,
                 conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
@@ -300,7 +394,8 @@ describe("validateSeaportOrder", () => {
         );
 
         expect(result.status).toBe(ORDER_STATUS.Invalid);
-        expect(result.reason).toContain("protocol-error:");
+        expect(result.reason).toBe(ORDER_VALIDATION_REASON.ProtocolError);
+        expect(result.error).toContain("forced failure");
         expect(errorSpy).toHaveBeenCalledWith(
             "Seaport sell order owner lookup failed",
             expect.objectContaining({
@@ -391,6 +486,12 @@ class MockRpc implements RpcProviderPort {
         }
     }
 
+    async readContractAtBlock<T = unknown>(
+        _params: Parameters<RpcProviderPort["readContractAtBlock"]>[0],
+    ): Promise<T> {
+        throw new Error("not implemented");
+    }
+
     async getBalance(_address: Hex): Promise<bigint> {
         if (this.options.failFunction === "getBalance") {
             throw new Error("forced failure for getBalance");
@@ -447,6 +548,7 @@ function buildOrderRecord(overrides: Partial<OrderRecord> = {}): OrderRecord {
     return {
         id: overrides.id ?? ORDER_ID,
         chainId: overrides.chainId ?? 1,
+        collectionId: overrides.collectionId ?? 1,
         kind: "seaport",
         side: overrides.side ?? "sell",
         source: "opensea",

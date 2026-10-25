@@ -1,3 +1,5 @@
+import { createMigrationRunner } from "../database/migrations.js";
+import { seedOrderEvidence } from "../testing/order-evidence.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,10 +56,10 @@ class CapturingApm implements ApmPort {
 describe("SqliteCollectionsReadModel observability", () => {
     let tempDir: string;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         tempDir = mkdtempSync(join(tmpdir(), "artgod-collections-read-"));
         setDbPath(join(tempDir, "test.sqlite"));
-        createSchema();
+        await createSchema();
     });
 
     afterEach(() => {
@@ -69,8 +71,8 @@ describe("SqliteCollectionsReadModel observability", () => {
         const readyAt = "2026-07-12 00:57:00";
         db.prepare(
             "INSERT INTO collections " +
-                "(chain_id, collection_id, slug, address, standard, status, opensea_slug, opensea_status, opensea_ready_at, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(chain_id, collection_id, slug, address, standard, status, opensea_slug, opensea_status, opensea_ready_at, created_at, updated_at, token_scope_kind) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contract_all_tokens')",
         ).run(
             1,
             7,
@@ -107,8 +109,8 @@ describe("SqliteCollectionsReadModel observability", () => {
         const reconciliationAt = "2026-07-12 00:55:00";
         db.prepare(
             "INSERT INTO collections " +
-                "(chain_id, collection_id, slug, address, standard, status, opensea_snapshot_completed_at, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(chain_id, collection_id, slug, address, standard, status, opensea_snapshot_completed_at, created_at, updated_at, token_scope_kind) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'contract_all_tokens')",
         ).run(
             1,
             8,
@@ -416,7 +418,11 @@ describe("SqliteCollectionsReadModel observability", () => {
 
     it("lists only metadata-backed trait targets as marketplace-bidding supported", () => {
         insertBareToken("1");
-        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -430,10 +436,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             readModel.listMarketplaceBiddingSupportedTraits({
                 chainId: 1,
                 collectionId: 1,
-                traits: [
-                    TEST_METADATA_TRAIT,
-                    TEST_EXTENSION_TRAIT,
-                ],
+                traits: [TEST_METADATA_TRAIT, TEST_EXTENSION_TRAIT],
             }),
         ).toEqual([TEST_METADATA_TRAIT]);
     });
@@ -441,8 +444,16 @@ describe("SqliteCollectionsReadModel observability", () => {
     it("marks trait facets as marketplace-supported only for metadata-backed values", () => {
         insertBareToken("1");
         insertTraitStat(TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value, 1);
-        insertTraitStat(TEST_EXTENSION_TRAIT.key, TEST_EXTENSION_TRAIT.value, 1);
-        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTraitStat(
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            1,
+        );
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -479,7 +490,10 @@ describe("SqliteCollectionsReadModel observability", () => {
 
     it("marks extension-synthetic token rows as not marketplace-bidding supported", () => {
         insertBareToken("1");
-        insertBareToken("unminted-tile-921", TOKEN_RECORD_KIND.ExtensionSynthetic);
+        insertBareToken(
+            "unminted-tile-921",
+            TOKEN_RECORD_KIND.ExtensionSynthetic,
+        );
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
 
         const page = readModel.listCollectionTokens({
@@ -860,7 +874,11 @@ describe("SqliteCollectionsReadModel observability", () => {
             TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
             TEST_COLLECTION_EXTENSION_SOURCE_KEY,
         );
-        insertTokenTrait("2", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "2",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -1047,152 +1065,28 @@ describe("SqliteCollectionsReadModel observability", () => {
     });
 });
 
-function createSchema(): void {
-    db.exec(`
-        CREATE TABLE collections (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            slug TEXT NOT NULL,
-            address TEXT NOT NULL,
-            standard TEXT NOT NULL,
-            status TEXT NOT NULL,
-            token_scope_kind TEXT NOT NULL DEFAULT 'contract_all_tokens',
-            scope_start_token_id TEXT,
-            scope_total_supply INTEGER,
-            deployment_block INTEGER,
-            bootstrap_anchor_block INTEGER,
-            opensea_slug TEXT,
-            opensea_status TEXT,
-            opensea_ready_at TEXT,
-            opensea_snapshot_completed_at TEXT,
-            opensea_reconcile_started_at TEXT,
-            opensea_reconcile_completed_at TEXT,
-            opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (chain_id, collection_id)
-        );
-        CREATE TABLE collection_scope_tokens (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            PRIMARY KEY (chain_id, collection_id, token_id)
-        );
-        CREATE TABLE tokens (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            record_kind TEXT NOT NULL DEFAULT '${TOKEN_RECORD_KIND.Canonical}',
-            token_sort_bucket INTEGER GENERATED ALWAYS AS (
-                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END
-            ) VIRTUAL,
-            token_sort_length INTEGER GENERATED ALWAYS AS (
-                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*'
-                    THEN LENGTH(CASE WHEN LTRIM(token_id, '0') = '' THEN '0' ELSE LTRIM(token_id, '0') END)
-                    ELSE 0
-                END
-            ) VIRTUAL,
-            token_sort_value TEXT GENERATED ALWAYS AS (
-                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*'
-                    THEN CASE WHEN LTRIM(token_id, '0') = '' THEN '0' ELSE LTRIM(token_id, '0') END
-                    ELSE token_id
-                END
-            ) VIRTUAL,
-            PRIMARY KEY (chain_id, collection_id, token_id)
-        );
-        CREATE INDEX tokens_collection_numeric_sort_idx
-            ON tokens (chain_id, collection_id, token_sort_bucket, token_sort_length, token_sort_value, token_id);
-        CREATE TABLE token_metadata (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            name TEXT,
-            image TEXT,
-            animation_url TEXT,
-            attributes_json TEXT,
-            updated_at TEXT,
-            PRIMARY KEY (chain_id, collection_id, token_id)
-        );
-        CREATE TABLE token_image_cache (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            source_image_url TEXT NOT NULL,
-            requested_max_dimension INTEGER,
-            cache_key TEXT NOT NULL,
-            content_type TEXT NOT NULL,
-            source_bytes INTEGER NOT NULL,
-            cached_bytes INTEGER NOT NULL,
-            width INTEGER,
-            height INTEGER,
-            relative_path TEXT NOT NULL,
-            public_path TEXT NOT NULL,
-            created_at TEXT,
-            updated_at TEXT,
-            PRIMARY KEY (chain_id, collection_id, token_id)
-        );
-        CREATE TABLE orders (
-            id TEXT PRIMARY KEY,
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT,
-            price TEXT,
-            currency TEXT,
-            source_scope_kind TEXT NOT NULL,
-            side TEXT,
-            source_status TEXT NOT NULL,
-            fillability_status TEXT NOT NULL,
-            valid_from INTEGER,
-            valid_until INTEGER
-        );
-        CREATE TABLE attribute_keys (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            key TEXT NOT NULL
-        );
-        CREATE TABLE attributes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            attribute_key_id INTEGER NOT NULL,
-            value TEXT NOT NULL
-        );
-        CREATE TABLE collection_trait_stats (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            attribute_key_id INTEGER NOT NULL,
-            attribute_id INTEGER NOT NULL,
-            token_count INTEGER NOT NULL
-        );
-        CREATE TABLE token_attributes (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            attribute_id INTEGER NOT NULL,
-            source_kind TEXT NOT NULL,
-            source_key TEXT NOT NULL
-        );
-        CREATE TABLE nft_balances (
-            chain_id INTEGER NOT NULL,
-            collection_id INTEGER NOT NULL,
-            token_id TEXT NOT NULL,
-            owner TEXT NOT NULL,
-            amount TEXT NOT NULL
-        );
-    `);
+async function createSchema(): Promise<void> {
+    await createMigrationRunner().runMigrations();
+    db.exec("DELETE FROM collections");
+}
+
+function ensureTokenCollection(): void {
+    db.prepare(
+        "INSERT OR IGNORE INTO collections(collection_id,chain_id,slug,address,standard,status,token_scope_kind) VALUES (1,1,'fixture','0x1111111111111111111111111111111111111111',?,?,'contract_all_tokens')",
+    ).run(COLLECTION_STANDARD.Erc721, COLLECTION_STATUS.Live);
 }
 
 function insertToken(tokenId: string, price: string): void {
+    ensureTokenCollection();
     db.prepare(
-        "INSERT INTO tokens (chain_id, collection_id, token_id) VALUES (?, ?, ?)",
+        `INSERT INTO tokens (chain_id, collection_id, token_id, contract_address) VALUES (?, ?, ?, '${OWNER_A}')`,
     ).run(1, 1, tokenId);
     db.prepare(
-        "INSERT INTO token_metadata (chain_id, collection_id, token_id, name, image, animation_url, attributes_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO token_metadata (chain_id, collection_id, token_id, name, image, animation_url, attributes_json, updated_at, contract_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '${OWNER_A}')`,
     ).run(1, 1, tokenId, `Token ${tokenId}`, null, null, "[]", "2026-01-01");
     db.prepare(
-        "INSERT INTO orders (id, chain_id, collection_id, token_id, price, currency, source_scope_kind, side, source_status, fillability_status, valid_from, valid_until) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO orders (id, chain_id, collection_id, token_id, price, currency, source_scope_kind, side, source_status, fillability_status, valid_from, valid_until, kind, source, maker, contract_address) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'seaport', 'fixture', '0x1111111111111111111111111111111111111111', '0x1111111111111111111111111111111111111111')",
     ).run(
         `order-${tokenId}`,
         1,
@@ -1207,20 +1101,22 @@ function insertToken(tokenId: string, price: string): void {
         null,
         null,
     );
+    seedOrderEvidence(db.raw, `order-${tokenId}`, Date.now());
 }
 
 function insertBareToken(
     tokenId: string,
     recordKind: TokenRecordKind = TOKEN_RECORD_KIND.Canonical,
 ): void {
+    ensureTokenCollection();
     db.prepare(
-        "INSERT INTO tokens (chain_id, collection_id, token_id, record_kind) VALUES (?, ?, ?, ?)",
+        `INSERT INTO tokens (chain_id, collection_id, token_id, record_kind, contract_address) VALUES (?, ?, ?, ?, '${OWNER_A}')`,
     ).run(1, 1, tokenId, recordKind);
 }
 
 function insertBalance(tokenId: string, owner: string, amount = "1"): void {
     db.prepare(
-        "INSERT INTO nft_balances (chain_id, collection_id, token_id, owner, amount) VALUES (?, ?, ?, ?, ?)",
+        `INSERT INTO nft_balances (chain_id, collection_id, token_id, owner, amount,contract_address,last_block_number,last_block_hash,last_block_timestamp,last_tx_hash,last_log_index) VALUES (?, ?, ?, ?, ?,'${OWNER_A}',100,'fixture',0,'fixture',0)`,
     ).run(1, 1, tokenId, owner, amount);
 }
 
@@ -1234,15 +1130,8 @@ function insertTokenTrait(
     const keyId = getOrCreateAttributeKey(key);
     const attributeId = getOrCreateAttribute(keyId, value);
     db.prepare(
-        "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id, source_kind, source_key) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        1,
-        tokenId,
-        attributeId,
-        sourceKind,
-        sourceKey,
-    );
+        `INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id, source_kind, source_key, contract_address) VALUES (?, ?, ?, ?, ?, ?, '${OWNER_A}')`,
+    ).run(1, 1, tokenId, attributeId, sourceKind, sourceKey);
 }
 
 function getOrCreateAttributeKey(key: string): number {
@@ -1256,7 +1145,7 @@ function getOrCreateAttributeKey(key: string): number {
     }
     const result = db
         .prepare(
-            "INSERT INTO attribute_keys (chain_id, collection_id, key) VALUES (?, ?, ?)",
+            `INSERT INTO attribute_keys (chain_id, collection_id, key, contract_address) VALUES (?, ?, ?, '${OWNER_A}')`,
         )
         .run(1, 1, key);
     return Number(result.lastInsertRowid);
@@ -1273,30 +1162,16 @@ function getOrCreateAttribute(attributeKeyId: number, value: string): number {
     }
     const result = db
         .prepare(
-            "INSERT INTO attributes (chain_id, collection_id, attribute_key_id, value) VALUES (?, ?, ?, ?)",
+            `INSERT INTO attributes (chain_id, collection_id, attribute_key_id, value, contract_address) VALUES (?, ?, ?, ?, '${OWNER_A}')`,
         )
         .run(1, 1, attributeKeyId, value);
     return Number(result.lastInsertRowid);
 }
 
 function insertTraitStat(key: string, value: string, tokenCount: number): void {
-    const keyResult = db
-        .prepare(
-            "INSERT INTO attribute_keys (chain_id, collection_id, key) VALUES (?, ?, ?)",
-        )
-        .run(1, 1, key);
-    const attributeResult = db
-        .prepare(
-            "INSERT INTO attributes (chain_id, collection_id, attribute_key_id, value) VALUES (?, ?, ?, ?)",
-        )
-        .run(1, 1, keyResult.lastInsertRowid, value);
+    const keyId = getOrCreateAttributeKey(key);
+    const attributeId = getOrCreateAttribute(keyId, value);
     db.prepare(
-        "INSERT INTO collection_trait_stats (chain_id, collection_id, attribute_key_id, attribute_id, token_count) VALUES (?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        1,
-        keyResult.lastInsertRowid,
-        attributeResult.lastInsertRowid,
-        tokenCount,
-    );
+        `INSERT INTO collection_trait_stats (chain_id, collection_id, attribute_key_id, attribute_id, token_count, contract_address) VALUES (?, ?, ?, ?, ?, '${OWNER_A}')`,
+    ).run(1, 1, keyId, attributeId, tokenCount);
 }

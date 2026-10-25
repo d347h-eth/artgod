@@ -1,3 +1,5 @@
+import { makerValidationWorkflow } from "./helpers/maker-validation-workflow.js";
+import { observedOrderValidationRequest } from "../src/domain/order-validation-demand.js";
 import {
     afterEach,
     beforeAll,
@@ -13,8 +15,6 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
 import { OPENSEA_STREAM_EVENT_TYPE } from "@artgod/shared/opensea/payload";
-import { createSeaportOrderValidationFactory } from "../src/application/offchain/seaport-validation-batch.js";
-import { RevalidateMakerOrders } from "../src/application/orders/revalidate-maker.js";
 import { getOpenSeaStreamDedupeKey } from "../src/application/offchain/opensea-stream-identity.js";
 import {
     OFFCHAIN_OBSERVATION_CHANNEL,
@@ -34,10 +34,6 @@ import {
     type OrderRecord,
 } from "../src/domain/orders.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
-import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
-import { SqliteMakerRevalidations } from "../src/infra/orders/sqlite-maker-revalidations.js";
-import { SqliteOrderValidationDemand } from "../src/infra/orders/sqlite-order-validation-demand.js";
-import { FairOrderValidationAdmission } from "../src/infra/orders/fair-validation-admission.js";
 import type { QueuePort } from "../src/ports/queue.js";
 import type { RpcProviderPort } from "../src/ports/rpc.js";
 import {
@@ -45,7 +41,6 @@ import {
     HeavyMakerRpc,
     heavyMakerOrder,
     seedHeavyMaker,
-    warmConduits,
 } from "./fixtures/heavy-maker.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -73,7 +68,7 @@ describe("hashless sale recovery", () => {
         for (const level of ["debug", "info", "warn", "error"] as const)
             vi.spyOn(logger, level).mockImplementation(() => {});
         db.exec(
-            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collections;",
+            "DELETE FROM maker_order_revalidation_runs; DELETE FROM queue_outbox; DELETE FROM orders; DELETE FROM collection_sync_progress; DELETE FROM chain_sync_progress; DELETE FROM chain_head_samples; DELETE FROM chain_sync_targets; DELETE FROM blocks; DELETE FROM collections;",
         );
     });
     afterEach(() => vi.restoreAllMocks());
@@ -81,23 +76,9 @@ describe("hashless sale recovery", () => {
     async function setup() {
         const { sale, small } = seedHeavyMaker(1);
         const rpc = new SaleRpc();
-        const domain = new SqliteOrdersDomain(HEAVY_MAKER.weth, async () => {
-            throw new Error("Expected pinned batch validation");
-        });
-        const store = new SqliteMakerRevalidations(
-            domain,
-            new SqliteOrderValidationDemand(domain),
-        );
-        const processor = new RevalidateMakerOrders({
-            store,
-            admission: new FairOrderValidationAdmission(2),
-            createSnapshot: createSeaportOrderValidationFactory({
-                chainId: sale.chainId,
-                rpc,
-                conduits: warmConduits,
-                conduitController: HEAVY_MAKER.controller,
-            }),
-        });
+        const work = makerValidationWorkflow(rpc);
+        const domain = work.orders;
+        rpc.owner = sale.maker;
         const other = heavyMakerOrder(3, {
             maker: sale.maker,
             side: "sell",
@@ -111,8 +92,16 @@ describe("hashless sale recovery", () => {
             sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
             rawSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
             observedAt: HEAVY_MAKER.now,
-            validateAfterUpsert: false,
         });
+        await work.prepare();
+        work.demand.admit(
+            observedOrderValidationRequest(1, sale.id, "initial-sale"),
+            Date.now(),
+        );
+        await work.chain.apply();
+        expect((await work.validateReady()).applied).toBe(2);
+        for (const key of Object.keys(rpc.reads)) delete rpc.reads[key];
+        rpc.owner = HEAVY_MAKER.smallMaker;
         const asks = new SqliteCurrentAsks(db.raw, [HEAVY_MAKER.weth]);
         const ask = (order: OrderRecord) =>
             asks.forSeller(
@@ -171,21 +160,21 @@ describe("hashless sale recovery", () => {
             small,
             other,
             rpc,
-            store,
-            processor,
+            ...work,
             ask,
             request: {
                 jobId: published[0]!.jobId,
                 payload: published[0]!.payload as OrderUpdateByMakerPayload,
-                requiredAt: published[0]!.scheduledAt,
             },
         };
     }
 
     it("removes only the seller's stale token ask after ownership validation", async () => {
         const work = await setup();
-        const read = vi.spyOn(work.rpc, "readContract");
-        await work.processor.execute(work.request);
+        const read = vi.spyOn(work.rpc, "readContractAtBlock");
+        await work.expand(work.request);
+        await work.chain.apply();
+        await work.validateReady();
         expect(work.ask(work.sale)).toBeUndefined();
         expect(work.ask(work.other)?.id).toBe(work.other.id);
         expect(
@@ -207,24 +196,30 @@ describe("hashless sale recovery", () => {
             getOrderStatus: 1,
             getCounter: 1,
             ownerOf: 1,
+            getConduit: 1,
+            getChannels: 1,
         });
         expect(
             read.mock.calls.every(
-                ([params]) => params.blockNumber === work.rpc.blockNumber,
+                ([params]) =>
+                    params.block.blockNumber === work.rpc.blockNumber &&
+                    params.block.blockHash === work.rpc.blockHash,
             ),
         ).toBe(true);
         expect(
             work.store.admit({ ...work.request, now: Date.now() }),
         ).toMatchObject({
             status: MAKER_REVALIDATION_STATUS.Completed,
-            resolvedOrders: 1,
+            deferredOrders: 1,
         });
     });
 
     it("keeps a still-owned and approved ask fillable despite the sale hint", async () => {
         const work = await setup();
         work.rpc.owner = work.sale.maker;
-        await work.processor.execute(work.request);
+        await work.expand(work.request);
+        await work.chain.apply();
+        await work.validateReady();
         expect(work.ask(work.sale)?.id).toBe(work.sale.id);
         expect(work.rpc.reads.isApprovedForAll).toBe(1);
     });
@@ -238,30 +233,46 @@ describe("hashless sale recovery", () => {
                 if (fault === "rpc") throw new Error("synthetic RPC outage");
                 work.rpc.blockHash = `0x${"cd".repeat(32)}`;
             };
-            await expect(
-                work.processor.execute(work.request),
-            ).rejects.toThrow();
-            expect(work.ask(work.sale)?.id).toBe(work.sale.id);
-            expect(
-                db
-                    .prepare(
-                        "SELECT source_status,validated_at FROM orders WHERE id=?",
-                    )
-                    .get(work.sale.id),
-            ).toEqual({
-                source_status: ORDER_SOURCE_STATUS.Active,
-                validated_at: 0,
+            const initial = work.demand.get(1, work.sale.id)!;
+            await work.expand(work.request);
+            // Source scope retention immediately makes the old positive proof unusable.
+            expect(work.ask(work.sale)).toBeUndefined();
+            await work.chain.apply();
+            expect(await work.validator.executeBatch()).toMatchObject({
+                applied: 0,
+                retried: 1,
+            });
+            expect(work.ask(work.sale)).toBeUndefined();
+            expect(work.demand.get(1, work.sale.id)).toMatchObject({
+                pending: true,
+                failures: 1,
+                proofAt: initial.proofAt,
             });
             expect(
                 work.store.admit({ ...work.request, now: Date.now() }),
             ).toMatchObject({
-                status: MAKER_REVALIDATION_STATUS.Pending,
-                resolvedOrders: 0,
-                failures: 1,
+                status: MAKER_REVALIDATION_STATUS.Completed,
+                deferredOrders: 1,
             });
-            work.rpc.onRead = undefined;
-            await work.processor.execute(work.request);
-            expect(work.ask(work.sale)).toBeUndefined();
+            if (fault === "reorg") {
+                expect(
+                    db
+                        .prepare(
+                            "SELECT canonical_check_pending FROM blocks WHERE chain_id=1 AND block_number=?",
+                        )
+                        .get(work.rpc.blockNumber),
+                ).toEqual({ canonical_check_pending: 1 });
+                expect(work.demand.hasReady(1, Date.now() + 60_000)).toBe(
+                    false,
+                );
+            } else {
+                work.rpc.onRead = undefined;
+                vi.spyOn(Date, "now").mockReturnValue(
+                    HEAVY_MAKER.now * 1000 + 60_000,
+                );
+                expect((await work.validateReady()).applied).toBe(1);
+                expect(work.ask(work.sale)).toBeUndefined();
+            }
         },
     );
 });

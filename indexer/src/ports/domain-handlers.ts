@@ -11,7 +11,6 @@ import type {
 } from "../domain/metadata.js";
 import type {
     OrderUpdateByIdPayload,
-    OrderUpdateByMakerPayload,
     OrderUpsertPayload,
 } from "../domain/order-jobs.js";
 
@@ -26,26 +25,24 @@ export type DomainSyncContext = {
     sourceKind: string;
 };
 
-export type OrderUpdateByMakerRuntimeContext = {
-    jobId: string;
-    attempt: number;
-    scheduledAt: number;
-    traceId?: string | null;
-    consumerName?: string;
-};
-
 export interface OrdersDomainPort {
-    handleDomainSync(context: DomainSyncContext): Promise<void>;
-    handleOrderUpdateByMaker(
-        payload: OrderUpdateByMakerPayload,
-        context?: OrderUpdateByMakerRuntimeContext,
-    ): Promise<void>;
     handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
-    handleOrderUpsert(payload: OrderUpsertPayload): Promise<{
-        changed: boolean;
-        validationNeeded: boolean;
-        validationRevision: number;
-    }>;
+    handleOrderUpsert(payload: OrderUpsertPayload): Promise<void>;
+}
+
+/** A bounded crawl page uses the ordinary observation owner for atomic source
+ * withdrawal, aggregate availability, causal demand and current-price refresh. */
+export interface OrderSourceReconciliationPort {
+    withdrawMissingSources(input: {
+        chainId: number;
+        collectionId: number;
+        source: string;
+        orderIds: readonly string[];
+        /** Latest eligible local observation time, in milliseconds. */
+        observedThrough: number;
+        /** Conservative crawl start, in seconds. */
+        startedAt: number;
+    }): number;
 }
 
 export interface MetadataDomainPort {

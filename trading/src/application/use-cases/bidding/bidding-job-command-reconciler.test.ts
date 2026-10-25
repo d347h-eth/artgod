@@ -18,6 +18,7 @@ import {
     type BiddingOrderRecoveryResult,
     type BiddingService,
     type Order,
+    type OrderCancellation,
 } from "./bidding-service.js";
 import type {
     BiddingJobCommand,
@@ -170,7 +171,7 @@ class FakeBiddingService implements BiddingService {
     cancellationRevisions: number[] = [];
     placeError: Error | null = null;
     orderLookupResult: BiddingOrderRecoveryResult = {
-        status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        status: BIDDING_ORDER_RECOVERY_STATUS.Terminal,
     };
     activeOffersError: Error | null = null;
     activeOfferReads = 0;
@@ -211,12 +212,12 @@ class FakeBiddingService implements BiddingService {
         };
     }
 
-    async cancelOffer(job: BidderJob, order: Order): Promise<void> {
+    async cancelOffer(job: BidderJob, order: OrderCancellation): Promise<void> {
         this.cancelled.push(order.id);
         this.cancellationRevisions.push(job.revision);
     }
 
-    async cancelRecoveredOrder(order: Order): Promise<void> {
+    async cancelRecoveredOrder(order: OrderCancellation): Promise<void> {
         this.cancelled.push(order.id);
     }
 }
@@ -1126,7 +1127,7 @@ describe("BiddingJobCommandReconciler", () => {
         assert.deepEqual(repository.remainingCommandIds(), [2]);
     });
 
-    it("keeps inconclusive tracked-order cancellation retryable", async () => {
+    it("keeps unresolved tracked-order cancellation retryable when cancellation fails", async () => {
         const job = makeJob("job-archived");
         job.state.activeOrderId = "0xmissing";
         job.state.activeProtocolAddress =
@@ -1142,6 +1143,9 @@ describe("BiddingJobCommandReconciler", () => {
         biddingService.orderLookupResult = {
             status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
             reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
+        };
+        biddingService.cancelOffer = async () => {
+            throw new Error("Cancellation unavailable");
         };
         const bidder = new Bidder(biddingService, makerAddress, 60_000);
         bidder.addJob(job);

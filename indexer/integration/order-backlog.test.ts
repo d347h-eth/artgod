@@ -19,7 +19,7 @@ import {
 } from "../src/domain/order-jobs.js";
 import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../src/domain/orders.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
-import { LEGACY_ORDER_ADMISSION_POLICY } from "../src/infra/orders/legacy-order-admission.js";
+import { orderUpdateQueue } from "../src/domain/order-processing.js";
 import {
     HEAVY_MAKER,
     seedHeavyMaker,
@@ -27,6 +27,7 @@ import {
 } from "../tests/fixtures/heavy-maker.js";
 import {
     QUEUE_FIXTURE_COMMAND as COMMAND,
+    QUEUE_FIXTURE_CONSUMER as CONSUMER,
     QUEUE_FIXTURE_PHASE as PHASE,
     type QueueFixtureProgress,
 } from "../tests/fixtures/order-queue-protocol.js";
@@ -37,7 +38,7 @@ import {
     waitForFixture,
 } from "../tests/helpers/isolated-nats.js";
 
-it("converges a legacy mixed backlog with sustained arrivals, bounded metadata and pause/resume, preserving unsupported bytes", async () => {
+it("converges a mixed current-format backlog with sustained arrivals, bounded metadata and pause/resume, preserving unsupported bytes", async () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const base = path.join(root, "tmp/order-backlog-nats");
     await mkdir(base, { recursive: true });
@@ -45,9 +46,9 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
     const dbPath = path.join(artifacts, "orders.sqlite");
     const workerPath = path.join(artifacts, "worker.mjs");
     await buildOrderQueueTestWorker(workerPath);
-    const prefix = "legacy-backlog";
+    const prefix = "mixed-backlog";
     const stream = resolveNatsJobStreamName(prefix);
-    const consumerName = `id-${QUEUE_NAMES.OrdersUpdateById}-fixture`;
+    const consumerName = `id-${QUEUE_NAMES.OrderLifecycle}-fixture`;
     const clockStart = HEAVY_MAKER.now * 1000;
     const monotonicStart = performance.now();
     const clock = () =>
@@ -120,7 +121,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 label,
                 timeout,
             );
-        await wait(() => ready, "legacy worker ready");
+        await wait(() => ready, "source worker ready");
         return {
             child,
             wait,
@@ -129,7 +130,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 child.send(COMMAND.Stop);
                 await waitForFixture(
                     () => child.exitCode !== null || child.signalCode !== null,
-                    "legacy worker pause",
+                    "source worker pause",
                 );
                 expect(child.exitCode, output).toBe(0);
                 children.delete(child);
@@ -141,7 +142,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         id: string,
         payload: OrderUpdateByIdPayload,
         scheduledAt: number,
-        queue: QueueName = QUEUE_NAMES.OrdersUpdateById,
+        queue: QueueName = orderUpdateQueue(payload),
         kind: string = ORDER_JOB_KIND.UpdateById,
     ) {
         return publisher!.publish(queue, {
@@ -172,7 +173,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
             streamPrefix: prefix,
         });
         const oldTime = clockStart - 18 * 3600 * 1000;
-        // The 10,000-envelope ratio mirrors the observed oldest sample, not all live traffic.
+        // Exercise the captured workload ratio using complete current envelope identities.
         for (let i = 0; i < 10_000; i++) {
             const validation = i < 7719;
             const order = heavyMakerOrder(
@@ -187,11 +188,14 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                     reason: validation
                         ? ORDER_UPDATE_REASON.Validation
                         : ORDER_UPDATE_REASON.Cancel,
+                    source: "opensea",
+                    sourceStatus: validation
+                        ? ORDER_SOURCE_STATUS.Active
+                        : ORDER_SOURCE_STATUS.Inactive,
+                    observedAt: HEAVY_MAKER.now,
                     ...(validation
                         ? {}
                         : {
-                              sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
-                              observedAt: HEAVY_MAKER.now,
                               validUntil: order.validUntil,
                           }),
                 },
@@ -204,20 +208,23 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 chainId: 1,
                 collectionId: sale.collectionId,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Fill,
-                sourceStatus: ORDER_SOURCE_STATUS.Filled,
+                reason: ORDER_UPDATE_REASON.SourceExecution,
+                source: "opensea",
+                executionTransactionHash: HEAVY_MAKER.saleTransactionHash,
                 observedAt: HEAVY_MAKER.now,
             },
             oldTime,
         );
         await publish(
-            "buried-chain-fill",
+            "buried-source-revalidation",
             {
                 chainId: 1,
                 collectionId: sale.collectionId,
                 orderId: sale.id,
-                reason: ORDER_UPDATE_REASON.Fill,
-                blockNumber: HEAVY_MAKER.blockNumber,
+                reason: ORDER_UPDATE_REASON.Validation,
+                source: "opensea",
+                sourceStatus: ORDER_SOURCE_STATUS.Active,
+                observedAt: HEAVY_MAKER.now,
             },
             oldTime,
         );
@@ -235,6 +242,10 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                     {
                         chainId: 1,
                         orderId: order.id,
+                        collectionId: order.collectionId,
+                        source: "opensea",
+                        sourceStatus: ORDER_SOURCE_STATUS.Active,
+                        observedAt: HEAVY_MAKER.now,
                         reason: ORDER_UPDATE_REASON.Validation,
                     },
                     clock() - 1000,
@@ -246,7 +257,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         })();
         await first.wait(
             () => (first.latest()?.handled ?? 0) >= 2000,
-            "partial legacy progress",
+            "partial source progress",
             25_000,
         );
         await first.stop();
@@ -261,7 +272,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         await second.wait(
             async () =>
                 (await manager.streams.info(stream)).state.messages === 0,
-            "mixed legacy backlog drains",
+            "source backlog drains",
             75_000,
         );
         let requestedAt = 0;
@@ -280,39 +291,52 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         expect(arrivalCount).toBe(1000);
         const final = second.latest()!;
         expect(summaries[0]!.handled + final.handled).toBe(11002);
-        expect(summaries[0]!.terminalFacts + final.terminalFacts).toBe(2283);
-        expect(final.demandRows).toBeLessThanOrEqual(250);
+        expect(
+            summaries[0]!.sourceLifecycleUpdates + final.sourceLifecycleUpdates,
+        ).toBe(2282);
+        expect(summaries[0]!.sourceRechecks + final.sourceRechecks).toBe(
+            7720 + arrivalCount,
+        );
+        // Original validation identities plus fifty arrivals and one source sale hint.
+        const maximumDemandIdentities = 200 + 50 + 1;
+        expect(final.demandRows).toBeLessThanOrEqual(maximumDemandIdentities);
         expect(final.oldestDemandAgeMs).toBe(0);
         expect(snapshots.every((sample) => sample.outboxRows === 0)).toBe(true);
         expect(
             Math.max(...snapshots.map((s) => s.demandRows)),
-        ).toBeLessThanOrEqual(250);
-        expect(completionMs).toBeGreaterThan(
-            11000 * LEGACY_ORDER_ADMISSION_POLICY.intervalMs - 1000,
-        );
+        ).toBeLessThanOrEqual(maximumDemandIdentities);
 
         // Unsupported envelopes cannot disappear through the log-only dead-letter worker.
         const unsupported = await publish(
             "future-order",
-            { chainId: 1, orderId: sale.id, reason: "future-lifecycle" },
+            {
+                chainId: 1,
+                collectionId: sale.collectionId,
+                source: "opensea",
+                observedAt: HEAVY_MAKER.now,
+                orderId: sale.id,
+                reason: "future-lifecycle",
+            },
             clock() - 1000,
+            QUEUE_NAMES.OrderLifecycle,
         );
+        // Each retained failure occupies its single-flight consumer's ACK slot.
+        // Use the other real route so both boundary failures can be observed.
         const raw = Buffer.from("{unfinished-json");
         const rawReceipt = await broker.connection
             .jetstream()
             .publish(
-                resolveNatsJobSubject(prefix, QUEUE_NAMES.OrderLifecycle),
+                resolveNatsJobSubject(prefix, QUEUE_NAMES.OrdersUpdateByMaker),
                 raw,
             );
         await second.wait(async () => {
-            const legacy = await manager.consumers.info(stream, consumerName);
-            const lifecycle = await manager.consumers.info(
-                stream,
-                `id-${QUEUE_NAMES.OrderLifecycle}-fixture`,
-            );
+            const [lifecycle, maker] = await Promise.all([
+                manager.consumers.info(stream, consumerName),
+                manager.consumers.info(stream, CONSUMER.Maker),
+            ]);
             return (
-                legacy.delivered.stream_seq >= unsupported!.sequence &&
-                lifecycle.delivered.stream_seq >= rawReceipt.seq
+                lifecycle.delivered.stream_seq >= unsupported!.sequence &&
+                maker.delivered.stream_seq >= rawReceipt.seq
             );
         }, "unsupported envelopes observed");
         expect(
@@ -355,7 +379,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 .prepare(
                     "SELECT COUNT(*) AS count FROM orders WHERE source_status=?",
                 )
-                .get(ORDER_SOURCE_STATUS.Cancelled),
+                .get(ORDER_SOURCE_STATUS.Inactive),
         ).toEqual({ count: 1000 });
         expect(
             db
@@ -364,8 +388,8 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
                 )
                 .get(sale.id),
         ).toEqual({
-            source_status: ORDER_SOURCE_STATUS.Filled,
-            fillability_status: ORDER_STATUS.Filled,
+            source_status: ORDER_SOURCE_STATUS.Active,
+            fillability_status: ORDER_STATUS.NoBalance,
         });
         expect(
             db
@@ -377,9 +401,10 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
         const result = {
             workload: {
                 initialEnvelopes: 10002,
-                legacyValidationHints: 7719,
-                legacyCancellations: 2281,
-                fillFacts: 2,
+                initialSourceRechecks: 7719,
+                sourceWithdrawals: 2281,
+                sourceRevalidationHints: 1,
+                sourceSaleHints: 1,
                 liveOrders: HEAVY_MAKER.count + 2,
                 arrivingEnvelopes: arrivalCount,
                 arrivingDistinctOrders: 50,
@@ -402,7 +427,7 @@ it("converges a legacy mixed backlog with sustained arrivals, bounded metadata a
             ),
             maximumDemandRows: Math.max(...snapshots.map((s) => s.demandRows)),
             oldestUsefulDemandAgeAtEndMs: final.oldestDemandAgeMs,
-            maximumTerminalAgeMs: final.maximumTerminalAgeMs,
+            maximumSourceAgeMs: final.maximumSourceAgeMs,
             databaseAllocatedGrowthBytes: final.allocatedBytes - initialBytes,
             initialBrokerBytes: (await initialStream).state.bytes,
             maximumRssKiB: Math.max(...summaries.map((s) => s.maximumRssKiB)),

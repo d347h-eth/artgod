@@ -72,13 +72,6 @@ const indexerBuildResult = await build({
             "runtime",
             "sync-worker.ts",
         ),
-        "reorg-worker": path.join(
-            rootDir,
-            "indexer",
-            "src",
-            "runtime",
-            "reorg-worker.ts",
-        ),
         "domain-worker": path.join(
             rootDir,
             "indexer",

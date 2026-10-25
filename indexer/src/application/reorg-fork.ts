@@ -1,6 +1,7 @@
 import {
     proveReorgAncestor,
-    type ReorgAncestorProof,
+    assertReorgHistory,
+    type ReorgHistoryProof,
     type ReorgHistorySnapshot,
 } from "../domain/reorg-fork.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
@@ -15,15 +16,15 @@ export interface ReorgForkStore {
     }): ReorgHistorySnapshot;
 }
 
-// Matching islands added by gap repair are not ancestry proof. Compare the
-// complete bounded window against one coherent, freshly checked RPC chain.
+// Compare accepted local lineage against independently acquired replacement
+// headers. Recovery cannot depend on the forward writer its mismatch blocks.
 export async function findCommonAncestor(input: {
     rpc: Pick<RpcProviderPort, "getBlock">;
     storage: ReorgForkStore;
     chainId: number;
     startBlock: number;
     reorgDepth: number;
-}): Promise<ReorgAncestorProof | null> {
+}): Promise<ReorgHistoryProof | null> {
     const minBlock = Math.max(
         0,
         input.startBlock - Math.max(1, input.reorgDepth),
@@ -33,11 +34,11 @@ export async function findCommonAncestor(input: {
         fromBlock: minBlock,
         toBlock: input.startBlock,
     });
-    if (!history.headers.length) return null;
+    assertReorgHistory(history);
     const canonicalBlocks = await fetchCanonicalSyncBlocks({
         rpc: input.rpc,
-        fromBlock: minBlock,
-        toBlock: input.startBlock,
+        fromBlock: history.fromBlock,
+        toBlock: history.toBlock,
     });
     return proveReorgAncestor({ history, canonicalBlocks });
 }
