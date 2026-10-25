@@ -88,10 +88,9 @@ export function planBootstrapRunSteps(
         steps.push(
             sideLaneStep({
                 stepKey: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
-                dependsOn: [
-                    BOOTSTRAP_STEP_KEY.Metadata,
-                    BOOTSTRAP_STEP_KEY.Ownership,
-                ],
+                // Marketplace warmup follows the completed local collection.
+                // Its delegated worker journals identity, snapshot and ready.
+                dependsOn: [BOOTSTRAP_STEP_KEY.CollectionLive],
                 config: {
                     openseaSlug: input.openseaSlug,
                 },

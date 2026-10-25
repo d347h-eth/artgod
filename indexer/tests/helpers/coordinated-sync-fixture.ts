@@ -1,5 +1,12 @@
 import { db } from "@artgod/shared/database";
 import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+} from "@artgod/shared/bootstrap/pipeline";
+import { prepareBootstrapSnapshotFixture } from "./bootstrap-snapshot-fixture.js";
+import { buildBootstrapBackfillDelegatedStepResult } from "../../src/application/bootstrap-backfill-executor.js";
+import {
     AutomaticSyncExecutor,
     type AutomaticSyncObserver,
 } from "../../src/application/automatic-sync-executor.js";
@@ -91,21 +98,52 @@ export function installedCoordinatorCollection(
     return loadCollection(COORDINATED_SYNC_FIXTURE.chainId, collectionId);
 }
 
-export function retainInstalledCoordinatorBase(
+/** Stipulates completed ownership and explicit run-owned Backfill delegation. */
+export function authorizeCoordinatorBootstrapCatchup(
     collectionId: number,
     anchor: number,
-    revision = 0,
+    targetBlock = Number(COORDINATED_SYNC_FIXTURE.head),
 ) {
+    const chainId = COORDINATED_SYNC_FIXTURE.chainId;
+    const collection = loadCollection(chainId, collectionId);
+    const runId = (
+        db
+            .prepare(
+                "SELECT COALESCE(MAX(run_id),0)+1 AS id FROM bootstrap_runs",
+            )
+            .get() as { id: number }
+    ).id;
+    const block = syncBlockFixture(anchor);
+    prepareBootstrapSnapshotFixture({
+        runId,
+        chainId,
+        collectionId,
+        contract: collection.address,
+        anchorBlock: anchor,
+        anchorHash: block.hash,
+        anchorTimestamp: block.timestamp,
+    });
     db.prepare(
-        "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
-    ).run(
-        COORDINATED_SYNC_FIXTURE.chainId,
-        collectionId,
-        collectionId,
-        revision,
-        anchor,
-        syncBlockFixture(anchor).hash,
+        "UPDATE bootstrap_run_steps SET status=?,lease_owner=NULL,lease_until=NULL WHERE run_id=? AND step_key=?",
+    ).run(BOOTSTRAP_STEP_STATUS.Succeeded, runId, BOOTSTRAP_STEP_KEY.Ownership);
+    db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+        BOOTSTRAP_RUN_STATUS.Backfill,
+        runId,
     );
+    db.prepare(
+        "INSERT INTO bootstrap_run_steps(run_id,step_key,status,result_json) VALUES (?,?,?,?)",
+    ).run(
+        runId,
+        BOOTSTRAP_STEP_KEY.Backfill,
+        BOOTSTRAP_STEP_STATUS.Running,
+        JSON.stringify(
+            buildBootstrapBackfillDelegatedStepResult({
+                fromBlock: anchor + 1,
+                toBlock: targetBlock,
+            }),
+        ),
+    );
+    return runId;
 }
 
 export function createCoordinatorFixture(

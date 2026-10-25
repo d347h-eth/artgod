@@ -4,6 +4,7 @@ import {
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type { OpenSeaBootstrapCollectionPayload } from "../domain/opensea-jobs.js";
+import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
 
 export type OpenSeaBootstrapStepKey =
     | typeof BOOTSTRAP_STEP_KEY.OpenSeaIdentity
@@ -17,6 +18,22 @@ export const OPENSEA_BOOTSTRAP_STEP_SEQUENCE: readonly OpenSeaBootstrapStepKey[]
         BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
         BOOTSTRAP_STEP_KEY.OpenSeaReady,
     ];
+
+export const OPENSEA_BOOTSTRAP_SKIP_REASON = {
+    IntegrationDisabled: "integration disabled",
+    MissingSlug: "missing OpenSea slug",
+} as const;
+
+/** The post-live scheduler can settle the whole delegated lane without starting
+ * an OpenSea worker when the configured integration is unavailable. */
+export function skipOpenSeaBootstrapSteps(
+    stepsPort: Pick<BootstrapStepsPort, "markStepSkipped">,
+    runId: number,
+    reason: (typeof OPENSEA_BOOTSTRAP_SKIP_REASON)[keyof typeof OPENSEA_BOOTSTRAP_SKIP_REASON],
+): void {
+    for (const stepKey of OPENSEA_BOOTSTRAP_STEP_SEQUENCE)
+        stepsPort.markStepSkipped(runId, stepKey, reason);
+}
 
 export interface BootstrapOpenSeaStepsPort {
     getStep(
@@ -60,14 +77,12 @@ export function areOpenSeaBootstrapStepsTerminal(
 }
 
 // Marks one OpenSea phase as delegated running with a scheduler health-check deadline.
-export function markOpenSeaBootstrapStepDelegatedRunning(
-    input: {
-        stepsPort: BootstrapOpenSeaStepsPort;
-        payload: OpenSeaBootstrapCollectionPayload;
-        stepKey: OpenSeaBootstrapStepKey;
-        healthCheckAt: number;
-    },
-): void {
+export function markOpenSeaBootstrapStepDelegatedRunning(input: {
+    stepsPort: BootstrapOpenSeaStepsPort;
+    payload: OpenSeaBootstrapCollectionPayload;
+    stepKey: OpenSeaBootstrapStepKey;
+    healthCheckAt: number;
+}): void {
     const bootstrapRunId = input.payload.bootstrap?.runId;
     if (!bootstrapRunId) {
         return;

@@ -1,3 +1,5 @@
+import { seedBootstrapSnapshotRows } from "./helpers/bootstrap-snapshot-fixture.js";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { SYNC_APPLICATION_KIND } from "../src/domain/sync-work.js";
 import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
 import { FINALIZED_SYNC_CHECK_POLICY } from "./helpers/chain-fixture.js";
@@ -84,11 +86,11 @@ describe("verified reorg ownership rollback", () => {
     }
 
     it.each([99, 100])(
-        "refuses rollback from %i at or below a snapshot-only anchor without mutation",
+        "refuses snapshot-only rollback from %i without accepted chain history",
         async (fromBlock) => {
             const f = rollbackHarness(A);
             const bootstrap = new SqliteBootstrapStorage();
-            bootstrap.insertSnapshotRows([
+            seedBootstrapSnapshotRows([
                 {
                     runId: 1,
                     chainId: 1,
@@ -120,7 +122,7 @@ describe("verified reorg ownership rollback", () => {
         },
     );
 
-    it("rechecks an installed base changed during ownership RPC before rollback writes", async () => {
+    it("fences ownership work when its collection becomes invalid during RPC", async () => {
         const f = rollbackHarness(A);
         f.persist([f.transfer(103, 1, B, C)]);
         let before: ReturnType<typeof persistedState> | undefined;
@@ -128,9 +130,6 @@ describe("verified reorg ownership rollback", () => {
             db.prepare(
                 "UPDATE collections SET bootstrap_anchor_block=101 WHERE collection_id=?",
             ).run(f.collectionId);
-            db.prepare(
-                "UPDATE collection_ownership_bases SET anchor_block=101,anchor_hash=? WHERE collection_id=?",
-            ).run(block(101).hash, f.collectionId);
             before = persistedState();
             return A;
         });
@@ -145,7 +144,7 @@ describe("verified reorg ownership rollback", () => {
     });
 
     it.each([1, 2])(
-        "protects other anchors on the same chain and ignores chain %i when separate",
+        "invalidates crossed collection anchors only on affected chain %i",
         async (chainId) => {
             const f = rollbackHarness(A);
             f.persist([f.transfer(105, 1, B, C)]);
@@ -155,24 +154,27 @@ describe("verified reorg ownership rollback", () => {
                 address: D,
                 anchorBlock: 105,
             });
-            db.prepare(
-                "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,0,105,?)",
-            ).run(chainId, other, other, block(105).hash);
-            const before = persistedState();
             const attempt = prepareAndCommitRollbackFixture(
                 f.storage,
                 f.rollback,
                 { ...block(104), chainId: 1 },
             );
-            if (chainId === 1) {
-                await expect(attempt).rejects.toThrow(ChainSyncConflict);
-                expect(persistedState()).toEqual(before);
-            } else {
-                await attempt;
-                expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
-                    { owner: A, amount: "1" },
-                ]);
-            }
+            await attempt;
+            expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+                { owner: A, amount: "1" },
+            ]);
+            expect(
+                db
+                    .prepare(
+                        "SELECT status FROM collections WHERE collection_id=?",
+                    )
+                    .get(other),
+            ).toEqual({
+                status:
+                    chainId === 1
+                        ? COLLECTION_STATUS.Prepared
+                        : COLLECTION_STATUS.Live,
+            });
         },
     );
 
@@ -420,7 +422,7 @@ describe("verified reorg ownership rollback", () => {
             chainId: 1,
         });
         const bootstrap = new SqliteBootstrapStorage();
-        bootstrap.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 1,
                 chainId: 1,
@@ -441,7 +443,7 @@ describe("verified reorg ownership rollback", () => {
                 anchorHash: block(100).hash,
                 anchorTimestamp: 100,
             }),
-        ).toThrow("different bootstrap ownership base");
+        ).toThrow("cannot replace an applied collection snapshot");
         expect(
             db
                 .prepare(

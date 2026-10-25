@@ -3,6 +3,11 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { SYNC_WORK_CLASS } from "@artgod/shared/types/sync-work-class";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+} from "@artgod/shared/bootstrap/pipeline";
 import { RpcBudgetDeferred } from "@artgod/shared/evm/rpc-budget";
 import { startAutomaticSyncLoop } from "../src/application/automatic-sync-executor.js";
 import { ChainSyncConflict } from "../src/domain/chain-sync.js";
@@ -11,7 +16,7 @@ import {
     COORDINATED_SYNC_FIXTURE as F,
     createCoordinatorFixture,
     installedCoordinatorCollection,
-    retainInstalledCoordinatorBase,
+    authorizeCoordinatorBootstrapCatchup,
 } from "./helpers/coordinated-sync-fixture.js";
 import { syncBlockFixture } from "./helpers/chain-fixture.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
@@ -188,7 +193,7 @@ describe("ordered automatic sync coordinator", () => {
     it("accepts a fresh joining ownership base only after shared history reaches its anchor", async () => {
         const s = createCoordinatorFixture({ now: () => now });
         const joining = installedCoordinatorCollection("joining", 902);
-        retainInstalledCoordinatorBase(joining.id, 902);
+        authorizeCoordinatorBootstrapCatchup(joining.id, 902);
         s.sample(904);
         await s.executor.runDue();
         expect(s.progress.collectionProgress(F.chainId, joining.id)).toBeNull();
@@ -217,14 +222,14 @@ describe("ordered automatic sync coordinator", () => {
             now: () => now,
             collectionCount: 0,
         });
-        // Only the fast bootstrap has installed balances when shared startup runs.
+        // Chain startup follows sampled head independently of either collection.
         db.exec("DELETE FROM chain_sync_progress; DELETE FROM blocks;");
         const slow = installedCoordinatorCollection("slow-older", 898);
         const fast = installedCoordinatorCollection("fast-newer", 901);
-        retainInstalledCoordinatorBase(fast.id, 901);
+        authorizeCoordinatorBootstrapCatchup(fast.id, 901);
         s.sample(904);
         await drain(s.executor);
-        retainInstalledCoordinatorBase(slow.id, 898);
+        authorizeCoordinatorBootstrapCatchup(slow.id, 898);
         return { ...s, slow, fast };
     }
 
@@ -240,10 +245,10 @@ describe("ordered automatic sync coordinator", () => {
         expect(
             s.progress.validationCheckpoint(F.chainId, s.fast.id)?.block.number,
         ).toBe(904);
-        await s.executor.runDue(); // Scoped 900 still has not joined shared base.
+        await s.executor.runDue(); // Scoped 900 joins the independent chain start.
         expect(
-            s.progress.validationCheckpoint(F.chainId, s.slow.id),
-        ).toBeNull();
+            s.progress.validationCheckpoint(F.chainId, s.slow.id)?.block.number,
+        ).toBe(900);
         await s.executor.runDue(); // Exact shared 901 joins both prefixes.
         expect(
             s.progress.validationCheckpoint(F.chainId, s.slow.id)?.block.number,
@@ -253,7 +258,7 @@ describe("ordered automatic sync coordinator", () => {
             s.progress.validationCheckpoint(F.chainId, s.slow.id)?.block.number,
         ).toBe(904);
         expect(s.progress.chainProgress(F.chainId)).toMatchObject({
-            anchor: { number: 901 },
+            anchor: { number: 900 },
             applied: { number: 904 },
         });
         expect(s.historical.state.logReads).toHaveLength(0);
@@ -271,7 +276,7 @@ describe("ordered automatic sync coordinator", () => {
         expect(
             s.progress.collectionProgress(F.chainId, s.slow.id)?.applied.number,
         ).toBe(900);
-        expect(s.progress.chainProgress(F.chainId)?.anchor.number).toBe(901);
+        expect(s.progress.chainProgress(F.chainId)?.anchor.number).toBe(900);
         expect(
             s.progress.validationCheckpoint(F.chainId, s.slow.id),
         ).toBeNull();
@@ -299,28 +304,156 @@ describe("ordered automatic sync coordinator", () => {
         expect(
             s.progress.collectionProgress(F.chainId, s.slow.id)?.applied.number,
         ).toBe(898);
-        expect(s.storage.getBlockHash(F.chainId, 899)).toBeNull();
+        expect(s.storage.getBlockHash(F.chainId, 899)).toBe(
+            syncBlockFixture(899).hash,
+        );
         expect(
             s.progress.validationCheckpoint(F.chainId, s.fast.id)?.block.number,
         ).toBe(904);
     });
 
+    it("starts chain acquisition without borrowing a collection bootstrap anchor", async () => {
+        const s = createCoordinatorFixture({ collectionCount: 0 });
+        db.exec("DELETE FROM chain_sync_progress; DELETE FROM blocks;");
+        s.sample(F.head);
+        await drain(s.executor);
+        expect(s.progress.chainProgress(F.chainId)).toMatchObject({
+            anchor: { number: F.head - F.reorgDepth },
+            applied: { number: F.head },
+        });
+        expect(
+            s.storage.getBlockHash(F.chainId, F.head - 2 * F.reorgDepth),
+        ).toBe(syncBlockFixture(F.head - 2 * F.reorgDepth).hash);
+    });
+
+    it("excludes pre-Backfill work, resumes only the delegated range, then follows heads after Live", async () => {
+        const s = createCoordinatorFixture({ batchSize: 2 });
+        const joining = installedCoordinatorCollection(
+            "bounded-bootstrap",
+            F.anchor,
+        );
+        const runId = authorizeCoordinatorBootstrapCatchup(
+            joining.id,
+            F.anchor,
+            902,
+        );
+        db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+            BOOTSTRAP_RUN_STATUS.Ownership,
+            runId,
+        );
+        s.sample(F.head);
+        await drain(s.executor);
+        expect(s.progress.collectionProgress(F.chainId, joining.id)).toBeNull();
+        expect(
+            s.remote.state.logReads.filter(
+                (read) => read.address === joining.address,
+            ),
+        ).toEqual([]);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(F.head);
+
+        db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+            BOOTSTRAP_RUN_STATUS.Backfill,
+            runId,
+        );
+        await drain(s.executor);
+        expect(
+            s.progress.collectionProgress(F.chainId, joining.id)?.applied
+                .number,
+        ).toBe(902);
+        s.sample(905);
+        await drain(s.restart().executor);
+        expect(
+            s.progress.collectionProgress(F.chainId, joining.id)?.applied
+                .number,
+        ).toBe(902);
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(905);
+
+        // Finalization's atomic writer has separate lifecycle coverage. Here its
+        // completed state authorizes the same coordinator to follow later heads.
+        db.writeTransaction(() => {
+            db.prepare(
+                "UPDATE collections SET status=? WHERE collection_id=?",
+            ).run(COLLECTION_STATUS.Live, joining.id);
+            db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+                BOOTSTRAP_RUN_STATUS.Completed,
+                runId,
+            );
+        })();
+        await drain(s.restart().executor);
+        expect(
+            s.progress.collectionProgress(F.chainId, joining.id)?.applied
+                .number,
+        ).toBe(905);
+    });
+
+    it("rejects collection effects if its bootstrap loses authority during range RPC", async () => {
+        const s = createCoordinatorFixture();
+        const joining = installedCoordinatorCollection(
+            "failed-during-catchup",
+            F.anchor,
+        );
+        const runId = authorizeCoordinatorBootstrapCatchup(
+            joining.id,
+            F.anchor,
+        );
+        s.sample(F.head);
+        s.remote.state.beforeLogs = async (filter) => {
+            if (filter.address === joining.address)
+                db.prepare(
+                    "UPDATE bootstrap_runs SET status=? WHERE run_id=?",
+                ).run(BOOTSTRAP_RUN_STATUS.Failed, runId);
+        };
+        await drain(s.executor);
+        expect(
+            s.progress.collectionProgress(F.chainId, joining.id)?.applied
+                .number,
+        ).toBe(F.anchor);
+        expect(
+            db
+                .prepare(
+                    "SELECT 1 FROM collection_sync_blocks WHERE chain_id=? AND collection_id=? AND block_number>?",
+                )
+                .all(F.chainId, joining.id, F.anchor),
+        ).toEqual([]);
+        expect(
+            s.progress.validationCheckpoint(F.chainId, joining.id),
+        ).toBeNull();
+        expect(
+            s.progress.collectionProgress(F.chainId, s.collections[0]!.id)
+                ?.applied.number,
+        ).toBe(F.head);
+    });
+
     it("defers failed older-base verification while healthy applied scopes and another base progress", async () => {
         const s = await newerSharedBaseWithSlowCollection();
         const other = installedCoordinatorCollection("other-older", 899);
-        retainInstalledCoordinatorBase(other.id, 899);
+        authorizeCoordinatorBootstrapCatchup(other.id, 899, 905);
+        s.remote.state.blockReads.length = 0;
         s.remote.state.beforeBlock = async (number) => {
             if (number === 898) throw new Error("older anchor unavailable");
         };
+        db.prepare("UPDATE collections SET status=? WHERE collection_id=?").run(
+            COLLECTION_STATUS.Live,
+            s.fast.id,
+        );
+        db.prepare(
+            "UPDATE bootstrap_runs SET status=? WHERE collection_id=?",
+        ).run(BOOTSTRAP_RUN_STATUS.Completed, s.fast.id);
         s.sample(905);
         await s.executor.runDue();
         expect(s.progress.collectionProgress(F.chainId, s.slow.id)).toBeNull();
         expect(
             db
                 .prepare(
-                    "SELECT retry_at FROM collection_ownership_bases WHERE collection_id=?",
+                    "SELECT json_extract(s.result_json,'$.baseRetryAt') AS retry_at FROM bootstrap_run_steps s JOIN bootstrap_runs r ON r.run_id=s.run_id WHERE r.collection_id=? AND s.step_key=?",
                 )
-                .get(s.slow.id),
+                .get(s.slow.id, BOOTSTRAP_STEP_KEY.Backfill),
         ).toEqual({ retry_at: now + F.retryDelayMs });
         await drain(s.executor);
         expect(
@@ -343,7 +476,7 @@ describe("ordered automatic sync coordinator", () => {
         expect(
             resumed.progress.validationCheckpoint(F.chainId, s.slow.id)?.block
                 .number,
-        ).toBe(905);
+        ).toBe(904);
     });
 
     it("retries a rejected candidate without advancing either prefix or publishing its facts", async () => {

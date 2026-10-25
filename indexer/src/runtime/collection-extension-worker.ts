@@ -8,6 +8,7 @@ import { BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE } from "../appl
 import { type BootstrapTemporaryDataCleanupResult } from "../application/bootstrap-temporary-data-cleanup.js";
 import {
     handleCollectionExtensionRefreshArtifactsJob,
+    COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS,
     type CollectionExtensionRefreshArtifactsResult,
 } from "../application/collection-extensions/refresh-artifacts-worker.js";
 import {
@@ -229,6 +230,18 @@ async function refreshArtifacts(input: {
                   BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.ImplementationMissing,
           }
         : undefined;
+    // Task settlement alone cannot fence writes made during extension refresh.
+    // Use the same output adapter with the owning run checked in each writer.
+    const outputs = input.collectionExtensions.forRefresh(
+        job.payload,
+        job.payload.bootstrap?.runId,
+    );
+    if (!outputs)
+        return {
+            status: COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS.Skipped,
+            attributesChanged: false,
+            extensionKey: null,
+        };
 
     // Delegate extension refresh while preserving bootstrap task failure semantics.
     return handleCollectionExtensionRefreshArtifactsJob(
@@ -236,10 +249,10 @@ async function refreshArtifacts(input: {
         input.queue,
         input.rpc,
         input.metadataFetcher,
-        input.collectionExtensions,
-        input.collectionExtensions,
-        input.collectionExtensions,
-        input.collectionExtensions,
+        outputs,
+        outputs,
+        outputs,
+        outputs,
         undefined,
         bootstrapFailureOptions,
     );

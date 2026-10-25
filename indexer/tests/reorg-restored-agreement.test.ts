@@ -14,7 +14,7 @@ import { ChainSyncConflict } from "../src/domain/chain-sync.js";
 import {
     createCoordinatorFixture,
     installedCoordinatorCollection,
-    retainInstalledCoordinatorBase,
+    authorizeCoordinatorBootstrapCatchup,
     COORDINATED_SYNC_FIXTURE as F,
 } from "./helpers/coordinated-sync-fixture.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
@@ -105,7 +105,7 @@ describe("restored canonical agreement", () => {
         f.sample(F.head);
         await drain(f);
         const joining = installedCoordinatorCollection("newer-base", 903);
-        retainInstalledCoordinatorBase(joining.id, 903);
+        authorizeCoordinatorBootstrapCatchup(joining.id, 903, F.head);
         const original = f.remote.rpc.getBlock;
         mismatch(f, F.anchor, "restored-after-restart");
         f.remote.rpc.getBlock = async () => {
@@ -139,7 +139,7 @@ describe("restored canonical agreement", () => {
         expect(
             db
                 .prepare(
-                    "SELECT anchor_block FROM collection_ownership_bases WHERE chain_id=? AND collection_id=?",
+                    "SELECT anchor_block FROM collection_sync_progress WHERE chain_id=? AND collection_id=?",
                 )
                 .get(F.chainId, joining.id),
         ).toEqual({ anchor_block: 903 });

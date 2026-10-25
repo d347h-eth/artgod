@@ -10,17 +10,42 @@ import {
     markOpenSeaBootstrapStepRetry,
     markOpenSeaBootstrapStepSucceeded,
     markOpenSeaBootstrapTerminalFailure,
+    OPENSEA_BOOTSTRAP_SKIP_REASON,
+    OPENSEA_BOOTSTRAP_STEP_SEQUENCE,
+    skipOpenSeaBootstrapSteps,
     type BootstrapOpenSeaStepsPort,
     type OpenSeaBootstrapStepKey,
 } from "../src/application/bootstrap-opensea-steps.js";
 
 describe("bootstrap OpenSea steps", () => {
+    it("settles all post-live steps when marketplace work cannot be scheduled", () => {
+        const skipped: Array<{
+            runId: number;
+            stepKey: string;
+            reason: string;
+        }> = [];
+        skipOpenSeaBootstrapSteps(
+            {
+                markStepSkipped: (runId, stepKey, reason) => {
+                    skipped.push({ runId, stepKey, reason });
+                },
+            },
+            41,
+            OPENSEA_BOOTSTRAP_SKIP_REASON.IntegrationDisabled,
+        );
+        expect(skipped).toEqual(
+            OPENSEA_BOOTSTRAP_STEP_SEQUENCE.map((stepKey) => ({
+                runId: 41,
+                stepKey,
+                reason: OPENSEA_BOOTSTRAP_SKIP_REASON.IntegrationDisabled,
+            })),
+        );
+    });
     it("detects when all OpenSea bootstrap steps are terminal", () => {
         const steps = createStepsPort({
             [BOOTSTRAP_STEP_KEY.OpenSeaIdentity]:
                 BOOTSTRAP_STEP_STATUS.Succeeded,
-            [BOOTSTRAP_STEP_KEY.OpenSeaSnapshot]:
-                BOOTSTRAP_STEP_STATUS.Skipped,
+            [BOOTSTRAP_STEP_KEY.OpenSeaSnapshot]: BOOTSTRAP_STEP_STATUS.Skipped,
             [BOOTSTRAP_STEP_KEY.OpenSeaReady]:
                 BOOTSTRAP_STEP_STATUS.FailedTerminal,
         });
@@ -138,7 +163,9 @@ describe("bootstrap OpenSea steps", () => {
 });
 
 function createStepsPort(
-    statuses: Partial<Record<OpenSeaBootstrapStepKey, BootstrapStepStatus>> = {},
+    statuses: Partial<
+        Record<OpenSeaBootstrapStepKey, BootstrapStepStatus>
+    > = {},
 ): BootstrapOpenSeaStepsPort & {
     delegatedRunning: Array<{
         runId: number;

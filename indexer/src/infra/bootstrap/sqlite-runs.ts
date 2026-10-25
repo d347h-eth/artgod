@@ -66,7 +66,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
         anchorHash: string;
         anchorTimestamp: number;
     }>(
-        "UPDATE bootstrap_runs SET anchor_block = @anchorBlock, anchor_block_hash = @anchorHash, anchor_block_timestamp = @anchorTimestamp, updated_at = CURRENT_TIMESTAMP WHERE run_id = @runId",
+        `UPDATE bootstrap_runs SET anchor_block = @anchorBlock, anchor_block_hash = @anchorHash, anchor_block_timestamp = @anchorTimestamp, updated_at = CURRENT_TIMESTAMP WHERE run_id = @runId AND status <> '${BOOTSTRAP_RUN_STATUS.Failed}'`,
     );
 
     private insertRunEventStmt = db.prepare<{

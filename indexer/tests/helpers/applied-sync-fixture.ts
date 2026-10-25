@@ -1,4 +1,3 @@
-import { db } from "@artgod/shared/database";
 import type { CollectionRecord } from "../../src/domain/collections.js";
 import type { SyncBlockHeader } from "../../src/domain/chain-sync.js";
 import type { OnChainData } from "../../src/domain/onchain.js";
@@ -23,8 +22,8 @@ import { emptyOnChainData } from "./ownership-fixture.js";
 
 /** Real applied-progress and atomic writer adapters for ownership/storage tests.
  * Collections and their known anchored balances are caller-owned fixtures. The
- * installed-base record represents an already verified bootstrap snapshot; its
- * lease/task/snapshot proof is covered by bootstrap installer tests separately.
+ * live collection represents an already completed bootstrap; its run handoff
+ * and snapshot proof are covered by bootstrap/coordinator tests separately.
  * This helper never promotes existing sparse headers into applied coverage. */
 export function createAppliedSyncFixture(input: {
     chainId: number;
@@ -48,19 +47,7 @@ export function createAppliedSyncFixture(input: {
             throw new Error(
                 "Applied fixture collection must use the explicit chain anchor",
             );
-        db.writeTransaction(() => {
-            db.prepare(
-                "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?) ON CONFLICT(chain_id,collection_id) DO NOTHING",
-            ).run(
-                chainId,
-                collection.id,
-                collection.id,
-                checkpoint.revision,
-                anchor.number,
-                anchor.hash,
-            );
-            progress.acceptCollectionBase(checkpoint, collection.id, anchor);
-        })();
+        progress.acceptCollectionBase(checkpoint, collection.id, anchor);
     }
     const writer = new SqliteSyncRangeCommit({
         storage,

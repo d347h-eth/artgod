@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
@@ -11,10 +11,6 @@ import {
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
-import {
-    OPENSEA_INTEGRATION_MODE,
-    type OpenSeaIntegrationStatus,
-} from "@artgod/shared/config/opensea-integration";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { BootstrapAnchorExecutor } from "../src/application/bootstrap-anchor-executor.js";
@@ -24,10 +20,7 @@ import {
     BootstrapBackfillExecutor,
     type BootstrapBackfillQueuePort,
 } from "../src/application/bootstrap-backfill-executor.js";
-import {
-    BootstrapCollectionLiveExecutor,
-    type BootstrapCollectionLiveQueuePort,
-} from "../src/application/bootstrap-collection-live-executor.js";
+import { BootstrapCollectionLiveExecutor } from "../src/application/bootstrap-collection-live-executor.js";
 import {
     BootstrapStepScheduler,
     type BootstrapStepSchedulerRunsPort,
@@ -41,21 +34,19 @@ import {
     CollectionTokenScope,
     COLLECTION_STANDARD,
 } from "../src/domain/collections.js";
-import type { MetadataStatsRecomputePayload } from "../src/domain/domain-jobs.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteChainProgress } from "../src/infra/storage/sqlite-chain-progress.js";
-import { persistCanonicalBlocks } from "../src/infra/storage/sqlite-canonical-headers.js";
-import { captureChainSyncCheckpoint } from "../src/infra/storage/sqlite-chain-revisions.js";
 import type { Hex, RpcBlock } from "../src/ports/rpc.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { createCoordinatorFixture } from "./helpers/coordinated-sync-fixture.js";
+import { syncBlockFixture } from "./helpers/chain-fixture.js";
 
 const TEST_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
-const TEST_ANCHOR_HASH =
-    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const TEST_ANCHOR_HASH = syncBlockFixture(900).hash;
 const TEST_MAIN_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Anchor,
     BOOTSTRAP_STEP_KEY.Enumeration,
@@ -75,33 +66,9 @@ const TEST_BACKFILL_CHECK_DELAY_MS = 5_000;
 describe("bootstrap pipeline lifecycle", () => {
     loadTestEnv();
 
-    beforeAll(async () => {
-        const dbPath = await createTempDbPath();
-        setDbPath(dbPath);
-        const migrations = createMigrationRunner();
-        await migrations.runMigrations();
-    });
-
-    beforeEach(() => {
-        db.exec(
-            [
-                "DELETE FROM collection_sync_progress;",
-                "DELETE FROM collection_ownership_bases;",
-                "DELETE FROM chain_sync_progress;",
-                "DELETE FROM chain_head_samples;",
-                "DELETE FROM chain_sync_targets;",
-                "DELETE FROM blocks;",
-                "DELETE FROM chain_sync_revisions;",
-                "DELETE FROM bootstrap_run_events;",
-                "DELETE FROM bootstrap_run_steps;",
-                "DELETE FROM bootstrap_metadata_snapshot_tasks;",
-                "DELETE FROM bootstrap_image_cache_tasks;",
-                "DELETE FROM bootstrap_ownership_snapshot_tasks;",
-                "DELETE FROM nft_balance_snapshots;",
-                "DELETE FROM bootstrap_runs;",
-                "DELETE FROM collections;",
-            ].join("\n"),
-        );
+    beforeEach(async () => {
+        setDbPath(await createTempDbPath());
+        await createMigrationRunner().runMigrations();
     });
 
     it("drives anchor, enumeration seed, and no-post-anchor live completion through SQLite adapters", async () => {
@@ -129,13 +96,9 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
         const progress = new SqliteChainProgress();
-        const statsRecomputeRequests: Array<{
-            payload: MetadataStatsRecomputePayload;
-            traceId: string;
-        }> = [];
         const anchorExecutor = new BootstrapAnchorExecutor(
             {
-                getBlockNumber: async () => 110,
+                getBlockNumber: async () => 910,
                 getBlock: async (blockNumber) => buildBlock(blockNumber),
             },
             bootstrapRuns,
@@ -157,30 +120,42 @@ describe("bootstrap pipeline lifecycle", () => {
         );
         const backfillExecutor = new BootstrapBackfillExecutor(
             {
-                getBlockNumber: async () => 100,
+                getBlockNumber: async () => 900,
             },
             progress,
-            collections,
             bootstrapRuns,
             bootstrapSteps,
-            backfillQueuePort(statsRecomputeRequests),
+            backfillQueuePort(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
             bootstrapRuns,
             bootstrapSteps,
             bootstrapStorage,
-            backfillQueuePort(statsRecomputeRequests),
             progress,
+            {
+                getBlockNumber: async () => 910,
+                getBlock: async (number) => buildBlock(number),
+            },
+            10,
         );
 
         const run = bootstrapRuns.getRun(runId);
         if (!run) {
             throw new Error("Missing seeded bootstrap run");
         }
+        bootstrapSteps.claimReadySteps({
+            runId,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Anchor],
+            leaseOwner: "anchor-test",
+            nowMs: Date.now(),
+            leaseUntil: Date.now() + 60_000,
+            limit: 1,
+        });
         const anchorResult = await anchorExecutor.anchor({
             run,
             reorgDepth: 10,
+            leaseOwner: "anchor-test",
         });
         if (!anchorResult.anchor) {
             throw new Error("Expected anchor selection");
@@ -220,22 +195,41 @@ describe("bootstrap pipeline lifecycle", () => {
             total: 2,
         });
 
-        acceptOwnershipBase(runId, collectionId);
         const backfillResult = await backfillExecutor.scheduleAfterSnapshot({
             chainId: 1,
             runId,
             collectionId,
             address: TEST_CONTRACT_ADDRESS,
-            anchorBlock: 100,
+            anchorBlock: 900,
             anchorHash: TEST_ANCHOR_HASH,
-            openSeaIntegration: disabledOpenSeaIntegration(),
             traceId: "trace-1",
             sourceJobId: "job-1",
         });
 
         expect(backfillResult.outcome).toBe(
-            BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CompletedWithoutBackfill,
+            BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued,
         );
+        expect(progress.collectionProgress(1, collectionId)).toBeNull();
+        await applyEmptyCatchup(collectionId, 900);
+        await backfillExecutor.executeStep({
+            chainId: 1,
+            runId,
+            collectionId,
+            address: TEST_CONTRACT_ADDRESS,
+            anchorBlock: 900,
+            anchorHash: TEST_ANCHOR_HASH,
+            traceId: "trace-1",
+            sourceJobId: "job-1",
+        });
+        bootstrapSteps.markStepReady(runId, BOOTSTRAP_STEP_KEY.CollectionLive);
+        bootstrapSteps.claimReadySteps({
+            runId,
+            stepKeys: [BOOTSTRAP_STEP_KEY.CollectionLive],
+            leaseOwner: "live-test",
+            nowMs: Date.now(),
+            leaseUntil: Date.now() + 60_000,
+            limit: 1,
+        });
         const collectionLiveRun = bootstrapRuns.getRun(runId);
         const collectionLiveStep = bootstrapSteps.getStep(
             runId,
@@ -303,11 +297,11 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(collections.getCollection(1, collectionId)).toEqual(
             expect.objectContaining({
                 status: COLLECTION_STATUS.Live,
-                bootstrapAnchorBlock: 100,
-                bootstrapLastSyncedBlock: 100,
+                bootstrapAnchorBlock: 900,
+                bootstrapLastSyncedBlock: 900,
             }),
         );
-        expect(statsRecomputeRequests).toEqual([
+        expect(statsRecomputeRequests()).toEqual([
             expect.objectContaining({
                 payload: expect.objectContaining({
                     chainId: 1,
@@ -322,10 +316,76 @@ describe("bootstrap pipeline lifecycle", () => {
             BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
             BOOTSTRAP_RUN_EVENT_CODE.MetadataTasksSeeded,
             BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued,
-            BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
+            BOOTSTRAP_RUN_EVENT_CODE.BackfillQueued,
             BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         ]);
     });
+
+    it.each(["expired lease", "replaced lease", "writer failure"] as const)(
+        "keeps anchor publication coherent after %s",
+        async (failure) => {
+            const collectionId = seedCollection();
+            const runId = seedBootstrapRun(collectionId);
+            seedBootstrapStep(runId, BOOTSTRAP_STEP_KEY.Anchor);
+            const runs = new SqliteBootstrapRuns();
+            const steps = new SqliteBootstrapSteps();
+            const collections = new SqliteCollectionRegistry();
+            steps.claimReadySteps({
+                runId,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Anchor],
+                leaseOwner: "anchor-test",
+                nowMs: Date.now(),
+                leaseUntil: Date.now() + 60_000,
+                limit: 1,
+            });
+            if (failure === "writer failure")
+                db.exec(
+                    "CREATE TRIGGER reject_collection_anchor BEFORE UPDATE OF bootstrap_anchor_block ON collections BEGIN SELECT RAISE(ABORT,'test anchor failure'); END",
+                );
+            const executor = new BootstrapAnchorExecutor(
+                {
+                    getBlockNumber: async () => 910,
+                    getBlock: async (number) => {
+                        if (failure === "expired lease")
+                            db.prepare(
+                                "UPDATE bootstrap_run_steps SET lease_until=0 WHERE run_id=? AND step_key=?",
+                            ).run(runId, BOOTSTRAP_STEP_KEY.Anchor);
+                        if (failure === "replaced lease")
+                            db.prepare(
+                                "UPDATE bootstrap_run_steps SET lease_owner='replacement' WHERE run_id=? AND step_key=?",
+                            ).run(runId, BOOTSTRAP_STEP_KEY.Anchor);
+                        return buildBlock(number);
+                    },
+                },
+                runs,
+                steps,
+                collections,
+            );
+            await expect(
+                executor.anchor({
+                    run: runs.getRun(runId)!,
+                    reorgDepth: 10,
+                    leaseOwner: "anchor-test",
+                }),
+            ).rejects.toThrow(
+                failure === "writer failure"
+                    ? "test anchor failure"
+                    : "lost its current claim",
+            );
+            expect(runs.getRun(runId)).toMatchObject({
+                status: BOOTSTRAP_RUN_STATUS.Queued,
+                anchorBlock: null,
+            });
+            expect(
+                steps.getStep(runId, BOOTSTRAP_STEP_KEY.Anchor)?.status,
+            ).toBe(BOOTSTRAP_STEP_STATUS.Running);
+            expect(
+                collections.getCollection(1, collectionId)
+                    ?.bootstrapAnchorBlock,
+            ).toBeNull();
+            expect(listRunEventCodes(runId)).toEqual([]);
+        },
+    );
 
     it("drives the blocking lane through the step scheduler", async () => {
         const collectionId = seedCollection();
@@ -350,15 +410,11 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps(() => 1_000);
         const bootstrapStorage = new SqliteBootstrapStorage();
-        const collections = new SqliteCollectionRegistry();
+        const collections = new SqliteCollectionRegistry(() => 1_000);
         const progress = new SqliteChainProgress();
-        const statsRecomputeRequests: Array<{
-            payload: MetadataStatsRecomputePayload;
-            traceId: string;
-        }> = [];
         const anchorExecutor = new BootstrapAnchorExecutor(
             {
-                getBlockNumber: async () => 110,
+                getBlockNumber: async () => 910,
                 getBlock: async (blockNumber) => buildBlock(blockNumber),
             },
             bootstrapRuns,
@@ -376,21 +432,24 @@ describe("bootstrap pipeline lifecycle", () => {
         );
         const backfillExecutor = new BootstrapBackfillExecutor(
             {
-                getBlockNumber: async () => 100,
+                getBlockNumber: async () => 900,
             },
             progress,
-            collections,
             bootstrapRuns,
             bootstrapSteps,
-            backfillQueuePort(statsRecomputeRequests),
+            backfillQueuePort(),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
             bootstrapRuns,
             bootstrapSteps,
             bootstrapStorage,
-            backfillQueuePort(statsRecomputeRequests),
             progress,
+            {
+                getBlockNumber: async () => 910,
+                getBlock: async (number) => buildBlock(number),
+            },
+            10,
         );
         const scheduler = new BootstrapStepScheduler(
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
@@ -403,7 +462,11 @@ describe("bootstrap pipeline lifecycle", () => {
                     leaseOwner,
                 }) => {
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Anchor) {
-                        await anchorExecutor.anchor({ run, reorgDepth: 10 });
+                        await anchorExecutor.anchor({
+                            run,
+                            reorgDepth: 10,
+                            leaseOwner,
+                        });
                     } else if (
                         step.stepKey === BOOTSTRAP_STEP_KEY.Enumeration
                     ) {
@@ -442,7 +505,6 @@ describe("bootstrap pipeline lifecycle", () => {
                             { completed: 2, total: 2 },
                         );
                     } else if (step.stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
-                        acceptOwnershipBase(run.runId, run.collectionId);
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Ownership,
@@ -459,7 +521,20 @@ describe("bootstrap pipeline lifecycle", () => {
                             address: run.requestAddress,
                             anchorBlock: run.anchorBlock,
                             anchorHash: run.anchorBlockHash!,
-                            openSeaIntegration: disabledOpenSeaIntegration(),
+                            traceId,
+                            sourceJobId: "scheduler-job-1",
+                        });
+                        expect(
+                            progress.collectionProgress(1, collectionId),
+                        ).toBeNull();
+                        await applyEmptyCatchup(collectionId, 900, 1_000);
+                        await backfillExecutor.executeStep({
+                            chainId: run.chainId,
+                            runId: run.runId,
+                            collectionId: run.collectionId,
+                            address: run.requestAddress,
+                            anchorBlock: run.anchorBlock,
+                            anchorHash: run.anchorBlockHash!,
                             traceId,
                             sourceJobId: "scheduler-job-1",
                         });
@@ -511,11 +586,11 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(collections.getCollection(1, collectionId)).toEqual(
             expect.objectContaining({
                 status: COLLECTION_STATUS.Live,
-                bootstrapAnchorBlock: 100,
-                bootstrapLastSyncedBlock: 100,
+                bootstrapAnchorBlock: 900,
+                bootstrapLastSyncedBlock: 900,
             }),
         );
-        expect(statsRecomputeRequests).toEqual([
+        expect(statsRecomputeRequests()).toEqual([
             expect.objectContaining({
                 payload: expect.objectContaining({
                     chainId: 1,
@@ -551,18 +626,14 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps(() => nowMs);
         const bootstrapStorage = new SqliteBootstrapStorage();
-        const collections = new SqliteCollectionRegistry();
-        const statsRecomputeRequests: Array<{
-            payload: MetadataStatsRecomputePayload;
-            traceId: string;
-        }> = [];
+        const collections = new SqliteCollectionRegistry(() => nowMs);
         const backfillRanges: Array<{
             fromBlock: number;
             toBlock: number;
         }> = [];
         const anchorExecutor = new BootstrapAnchorExecutor(
             {
-                getBlockNumber: async () => 110,
+                getBlockNumber: async () => 910,
                 getBlock: async (blockNumber) => buildBlock(blockNumber),
             },
             bootstrapRuns,
@@ -580,21 +651,24 @@ describe("bootstrap pipeline lifecycle", () => {
         );
         const backfillExecutor = new BootstrapBackfillExecutor(
             {
-                getBlockNumber: async () => 105,
+                getBlockNumber: async () => 905,
             },
             progress,
-            collections,
             bootstrapRuns,
             bootstrapSteps,
-            backfillQueuePort(statsRecomputeRequests, backfillRanges),
+            backfillQueuePort(backfillRanges),
         );
         const collectionLiveExecutor = new BootstrapCollectionLiveExecutor(
             collections,
             bootstrapRuns,
             bootstrapSteps,
             bootstrapStorage,
-            backfillQueuePort(statsRecomputeRequests),
             progress,
+            {
+                getBlockNumber: async () => 910,
+                getBlock: async (number) => buildBlock(number),
+            },
+            10,
         );
         const scheduler = new BootstrapStepScheduler(
             bootstrapRuns as BootstrapStepSchedulerRunsPort,
@@ -607,7 +681,11 @@ describe("bootstrap pipeline lifecycle", () => {
                     leaseOwner,
                 }) => {
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Anchor) {
-                        await anchorExecutor.anchor({ run, reorgDepth: 10 });
+                        await anchorExecutor.anchor({
+                            run,
+                            reorgDepth: 10,
+                            leaseOwner,
+                        });
                         return terminalStepResult();
                     }
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Enumeration) {
@@ -650,7 +728,6 @@ describe("bootstrap pipeline lifecycle", () => {
                         return terminalStepResult();
                     }
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
-                        acceptOwnershipBase(run.runId, run.collectionId);
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Ownership,
@@ -669,7 +746,6 @@ describe("bootstrap pipeline lifecycle", () => {
                             address: run.requestAddress,
                             anchorBlock: run.anchorBlock,
                             anchorHash: run.anchorBlockHash!,
-                            openSeaIntegration: disabledOpenSeaIntegration(),
                             traceId,
                             sourceJobId: "scheduler-job-2",
                         });
@@ -719,7 +795,8 @@ describe("bootstrap pipeline lifecycle", () => {
             runId,
             BOOTSTRAP_STEP_KEY.Backfill,
         );
-        applyEmptyCatchup(collectionId);
+        expect(progress.collectionProgress(1, collectionId)).toBeNull();
+        await applyEmptyCatchup(collectionId, 905, nowMs);
         nowMs += TEST_BACKFILL_CHECK_DELAY_MS;
         const completed = await scheduler.runOnce(input);
 
@@ -739,8 +816,8 @@ describe("bootstrap pipeline lifecycle", () => {
         );
         expect(backfillRanges).toEqual([
             {
-                fromBlock: 101,
-                toBlock: 105,
+                fromBlock: 901,
+                toBlock: 905,
             },
         ]);
         expect(completed.claimedStepKeys).toEqual([
@@ -753,7 +830,7 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(collections.getCollection(1, collectionId)).toEqual(
             expect.objectContaining({
                 status: COLLECTION_STATUS.Live,
-                bootstrapLastSyncedBlock: 105,
+                bootstrapLastSyncedBlock: 905,
             }),
         );
     });
@@ -826,15 +903,8 @@ function seedBootstrapStep(
 }
 
 function backfillQueuePort(
-    statsRecomputeRequests: Array<{
-        payload: MetadataStatsRecomputePayload;
-        traceId: string;
-    }>,
-    backfillRanges: Array<{
-        fromBlock: number;
-        toBlock: number;
-    }> = [],
-): BootstrapBackfillQueuePort & BootstrapCollectionLiveQueuePort {
+    backfillRanges: Array<{ fromBlock: number; toBlock: number }> = [],
+): BootstrapBackfillQueuePort {
     return {
         scheduleBackfillRange: async (request) => {
             backfillRanges.push({
@@ -843,37 +913,21 @@ function backfillQueuePort(
             });
         },
         scheduleBackfillCheck: async () => {},
-        scheduleOpenSeaBootstrap: async () => {
-            throw new Error("OpenSea bootstrap should be skipped");
-        },
-        enqueueBootstrapFinalStats: async (request) => {
-            statsRecomputeRequests.push({
-                payload: request.payload,
-                traceId: request.traceId,
-            });
-        },
     };
 }
 
-function disabledOpenSeaIntegration(): OpenSeaIntegrationStatus {
-    return {
-        enabled: false,
-        mode: OPENSEA_INTEGRATION_MODE.Disabled,
-        reason: "disabled in lifecycle test",
-        missingKeys: [],
-        requiredKeys: [],
-    };
+function statsRecomputeRequests() {
+    return (
+        db
+            .prepare(
+                "SELECT stats_job_json FROM metadata_refresh_runs ORDER BY run_id",
+            )
+            .all() as { stats_job_json: string }[]
+    ).map((row) => JSON.parse(row.stats_job_json));
 }
 
 function buildBlock(blockNumber: number): RpcBlock {
-    return {
-        number: blockNumber,
-        hash: TEST_ANCHOR_HASH,
-        parentHash:
-            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        timestamp: 1726000000,
-        transactions: [],
-    };
+    return syncBlockFixture(blockNumber);
 }
 
 function listRunEventCodes(runId: number): string[] {
@@ -885,40 +939,26 @@ function listRunEventCodes(runId: number): string[] {
     return rows.map((row) => row.event_code);
 }
 
-/** Ownership installation and ordered effects are separate boundary tests.
- * This scheduler fixture supplies their durable accepted-base/prefix result. */
-function acceptOwnershipBase(runId: number, collectionId: number) {
-    const progress = new SqliteChainProgress();
-    const checkpoint = captureChainSyncCheckpoint(1);
-    const anchor = buildBlock(100);
-    progress.initializeChain(checkpoint, anchor);
-    db.prepare(
-        "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
-    ).run(
-        1,
-        collectionId,
-        runId,
-        checkpoint.revision,
-        anchor.number,
-        anchor.hash,
-    );
-    progress.acceptCollectionBase(checkpoint, collectionId, anchor);
-}
-
-function applyEmptyCatchup(collectionId: number) {
-    const progress = new SqliteChainProgress();
-    const blocks = Array.from({ length: 5 }, (_, i) => ({
-        ...buildBlock(101 + i),
-        parentHash: TEST_ANCHOR_HASH,
-    }));
-    db.writeTransaction(() => {
-        const expected = progress.chainProgress(1)!;
-        progress.assertChainRange(expected, blocks);
-        persistCanonicalBlocks(expected.checkpoint, blocks, () => false);
-        progress.advanceChain(expected, blocks);
-        progress.advanceCollection(
-            progress.collectionProgress(1, collectionId)!,
-            blocks,
-        );
-    })();
+/** The real coordinator consumes Backfill's persisted authorization. No test
+ * installs a collection base or advances its applied cursor directly. */
+async function applyEmptyCatchup(
+    collectionId: number,
+    targetBlock: number,
+    now = Date.now(),
+) {
+    const coordinator = createCoordinatorFixture({
+        collectionCount: 0,
+        now: () => now,
+    });
+    coordinator.remote.state.head = targetBlock;
+    coordinator.sample(targetBlock);
+    for (let pass = 0; pass < 30; pass++) {
+        if (!(await coordinator.executor.runDue())) break;
+        if (pass === 29)
+            throw new Error("Coordinator did not finish delegated Backfill");
+    }
+    expect(
+        coordinator.progress.collectionProgress(1, collectionId)?.applied
+            .number,
+    ).toBe(targetBlock);
 }

@@ -129,10 +129,7 @@ describe("bootstrap pipeline planner", () => {
         expect(byKey.get(BOOTSTRAP_STEP_KEY.OpenSeaIdentity)).toEqual(
             expect.objectContaining({
                 blocking: false,
-                dependsOn: [
-                    BOOTSTRAP_STEP_KEY.Metadata,
-                    BOOTSTRAP_STEP_KEY.Ownership,
-                ],
+                dependsOn: [BOOTSTRAP_STEP_KEY.CollectionLive],
                 config: {
                     openseaSlug: "milady-by-remilia-corporation",
                 },

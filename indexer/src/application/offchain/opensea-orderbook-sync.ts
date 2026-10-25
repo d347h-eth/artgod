@@ -1,4 +1,5 @@
 import { logger } from "@artgod/shared/utils";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import type { CollectionRecord } from "../../domain/collections.js";
 import {
     OFFCHAIN_OBSERVATION_CHANNEL,
@@ -47,7 +48,44 @@ export type OrderSourceStatePort = {
     }): OrderSourceObservation;
 };
 
+export type OpenSeaSyncIdentity = {
+    chainId: number;
+    collectionId: number;
+    address: string;
+    slug: string | null;
+    bootstrapFinishedAt: string | null;
+    bootstrapRunId: number | null;
+};
+
+export interface OpenSeaSyncLifecyclePort {
+    captureOpenSeaSyncIdentity(
+        collection: CollectionRecord,
+    ): OpenSeaSyncIdentity | null;
+    /** Recheck the admitted lifecycle and commit only synchronous state changes
+     * in one writer. Marketplace requests and queue publication stay outside. */
+    commitOpenSeaSync(
+        identity: OpenSeaSyncIdentity,
+        write: () => void,
+    ): boolean;
+}
+
 class CollectionObservationClosed extends Error {}
+
+/** An awaited marketplace scan cannot publish readiness for a removed or newly
+ * bootstrapping collection. This uses the existing lifecycle, not chain progress. */
+export function isCurrentOpenSeaSync(
+    admitted: CollectionRecord,
+    current: CollectionRecord | null,
+): boolean {
+    return (
+        current?.status === COLLECTION_STATUS.Live &&
+        current.chainId === admitted.chainId &&
+        current.id === admitted.id &&
+        current.address === admitted.address &&
+        current.openseaSlug === admitted.openseaSlug &&
+        current.bootstrapFinishedAt === admitted.bootstrapFinishedAt
+    );
+}
 
 export class OpenSeaOrderbookSync {
     constructor(

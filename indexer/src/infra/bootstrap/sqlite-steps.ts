@@ -515,6 +515,7 @@ export class SqliteBootstrapSteps
         runId: number,
         stepKey: BootstrapStepKey,
         progress?: BootstrapStepProgress,
+        result?: Record<string, unknown>,
     ): void {
         const completed = progress?.completed ?? 1;
         const total = progress?.total ?? completed;
@@ -524,7 +525,7 @@ export class SqliteBootstrapSteps
             status: BOOTSTRAP_STEP_STATUS.Succeeded,
             completed,
             total,
-            resultJson: JSON.stringify({ completed, total }),
+            resultJson: JSON.stringify(result ?? { completed, total }),
             ...protectedStatusParams(),
         });
     }
@@ -533,12 +534,13 @@ export class SqliteBootstrapSteps
         runId: number,
         stepKey: BootstrapStepKey,
         reason: string,
+        result?: Record<string, unknown>,
     ): void {
         this.markSkippedStmt.run({
             runId,
             stepKey,
             status: BOOTSTRAP_STEP_STATUS.Skipped,
-            resultJson: JSON.stringify({ reason }),
+            resultJson: JSON.stringify(result ?? { reason }),
             ...protectedStatusParams(),
         });
     }

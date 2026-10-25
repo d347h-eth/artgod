@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { assertBootstrapRunWritable } from "../bootstrap/sqlite-write-guard.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import {
@@ -146,6 +147,8 @@ export class SqliteMetadataRefreshFollowups {
     }
 
     private insertRun(input: MetadataRefreshFollowupRunInput): void {
+        if (input.bootstrapRunId !== undefined)
+            assertBootstrapRunWritable(input.bootstrapRunId, input);
         this.insertRunStmt.run({
             runId: input.runId,
             chainId: input.chainId,

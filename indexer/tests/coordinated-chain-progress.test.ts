@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     ChainSyncConflict,
@@ -59,24 +60,8 @@ describe("durable coordinated chain progress", () => {
         progress.initializeChain(checkpoint(), block(ANCHOR));
     }
 
-    /** Fixture for evidence already produced by the ownership installer. Its
-     * lease/task/snapshot verification is tested at that separate boundary. */
-    function installedBase(id = collectionId, anchor = block(ANCHOR)) {
-        db.prepare(
-            "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
-        ).run(
-            CHAIN_ID,
-            id,
-            id,
-            checkpoint().revision,
-            anchor.number,
-            anchor.hash,
-        );
-    }
-
     function readyBase() {
         initialize();
-        installedBase();
         progress.acceptCollectionBase(
             checkpoint(),
             collectionId,
@@ -122,7 +107,6 @@ describe("durable coordinated chain progress", () => {
                 () => false,
             ),
         )();
-        installedBase();
         expect(progress.chainProgress(CHAIN_ID)).toBeNull();
         expect(
             progress.validationCheckpoint(CHAIN_ID, collectionId),
@@ -149,8 +133,13 @@ describe("durable coordinated chain progress", () => {
         ).toBeNull();
     });
 
-    it("accepts only the installed collection base at the same chain revision and identity", () => {
+    it("accepts a live collection only at its declared anchor and current chain revision", () => {
         initialize();
+        db.prepare("UPDATE collections SET status=? WHERE collection_id=?").run(
+            COLLECTION_STATUS.Bootstrapping,
+            collectionId,
+        );
+        // A bootstrapping status alone grants no collection catch-up authority.
         expect(() =>
             progress.acceptCollectionBase(
                 checkpoint(),
@@ -158,27 +147,30 @@ describe("durable coordinated chain progress", () => {
                 block(900),
             ),
         ).toThrow(ChainSyncConflict);
-        installedBase(collectionId, { ...block(900), hash: block(901).hash });
+        db.prepare("UPDATE collections SET status=? WHERE collection_id=?").run(
+            COLLECTION_STATUS.Live,
+            collectionId,
+        );
         expect(() =>
             progress.acceptCollectionBase(
                 checkpoint(),
                 collectionId,
-                block(900),
+                block(899),
             ),
         ).toThrow(ChainSyncConflict);
-        db.prepare(
-            "UPDATE collection_ownership_bases SET anchor_hash=?,revision=1 WHERE collection_id=?",
-        ).run(block(900).hash, collectionId);
+        expect(() =>
+            progress.acceptCollectionBase(checkpoint(), collectionId, {
+                ...block(900),
+                hash: block(901).hash,
+            }),
+        ).toThrow(ChainSyncConflict);
         expect(() =>
             progress.acceptCollectionBase(
-                checkpoint(),
+                { ...checkpoint(), revision: 1 },
                 collectionId,
                 block(900),
             ),
         ).toThrow(ChainSyncConflict);
-        db.prepare(
-            "UPDATE collection_ownership_bases SET revision=0 WHERE collection_id=?",
-        ).run(collectionId);
         progress.acceptCollectionBase(checkpoint(), collectionId, block(900));
         expect(
             progress.validationCheckpoint(CHAIN_ID, collectionId)?.block.number,
@@ -448,7 +440,6 @@ describe("durable coordinated chain progress", () => {
             10,
         );
         initialize();
-        installedBase();
         expect(() =>
             progress.acceptCollectionBase(
                 checkpoint(),
@@ -583,7 +574,6 @@ describe("durable coordinated chain progress", () => {
         expect(
             progress.validationCheckpoint(CHAIN_ID, collectionId)?.block.number,
         ).toBe(902);
-        installedBase(joiningId, block(901));
         progress.acceptCollectionBase(checkpoint(), joiningId, block(901));
         expect(
             progress.validationCheckpoint(CHAIN_ID, joiningId)?.block.number,

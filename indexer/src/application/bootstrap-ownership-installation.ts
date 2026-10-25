@@ -7,8 +7,8 @@ import type { RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 
 /** Ownership tasks read the saved anchor by hash. Recheck that identity before
- * installation and fence any rollback during this final RPC; a harmless reorg
- * above the anchor does not require discarding the anchored task results. */
+ * installation and fence any rollback during this final RPC. Confirmed recovery
+ * fails in-flight runs; their late responses cannot publish another snapshot. */
 export class InstallBootstrapOwnershipSnapshot {
     constructor(
         private readonly rpc: Pick<RpcProviderPort, "getBlock">,

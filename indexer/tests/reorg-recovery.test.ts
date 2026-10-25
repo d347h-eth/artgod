@@ -1,3 +1,4 @@
+import { seedBootstrapSnapshotRows } from "./helpers/bootstrap-snapshot-fixture.js";
 import { createAppliedSyncFixture } from "./helpers/applied-sync-fixture.js";
 import { transferFixture } from "./helpers/ownership-fixture.js";
 import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
@@ -576,7 +577,7 @@ describe("durable production reorg recovery", () => {
         expect(services.recoveries.getRecovery(1)).toBeNull();
     });
 
-    it("retains unsupported recovery across an orphaned bootstrap anchor without changing ownership", async () => {
+    it("invalidates an orphaned bootstrap snapshot and resumes authoritative chain recovery", async () => {
         const fixture = transferFixture();
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
@@ -600,7 +601,7 @@ describe("durable production reorg recovery", () => {
             checkpoint: services.storage.captureSyncCheckpoint(1),
         });
         const bootstrap = new SqliteBootstrapStorage();
-        bootstrap.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 1,
                 chainId: 1,
@@ -622,30 +623,36 @@ describe("durable production reorg recovery", () => {
         });
         retainCanonicalCheckFixture(services.storage, F.Orphan);
         expect(await services.recovery.checkDue()).toBe(true);
-        expect(services.recoveries.getRecovery(1)).toMatchObject({
-            phase: REORG_RECOVERY_PHASE.AwaitingAncestor,
-            retryAt: now + retryDelayMs,
+        expect(services.recoveries.getRecovery(1)?.phase).toBe(
+            REORG_RECOVERY_PHASE.Resync,
+        );
+        expect(revision()).toBe(1);
+        expect(owners(fixture.collectionId)).toEqual([]);
+        expect(
+            db
+                .prepare(
+                    "SELECT status,bootstrap_anchor_block FROM collections WHERE collection_id=?",
+                )
+                .get(fixture.collectionId),
+        ).toEqual({
+            status: COLLECTION_STATUS.Prepared,
+            bootstrap_anchor_block: null,
         });
+        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
         db.raw.close();
         reopen();
-        now += retryDelayMs;
-        await services.recovery.resumeDue();
-        expect(services.recoveries.getRecovery(1)?.phase).toBe(
-            REORG_RECOVERY_PHASE.AwaitingAncestor,
-        );
-        expect(revision()).toBe(0);
-        expect(owners(fixture.collectionId)).toEqual([
-            { owner: F.OrphanOwner, amount: "1" },
-        ]);
-        expect(selectTransferCount(1, fixture.collectionId, "1")).toBe(0);
-        expect(services.storage.getBlockHash(1, F.Orphan)).toBe(
-            syncBlockFixture(F.Orphan).hash,
-        );
+        await services.acquireRecoveryRange(pendingRecoveryRange());
+        for (
+            let pass = 0;
+            pass < 10 && services.recoveries.getRecovery(1);
+            pass++
+        )
+            await services.executor.runDue();
+        expect(services.recoveries.getRecovery(1)).toBeNull();
+        expect(services.progress.chainProgress(1)?.applied.number).toBe(F.Head);
         expect(
-            db.prepare("SELECT last_error FROM chain_reorg_recoveries").get(),
-        ).toEqual({
-            last_error: expect.stringContaining("retained applied base"),
-        });
+            services.progress.collectionProgress(1, fixture.collectionId),
+        ).toBeNull();
     });
 
     it("polls an earlier mismatch while retained ancestor proof is deferred", async () => {
@@ -866,7 +873,7 @@ describe("durable production reorg recovery", () => {
         });
         db.prepare(
             "UPDATE collections SET status = ? WHERE collection_id = ?",
-        ).run(COLLECTION_STATUS.Bootstrapping, fixture.collectionId);
+        ).run(COLLECTION_STATUS.Live, fixture.collectionId);
         expect(
             await services.acquireRecoveryRange(pendingRecoveryRange()),
         ).toBe(true);

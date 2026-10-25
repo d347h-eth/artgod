@@ -17,7 +17,6 @@ import {
     BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME,
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveCollectionPort,
-    type BootstrapCollectionLiveQueuePort,
     type BootstrapCollectionLiveRunsPort,
     type BootstrapCollectionLiveStepsPort,
     type BootstrapCollectionLiveTemporaryDataPort,
@@ -236,11 +235,36 @@ function createHarness(input: {
     const cleanupDeletedRows = emptyCleanupDeletedRows();
 
     const collectionPort: BootstrapCollectionLiveCollectionPort = {
-        markBootstrapFinished: (chainId, collectionId, lastSyncedBlock) => {
+        markBootstrapFinished: ({
+            chainId,
+            collectionId,
+            lastSyncedBlock,
+            finalStats,
+        }) => {
             if (chainId !== run.chainId || collectionId !== run.collectionId) {
                 return false;
             }
             collectionFinishes.push({ chainId, collectionId, lastSyncedBlock });
+            succeededSteps.push({
+                runId: run.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.CollectionLive,
+            });
+            run.status = BOOTSTRAP_RUN_STATUS.Completed;
+            events.push({
+                runId: run.runId,
+                chainId,
+                collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
+                eventLevel: "info",
+                message: "Bootstrap collection live",
+                payloadJson: null,
+            });
+            if (finalStats)
+                statsRecomputeRequests.push({
+                    bootstrapRunId: run.runId,
+                    payload: finalStats.statsJob.payload,
+                    traceId: finalStats.traceId,
+                });
             return true;
         },
     };
@@ -260,9 +284,6 @@ function createHarness(input: {
             runId === run.runId && stepKey === BOOTSTRAP_STEP_KEY.Backfill
                 ? backfillStep
                 : null,
-        markStepSucceeded: (runId, stepKey) => {
-            succeededSteps.push({ runId, stepKey });
-        },
         markStepFailedTerminal: () => {},
     };
     const temporaryDataPort: BootstrapCollectionLiveTemporaryDataPort = {
@@ -304,19 +325,12 @@ function createHarness(input: {
         getCollectionExtensionArtifactTaskCounts: () =>
             collectionExtensionArtifactCounts,
     };
-    const queuePort: BootstrapCollectionLiveQueuePort = {
-        enqueueBootstrapFinalStats: async (request) => {
-            statsRecomputeRequests.push(request);
-        },
-    };
-
     return {
         executor: new BootstrapCollectionLiveExecutor(
             collectionPort,
             runsPort,
             stepsPort,
             temporaryDataPort,
-            queuePort,
             {
                 collectionProgress: () => ({
                     collectionId: run.collectionId,
@@ -339,6 +353,14 @@ function createHarness(input: {
                               ),
                           },
             },
+            {
+                getBlockNumber: async () => 132,
+                getBlock: async (number) => ({
+                    ...syncBlockFixture(number),
+                    hash: run.anchorBlockHash! as `0x${string}`,
+                }),
+            },
+            32,
         ),
         run,
         events,
@@ -350,7 +372,12 @@ function createHarness(input: {
 }
 
 function collectionLiveStep(runId: number): BootstrapStepRecord {
-    return step(runId, BOOTSTRAP_STEP_KEY.CollectionLive, null);
+    return {
+        ...step(runId, BOOTSTRAP_STEP_KEY.CollectionLive, null),
+        status: BOOTSTRAP_STEP_STATUS.Running,
+        leaseOwner: "live-test",
+        leaseUntil: Date.now() + 60_000,
+    };
 }
 
 function backfillStepWithLiveBlock(

@@ -1,3 +1,4 @@
+import { seedBootstrapSnapshotRows } from "./helpers/bootstrap-snapshot-fixture.js";
 import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -507,7 +508,7 @@ describe("legacy mixed-fork header cleanup", () => {
             "UPDATE collections SET bootstrap_anchor_block=? WHERE collection_id=?",
         ).run(F.Orphan, s.collectionId);
         const bootstrap = new SqliteBootstrapStorage();
-        bootstrap.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 1,
                 chainId: 1,

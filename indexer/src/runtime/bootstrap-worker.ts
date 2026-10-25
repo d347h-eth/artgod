@@ -1,6 +1,10 @@
 import { flushPendingLogReports } from "@artgod/shared/observability/log-reporting";
 import { connectIndexerRpcBudget } from "./rpc-budget.js";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import {
+    OPENSEA_BOOTSTRAP_SKIP_REASON,
+    skipOpenSeaBootstrapSteps,
+} from "../application/bootstrap-opensea-steps.js";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { BOOTSTRAP_JOB_ID_SCOPE } from "@artgod/shared/bootstrap/jobs";
@@ -49,7 +53,6 @@ import { startBootstrapLanePoller } from "../application/bootstrap-lane-poller.j
 import {
     BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME,
     BootstrapCollectionLiveExecutor,
-    type BootstrapCollectionLiveQueuePort,
 } from "../application/bootstrap-collection-live-executor.js";
 import { BootstrapLiveRunCompletionReconciler } from "../application/bootstrap-live-run-completion-reconciler.js";
 import {
@@ -318,7 +321,6 @@ async function main() {
         const bootstrapBackfillExecutor = new BootstrapBackfillExecutor(
             rpc,
             chainProgress,
-            collections,
             bootstrapRuns,
             bootstrapSteps,
             createBootstrapBackfillQueuePort(queue),
@@ -329,10 +331,9 @@ async function main() {
                 bootstrapRuns,
                 bootstrapSteps,
                 bootstrapStorage,
-                createBootstrapCollectionLiveQueuePort(
-                    metadataRefreshFollowups,
-                ),
                 chainProgress,
+                rpc,
+                config.sync.reorgDepth,
             );
         const bootstrapLiveRunCompletionReconciler =
             new BootstrapLiveRunCompletionReconciler(
@@ -761,28 +762,6 @@ function createBootstrapBackfillQueuePort(
         },
         scheduleBackfillCheck: async (input) => {
             await scheduleBackfillCheck(queue, input);
-        },
-        scheduleOpenSeaBootstrap: async (input) => {
-            await scheduleOpenSeaBootstrap(queue, input);
-        },
-    };
-}
-
-function createBootstrapCollectionLiveQueuePort(
-    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
-): BootstrapCollectionLiveQueuePort {
-    return {
-        enqueueBootstrapFinalStats: async (input) => {
-            metadataRefreshFollowups.enqueueFinalStatsOnce({
-                run: buildBootstrapFinalStatsFollowupRun({
-                    bootstrapRunId: input.bootstrapRunId,
-                    chainId: input.payload.chainId,
-                    collectionId: input.payload.collectionId,
-                    statsReason: input.payload.reason,
-                    sourceJobId: input.payload.sourceJobId ?? input.traceId,
-                    traceId: input.traceId,
-                }),
-            });
         },
     };
 }
@@ -1275,6 +1254,7 @@ async function processBootstrapMainClaimedStep(
         const result = await input.bootstrapAnchorExecutor.anchor({
             run: input.run,
             reorgDepth: input.reorgDepth,
+            leaseOwner: input.leaseOwner,
         });
         logBootstrapAnchorResult(result);
         if (result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.Anchored) {
@@ -1372,7 +1352,6 @@ async function processBootstrapMainClaimedStep(
             backfillExecutor: input.bootstrapBackfillExecutor,
             payload: buildOwnershipProcessPayload(anchoredRun),
             backfillCheckPayload: input.backfillCheckPayload ?? null,
-            openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
         });
@@ -1413,6 +1392,29 @@ async function processBootstrapMainClaimedStep(
     }
 
     if (isOpenSeaBootstrapStepKey(input.step.stepKey)) {
+        const collection = input.collections.getCollection(
+            input.run.chainId,
+            input.run.collectionId,
+        );
+        if (!input.openSeaIntegration.enabled || !collection?.openseaSlug) {
+            skipOpenSeaBootstrapSteps(
+                input.bootstrapSteps,
+                input.run.runId,
+                !input.openSeaIntegration.enabled
+                    ? OPENSEA_BOOTSTRAP_SKIP_REASON.IntegrationDisabled
+                    : OPENSEA_BOOTSTRAP_SKIP_REASON.MissingSlug,
+            );
+            return terminalStepResult();
+        }
+        if (collection.status !== COLLECTION_STATUS.Live)
+            return readyStepResult(
+                Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+            );
+        if (collection.openseaStatus === null)
+            input.collections.markOpenSeaPending(
+                input.run.chainId,
+                input.run.collectionId,
+            );
         await scheduleOpenSeaBootstrap(input.queue, {
             chainId: input.run.chainId,
             collectionId: input.run.collectionId,
@@ -1606,6 +1608,7 @@ async function processBootstrapMetadataStep(input: {
         return readyStepResult(Date.now() + Math.max(1, metadataPollMs));
     }
 
+    if (run.status === BOOTSTRAP_RUN_STATUS.Failed) return terminalStepResult();
     enqueueBootstrapMetadataSnapshotStatsOnce(
         metadataRefreshFollowups,
         run,
@@ -2257,8 +2260,10 @@ async function processSingleMetadataTask(
             reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
             source: METADATA_REFRESH_SOURCE.Bootstrap,
         };
-        const updated =
-            await metadataDomain.handleMetadataRefresh(refreshPayload);
+        const updated = await metadataDomain.handleMetadataRefresh(
+            refreshPayload,
+            { runId: task.runId },
+        );
         if (updated) {
             bootstrapStorage.markMetadataTaskSucceeded(
                 task.runId,
@@ -2583,11 +2588,6 @@ async function processBootstrapOwnershipStep(input: {
         anchorTimestamp: payload.anchorTimestamp,
         leaseOwner,
     });
-    collections.markBootstrapSnapshotProgress(
-        payload.chainId,
-        payload.collectionId,
-        payload.anchorBlock,
-    );
     bootstrapSteps.markStepSucceeded(
         payload.runId,
         BOOTSTRAP_STEP_KEY.Ownership,
@@ -2679,7 +2679,6 @@ async function processBootstrapBackfillStep(input: {
     backfillExecutor: BootstrapBackfillExecutor;
     payload: BootstrapOwnershipProcessPayload;
     backfillCheckPayload: BootstrapBackfillCheckPayload | null;
-    openSeaIntegration: OpenSeaIntegrationStatus;
     traceId: string;
     sourceJobId: string;
 }): Promise<BootstrapClaimedStepProcessorResult> {
@@ -2691,7 +2690,6 @@ async function processBootstrapBackfillStep(input: {
             address: input.payload.address,
             anchorBlock: input.payload.anchorBlock,
             anchorHash: input.payload.anchorHash,
-            openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
         },

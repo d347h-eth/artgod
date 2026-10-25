@@ -59,7 +59,7 @@ export function createBackfillSyncHandler(input: {
         }
         if (job.chainId !== input.chainId) return;
         if (job.payload.source === BACKFILL_SOURCE.BootstrapCatchup) {
-            // The installed base and sampled target already retain this work.
+            // The current Backfill step retains the run-owned anchor and target.
             // A broker hint never grants permission to apply out of order.
             input.wakeCurrentSync();
             return;

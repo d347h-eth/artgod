@@ -25,6 +25,13 @@ import type {
 } from "../../ports/collection-extensions.js";
 import { TOKEN_ATTRIBUTE_SOURCE_KIND } from "@artgod/shared/types/token-attributes";
 import { SqliteTokenAttributeWriter } from "../attributes/sqlite-token-attributes.js";
+import { assertBootstrapRunWritable } from "../bootstrap/sqlite-write-guard.js";
+import {
+    assertCollectionWriteSnapshot,
+    captureCollectionWriteSnapshot,
+    permitsOrdinaryCollectionEnrichment,
+    type CollectionWriteSnapshot,
+} from "../collections/sqlite-write-guard.js";
 
 type InstallRow = {
     chain_id: number;
@@ -69,7 +76,50 @@ export class SqliteCollectionExtensions
 
     constructor(
         private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+        private readonly bootstrapRunId?: number,
+        private readonly output?: CollectionWriteSnapshot,
     ) {}
+
+    /** Capture the requesting collection and optional bootstrap owner. Every
+     * final writer rechecks that identity after asynchronous extension reads. */
+    forRefresh(
+        scope: { chainId: number; collectionId: number },
+        bootstrapRunId?: number,
+    ): SqliteCollectionExtensions | null {
+        const output = captureCollectionWriteSnapshot(
+            scope.chainId,
+            scope.collectionId,
+        );
+        if (
+            !output ||
+            (bootstrapRunId === undefined &&
+                !permitsOrdinaryCollectionEnrichment(output))
+        )
+            return null;
+        return new SqliteCollectionExtensions(
+            this.debugPayloads,
+            bootstrapRunId,
+            output,
+        );
+    }
+
+    private assertWriteAllowed(scope: {
+        chainId: number;
+        collectionId: number;
+    }): void {
+        if (this.bootstrapRunId !== undefined)
+            assertBootstrapRunWritable(this.bootstrapRunId, scope);
+        if (this.output) {
+            if (
+                scope.chainId !== this.output.chainId ||
+                scope.collectionId !== this.output.collectionId
+            )
+                throw new Error(
+                    "Extension output differs from its refresh scope",
+                );
+            assertCollectionWriteSnapshot(this.output);
+        }
+    }
 
     private selectInstall = db.prepare<{
         chainId: number;
@@ -284,23 +334,30 @@ export class SqliteCollectionExtensions
         enabled: boolean;
         configJson: string;
     }): void {
-        this.upsertInstallStmt.run({
-            chainId: input.chainId,
-            collectionId: input.collectionId,
-            extensionKey: input.extensionKey,
-            enabled: input.enabled ? 1 : 0,
-            configJson: input.configJson,
-        });
+        db.writeTransaction(() => {
+            this.assertWriteAllowed(input);
+            this.upsertInstallStmt.run({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                extensionKey: input.extensionKey,
+                enabled: input.enabled ? 1 : 0,
+                configJson: input.configJson,
+            });
+        })();
     }
 
     upsertArtifact(input: CollectionExtensionArtifactUpsertInput): void {
-        this.upsertArtifactRecord(input);
+        db.writeTransaction(() => {
+            this.assertWriteAllowed(input);
+            this.upsertArtifactRecord(input);
+        })();
     }
 
     publishSyntheticToken(
         input: CollectionExtensionSyntheticTokenPublicationInput,
     ): CollectionExtensionSyntheticTokenPublicationResult {
         const publish = db.writeTransaction(() => {
+            this.assertWriteAllowed(input);
             if (this.isSyntheticTokenRetired(input)) {
                 return {
                     published: false,
@@ -350,6 +407,8 @@ export class SqliteCollectionExtensions
         input: CollectionExtensionSyntheticTokenReplacementInput,
     ): CollectionExtensionSyntheticTokenReplacementResult {
         const replace = db.writeTransaction(() => {
+            this.assertWriteAllowed(input.syntheticToken);
+            this.assertWriteAllowed(input.token);
             const state = this.getSyntheticTokenCanonicalState(
                 input.syntheticToken,
             );
@@ -387,6 +446,7 @@ export class SqliteCollectionExtensions
         input: CollectionExtensionSyntheticTokenInput,
     ): CollectionExtensionSyntheticTokenRetirementResult {
         const retire = db.writeTransaction(() => {
+            this.assertWriteAllowed(input);
             const state = this.getSyntheticTokenCanonicalState(input);
             if (hasSyntheticTokenCanonicalState(state)) {
                 return {
@@ -465,6 +525,7 @@ export class SqliteCollectionExtensions
         input: CollectionExtensionTokenAttributesReplaceInput,
     ): void {
         const persist = db.writeTransaction(() => {
+            this.assertWriteAllowed(input);
             this.replaceTokenAttributesInTransaction(input);
         });
         persist();

@@ -14,6 +14,10 @@ import {
     type ChainBlockReference,
 } from "../../domain/chain-sync.js";
 import { assertChainSyncCheckpoint } from "../storage/sqlite-chain-revisions.js";
+import {
+    assertBootstrapRunWritable,
+    isBootstrapRunWritable,
+} from "./sqlite-write-guard.js";
 import type {
     BootstrapCollectionExtensionArtifactTask,
     BootstrapCollectionExtensionArtifactTaskCounts,
@@ -27,7 +31,6 @@ import type {
     BootstrapOwnershipTaskCounts,
     BootstrapOwnershipTaskSeed,
     BootstrapSnapshotPort,
-    BootstrapSnapshotRow,
     SnapshotFinalizeInput,
 } from "../../ports/bootstrap.js";
 
@@ -113,11 +116,6 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     );
     private resetSnapshotStmt = db.prepare<{ runId: number }>(
         "DELETE FROM nft_balance_snapshots WHERE run_id = @runId",
-    );
-    private insertSnapshotStmt = db.prepare<BootstrapSnapshotRow>(
-        "INSERT INTO nft_balance_snapshots " +
-            "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
-            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, lower(@owner), @anchorBlock)",
     );
     private deleteBalancesStmt = db.prepare<{
         chainId: number;
@@ -559,55 +557,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         this.resetSnapshotStmt.run({ runId });
     }
 
-    insertSnapshotRows(rows: BootstrapSnapshotRow[]): void {
-        if (rows.length === 0) return;
-        const insertMany = db.writeTransaction(
-            (batch: BootstrapSnapshotRow[]) => {
-                for (const row of batch) {
-                    this.insertSnapshotStmt.run(row);
-                }
-            },
-        );
-        insertMany(rows);
-    }
-
     finalizeSnapshot(input: SnapshotFinalizeInput): void {
         const finalize = db.writeTransaction(
             (params: SnapshotFinalizeInput) => {
                 this.assertSnapshotInstallationCurrent(params);
-                const installed = db
-                    .prepare(
-                        "SELECT run_id, anchor_block, anchor_hash FROM collection_ownership_bases WHERE chain_id=? AND collection_id=?",
-                    )
-                    .get(params.chainId, params.collectionId) as
-                    | {
-                          run_id: number;
-                          anchor_block: number;
-                          anchor_hash: string;
-                      }
-                    | undefined;
-                if (installed) {
-                    if (
-                        installed.run_id !== params.runId ||
-                        installed.anchor_block !== params.anchorBlock ||
-                        installed.anchor_hash !== params.anchorHash
-                    )
-                        throw new ChainSyncConflict(
-                            "A different bootstrap ownership base is already installed",
-                        );
-                    // A lost installation reply may be retried after sync has
-                    // advanced. Existing base evidence makes that retry a no-op.
-                    // Before acceptance, a newly verified identical anchor can
-                    // follow a harmless rollback above it into the new revision.
-                    db.prepare(
-                        "UPDATE collection_ownership_bases SET revision=? WHERE chain_id=? AND collection_id=? AND NOT EXISTS (SELECT 1 FROM collection_sync_progress p WHERE p.chain_id=collection_ownership_bases.chain_id AND p.collection_id=collection_ownership_bases.collection_id)",
-                    ).run(
-                        params.checkpoint.revision,
-                        params.chainId,
-                        params.collectionId,
-                    );
-                    return;
-                }
                 if (
                     db
                         .prepare(
@@ -633,16 +586,11 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
                     anchorTimestamp: params.anchorTimestamp,
                     zeroHash: ZERO_HASH,
                 });
+                // Publish the snapshot watermark under the same current-run,
+                // lease and chain-revision fence as its installed ownership.
                 db.prepare(
-                    "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
-                ).run(
-                    params.chainId,
-                    params.collectionId,
-                    params.runId,
-                    params.checkpoint.revision,
-                    params.anchorBlock,
-                    params.anchorHash,
-                );
+                    "UPDATE collections SET bootstrap_last_synced_block=?,updated_at=CURRENT_TIMESTAMP WHERE chain_id=? AND collection_id=?",
+                ).run(params.anchorBlock, params.chainId, params.collectionId);
             },
         );
         finalize(input);
@@ -767,6 +715,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             (batch: BootstrapMetadataTaskSeed[]) => {
                 let inserted = 0;
                 for (const row of batch) {
+                    assertBootstrapRunWritable(row.runId);
                     inserted += this.insertMetadataTaskStmt.run({
                         ...row,
                         pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
@@ -856,12 +805,14 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         runId: number;
         requestedMaxDimension: number | null;
     }): number {
-        const result = this.seedImageCacheTasksStmt.run({
-            ...input,
-            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
-            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
-        });
-        return result.changes;
+        return db.writeTransaction(() => {
+            assertBootstrapRunWritable(input.runId);
+            return this.seedImageCacheTasksStmt.run({
+                ...input,
+                pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+            }).changes;
+        })();
     }
 
     listImageCacheTasksDueNow(
@@ -893,6 +844,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         publicPath: string;
     }): boolean {
         const applySuccess = db.writeTransaction((params: typeof input) => {
+            if (!isBootstrapRunWritable(params.runId)) return false;
             const taskUpdate = this.markImageCacheTaskSucceededStmt.run({
                 ...params,
                 succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
@@ -946,6 +898,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         const insertMany = db.writeTransaction(
             (batch: BootstrapOwnershipTaskSeed[]) => {
                 for (const row of batch) {
+                    assertBootstrapRunWritable(row.runId);
                     this.insertOwnershipTaskStmt.run({
                         ...row,
                         pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
@@ -979,6 +932,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         block: ChainBlockReference;
     }): boolean {
         const applySuccess = db.writeTransaction((params: typeof input) => {
+            if (!isBootstrapRunWritable(params.runId)) return false;
             if (
                 !db
                     .prepare(
@@ -1050,6 +1004,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         extensionOwnedTasks?: readonly BootstrapCollectionExtensionArtifactTaskSeed[];
     }): number {
         const seedTasks = db.writeTransaction((params: typeof input) => {
+            assertBootstrapRunWritable(params.runId);
             for (const row of params.extensionOwnedTasks ?? []) {
                 this.insertCollectionExtensionArtifactTaskStmt.run({
                     ...row,

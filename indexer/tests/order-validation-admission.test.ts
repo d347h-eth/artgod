@@ -81,9 +81,6 @@ describe("source-independent validation admission at applied checkpoints", () =>
     });
     afterEach(() => vi.restoreAllMocks());
     function install(collectionId: number) {
-        db.prepare(
-            "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (1,?,?,0,900,?)",
-        ).run(collectionId, collectionId, block(900).hash);
         progress.acceptCollectionBase(
             captureChainSyncCheckpoint(1),
             collectionId,
@@ -212,9 +209,6 @@ describe("source-independent validation admission at applied checkpoints", () =>
         db.prepare(
             "UPDATE collections SET bootstrap_anchor_block=899 WHERE collection_id=9",
         ).run();
-        db.prepare(
-            "UPDATE collection_ownership_bases SET anchor_block=899,anchor_hash=? WHERE collection_id=9",
-        ).run(block(899).hash);
         progress.initializeChain(captureChainSyncCheckpoint(1), block(901));
         progress.acceptCollectionBase(
             captureChainSyncCheckpoint(1),

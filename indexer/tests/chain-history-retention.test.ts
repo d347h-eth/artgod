@@ -192,7 +192,7 @@ describe("accepted lineage and admission retention", () => {
         ).toMatchObject({ fromBlock: 904 });
     });
 
-    it("protects an installed joining snapshot even before coordinator acceptance", () => {
+    it("does not let an unaccepted collection snapshot veto rollback preparation", () => {
         const f = fixture();
         const joining = insertCollection({
             chainId: CHAIN,
@@ -200,23 +200,20 @@ describe("accepted lineage and admission retention", () => {
             address: "0x0000000000000000000000000000000000000002",
             anchorBlock: 1000,
         });
-        db.prepare(
-            "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,1,0,1000,?)",
-        ).run(CHAIN, joining, block(1000).hash);
         expect(f.progress.collectionProgress(CHAIN, joining)).toBeNull();
-        expect(() =>
+        expect(
             f.storage.prepareRollback({ chainId: CHAIN, fromBlock: 904 }),
-        ).toThrow("crosses retained applied base 1000");
+        ).toMatchObject({ fromBlock: 904 });
     });
 
-    it("protects the shared accepted base after the last collection is removed", () => {
+    it("allows proven rollback preparation below the shared start after collection removal", () => {
         const f = fixture();
         db.prepare("DELETE FROM collections WHERE collection_id=?").run(
             collectionId,
         );
-        expect(() =>
+        expect(
             f.storage.prepareRollback({ chainId: CHAIN, fromBlock: 900 }),
-        ).toThrow("crosses retained applied base 900");
+        ).toMatchObject({ fromBlock: 900 });
     });
 
     function sample(progress: SqliteChainProgress, sequence: number) {

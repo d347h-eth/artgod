@@ -1,4 +1,11 @@
 import { db } from "@artgod/shared/database";
+import { assertBootstrapRunWritable } from "../bootstrap/sqlite-write-guard.js";
+import {
+    assertCollectionWriteSnapshot,
+    captureCollectionWriteSnapshot,
+    permitsOrdinaryCollectionEnrichment,
+    type CollectionWriteSnapshot,
+} from "../collections/sqlite-write-guard.js";
 import {
     getDefaultDebugPayloadPersistenceConfig,
     type DebugPayloadPersistenceConfig,
@@ -195,6 +202,12 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             if (this.hasMetadata(chainId, row.collection_id, tokenId)) {
                 continue;
             }
+            const output = captureCollectionWriteSnapshot(
+                chainId,
+                row.collection_id,
+            );
+            if (!output || !permitsOrdinaryCollectionEnrichment(output))
+                continue;
             const uri = await this.resolver.resolveTokenUri(
                 contract,
                 tokenId,
@@ -230,6 +243,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 contract,
                 tokenId,
                 metadata,
+                output,
                 row,
             );
             updatedTokens.push({
@@ -259,6 +273,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
 
     async handleMetadataRefresh(
         payload: MetadataRefreshPayload,
+        bootstrap?: { runId: number },
     ): Promise<MetadataRefreshResult> {
         const { chainId } = payload;
         const tokenId = payload.tokenId;
@@ -276,6 +291,16 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             });
             return null;
         }
+
+        const output = captureCollectionWriteSnapshot(
+            chainId,
+            collection.collection_id,
+        );
+        if (
+            !output ||
+            (!bootstrap && !permitsOrdinaryCollectionEnrichment(output))
+        )
+            return null;
 
         const contract = collection.address.toLowerCase();
         let uri = payload.metadataUrl ?? null;
@@ -326,6 +351,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             contract,
             tokenId,
             metadata,
+            output,
             {
                 block_number: payload.blockNumber ?? null,
                 block_hash: payload.blockHash ?? null,
@@ -333,6 +359,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 tx_hash: null,
                 log_index: null,
             },
+            bootstrap,
         );
 
         logger.debug("Metadata refresh applied", {
@@ -388,7 +415,9 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         contract: string,
         tokenId: string,
         metadata: TokenMetadata,
+        output: CollectionWriteSnapshot,
         attribution?: MetadataAttribution,
+        bootstrap?: { runId: number },
     ): void {
         const normalizedAttributes = normalizeUniqueAttributeList(
             (metadata.attributes ?? []).map((attribute) => ({
@@ -398,6 +427,12 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         );
 
         const persist = db.writeTransaction(() => {
+            if (bootstrap)
+                assertBootstrapRunWritable(bootstrap.runId, {
+                    chainId,
+                    collectionId,
+                });
+            assertCollectionWriteSnapshot(output);
             // Persist token identity first so future FK constraints can safely
             // reference tokens before metadata/attributes are written.
             this.upsertToken.run({

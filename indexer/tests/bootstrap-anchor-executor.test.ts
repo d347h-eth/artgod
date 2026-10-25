@@ -34,6 +34,7 @@ describe("bootstrap anchor executor", () => {
         const result = await harness.executor.anchor({
             run: harness.run,
             reorgDepth: 10,
+            leaseOwner: "anchor-test",
         });
 
         expect(result).toEqual({
@@ -71,6 +72,7 @@ describe("bootstrap anchor executor", () => {
         const result = await harness.executor.anchor({
             run: harness.run,
             reorgDepth: 10,
+            leaseOwner: "anchor-test",
         });
 
         expect(result.outcome).toBe(
@@ -103,6 +105,7 @@ describe("bootstrap anchor executor", () => {
         const result = await harness.executor.anchor({
             run: harness.run,
             reorgDepth: 20,
+            leaseOwner: "anchor-test",
         });
 
         expect(result).toEqual({
@@ -149,6 +152,7 @@ describe("bootstrap anchor executor", () => {
         const result = await harness.executor.anchor({
             run: harness.run,
             reorgDepth: 20,
+            leaseOwner: "anchor-test",
         });
 
         expect(result.outcome).toBe(
@@ -160,11 +164,6 @@ describe("bootstrap anchor executor", () => {
             anchorTimestamp: 1726000000,
         });
         expect(harness.runStatusUpdates).toEqual([
-            {
-                runId: 41,
-                status: BOOTSTRAP_RUN_STATUS.Metadata,
-                error: undefined,
-            },
             {
                 runId: 41,
                 status: BOOTSTRAP_RUN_STATUS.Failed,
@@ -192,7 +191,10 @@ type Harness = {
         anchorTimestamp: number;
     }>;
     events: Array<Parameters<BootstrapAnchorRunsPort["appendRunEvent"]>[0]>;
-    runningSteps: Array<{ runId: number; stepKey: typeof BOOTSTRAP_STEP_KEY.Anchor }>;
+    runningSteps: Array<{
+        runId: number;
+        stepKey: typeof BOOTSTRAP_STEP_KEY.Anchor;
+    }>;
     succeededSteps: Array<{
         runId: number;
         stepKey: typeof BOOTSTRAP_STEP_KEY.Anchor;
@@ -230,9 +232,6 @@ function createHarness(input: {
                 run.status = status;
             }
         },
-        updateRunAnchor: (anchor) => {
-            anchorUpdates.push(anchor);
-        },
         appendRunEvent: (event) => {
             events.push(event);
         },
@@ -241,17 +240,39 @@ function createHarness(input: {
         markStepRunning: (runId, stepKey) => {
             runningSteps.push({ runId, stepKey });
         },
-        markStepSucceeded: (runId, stepKey) => {
-            succeededSteps.push({ runId, stepKey });
-        },
         markStepFailedTerminal: (failure) => {
             failedSteps.push(failure);
         },
     };
     const collectionPort: BootstrapAnchorCollectionPort = {
-        markBootstrapStarted: (chainId, collectionId, anchorBlock) => {
+        markBootstrapStarted: ({
+            chainId,
+            collectionId,
+            runId,
+            anchorBlock,
+            anchorHash,
+            anchorTimestamp,
+        }) => {
+            if (input.collectionStartResult === false) return false;
             collectionStarts.push({ chainId, collectionId, anchorBlock });
-            return input.collectionStartResult ?? true;
+            anchorUpdates.push({
+                runId,
+                anchorBlock,
+                anchorHash,
+                anchorTimestamp,
+            });
+            runsPort.updateRunStatus(runId, BOOTSTRAP_RUN_STATUS.Metadata);
+            succeededSteps.push({ runId, stepKey: BOOTSTRAP_STEP_KEY.Anchor });
+            runsPort.appendRunEvent({
+                runId,
+                chainId,
+                collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+                eventLevel: "info",
+                message: "Bootstrap anchor selected",
+                payloadJson: null,
+            });
+            return true;
         },
     };
     const executor = new BootstrapAnchorExecutor(

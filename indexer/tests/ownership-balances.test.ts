@@ -1,3 +1,4 @@
+import { seedBootstrapSnapshotRows } from "./helpers/bootstrap-snapshot-fixture.js";
 import { syncBlockFixture as block } from "./helpers/chain-fixture.js";
 import { finalizeBootstrapSnapshotFixture } from "./helpers/bootstrap-snapshot-fixture.js";
 import {
@@ -45,7 +46,7 @@ describe("ownership balance persistence", () => {
         const seller = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
         const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         const bootstrap = new SqliteBootstrapStorage();
-        bootstrap.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 1,
                 chainId: 1,
@@ -312,7 +313,7 @@ describe("ownership balance persistence", () => {
         const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const prior = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         const bootstrap = new SqliteBootstrapStorage();
-        bootstrap.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 2,
                 chainId: 1,

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { BOOTSTRAP_RUN_STATUS } from "@artgod/shared/bootstrap/pipeline";
+import { seedBootstrapRunFixture } from "./helpers/bootstrap-run-fixture.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,7 +133,33 @@ describe("SqliteMetadataRefreshFollowups", () => {
         expect(countOutboxRows(QUEUE_NAMES.MetadataStats)).toBe(1);
     });
 
+    it("rejects bootstrap stats retained after its run failed", () => {
+        seedBootstrapRunFixture(BOOTSTRAP_RUN_ID, COLLECTION_ID);
+        const followups = new SqliteMetadataRefreshFollowups(
+            new SqliteQueueOutbox(),
+        );
+        const run = buildBootstrapMetadataSnapshotStatsFollowupRun({
+            bootstrapRunId: BOOTSTRAP_RUN_ID,
+            chainId: CHAIN_ID,
+            collectionId: COLLECTION_ID,
+            sourceJobId: SOURCE_JOB_ID,
+            traceId: TRACE_ID,
+        });
+        db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+            BOOTSTRAP_RUN_STATUS.Failed,
+            BOOTSTRAP_RUN_ID,
+        );
+        expect(() => followups.enqueueFinalStatsOnce({ run })).toThrow(
+            "Bootstrap run no longer owns its output",
+        );
+        expect(countOutboxRows(QUEUE_NAMES.MetadataStats)).toBe(0);
+        expect(
+            db.prepare("SELECT 1 FROM metadata_refresh_runs").get(),
+        ).toBeUndefined();
+    });
+
     it("keeps bootstrap metadata-snapshot and final stats checkpoints separate", () => {
+        seedBootstrapRunFixture(BOOTSTRAP_RUN_ID, COLLECTION_ID);
         const queueOutbox = new SqliteQueueOutbox();
         const followups = new SqliteMetadataRefreshFollowups(queueOutbox);
         const metadataSnapshotRun =
@@ -152,12 +180,12 @@ describe("SqliteMetadataRefreshFollowups", () => {
         });
 
         expect(metadataSnapshotRun.runId).not.toBe(finalRun.runId);
-        expect(followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun })).toBe(
-            true,
-        );
-        expect(followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun })).toBe(
-            false,
-        );
+        expect(
+            followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun }),
+        ).toBe(true);
+        expect(
+            followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun }),
+        ).toBe(false);
         expect(followups.enqueueFinalStatsOnce({ run: finalRun })).toBe(true);
         expect(followups.enqueueFinalStatsOnce({ run: finalRun })).toBe(false);
 

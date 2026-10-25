@@ -1,5 +1,6 @@
 import { db } from "@artgod/shared/database";
 import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { bootstrapCatchupAuthority } from "../bootstrap/sqlite-catchup-authority.js";
 import {
     ChainSyncConflict,
     StoredBlockHashConflict,
@@ -63,10 +64,20 @@ export class SqliteChainProgress implements ChainProgressPort {
     initializeChain(
         checkpoint: ChainSyncCheckpoint,
         anchor: SyncBlockHeader,
+        history: readonly SyncBlockHeader[] = [anchor],
     ): void {
         db.writeTransaction(() => {
             assertChainSyncCheckpoint(checkpoint);
-            assertSyncBlockHeaders([anchor]);
+            assertSyncBlockHeaders(history);
+            const tip = history[history.length - 1];
+            if (
+                !tip ||
+                tip.number !== anchor.number ||
+                tip.hash !== anchor.hash
+            )
+                throw new ChainSyncConflict(
+                    "Chain initialization history does not end at its starting block",
+                );
             const current = this.chainProgress(checkpoint.chainId);
             if (current) {
                 if (
@@ -84,7 +95,11 @@ export class SqliteChainProgress implements ChainProgressPort {
                 );
             // Explicit base acceptance is the sole exception to forward adjacency.
             // Existing isolated headers are never promoted to applied coverage.
-            persistCanonicalBlocks(checkpoint, [anchor], () => true);
+            persistCanonicalBlocks(
+                checkpoint,
+                history,
+                (block) => block.number >= anchor.number,
+            );
             db.prepare(
                 "INSERT INTO chain_sync_progress(chain_id,revision,anchor_block,anchor_hash,applied_block,applied_hash) VALUES (?,?,?,?,?,?)",
             ).run(
@@ -128,6 +143,7 @@ export class SqliteChainProgress implements ChainProgressPort {
         checkpoint: ChainSyncCheckpoint,
         collectionId: number,
         anchor: SyncBlockHeader,
+        bootstrapRunId?: number,
     ): void {
         db.writeTransaction(() => {
             this.assertAvailable(checkpoint, true);
@@ -137,21 +153,28 @@ export class SqliteChainProgress implements ChainProgressPort {
                 throw new ChainSyncConflict(
                     "Collection base is outside applied chain history",
                 );
-            const installed = db
+            const collection = db
                 .prepare(
-                    "SELECT 1 FROM collection_ownership_bases b JOIN collections c ON c.collection_id=b.collection_id AND c.chain_id=b.chain_id " +
-                        "WHERE b.chain_id=? AND b.collection_id=? AND b.revision=? AND b.anchor_block=? AND b.anchor_hash=? AND c.bootstrap_anchor_block=b.anchor_block",
+                    "SELECT status,bootstrap_anchor_block AS anchorBlock FROM collections WHERE chain_id=? AND collection_id=?",
                 )
-                .get(
-                    checkpoint.chainId,
-                    collectionId,
-                    checkpoint.revision,
-                    anchor.number,
-                    anchor.hash,
-                );
-            if (!installed)
+                .get(checkpoint.chainId, collectionId) as
+                | { status: string; anchorBlock: number }
+                | undefined;
+            const authority = bootstrapCatchupAuthority(
+                checkpoint.chainId,
+                collectionId,
+            );
+            if (
+                !collection ||
+                collection.anchorBlock !== anchor.number ||
+                (collection.status !== COLLECTION_STATUS.Live &&
+                    (!authority ||
+                        authority.runId !== bootstrapRunId ||
+                        authority.anchorBlock !== anchor.number ||
+                        authority.anchorHash !== anchor.hash))
+            )
                 throw new ChainSyncConflict(
-                    "Collection ownership base has not been installed at this identity",
+                    "Collection catch-up has no current Backfill authorization",
                 );
             // A slow bootstrap may install an older base after shared startup.
             // Its own replay must join the shared base before granting proof
@@ -517,7 +540,7 @@ export class SqliteChainProgress implements ChainProgressPort {
         }
     }
 
-    /** Collection catch-up can connect an older installed base to shared history.
+    /** Collection catch-up can connect an older bootstrap anchor to shared history.
      * Its own predecessor fence authorizes below-base lineage; every overlapping
      * shared identity must match and readiness waits until those prefixes join. */
     assertCollectionReplayRange(
@@ -566,7 +589,9 @@ export class SqliteChainProgress implements ChainProgressPort {
     }
 
     assertCollectionRange(
-        expected: CollectionAppliedProgress,
+        expected: CollectionAppliedProgress & {
+            bootstrapRunId?: number | null;
+        },
         blocks: readonly SyncBlockHeader[],
     ): void {
         this.assertAvailable(expected.checkpoint, true);
@@ -583,12 +608,30 @@ export class SqliteChainProgress implements ChainProgressPort {
             )
         )
             throw new ChainSyncConflict("Collection applied ownership changed");
+        const authority = bootstrapCatchupAuthority(
+            expected.checkpoint.chainId,
+            expected.collectionId,
+        );
+        if (
+            authority &&
+            (expected.bootstrapRunId !== authority.runId ||
+                blocks[blocks.length - 1]!.number > authority.targetBlock)
+        )
+            throw new ChainSyncConflict(
+                "Collection acquisition exceeds its current bootstrap handover",
+            );
+        if (!authority && expected.bootstrapRunId != null)
+            throw new ChainSyncConflict(
+                "Bootstrap acquisition lost its run authority",
+            );
         this.assertSameProgress(current, expected);
         assertAppliedSyncRange(expected, blocks);
     }
 
     advanceCollection(
-        expected: CollectionAppliedProgress,
+        expected: CollectionAppliedProgress & {
+            bootstrapRunId?: number | null;
+        },
         blocks: readonly SyncBlockHeader[],
     ): void {
         this.assertWriter();
@@ -620,8 +663,8 @@ export class SqliteChainProgress implements ChainProgressPort {
         })();
     }
 
-    /** Part of the existing atomic rollback transaction, after revision advances.
-     * An anchor-crossing rollback has no automatic ownership-base replacement. */
+    /** Recovery invalidates affected bootstrap/collection state before rewinding
+     * these cursors. A verified ancestor can precede the chain startup point. */
     rewindAfterRollback(chainId: number, ancestor: SyncBlockHeader): void {
         this.assertWriter();
         const checkpoint = captureChainSyncCheckpoint(chainId);
@@ -632,21 +675,13 @@ export class SqliteChainProgress implements ChainProgressPort {
             .get(chainId) as ProgressRow | undefined;
         if (!chain)
             throw new ChainSyncConflict("Rollback has no applied chain base");
-        if (
-            ancestor.number < chain.anchor_block ||
-            db
-                .prepare(
-                    "SELECT 1 FROM collection_sync_progress WHERE chain_id=? AND anchor_block>? LIMIT 1",
-                )
-                .get(chainId, ancestor.number)
-        )
-            throw new ChainSyncConflict(
-                "Rollback crosses an installed chain or collection base",
-            );
         this.assertMember(chainId, ancestor);
         db.prepare(
-            "UPDATE chain_sync_progress SET revision=?,applied_block=MIN(applied_block,?),applied_hash=CASE WHEN applied_block>? THEN ? ELSE applied_hash END,disputed_from=(SELECT MIN(block_number) FROM blocks WHERE chain_id=? AND canonical_check_disputed=1) WHERE chain_id=?",
+            "UPDATE chain_sync_progress SET anchor_block=MIN(anchor_block,?),anchor_hash=CASE WHEN anchor_block>? THEN ? ELSE anchor_hash END,revision=?,applied_block=MIN(applied_block,?),applied_hash=CASE WHEN applied_block>? THEN ? ELSE applied_hash END,disputed_from=(SELECT MIN(block_number) FROM blocks WHERE chain_id=? AND canonical_check_disputed=1) WHERE chain_id=?",
         ).run(
+            ancestor.number,
+            ancestor.number,
+            ancestor.hash,
             checkpoint.revision,
             ancestor.number,
             ancestor.number,
@@ -663,9 +698,6 @@ export class SqliteChainProgress implements ChainProgressPort {
             ancestor.hash,
             chainId,
         );
-        db.prepare(
-            "UPDATE collection_ownership_bases SET revision=? WHERE chain_id=? AND anchor_block<=?",
-        ).run(checkpoint.revision, chainId, ancestor.number);
         db.prepare("DELETE FROM chain_sync_targets WHERE chain_id=?").run(
             chainId,
         );
@@ -757,17 +789,18 @@ export class SqliteChainProgress implements ChainProgressPort {
         collectionId: number,
         anchor: number,
     ): boolean {
-        return !!db
+        const row = db
             .prepare(
-                "SELECT 1 FROM collections WHERE chain_id=? AND collection_id=? AND bootstrap_anchor_block=? AND status IN (?,?)",
+                "SELECT status FROM collections WHERE chain_id=? AND collection_id=? AND bootstrap_anchor_block=?",
             )
-            .get(
-                chainId,
-                collectionId,
-                anchor,
-                COLLECTION_STATUS.Live,
-                COLLECTION_STATUS.Bootstrapping,
-            );
+            .get(chainId, collectionId, anchor) as
+            | { status: string }
+            | undefined;
+        return (
+            row?.status === COLLECTION_STATUS.Live ||
+            bootstrapCatchupAuthority(chainId, collectionId)?.anchorBlock ===
+                anchor
+        );
     }
 
     private recoveryRetained(chainId: number, allowResync = false): boolean {

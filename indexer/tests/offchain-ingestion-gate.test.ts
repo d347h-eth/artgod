@@ -4,6 +4,7 @@ import {
     OPENSEA_COLLECTION_STATUS,
     OPENSEA_STREAM_INGESTION_STATUS,
     type OpenSeaStreamIngestionStatus,
+    type CollectionStatus,
 } from "@artgod/shared/types";
 import { shouldProcessOffchainPayload } from "../src/application/offchain/ingestion-gate.js";
 import {
@@ -50,13 +51,28 @@ describe("offchain ingestion gate", () => {
         ).toBe(true);
     });
 
-    it("keeps existing behavior when collection state is unavailable", () => {
+    it("drops stream deliveries after collection deletion", () => {
         const collections = collectionLookup(null);
 
         expect(shouldProcessOffchainPayload(collections, rawPayload())).toBe(
-            true,
+            false,
         );
     });
+
+    it.each([COLLECTION_STATUS.Prepared, COLLECTION_STATUS.Bootstrapping])(
+        "drops rather than buffers enabled stream deliveries while %s",
+        (status) => {
+            const collections = collectionLookup(
+                collectionWithGate(
+                    OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+                    status,
+                ),
+            );
+            expect(
+                shouldProcessOffchainPayload(collections, rawPayload()),
+            ).toBe(false);
+        },
+    );
 });
 
 function collectionLookup(collection: CollectionRecord | null) {
@@ -69,6 +85,7 @@ function collectionLookup(collection: CollectionRecord | null) {
 
 function collectionWithGate(
     openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus,
+    status: CollectionStatus = COLLECTION_STATUS.Live,
 ): CollectionRecord {
     return CollectionRecord.fromPersistence({
         chainId: 1,
@@ -76,7 +93,7 @@ function collectionWithGate(
         slug: "gate-test",
         address: "0xabc0000000000000000000000000000000000000",
         standard: COLLECTION_STANDARD.Erc721,
-        status: COLLECTION_STATUS.Live,
+        status,
         tokenScopeKind: "contract_all_tokens",
         scopeStartTokenId: null,
         scopeTotalSupply: null,

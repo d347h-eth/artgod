@@ -49,6 +49,7 @@ import {
     type SyncGapDetectorPort,
 } from "./sync-gap-scheduler.js";
 import type { SyncRange } from "./sync.js";
+import { fetchCanonicalSyncBlocks } from "./sync-blocks.js";
 import { observeBestEffort } from "./processing-observability.js";
 
 export type AutomaticSyncRangeReport = {
@@ -316,19 +317,24 @@ export class AutomaticSyncExecutor {
         const { chainId, progress, coordination } = this.input;
         let chain = progress.chainProgress(chainId);
         if (!chain) {
-            const base = coordination.firstInstalledBase(chainId);
-            if (!base) return false;
-            const anchor = await this.input.rpc.getBlock(base.blockNumber, {
-                fresh: true,
+            const target = progress.headTarget(chainId);
+            if (!target) return false;
+            const checkpoint =
+                this.input.storage.captureSyncCheckpoint(chainId);
+            const startBlock = Math.max(
+                1,
+                target.blockNumber - this.input.reorgDepth,
+            );
+            const history = await fetchCanonicalSyncBlocks({
+                rpc: this.input.rpc,
+                fromBlock: Math.max(1, startBlock - this.input.reorgDepth),
+                toBlock: startBlock,
             });
-            if (
-                anchor.number !== base.blockNumber ||
-                anchor.hash !== base.blockHash
-            )
-                throw new ChainSyncConflict(
-                    "Installed ownership base is no longer canonical",
-                );
-            progress.initializeChain(base.checkpoint, anchor);
+            progress.initializeChain(
+                checkpoint,
+                history[history.length - 1]!,
+                history,
+            );
             chain = progress.chainProgress(chainId)!;
         }
         if (!coordination.canAdvance(chainId)) return false;
@@ -354,12 +360,13 @@ export class AutomaticSyncExecutor {
                     anchor.hash !== base.anchor.hash
                 )
                     throw new ChainSyncConflict(
-                        "Installed collection base is no longer canonical",
+                        "Bootstrap collection anchor is no longer canonical",
                     );
                 progress.acceptCollectionBase(
                     base.checkpoint,
                     base.collectionId,
                     anchor,
+                    base.runId,
                 );
                 acceptedBases++;
             } catch (error) {
@@ -457,7 +464,7 @@ export class AutomaticSyncExecutor {
             range = {
                 fromBlock: scope.applied.number + 1,
                 toBlock: Math.min(
-                    chain.applied.number,
+                    scope.targetBlock,
                     scope.applied.number + this.input.batchSize,
                 ),
             };

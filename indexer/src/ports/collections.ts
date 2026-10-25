@@ -1,5 +1,4 @@
 import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
-import type { ValidationCheckpoint } from "../domain/chain-sync.js";
 import type {
     CollectionRecord,
     CollectionUpsertInput,
@@ -33,23 +32,6 @@ export interface CollectionRegistryPort {
         collectionId?: number,
     ): CollectionRecord[];
     upsertCollection(input: CollectionUpsertInput): void;
-    markBootstrapStarted(
-        chainId: number,
-        collectionId: number,
-        anchorBlock: number,
-    ): boolean;
-    markBootstrapSnapshotProgress(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-        /** Reassert this accepted view in the writer that makes the collection live. */
-        checkpoint: ValidationCheckpoint,
-    ): boolean;
     markOpenSeaPending(chainId: number, collectionId: number): boolean;
     markOpenSeaIdentityRunning(chainId: number, collectionId: number): boolean;
     setOpenSeaSlug(

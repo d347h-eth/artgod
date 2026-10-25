@@ -79,4 +79,30 @@ export function finalizeBootstrapSnapshotFixture(
     db.prepare(
         "UPDATE collections SET status=? WHERE chain_id=? AND collection_id=?",
     ).run(collection.status, input.chainId, input.collectionId);
+    if (collection.status !== COLLECTION_STATUS.Bootstrapping)
+        db.prepare("UPDATE bootstrap_runs SET status=? WHERE run_id=?").run(
+            BOOTSTRAP_RUN_STATUS.Completed,
+            input.runId,
+        );
+}
+
+/** Raw fixture setup for installer/rollback tests; production snapshot rows are
+ * written only by successful current-run ownership tasks. */
+export function seedBootstrapSnapshotRows(
+    rows: readonly {
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        contract: string;
+        tokenId: string;
+        owner: string;
+        anchorBlock: number;
+    }[],
+): void {
+    const statement = db.prepare(
+        "INSERT INTO nft_balance_snapshots(run_id,chain_id,collection_id,contract_address,token_id,owner,anchor_block) VALUES (@runId,@chainId,@collectionId,lower(@contract),@tokenId,lower(@owner),@anchorBlock)",
+    );
+    db.writeTransaction(() => {
+        for (const row of rows) statement.run(row);
+    })();
 }

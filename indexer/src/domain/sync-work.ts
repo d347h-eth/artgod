@@ -12,7 +12,7 @@ export const SYNC_APPLICATION_KIND = {
 } as const;
 
 /** Acquisition carries the exact prefix it intends to extend. Collection-only
- * catch-up can connect an older installed base to accepted shared history, but
+ * catch-up can connect an older bootstrap anchor to accepted shared history, but
  * cannot advance shared progress or validate before reaching the shared base. */
 export type SyncApplication =
     | { kind: typeof SYNC_APPLICATION_KIND.Historical }

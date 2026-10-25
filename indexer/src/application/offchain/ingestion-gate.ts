@@ -6,7 +6,10 @@ import {
 } from "../../domain/offchain-jobs.js";
 
 export type OffchainIngestionCollectionLookupPort = {
-    getCollection(chainId: number, collectionId: number): CollectionRecord | null;
+    getCollection(
+        chainId: number,
+        collectionId: number,
+    ): CollectionRecord | null;
 };
 
 // Checks whether a raw offchain payload may be normalized into downstream jobs.
@@ -25,5 +28,5 @@ export function shouldProcessOffchainPayload(
         payload.chainId,
         payload.collectionId,
     );
-    return collection?.allowsOpenSeaStreamIngestion() ?? true;
+    return collection?.allowsOpenSeaStreamIngestion() ?? false;
 }

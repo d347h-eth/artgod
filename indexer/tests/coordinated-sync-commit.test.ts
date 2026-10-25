@@ -62,16 +62,6 @@ describe("coordinated sync writer", () => {
         });
         const checkpoint = storage.captureSyncCheckpoint(CHAIN);
         progress.initializeChain(checkpoint, block(ANCHOR));
-        db.prepare(
-            "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,?,?,?,?)",
-        ).run(
-            CHAIN,
-            collectionId,
-            1,
-            checkpoint.revision,
-            ANCHOR,
-            block(ANCHOR).hash,
-        );
         progress.acceptCollectionBase(checkpoint, collectionId, block(ANCHOR));
         // A disposable projection double makes retention failure and rollback
         // visible independently of the orders adapter being integrated elsewhere.

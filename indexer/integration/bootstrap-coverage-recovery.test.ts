@@ -14,7 +14,6 @@ import {
     BOOTSTRAP_STEP_STATUS,
     serializeBootstrapStepDependencies,
 } from "@artgod/shared/bootstrap/pipeline";
-import { OPENSEA_INTEGRATION_MODE } from "@artgod/shared/config/opensea-integration";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { ERC1155_ABI } from "../src/abi/index.js";
 import {
@@ -132,10 +131,10 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
             createAppliedSyncFixture({
                 chainId: 1,
                 anchor: syncBlockFixture(ANCHOR),
-                collections: [
-                    services.registry.getCollection(1, collectionId)!,
-                ],
+                collections: [],
             });
+            // Backfill's existing run/step owns acceptance; the hint is only a wakeup.
+            await services.executor.runDue();
             services.progress.recordHeadSample(
                 services.progress.captureHeadSample(1),
                 syncBlockFixture(RANGE.toBlock),
@@ -260,7 +259,6 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
             const backfill = new BootstrapBackfillExecutor(
                 { getBlockNumber: async () => 200 },
                 services.progress,
-                services.registry,
                 runs,
                 steps,
                 {
@@ -270,9 +268,6 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                         );
                     },
                     scheduleBackfillCheck: async () => {},
-                    scheduleOpenSeaBootstrap: async () => {
-                        throw new Error("Unexpected OpenSea bootstrap");
-                    },
                 },
             );
             const input = {
@@ -284,13 +279,6 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 anchorHash: syncBlockFixture(ANCHOR).hash,
                 traceId: "bootstrap-restart",
                 sourceJobId: "bootstrap-check",
-                openSeaIntegration: {
-                    enabled: false,
-                    mode: OPENSEA_INTEGRATION_MODE.Disabled,
-                    reason: "fixture",
-                    missingKeys: [],
-                    requiredKeys: [],
-                },
             };
             const initial = await backfill.executeStep(input);
             expect(initial.outcome).toBe(
@@ -315,9 +303,19 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 runs,
                 steps,
                 new SqliteBootstrapStorage(),
-                { enqueueBootstrapFinalStats: async () => {} },
                 services.progress,
+                rpc,
+                3,
             );
+            steps.markStepReady(runId, BOOTSTRAP_STEP_KEY.CollectionLive);
+            steps.claimReadySteps({
+                runId,
+                stepKeys: [BOOTSTRAP_STEP_KEY.CollectionLive],
+                leaseOwner: "bootstrap-recovery-live",
+                nowMs: Date.now(),
+                leaseUntil: Date.now() + 60_000,
+                limit: 1,
+            });
             await live.complete({
                 run: runs.getRun(runId)!,
                 step: steps.getStep(runId, BOOTSTRAP_STEP_KEY.CollectionLive)!,
@@ -377,6 +375,14 @@ function seedRun(collectionId: number): number {
     );
     const insert = db.prepare(
         "INSERT INTO bootstrap_run_steps(run_id,step_key,status,blocking,depends_on_json,result_json,lease_until) VALUES(?,?,?,1,?,?,?)",
+    );
+    insert.run(
+        runId,
+        BOOTSTRAP_STEP_KEY.Ownership,
+        BOOTSTRAP_STEP_STATUS.Succeeded,
+        serializeBootstrapStepDependencies([]),
+        null,
+        null,
     );
     insert.run(
         runId,

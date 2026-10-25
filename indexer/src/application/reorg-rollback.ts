@@ -22,14 +22,15 @@ export type Erc721RollbackSnapshot = {
 };
 
 export interface ReorgRollbackStore {
-    // Refuse crossing retained bootstrap anchors before ownership RPC.
+    // Capture ownership work for surviving collection snapshots before RPC.
+    // Bootstrap state cannot veto an authoritative chain rollback.
     prepareRollback(input: {
         chainId: number;
         fromBlock: number;
     }): ReorgRollbackPlan;
     // Atomically validate the plan, restore ownership, remove orphaned facts and
-    // coverage, and advance the chain revision. Recheck bootstrap anchors in the
-    // writer; failed validation writes nothing. Retain signed order declarations,
+    // coverage, invalidate bootstrap state, and advance the chain revision.
+    // Failed validation writes nothing. Retain signed order declarations,
     // discard orphaned protocol results, and admit their validation in this same
     // transaction; source reconciliation is not a rollback dependency.
     rollbackFromBlock(input: {

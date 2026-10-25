@@ -40,11 +40,13 @@ export interface ChainProgressPort extends ValidationCheckpointPort {
     initializeChain(
         checkpoint: ChainSyncCheckpoint,
         anchor: SyncBlockHeader,
+        history?: readonly SyncBlockHeader[],
     ): void;
     acceptCollectionBase(
         checkpoint: ChainSyncCheckpoint,
         collectionId: number,
         anchor: SyncBlockHeader,
+        bootstrapRunId?: number,
     ): void;
     captureHeadSample(chainId: number): ChainHeadSampleRequest;
     recordHeadSample(
@@ -84,11 +86,15 @@ export interface AppliedRangeProgressPort {
         blocks: readonly SyncBlockHeader[],
     ): void;
     assertCollectionRange(
-        expected: CollectionAppliedProgress,
+        expected: CollectionAppliedProgress & {
+            bootstrapRunId?: number | null;
+        },
         blocks: readonly SyncBlockHeader[],
     ): void;
     advanceCollection(
-        expected: CollectionAppliedProgress,
+        expected: CollectionAppliedProgress & {
+            bootstrapRunId?: number | null;
+        },
         blocks: readonly SyncBlockHeader[],
     ): void;
     assertHistoricalRange(

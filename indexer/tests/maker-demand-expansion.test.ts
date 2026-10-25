@@ -107,9 +107,6 @@ describe("bounded maker scope expansion into ordinary demand", () => {
         db.exec("UPDATE collections SET bootstrap_anchor_block=900");
         progress = new SqliteChainProgress();
         progress.initializeChain(captureChainSyncCheckpoint(1), block(900));
-        db.prepare(
-            "INSERT INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (1,9,1,0,900,?)",
-        ).run(block(900).hash);
         progress.acceptCollectionBase(
             captureChainSyncCheckpoint(1),
             9,

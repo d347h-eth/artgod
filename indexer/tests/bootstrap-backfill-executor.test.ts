@@ -9,21 +9,15 @@ import {
     type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
-import {
-    OPENSEA_INTEGRATION_MODE,
-    type OpenSeaIntegrationStatus,
-} from "@artgod/shared/config/opensea-integration";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD,
     BOOTSTRAP_BACKFILL_STEP_RESULT_REASON,
-    BOOTSTRAP_OPENSEA_STEP_RESULT_REASON,
     BootstrapBackfillExecutor,
     buildBootstrapBackfillDelegatedStepResult,
     buildBootstrapBackfillTerminalStepResult,
-    type BootstrapBackfillCollectionPort,
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillRunsPort,
     type BootstrapBackfillStepsPort,
@@ -96,21 +90,6 @@ describe("bootstrap backfill executor", () => {
         expect(harness.skippedSteps).toEqual([
             {
                 runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
-                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
-            },
-            {
-                runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
-                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
-            },
-            {
-                runId: 41,
-                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaReady,
-                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
-            },
-            {
-                runId: 41,
                 stepKey: BOOTSTRAP_STEP_KEY.Backfill,
                 reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
             },
@@ -122,46 +101,32 @@ describe("bootstrap backfill executor", () => {
                 stepKey: BOOTSTRAP_STEP_KEY.Backfill,
                 result: buildBootstrapBackfillTerminalStepResult({
                     reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                    fromBlock: 101,
+                    toBlock: 100,
                     liveBlock: 100,
                 }),
             },
         ]);
         expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Ownership);
         expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
-        expect(harness.events.map((event) => event.eventCode)).toEqual([
-            BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-        ]);
+        expect(harness.events).toEqual([]);
     });
 
     it("queues catch-up backfill and a completion check when head is post-anchor", async () => {
         const harness = createHarness({
             headBlock: 105,
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Ownership }),
-            openseaSlug: "milady-by-remilia-corporation",
         });
 
         const result = await harness.executor.scheduleAfterSnapshot(
             scheduleInput({
                 anchorBlock: 100,
-                openSeaIntegration: enabledOpenSeaIntegration(),
             }),
         );
 
         expect(result.outcome).toBe(
             BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued,
         );
-        expect(harness.openSeaPending).toEqual([
-            { chainId: 1, collectionId: 7 },
-        ]);
-        expect(harness.openSeaSchedules).toEqual([
-            {
-                chainId: 1,
-                collectionId: 7,
-                bootstrap: {
-                    runId: 41,
-                },
-            },
-        ]);
         expect(harness.backfillRanges).toEqual([
             {
                 chainId: 1,
@@ -385,7 +350,6 @@ type Harness = {
     executor: BootstrapBackfillExecutor;
     run: BootstrapRunDefinition;
     events: Array<Parameters<BootstrapBackfillRunsPort["appendRunEvent"]>[0]>;
-    openSeaPending: Array<{ chainId: number; collectionId: number }>;
     runningSteps: Array<{ runId: number; stepKey: BootstrapStepKey }>;
     succeededSteps: Array<{
         runId: number;
@@ -418,11 +382,6 @@ type Harness = {
         fromBlock: number;
         toBlock: number;
     }>;
-    openSeaSchedules: Array<{
-        chainId: number;
-        runId: number;
-        collectionId: number;
-    }>;
     cleanupDeletedRows: CleanupDeletedRows;
 };
 
@@ -440,7 +399,6 @@ function createHarness(input: {
     progress?: BootstrapAppliedProgressPort;
     getHead?: () => Promise<number>;
     run?: BootstrapRunDefinition;
-    openseaSlug?: string | null;
     metadataCounts?: BootstrapTaskCounts;
     imageCacheCounts?: BootstrapTaskCounts;
     ownershipCounts?: BootstrapTaskCounts;
@@ -449,7 +407,6 @@ function createHarness(input: {
 }): Harness {
     const run = input.run ?? buildRun({});
     const events: Harness["events"] = [];
-    const openSeaPending: Harness["openSeaPending"] = [];
     const runningSteps: Harness["runningSteps"] = [];
     const succeededSteps: Harness["succeededSteps"] = [];
     const skippedSteps: Harness["skippedSteps"] = [];
@@ -457,7 +414,6 @@ function createHarness(input: {
     const resultUpdates: Harness["resultUpdates"] = [];
     const backfillRanges: Harness["backfillRanges"] = [];
     const backfillChecks: Harness["backfillChecks"] = [];
-    const openSeaSchedules: Harness["openSeaSchedules"] = [];
     const cleanupDeletedRows = emptyCleanupDeletedRows();
     let resultJson: string | null = null;
     const runsPort: BootstrapBackfillRunsPort = {
@@ -475,14 +431,22 @@ function createHarness(input: {
         markStepRunning: (runId, stepKey) => {
             runningSteps.push({ runId, stepKey });
         },
-        markStepSucceeded: (runId, stepKey, progress) => {
+        markStepSucceeded: (runId, stepKey, progress, result) => {
+            if (result) {
+                resultJson = JSON.stringify(result);
+                resultUpdates.push({ runId, stepKey, result });
+            }
             succeededSteps.push(
                 progress === undefined
                     ? { runId, stepKey }
                     : { runId, stepKey, progress },
             );
         },
-        markStepSkipped: (runId, stepKey, reason) => {
+        markStepSkipped: (runId, stepKey, reason, result) => {
+            if (result) {
+                resultJson = JSON.stringify(result);
+                resultUpdates.push({ runId, stepKey, result });
+            }
             skippedSteps.push({ runId, stepKey, reason });
         },
         updateStepProgress: (runId, stepKey, progress) => {
@@ -493,16 +457,6 @@ function createHarness(input: {
             resultUpdates.push({ runId, stepKey, result });
         },
     };
-    const collectionPort: BootstrapBackfillCollectionPort = {
-        getCollection: (chainId, collectionId) =>
-            chainId === run.chainId && collectionId === run.collectionId
-                ? { openseaSlug: input.openseaSlug ?? null }
-                : null,
-        markOpenSeaPending: (chainId, collectionId) => {
-            openSeaPending.push({ chainId, collectionId });
-            return true;
-        },
-    };
     const queuePort: BootstrapBackfillQueuePort = {
         scheduleBackfillRange: async (request) => {
             backfillRanges.push(request);
@@ -510,9 +464,6 @@ function createHarness(input: {
         },
         scheduleBackfillCheck: async (request) => {
             backfillChecks.push(request);
-        },
-        scheduleOpenSeaBootstrap: async (request) => {
-            openSeaSchedules.push(request);
         },
     };
     const executor = new BootstrapBackfillExecutor(
@@ -543,7 +494,6 @@ function createHarness(input: {
                           block: syncBlockFixture(input.appliedBlock ?? 100),
                       },
         },
-        collectionPort,
         runsPort,
         stepsPort,
         queuePort,
@@ -553,7 +503,6 @@ function createHarness(input: {
         executor,
         run,
         events,
-        openSeaPending,
         runningSteps,
         succeededSteps,
         skippedSteps,
@@ -561,15 +510,11 @@ function createHarness(input: {
         resultUpdates,
         backfillRanges,
         backfillChecks,
-        openSeaSchedules,
         cleanupDeletedRows,
     };
 }
 
-function scheduleInput(input: {
-    anchorBlock: number;
-    openSeaIntegration?: OpenSeaIntegrationStatus;
-}) {
+function scheduleInput(input: { anchorBlock: number }) {
     return {
         chainId: 1,
         runId: 41,
@@ -577,8 +522,6 @@ function scheduleInput(input: {
         address: TEST_CONTRACT_ADDRESS,
         anchorBlock: input.anchorBlock,
         anchorHash: buildRun({}).anchorBlockHash!,
-        openSeaIntegration:
-            input.openSeaIntegration ?? disabledOpenSeaIntegration(),
         traceId: "trace-1",
         sourceJobId: "job-1",
     };
@@ -596,26 +539,6 @@ function checkInput() {
         toBlock: 105,
         traceId: "trace-1",
         sourceJobId: "job-1",
-    };
-}
-
-function disabledOpenSeaIntegration(): OpenSeaIntegrationStatus {
-    return {
-        enabled: false,
-        mode: OPENSEA_INTEGRATION_MODE.Disabled,
-        reason: "disabled in test",
-        missingKeys: [],
-        requiredKeys: [],
-    };
-}
-
-function enabledOpenSeaIntegration(): OpenSeaIntegrationStatus {
-    return {
-        enabled: true,
-        mode: OPENSEA_INTEGRATION_MODE.Enabled,
-        reason: null,
-        missingKeys: [],
-        requiredKeys: [],
     };
 }
 

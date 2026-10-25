@@ -178,7 +178,7 @@ export class SqliteSyncRangeCommit implements SyncRangeCommitPort {
         for (const scope of application.collections)
             this.ports.progress.assertCollectionRange(scope, blocks);
         // Collection-only catch-up must join exact shared identities. An older
-        // installed base may first extend its own bounded pre-shared lineage.
+        // collection anchor may first extend its own bounded pre-shared lineage.
         if (!application.chain)
             this.ports.progress.assertCollectionReplayRange(checkpoint, blocks);
     }

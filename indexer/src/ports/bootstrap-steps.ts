@@ -91,15 +91,18 @@ export interface BootstrapStepsPort {
         stepKey: BootstrapStepKey;
         healthCheckAt: number;
     }): void;
+    /** Publish terminal status and its dependent-step handoff in the same write. */
     markStepSucceeded(
         runId: number,
         stepKey: BootstrapStepKey,
         progress?: BootstrapStepProgress,
+        result?: Record<string, unknown>,
     ): void;
     markStepSkipped(
         runId: number,
         stepKey: BootstrapStepKey,
         reason: string,
+        result?: Record<string, unknown>,
     ): void;
     markStepFailedRetry(input: {
         runId: number;

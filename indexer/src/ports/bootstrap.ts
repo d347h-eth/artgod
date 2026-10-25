@@ -9,16 +9,6 @@ import type {
     BootstrapTaskStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 
-export type BootstrapSnapshotRow = {
-    runId: number;
-    chainId: number;
-    collectionId: number;
-    contract: string;
-    tokenId: string;
-    owner: string;
-    anchorBlock: number;
-};
-
 export type SnapshotFinalizeInput = {
     runId: number;
     chainId: number;
@@ -128,8 +118,7 @@ export type BootstrapCollectionExtensionArtifactTaskCounts =
 
 export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
-    insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
-    // Install the run-owned, exact-anchor snapshot and its base identity in one
+    // Install the run-owned, exact-anchor snapshot in one
     // revision/lease-fenced writer. Never reset an already applied scope.
     finalizeSnapshot(input: SnapshotFinalizeInput): void;
     deleteRunTemporaryData(runId: number): void;

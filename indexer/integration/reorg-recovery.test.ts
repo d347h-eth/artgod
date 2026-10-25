@@ -455,9 +455,6 @@ describe("isolated broker and process reorg recovery", () => {
         db.prepare(
             "DELETE FROM collection_sync_progress WHERE collection_id=?",
         ).run(collectionId);
-        db.prepare(
-            "DELETE FROM collection_ownership_bases WHERE collection_id=?",
-        ).run(collectionId);
         await new SyncGapScheduler(services.registry, gaps, {
             chainId: 1,
             batchSize: F.BatchSize,

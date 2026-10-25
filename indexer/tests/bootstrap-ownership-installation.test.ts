@@ -1,3 +1,4 @@
+import { seedBootstrapSnapshotRows } from "./helpers/bootstrap-snapshot-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -42,7 +43,6 @@ describe("bootstrap ownership base installation", () => {
     beforeEach(() => {
         db.exec(
             [
-                "DELETE FROM collection_ownership_bases",
                 "DELETE FROM collection_sync_progress",
                 "DELETE FROM chain_sync_progress",
                 "DELETE FROM chain_reorg_recoveries",
@@ -67,7 +67,7 @@ describe("bootstrap ownership base installation", () => {
             anchorBlock: 100,
         });
         const storage = new SqliteBootstrapStorage();
-        storage.insertSnapshotRows([
+        seedBootstrapSnapshotRows([
             {
                 runId: 1,
                 chainId: 1,
@@ -96,32 +96,27 @@ describe("bootstrap ownership base installation", () => {
         return { collectionId, storage, input, rpc, installer };
     }
 
-    function bases() {
-        return db
-            .prepare(
-                "SELECT run_id,revision,anchor_block,anchor_hash FROM collection_ownership_bases",
-            )
-            .all();
-    }
-
     it("selecting an anchor and preparing tasks grants no base or applied progress", () => {
         fixture();
-        expect(bases()).toEqual([]);
         expect(
             db.prepare("SELECT * FROM collection_sync_progress").all(),
         ).toEqual([]);
         expect(db.prepare("SELECT * FROM blocks").all()).toEqual([]);
     });
 
-    it("atomically installs ownership and its base without granting canonical readiness", async () => {
+    it("installs ownership without authorizing collection sync", async () => {
         const f = fixture();
         await f.installer.execute(f.input);
         expect(f.rpc.getBlock).toHaveBeenCalledWith(100, { fresh: true });
+        expect(
+            db
+                .prepare(
+                    "SELECT bootstrap_last_synced_block AS watermark FROM collections WHERE collection_id=?",
+                )
+                .get(f.collectionId),
+        ).toEqual({ watermark: 100 });
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: OWNER, amount: "1" },
-        ]);
-        expect(bases()).toEqual([
-            { run_id: 1, revision: 0, anchor_block: 100, anchor_hash: HASH },
         ]);
         expect(
             db.prepare("SELECT * FROM collection_sync_progress").all(),
@@ -138,7 +133,6 @@ describe("bootstrap ownership base installation", () => {
         await expect(f.installer.execute(f.input)).rejects.toThrow(
             ChainSyncConflict,
         );
-        expect(bases()).toEqual([]);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
     });
 
@@ -146,15 +140,19 @@ describe("bootstrap ownership base installation", () => {
         const f = fixture();
         advanceChainSyncRevision(1);
         await f.installer.execute(f.input);
-        expect(bases()[0]).toMatchObject({ revision: 1 });
+        expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+            { owner: OWNER, amount: "1" },
+        ]);
     });
 
-    it("rebinds an installed but unaccepted base after fresh anchor verification", async () => {
+    it("retries an unfinished ownership installation before Backfill handover", async () => {
         const f = fixture();
         await f.installer.execute(f.input);
         advanceChainSyncRevision(1);
         await f.installer.execute(f.input);
-        expect(bases()[0]).toMatchObject({ revision: 1 });
+        expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
+            { owner: OWNER, amount: "1" },
+        ]);
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: OWNER, amount: "1" },
         ]);
@@ -169,7 +167,6 @@ describe("bootstrap ownership base installation", () => {
         await expect(f.installer.execute(f.input)).rejects.toThrow(
             ChainSyncConflict,
         );
-        expect(bases()).toEqual([]);
     });
 
     it("does not write a late old-anchor ownership response into a reseeded task", () => {
@@ -232,12 +229,11 @@ describe("bootstrap ownership base installation", () => {
             await expect(f.installer.execute(f.input)).rejects.toThrow(
                 ChainSyncConflict,
             );
-            expect(bases()).toEqual([]);
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
         },
     );
 
-    it("refuses to replace already applied collection progress without installed-base evidence", async () => {
+    it("refuses to replace already applied collection progress after Backfill has accepted it", async () => {
         const f = fixture();
         db.prepare(
             "INSERT INTO collection_sync_progress(chain_id,collection_id,revision,anchor_block,anchor_hash,applied_block,applied_hash) VALUES (?,?,?,?,?,?,?)",
@@ -245,7 +241,6 @@ describe("bootstrap ownership base installation", () => {
         await expect(f.installer.execute(f.input)).rejects.toThrow(
             ChainSyncConflict,
         );
-        expect(bases()).toEqual([]);
     });
 
     it("a duplicate install cannot erase post-anchor ownership after coordinator advancement", async () => {
@@ -257,7 +252,9 @@ describe("bootstrap ownership base installation", () => {
         db.prepare(
             "UPDATE nft_balances SET owner=?,last_block_number=101,last_block_hash='next'",
         ).run(BUYER);
-        await f.installer.execute(f.input);
+        await expect(f.installer.execute(f.input)).rejects.toThrow(
+            ChainSyncConflict,
+        );
         expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([
             { owner: BUYER, amount: "1" },
         ]);
@@ -271,22 +268,20 @@ describe("bootstrap ownership base installation", () => {
         await expect(f.installer.execute(f.input)).rejects.toThrow(
             ChainSyncConflict,
         );
-        expect(bases()).toEqual([]);
     });
 
-    it("rolls back ownership if recording installed-base evidence fails", async () => {
+    it("rolls back replacement when inserting the ownership snapshot fails", async () => {
         const f = fixture();
         db.exec(
-            "CREATE TEMP TRIGGER reject_base_install BEFORE INSERT ON collection_ownership_bases BEGIN SELECT RAISE(ABORT,'base write rejected'); END",
+            "CREATE TEMP TRIGGER reject_snapshot_install BEFORE INSERT ON nft_balances BEGIN SELECT RAISE(ABORT,'snapshot write rejected'); END",
         );
         try {
             await expect(f.installer.execute(f.input)).rejects.toThrow(
-                "base write rejected",
+                "snapshot write rejected",
             );
             expect(selectBalanceOwners(1, f.collectionId, "1")).toEqual([]);
-            expect(bases()).toEqual([]);
         } finally {
-            db.exec("DROP TRIGGER reject_base_install");
+            db.exec("DROP TRIGGER reject_snapshot_install");
         }
     });
 });

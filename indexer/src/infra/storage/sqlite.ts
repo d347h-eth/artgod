@@ -6,6 +6,9 @@ import {
 } from "../orders/sqlite-order-validation-demand.js";
 import { reconcileMakerRevalidationsAfterRollback } from "../orders/sqlite-maker-revalidation-rollback.js";
 import { db } from "@artgod/shared/database";
+import { BOOTSTRAP_ACTIVE_RUN_STATUSES } from "@artgod/shared/bootstrap/pipeline";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { invalidateBootstrapCollectionsForReorg } from "../bootstrap/sqlite-reorg-invalidation.js";
 import {
     captureChainSyncCheckpoint,
     assertChainSyncCheckpoint,
@@ -147,6 +150,8 @@ export class SqliteStorage
             "UNION SELECT collection_id, token_id FROM erc721_ownership_checkpoints WHERE chain_id = @chainId AND block_number >= @fromBlock" +
             ") t JOIN collections c ON c.collection_id = t.collection_id " +
             "WHERE c.chain_id = @chainId AND c.standard = @standard AND c.bootstrap_anchor_block IS NOT NULL " +
+            "AND c.bootstrap_anchor_block < @fromBlock " +
+            `AND NOT EXISTS (SELECT 1 FROM bootstrap_runs r WHERE c.status IN ('${COLLECTION_STATUS.Prepared}','${COLLECTION_STATUS.Bootstrapping}') AND r.chain_id=c.chain_id AND r.collection_id=c.collection_id AND r.status IN (${BOOTSTRAP_ACTIVE_RUN_STATUSES.map((status) => `'${status}'`).join(",")})) ` +
             "ORDER BY c.collection_id, t.token_id",
     );
     private upsertCollectionSyncBlock = db.prepare<{
@@ -421,8 +426,8 @@ export class SqliteStorage
         fromBlock: number;
         toBlock: number;
     }): ReorgHistorySnapshot {
-        // The accepted base is the earliest supported recovery boundary. Capture
-        // the connected prefix without a writer or a transaction across RPC.
+        // Initialization retains predecessor headers below the first applied
+        // block. They prove ancestry without granting current-state authority.
         return db.raw.transaction(() => {
             const checkpoint = this.captureSyncCheckpoint(input.chainId);
             const progress = new SqliteChainProgress().chainProgress(
@@ -431,18 +436,44 @@ export class SqliteStorage
             if (
                 !progress ||
                 progress.checkpoint.revision !== checkpoint.revision ||
-                input.toBlock < progress.anchor.number ||
                 input.toBlock > progress.applied.number
             )
                 throw new ChainSyncConflict(
                     "Ancestor window is outside accepted chain history",
                 );
-            const fromBlock = Math.max(input.fromBlock, progress.anchor.number);
-            const headers = this.selectReorgHeaders.all(
+            const retained = this.selectReorgHeaders.all(
                 input.chainId,
-                fromBlock,
-                input.toBlock,
+                input.fromBlock,
+                Math.max(input.toBlock, progress.anchor.number),
             ) as SyncBlockHeader[];
+            // Retain the complete connected suffix through the accepted tip.
+            // A hole below the applied base limits old lineage; a hole inside
+            // applied history remains an invariant violation.
+            let first = retained.length - 1;
+            while (
+                first > 0 &&
+                retained[first - 1].number + 1 === retained[first].number &&
+                retained[first - 1].hash === retained[first].parentHash
+            )
+                first--;
+            const connected = retained.slice(first);
+            const fromBlock = connected[0]?.number ?? input.toBlock + 1;
+            if (
+                fromBlock >
+                Math.min(
+                    input.toBlock,
+                    Math.max(input.fromBlock, progress.anchor.number),
+                )
+            )
+                throw new ChainSyncConflict(
+                    "Incomplete accepted ancestor window",
+                );
+            // A retained dispute may concern initialization ancestry below the
+            // applied start. Prove its connected path through that accepted
+            // boundary before returning the requested checked-height window.
+            const headers = connected.filter(
+                (header) => header.number <= input.toBlock,
+            );
             const history = {
                 checkpoint,
                 fromBlock,
@@ -451,8 +482,9 @@ export class SqliteStorage
             };
             assertReorgHistory(history);
             if (
-                (fromBlock === progress.anchor.number &&
-                    headers[0].hash !== progress.anchor.hash) ||
+                (fromBlock <= progress.anchor.number &&
+                    connected[progress.anchor.number - fromBlock]?.hash !==
+                        progress.anchor.hash) ||
                 (input.toBlock === progress.applied.number &&
                     headers[headers.length - 1].hash !== progress.applied.hash)
             )
@@ -529,7 +561,6 @@ export class SqliteStorage
             throw new RangeError(
                 "Rollback block must be a positive safe integer",
             );
-        this.assertRollbackPreservesAnchors(input.chainId, input.fromBlock);
         return {
             checkpoint: this.captureSyncCheckpoint(input.chainId),
             fromBlock: input.fromBlock,
@@ -538,23 +569,6 @@ export class SqliteStorage
                 standard: COLLECTION_STANDARD.Erc721,
             }) as Erc721TokenReference[],
         };
-    }
-
-    private assertRollbackPreservesAnchors(
-        chainId: number,
-        fromBlock: number,
-    ): void {
-        const { anchorBlock } = db
-            .prepare(
-                "SELECT MAX(anchor_block) AS anchorBlock FROM (" +
-                    "SELECT anchor_block FROM chain_sync_progress WHERE chain_id=? " +
-                    "UNION ALL SELECT anchor_block FROM collection_ownership_bases WHERE chain_id=?)",
-            )
-            .get(chainId, chainId) as { anchorBlock: number | null };
-        if (!CollectionRecord.canRollbackFromBlock(anchorBlock, fromBlock))
-            throw new ChainSyncConflict(
-                `Rollback from block ${fromBlock} crosses retained applied base ${anchorBlock}`,
-            );
     }
 
     rollbackFromBlock({
@@ -568,9 +582,6 @@ export class SqliteStorage
         const fromBlock = plan.fromBlock;
         const run = db.writeTransaction(() => {
             this.assertSyncCheckpoint(plan.checkpoint);
-            // Bootstrap can change while ownership RPC is in flight. Recheck
-            // every retained chain anchor before this writer changes any state.
-            this.assertRollbackPreservesAnchors(chainId, fromBlock);
             if (snapshot.block.blockNumber !== fromBlock - 1)
                 throw new ChainSyncConflict(
                     "Rollback ownership snapshot has the wrong block",
@@ -593,6 +604,7 @@ export class SqliteStorage
                 expected: plan.tokens,
                 actual: snapshot.owners,
             });
+            invalidateBootstrapCollectionsForReorg(chainId, fromBlock);
             // The ordinary order deletion below already covers attributed
             // orphan rows. Preserve pre-fork and unattributed terminal evidence;
             // neither proves a same-chain order belongs to this rollback.

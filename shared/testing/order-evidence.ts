@@ -53,15 +53,6 @@ export function seedOrderEvidence(
             f.hash,
         );
         conn.prepare(
-            "INSERT OR IGNORE INTO collection_ownership_bases(chain_id,collection_id,run_id,revision,anchor_block,anchor_hash) VALUES (?,?,1,?,?,?)",
-        ).run(
-            order.chain_id,
-            order.collection_id,
-            f.revision,
-            f.anchorBlock,
-            f.anchorHash,
-        );
-        conn.prepare(
             "INSERT OR IGNORE INTO collection_sync_progress(chain_id,collection_id,revision,anchor_block,anchor_hash,applied_block,applied_hash) VALUES (?,?,?,?,?,?,?)",
         ).run(
             order.chain_id,

@@ -1,4 +1,3 @@
-import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
@@ -6,7 +5,6 @@ import {
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
-import type { OpenSeaBootstrapCollectionPayload } from "../domain/opensea-jobs.js";
 import { type BootstrapTemporaryDataCleanupResult } from "./bootstrap-temporary-data-cleanup.js";
 import {
     bootstrapAppliedCheckpoint,
@@ -43,18 +41,12 @@ export const BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD = {
     FromBlock: "fromBlock",
     ToBlock: "toBlock",
     LiveBlock: "liveBlock",
-} as const;
-
-// OpenSea skip reasons are persisted on bootstrap_run_steps.result_json.
-export const BOOTSTRAP_OPENSEA_STEP_RESULT_REASON = {
-    IntegrationDisabled: "integration disabled",
-    MissingSlug: "missing OpenSea slug",
+    BaseRetryAt: "baseRetryAt",
 } as const;
 
 export type BootstrapBackfillScheduleInput = BootstrapAppliedBase & {
     runId: number;
     address: string;
-    openSeaIntegration: OpenSeaIntegrationStatus;
     traceId: string;
     sourceJobId: string;
 };
@@ -90,14 +82,6 @@ export interface BootstrapBackfillRpcPort {
     getBlockNumber(): Promise<number>;
 }
 
-export interface BootstrapBackfillCollectionPort {
-    getCollection(
-        chainId: number,
-        collectionId: number,
-    ): { openseaSlug: string | null } | null;
-    markOpenSeaPending(chainId: number, collectionId: number): boolean;
-}
-
 export interface BootstrapBackfillQueuePort {
     scheduleBackfillRange(input: {
         chainId: number;
@@ -113,9 +97,6 @@ export interface BootstrapBackfillQueuePort {
         fromBlock: number;
         toBlock: number;
     }): Promise<void>;
-    scheduleOpenSeaBootstrap(
-        input: OpenSeaBootstrapCollectionPayload,
-    ): Promise<void>;
 }
 
 export interface BootstrapBackfillRunsPort extends Pick<
@@ -142,7 +123,6 @@ export class BootstrapBackfillExecutor {
     constructor(
         private readonly rpcPort: BootstrapBackfillRpcPort,
         private readonly syncProgressPort: BootstrapAppliedProgressPort,
-        private readonly collectionPort: BootstrapBackfillCollectionPort,
         private readonly runsPort: BootstrapBackfillRunsPort,
         private readonly stepsPort: BootstrapBackfillStepsPort,
         private readonly queuePort: BootstrapBackfillQueuePort,
@@ -168,8 +148,6 @@ export class BootstrapBackfillExecutor {
     async scheduleAfterSnapshot(
         input: BootstrapBackfillScheduleInput,
     ): Promise<BootstrapBackfillScheduleResult> {
-        await this.maybeScheduleOpenSeaBootstrap(input);
-
         const fromBlock = input.anchorBlock + 1;
         if (fromBlock <= 0) {
             return {
@@ -206,6 +184,12 @@ export class BootstrapBackfillExecutor {
                 total: toBlock - fromBlock + 1,
             },
         );
+        // Publish the run phase before the range. A crash after the range is
+        // retained must leave a complete, resumable delegation for the coordinator.
+        this.runsPort.updateRunStatus(
+            input.runId,
+            BOOTSTRAP_RUN_STATUS.Backfill,
+        );
         this.stepsPort.updateStepResult(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
@@ -213,10 +197,6 @@ export class BootstrapBackfillExecutor {
                 fromBlock: plan.fromBlock,
                 toBlock,
             }),
-        );
-        this.runsPort.updateRunStatus(
-            input.runId,
-            BOOTSTRAP_RUN_STATUS.Backfill,
         );
         this.runsPort.appendRunEvent({
             runId: input.runId,
@@ -313,27 +293,27 @@ export class BootstrapBackfillExecutor {
             };
         }
 
+        const result = buildBootstrapBackfillTerminalStepResult({
+            fromBlock: input.fromBlock,
+            toBlock: input.toBlock,
+            liveBlock: input.toBlock,
+        });
+        // CollectionLive depends on both terminal status and this retained target.
+        // One owner write prevents a crash from exposing only half the handoff.
         if (expected === 0)
             this.stepsPort.markStepSkipped(
                 input.runId,
                 BOOTSTRAP_STEP_KEY.Backfill,
                 BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                result,
             );
         else
             this.stepsPort.markStepSucceeded(
                 input.runId,
                 BOOTSTRAP_STEP_KEY.Backfill,
                 { completed: expected, total: expected },
+                result,
             );
-        this.stepsPort.updateStepResult(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
-            buildBootstrapBackfillTerminalStepResult({
-                fromBlock: input.fromBlock,
-                toBlock: input.toBlock,
-                liveBlock: input.toBlock,
-            }),
-        );
 
         return {
             outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
@@ -356,12 +336,10 @@ export class BootstrapBackfillExecutor {
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
             BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
-        );
-        this.stepsPort.updateStepResult(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
             buildBootstrapBackfillTerminalStepResult({
                 reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                fromBlock: input.anchorBlock + 1,
+                toBlock: input.anchorBlock,
                 liveBlock: input.anchorBlock,
             }),
         );
@@ -375,83 +353,6 @@ export class BootstrapBackfillExecutor {
             plan,
             cleanup: { deleted: false },
         };
-    }
-
-    private async maybeScheduleOpenSeaBootstrap(
-        input: BootstrapBackfillScheduleInput,
-    ): Promise<void> {
-        if (!input.openSeaIntegration.enabled) {
-            this.markOpenSeaStepsSkipped(
-                input.runId,
-                BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
-            );
-            this.runsPort.appendRunEvent({
-                runId: input.runId,
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-                eventLevel: "info",
-                message:
-                    "OpenSea bootstrap skipped because integration is disabled",
-                payloadJson: JSON.stringify({
-                    reason: input.openSeaIntegration.reason,
-                    missingKeys: input.openSeaIntegration.missingKeys,
-                }),
-            });
-            return;
-        }
-
-        const collection = this.collectionPort.getCollection(
-            input.chainId,
-            input.collectionId,
-        );
-        if (!collection?.openseaSlug) {
-            this.markOpenSeaStepsSkipped(
-                input.runId,
-                BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.MissingSlug,
-            );
-            this.runsPort.appendRunEvent({
-                runId: input.runId,
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-                eventLevel: "info",
-                message:
-                    "OpenSea bootstrap skipped because no OpenSea slug is configured",
-                payloadJson: null,
-            });
-            return;
-        }
-
-        this.collectionPort.markOpenSeaPending(
-            input.chainId,
-            input.collectionId,
-        );
-        await this.queuePort.scheduleOpenSeaBootstrap({
-            chainId: input.chainId,
-            collectionId: input.collectionId,
-            bootstrap: {
-                runId: input.runId,
-            },
-        });
-    }
-
-    private markOpenSeaStepsSkipped(runId: number, reason: string): void {
-        this.stepsPort.markStepSkipped(
-            runId,
-            BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
-            reason,
-        );
-        this.stepsPort.markStepSkipped(
-            runId,
-            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
-            reason,
-        );
-        this.stepsPort.markStepSkipped(
-            runId,
-            BOOTSTRAP_STEP_KEY.OpenSeaReady,
-            reason,
-        );
     }
 }
 

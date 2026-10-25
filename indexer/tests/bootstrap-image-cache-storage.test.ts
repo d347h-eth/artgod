@@ -1,3 +1,4 @@
+import { seedBootstrapRunFixture } from "./helpers/bootstrap-run-fixture.js";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
@@ -28,6 +29,7 @@ describe("bootstrap storage", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM bootstrap_runs;",
                 "DELETE FROM bootstrap_collection_extension_artifact_tasks;",
                 "DELETE FROM bootstrap_image_cache_tasks;",
                 "DELETE FROM token_image_cache;",
@@ -53,6 +55,7 @@ describe("bootstrap storage", () => {
             anchorTimestamp: 1_726_000_000,
         };
 
+        seedBootstrapRunFixture(task.runId, task.collectionId);
         expect(storage.insertMetadataTasks([task])).toBe(1);
         expect(storage.insertMetadataTasks([task])).toBe(0);
         expect(storage.getMetadataTaskCounts(40)).toEqual({
@@ -124,6 +127,7 @@ describe("bootstrap storage", () => {
 
     it("seeds image cache tasks from successful metadata tasks", () => {
         const storage = new SqliteBootstrapStorage();
+        seedBootstrapRunFixture(42, 7);
         storage.insertMetadataTasks([
             {
                 runId: 42,
@@ -207,6 +211,7 @@ describe("bootstrap storage", () => {
 
     it("seeds collection-extension artifact tasks from metadata and extension-owned rows together", () => {
         const storage = new SqliteBootstrapStorage();
+        seedBootstrapRunFixture(43, 7);
         storage.insertMetadataTasks([
             {
                 runId: 43,
@@ -516,6 +521,7 @@ describe("bootstrap storage", () => {
 
     it("tracks ownership task retries and writes idempotent snapshot rows", () => {
         const storage = new SqliteBootstrapStorage();
+        seedBootstrapRunFixture(77, 9);
         storage.insertOwnershipTasks([
             {
                 runId: 77,
@@ -699,6 +705,7 @@ function seedCollectionExtensionArtifactTask(
     storage: SqliteBootstrapStorage,
     input: { runId: number; tokenId: string },
 ): void {
+    seedBootstrapRunFixture(input.runId);
     storage.seedCollectionExtensionArtifactTasks({
         runId: input.runId,
         extensionKey: TEST_EXTENSION_KEY,
@@ -741,6 +748,7 @@ function seedMetadataWithImage(
 }
 
 function buildMetadataTaskSeed(input: { runId: number; tokenId: string }) {
+    seedBootstrapRunFixture(input.runId);
     return {
         runId: input.runId,
         chainId: 1,
