@@ -122,6 +122,7 @@ export interface BootstrapStepOrchestratorStepsPort {
         leaseUntil: number;
     }): void;
     markStepFailedRetry(input: {
+        leaseOwner: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;
@@ -129,6 +130,7 @@ export interface BootstrapStepOrchestratorStepsPort {
         error: string;
     }): void;
     markStepFailedTerminal(input: {
+        leaseOwner: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;
@@ -568,6 +570,7 @@ export class BootstrapStepOrchestrator {
         message: string,
     ): void {
         this.stepsPort.markStepFailedTerminal({
+            leaseOwner: input.leaseOwner,
             runId: step.runId,
             stepKey: step.stepKey,
             attempts: step.attempts + 1,
@@ -596,6 +599,7 @@ export class BootstrapStepOrchestrator {
         const attempts = step.attempts + 1;
         if (attempts >= input.retryPolicy.maxAttempts) {
             this.stepsPort.markStepFailedTerminal({
+                leaseOwner: input.leaseOwner,
                 runId: step.runId,
                 stepKey: step.stepKey,
                 attempts,
@@ -618,6 +622,7 @@ export class BootstrapStepOrchestrator {
         const nextAttemptAt =
             this.nowMs() + getRetryDelayMs(attempts, input.retryPolicy);
         this.stepsPort.markStepFailedRetry({
+            leaseOwner: input.leaseOwner,
             runId: step.runId,
             stepKey: step.stepKey,
             attempts,

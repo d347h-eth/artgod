@@ -1,3 +1,9 @@
+import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { isBootstrapRunWritable } from "./sqlite-write-guard.js";
+import type {
+    BootstrapBackfillClaim,
+    BootstrapBackfillStepsPort,
+} from "../../application/bootstrap-backfill-executor.js";
 import { db } from "@artgod/shared/database";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
@@ -45,9 +51,46 @@ const BOOTSTRAP_STEP_DUE_AT_SQL =
 
 // SQLite adapter for the durable bootstrap_run_steps orchestration journal.
 export class SqliteBootstrapSteps
-    implements BootstrapStepsPort, BootstrapEnumerationStepsPort
+    implements
+        BootstrapStepsPort,
+        BootstrapEnumerationStepsPort,
+        BootstrapBackfillStepsPort
 {
     constructor(private readonly nowMs: () => number = Date.now) {}
+
+    commitBackfillStep(
+        claim: BootstrapBackfillClaim,
+        write: () => void,
+    ): boolean {
+        return db.writeTransaction(() => {
+            if (!isBootstrapRunWritable(claim.runId, claim)) return false;
+            const current = db
+                .prepare(
+                    "SELECT 1 FROM bootstrap_run_steps s " +
+                        "JOIN bootstrap_runs r ON r.run_id=s.run_id " +
+                        "JOIN collections c ON c.chain_id=r.chain_id AND c.collection_id=r.collection_id " +
+                        "WHERE s.run_id=@runId AND s.step_key=@stepKey AND s.status=@running " +
+                        "AND s.lease_owner=@leaseOwner AND s.lease_until>@nowMs " +
+                        "AND lower(r.request_address)=lower(@address) " +
+                        "AND r.anchor_block=@anchorBlock AND r.anchor_block_hash=@anchorHash " +
+                        "AND c.status=@bootstrapping AND c.bootstrap_anchor_block=@anchorBlock",
+                )
+                .get({
+                    runId: claim.runId,
+                    stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                    running: BOOTSTRAP_STEP_STATUS.Running,
+                    leaseOwner: claim.leaseOwner,
+                    nowMs: this.nowMs(),
+                    address: claim.address,
+                    anchorBlock: claim.anchorBlock,
+                    anchorHash: claim.anchorHash,
+                    bootstrapping: COLLECTION_STATUS.Bootstrapping,
+                });
+            if (!current) return false;
+            write();
+            return true;
+        })();
+    }
 
     ownsEnumerationLease({
         run,
@@ -271,6 +314,8 @@ export class SqliteBootstrapSteps
     );
 
     private markFailedRetryStmt = db.prepare<{
+        leaseOwner: string | null;
+        runningStatus: BootstrapStepStatus;
         runId: number;
         stepKey: BootstrapStepKey;
         status: BootstrapStepStatus;
@@ -287,10 +332,13 @@ export class SqliteBootstrapSteps
             "status = @status, attempts = @attempts, next_attempt_at = @nextAttemptAt, " +
             "lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus) " +
+            "AND (@leaseOwner IS NULL OR (status=@runningStatus AND lease_owner=@leaseOwner AND lease_until>@nowMs))",
     );
 
     private markFailedTerminalStmt = db.prepare<{
+        leaseOwner: string | null;
+        runningStatus: BootstrapStepStatus;
         runId: number;
         stepKey: BootstrapStepKey;
         status: BootstrapStepStatus;
@@ -306,7 +354,8 @@ export class SqliteBootstrapSteps
             "status = @status, attempts = @attempts, lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, " +
             "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus) " +
+            "AND (@leaseOwner IS NULL OR (status=@runningStatus AND lease_owner=@leaseOwner AND lease_until>@nowMs))",
     );
 
     private updateProgressStmt = db.prepare<{
@@ -546,6 +595,7 @@ export class SqliteBootstrapSteps
     }
 
     markStepFailedRetry(input: {
+        leaseOwner?: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;
@@ -556,12 +606,15 @@ export class SqliteBootstrapSteps
             ...input,
             status: BOOTSTRAP_STEP_STATUS.FailedRetry,
             lastError: input.error,
-            nowMs: Date.now(),
+            nowMs: this.nowMs(),
+            leaseOwner: input.leaseOwner ?? null,
+            runningStatus: BOOTSTRAP_STEP_STATUS.Running,
             ...protectedStatusParams(),
         });
     }
 
     markStepFailedTerminal(input: {
+        leaseOwner?: string;
         runId: number;
         stepKey: BootstrapStepKey;
         attempts: number;
@@ -571,7 +624,9 @@ export class SqliteBootstrapSteps
             ...input,
             status: BOOTSTRAP_STEP_STATUS.FailedTerminal,
             lastError: input.error,
-            nowMs: Date.now(),
+            nowMs: this.nowMs(),
+            leaseOwner: input.leaseOwner ?? null,
+            runningStatus: BOOTSTRAP_STEP_STATUS.Running,
             ...protectedStatusParams(),
         });
     }

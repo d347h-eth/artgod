@@ -20,6 +20,7 @@ import {
 // Backfill executor outcomes are returned to the runtime for structured logging.
 export const BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME = {
     InvalidRange: "invalid_range",
+    LeaseLost: "lease_lost",
     CollectionMissing: "collection_missing",
     CompletedWithoutBackfill: "completed_without_backfill",
     BackfillQueued: "backfill_queued",
@@ -44,16 +45,18 @@ export const BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD = {
     BaseRetryAt: "baseRetryAt",
 } as const;
 
-export type BootstrapBackfillScheduleInput = BootstrapAppliedBase & {
+export type BootstrapBackfillClaim = BootstrapAppliedBase & {
     runId: number;
     address: string;
+    leaseOwner: string;
+};
+
+export type BootstrapBackfillScheduleInput = BootstrapBackfillClaim & {
     traceId: string;
     sourceJobId: string;
 };
 
-export type BootstrapBackfillCheckInput = BootstrapAppliedBase & {
-    runId: number;
-    address: string;
+export type BootstrapBackfillCheckInput = BootstrapBackfillClaim & {
     fromBlock: number;
     toBlock: number;
     traceId: string;
@@ -112,6 +115,12 @@ export interface BootstrapBackfillStepsPort extends Pick<
     | "updateStepProgress"
     | "updateStepResult"
 > {
+    /** Recheck current run, anchor and unexpired claim inside one writer, then
+     * execute only synchronous persistence work. A stale claim writes nothing. */
+    commitBackfillStep(
+        claim: BootstrapBackfillClaim,
+        write: () => void,
+    ): boolean;
     getStep(
         runId: number,
         stepKey: typeof BOOTSTRAP_STEP_KEY.Backfill,
@@ -135,11 +144,10 @@ export class BootstrapBackfillExecutor {
         checkRange?: { fromBlock: number; toBlock: number },
     ): Promise<BootstrapBackfillScheduleResult | BootstrapBackfillCheckResult> {
         const range =
-            checkRange ??
             parseBootstrapBackfillDelegatedRange(
                 this.stepsPort.getStep(input.runId, BOOTSTRAP_STEP_KEY.Backfill)
                     ?.resultJson ?? null,
-            );
+            ) ?? checkRange;
         return range
             ? this.checkProgress({ ...input, ...range })
             : this.scheduleAfterSnapshot(input);
@@ -147,7 +155,7 @@ export class BootstrapBackfillExecutor {
 
     async scheduleAfterSnapshot(
         input: BootstrapBackfillScheduleInput,
-    ): Promise<BootstrapBackfillScheduleResult> {
+    ): Promise<BootstrapBackfillScheduleResult | BootstrapBackfillCheckResult> {
         const fromBlock = input.anchorBlock + 1;
         if (fromBlock <= 0) {
             return {
@@ -162,54 +170,80 @@ export class BootstrapBackfillExecutor {
 
         const headBlock = await this.rpcPort.getBlockNumber();
         const plan = resolveBootstrapBackfillPlan({ fromBlock, headBlock });
-        if (
-            plan.kind === BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks &&
-            bootstrapAppliedCheckpoint(this.syncProgressPort, input)
-        ) {
-            return await this.completeWithoutBackfill(input, plan);
-        }
         const toBlock =
             plan.kind === BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks
                 ? input.anchorBlock
                 : plan.toBlock;
-        this.stepsPort.markStepRunning(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
-        );
-        this.stepsPort.updateStepProgress(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
-            {
-                completed: 0,
-                total: toBlock - fromBlock + 1,
-            },
-        );
-        // Publish the run phase before the range. A crash after the range is
-        // retained must leave a complete, resumable delegation for the coordinator.
-        this.runsPort.updateRunStatus(
-            input.runId,
-            BOOTSTRAP_RUN_STATUS.Backfill,
-        );
-        this.stepsPort.updateStepResult(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
-            buildBootstrapBackfillDelegatedStepResult({
-                fromBlock: plan.fromBlock,
-                toBlock,
-            }),
-        );
-        this.runsPort.appendRunEvent({
-            runId: input.runId,
-            chainId: input.chainId,
-            collectionId: input.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.BackfillQueued,
-            eventLevel: "info",
-            message: "Bootstrap backfill queued",
-            payloadJson: JSON.stringify({
-                fromBlock: plan.fromBlock,
-                toBlock,
-            }),
+        const retained: {
+            range: { fromBlock: number; toBlock: number } | null;
+        } = { range: null };
+        let completedWithoutBackfill = false;
+        const committed = this.stepsPort.commitBackfillStep(input, () => {
+            retained.range = parseBootstrapBackfillDelegatedRange(
+                this.stepsPort.getStep(input.runId, BOOTSTRAP_STEP_KEY.Backfill)
+                    ?.resultJson ?? null,
+            );
+            if (retained.range) return;
+            if (
+                plan.kind === BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks &&
+                bootstrapAppliedCheckpoint(this.syncProgressPort, input)
+            ) {
+                this.completeWithoutBackfill(input);
+                completedWithoutBackfill = true;
+                return;
+            }
+            this.stepsPort.markStepRunning(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+            );
+            this.stepsPort.updateStepProgress(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+                {
+                    completed: 0,
+                    total: toBlock - fromBlock + 1,
+                },
+            );
+            // The phase, first target and event form one durable delegation.
+            // A crash cannot publish only part of the coordinator handoff.
+            this.runsPort.updateRunStatus(
+                input.runId,
+                BOOTSTRAP_RUN_STATUS.Backfill,
+            );
+            this.stepsPort.updateStepResult(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+                buildBootstrapBackfillDelegatedStepResult({
+                    fromBlock: plan.fromBlock,
+                    toBlock,
+                }),
+            );
+            this.runsPort.appendRunEvent({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.BackfillQueued,
+                eventLevel: "info",
+                message: "Bootstrap backfill queued",
+                payloadJson: JSON.stringify({
+                    fromBlock: plan.fromBlock,
+                    toBlock,
+                }),
+            });
         });
+        if (!committed || completedWithoutBackfill)
+            return {
+                outcome: committed
+                    ? BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CompletedWithoutBackfill
+                    : BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.LeaseLost,
+                fromBlock,
+                anchorBlock: input.anchorBlock,
+                headBlock,
+                plan,
+                cleanup: { deleted: false },
+            };
+        if (retained.range)
+            return this.checkProgress({ ...input, ...retained.range });
         // The retained range describes completion, not independent acquisition.
         // This queue delivery is only a wakeup; periodic coordination survives
         // a lost wakeup and owns all missing post-anchor application.
@@ -254,37 +288,76 @@ export class BootstrapBackfillExecutor {
             };
         }
 
-        const checkpoint = bootstrapAppliedCheckpoint(
-            this.syncProgressPort,
-            input,
-        );
-        const synced = checkpoint
-            ? Math.max(
-                  0,
-                  Math.min(input.toBlock, checkpoint.block.number) -
-                      input.fromBlock +
-                      1,
-              )
-            : 0;
-        this.stepsPort.updateStepProgress(
-            input.runId,
-            BOOTSTRAP_STEP_KEY.Backfill,
-            {
-                completed: synced,
-                total: expected,
-            },
-        );
-        if (!checkpoint || checkpoint.block.number < input.toBlock) {
-            await this.queuePort.scheduleBackfillCheck({
-                chainId: input.chainId,
-                runId: input.runId,
-                collectionId: input.collectionId,
-                address: input.address,
+        let synced = 0;
+        let complete = false;
+        const committed = this.stepsPort.commitBackfillStep(input, () => {
+            const retained = parseBootstrapBackfillDelegatedRange(
+                this.stepsPort.getStep(input.runId, BOOTSTRAP_STEP_KEY.Backfill)
+                    ?.resultJson ?? null,
+            );
+            // A delayed queue check cannot substitute another completion target.
+            if (
+                retained &&
+                (retained.fromBlock !== input.fromBlock ||
+                    retained.toBlock !== input.toBlock)
+            )
+                return;
+            const checkpoint = bootstrapAppliedCheckpoint(
+                this.syncProgressPort,
+                input,
+            );
+            synced = checkpoint
+                ? Math.max(
+                      0,
+                      Math.min(input.toBlock, checkpoint.block.number) -
+                          input.fromBlock +
+                          1,
+                  )
+                : 0;
+            this.stepsPort.updateStepProgress(
+                input.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+                {
+                    completed: synced,
+                    total: expected,
+                },
+            );
+            complete = !!checkpoint && checkpoint.block.number >= input.toBlock;
+            if (!complete) return;
+            const result = buildBootstrapBackfillTerminalStepResult({
                 fromBlock: input.fromBlock,
                 toBlock: input.toBlock,
+                liveBlock: input.toBlock,
             });
+            if (expected === 0)
+                this.stepsPort.markStepSkipped(
+                    input.runId,
+                    BOOTSTRAP_STEP_KEY.Backfill,
+                    BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                    result,
+                );
+            else
+                this.stepsPort.markStepSucceeded(
+                    input.runId,
+                    BOOTSTRAP_STEP_KEY.Backfill,
+                    { completed: expected, total: expected },
+                    result,
+                );
+        });
+        if (!committed || !complete) {
+            if (committed)
+                await this.queuePort.scheduleBackfillCheck({
+                    chainId: input.chainId,
+                    runId: input.runId,
+                    collectionId: input.collectionId,
+                    address: input.address,
+                    fromBlock: input.fromBlock,
+                    toBlock: input.toBlock,
+                });
             return {
-                outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete,
+                outcome: committed
+                    ? BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
+                    : BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.LeaseLost,
                 fromBlock: input.fromBlock,
                 toBlock: input.toBlock,
                 expected,
@@ -292,28 +365,6 @@ export class BootstrapBackfillExecutor {
                 cleanup: { deleted: false },
             };
         }
-
-        const result = buildBootstrapBackfillTerminalStepResult({
-            fromBlock: input.fromBlock,
-            toBlock: input.toBlock,
-            liveBlock: input.toBlock,
-        });
-        // CollectionLive depends on both terminal status and this retained target.
-        // One owner write prevents a crash from exposing only half the handoff.
-        if (expected === 0)
-            this.stepsPort.markStepSkipped(
-                input.runId,
-                BOOTSTRAP_STEP_KEY.Backfill,
-                BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
-                result,
-            );
-        else
-            this.stepsPort.markStepSucceeded(
-                input.runId,
-                BOOTSTRAP_STEP_KEY.Backfill,
-                { completed: expected, total: expected },
-                result,
-            );
 
         return {
             outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
@@ -325,13 +376,9 @@ export class BootstrapBackfillExecutor {
         };
     }
 
-    private async completeWithoutBackfill(
+    private completeWithoutBackfill(
         input: BootstrapBackfillScheduleInput,
-        plan: Extract<
-            BootstrapBackfillPlan,
-            { kind: typeof BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks }
-        >,
-    ): Promise<BootstrapBackfillScheduleResult> {
+    ): void {
         this.stepsPort.markStepSkipped(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
@@ -343,16 +390,6 @@ export class BootstrapBackfillExecutor {
                 liveBlock: input.anchorBlock,
             }),
         );
-
-        return {
-            outcome:
-                BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CompletedWithoutBackfill,
-            fromBlock: plan.fromBlock,
-            anchorBlock: input.anchorBlock,
-            headBlock: plan.headBlock,
-            plan,
-            cleanup: { deleted: false },
-        };
     }
 }
 

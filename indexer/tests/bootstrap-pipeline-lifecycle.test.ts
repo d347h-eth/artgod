@@ -195,7 +195,17 @@ describe("bootstrap pipeline lifecycle", () => {
             total: 2,
         });
 
+        bootstrapSteps.markStepReady(runId, BOOTSTRAP_STEP_KEY.Backfill);
+        bootstrapSteps.claimReadySteps({
+            runId,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Backfill],
+            leaseOwner: "backfill-test",
+            nowMs: Date.now(),
+            leaseUntil: Date.now() + 60_000,
+            limit: 1,
+        });
         const backfillResult = await backfillExecutor.scheduleAfterSnapshot({
+            leaseOwner: "backfill-test",
             chainId: 1,
             runId,
             collectionId,
@@ -212,6 +222,7 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(progress.collectionProgress(1, collectionId)).toBeNull();
         await applyEmptyCatchup(collectionId, 900);
         await backfillExecutor.executeStep({
+            leaseOwner: "backfill-test",
             chainId: 1,
             runId,
             collectionId,
@@ -515,6 +526,7 @@ describe("bootstrap pipeline lifecycle", () => {
                             throw new Error("Missing anchor for backfill");
                         }
                         await backfillExecutor.scheduleAfterSnapshot({
+                            leaseOwner,
                             chainId: run.chainId,
                             runId: run.runId,
                             collectionId: run.collectionId,
@@ -529,6 +541,7 @@ describe("bootstrap pipeline lifecycle", () => {
                         ).toBeNull();
                         await applyEmptyCatchup(collectionId, 900, 1_000);
                         await backfillExecutor.executeStep({
+                            leaseOwner,
                             chainId: run.chainId,
                             runId: run.runId,
                             collectionId: run.collectionId,
@@ -740,6 +753,7 @@ describe("bootstrap pipeline lifecycle", () => {
                             throw new Error("Missing anchor for backfill");
                         }
                         const result = await backfillExecutor.executeStep({
+                            leaseOwner,
                             chainId: run.chainId,
                             runId: run.runId,
                             collectionId: run.collectionId,

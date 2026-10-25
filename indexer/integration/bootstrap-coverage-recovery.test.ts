@@ -59,6 +59,7 @@ const OWNER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CONSUMER = "bootstrap-coverage-recovery";
 const ANCHOR = 100;
 const RANGE = { fromBlock: 101, toBlock: 104 };
+const BACKFILL_LEASE_OWNER = "bootstrap-recovery-backfill";
 
 describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
     loadTestEnv();
@@ -270,7 +271,19 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                     scheduleBackfillCheck: async () => {},
                 },
             );
+            // Restart resumes through the same step claim used by the scheduler.
+            expect(
+                steps.claimReadySteps({
+                    runId,
+                    stepKeys: [BOOTSTRAP_STEP_KEY.Backfill],
+                    leaseOwner: BACKFILL_LEASE_OWNER,
+                    nowMs: Date.now(),
+                    leaseUntil: Date.now() + 60_000,
+                    limit: 1,
+                }),
+            ).toHaveLength(1);
             const input = {
+                leaseOwner: BACKFILL_LEASE_OWNER,
                 chainId: 1,
                 runId,
                 collectionId,
@@ -295,9 +308,16 @@ describe("bootstrap catch-up recovery across a coverage-reset upgrade", () => {
                 pass++
             )
                 await services.executor.runDue();
-            expect((await backfill.executeStep(input)).outcome).toBe(
-                BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
-            );
+            if (
+                initial.outcome ===
+                BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
+            )
+                expect((await backfill.executeStep(input)).outcome).toBe(
+                    BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
+                );
+            expect(
+                steps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill)?.status,
+            ).toBe(BOOTSTRAP_STEP_STATUS.Succeeded);
             const live = new BootstrapCollectionLiveExecutor(
                 services.registry,
                 runs,

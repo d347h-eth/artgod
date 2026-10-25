@@ -427,6 +427,10 @@ function createHarness(input: {
         },
     };
     const stepsPort: BootstrapBackfillStepsPort = {
+        commitBackfillStep: (_claim, write) => {
+            write();
+            return true;
+        },
         getStep: () => ({ resultJson }),
         markStepRunning: (runId, stepKey) => {
             runningSteps.push({ runId, stepKey });
@@ -516,6 +520,7 @@ function createHarness(input: {
 
 function scheduleInput(input: { anchorBlock: number }) {
     return {
+        leaseOwner: "backfill-test",
         chainId: 1,
         runId: 41,
         collectionId: 7,
@@ -529,6 +534,7 @@ function scheduleInput(input: { anchorBlock: number }) {
 
 function checkInput() {
     return {
+        leaseOwner: "backfill-test",
         chainId: 1,
         runId: 41,
         collectionId: 7,

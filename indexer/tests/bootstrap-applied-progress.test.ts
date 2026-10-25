@@ -69,11 +69,21 @@ describe("bootstrap completion uses applied progress", () => {
             db.prepare(
                 "INSERT INTO bootstrap_run_steps(run_id,step_key,status) VALUES (?,?,?)",
             ).run(runId, step, BOOTSTRAP_STEP_STATUS.Pending);
+        steps.markStepReady(runId, BOOTSTRAP_STEP_KEY.Backfill);
+        steps.claimReadySteps({
+            runId,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Backfill],
+            leaseOwner: LEASE_OWNER,
+            nowMs: now,
+            leaseUntil: now + 60_000,
+            limit: 1,
+        });
         const work = createCoordinatorFixture({
             collectionCount: 0,
             now: () => now,
         });
         const input = {
+            leaseOwner: LEASE_OWNER,
             chainId: CHAIN_ID,
             collectionId,
             runId,
@@ -91,35 +101,30 @@ describe("bootstrap completion uses applied progress", () => {
             runs,
             {
                 getStep: steps.getStep.bind(steps),
-                markStepRunning: steps.markStepRunning.bind(steps),
-                markStepSucceeded: (...args) => {
-                    steps.markStepSucceeded(...args);
-                    if (interruptTerminal) {
+                commitBackfillStep: (claim, write) => {
+                    const committed = steps.commitBackfillStep(claim, write);
+                    const terminal =
+                        steps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill)
+                            ?.status !== BOOTSTRAP_STEP_STATUS.Running;
+                    if (committed && interruptTerminal && terminal) {
                         interruptTerminal = false;
                         throw new Error(
                             "Lost worker after terminal Backfill write",
                         );
                     }
-                },
-                markStepSkipped: (...args) => {
-                    steps.markStepSkipped(...args);
-                    if (interruptTerminal) {
-                        interruptTerminal = false;
-                        throw new Error(
-                            "Lost worker after terminal Backfill write",
-                        );
-                    }
-                },
-                updateStepProgress: steps.updateStepProgress.bind(steps),
-                updateStepResult: (...args) => {
-                    steps.updateStepResult(...args);
-                    if (interruptPending) {
+                    if (committed && interruptPending) {
                         interruptPending = false;
                         throw new Error(
                             "Lost worker after retaining Backfill range",
                         );
                     }
+                    return committed;
                 },
+                markStepRunning: steps.markStepRunning.bind(steps),
+                markStepSucceeded: steps.markStepSucceeded.bind(steps),
+                markStepSkipped: steps.markStepSkipped.bind(steps),
+                updateStepProgress: steps.updateStepProgress.bind(steps),
+                updateStepResult: steps.updateStepResult.bind(steps),
             },
             {
                 scheduleBackfillRange: async () => {},

@@ -1350,6 +1350,7 @@ async function processBootstrapMainClaimedStep(
         }
         return processBootstrapBackfillStep({
             backfillExecutor: input.bootstrapBackfillExecutor,
+            leaseOwner: input.leaseOwner,
             payload: buildOwnershipProcessPayload(anchoredRun),
             backfillCheckPayload: input.backfillCheckPayload ?? null,
             traceId: input.traceId,
@@ -2676,6 +2677,7 @@ async function processSingleOwnershipTask(
 }
 
 async function processBootstrapBackfillStep(input: {
+    leaseOwner: string;
     backfillExecutor: BootstrapBackfillExecutor;
     payload: BootstrapOwnershipProcessPayload;
     backfillCheckPayload: BootstrapBackfillCheckPayload | null;
@@ -2684,6 +2686,7 @@ async function processBootstrapBackfillStep(input: {
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const result = await input.backfillExecutor.executeStep(
         {
+            leaseOwner: input.leaseOwner,
             chainId: input.payload.chainId,
             runId: input.payload.runId,
             collectionId: input.payload.collectionId,
@@ -2695,6 +2698,8 @@ async function processBootstrapBackfillStep(input: {
         },
         input.backfillCheckPayload ?? undefined,
     );
+    if (result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.LeaseLost)
+        return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
     if ("expected" in result) {
         logBootstrapBackfillCheckResult(result, {
             ...input.payload,
