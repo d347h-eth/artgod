@@ -1,4 +1,5 @@
 import svelteConfig from './sveltekit.config.js';
+import { dependencyPrebundleOptions } from './vite-pnp-compat';
 import { readFileSync } from 'node:fs';
 import tailwindcss from '@tailwindcss/vite';
 import { resolveProjectPath } from '@artgod/shared/utils/paths';
@@ -37,6 +38,8 @@ export default defineConfig(({ mode }) => {
 
 	return {
 		plugins: [tailwindcss(), sveltekit(svelteConfig)],
+		optimizeDeps: dependencyPrebundleOptions,
+		environments: { ssr: { optimizeDeps: dependencyPrebundleOptions } },
 		envDir: resolveProjectPath('.'),
 		define: {
 			__APP_VERSION__: JSON.stringify(appVersion),
