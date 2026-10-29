@@ -3345,7 +3345,6 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[cfg(unix)]
-    use alloy_signer_local::PrivateKeySigner;
     use serde::Deserialize;
     #[cfg(unix)]
     use tempfile::tempdir;
@@ -3965,13 +3964,11 @@ mod tests {
     fn production_test_secret_envelope() -> Vec<u8> {
         let mut private_key_bytes = [0_u8; 32];
         private_key_bytes[31] = 1;
-        let signer = PrivateKeySigner::from_slice(&private_key_bytes)
-            .expect("production test private key is valid");
         let wallet_id = WalletId::parse(PRODUCTION_CONTAINMENT_TEST_WALLET_ID)
             .expect("production test wallet id is valid");
         build_trading_secret_envelope(
             &wallet_id,
-            signer.address().to_string().as_str(),
+            "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
             BotKind::Sniping,
             PRODUCTION_CONTAINMENT_TEST_CHAIN_ID,
             None,

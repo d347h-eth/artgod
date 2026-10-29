@@ -626,7 +626,7 @@ fn build_chainlist_download_client() -> Result<Client, String> {
 }
 
 fn build_timeout_http_client(timeout_ms: u64, label: &str) -> Result<Client, String> {
-    Client::builder()
+    super::native_http_client_builder()?
         .timeout(Duration::from_millis(timeout_ms))
         .build()
         .map_err(|error| format!("Failed to create {label}: {error}"))

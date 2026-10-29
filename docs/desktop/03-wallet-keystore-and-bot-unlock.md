@@ -20,7 +20,7 @@ keeping ArtGod-owned bounds explicit:
 
 - standard Ethereum keystore JSON files at rest
 - the source-pinned `eth-keystore` decrypt primitive with immediate zeroizing ownership of returned plaintext
-- Alloy signer validation and address derivation after decrypt
+- k256 scalar validation and Alloy address derivation after decrypt
 - a source-pinned `eth-keystore` writer with explicit ArtGod-owned scrypt work parameters
 - the same bounded unlock behavior at the desktop core-process boundary
 
@@ -495,7 +495,7 @@ Reason:
 Implementation rule:
 
 - use the source-pinned `eth-keystore` implementation for encryption and decryption
-- take immediate `Zeroizing` ownership of the plaintext allocation returned by decrypt before constructing the Alloy signer
+- take immediate `Zeroizing` ownership of the plaintext allocation returned by decrypt before constructing the zeroizing k256 scalar
 - pass the compile-time ArtGod scrypt policy explicitly on every write
 - do not reimplement keystore cryptography unless there is a compelling reviewed reason
 - keep the Ethereum keystore file and ArtGod metadata file separate

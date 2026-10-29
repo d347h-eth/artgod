@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use alloy_primitives::hex;
-use alloy_signer_local::PrivateKeySigner;
+use alloy_primitives::{Address, hex};
 use eth_keystore::{ARTGOD_SCRYPT_KDF_PARAMS, encrypt_key_to_keystore};
 #[cfg(test)]
 use eth_keystore::{EthKeystore, KdfType, KdfparamsType};
+use k256::SecretKey;
+use k256::elliptic_curve::sec1::ToSec1Point;
 use rand::thread_rng;
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -31,12 +32,9 @@ impl AlloyKeystore {
         let normalized = normalized.strip_prefix("0x").unwrap_or(normalized);
         let raw_key = hex::decode_to_array::<_, 32>(normalized)
             .map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
-        let signer = PrivateKeySigner::from_slice(&raw_key)
-            .map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
-        Ok(ValidatedWalletSecret::new(
-            WalletAddress::from_alloy(signer.address()),
-            raw_key,
-        ))
+        let key =
+            SecretKey::from_slice(&raw_key).map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
+        Ok(ValidatedWalletSecret::new(wallet_address(&key), raw_key))
     }
 
     /// Encrypts a private key into a standard Ethereum keystore file.
@@ -73,6 +71,13 @@ impl AlloyKeystore {
     }
 }
 
+// SEC1's uncompressed public point has a one-byte format tag; Alloy owns
+// Ethereum's Keccak address derivation from the remaining 64 public bytes.
+fn wallet_address(key: &SecretKey) -> WalletAddress {
+    let encoded = key.public_key().to_sec1_point(false);
+    WalletAddress::from_alloy(Address::from_raw_public_key(&encoded.as_bytes()[1..]))
+}
+
 fn encrypt_keystore_payload(
     private_key: &WalletPrivateKey,
     passphrase: &Zeroizing<String>,
@@ -107,18 +112,18 @@ fn decrypt_wallet_key(
     let private_key = eth_keystore::decrypt_key(&wallet.keystore_path, passphrase.as_bytes())
         .map(Zeroizing::new)
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
-    let signer = PrivateKeySigner::from_slice(private_key.as_slice())
+    let key = SecretKey::from_slice(private_key.as_slice())
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
 
-    // Erase the decrypted allocation once Alloy has validated and copied the key.
+    // Erase the decrypted allocation once the zeroizing scalar has validated and copied it.
     drop(private_key);
-    let decrypted_address = WalletAddress::from_alloy(signer.address());
+    let decrypted_address = wallet_address(&key);
 
     // Bind decrypted key material to the canonical wallet identity before returning it.
     if !wallet.metadata.matches_address(&decrypted_address) {
         return Err(AlloyKeystoreError::WalletAddressMismatch);
     }
-    Ok(WalletPrivateKey::new(signer.to_bytes().0))
+    Ok(WalletPrivateKey::new(key.to_bytes().into()))
 }
 
 impl ImportWalletKeystorePort for AlloyKeystore {
@@ -206,6 +211,32 @@ pub enum AlloyKeystoreError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn validates_ethereum_scalars_and_derives_known_addresses() {
+        for (scalar, address) in [
+            (1_u8, "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"),
+            (2_u8, "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"),
+        ] {
+            let mut bytes = [0_u8; 32];
+            bytes[31] = scalar;
+            let result = AlloyKeystore
+                .validate_private_key(Zeroizing::new(hex::encode(bytes)))
+                .expect("known scalar is valid");
+            assert_eq!(result.address, WalletAddress::parse(address).unwrap());
+            assert_eq!(result.private_key.as_bytes(), &bytes);
+        }
+        for key in [
+            "00".repeat(32),
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141".to_owned(),
+            "ff".repeat(32),
+        ] {
+            assert!(matches!(
+                AlloyKeystore.validate_private_key(Zeroizing::new(key)),
+                Err(AlloyKeystoreError::InvalidPrivateKey)
+            ));
+        }
+    }
+
     const FOUNDRY_FIXTURE_PASSWORD: &str = "keystorepassword";
     const FOUNDRY_FIXTURE_ADDRESS: &str = "0xec554aeafe75601aaab43bd4621a22284db566c2";
     const MISMATCHED_FIXTURE_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
@@ -231,18 +262,18 @@ mod tests {
     }
 
     #[test]
-    fn alloy_compatibility_writer_cannot_bypass_scrypt_policy() {
+    fn standard_compatibility_writer_cannot_bypass_scrypt_policy() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let path = temp_dir.path().join("wallet.json");
 
-        PrivateKeySigner::encrypt_keystore(
+        eth_keystore::encrypt_key(
             temp_dir.path(),
             &mut thread_rng(),
             TEST_PRIVATE_KEY,
             TEST_PASSWORD.as_bytes(),
             path.file_name().and_then(|value| value.to_str()),
         )
-        .expect("Alloy compatibility writer should encrypt");
+        .expect("standard compatibility writer should encrypt");
 
         let keystore = read_keystore_document(&path).expect("keystore should parse");
         assert_scrypt_wire_params(&keystore, 32, 262_144, 8, 1);
@@ -268,9 +299,9 @@ mod tests {
             )
             .expect("fixture should decrypt");
 
-        let signer = PrivateKeySigner::from_slice(private_key.as_bytes())
+        let key = SecretKey::from_slice(private_key.as_bytes())
             .expect("fixture private key should be valid");
-        let decrypted_address = WalletAddress::from_alloy(signer.address());
+        let decrypted_address = wallet_address(&key);
         assert!(record.metadata.matches_address(&decrypted_address));
 
         // Prove unlock remains a byte-for-byte read-only operation.
