@@ -65,6 +65,17 @@ update the operating system's WebView, NSS/CA certificates and Brotli packages;
 updating the bundled Node or native HTTP verifier does not update those system
 components. On Qubes, provision these updates through the TemplateVM.
 
+## WebView IPC Isolation
+
+The Rust desktop shell requires Tauri 2.11.6 or newer for
+[GHSA-w28w-mhc8-qvjv](https://github.com/tauri-apps/tauri/security/advisories/GHSA-w28w-mhc8-qvjv).
+Earlier versions let another WebView retrieve or drain pending large channel
+responses. The maintained `webview_capability_security` integration test sends
+a real large channel payload, rejects a foreign WebView's fetch, and verifies
+the owning WebView can still retrieve it exactly once. Keep vendor-advisory
+review alongside registry audits: OSV did not report this advisory during the
+October 29 audit.
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:
