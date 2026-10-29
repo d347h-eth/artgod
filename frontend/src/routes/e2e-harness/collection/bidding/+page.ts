@@ -1,4 +1,4 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import { error, redirect } from '@sveltejs/kit';
 import { ReadModelBadRequestError } from '@artgod/shared/read-models/errors';
 import { assertBidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';

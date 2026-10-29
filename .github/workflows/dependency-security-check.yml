@@ -71,7 +71,7 @@ jobs:
               run: yarn security:yarn:verify-lockfile
 
             - name: Audit Node dependency advisories
-              run: yarn security:yarn:audit
+              run: yarn security:yarn:test-patches && yarn security:yarn:audit
 
     cargo-age-gate:
         runs-on: ubuntu-latest

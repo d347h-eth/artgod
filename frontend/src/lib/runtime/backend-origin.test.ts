@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe('backend origin cache diagnostics', () => {

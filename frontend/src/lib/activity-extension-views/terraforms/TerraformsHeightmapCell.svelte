@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { onDestroy } from 'svelte';
 	import type { ActivityExtensionCellProps } from '$lib/activity-extension-views/types';
 	import { TERRAFORMS_HEIGHTMAP_HASH_VISIBLE_CHARS } from '$lib/activity-extension-views/terraforms/constants';

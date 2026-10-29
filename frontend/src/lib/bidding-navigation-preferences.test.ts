@@ -18,7 +18,7 @@ import {
 
 const deployment = vi.hoisted(() => ({ isPublic: false }));
 const environment = vi.hoisted(() => ({ browser: false }));
-vi.mock('$app/environment', () => ({
+vi.mock('$app/env', () => ({
 	get browser() {
 		return environment.browser;
 	}

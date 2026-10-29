@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 const FRONTEND_BUILD_TARGET =
 	(import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() || '';

@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { RUNTIME_API_ROUTES } from '@artgod/shared/http/runtime-routes';
 import { backendOriginDiagnostics, resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { appBuildContext } from '$lib/runtime/app-build-context';

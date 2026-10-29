@@ -4,7 +4,7 @@ import type { RuntimeDiagnostic } from '../../diagnostics';
 import { LIFECYCLE_API_EVENT_CODES } from '../orchestrator';
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 afterEach(() => {

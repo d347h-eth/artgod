@@ -63,10 +63,9 @@
 		})
 	);
 	async function applyTraitFilters(traits: ApiTokenAttribute[], ranges: ApiTraitRangeFilter[]) {
-		await goto(buildCollectionChartFiltersHref(page.url, traits, ranges), {
+		await goto(buildCollectionChartFiltersHref(new URL(page.url.href), traits, ranges), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 	const resetTraits = () => applyTraitFilters([], []);

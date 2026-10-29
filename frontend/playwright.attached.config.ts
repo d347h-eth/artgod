@@ -24,7 +24,7 @@ export default defineConfig({
 			use: {
 				browserName: 'chromium',
 				viewport: { width: 412, height: 915 },
-				screen: { width: 412, height: 915 },
+				contextOptions: { screen: { width: 412, height: 915 } },
 				deviceScaleFactor: 2.625,
 				isMobile: true,
 				hasTouch: true,
@@ -43,7 +43,7 @@ export default defineConfig({
 			use: {
 				browserName: 'chromium',
 				viewport: { width: 1920, height: 1080 },
-				screen: { width: 1920, height: 1080 }
+				contextOptions: { screen: { width: 1920, height: 1080 } }
 			}
 		},
 		{
@@ -51,7 +51,7 @@ export default defineConfig({
 			use: {
 				browserName: 'chromium',
 				viewport: { width: 2560, height: 1440 },
-				screen: { width: 2560, height: 1440 }
+				contextOptions: { screen: { width: 2560, height: 1440 } }
 			}
 		}
 	]

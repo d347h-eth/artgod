@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import {
@@ -280,8 +280,7 @@
 	async function onResetTraits(): Promise<void> {
 		await goto(resetTraitsHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -302,8 +301,7 @@
 			}),
 			{
 				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
+				reset: false
 			}
 		);
 	}

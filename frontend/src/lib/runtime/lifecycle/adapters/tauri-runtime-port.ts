@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import type { RuntimeDiagnosticsPort } from '../../diagnostics';
 import { LIFECYCLE_API_EVENT_CODES } from '../orchestrator';
 import type {

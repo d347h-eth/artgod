@@ -6,7 +6,7 @@ import { getFrontendBuildTarget } from '$lib/runtime/frontend-target';
 import { getFrontendDeploymentMode } from '$lib/runtime/public-deployment';
 
 const origin = vi.hoisted(() => ({ resolve: vi.fn(), diagnostics: vi.fn() }));
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('$lib/runtime/backend-origin', () => ({
 	resolveBackendOrigin: origin.resolve,
 	backendOriginDiagnostics: origin.diagnostics

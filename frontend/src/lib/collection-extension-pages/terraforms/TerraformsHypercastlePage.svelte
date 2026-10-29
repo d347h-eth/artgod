@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
@@ -281,12 +281,11 @@
 
 	function navigateToSelection(nextSelection: TerraformsHypercastleSelection): void {
 		if (!browser) return;
-		const href = buildTerraformsHypercastleSelectionHref(page.url, nextSelection);
-		if (href === buildTerraformsHypercastleSelectionHref(page.url, routeSelection)) return;
+		const href = buildTerraformsHypercastleSelectionHref(new URL(page.url.href), nextSelection);
+		if (href === buildTerraformsHypercastleSelectionHref(new URL(page.url.href), routeSelection)) return;
 		pendingLocalSelectionKey = formatTerraformsHypercastleSelectionRouteKey(nextSelection);
 		void goto(href, {
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 

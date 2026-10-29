@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import type {
 	AdminBiddingCollectionCatalog,
 	AdminBiddingMandateDraft,
@@ -35,9 +35,7 @@ export function createTauriAdminBotPort(): AdminBotPort {
 
 		async loadBiddingCollectionCatalog(): Promise<AdminBiddingCollectionCatalog> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBiddingCollectionCatalog>(
-				ADMIN_BOT_TAURI_COMMAND.ListBiddingCollections
-			);
+			return invoke<AdminBiddingCollectionCatalog>(ADMIN_BOT_TAURI_COMMAND.ListBiddingCollections);
 		},
 
 		async assignWallet(botKind: AdminBotKind, walletId: string | null): Promise<AdminBotRecord> {
