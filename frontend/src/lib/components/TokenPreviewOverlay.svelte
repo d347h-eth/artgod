@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { resolvePreviewBackdropGesture } from '$lib/preview-backdrop-gesture';

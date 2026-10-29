@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import type {
 		ApiChain,
@@ -388,8 +388,7 @@
 		if (!href) return;
 		await goto(href, {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -410,8 +409,7 @@
 		activeTraits = nextTraits;
 		await goto(buildFiltersHref(nextTraits, activeTraitRanges), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -424,8 +422,7 @@
 		activeTraitRanges = nextRanges;
 		await goto(buildFiltersHref(activeTraits, nextRanges), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -436,8 +433,7 @@
 		pagingPending = true;
 		await goto(loadPreviousHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -448,8 +444,7 @@
 		pagingPending = true;
 		await goto(loadNextHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -496,8 +491,7 @@
 					event.preventDefault();
 					void goto(mediaModeHref(nextMode), {
 						invalidateAll: true,
-						keepFocus: true,
-						noScroll: true
+						reset: false
 					});
 					return;
 				}

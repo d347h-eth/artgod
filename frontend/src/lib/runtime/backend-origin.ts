@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { diagnosticError } from './diagnostics';
 import type { LifecycleEventMeta } from './lifecycle/core/types';
 

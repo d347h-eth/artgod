@@ -231,8 +231,7 @@
 	async function onResetTraits(): Promise<void> {
 		await goto(resetTraitsHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -252,8 +251,7 @@
 			}),
 			{
 				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
+				reset: false
 			}
 		);
 	}

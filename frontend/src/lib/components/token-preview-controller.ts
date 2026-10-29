@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { getContext, setContext } from 'svelte';

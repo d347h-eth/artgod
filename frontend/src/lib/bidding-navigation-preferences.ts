@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,

@@ -1,4 +1,4 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import { error } from '@sveltejs/kit';
 import { buildBiddingE2eCollectionDetailData } from '$lib/e2e/bidding-automation-fixtures';
 import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { ApiTraitRangeFilter, ApiCollectionBiddingTraitFilterJoinMode } from '$lib/api-types';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';

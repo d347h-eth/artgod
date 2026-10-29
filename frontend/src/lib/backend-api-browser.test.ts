@@ -9,14 +9,14 @@ const TEST_EXTENSION_MEDIA_SOURCE = {
 
 describe('backend api browser mode', () => {
 	afterEach(() => {
-		vi.doUnmock('$app/environment');
+		vi.doUnmock('$app/env');
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 		vi.resetModules();
 	});
 
 	it('does not attach SSR correlation headers or emit SSR logs from browser fetches', async () => {
-		vi.doMock('$app/environment', () => ({
+		vi.doMock('$app/env', () => ({
 			browser: true,
 			building: false,
 			dev: true,
@@ -36,12 +36,14 @@ describe('backend api browser mode', () => {
 		expect(fetchMock).toHaveBeenCalledWith('/api/chains/default', {
 			credentials: 'include'
 		});
-		expect(new Headers(requestInit?.headers).get(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME)).toBeNull();
+		expect(
+			new Headers(requestInit?.headers).get(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME)
+		).toBeNull();
 		expect(loggerInfo).not.toHaveBeenCalled();
 	});
 
 	it('refreshes the CSRF token and retries one stale browser mutation', async () => {
-		vi.doMock('$app/environment', () => ({
+		vi.doMock('$app/env', () => ({
 			browser: true,
 			building: false,
 			dev: true,
@@ -86,12 +88,17 @@ describe('backend api browser mode', () => {
 		});
 
 		const { lookupBiddingJobTarget } = await import('./backend-api');
-		const response = await lookupBiddingJobTarget(fetchMock as typeof fetch, 'ethereum', 'terraforms', {
-			target: {
-				type: 'token',
-				tokenId: '8733'
+		const response = await lookupBiddingJobTarget(
+			fetchMock as typeof fetch,
+			'ethereum',
+			'terraforms',
+			{
+				target: {
+					type: 'token',
+					tokenId: '8733'
+				}
 			}
-		});
+		);
 
 		expect(response.job).toBeNull();
 		expect(csrfRequests).toBe(2);
@@ -102,7 +109,7 @@ describe('backend api browser mode', () => {
 	});
 
 	it('bypasses HTTP cache only for explicit non-snapshot token media requests in the browser', async () => {
-		vi.doMock('$app/environment', () => ({
+		vi.doMock('$app/env', () => ({
 			browser: true,
 			building: false,
 			dev: true,

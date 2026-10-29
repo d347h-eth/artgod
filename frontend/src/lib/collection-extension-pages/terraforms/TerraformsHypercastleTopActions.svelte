@@ -34,7 +34,7 @@
 	}
 
 	function sectionHref(section: TerraformsHypercastleSection): string {
-		return buildTerraformsHypercastleSectionHref(routePage.url, section);
+		return buildTerraformsHypercastleSectionHref(new URL(routePage.url.href), section);
 	}
 </script>
 

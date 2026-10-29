@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { get, writable, type Readable } from 'svelte/store';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';

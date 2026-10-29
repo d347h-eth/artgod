@@ -1,3 +1,4 @@
+import svelteConfig from './sveltekit.config.js';
 import { readFileSync } from 'node:fs';
 import tailwindcss from '@tailwindcss/vite';
 import { resolveProjectPath } from '@artgod/shared/utils/paths';
@@ -35,7 +36,7 @@ export default defineConfig(({ mode }) => {
 		internalBackendOrigin || publicBackendOrigin || DEFAULT_FRONTEND_DEV_BACKEND_ORIGIN;
 
 	return {
-		plugins: [tailwindcss(), sveltekit()],
+		plugins: [tailwindcss(), sveltekit(svelteConfig)],
 		envDir: resolveProjectPath('.'),
 		define: {
 			__APP_VERSION__: JSON.stringify(appVersion),

@@ -2,11 +2,9 @@
 	import { bidBookCriteriaToBrowseFilters } from '$lib/bidding-bid-book-display';
 	import type { BiddingCompetitionPresetInventory } from '$lib/bidding-competition-presets';
 	import BiddingCompetitionPresetPanel from './BiddingCompetitionPresetPanel.svelte';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
-	import type { Pathname } from '$app/types';
 	import { onMount, tick, untrack } from 'svelte';
 	import type {
 		CollectionBiddingBidBookOwnStateFilter,
@@ -685,34 +683,30 @@
 	}
 
 	async function onResetOwnState(): Promise<void> {
-		await goto(resolve(ownStateFilterHref(null) as Pathname), {
+		await goto(ownStateFilterHref(null), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
 		await goto(makerFilterHref(makerAddress), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
 	async function onMakerFilterClear(): Promise<void> {
 		await goto(makerFilterHref(null), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
 	async function onTraitJoinModeChange(nextMode: string): Promise<void> {
 		await goto(traitJoinModeHref(nextMode as ApiCollectionBiddingTraitFilterJoinMode), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -735,8 +729,7 @@
 	async function cycleBidScope(): Promise<void> {
 		await goto(bidScopeHref(nextCollectionBiddingBidScopeFilter(bidScope)), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -749,8 +742,7 @@
 		activeTraitRanges = nextRanges;
 		await goto(filtersHref(nextTraits, nextRanges, nextTraitJoinMode), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -965,8 +957,7 @@
 		tokenOffersPagingPending = true;
 		await goto(loadPreviousTokenOffersHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -976,8 +967,7 @@
 		tokenOffersPagingPending = true;
 		await goto(loadNextTokenOffersHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
