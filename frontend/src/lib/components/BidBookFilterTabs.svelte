@@ -31,7 +31,7 @@
 			{#if tab.active}
 				<span class="secondary-tab-active" aria-current="true">{tab.label} [{tab.count}]</span>
 			{:else if hrefForKey}
-				<a href={hrefForKey(tab.key)} data-sveltekit-noscroll>{tab.label} [{tab.count}]</a>
+				<a href={hrefForKey(tab.key)} data-sveltekit-reset="false">{tab.label} [{tab.count}]</a>
 			{:else}
 				<button type="button" onclick={() => onSelect?.(tab.key)}>{tab.label} [{tab.count}]</button>
 			{/if}
