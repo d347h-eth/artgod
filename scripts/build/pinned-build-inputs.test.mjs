@@ -79,6 +79,7 @@ test("a fresh security exception admits only its exact input until expiry", () =
         /minimum age/,
     );
     for (const changed of [
+        { expiresOn: "2026-02-30" },
         { reason: "" },
         { version: "24.*" },
         { expiresOn: "invalid" },
