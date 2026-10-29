@@ -34,7 +34,12 @@ export function assertInputPublicationTimestamp(value, fileName) {
 }
 
 // Admission applies before cache inspection, so warm caches cannot bypass age policy.
-export function assertPinnedInputAge(input, minimumAgeDays, now = new Date()) {
+export function assertPinnedInputAge(
+    input,
+    minimumAgeDays,
+    now = new Date(),
+    freshVersionExceptions = [],
+) {
     if (
         !Number.isSafeInteger(minimumAgeDays) ||
         minimumAgeDays < DEFAULT_MINIMUM_AGE_DAYS
@@ -44,10 +49,51 @@ export function assertPinnedInputAge(input, minimumAgeDays, now = new Date()) {
         );
     }
     assertInputPublicationTimestamp(input.publishedAt, input.fileName);
+    if (new Date(input.publishedAt) > now) {
+        throw new Error(
+            `Pinned input ${input.fileName} has a future publication timestamp.`,
+        );
+    }
+    if (!Array.isArray(freshVersionExceptions)) {
+        throw new Error("Fresh build input exceptions must be an array.");
+    }
+    const keys = new Set();
+    for (const exception of freshVersionExceptions) {
+        if (
+            typeof exception?.name !== "string" ||
+            !exception.name.trim() ||
+            typeof exception.version !== "string" ||
+            !exception.version.trim() ||
+            /[*^~]/.test(exception.version) ||
+            typeof exception.reason !== "string" ||
+            !exception.reason.trim() ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(exception.expiresOn ?? "") ||
+            Number.isNaN(Date.parse(`${exception.expiresOn}T23:59:59Z`))
+        ) {
+            throw new Error(
+                "Fresh build input exceptions require an exact name/version, reason and expiry date.",
+            );
+        }
+        const key = `${exception.name}@${exception.version}`;
+        if (keys.has(key))
+            throw new Error(`Duplicate fresh build input exception: ${key}.`);
+        keys.add(key);
+    }
     const cutoff = calculateCutoffDate(now, minimumAgeDays);
     if (!Number.isFinite(cutoff.getTime()))
         throw new Error("Pinned inputs have an invalid age cutoff.");
     if (new Date(input.publishedAt) > cutoff) {
+        // Exceptions waive age only. Publication, provenance, size and digest
+        // checks still run, including for archives already present in a cache.
+        if (
+            freshVersionExceptions.some(
+                (exception) =>
+                    exception.name === input.name &&
+                    exception.version === input.version &&
+                    now <= new Date(`${exception.expiresOn}T23:59:59Z`),
+            )
+        )
+            return;
         throw new Error(
             `Pinned input ${input.fileName} was published ${input.publishedAt}; the ${minimumAgeDays}-day age gate requires publication on or before ${cutoff.toISOString()}.`,
         );

@@ -102,7 +102,7 @@ instead of downloading GitHub Release artifacts.
 
 Prerequisites:
 
-- Node `24.3.0` with Corepack enabled.
+- Node `24.22.1` with Corepack enabled.
 - Yarn `4.12.0` from the checked-in `packageManager` field.
 - Rust toolchain matching `rust-toolchain.toml`.
 - Linux: Tauri WebKit/GTK dependencies plus `libfuse2`, `libssl-dev`,
@@ -644,7 +644,9 @@ require a separately controlled archive of the reviewed bytes.
 sizes and publication evidence for every concrete desktop target. Node pins
 must match canonical `package.json` `engines.node`; NATS version changes
 require a manifest update and cannot bypass review through
-`DESKTOP_NATS_VERSION`. Admission enforces 30 days before inspecting caches.
+`DESKTOP_NATS_VERSION`. Admission enforces 30 days before inspecting caches, except for exact, expiring
+security entries in the manifest's `freshVersionExceptions` list. Those exceptions
+waive age only; checksum, size, target and publication checks remain required.
 Every cached archive is rehashed; staging freshly extracts only the declared
 executable and recreates macOS universal assemblies. Extracted/assembled caches
 from earlier builds are ignored.

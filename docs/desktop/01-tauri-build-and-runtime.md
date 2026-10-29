@@ -457,6 +457,7 @@ Responsibilities:
   : source of truth for Node version is `package.json` `engines.node`
   : `config/desktop-runtime-inputs.json` pins archive hashes, sizes and
   publication evidence for all six concrete targets; admission requires 30 days
+  unless an exact, expiring security exception is recorded in that manifest
   : an explicit distribution target must agree with any active Tauri/Cargo
   target context; absent either, resolution uses the other and then falls back
   to the build host
