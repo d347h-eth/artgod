@@ -9,7 +9,7 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
-        "better-sqlite3": "12.10.0",
+        "better-sqlite3": "12.11.1",
         "dotenv": "17.4.2",
         "fastify": "5.12.6",
         "nats": "2.29.3",
