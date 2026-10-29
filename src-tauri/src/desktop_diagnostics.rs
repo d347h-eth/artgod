@@ -193,13 +193,15 @@ async fn compare_backend(
     };
     // Ordinary catalog/RPC clients retry and deserialize domain bodies. This diagnostic needs
     // one direct response's CORS headers even on errors, with no proxy or redirect fallback.
-    let client = match reqwest::Client::builder()
-        .timeout(COMPARISON_TIMEOUT)
-        .retry(reqwest::retry::never())
-        .redirect(reqwest::redirect::Policy::none())
-        .no_proxy()
-        .build()
-    {
+    let client = match crate::runtime::native_http_client_builder().and_then(|builder| {
+        builder
+            .timeout(COMPARISON_TIMEOUT)
+            .retry(reqwest::retry::never())
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|error| error.to_string())
+    }) {
         Ok(client) => client,
         Err(_) => return serde_json::json!({ "error": "native-http-client-unavailable" }),
     };

@@ -45,6 +45,26 @@ handling, see:
 
 - `docs/desktop/05-linux-gpg-release-signing.md`
 
+## Native HTTP Certificate Trust
+
+Native HTTP consumers share `runtime/http_client.rs` for TLS. RPC probes,
+Chainlist downloads, the backend collection catalog and native readiness
+diagnostics use the same explicit Rustls provider and reviewed Mozilla roots.
+Their existing timeout, retry, proxy and redirect policies remain at each
+consumer. Diagnostics still accept only numeric IPv4 loopback HTTP targets.
+
+The locked `rustls-webpki` 0.103.16 verifier blocks compromised eMudhra
+intermediate public keys, including cross-signs. `webpki-roots` 1.0.11 removes
+retired roots independently of the host CA store. Tests verify retired roots
+are absent and that the public certificate from Mozilla incident 2083449 is
+rejected specifically for key distrust. Rustls 0.23.46 includes the October
+session-secret, certificate-decompression and handshake security fixes.
+
+The Linux WebView still uses system WebKitGTK and its TLS stack. Users must
+update the operating system's WebView, NSS/CA certificates and Brotli packages;
+updating the bundled Node or native HTTP verifier does not update those system
+components. On Qubes, provision these updates through the TemplateVM.
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:

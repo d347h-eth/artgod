@@ -65,6 +65,84 @@
             "name": "web_atoms",
             "version": "0.2.5",
             "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "crypto-bigint",
+            "version": "0.7.10",
+            "reason": "RUSTSEC-2026-0387 fixed key-validation arithmetic; required by k256 0.14.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "ctutils",
+            "version": "0.4.7",
+            "reason": "Exact transitive input required by the fixed key-validation stack.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "der",
+            "version": "0.8.3",
+            "reason": "Exact transitive input required by the fixed key-validation stack.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "elliptic-curve",
+            "version": "0.14.3",
+            "reason": "Exact transitive input required by the fixed k256 key-validation stack.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "plist",
+            "version": "1.10.3",
+            "reason": "Removes quick-xml versions affected by RUSTSEC-2026-0194 and RUSTSEC-2026-0195.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "rustls-native-certs",
+            "version": "0.8.5",
+            "reason": "Reqwest Rustls backend dependency with updated platform certificate handling.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "rustls-webpki",
+            "version": "0.103.16",
+            "reason": "Compromised eMudhra intermediate public-key distrust, including cross-signs.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "spki",
+            "version": "0.8.1",
+            "reason": "Exact transitive input required by the fixed key-validation stack.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "tokio",
+            "version": "1.53.3",
+            "reason": "RUSTSEC-2026-0386 security fix.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "webpki-root-certs",
+            "version": "1.0.11",
+            "reason": "Reviewed Mozilla trust-store refresh after the eMudhra incident.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "webpki-roots",
+            "version": "1.0.11",
+            "reason": "Reviewed Mozilla trust-store refresh after the eMudhra incident.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "rustls",
+            "version": "0.23.46",
+            "reason": "RUSTSEC-2026-0346 through RUSTSEC-2026-0349 security fixes.",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "rust_decimal",
+            "version": "1.43.0",
+            "reason": "Removes optional rkyv 0.7 affected by RUSTSEC-2026-0235.",
+            "expiresOn": "2026-11-30"
         }
     ]
 }
