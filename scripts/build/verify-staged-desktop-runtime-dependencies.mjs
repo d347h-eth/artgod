@@ -20,11 +20,13 @@ const SHARP_SMOKE_PIXEL = Object.freeze({
 
 const smokeSource = `
 import { createRequire } from "node:module";
+import { verifySqliteRuntimeSecurity } from ${JSON.stringify(new URL("./sqlite-runtime-security.mjs", import.meta.url).href)};
 
 const issuerPath = process.argv[1];
 const includeSharp = process.argv[2] === ${JSON.stringify(NATIVE_SMOKE_INCLUDE_SHARP_ARGUMENT)};
 const require = createRequire(issuerPath);
 const Database = require(${JSON.stringify(NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3)});
+verifySqliteRuntimeSecurity(Database);
 const database = new Database(${JSON.stringify(SQLITE_MEMORY_DATABASE)});
 try {
     const row = database.prepare(${JSON.stringify(SQLITE_SMOKE_QUERY)}).get();
