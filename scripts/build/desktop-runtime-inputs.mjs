@@ -118,7 +118,12 @@ export function validateDesktopRuntimeInputs(
                     `Pinned NATS release asset mismatch: ${input.fileName}.`,
                 );
             }
-            assertPinnedInputAge(input, manifest.minimumAgeDays, now);
+            assertPinnedInputAge(
+                { ...input, name: runtime, version: record.version },
+                manifest.minimumAgeDays,
+                now,
+                manifest.freshVersionExceptions,
+            );
             archives.set(
                 input.target,
                 Object.freeze({

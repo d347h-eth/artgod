@@ -21,7 +21,7 @@ import { runRedactedCommand } from "./secret-output-redaction.mjs";
 import { ENV_GITHUB_TOKEN } from "./github-api.mjs";
 
 const scratchRoot = fileURLToPath(new URL("../../tmp/", import.meta.url));
-const now = new Date("2026-10-03T00:00:00Z");
+const now = new Date("2026-10-29T00:00:00Z");
 const validate = (value) =>
     validateDesktopRuntimeInputs(value, packageManifest.engines.node, now);
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -78,10 +78,9 @@ test("version changes and incomplete, duplicate or inconsistent pins fail admiss
 test("both runtime owners enforce 30 full days before cache access", () => {
     for (const runtime of Object.values(DESKTOP_RUNTIME_INPUT)) {
         const value = structuredClone(manifest);
-        if (runtime === DESKTOP_RUNTIME_INPUT.Nats) {
-            for (const input of value.nats.archives)
-                input.publishedAt = "2025-08-01T00:00:00Z";
-        }
+        value.freshVersionExceptions = value.freshVersionExceptions.filter(
+            (exception) => exception.name !== runtime,
+        );
         const publishedAt = new Date(value[runtime].archives[0].publishedAt);
         const boundary = new Date(
             publishedAt.getTime() + 30 * 24 * 60 * 60 * 1000,

@@ -2,131 +2,145 @@
     "schemaVersion": 1,
     "minimumAgeDays": 30,
     "node": {
-        "version": "24.3.0",
-        "releaseDate": "2025-06-24",
-        "publicationEvidenceUrl": "https://nodejs.org/en/blog/release/v24.3.0",
-        "checksumEvidenceUrl": "https://nodejs.org/dist/v24.3.0/SHASUMS256.txt",
+        "version": "24.22.1",
+        "releaseDate": "2026-10-20",
+        "publicationEvidenceUrl": "https://nodejs.org/en/blog/release/v24.22.1",
+        "checksumEvidenceUrl": "https://nodejs.org/dist/v24.22.1/SHASUMS256.txt",
         "archives": [
             {
                 "target": "linux-x64",
-                "fileName": "node-v24.3.0-linux-x64.tar.xz",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-linux-x64.tar.xz",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T19:29:35Z",
-                "sizeBytes": 31707252,
-                "sha256": "a962afadaa8b94bae8bff87ddd6c11f7aae621032424ef05c0a4fe2537fa4de0"
+                "fileName": "node-v24.22.1-linux-x64.tar.xz",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T18:43:49Z",
+                "sizeBytes": 32026916,
+                "sha256": "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6"
             },
             {
                 "target": "linux-arm64",
-                "fileName": "node-v24.3.0-linux-arm64.tar.xz",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-linux-arm64.tar.xz",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T19:37:11Z",
-                "sizeBytes": 30188272,
-                "sha256": "9729d0ecc69fad6591e4e19b46854881e8cc9d865cf03fc951a8abc567854f5e"
+                "fileName": "node-v24.22.1-linux-arm64.tar.xz",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-arm64.tar.xz",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T18:28:51Z",
+                "sizeBytes": 30978868,
+                "sha256": "dbabf7a1cbf947e6059ffad2c27b80041db97dea1e553b62afdee7f13fca336e"
             },
             {
                 "target": "darwin-x64",
-                "fileName": "node-v24.3.0-darwin-x64.tar.xz",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-darwin-x64.tar.xz",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T19:25:59Z",
-                "sizeBytes": 27557976,
-                "sha256": "b1ee1cffb39ff6b47c7da9b9da7f2dd01713334b4bae7b2595954237d94cfac7"
+                "fileName": "node-v24.22.1-darwin-x64.tar.xz",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-x64.tar.xz",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T18:27:08Z",
+                "sizeBytes": 29283404,
+                "sha256": "65e450f90a6eaacd5000f611861c4ce65fadc87f813795dc4ed0c0e5f2fca2d4"
             },
             {
                 "target": "darwin-arm64",
-                "fileName": "node-v24.3.0-darwin-arm64.tar.xz",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-darwin-arm64.tar.xz",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T19:04:22Z",
-                "sizeBytes": 25475104,
-                "sha256": "11994ecf21c5e2c1b247df18969a6d0be60a8cfc70a9092d5f4535d3a6df5087"
+                "fileName": "node-v24.22.1-darwin-arm64.tar.xz",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.xz",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T22:15:47Z",
+                "sizeBytes": 27518756,
+                "sha256": "654ba79de6155647e22321932b45f2a1ccb705976cc337c9b8e278beb085a628"
             },
             {
                 "target": "win-x64",
-                "fileName": "node-v24.3.0-win-x64.zip",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-win-x64.zip",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T19:55:11Z",
-                "sizeBytes": 36168184,
-                "sha256": "c0c8efbca1b57e5b074bbdf7cef1ccca40979d6b46e5bcadaad5d4b07cbb3b10"
+                "fileName": "node-v24.22.1-win-x64.zip",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T18:58:26Z",
+                "sizeBytes": 37748064,
+                "sha256": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5"
             },
             {
                 "target": "win-arm64",
-                "fileName": "node-v24.3.0-win-arm64.zip",
-                "url": "https://nodejs.org/dist/v24.3.0/node-v24.3.0-win-arm64.zip",
-                "publishedAt": "2025-06-24T23:59:59Z",
-                "lastModifiedAt": "2025-06-24T20:13:27Z",
-                "sizeBytes": 32751212,
-                "sha256": "95ff08f6b2763d8491faba46b3a0ba1fb2045e029484494235b20b17c9053208"
+                "fileName": "node-v24.22.1-win-arm64.zip",
+                "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-arm64.zip",
+                "publishedAt": "2026-10-20T23:59:59Z",
+                "lastModifiedAt": "2026-10-20T19:33:25Z",
+                "sizeBytes": 33786263,
+                "sha256": "a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171"
             }
         ]
     },
     "nats": {
-        "version": "2.10.18",
-        "checksumEvidenceUrl": "https://github.com/nats-io/nats-server/releases/download/v2.10.18/SHA256SUMS",
+        "version": "2.14.9",
+        "checksumEvidenceUrl": "https://github.com/nats-io/nats-server/releases/download/v2.14.9/SHA256SUMS",
         "archives": [
             {
                 "target": "linux-x64",
-                "fileName": "nats-server-v2.10.18-linux-amd64.tar.gz",
-                "assetName": "nats-server-v2.10.18-linux-amd64.tar.gz",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121839",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5689433,
-                "sha256": "7760fe7347ba8e8daf4474811cf7fc301713aa8f3d4e0787d3e79a496dd537b2"
+                "fileName": "nats-server-v2.14.9-linux-amd64.tar.gz",
+                "assetName": "nats-server-v2.14.9-linux-amd64.tar.gz",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805338",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 6919214,
+                "sha256": "74f20433c5b39d7cc6db54155ec1e669671c728f625e54cf307298924b2b4259"
             },
             {
                 "target": "linux-arm64",
-                "fileName": "nats-server-v2.10.18-linux-arm64.tar.gz",
-                "assetName": "nats-server-v2.10.18-linux-arm64.tar.gz",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121837",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5258797,
-                "sha256": "3f026443e902a21e787382ca10e1446bf02a8bb779224b1b7b33ea6483f76b02"
+                "fileName": "nats-server-v2.14.9-linux-arm64.tar.gz",
+                "assetName": "nats-server-v2.14.9-linux-arm64.tar.gz",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805382",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 6242212,
+                "sha256": "e4f437b27c5966f65efdc5c17e5e50a02daea424cd2efc71df2ca514119ee4bc"
             },
             {
                 "target": "darwin-x64",
-                "fileName": "nats-server-v2.10.18-darwin-amd64.tar.gz",
-                "assetName": "nats-server-v2.10.18-darwin-amd64.tar.gz",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121832",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5734147,
-                "sha256": "7151be89511bb283f8950f348e4babd4a657b7fa331f813d57ec70337816110f"
+                "fileName": "nats-server-v2.14.9-darwin-amd64.tar.gz",
+                "assetName": "nats-server-v2.14.9-darwin-amd64.tar.gz",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805377",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 6974430,
+                "sha256": "87a9d7553cb79eb739d3858ee4bb5e608c1f1b85ed395672568e7e2090a29e1d"
             },
             {
                 "target": "darwin-arm64",
-                "fileName": "nats-server-v2.10.18-darwin-arm64.tar.gz",
-                "assetName": "nats-server-v2.10.18-darwin-arm64.tar.gz",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121834",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5417935,
-                "sha256": "93a392c5de1f8722b33a39817e578faf7be9abae9acfda4dac261c6b3c71cb9e"
+                "fileName": "nats-server-v2.14.9-darwin-arm64.tar.gz",
+                "assetName": "nats-server-v2.14.9-darwin-arm64.tar.gz",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805374",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 6442091,
+                "sha256": "f04942c616ba4cee9ee817186e5904ed3423442e9dc8141ab7afe9128281aabf"
             },
             {
                 "target": "win-x64",
-                "fileName": "nats-server-v2.10.18-windows-amd64.zip",
-                "assetName": "nats-server-v2.10.18-windows-amd64.zip",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121819",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5801219,
-                "sha256": "191a6cb6f7391005b5f886ae4fb700907dd977149f650febda9ae433701bf547"
+                "fileName": "nats-server-v2.14.9-windows-amd64.zip",
+                "assetName": "nats-server-v2.14.9-windows-amd64.zip",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805469",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 7112784,
+                "sha256": "2f1fe3be6f75462bfb76e72cf4fe9c95634093c3a01c5b94fe44e61cf2d2aa22"
             },
             {
                 "target": "win-arm64",
-                "fileName": "nats-server-v2.10.18-windows-arm64.zip",
-                "assetName": "nats-server-v2.10.18-windows-arm64.zip",
-                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/180121814",
-                "releaseTag": "v2.10.18",
-                "publishedAt": "2024-07-17T12:01:41Z",
-                "sizeBytes": 5298867,
-                "sha256": "edb2e38fb61b78a8571b43a001036dcd3f34b4bc7af2da296ac9d395edf5f0a7"
+                "fileName": "nats-server-v2.14.9-windows-arm64.zip",
+                "assetName": "nats-server-v2.14.9-windows-arm64.zip",
+                "url": "https://api.github.com/repos/nats-io/nats-server/releases/assets/678805311",
+                "releaseTag": "v2.14.9",
+                "publishedAt": "2026-10-26T16:54:27Z",
+                "sizeBytes": 6352685,
+                "sha256": "7994d221494bd959af73410bde7da3167c0b81201a36d63738e3f923e11d42bc"
             }
         ]
-    }
+    },
+    "freshVersionExceptions": [
+        {
+            "name": "node",
+            "version": "24.22.1",
+            "reason": "October 2026 Node security release: compromised eMudhra CA keys, Brotli memory corruption and TLS/DNS validation fixes. https://nodejs.org/en/blog/vulnerability/october-2026-security-releases",
+            "expiresOn": "2026-11-30"
+        },
+        {
+            "name": "nats",
+            "version": "2.14.9",
+            "reason": "CVE-2026-111943 eMudhra mitigation and NATS authorization, OCSP and snapshot fixes. https://github.com/nats-io/nats-server/releases/tag/v2.14.9",
+            "expiresOn": "2026-11-30"
+        }
+    ]
 }
