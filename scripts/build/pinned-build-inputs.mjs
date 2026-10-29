@@ -68,7 +68,10 @@ export function assertPinnedInputAge(
             typeof exception.reason !== "string" ||
             !exception.reason.trim() ||
             !/^\d{4}-\d{2}-\d{2}$/.test(exception.expiresOn ?? "") ||
-            Number.isNaN(Date.parse(`${exception.expiresOn}T23:59:59Z`))
+            Number.isNaN(Date.parse(`${exception.expiresOn}T23:59:59Z`)) ||
+            new Date(`${exception.expiresOn}T23:59:59Z`)
+                .toISOString()
+                .slice(0, 10) !== exception.expiresOn
         ) {
             throw new Error(
                 "Fresh build input exceptions require an exact name/version, reason and expiry date.",
