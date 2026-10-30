@@ -6,9 +6,16 @@ local development workflow notes here.
 
 ## Quick Start
 
+After selecting the Node version required by `package.json`, enable Corepack
+for that installation. With NVM, repeat this after switching Node installations:
+the Yarn command belongs to the selected Node installation. Corepack uses the
+repository's `packageManager` field to select the pinned Yarn version.
+
 Local web/indexer development:
 
 ```sh
+corepack enable yarn
+
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
 
@@ -22,6 +29,8 @@ yarn dev
 Desktop dev from a clean checkout:
 
 ```sh
+corepack enable yarn
+
 # Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
 yarn install --immutable
 
