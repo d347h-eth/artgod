@@ -67,6 +67,7 @@ Requirements:
 Desktop development from a clean checkout:
 
 ```sh
+corepack enable yarn
 yarn install --immutable
 yarn build:sqlite-native
 yarn dev:composition:observability
