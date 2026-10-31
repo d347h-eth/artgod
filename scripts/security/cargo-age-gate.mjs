@@ -59,7 +59,12 @@ export async function checkCargoDependencyAge({
         for (const entry of collectCratesIoPackages(
             await readCargoLockPackages(lockfilePath),
         )) {
-            packagesByKey.set(packageKey(entry), entry);
+            const key = packageKey(entry);
+            const existing = packagesByKey.get(key);
+            if (existing && existing.checksum !== entry.checksum) {
+                throw new Error(`Conflicting Cargo.lock checksums for ${key}`);
+            }
+            packagesByKey.set(key, entry);
         }
     }
     const packages = filterPackagesBySelectors(
@@ -67,6 +72,13 @@ export async function checkCargoDependencyAge({
         args.packageSelectors,
     );
     const versionCache = new Map();
+    const requiredVersionsByName = new Map();
+    for (const entry of packages) {
+        if (!requiredVersionsByName.has(entry.name)) {
+            requiredVersionsByName.set(entry.name, []);
+        }
+        requiredVersionsByName.get(entry.name).push(entry.version);
+    }
     let completed = 0;
     function report(packageEntry, result) {
         completed += 1;
@@ -87,6 +99,7 @@ export async function checkCargoDependencyAge({
                 versions = await getCachedVersions(
                     versionCache,
                     packageEntry.name,
+                    requiredVersionsByName.get(packageEntry.name),
                     fetchVersions,
                 );
             } catch (error) {
@@ -101,6 +114,15 @@ export async function checkCargoDependencyAge({
                 return report(packageEntry, {
                     type: CARGO_AGE_GATE_RESULT_TYPE.Violation,
                     message: `${packageKey(packageEntry)}: current version is missing from crates.io metadata`,
+                });
+            }
+            if (
+                !versionMetadata.checksum ||
+                versionMetadata.checksum !== packageEntry.checksum
+            ) {
+                return report(packageEntry, {
+                    type: CARGO_AGE_GATE_RESULT_TYPE.Violation,
+                    message: `${packageKey(packageEntry)}: registry checksum does not match Cargo.lock`,
                 });
             }
 
@@ -191,7 +213,7 @@ async function main() {
         });
         if (result.violations.length > 0) {
             console.error(
-                `Cargo age gate failed: ${result.violations.length} package version(s) are newer than ${result.minimumAgeDays} days and are not allowlisted.`,
+                `Cargo age gate failed: ${result.violations.length} package version(s) violate registry metadata or the ${result.minimumAgeDays}d age policy.`,
             );
             process.exitCode = 1;
             return;
@@ -215,10 +237,15 @@ async function main() {
     }
 }
 
-async function getCachedVersions(versionCache, crateName, fetchVersions) {
+async function getCachedVersions(
+    versionCache,
+    crateName,
+    requiredVersions,
+    fetchVersions,
+) {
     let versionsPromise = versionCache.get(crateName);
     if (!versionsPromise) {
-        versionsPromise = fetchVersions(crateName);
+        versionsPromise = fetchVersions(crateName, { requiredVersions });
         versionCache.set(crateName, versionsPromise);
     }
     return versionsPromise;
