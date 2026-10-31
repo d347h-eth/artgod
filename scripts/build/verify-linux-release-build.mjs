@@ -61,6 +61,7 @@ export const LINUX_RELEASE_BUILD_CHECKS = Object.freeze({
             "Test sensitive process hardening",
             "test:desktop:sensitive-process",
         ),
+        yarn("Test wallet cryptography", "test:desktop:wallet-crypto"),
         cargo(
             "Test Admin WebView shell ACL",
             "--test",
