@@ -6,6 +6,11 @@ import {
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_BOOK_OWN_STATE,
     TRADING_JOB_STATUS,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    type CollectionBiddingBidBookPriceTierFilter,
+    type TradingBiddingBidBookOwnJob,
+    type TradingBiddingBidBookPriceTier,
+    type TradingBiddingBidBookPriceTierCounts,
     type CollectionBiddingBidBookOwnStateFilter,
     type CollectionBiddingBidScopeFilter,
     type TradingBiddingBidBookOwnJobPhase,
@@ -82,6 +87,7 @@ export function assertBidScopeSupportsOwnStateFilter(
 // Transport-neutral bid-book signals. Callers map ownership at their adapter boundary.
 export type BiddingBidBookOwnStateSignals = {
     isOwn: boolean;
+    ownJob?: TradingBiddingBidBookOwnJob | null;
     ownStatus: {
         position: TradingBiddingJobRuntimeBidPosition;
         constraints: readonly TradingBiddingJobRuntimeConstraint[];
@@ -152,11 +158,47 @@ export function filterBiddingBidBookRowsByOwnState<
     state: CollectionBiddingBidBookOwnStateFilter | null,
     groupKey: (row: Row) => string,
 ): Row[] {
-    if (state === null) return rows;
+    return filterBiddingBidBookRowsByOwnFilters(
+        rows,
+        { ownStateFilter: state },
+        groupKey,
+    );
+}
+
+export type BiddingBidBookOwnFilters = {
+    ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+    priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
+};
+
+// A missing job association is unknown pricing, never an ad-hoc manual job.
+export function bidMatchesPriceTierFilter(
+    bid: BiddingBidBookOwnStateSignals,
+    tier: CollectionBiddingBidBookPriceTierFilter | null,
+): boolean {
+    if (tier === null) return true;
+    if (!bid.isOwn || !bid.ownJob) return false;
+    return tier === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual
+        ? bid.ownJob.priceTierId === null
+        : bid.ownJob.priceTierId === tier;
+}
+
+// Both selections must match one own row before expanding its opponent context.
+export function filterBiddingBidBookRowsByOwnFilters<
+    Row extends BiddingBidBookOwnStateSignals,
+>(
+    rows: Row[],
+    filters: BiddingBidBookOwnFilters,
+    groupKey: (row: Row) => string,
+): Row[] {
+    if (!filters.ownStateFilter && !filters.priceTierFilter) return rows;
     const matchingOwnRows = new Set<Row>();
     const matchingGroups = new Set<string>();
     for (const row of rows) {
-        if (bidMatchesOwnStateFilter(row, state)) {
+        if (
+            row.isOwn &&
+            bidMatchesOwnStateFilter(row, filters.ownStateFilter ?? null) &&
+            bidMatchesPriceTierFilter(row, filters.priceTierFilter ?? null)
+        ) {
             matchingOwnRows.add(row);
             matchingGroups.add(groupKey(row));
         }
@@ -166,6 +208,60 @@ export function filterBiddingBidBookRowsByOwnState<
             matchingOwnRows.has(row) ||
             (!row.isOwn && matchingGroups.has(groupKey(row))),
     );
+}
+
+// Shared normalization for URL and structured batch-selection boundaries.
+export function parseBiddingBidBookPriceTierFilter(
+    value: unknown,
+): CollectionBiddingBidBookPriceTierFilter | null {
+    if (value === null || value === undefined) return null;
+    if (
+        typeof value !== "string" ||
+        !value.trim() ||
+        value.trim().length > 128
+    ) {
+        throw new ReadModelBadRequestError(
+            "price_tier must be manual or a collection price-tier id",
+        );
+    }
+    return value.trim();
+}
+
+// Each facet ignores its own selection. Callers supply rows after scope/trait/bidder
+// matching and before pagination; stream those rows once for both summaries.
+export function countBiddingBidBookOwnFilters(
+    rows: Iterable<BiddingBidBookOwnStateSignals>,
+    filters: BiddingBidBookOwnFilters,
+    tiers: readonly TradingBiddingBidBookPriceTier[] = [],
+): {
+    ownBidStateCounts: TradingBiddingBidBookOwnStateCounts;
+    ownPriceTierCounts: TradingBiddingBidBookPriceTierCounts;
+} {
+    const ownBidStateCounts = countBiddingBidBookOwnStates([]);
+    const ownPriceTierCounts: TradingBiddingBidBookPriceTierCounts = {
+        manual: 0,
+        tiers: tiers.map((tier) => ({ ...tier, count: 0 })),
+    };
+    const tiersById = new Map(
+        ownPriceTierCounts.tiers.map((tier) => [tier.tierId, tier]),
+    );
+    for (const row of rows) {
+        if (!row.isOwn) continue;
+        if (bidMatchesPriceTierFilter(row, filters.priceTierFilter ?? null)) {
+            addOwnBidStateCounts(ownBidStateCounts, row);
+        }
+        if (
+            row.ownJob &&
+            bidMatchesOwnStateFilter(row, filters.ownStateFilter ?? null)
+        ) {
+            if (row.ownJob.priceTierId === null) ownPriceTierCounts.manual++;
+            else {
+                const tier = tiersById.get(row.ownJob.priceTierId);
+                if (tier) tier.count++;
+            }
+        }
+    }
+    return { ownBidStateCounts, ownPriceTierCounts };
 }
 
 // One count per own row and matching filter before selection or pagination.
@@ -184,10 +280,15 @@ export function countBiddingBidBookOwnStates(
     };
     for (const bid of bids) {
         if (!bid.isOwn) continue;
-        counts.total += 1;
-        for (const state of ownBidStateFilters(bid)) {
-            counts.states[state] += 1;
-        }
+        addOwnBidStateCounts(counts, bid);
     }
     return counts;
+}
+
+function addOwnBidStateCounts(
+    counts: TradingBiddingBidBookOwnStateCounts,
+    bid: BiddingBidBookOwnStateSignals,
+): void {
+    counts.total++;
+    for (const state of ownBidStateFilters(bid)) counts.states[state]++;
 }

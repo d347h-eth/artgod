@@ -122,6 +122,90 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
         );
     });
 
+    it("resolves all-results targets with both state and tier filters before mutation", () => {
+        const rows = [
+            {
+                ...bidBookRow({
+                    orderId: "losing-a",
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                    tokenId: "7",
+                    wei: "200",
+                    isOwn: true,
+                }),
+                ownJob: { jobId: "job-7", priceTierId: "tier-a" },
+                ownStatus: {
+                    position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                    constraints: [],
+                    job: null,
+                },
+            },
+            {
+                ...bidBookRow({
+                    orderId: "winning-a",
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                    tokenId: "8",
+                    wei: "300",
+                    isOwn: true,
+                }),
+                ownJob: { jobId: "job-8", priceTierId: "tier-a" },
+                ownStatus: {
+                    position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                    constraints: [],
+                    job: null,
+                },
+            },
+            {
+                ...bidBookRow({
+                    orderId: "losing-b",
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                    tokenId: "8",
+                    wei: "250",
+                    isOwn: true,
+                }),
+                ownJob: { jobId: "job-9", priceTierId: "tier-b" },
+                ownStatus: {
+                    position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                    constraints: [],
+                    job: null,
+                },
+            },
+        ];
+        const useCase = new LookupBatchTokenBiddingJobsUseCase(
+            1,
+            { resolveChainRef: () => CHAIN },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: () => tokenPage([], null),
+                listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                    tokenIds.map((id) => tokenCard(id)),
+            },
+            {
+                listCollectionBidBook: ({ scopeFilter }) =>
+                    bidBook(
+                        scopeFilter ===
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                            ? rows
+                            : [],
+                    ),
+            },
+            { getTokenJob: () => null },
+        );
+        const result = useCase.lookupBatchTokenBiddingJobs({
+            chainRef: CHAIN.slug,
+            collectionRef: COLLECTION.slug,
+            includeOwnJobContext: true,
+            selection: {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                traits: [],
+                traitRanges: [],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                ownStateFilter: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                priceTierFilter: "tier-a",
+            },
+        });
+        assert.deepEqual(result.tokenIds, ["7"]);
+    });
+
     it.each([
         { ownStateFilter: null, tokenIds: ["8", "7"] },
         {

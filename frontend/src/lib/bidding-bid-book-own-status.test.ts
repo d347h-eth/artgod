@@ -9,7 +9,11 @@ import {
 	TRADING_JOB_STATUS as STATUS
 } from '@artgod/shared/types';
 import { countBiddingBidBookOwnStates } from '@artgod/shared/trading/bid-book-own-state';
-import { ownBidStateFilterTabs, ownBiddingJobStateBadges } from './bidding-bid-book-own-status';
+import {
+	ownBidPriceTierFilterTabs,
+	ownBidStateFilterTabs,
+	ownBiddingJobStateBadges
+} from './bidding-bid-book-own-status';
 import {
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM,
@@ -124,4 +128,23 @@ describe('own bid state tabs', () => {
 		]);
 		expect(ownBidStateFilterTabs(counts, null)).toEqual([]);
 	});
+});
+
+it('places manual first and retains an archived selected pricing tier at zero', () => {
+	expect(
+		ownBidPriceTierFilterTabs(
+			{
+				manual: 2,
+				tiers: [
+					{ tierId: 'tier-a', name: 'Base', status: STATUS.Enabled, sortOrder: 1, count: 1 },
+					{ tierId: 'tier-old', name: 'Previous', status: STATUS.Archived, sortOrder: 2, count: 0 }
+				]
+			},
+			'tier-old'
+		)
+	).toEqual([
+		{ key: 'manual', label: 'manual', count: 2, active: false },
+		{ key: 'tier-a', label: 'Base', count: 1, active: false },
+		{ key: 'tier-old', label: 'Previous (archived)', count: 0, active: true }
+	]);
 });

@@ -12,6 +12,8 @@ import type {
     TradingBiddingBidBookSource,
     TradingBiddingBidBookOwnJobPhase,
     TradingBiddingBidBookOwnStateCounts,
+    TradingBiddingBidBookOwnJob,
+    TradingBiddingBidBookPriceTierCounts,
     TradingBiddingAuthorization,
     TradingBiddingBidScopeKind,
     TradingBiddingJobRuntimeBidPosition,
@@ -57,6 +59,7 @@ type PersistedBiddingBidBookRowBase = {
     snapshotRefreshedAtMs: number | null;
     seenAt: string | null;
     ownStatus: BiddingBidBookOwnStatus | null;
+    ownJob?: TradingBiddingBidBookOwnJob | null;
 };
 
 // Identifies a row backed by an observed marketplace bid.
@@ -148,6 +151,8 @@ export type BiddingBidBookOwnStatus = {
 };
 
 export type PersistedBiddingBidBook = {
+    // Collection-wide attribution keeps tier choices stable across the visible filters.
+    attributedPriceTierIds?: string[];
     state: PersistedBiddingBidBookState;
     biddingBotStatus: TradingBotLifecycleStatus;
     biddingAuthorization: TradingBiddingAuthorization | null;
@@ -196,6 +201,7 @@ type BiddingBidBookRowViewBase = {
     snapshotRefreshedAtMs: number | null;
     seenAt: string | null;
     ownStatus: BiddingBidBookOwnStatus | null;
+    ownJob?: TradingBiddingBidBookOwnJob | null;
 };
 
 // Presents an observed market bid with its marketplace maker identity.
@@ -267,6 +273,7 @@ export type ListCollectionBiddingBidBookOutput = {
     bidBook: BiddingBidBookView;
     tokenOfferCards: BiddingTokenOfferCardsPage;
     ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
+    ownPriceTierCounts: TradingBiddingBidBookPriceTierCounts | null;
 };
 
 export type GetTokenBiddingBidBookOutput = {
@@ -326,6 +333,7 @@ function mapPersistedBidRowToView(
         snapshotRefreshedAtMs: bid.snapshotRefreshedAtMs,
         seenAt: bid.seenAt,
         ownStatus: bid.ownStatus,
+        ...(bid.ownJob ? { ownJob: bid.ownJob } : {}),
     };
     if (isPersistedOwnJobIntentRow(bid)) {
         return {

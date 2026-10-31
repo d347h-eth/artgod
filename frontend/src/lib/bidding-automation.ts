@@ -1,3 +1,4 @@
+import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import { isTradingNumericTraitRange } from '@artgod/shared/types';
 import type {
 	ApiBiddingBidBookRow,
@@ -90,6 +91,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 };
 
 // Builds the canonical filter snapshot consumed by bidding selection and draft flows.
@@ -103,6 +105,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return {
 		source: params.source,
@@ -113,7 +116,8 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		ownerAddress: params.ownerAddress ?? null,
 		makerAddress: params.makerAddress ?? null,
 		ownershipFilter: params.ownershipFilter ?? null,
-		ownStateFilter: params.ownStateFilter ?? null
+		ownStateFilter: params.ownStateFilter ?? null,
+		priceTierFilter: params.priceTierFilter ?? null
 	};
 }
 
@@ -129,6 +133,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	makerAddress?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return buildBiddingAutomationTokenFilterSnapshot({
 		source: params.source,
@@ -142,7 +147,8 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		ownerAddress: params.ownerAddress,
 		makerAddress: params.makerAddress,
 		ownershipFilter: params.ownershipFilter,
-		ownStateFilter: params.ownStateFilter
+		ownStateFilter: params.ownStateFilter,
+		priceTierFilter: params.priceTierFilter
 	});
 }
 

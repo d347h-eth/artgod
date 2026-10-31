@@ -907,9 +907,15 @@ paths:
                 - name: own_state
                   in: query
                   required: false
-                  description: Private own-bid state filter for token and trait scopes, independent of ownership and applied before token pagination. Matching own rows retain opponents in the same trait bucket or token group unless ownership excludes them. Counts retain all own states within the other filters. Collection scope and public reads reject this filter with HTTP 400.
+                  description: Private own-bid state filter for token and trait scopes, independent of ownership and applied before token pagination. Matching own rows retain opponents in the same trait bucket or token group unless ownership excludes them. Counts retain all own states within the other filters, including the selected price tier. Collection scope and public reads reject this filter with HTTP 400.
                   schema:
                       $ref: "#/components/schemas/BiddingBidBookOwnStateFilter"
+                - name: price_tier
+                  in: query
+                  required: false
+                  description: Private job-pricing filter for token and trait scopes. AND with own_state on the same own row, retaining its opponents unless ownership excludes them. Manual matches only known jobs without a tier; unassociated wallet orders do not match. Collection scope and public reads reject this filter.
+                  schema:
+                      $ref: "#/components/schemas/BiddingBidBookPriceTierFilter"
                 - name: traits
                   in: query
                   required: false
@@ -4224,6 +4230,10 @@ components:
                           anyOf:
                               - $ref: "#/components/schemas/BiddingBidBookOwnStateFilter"
                               - $ref: "#/components/schemas/NullValue"
+                      priceTierFilter:
+                          anyOf:
+                              - $ref: "#/components/schemas/BiddingBidBookPriceTierFilter"
+                              - $ref: "#/components/schemas/NullValue"
 
         LookupBatchTokenBiddingJobsRequest:
             type: object
@@ -4390,6 +4400,42 @@ components:
                     floor,
                     unknown,
                 ]
+
+        BiddingBidBookPriceTierFilter:
+            type: string
+            minLength: 1
+            maxLength: 128
+            description: The manual sentinel or a collection price-tier id. Omit to include every pricing source.
+
+        BiddingBidBookPriceTierCounts:
+            type: object
+            required: [manual, tiers]
+            additionalProperties: false
+            properties:
+                manual:
+                    type: integer
+                    minimum: 0
+                    description: Known own job rows without tier attribution, under the selected own state.
+                tiers:
+                    type: array
+                    description: Collection-wide attributed tiers, plus the selected tier even without jobs. Includes archived tiers. Counts apply the selected state and all scope, trait and bidder filters, before tier selection and pagination.
+                    items:
+                        type: object
+                        required: [tierId, name, status, sortOrder, count]
+                        additionalProperties: false
+                        properties:
+                            tierId:
+                                type: string
+                            name:
+                                type: string
+                            status:
+                                type: string
+                                enum: [enabled, paused, archived]
+                            sortOrder:
+                                type: integer
+                            count:
+                                type: integer
+                                minimum: 0
 
         BiddingBidBookOwnStateCounts:
             type: object
@@ -4789,6 +4835,17 @@ components:
                     nullable: true
                 ownStatus:
                     $ref: "#/components/schemas/BiddingBidBookOwnStatus"
+                ownJob:
+                    type: object
+                    description: Known local job attribution, independent of current bot decision evidence. Omitted for unassociated rows and public reads.
+                    required: [jobId, priceTierId]
+                    additionalProperties: false
+                    properties:
+                        jobId:
+                            type: string
+                        priceTierId:
+                            type: string
+                            nullable: true
 
         BiddingBidBook:
             type: object
@@ -5301,6 +5358,7 @@ components:
                     bidBook,
                     tokenOfferCards,
                     ownBidStateCounts,
+                    ownPriceTierCounts,
                 ]
             additionalProperties: false
             properties:
@@ -5335,9 +5393,14 @@ components:
                 tokenOfferCards:
                     $ref: "#/components/schemas/BiddingTokenOfferCardsPage"
                 ownBidStateCounts:
-                    description: Null in public reads. Private counts cover the full matching result set before own-state filtering or pagination.
+                    description: Null in public reads. Private counts cover the full matching result set under the selected price tier, before own-state filtering or pagination.
                     anyOf:
                         - $ref: "#/components/schemas/BiddingBidBookOwnStateCounts"
+                        - $ref: "#/components/schemas/NullValue"
+                ownPriceTierCounts:
+                    description: Null in public reads. Private counts apply the selected own state before pricing-tier filtering and pagination. Counts are own bid rows, not distinct jobs.
+                    anyOf:
+                        - $ref: "#/components/schemas/BiddingBidBookPriceTierCounts"
                         - $ref: "#/components/schemas/NullValue"
 
         TokenBiddingJobResponse:

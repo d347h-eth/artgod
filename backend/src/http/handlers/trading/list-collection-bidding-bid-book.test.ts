@@ -1,3 +1,4 @@
+import { parseBatchTokenBiddingJobSelection } from "./upsert-batch-token-bidding-jobs.js";
 import type { FastifyRequest } from "fastify";
 import {
     COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
@@ -6,6 +7,8 @@ import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRAIT_FILTER_QUERY_PARAMS,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -211,3 +214,50 @@ function routeRequest(
         },
     } as FastifyRequest<ListCollectionBiddingBidBookRoute>;
 }
+
+describe("pricing-filter HTTP contracts", () => {
+    it.each([TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual, "tier-base"])(
+        "maps %s consistently for reads and batch lookup/apply",
+        async (priceTierFilter) => {
+            let captured: unknown;
+            const adapter = new ListCollectionBiddingBidBookHttpAdapter(
+                {
+                    listCollectionBiddingBidBook: (input) => {
+                        captured = input;
+                        return input as never;
+                    },
+                },
+                true,
+            );
+            await adapter.handle(
+                routeRequest(
+                    `/api/ethereum/terraforms/bidding/bids?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier}=${priceTierFilter}`,
+                ),
+            );
+            expect(captured).toEqual(
+                expect.objectContaining({ priceTierFilter }),
+            );
+            expect(
+                parseBatchTokenBiddingJobSelection({
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                    traits: [],
+                    traitRanges: [],
+                    traitJoinMode:
+                        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                    priceTierFilter,
+                }),
+            ).toEqual(expect.objectContaining({ priceTierFilter }));
+        },
+    );
+    it("rejects malformed structured pricing filters", () => {
+        expect(() =>
+            parseBatchTokenBiddingJobSelection({
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                traits: [],
+                traitRanges: [],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                priceTierFilter: 12,
+            }),
+        ).toThrow("price_tier");
+    });
+});

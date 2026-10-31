@@ -3,6 +3,7 @@ import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-
 import {
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER,
 	COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS,
+	type CollectionBiddingBidBookPriceTierFilter,
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS
 } from '@artgod/shared/types';
 import {
@@ -11,6 +12,7 @@ import {
 	BID_BOOK_OWNERSHIP_QUERY_PARAM,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	buildCollectionBiddingQuery,
 	buildCollectionBiddingHref,
 	parseCollectionBiddingBidScopeFilter,
@@ -100,6 +102,21 @@ export function writeCollectionBiddingNavigationPreference(
 	return preference;
 }
 
+// Collection tier ids belong only to this collection's navigation. The URL stays
+// authoritative, including an explicit reset; collection scope only suspends it.
+const suspendedPriceTierFilters = new Map<string, CollectionBiddingBidBookPriceTierFilter | null>();
+export function rememberCollectionBiddingPriceTierFilter(
+	current: Pick<CollectionBiddingQueryParams, 'bidScope' | 'priceTierFilter'> & { basePath: string }
+): void {
+	if (
+		browser &&
+		!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT &&
+		bidScopeSupportsOwnStateFilter(current.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
+	) {
+		suspendedPriceTierFilters.set(current.basePath, current.priceTierFilter ?? null);
+	}
+}
+
 // Scope buttons resume the state selection when entering a supported view.
 // The canonical query builder omits it from collection-scoped URLs and reads.
 export function buildCollectionBiddingScopeHref(
@@ -113,7 +130,12 @@ export function buildCollectionBiddingScopeHref(
 	return buildCollectionBiddingHref(current, {
 		bidScope: nextScope,
 		ownershipFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : current.ownershipFilter,
-		ownStateFilter: ownStateNavigationPreference(current, preference)
+		ownStateFilter: ownStateNavigationPreference(current, preference),
+		priceTierFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			? null
+			: bidScopeSupportsOwnStateFilter(current.bidScope)
+				? current.priceTierFilter
+				: (suspendedPriceTierFilters.get(current.basePath) ?? null)
 	});
 }
 
@@ -125,6 +147,7 @@ export function buildCollectionBiddingNavigationQuery(
 ): URLSearchParams {
 	return buildCollectionBiddingQuery({
 		...params,
+		priceTierFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : params.priceTierFilter,
 		bidScope: params.bidScope ?? preference?.bidScope,
 		ownershipFilter: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
 			? null

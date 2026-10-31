@@ -13,6 +13,7 @@ import {
 	buildCollectionBiddingNavigationQuery,
 	buildCollectionBiddingScopeHref,
 	readCollectionBiddingNavigationPreference,
+	rememberCollectionBiddingPriceTierFilter,
 	writeCollectionBiddingNavigationPreference
 } from '$lib/bidding-navigation-preferences';
 
@@ -355,4 +356,29 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 		stored = JSON.stringify({ bidScope: SCOPE.Token });
 		expect(readCollectionBiddingNavigationPreference()).toEqual({ bidScope: SCOPE.Token });
 	});
+});
+
+it('suspends a tier within its collection without adding it to global navigation defaults', () => {
+	environment.browser = true;
+	const basePath = '/ethereum/tier-navigation';
+	const current = { ...FILTERS, basePath, bidScope: SCOPE.Token, priceTierFilter: 'tier-a' };
+	rememberCollectionBiddingPriceTierFilter(current);
+	const query = (href: string) => new URL(href, 'https://example.test').searchParams;
+	expect(
+		query(buildCollectionBiddingScopeHref(current, SCOPE.Collection)).get(PARAM.PriceTier)
+	).toBeNull();
+	const suspended = { ...current, bidScope: SCOPE.Collection, priceTierFilter: null };
+	expect(query(buildCollectionBiddingScopeHref(suspended, SCOPE.Traits)).get(PARAM.PriceTier)).toBe(
+		'tier-a'
+	);
+	expect(
+		query(
+			buildCollectionBiddingScopeHref({ ...suspended, basePath: '/ethereum/other' }, SCOPE.Token)
+		).get(PARAM.PriceTier)
+	).toBeNull();
+	expect(buildCollectionBiddingNavigationQuery(FILTERS, null).get(PARAM.PriceTier)).toBeNull();
+	rememberCollectionBiddingPriceTierFilter({ ...current, priceTierFilter: null });
+	expect(
+		query(buildCollectionBiddingScopeHref(suspended, SCOPE.Token)).get(PARAM.PriceTier)
+	).toBeNull();
 });

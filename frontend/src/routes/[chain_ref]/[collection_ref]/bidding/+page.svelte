@@ -2,6 +2,8 @@
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
 	import type {
 		CollectionBiddingBidBookOwnStateFilter,
+		CollectionBiddingBidBookPriceTierFilter,
+		TradingBiddingBidBookPriceTierCounts,
 		TradingBiddingBidBookOwnStateCounts
 	} from '@artgod/shared/types';
 	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
@@ -50,6 +52,8 @@
 		makerFilter: string | null;
 		ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 		ownStateFilter: CollectionBiddingBidBookOwnStateFilter | null;
+		priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
+		ownPriceTierCounts?: TradingBiddingBidBookPriceTierCounts | null;
 		ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
 		mediaMode: string | null;
 		requestCursor: string | null;
@@ -90,6 +94,8 @@
 	makerFilter={data?.makerFilter ?? null}
 	ownershipFilter={data?.ownershipFilter ?? null}
 	ownStateFilter={data?.ownStateFilter ?? null}
+	priceTierFilter={data?.priceTierFilter ?? null}
+	ownPriceTierCounts={data?.ownPriceTierCounts ?? null}
 	ownBidStateCounts={data?.ownBidStateCounts ?? null}
 	mediaMode={data?.mediaMode ?? null}
 	requestCursor={data?.requestCursor ?? null}

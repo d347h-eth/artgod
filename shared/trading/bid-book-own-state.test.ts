@@ -9,6 +9,7 @@ import {
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION as POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT as CONSTRAINT,
     TRADING_JOB_STATUS as STATUS,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND as PRICING,
 } from "../types/trading.js";
 import { ReadModelBadRequestError } from "../read-models/errors.js";
 import {
@@ -16,6 +17,10 @@ import {
     bidScopeSupportsOwnStateFilter,
     biddingBidBookOwnStates,
     bidMatchesOwnStateFilter,
+    bidMatchesPriceTierFilter,
+    countBiddingBidBookOwnFilters,
+    filterBiddingBidBookRowsByOwnFilters,
+    parseBiddingBidBookPriceTierFilter,
     countBiddingBidBookOwnStates,
     filterBiddingBidBookRowsByOwnState,
     resolveBiddingBidBookOrderPhase,
@@ -307,5 +312,106 @@ describe("own-state selection with opponent context", () => {
         expect(filterBiddingBidBookRowsByOwnState(rows, null, key)).toEqual(
             rows,
         );
+    });
+});
+
+describe("combined own-state and pricing filters", () => {
+    const own = (
+        id: string,
+        group: string,
+        tier: string | null,
+        position = POSITION.Losing as
+            | typeof POSITION.Losing
+            | typeof POSITION.Winning,
+    ) => ({
+        ...market,
+        id,
+        group,
+        ownJob: { jobId: id, priceTierId: tier },
+        ownStatus: { position, constraints: [CONSTRAINT.Ceiling], job: null },
+    });
+    const losingA = own("losing-a", "a", "tier-a");
+    const winningA = own("winning-a", "b", "tier-a", POSITION.Winning);
+    const losingB = own("losing-b", "b", "tier-b");
+    const manual = own("manual", "c", null);
+    const opponent = { ...market, id: "opponent", group: "a", isOwn: false };
+    const rows = [opponent, losingA, winningA, losingB, manual];
+    const tiers = [
+        {
+            tierId: "tier-a",
+            name: "Base",
+            status: STATUS.Enabled,
+            sortOrder: 0,
+        },
+        {
+            tierId: "tier-b",
+            name: "Old",
+            status: STATUS.Archived,
+            sortOrder: 1,
+        },
+    ];
+    it("requires both selections on one row and retains only its opponents", () => {
+        const filtered = filterBiddingBidBookRowsByOwnFilters(
+            rows,
+            {
+                ownStateFilter: POSITION.Losing,
+                priceTierFilter: "tier-a",
+            },
+            (row) => row.group,
+        );
+        expect(filtered.map((row) => row.id)).toEqual(["opponent", "losing-a"]);
+    });
+    it("counts each facet under the other selection and ignores opponents", () => {
+        const counts = countBiddingBidBookOwnFilters(
+            rows,
+            {
+                ownStateFilter: POSITION.Losing,
+                priceTierFilter: "tier-a",
+            },
+            tiers,
+        );
+        expect(counts.ownBidStateCounts.total).toBe(2);
+        expect(counts.ownBidStateCounts.states[POSITION.Losing]).toBe(1);
+        expect(counts.ownBidStateCounts.states[POSITION.Winning]).toBe(1);
+        expect(counts.ownBidStateCounts.states[CONSTRAINT.Ceiling]).toBe(2);
+        expect(counts.ownPriceTierCounts.manual).toBe(1);
+        expect(
+            counts.ownPriceTierCounts.tiers.map((tier) => tier.count),
+        ).toEqual([1, 1]);
+        const empty = countBiddingBidBookOwnFilters(
+            rows,
+            { ownStateFilter: POSITION.Draw, priceTierFilter: "tier-b" },
+            tiers,
+        );
+        expect(
+            empty.ownPriceTierCounts.tiers.map((tier) => tier.count),
+        ).toEqual([0, 0]);
+        expect(empty.ownBidStateCounts.states[POSITION.Losing]).toBe(1);
+    });
+    it("recognizes legacy manual jobs without treating unattributed own orders as manual", () => {
+        expect(bidMatchesPriceTierFilter(manual, PRICING.Manual)).toBe(true);
+        expect(bidMatchesPriceTierFilter(market, PRICING.Manual)).toBe(false);
+        expect(
+            bidMatchesPriceTierFilter(
+                { ...manual, isOwn: false },
+                PRICING.Manual,
+            ),
+        ).toBe(false);
+        expect(
+            filterBiddingBidBookRowsByOwnFilters(
+                rows,
+                { priceTierFilter: PRICING.Manual },
+                (row) => row.group,
+            ),
+        ).toEqual([manual]);
+    });
+    it("normalizes both transport boundaries and rejects malformed selections", () => {
+        expect(parseBiddingBidBookPriceTierFilter(null)).toBeNull();
+        expect(parseBiddingBidBookPriceTierFilter(" tier-a ")).toBe("tier-a");
+        for (const invalid of [false, 12, {}, "", " ", "x".repeat(129)]) {
+            expect(() => parseBiddingBidBookPriceTierFilter(invalid)).toThrow(
+                ReadModelBadRequestError,
+            );
+        }
     });
 });

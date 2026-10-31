@@ -8,6 +8,8 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import type {
 		CollectionBiddingBidBookOwnStateFilter,
+		CollectionBiddingBidBookPriceTierFilter,
+		TradingBiddingBidBookPriceTierCounts,
 		TradingBiddingBidBookOwnStateCounts
 	} from '@artgod/shared/types';
 	import { BID_BOOK_FILTER_LABEL } from '$lib/bid-book-view-models';
@@ -73,12 +75,14 @@
 	import {
 		ownBidStatusBadges,
 		ownBidStateFilterTabs,
+		ownBidPriceTierFilterTabs,
 		type BidBookOwnStatusBadge
 	} from '$lib/bidding-bid-book-own-status';
 	import { BID_BOOK_UPDATE_FLASH_MODE, bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 	import {
 		buildCollectionBiddingScopeHref,
 		readCollectionBiddingNavigationPreference,
+		rememberCollectionBiddingPriceTierFilter,
 		writeCollectionBiddingNavigationPreference
 	} from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
@@ -177,6 +181,8 @@
 		makerFilter = null,
 		ownershipFilter = null,
 		ownStateFilter = null,
+		priceTierFilter = null,
+		ownPriceTierCounts = null,
 		ownBidStateCounts = null,
 		mediaMode,
 		requestCursor = null,
@@ -201,6 +207,8 @@
 		makerFilter?: string | null;
 		ownershipFilter?: ApiCollectionBiddingBidBookOwnershipFilter | null;
 		ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+		priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
+		ownPriceTierCounts?: TradingBiddingBidBookPriceTierCounts | null;
 		ownBidStateCounts?: TradingBiddingBidBookOwnStateCounts | null;
 		mediaMode: string | null;
 		requestCursor?: string | null;
@@ -229,6 +237,7 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeBidBook = $state<ApiBiddingBidBook>(bidBook);
+	let activeOwnPriceTierCounts = $state<TradingBiddingBidBookPriceTierCounts | null>(ownPriceTierCounts);
 	let activeOwnBidStateCounts = $state<TradingBiddingBidBookOwnStateCounts | null>(ownBidStateCounts);
 	let activeTokenOfferCardsPage = $state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
@@ -264,6 +273,7 @@
 		maker: makerFilter,
 		ownershipFilter,
 		ownStateFilter,
+		priceTierFilter,
 		showMuted
 	} satisfies CollectionBiddingQueryParams);
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
@@ -365,6 +375,7 @@
 	$effect(() => {
 		activeBidBook = bidBook;
 		activeOwnBidStateCounts = ownBidStateCounts;
+		activeOwnPriceTierCounts = ownPriceTierCounts;
 	});
 
 	$effect(() => {
@@ -423,6 +434,7 @@
 
 	$effect(() => {
 		const current = { bidScope, ownershipFilter, ownStateFilter };
+		rememberCollectionBiddingPriceTierFilter({ basePath, bidScope, priceTierFilter });
 		// Only URL-owned controls trigger this effect. Its previous remembered
 		// model is input to the transition, not another reason to run it.
 		untrack(() => {
@@ -562,6 +574,7 @@
 			}
 			activeBidBook = response.bidBook;
 			activeOwnBidStateCounts = response.ownBidStateCounts;
+			activeOwnPriceTierCounts = response.ownPriceTierCounts ?? null;
 			activeTokenOfferCardsPage = response.tokenOfferCards;
 			await tick();
 			if (liveRefreshRequestId === requestId) {
@@ -631,6 +644,7 @@
 			makerFilter ?? 'all-makers',
 			ownershipFilter,
 			ownStateFilter,
+			priceTierFilter,
 			showMuted ? 'show-muted' : 'hide-muted',
 			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
 		]);
@@ -638,6 +652,7 @@
 
 	function handlePriceTiersChanged(nextTiers: ApiBiddingPriceTier[]): void {
 		activePriceTiers = nextTiers;
+		void refreshCollectionBiddingData();
 	}
 
 	function handleBiddingSettingsChanged(nextSettings: ApiBiddingCollectionSettings): void {
@@ -676,6 +691,14 @@
 
 	function ownStateFilterHref(nextState: CollectionBiddingBidBookOwnStateFilter | null): string {
 		return currentBiddingHref({ ownStateFilter: nextState });
+	}
+
+	function priceTierFilterHref(next: CollectionBiddingBidBookPriceTierFilter | null): string {
+		return currentBiddingHref({ priceTierFilter: next });
+	}
+
+	async function onResetPriceTier(): Promise<void> {
+		await goto(priceTierFilterHref(null), { invalidateAll: true, reset: false });
 	}
 
 	function isShowingOwnBids(): boolean {
@@ -889,7 +912,8 @@
 			tokenStatus: null,
 			makerAddress: makerFilter,
 			ownershipFilter,
-			ownStateFilter
+			ownStateFilter,
+			priceTierFilter
 		});
 	}
 
@@ -900,6 +924,7 @@
 			makerFilter,
 			ownershipFilter,
 			ownStateFilter,
+			priceTierFilter,
 			activeTraits,
 			activeTraitRanges
 		});
@@ -1031,6 +1056,16 @@
 	</button>
 {/snippet}
 
+{#snippet priceTierReset()}
+	<button
+		type="button"
+		class="facet-panel-action-button facet-reset-button"
+		onclick={() => void onResetPriceTier()}
+	>
+		{BID_BOOK_FILTER_LABEL.ResetPriceTier}
+	</button>
+{/snippet}
+
 {#snippet ownStateFilterRow()}
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && bidScopeSupportsOwnStateFilter(bidScope) && activeOwnBidStateCounts}
 		<BidBookFilterTabs
@@ -1039,6 +1074,16 @@
 			label={BID_BOOK_FILTER_LABEL.OwnState}
 			hrefForKey={ownStateFilterHref}
 			trailingActions={ownStateFilter ? ownStateReset : undefined}
+		/>
+	{/if}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && bidScopeSupportsOwnStateFilter(bidScope) && activeOwnPriceTierCounts && (activeOwnPriceTierCounts.tiers.length > 0 || priceTierFilter)}
+		<BidBookFilterTabs
+			tabs={ownBidPriceTierFilterTabs(activeOwnPriceTierCounts, priceTierFilter)}
+			maxInlineSize="67rem"
+			labelMaxInlineSize="24ch"
+			label={BID_BOOK_FILTER_LABEL.PriceTier}
+			hrefForKey={priceTierFilterHref}
+			trailingActions={priceTierFilter ? priceTierReset : undefined}
 		/>
 	{/if}
 {/snippet}

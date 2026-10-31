@@ -1,3 +1,7 @@
+import type {
+	TradingBiddingBidBookPriceTierCounts,
+	TradingBiddingBidBookOwnJob
+} from '@artgod/shared/types';
 import {
 	COLLECTION_MEDIA_SOURCE,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -637,6 +641,7 @@ export type ApiBiddingBidBookOwnStatus = {
 };
 
 type ApiBiddingBidBookRowBase = {
+	ownJob?: TradingBiddingBidBookOwnJob | null;
 	orderId: string;
 	source: ApiBiddingBidBookSource;
 	scope: {
@@ -802,6 +807,7 @@ export type CollectionBiddingBidBookApiResponse = {
 	bidBook: ApiBiddingBidBook;
 	tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 	ownBidStateCounts: TradingBiddingBidBookOwnStateCounts | null;
+	ownPriceTierCounts?: TradingBiddingBidBookPriceTierCounts | null;
 };
 
 export type TokenBiddingJobApiResponse = {

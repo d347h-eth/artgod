@@ -583,6 +583,7 @@ beforeAll(async () => {
             collectionsReadModel,
             customizationReadModel,
             biddingBidBookRepository,
+            biddingPriceTiersRepository,
         );
     const listCollectionBiddingPriceTiersUseCase =
         new listCollectionBiddingPriceTiersUseCaseModule.ListCollectionBiddingPriceTiersUseCase(
@@ -1597,6 +1598,45 @@ describe("backend api routes", () => {
         },
     );
 
+    it("keeps pricing filters private and restricted to token/trait scopes", async () => {
+        const key = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier;
+        for (const scope of [
+            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+        ]) {
+            const query = new URLSearchParams({
+                [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope]: scope,
+                [key]: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+            });
+            const privateResponse = await resolve(
+                "GET",
+                `/api/ethereum/milady/bidding/bids?${query}`,
+            );
+            expect(privateResponse.statusCode).toBe(200);
+            expect(privateResponse.payload.ownPriceTierCounts).toBeDefined();
+            const publicResponse = await resolvePublic(
+                "GET",
+                `/api/ethereum/terraforms/bidding/bids?${query}`,
+            );
+            expect(publicResponse.statusCode).toBe(400);
+        }
+        const invalid = await resolve(
+            "GET",
+            `/api/ethereum/milady/bidding/bids?bid_scope=collection&${key}=${TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual}`,
+        );
+        expect(invalid.statusCode).toBe(400);
+        const publicResponse = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/bidding/bids",
+        );
+        expect(publicResponse.payload.ownPriceTierCounts).toBeNull();
+        expect(
+            publicResponse.payload.bidBook.bids.every(
+                (row: { ownJob?: unknown }) => !row.ownJob,
+            ),
+        ).toBe(true);
+    });
+
     it("serves price history behind the same public collection scope guard", async () => {
         const allowed = await resolvePublic(
             "GET",
@@ -2158,6 +2198,7 @@ describe("backend api routes", () => {
 
     it("enriches own bid rows with backend-owned position and job constraint signals", async () => {
         clearTradingJobFixtures();
+        const runtimeSessionId = "own-signal-session";
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
         db.prepare(
             "DELETE FROM trading_bidding_bid_book_rows WHERE order_id IN (?, ?)",
@@ -2193,14 +2234,25 @@ describe("backend api routes", () => {
         );
         db.prepare(
             "INSERT INTO trading_bot_runtime_state " +
-                "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
-                "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
+                "(bot_kind, chain_id, wallet_id, address, runtime_session_id, state, heartbeat_at, started_at, updated_at, last_error) " +
+                "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, ?, NULL)",
         ).run(
             TRADING_BOT_KIND.Bidding,
+            runtimeSessionId,
             TRADING_BOT_RUNTIME_STATE.Running,
             new Date().toISOString(),
             new Date().toISOString(),
             new Date().toISOString(),
+        );
+        // Fresh decision evidence requires the session's canonical collection authorization.
+        db.prepare(
+            "INSERT INTO trading_bidding_runtime_authorized_collections " +
+                "(runtime_session_id, chain_id, wallet_id, collection_id, contract_address, opensea_slug, max_unit_bid_wei, max_quantity, published_at) " +
+                "SELECT ?, chain_id, 'wallet-own-signal', collection_id, address, opensea_slug, '200000000000000000', 1, ? FROM collections WHERE collection_id = ?",
+        ).run(
+            runtimeSessionId,
+            new Date().toISOString(),
+            collection.collection_id,
         );
         db.prepare(
             "INSERT INTO trading_bidding_bid_book_rows " +
@@ -2254,6 +2306,7 @@ describe("backend api routes", () => {
         );
         expect(ownBid).toMatchObject({
             maker: { label: "You", isOwn: true },
+            ownJob: { jobId: "own-signal-job", priceTierId: null },
             ownStatus: {
                 position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
                 constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],

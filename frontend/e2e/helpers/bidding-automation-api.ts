@@ -614,6 +614,7 @@ function bidBookResponse(url: URL, searchParams: URLSearchParams): unknown {
 		},
 		bidBook: data.bidBook,
 		ownBidStateCounts: data.ownBidStateCounts,
+		ownPriceTierCounts: data.ownPriceTierCounts,
 		tokenOfferCards: data.tokenOfferCards
 	};
 }
@@ -725,7 +726,8 @@ function batchMutationTokenIds(body: unknown, scenario: string | null): string[]
 			traitJoinMode: selection.traitJoinMode,
 			maker: selection.makerAddress,
 			ownershipFilter: selection.ownershipFilter,
-			ownStateFilter: selection.ownStateFilter
+			ownStateFilter: selection.ownStateFilter,
+			priceTierFilter: selection.priceTierFilter
 		});
 		if (scenario) query.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scenario);
 		const tokenIds: string[] = [];

@@ -14,7 +14,7 @@ import {
 import type { BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
 import {
     buildTokenOfferGroups,
-    filterTokenOfferGroupsByOwnState,
+    filterTokenOfferGroupsByOwnFilters,
     sortTokenIdsByTopOffer,
     tokenMatchesTraitFiltersWithJoinMode,
 } from "./bidding-token-offer-cards.js";
@@ -173,6 +173,7 @@ function resolveTokenOfferFilterTokenIds(params: {
         makerAddress: params.selection.makerAddress,
         ownershipFilter: params.selection.ownershipFilter,
         ownStateFilter: params.selection.ownStateFilter,
+        priceTierFilter: params.selection.priceTierFilter,
     });
 
     // Read token-scoped bids from the same source-selection path used by the offers page.
@@ -200,12 +201,12 @@ function resolveTokenOfferFilterTokenIds(params: {
             makerAddress: null,
             ownershipFilter: null,
         });
-    const offersByTokenId = filterTokenOfferGroupsByOwnState(
+    const offersByTokenId = filterTokenOfferGroupsByOwnFilters(
         buildTokenOfferGroups({
             tokenBids: tokenBidBook.bids,
             collectionBids: collectionBidBook.bids,
         }),
-        params.selection.ownStateFilter ?? null,
+        params.selection,
     );
     const tokenIds = sortTokenIdsByTopOffer(offersByTokenId);
     if (tokenIds.length === 0) {

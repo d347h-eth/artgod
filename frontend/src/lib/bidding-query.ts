@@ -1,5 +1,8 @@
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
-import { bidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
+import {
+	parseBiddingBidBookPriceTierFilter,
+	bidScopeSupportsOwnStateFilter
+} from '@artgod/shared/trading/bid-book-own-state';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
 	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
@@ -10,6 +13,7 @@ import {
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingBidBookOwnStateFilter,
+	type CollectionBiddingBidBookPriceTierFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
@@ -47,6 +51,7 @@ export type CollectionBiddingQueryParams = {
 	maker?: string | null;
 	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+	priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -94,6 +99,12 @@ export function buildCollectionBiddingQuery(
 		bidScopeSupportsOwnStateFilter(params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
 	) {
 		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState, params.ownStateFilter);
+	}
+	if (
+		params.priceTierFilter &&
+		bidScopeSupportsOwnStateFilter(params.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)
+	) {
+		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier, params.priceTierFilter);
 	}
 	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return query;
@@ -184,4 +195,12 @@ function nextOrderedQueryControl<T extends string>(
 	const currentIndex = values.indexOf(current);
 	if (currentIndex < 0) return values[0];
 	return values[(currentIndex + 1) % values.length];
+}
+
+export function parseBidBookPriceTierFilter(
+	searchParams: URLSearchParams
+): CollectionBiddingBidBookPriceTierFilter | null {
+	return parseBiddingBidBookPriceTierFilter(
+		searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier)
+	);
 }

@@ -161,6 +161,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 }),
             },
             repository,
+            { listCollectionPriceTiers: () => [] },
             apm,
         );
 
@@ -273,6 +274,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 }),
             },
             repository,
+            { listCollectionPriceTiers: () => [] },
         );
 
         const output = useCase.listCollectionBiddingBidBook({
@@ -346,6 +348,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 }),
             },
             repository,
+            { listCollectionPriceTiers: () => [] },
         );
 
         const output = useCase.listCollectionBiddingBidBook({
@@ -820,6 +823,9 @@ function chain(): ChainRecord {
 function buildUseCase(
     repository: BiddingBidBookRepositoryPort,
     tokenReader: ListCollectionBiddingBidBookUseCase["collectionReadPort"]["listCollectionTokenCardsByIds"] = () => [],
+    priceTiersReadPort: ListCollectionBiddingBidBookUseCase["priceTiersReadPort"] = {
+        listCollectionPriceTiers: () => [],
+    },
 ): ListCollectionBiddingBidBookUseCase {
     return new ListCollectionBiddingBidBookUseCase(
         1,
@@ -841,6 +847,7 @@ function buildUseCase(
             }),
         },
         repository,
+        priceTiersReadPort,
     );
 }
 
@@ -979,3 +986,173 @@ function traitBidRow(
         isOwn,
     };
 }
+
+describe("pricing-tier facets", () => {
+    const tierA = {
+        tierId: "tier-a",
+        name: "Base",
+        status: TRADING_JOB_STATUS.Enabled,
+        sortOrder: 0,
+    };
+    const tierB = {
+        tierId: "tier-b",
+        name: "Old",
+        status: TRADING_JOB_STATUS.Archived,
+        sortOrder: 1,
+    };
+    it.each([
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+    ])(
+        "combines filters and counts across pages in %s scope",
+        (scopeFilter) => {
+            const own = (
+                id: string,
+                tokenId: string,
+                tier: string | null,
+                position:
+                    | typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+                    | typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            ) => ({
+                ...bidRow(id, "300", tokenId),
+                isOwn: true,
+                ownJob: { jobId: id, priceTierId: tier },
+                ownStatus: { position, constraints: [], job: null },
+            });
+            const rows: PersistedBiddingBidBookRow[] = [
+                own(
+                    "winning-a",
+                    "1",
+                    tierA.tierId,
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+                ),
+                own(
+                    "losing-b",
+                    "1",
+                    tierB.tierId,
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                ),
+                own(
+                    "losing-a",
+                    "2",
+                    tierA.tierId,
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                ),
+                own(
+                    "manual",
+                    "3",
+                    null,
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                ),
+                bidRow("opponent", "400", "2"),
+            ].map((row) =>
+                scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                    ? row
+                    : {
+                          ...row,
+                          scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                          tokenId: null,
+                          scopeLabel: `Mode=${row.tokenId}`,
+                          scopeTraits: [{ type: "Mode", value: row.tokenId! }],
+                      },
+            );
+            const repository: BiddingBidBookRepositoryPort = {
+                listCollectionBidBook: (input) =>
+                    input.scopeFilter === scopeFilter
+                        ? {
+                              ...bidBook(rows),
+                              attributedPriceTierIds: [
+                                  tierA.tierId,
+                                  tierB.tierId,
+                              ],
+                          }
+                        : bidBook([]),
+                listTokenBidBook: () => bidBook([]),
+            };
+            const useCase = buildUseCase(
+                repository,
+                ({ tokenIds }) => tokenIds.map(tokenCard),
+                { listCollectionPriceTiers: () => [tierA, tierB] },
+            );
+            const result = useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    scopeFilter,
+                    ownStateFilter:
+                        TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                    priceTierFilter: tierA.tierId,
+                    limit: 1,
+                }),
+            );
+            expect(result.bidBook.bids.map((row) => row.orderId)).toEqual(
+                scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                    ? ["opponent", "losing-a"]
+                    : ["losing-a", "opponent"],
+            );
+            expect(result.ownBidStateCounts?.total).toBe(2);
+            expect(
+                result.ownBidStateCounts?.states[
+                    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+                ],
+            ).toBe(1);
+            expect(result.ownPriceTierCounts).toEqual({
+                manual: 1,
+                tiers: [
+                    { ...tierA, count: 1 },
+                    { ...tierB, count: 1 },
+                ],
+            });
+            if (scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+                expect(result.tokenOfferCards.totalItems).toBe(1);
+                const all = useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        priceTierFilter: tierA.tierId,
+                        limit: 1,
+                    }),
+                );
+                expect(all.tokenOfferCards.totalItems).toBe(2);
+                expect(all.ownBidStateCounts?.total).toBe(2);
+                expect(all.tokenOfferCards.nextCursor).not.toBeNull();
+                const traits = useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        traits: [{ key: "Mode", value: "Terrain" }],
+                        priceTierFilter: tierA.tierId,
+                        limit: 1,
+                    }),
+                );
+                expect(traits.ownBidStateCounts?.total).toBe(2);
+            }
+            const empty = useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    scopeFilter,
+                    ownStateFilter:
+                        TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw,
+                    priceTierFilter: tierB.tierId,
+                }),
+            );
+            expect(empty.bidBook.bids).toEqual([]);
+            expect(empty.ownPriceTierCounts?.tiers).toEqual([
+                { ...tierA, count: 0 },
+                { ...tierB, count: 0 },
+            ]);
+            expect(() =>
+                useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        priceTierFilter: "other-collection-tier",
+                    }),
+                ),
+            ).toThrow("price tier was not found in this collection");
+            expect(() =>
+                useCase.listCollectionBiddingBidBook(
+                    biddingInput({
+                        scopeFilter,
+                        priceTierFilter: tierA.tierId,
+                        includeOwnJobContext: false,
+                    }),
+                ),
+            ).toThrow(ReadModelBadRequestError);
+        },
+    );
+});

@@ -1,3 +1,4 @@
+import { parseBiddingBidBookPriceTierFilter } from "@artgod/shared/trading/bid-book-own-state";
 import type { FastifyRequest } from "fastify";
 import { PAGINATION_QUERY_PARAMS } from "@artgod/shared/config/pagination";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
@@ -45,6 +46,7 @@ export type ListCollectionBiddingBidBookRoute = {
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState]?: string;
+        [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier]?: string;
         [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]?: string;
         [COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin]?: string;
@@ -101,6 +103,11 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 ownStateFilter: parseCollectionBiddingBidBookOwnStateFilter(
                     searchParams.get(
                         COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState,
+                    ),
+                ),
+                priceTierFilter: parseBiddingBidBookPriceTierFilter(
+                    searchParams.get(
+                        COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier,
                     ),
                 ),
                 mediaMode: parseMediaMode(
