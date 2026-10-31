@@ -18,17 +18,21 @@ export {
 export const CRATES_IO_REGISTRY_SOURCE =
     "registry+https://github.com/rust-lang/crates.io-index";
 export const CRATES_IO_API_BASE_URL = "https://crates.io/api/v1/crates";
+export const CRATES_IO_SPARSE_INDEX_BASE_URL = "https://index.crates.io";
 export const CARGO_UPDATE_COMMAND = "cargo";
 export const CARGO_AGE_GATE_USER_AGENT =
     "artgod-cargo-age-gate/1.0 (https://github.com/d347h-eth/artgod)";
-// The registry usage policy permits at most one API request per second.
-export const DEFAULT_CRATES_IO_METADATA_CONCURRENCY = 1;
+// The sparse index has no API rate cap. Bound parallel reads; API fallbacks
+// share a separate sequential queue with a one-second interval after responses.
+export const DEFAULT_CRATES_IO_METADATA_CONCURRENCY = 8;
 const CRATES_IO_MINIMUM_REQUEST_INTERVAL_MS = 1000;
+const CRATES_IO_METADATA_TIMEOUT_MS = 30_000;
 
 const PACKAGE_HEADER = "[[package]]";
 const PACKAGE_NAME_FIELD = "name";
 const PACKAGE_VERSION_FIELD = "version";
 const PACKAGE_SOURCE_FIELD = "source";
+const PACKAGE_CHECKSUM_FIELD = "checksum";
 const CONFIG_MINIMUM_AGE_DAYS_FIELD = "minimumAgeDays";
 const CONFIG_FRESH_VERSION_EXCEPTIONS_FIELD = "freshVersionExceptions";
 const CONFIG_EXCEPTION_NAME_FIELD = "name";
@@ -162,7 +166,8 @@ export function parseCargoLockPackages(source) {
         if (
             field.key === PACKAGE_NAME_FIELD ||
             field.key === PACKAGE_VERSION_FIELD ||
-            field.key === PACKAGE_SOURCE_FIELD
+            field.key === PACKAGE_SOURCE_FIELD ||
+            field.key === PACKAGE_CHECKSUM_FIELD
         ) {
             currentPackage[field.key] = field.value;
         }
@@ -190,48 +195,169 @@ export function collectCratesIoPackages(packages) {
     return [...uniquePackages.values()].sort(comparePackageEntries);
 }
 
-export async function fetchCrateVersions(
-    crateName,
-    {
-        fetchImplementation = fetch,
-        delay = (milliseconds) =>
-            new Promise((resolve) => setTimeout(resolve, milliseconds)),
-    } = {},
-) {
-    try {
-        const response = await fetchImplementation(
-            `${CRATES_IO_API_BASE_URL}/${encodeURIComponent(crateName)}/versions`,
-            {
-                headers: {
-                    accept: "application/json",
-                    "user-agent": CARGO_AGE_GATE_USER_AGENT,
-                },
-            },
-        );
+// Both admission and aged updates use this reader. When requiredVersions is
+// supplied, return only those versions and ignore dates of unrelated releases.
+export function createCratesIoMetadataReader({
+    fetchImplementation = fetch,
+    delay = (milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
+    let apiQueue = Promise.resolve();
 
+    async function request(url) {
+        const response = await fetchImplementation(url, {
+            headers: {
+                accept: "application/json",
+                "user-agent": CARGO_AGE_GATE_USER_AGENT,
+            },
+            signal: AbortSignal.timeout(CRATES_IO_METADATA_TIMEOUT_MS),
+        });
         if (!response.ok) {
             throw new Error(
-                `crates.io metadata request failed for ${crateName}: ${response.status} ${response.statusText}`,
+                `crates.io metadata request failed for ${url}: ${response.status} ${response.statusText}`,
             );
         }
-
-        const payload = await response.json();
-        if (!Array.isArray(payload.versions)) {
-            throw new Error(
-                `crates.io metadata for ${crateName} is missing versions`,
-            );
-        }
-
-        return payload.versions.map((version) => ({
-            number: version.num,
-            createdAt: new Date(version.created_at),
-            yanked: Boolean(version.yanked),
-        }));
-    } finally {
-        // Both consumers issue requests sequentially. Complete this interval
-        // even on failure rather than enabling bursts or weakening admission.
-        await delay(CRATES_IO_MINIMUM_REQUEST_INTERVAL_MS);
+        return response;
     }
+
+    function readApiVersions(crateName) {
+        const pending = apiQueue.then(async () => {
+            try {
+                const response = await request(
+                    `${CRATES_IO_API_BASE_URL}/${encodeURIComponent(crateName)}/versions`,
+                );
+                const payload = await response.json();
+                if (
+                    !Array.isArray(payload.versions) ||
+                    !payload.versions.length
+                ) {
+                    throw new Error(
+                        `crates.io metadata for ${crateName} is missing versions`,
+                    );
+                }
+                return payload.versions.map((entry) =>
+                    versionMetadata({
+                        number: entry.num,
+                        publishedAt: entry.created_at,
+                        checksum: entry.checksum,
+                        yanked: entry.yanked,
+                        crateName,
+                    }),
+                );
+            } finally {
+                // A single shared queue enforces the API limit even when many
+                // sparse-index workers need fallback at the same time.
+                await delay(CRATES_IO_MINIMUM_REQUEST_INTERVAL_MS);
+            }
+        });
+        apiQueue = pending.catch(() => {});
+        return pending;
+    }
+
+    return async (crateName, { requiredVersions } = {}) => {
+        const wanted = requiredVersions ? new Set(requiredVersions) : null;
+        const response = await request(cratesIoSparseIndexUrl(crateName));
+        if (!response.body)
+            throw new Error(`Empty sparse index for ${crateName}`);
+        const versions = [];
+        const seen = new Set();
+        let rows = 0;
+        let needsFallback = false;
+        for await (const entry of readIndexEntries(response.body)) {
+            rows += 1;
+            if (
+                entry.name?.toLowerCase() !== crateName.toLowerCase() ||
+                typeof entry.vers !== "string" ||
+                !entry.vers
+            ) {
+                throw new Error(
+                    `Invalid sparse-index identity for ${crateName}`,
+                );
+            }
+            if (seen.has(entry.vers))
+                throw new Error(
+                    `Duplicate sparse-index version for ${crateName}@${entry.vers}`,
+                );
+            seen.add(entry.vers);
+            if (wanted && !wanted.has(entry.vers)) continue;
+            if (entry.pubtime == null) {
+                needsFallback = true;
+                continue;
+            }
+            versions.push(
+                versionMetadata({
+                    number: entry.vers,
+                    publishedAt: entry.pubtime,
+                    checksum: entry.cksum,
+                    yanked: entry.yanked,
+                    crateName,
+                }),
+            );
+        }
+        if (!rows) throw new Error(`Empty sparse index for ${crateName}`);
+        // A stale index can omit a just-published locked version. Ask the same
+        // registry's API; never infer an age or silently admit missing metadata.
+        if (needsFallback || (wanted && versions.length !== wanted.size)) {
+            const fallback = await readApiVersions(crateName);
+            return wanted
+                ? fallback.filter((entry) => wanted.has(entry.number))
+                : fallback;
+        }
+        return versions;
+    };
+}
+
+async function* readIndexEntries(body) {
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let pending = "";
+    for await (const chunk of body) {
+        pending += decoder.decode(chunk, { stream: true });
+        let newline;
+        while ((newline = pending.indexOf("\n")) !== -1) {
+            const line = pending.slice(0, newline);
+            pending = pending.slice(newline + 1);
+            if (line.trim()) yield JSON.parse(line);
+        }
+    }
+    pending += decoder.decode();
+    if (pending.trim()) yield JSON.parse(pending);
+}
+
+export const fetchCrateVersions = createCratesIoMetadataReader();
+
+export function cratesIoSparseIndexUrl(crateName) {
+    if (!/^[A-Za-z0-9_-]+$/.test(crateName)) {
+        throw new Error(`Invalid crates.io package name: ${crateName}`);
+    }
+    const name = crateName.toLowerCase();
+    const prefix =
+        name.length === 1
+            ? "1"
+            : name.length === 2
+              ? "2"
+              : name.length === 3
+                ? `3/${name[0]}`
+                : `${name.slice(0, 2)}/${name.slice(2, 4)}`;
+    return `${CRATES_IO_SPARSE_INDEX_BASE_URL}/${prefix}/${name}`;
+}
+
+function versionMetadata({ number, publishedAt, checksum, yanked, crateName }) {
+    const createdAt = new Date(publishedAt);
+    if (
+        typeof number !== "string" ||
+        !number ||
+        typeof publishedAt !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(
+            publishedAt,
+        ) ||
+        Number.isNaN(createdAt.getTime()) ||
+        createdAt.toISOString().slice(0, 19) !== publishedAt.slice(0, 19) ||
+        typeof checksum !== "string" ||
+        !/^[a-f0-9]{64}$/i.test(checksum)
+    ) {
+        throw new Error(`Invalid version metadata for ${crateName}@${number}`);
+    }
+    return { number, createdAt, checksum, yanked: Boolean(yanked) };
 }
 
 export function findVersionMetadata(versions, packageEntry) {
@@ -428,15 +554,22 @@ export function filterPackagesBySelectors(packages, selectors) {
 export async function mapWithConcurrency(items, concurrency, mapper) {
     const results = new Array(items.length);
     let nextIndex = 0;
+    let failed = false;
+    let failure;
 
     async function worker() {
-        while (nextIndex < items.length) {
+        while (!failed && nextIndex < items.length) {
             const currentIndex = nextIndex;
             nextIndex += 1;
-            results[currentIndex] = await mapper(
-                items[currentIndex],
-                currentIndex,
-            );
+            try {
+                results[currentIndex] = await mapper(
+                    items[currentIndex],
+                    currentIndex,
+                );
+            } catch (error) {
+                if (!failed) failure = error;
+                failed = true;
+            }
         }
     }
 
@@ -445,6 +578,7 @@ export async function mapWithConcurrency(items, concurrency, mapper) {
         () => worker(),
     );
     await Promise.all(workers);
+    if (failed) throw failure;
 
     return results;
 }

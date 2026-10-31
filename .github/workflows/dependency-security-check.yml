@@ -101,6 +101,9 @@ jobs:
             - name: Prepare Yarn project state for security aliases
               run: yarn install --immutable --mode=skip-build
 
+            - name: Test Cargo dependency admission and registry reader
+              run: yarn node ./scripts/security/cargo-age-gate.test.mjs
+
             - name: Check Cargo dependency age gate
               run: yarn cargo:age-gate
 

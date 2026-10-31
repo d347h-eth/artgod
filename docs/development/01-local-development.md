@@ -600,6 +600,11 @@ yarn cargo:age-gate
   `scripts/build/cargo-projects.mjs`: the desktop, native secret prompt and
   standalone sensitive-process tests. Their lockfiles are tracked; a missing
   lockfile fails admission. Shared crate versions are checked once.
+- The age gate prints one line per checked package version with the completed
+  count, selected total, percentage, and admission result. Fresh-version
+  exceptions and violations include their details on that same line; the final
+  summary does not repeat individual packages. A failed metadata request prints
+  its package and error before stopping the check.
 - `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
   exceptions for urgent security or release-readiness cases.
 - Use `--package <name>` or `--package <name@version>` to scope either command
@@ -611,11 +616,17 @@ yarn cargo:age-gate
   Use Cargo's supported multi-package update to unlock that group together and
   pin its root to a reviewed eligible version. Run the age gate afterward:
   Cargo can also reselect transitive versions that need an aged update.
-- The shared registry reader completes requests sequentially with a one-second
-  interval after each response, following the
-  [crates.io API access policy](https://crates.io/data-access#api).
-  A cold complete check takes several minutes; unavailable metadata fails the
-  check rather than weakening admission.
+- Both commands use the shared registry reader's streamed sparse-index metadata,
+  including publication timestamps and checksums. The age gate uses up to eight
+  workers and verifies each locked version's checksum against `Cargo.lock`.
+  [crates.io permits concurrent sparse-index reads](https://crates.io/data-access#crate-index).
+  Missing publication timestamps or a selected version absent from the index
+  use the crates.io API as a fallback. Those API requests share one sequential
+  queue with a one-second interval after every response, including failures,
+  following the [API access policy](https://crates.io/data-access#api).
+  Malformed metadata, checksum conflicts, and unavailable metadata fail admission;
+  an exception cannot bypass those checks. A metadata read error stops scheduling
+  new work and drains requests already in flight before returning the error.
 - Maintained Cargo commands use `--locked`. Tauri entry points share
   `scripts/build/build-tauri.mjs` for builds and development. It preserves Tauri
   flags such as no-bundle `--debug` and appends `--locked` to Cargo arguments.
