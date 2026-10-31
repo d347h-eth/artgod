@@ -3515,7 +3515,7 @@ components:
                     format: date-time
                     nullable: true
 
-        TokenPreview:
+        TokenMediaPreview:
             type: object
             required: [tokenId, image, animationUrl]
             additionalProperties: false
@@ -3526,6 +3526,27 @@ components:
                     type: string
                     nullable: true
                 animationUrl:
+                    type: string
+                    nullable: true
+
+        TokenPreview:
+            type: object
+            required: [tokenId, image, animationUrl, attributes, traitSummary]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                image:
+                    type: string
+                    nullable: true
+                animationUrl:
+                    type: string
+                    nullable: true
+                attributes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenAttribute"
+                traitSummary:
                     type: string
                     nullable: true
 
@@ -6183,7 +6204,7 @@ components:
                 media:
                     $ref: "#/components/schemas/CollectionMediaState"
                 token:
-                    $ref: "#/components/schemas/TokenPreview"
+                    $ref: "#/components/schemas/TokenMediaPreview"
 
         GetTokenUriResponse:
             type: object

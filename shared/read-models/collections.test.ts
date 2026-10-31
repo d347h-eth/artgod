@@ -414,9 +414,51 @@ describe("SqliteCollectionsReadModel observability", () => {
         ]);
     });
 
+    it("shares ordered normalized traits between cards and metadata-less previews", () => {
+        insertBareToken("1");
+        insertBareToken("2");
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
+        insertTokenTrait(
+            "1",
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TEST_COLLECTION_EXTENSION_SOURCE_KEY,
+        );
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+        const scope = { chainId: 1, collectionId: 1 };
+        const preview = readModel.getCollectionTokenPreview({
+            ...scope,
+            tokenId: "1",
+        });
+        const [card] = readModel.listCollectionTokenCardsByIds({
+            ...scope,
+            tokenIds: ["1"],
+        });
+
+        expect(preview.attributes).toEqual([
+            TEST_EXTENSION_TRAIT,
+            TEST_METADATA_TRAIT,
+        ]);
+        expect(preview.attributes).toEqual(card.attributes);
+        expect(preview.traitSummary).toBeNull();
+        expect(
+            readModel.getCollectionTokenPreview({ ...scope, tokenId: "2" })
+                .attributes,
+        ).toEqual([]);
+    });
+
     it("lists only metadata-backed trait targets as marketplace-bidding supported", () => {
         insertBareToken("1");
-        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -430,10 +472,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             readModel.listMarketplaceBiddingSupportedTraits({
                 chainId: 1,
                 collectionId: 1,
-                traits: [
-                    TEST_METADATA_TRAIT,
-                    TEST_EXTENSION_TRAIT,
-                ],
+                traits: [TEST_METADATA_TRAIT, TEST_EXTENSION_TRAIT],
             }),
         ).toEqual([TEST_METADATA_TRAIT]);
     });
@@ -441,8 +480,16 @@ describe("SqliteCollectionsReadModel observability", () => {
     it("marks trait facets as marketplace-supported only for metadata-backed values", () => {
         insertBareToken("1");
         insertTraitStat(TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value, 1);
-        insertTraitStat(TEST_EXTENSION_TRAIT.key, TEST_EXTENSION_TRAIT.value, 1);
-        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTraitStat(
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            1,
+        );
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -479,7 +526,10 @@ describe("SqliteCollectionsReadModel observability", () => {
 
     it("marks extension-synthetic token rows as not marketplace-bidding supported", () => {
         insertBareToken("1");
-        insertBareToken("unminted-tile-921", TOKEN_RECORD_KIND.ExtensionSynthetic);
+        insertBareToken(
+            "unminted-tile-921",
+            TOKEN_RECORD_KIND.ExtensionSynthetic,
+        );
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
 
         const page = readModel.listCollectionTokens({
@@ -860,7 +910,11 @@ describe("SqliteCollectionsReadModel observability", () => {
             TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
             TEST_COLLECTION_EXTENSION_SOURCE_KEY,
         );
-        insertTokenTrait("2", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "2",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+        );
         insertTokenTrait(
             "1",
             TEST_EXTENSION_TRAIT.key,
@@ -1235,14 +1289,7 @@ function insertTokenTrait(
     const attributeId = getOrCreateAttribute(keyId, value);
     db.prepare(
         "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id, source_kind, source_key) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        1,
-        tokenId,
-        attributeId,
-        sourceKind,
-        sourceKey,
-    );
+    ).run(1, 1, tokenId, attributeId, sourceKind, sourceKey);
 }
 
 function getOrCreateAttributeKey(key: string): number {

@@ -23,7 +23,7 @@ import type {
     TokenBrowserStatus,
     TokenCursorPage,
     TokenDetail,
-    TokenMediaPreview,
+    TokenPreview,
     TokenMediaState,
     TraitCatalogFacet,
     TraitFacet,
@@ -111,7 +111,7 @@ type CollectionDetailReadPort = {
         mediaMode?: CollectionMediaMode;
         mediaPreference?: CollectionMediaPreferenceValue;
         mediaVariant?: string;
-    }): TokenMediaPreview;
+    }): TokenPreview;
     listCollectionTokenCardsByIds(params: {
         chainId: number;
         collectionId: number;
@@ -296,7 +296,7 @@ export class ExtensionAwareCollectionDetailRead {
 
     async getCollectionTokenPreviewPresentation(
         params: CollectionTokenMediaQuery,
-    ): Promise<{ media: TokenMediaState; token: TokenMediaPreview }> {
+    ): Promise<{ media: TokenMediaState; token: TokenPreview }> {
         // Read canonical token data before applying the extension-owned presentation.
         const token = this.baseReadPort.getCollectionTokenPreview(params);
         const resolved = await this.resolveTokenMediaContext(params);
@@ -310,7 +310,10 @@ export class ExtensionAwareCollectionDetailRead {
             token,
             resolved.context,
         );
-        return { media: resolved.media, token: presentedToken };
+        return {
+            media: resolved.media,
+            token: { ...token, ...presentedToken },
+        };
     }
 
     listCollectionTokenCardsByIds(params: {

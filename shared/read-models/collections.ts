@@ -29,7 +29,7 @@ import type {
     TokenBrowserStatus,
     TokenDetail,
     TokenDetailTrait,
-    TokenMediaPreview,
+    TokenPreview,
     TokenCursorPage,
     TokenCursor,
     TokenAttribute,
@@ -1837,7 +1837,7 @@ export class SqliteCollectionsReadModel {
 
     getCollectionTokenPreview(
         params: GetCollectionTokenDetailParams,
-    ): TokenMediaPreview {
+    ): TokenPreview {
         const tokenId = normalizeCollectionTokenId(params.tokenId);
         const row = this.selectTokenPreviewRow.get({
             chainId: params.chainId,
@@ -1852,6 +1852,13 @@ export class SqliteCollectionsReadModel {
             tokenId: row.token_id,
             image: this.resolveImagePresentation(row.image),
             animationUrl: this.resolveMediaPresentation(row.animation_url),
+            attributes:
+                readNormalizedTokenAttributes({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    tokenIds: [tokenId],
+                }).get(tokenId) ?? [],
+            traitSummary: null,
         };
     }
 
@@ -3137,7 +3144,24 @@ function hydrateTokenRowsWithNormalizedAttributes(params: {
     const tokenIds = Array.from(
         new Set(params.rows.map((row) => row.token_id)),
     );
-    const placeholders = tokenIds.map(() => "?").join(", ");
+    const attributesByTokenId = readNormalizedTokenAttributes({
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        tokenIds,
+    });
+    return params.rows.map((row) => ({
+        ...row,
+        attributes: attributesByTokenId.get(row.token_id) ?? [],
+    }));
+}
+
+// Cards and fullscreen previews share the same ordered metadata and extension traits.
+function readNormalizedTokenAttributes(params: {
+    chainId: number;
+    collectionId: number;
+    tokenIds: string[];
+}): Map<string, TokenAttribute[]> {
+    const placeholders = params.tokenIds.map(() => "?").join(", ");
     const rows = db.raw
         .prepare(
             "SELECT ta.token_id AS token_id, ak.key AS key, a.value AS value " +
@@ -3155,7 +3179,7 @@ function hydrateTokenRowsWithNormalizedAttributes(params: {
         .all(
             params.chainId,
             params.collectionId,
-            ...tokenIds,
+            ...params.tokenIds,
         ) as TokenAttributeRow[];
 
     const attributesByTokenId = new Map<string, TokenAttribute[]>();
@@ -3165,10 +3189,7 @@ function hydrateTokenRowsWithNormalizedAttributes(params: {
         attributesByTokenId.set(row.token_id, attributes);
     }
 
-    return params.rows.map((row) => ({
-        ...row,
-        attributes: attributesByTokenId.get(row.token_id) ?? [],
-    }));
+    return attributesByTokenId;
 }
 
 function mapTokenDetailTraitRow(
