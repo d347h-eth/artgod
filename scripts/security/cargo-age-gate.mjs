@@ -25,12 +25,22 @@ import { DESKTOP_CARGO_PROJECTS } from "../build/cargo-projects.mjs";
 
 const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 
+export const CARGO_AGE_GATE_RESULT_TYPE = Object.freeze({
+    Eligible: "eligible",
+    Allowlisted: "allowlisted",
+    Violation: "violation",
+    Error: "error",
+});
+
 // Default admission checks all independent compiled/tested roots with one metadata cache.
+// onProgress reports each deduplicated package version as it completes, including
+// a failed metadata lookup before that error aborts admission.
 export async function checkCargoDependencyAge({
     projectRoot = rootDir,
     args = parseCommonArgs([], { defaultProject: null }),
     now = new Date(),
     fetchVersions = fetchCrateVersions,
+    onProgress,
 } = {}) {
     const rootDir = projectRoot;
     const policy = await loadCargoAgeGatePolicy({
@@ -57,25 +67,47 @@ export async function checkCargoDependencyAge({
         args.packageSelectors,
     );
     const versionCache = new Map();
+    let completed = 0;
+    function report(packageEntry, result) {
+        completed += 1;
+        onProgress?.({
+            completed,
+            total: packages.length,
+            packageEntry,
+            result,
+        });
+        return result;
+    }
     const results = await mapWithConcurrency(
         packages,
         DEFAULT_CRATES_IO_METADATA_CONCURRENCY,
         async (packageEntry) => {
-            const versions = await getCachedVersions(
-                versionCache,
-                packageEntry.name,
-                fetchVersions,
-            );
+            let versions;
+            try {
+                versions = await getCachedVersions(
+                    versionCache,
+                    packageEntry.name,
+                    fetchVersions,
+                );
+            } catch (error) {
+                report(packageEntry, {
+                    type: CARGO_AGE_GATE_RESULT_TYPE.Error,
+                    message: `${packageKey(packageEntry)}: ${error instanceof Error ? error.message : String(error)}`,
+                });
+                throw error;
+            }
             const versionMetadata = findVersionMetadata(versions, packageEntry);
             if (!versionMetadata) {
-                return {
-                    type: "violation",
+                return report(packageEntry, {
+                    type: CARGO_AGE_GATE_RESULT_TYPE.Violation,
                     message: `${packageKey(packageEntry)}: current version is missing from crates.io metadata`,
-                };
+                });
             }
 
             if (versionMetadata.createdAt <= cutoffDate) {
-                return { type: "eligible" };
+                return report(packageEntry, {
+                    type: CARGO_AGE_GATE_RESULT_TYPE.Eligible,
+                });
             }
 
             if (
@@ -85,8 +117,8 @@ export async function checkCargoDependencyAge({
                     packageEntry,
                 })
             ) {
-                return {
-                    type: "allowlisted",
+                return report(packageEntry, {
+                    type: CARGO_AGE_GATE_RESULT_TYPE.Allowlisted,
                     message: `${packageKey(packageEntry)} (${describeVersionAge(
                         versionMetadata,
                         now,
@@ -94,23 +126,27 @@ export async function checkCargoDependencyAge({
                         freshVersionExceptions: policy.freshVersionExceptions,
                         packageEntry,
                     })})`,
-                };
+                });
             }
 
-            return {
-                type: "violation",
+            return report(packageEntry, {
+                type: CARGO_AGE_GATE_RESULT_TYPE.Violation,
                 message: `${packageKey(packageEntry)} is ${describeVersionAge(
                     versionMetadata,
                     now,
                 )}`,
-            };
+            });
         },
     );
     const violations = results
-        .filter((result) => result.type === "violation")
+        .filter(
+            (result) => result.type === CARGO_AGE_GATE_RESULT_TYPE.Violation,
+        )
         .map((result) => result.message);
     const allowlisted = results
-        .filter((result) => result.type === "allowlisted")
+        .filter(
+            (result) => result.type === CARGO_AGE_GATE_RESULT_TYPE.Allowlisted,
+        )
         .map((result) => result.message);
 
     return {
@@ -122,6 +158,23 @@ export async function checkCargoDependencyAge({
     };
 }
 
+// Keep each result on one physical log line even if an exception reason or
+// registry error contains line breaks. The total counts selected package
+// versions, so versions sharing one metadata request still get separate lines.
+export function formatCargoAgeGateProgress({
+    completed,
+    total,
+    packageEntry,
+    result,
+}) {
+    const percentage = ((completed / total) * 100).toFixed(1);
+    const detail = result.message ?? packageKey(packageEntry);
+    return `[${completed}/${total} (${percentage}%)] ${result.type}: ${detail}`.replace(
+        /[\r\n]+/g,
+        " ",
+    );
+}
+
 async function main() {
     try {
         const args = parseCommonArgs(process.argv.slice(2), {
@@ -131,13 +184,15 @@ async function main() {
             printUsage();
             return;
         }
-        const result = await checkCargoDependencyAge({ args });
+        const result = await checkCargoDependencyAge({
+            args,
+            onProgress: (progress) =>
+                console.log(formatCargoAgeGateProgress(progress)),
+        });
         if (result.violations.length > 0) {
             console.error(
                 `Cargo age gate failed: ${result.violations.length} package version(s) are newer than ${result.minimumAgeDays} days and are not allowlisted.`,
             );
-            for (const violation of result.violations)
-                console.error(`- ${violation}`);
             process.exitCode = 1;
             return;
         }
@@ -148,7 +203,6 @@ async function main() {
             console.log(
                 `Allowlisted fresh versions: ${result.allowlisted.length}`,
             );
-            for (const value of result.allowlisted) console.log(`- ${value}`);
         }
     } catch (error) {
         if (error instanceof CliUsageError) {

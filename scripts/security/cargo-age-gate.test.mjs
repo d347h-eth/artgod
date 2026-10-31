@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+    appendFile,
+    mkdir,
+    mkdtemp,
+    readFile,
+    writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { DESKTOP_CARGO_PROJECTS } from "../build/cargo-projects.mjs";
-import { checkCargoDependencyAge } from "./cargo-age-gate.mjs";
+import {
+    CARGO_AGE_GATE_RESULT_TYPE,
+    checkCargoDependencyAge,
+    formatCargoAgeGateProgress,
+} from "./cargo-age-gate.mjs";
 import {
     CRATES_IO_REGISTRY_SOURCE,
     DEFAULT_CARGO_AGE_GATE_CONFIG_RELATIVE_PATH,
@@ -22,7 +32,7 @@ const oldVersion = {
 };
 const newVersion = { ...oldVersion, createdAt: now };
 
-async function fixture({ missingProject } = {}) {
+async function fixture({ missingProject, freshVersionExceptions = [] } = {}) {
     await mkdir(temporaryRoot, { recursive: true });
     const projectRoot = await mkdtemp(
         path.join(temporaryRoot, "cargo-admission-test-"),
@@ -34,7 +44,7 @@ async function fixture({ missingProject } = {}) {
     await mkdir(path.dirname(configPath), { recursive: true });
     await writeFile(
         configPath,
-        JSON.stringify({ minimumAgeDays: 30, freshVersionExceptions: [] }),
+        JSON.stringify({ minimumAgeDays: 30, freshVersionExceptions }),
     );
     for (const [name, project] of Object.entries(DESKTOP_CARGO_PROJECTS)) {
         if (name === missingProject) continue;
@@ -60,13 +70,16 @@ source = "${CRATES_IO_REGISTRY_SOURCE}"
 test("default age admission covers all roots and deduplicates shared dependencies", async () => {
     const f = await fixture();
     const requested = [];
+    const progress = [];
     const result = await checkCargoDependencyAge({
         ...f,
         now,
         fetchVersions: async (name) => {
+            assert.equal(progress.length, requested.length);
             requested.push(name);
             return [oldVersion];
         },
+        onProgress: (entry) => progress.push(entry),
     });
     assert.equal(
         result.projectCount,
@@ -75,6 +88,159 @@ test("default age admission covers all roots and deduplicates shared dependencie
     assert.equal(result.packageCount, 4);
     assert.equal(requested.filter((name) => name === "common").length, 1);
     assert.deepEqual(result.violations, []);
+    assert.deepEqual(
+        progress.map(({ completed, total }) => [completed, total]),
+        [
+            [1, 4],
+            [2, 4],
+            [3, 4],
+            [4, 4],
+        ],
+    );
+    assert.equal(
+        new Set(progress.map(({ packageEntry }) => packageEntry.name)).size,
+        4,
+    );
+    assert.ok(
+        progress.every(
+            ({ result }) => result.type === CARGO_AGE_GATE_RESULT_TYPE.Eligible,
+        ),
+    );
+});
+
+test("selected versions get separate percentage lines while sharing metadata", async () => {
+    const f = await fixture();
+    await appendFile(
+        path.join(f.projectRoot, DESKTOP_CARGO_PROJECTS.Desktop.lockfilePath),
+        `\n[[package]]\nname = "common"\nversion = "2.0.0"\nsource = "${CRATES_IO_REGISTRY_SOURCE}"\n`,
+    );
+    const requested = [];
+    const progress = [];
+    const result = await checkCargoDependencyAge({
+        ...f,
+        args: parseCommonArgs(["--package", "common", "--package", "desktop"], {
+            defaultProject: null,
+        }),
+        now,
+        fetchVersions: async (name) => {
+            requested.push(name);
+            return [oldVersion, { ...oldVersion, number: "2.0.0" }];
+        },
+        onProgress: (entry) => progress.push(entry),
+    });
+    assert.equal(result.packageCount, 3);
+    assert.equal(requested.filter((name) => name === "common").length, 1);
+    assert.equal(progress.length, 3);
+    assert.deepEqual(
+        progress
+            .filter(({ packageEntry }) => packageEntry.name === "common")
+            .map(({ packageEntry }) => packageEntry.version),
+        ["1.0.0", "2.0.0"],
+    );
+    assert.deepEqual(
+        progress
+            .map(formatCargoAgeGateProgress)
+            .map((line) => line.match(/^\[(\d+)\/3 \(([\d.]+)%\)\]/)?.slice(1)),
+        [
+            ["1", "33.3"],
+            ["2", "66.7"],
+            ["3", "100.0"],
+        ],
+    );
+});
+
+test("exception and violation details stay on each package's single progress line", async () => {
+    const progress = [];
+    const result = await checkCargoDependencyAge({
+        ...(await fixture({
+            freshVersionExceptions: [
+                {
+                    name: "secretprompt",
+                    version: "1.0.0",
+                    reason: "Reviewed\nsecurity fix",
+                },
+            ],
+        })),
+        now,
+        fetchVersions: async (name) =>
+            name === "desktop"
+                ? []
+                : [
+                      ["secretprompt", "sensitiveprocess"].includes(name)
+                          ? newVersion
+                          : oldVersion,
+                  ],
+        onProgress: (entry) => progress.push(entry),
+    });
+    assert.equal(progress.length, result.packageCount);
+    assert.equal(result.allowlisted.length, 1);
+    assert.equal(result.violations.length, 2);
+    const allowed = progress.find(
+        ({ result }) => result.type === CARGO_AGE_GATE_RESULT_TYPE.Allowlisted,
+    );
+    const violations = progress.filter(
+        ({ result }) => result.type === CARGO_AGE_GATE_RESULT_TYPE.Violation,
+    );
+    assert.equal(allowed.result.message, result.allowlisted[0]);
+    assert.deepEqual(
+        violations.map(({ result }) => result.message),
+        result.violations,
+    );
+    assert.match(
+        violations[0].result.message,
+        /missing from crates.io metadata/,
+    );
+    assert.match(formatCargoAgeGateProgress(allowed), /Reviewed security fix/);
+    assert.ok(
+        progress
+            .map(formatCargoAgeGateProgress)
+            .every((line) => !/[\r\n]/.test(line)),
+    );
+});
+
+test("metadata errors report the failed package and stop admission immediately", async () => {
+    const requested = [];
+    const progress = [];
+    const failure = new Error("registry unavailable");
+    await assert.rejects(
+        checkCargoDependencyAge({
+            ...(await fixture()),
+            now,
+            fetchVersions: async (name) => {
+                requested.push(name);
+                if (name === "desktop") throw failure;
+                return [oldVersion];
+            },
+            onProgress: (entry) => progress.push(entry),
+        }),
+        (error) => error === failure,
+    );
+    assert.deepEqual(requested, ["common", "desktop"]);
+    assert.equal(progress.length, 2);
+    assert.equal(progress[1].completed, 2);
+    assert.equal(progress[1].total, 4);
+    assert.equal(progress[1].packageEntry.name, "desktop");
+    assert.equal(progress[1].result.type, CARGO_AGE_GATE_RESULT_TYPE.Error);
+    assert.match(
+        formatCargoAgeGateProgress(progress[1]),
+        /registry unavailable/,
+    );
+});
+
+test("an empty package selection emits no progress or invalid percentage", async () => {
+    const progress = [];
+    const result = await checkCargoDependencyAge({
+        ...(await fixture()),
+        args: parseCommonArgs(["--package", "absent"], {
+            defaultProject: null,
+        }),
+        now,
+        fetchVersions: async () => assert.fail("network must not run"),
+        onProgress: (entry) => progress.push(entry),
+    });
+    assert.equal(result.packageCount, 0);
+    assert.deepEqual(result.violations, []);
+    assert.deepEqual(progress, []);
 });
 
 test("a fresh prompt-only or standalone-only dependency fails default admission", async () => {
@@ -99,6 +265,8 @@ test("a missing maintained lockfile fails before any metadata request", async ()
             fetchVersions: async () => {
                 assert.fail("network must not run");
             },
+            onProgress: () =>
+                assert.fail("all lockfiles must be validated first"),
         }),
         /ENOENT/,
     );

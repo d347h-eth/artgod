@@ -600,6 +600,11 @@ yarn cargo:age-gate
   `scripts/build/cargo-projects.mjs`: the desktop, native secret prompt and
   standalone sensitive-process tests. Their lockfiles are tracked; a missing
   lockfile fails admission. Shared crate versions are checked once.
+- The age gate prints one line per checked package version with the completed
+  count, selected total, percentage, and admission result. Fresh-version
+  exceptions and violations include their details on that same line; the final
+  summary does not repeat individual packages. A failed metadata request prints
+  its package and error before stopping the check.
 - `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
   exceptions for urgent security or release-readiness cases.
 - Use `--package <name>` or `--package <name@version>` to scope either command
