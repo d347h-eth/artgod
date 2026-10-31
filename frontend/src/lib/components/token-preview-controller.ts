@@ -127,6 +127,7 @@ export type TokenPreviewController = {
 	cycleTokenPreviewMediaMode(): Promise<void>;
 	cycleTokenPreviewMediaVariant(): Promise<void>;
 	cycleTokenPreviewTraits(): void;
+	invalidateTokenPreviewCache(): void;
 	retryTokenPreview(): Promise<void>;
 	navigatePreviousTokenPreview(): Promise<void>;
 	navigateNextTokenPreview(): Promise<void>;
@@ -165,6 +166,13 @@ export function createTokenPreviewController(): TokenPreviewController {
 	let lastFailedRequest: TokenPreviewRequest | null = null;
 	const previewCache = new Map<string, CachedTokenPreview>();
 	const previewRequestsInFlight = new Map<string, Promise<CachedTokenPreview | null>>();
+	let previewCacheGeneration = 0;
+
+	function invalidateTokenPreviewCache(): void {
+		previewCacheGeneration += 1;
+		previewCache.clear();
+		previewRequestsInFlight.clear();
+	}
 
 	async function openTokenPreview(params: {
 		chainRef: string;
@@ -566,6 +574,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		cycleTokenPreviewMediaMode,
 		cycleTokenPreviewMediaVariant,
 		cycleTokenPreviewTraits,
+		invalidateTokenPreviewCache,
 		retryTokenPreview,
 		navigatePreviousTokenPreview,
 		navigateNextTokenPreview,
@@ -592,13 +601,16 @@ export function createTokenPreviewController(): TokenPreviewController {
 			return inFlight;
 		}
 
+		const generation = previewCacheGeneration;
 		const promise = fetchTokenPreview(request)
 			.then((preview) => {
-				if (preview) previewCache.set(cacheKey, preview);
+				// A customization save must also invalidate prefetches started before it.
+				if (preview && generation === previewCacheGeneration) previewCache.set(cacheKey, preview);
 				return preview;
 			})
 			.finally(() => {
-				previewRequestsInFlight.delete(cacheKey);
+				if (previewRequestsInFlight.get(cacheKey) === promise)
+					previewRequestsInFlight.delete(cacheKey);
 			});
 
 		previewRequestsInFlight.set(cacheKey, promise);

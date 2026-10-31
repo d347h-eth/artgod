@@ -4,7 +4,7 @@
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import TokenPreviewTraits from '$lib/components/TokenPreviewTraits.svelte';
 	import type { ApiTokenAttribute } from '$lib/api-types';
-	import { buildTokenPreviewTraitHref } from '$lib/token-preview-traits-browser';
+	import { buildTokenPreviewTraitHref, buildTokenPreviewCustomizationHref } from '$lib/token-preview-traits-browser';
 	import { resolvePreviewBackdropGesture } from '$lib/preview-backdrop-gesture';
 	import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 	import {
@@ -43,6 +43,16 @@
 			chainRef: $tokenPreviewState.chainRef,
 			collectionRef: $tokenPreviewState.collectionRef,
 			trait,
+			mediaMode: $tokenPreviewState.selectedMediaMode,
+			mediaPreference: $tokenPreviewState.mediaPreference
+		});
+	}
+
+	function customizationHref(): string | null {
+		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
+		return buildTokenPreviewCustomizationHref({
+			chainRef: $tokenPreviewState.chainRef,
+			collectionRef: $tokenPreviewState.collectionRef,
 			mediaMode: $tokenPreviewState.selectedMediaMode,
 			mediaPreference: $tokenPreviewState.mediaPreference
 		});
@@ -448,6 +458,7 @@
 					<TokenPreviewTraits
 						state={$tokenPreviewState}
 						{traitHref}
+						customizationHref={customizationHref()}
 						onCycle={() => tokenPreview.cycleTokenPreviewTraits()}
 						onNavigate={() => tokenPreview.closeTokenPreview()}
 						hovered={hoveredPreviewControl === TRAITS_CONTROL_ID}

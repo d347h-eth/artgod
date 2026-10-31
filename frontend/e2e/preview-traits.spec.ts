@@ -3,8 +3,17 @@ import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/con
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 import { TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types/browse';
+import {
+	COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+	defaultTraitFilterPresentationConfig,
+	defaultTraitSummaryTemplateConfig,
+	defaultMediaPurposePolicyConfig,
+	renderTraitSummaryTemplate
+} from '@artgod/shared/types';
+import { defaultImageCachePolicyConfig } from '@artgod/shared/media/token-image-cache';
 import type {
 	CollectionDetailApiResponse,
+	CollectionCustomizationApiResponse,
 	RuntimeConfigApiResponse,
 	TokenPreviewApiResponse
 } from '../src/lib/api-types';
@@ -16,6 +25,7 @@ import {
 	resolveBiddingE2eTokenMedia
 } from '../src/lib/e2e/bidding-automation-fixtures';
 import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '../src/lib/local-storage-keys';
+import { COLLECTION_CUSTOMIZATION_SECTION } from '../src/lib/customization-query';
 import {
 	TOKEN_PREVIEW_TRAITS_LIMITS,
 	TOKEN_PREVIEW_TRAITS_MODE
@@ -145,8 +155,67 @@ test('restores the exact page across reloads, clamps fewer traits, and remembers
 	await expect(output(page)).toHaveCount(0);
 	expect(await readPreference(page)).toEqual({ mode: TOKEN_PREVIEW_TRAITS_MODE.Hidden });
 	await traitsButton(page).click();
-	await expect(output(page)).toHaveCount(0);
+	await expect(output(page).getByRole('link', { name: 'customize', exact: true })).toBeVisible();
 	await surface(page, info, 'no-traits-or-template');
+});
+
+test('opens the template editor from an empty summary and uses its saved template on return', async ({
+	page
+}, info) => {
+	await installCollectionMock(page);
+	const customization = await installCustomizationMock(page);
+	await installPreviewMock(
+		page,
+		() => customization.tokenCardTraitSummaryTemplate.effectiveConfig.template
+	);
+	await openPreview(page, TOKEN.Few);
+	const customize = output(page).getByRole('link', { name: 'customize', exact: true });
+	await expect(customize).toBeVisible();
+	expect(await customize.evaluate((node) => getComputedStyle(node).color)).toBe(
+		await output(page).evaluate((node) => getComputedStyle(node).color)
+	);
+	const mediaBox = await dialog(page).locator('.token-preview-box').boundingBox();
+	await traitsButton(page).click();
+	await expect(rows(page)).toHaveCount(3);
+	await traitsButton(page).click();
+	await expect(output(page)).toHaveCount(0);
+	await traitsButton(page).click();
+	await expect(customize).toBeVisible();
+	expect(await dialog(page).locator('.token-preview-box').boundingBox()).toEqual(mediaBox);
+	await surface(page, info, 'empty-summary-customize');
+	const href = new URL((await customize.getAttribute('href'))!, page.url());
+	expect(href.pathname).toBe(
+		`/${BIDDING_E2E_CHAIN.slug}/${BIDDING_E2E_COLLECTION.slug}/customization`
+	);
+	expect(href.hash).toBe(`#${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}`);
+	await customize.click();
+	await expect(page).toHaveURL(href.toString());
+	await expect(dialog(page)).toHaveCount(0);
+	const editor = page.locator(`#${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}`);
+	const heading = editor.getByRole('heading', {
+		name: 'token card trait summary template',
+		exact: true
+	});
+	await expect(heading).toBeInViewport();
+	const examples = editor.getByRole('table', { name: 'Trait summary template examples' });
+	await expect(examples).toBeVisible();
+	await surface(page, info, 'template-editor-anchor');
+	await examples.scrollIntoViewIfNeeded();
+	await surface(page, info, 'template-examples');
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	await editor
+		.getByRole('textbox', { name: 'Token card trait summary template', exact: true })
+		.fill('{Mode} / {Biome}');
+	await editor.getByRole('button', { name: 'save', exact: true }).click();
+	await expect(editor.getByText('saved', { exact: true })).toBeVisible();
+	await page
+		.getByLabel('Collection sections', { exact: true })
+		.getByRole('link', { name: 'tokens', exact: true })
+		.click();
+	await page.getByRole('button', { name: `preview token ${TOKEN.Few}`, exact: true }).click();
+	await expect(output(page)).toHaveText('Terrain / 7');
+	await expect(output(page).getByRole('link', { name: 'customize', exact: true })).toHaveCount(0);
+	await surface(page, info, 'saved-template-preview');
 });
 
 test('filters by the full clicked value and keeps text muted until hover or keyboard focus', async ({
@@ -278,7 +347,7 @@ async function readPreference(page: Page) {
 	);
 }
 
-async function installPreviewMock(page: Page): Promise<void> {
+async function installPreviewMock(page: Page, summaryTemplate?: () => string): Promise<void> {
 	await page.route(`**${apiPath}/*/preview?*`, async (route) => {
 		const url = new URL(route.request().url());
 		const tokenId = url.pathname.split('/').at(-2)!;
@@ -289,13 +358,56 @@ async function installPreviewMock(page: Page): Promise<void> {
 				tokenId,
 				image: card.image,
 				animationUrl: null,
-				traitSummary: tokenId === TOKEN.None ? null : card.traitSummary,
+				traitSummary: summaryTemplate
+					? renderTraitSummaryTemplate(summaryTemplate(), card.attributes)
+					: tokenId === TOKEN.None
+						? null
+						: card.traitSummary,
 				attributes:
 					tokenId === TOKEN.Many ? MANY_TRAITS : tokenId === TOKEN.None ? [] : card.attributes
 			}
 		};
 		await route.fulfill({ json: response });
 	});
+}
+
+async function installCustomizationMock(
+	page: Page
+): Promise<CollectionCustomizationApiResponse['customization']> {
+	function userSource<T>(config: T) {
+		return {
+			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+			userConfig: config,
+			extensionConfig: null,
+			effectiveConfig: config
+		};
+	}
+	const customization: CollectionCustomizationApiResponse['customization'] = {
+		traitFilterPresentation: {
+			...userSource(defaultTraitFilterPresentationConfig()),
+			availableTraitKeys: ['Mode', 'Biome', 'Zone']
+		},
+		tokenCardTraitSummaryTemplate: userSource(defaultTraitSummaryTemplateConfig()),
+		activityRowTraitSummaryTemplate: userSource(defaultTraitSummaryTemplateConfig()),
+		imageCachePolicy: userSource(defaultImageCachePolicyConfig()),
+		mediaPurposePolicy: userSource(defaultMediaPurposePolicyConfig())
+	};
+	await page.route(`**${apiPath}/customization`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			const body = route.request().postDataJSON();
+			customization.tokenCardTraitSummaryTemplate = userSource({
+				template: body.tokenCardTraitSummaryTemplate.userConfig.template
+			});
+		}
+		await route.fulfill({
+			json: {
+				chain: BIDDING_E2E_CHAIN,
+				collection: BIDDING_E2E_COLLECTION,
+				customization
+			} satisfies CollectionCustomizationApiResponse
+		});
+	});
+	return customization;
 }
 
 async function installCollectionMock(page: Page): Promise<void> {

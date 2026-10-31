@@ -26,6 +26,9 @@
 		CollectionCustomizationApiResponse
 	} from '$lib/api-types';
 	import { updateCollectionCustomization } from '$lib/backend-api';
+	import { COLLECTION_CUSTOMIZATION_SECTION } from '$lib/customization-query';
+	import TraitSummaryTemplateExamples from '$lib/components/TraitSummaryTemplateExamples.svelte';
+	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		buildCollectionNavigation,
 		handleCollectionSectionShortcut
@@ -73,6 +76,7 @@
 	} = $props();
 
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const tokenPreview = getTokenPreviewController();
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	let traitFilterPresentation = $state<TraitFilterPresentationState>(
 		customization?.traitFilterPresentation ?? fallbackTraitFilterPresentationState()
@@ -529,6 +533,7 @@
 				buildCustomizationBody()
 			);
 			applyCustomizationState(response.customization);
+			tokenPreview.invalidateTokenPreviewCache();
 			if (feature === 'traitFilter') {
 				traitFilterSaveMessage = 'saved';
 			} else if (feature === 'tokenCard') {
@@ -961,11 +966,13 @@
 			</footer>
 		</section>
 
-		<section class="customization-feature-panel">
+		<section
+			class="customization-feature-panel"
+			id={COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}
+		>
 			<header class="panel-header">
 				<div>
 					<h2 class="customization-title">token card trait summary template</h2>
-					<p class="muted">render compact token-card trait text from one template string</p>
 				</div>
 			</header>
 
@@ -1009,6 +1016,7 @@
 					<textarea
 						class="customization-text-input customization-template-input"
 						value={tokenCardTraitSummaryTemplate.userConfig.template}
+						aria-label="Token card trait summary template"
 						placeholder="empty = hidden"
 						oninput={(event) => onTemplateInput('tokenCard', event)}
 					></textarea>
@@ -1042,6 +1050,7 @@
 					save
 				</button>
 			</footer>
+			<TraitSummaryTemplateExamples />
 		</section>
 
 		<section class="customization-feature-panel">

@@ -12,15 +12,26 @@ import {
 } from './token-preview-traits';
 import {
 	buildTokenPreviewTraitHref,
+	buildTokenPreviewCustomizationHref,
 	persistTokenPreviewTraitDisplay,
 	readTokenPreviewTraitDisplay
 } from './token-preview-traits-browser';
+import { COLLECTION_CUSTOMIZATION_SECTION } from './customization-query';
+
+const { deployment } = vi.hoisted(() => ({ deployment: { isPublic: false } }));
+vi.mock('$lib/runtime/public-deployment', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/runtime/public-deployment')>()),
+	get IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT() {
+		return deployment.isPublic;
+	}
+}));
 
 vi.mock('$app/env', () => ({ browser: true }));
 
 describe('fullscreen preview traits', () => {
 	let storage: Map<string, string>;
 	beforeEach(() => {
+		deployment.isPublic = false;
 		storage = new Map();
 		vi.stubGlobal('window', {
 			localStorage: {
@@ -116,6 +127,34 @@ describe('fullscreen preview traits', () => {
 		).toBe('123456789012345');
 		expect(clipTokenPreviewTraitText('🌲🌳🌴', 2)).toBe('🌲🌳');
 		expect(clipTokenPreviewTraitText('a\nb\tc', 5)).toBe('a b c');
+	});
+
+	it('opens the local template editor section without unrelated token filters', () => {
+		const url = new URL(
+			buildTokenPreviewCustomizationHref({
+				chainRef: 'ethereum',
+				collectionRef: 'collection',
+				mediaMode: 'snapshot',
+				mediaPreference: null
+			})!,
+			'https://example.test'
+		);
+		expect(url.pathname).toBe('/ethereum/collection/customization');
+		expect(url.hash).toBe(`#${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}`);
+		expect(url.searchParams.get('media_mode')).toBe('snapshot');
+		expect(parseSelectedTraits(url.searchParams)).toEqual([]);
+	});
+
+	it('omits customization links when the deployment has no editor', () => {
+		deployment.isPublic = true;
+		expect(
+			buildTokenPreviewCustomizationHref({
+				chainRef: 'ethereum',
+				collectionRef: 'collection',
+				mediaMode: 'snapshot',
+				mediaPreference: null
+			})
+		).toBeNull();
 	});
 
 	it('filters with the entire trait identity and preserves media selection', () => {

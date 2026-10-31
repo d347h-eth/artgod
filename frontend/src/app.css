@@ -2296,6 +2296,32 @@ th {
 	line-height: 1.25;
 }
 
+.customization-template-examples {
+	width: fit-content;
+	max-width: 100%;
+	font-size: 0.72rem;
+	color: var(--c-sand);
+}
+
+.customization-template-examples caption {
+	text-align: left;
+	padding-bottom: 0.4rem;
+}
+
+.customization-template-examples th,
+.customization-template-examples td {
+	padding: 0.2rem 0.6rem 0.2rem 0;
+	border: 0;
+	text-align: left;
+	vertical-align: top;
+}
+
+.customization-template-examples code {
+	font: inherit;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .customization-footer {
 	display: inline-grid;
 	justify-items: start;
@@ -3239,13 +3265,13 @@ a.bid-book-own-status:focus-visible {
 	text-align: left;
 }
 
-.token-preview-trait-row a {
+.token-preview-traits-output a {
 	color: inherit;
 	text-decoration: none;
 }
 
-.token-preview-trait-row a:hover,
-.token-preview-trait-row a:focus-visible {
+.token-preview-traits-output a:hover,
+.token-preview-traits-output a:focus-visible {
 	color: var(--c-yellow);
 	outline: none;
 }

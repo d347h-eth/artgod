@@ -14,6 +14,7 @@
 	let {
 		state,
 		traitHref,
+		customizationHref,
 		onCycle,
 		onNavigate,
 		hovered,
@@ -22,6 +23,7 @@
 	}: {
 		state: Pick<TokenPreviewState, 'attributes' | 'traitSummary' | 'traitDisplay' | 'status'>;
 		traitHref: (trait: ApiTokenAttribute) => string | null;
+		customizationHref: string | null;
 		onCycle: () => void;
 		onNavigate: () => void;
 		hovered: boolean;
@@ -31,7 +33,7 @@
 
 	const rows = $derived(tokenPreviewTraitPage(state.attributes, state.traitDisplay));
 
-	function onTraitClick(event: MouseEvent): void {
+	function onLinkClick(event: MouseEvent): void {
 		if (
 			event.defaultPrevented ||
 			event.button !== 0 ||
@@ -46,9 +48,13 @@
 
 <div class="token-preview-traits">
 	{#if state.status === TOKEN_PREVIEW_STATUS.Ready}
-		{#if state.traitDisplay.mode === TOKEN_PREVIEW_TRAITS_MODE.Summary && state.traitSummary}
+		{#if state.traitDisplay.mode === TOKEN_PREVIEW_TRAITS_MODE.Summary && (state.traitSummary || customizationHref)}
 			<div class="token-preview-traits-output mono" role="region" aria-label="Token traits">
-				{state.traitSummary}
+				{#if state.traitSummary}
+					{state.traitSummary}
+				{:else if customizationHref}
+					<a href={customizationHref} onclick={onLinkClick}>customize</a>
+				{/if}
 			</div>
 		{:else if state.traitDisplay.mode === TOKEN_PREVIEW_TRAITS_MODE.Page && rows.length > 0}
 			<dl class="token-preview-traits-output mono" aria-label="Token traits">
@@ -60,7 +66,7 @@
 						</dt>
 						<dd>
 							{#if href}
-								<a href={href} aria-label={`${trait.key}: ${trait.value}`} onclick={onTraitClick}>
+								<a href={href} aria-label={`${trait.key}: ${trait.value}`} onclick={onLinkClick}>
 									{clipTokenPreviewTraitText(trait.value, TOKEN_PREVIEW_TRAITS_LIMITS.ValueCharacters)}
 								</a>
 							{:else}

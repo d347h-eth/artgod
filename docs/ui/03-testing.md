@@ -67,6 +67,8 @@ to their owning deterministic suites and optional manual fixtures.
 touch viewports. It covers summary/page/hidden cycling, exact-page restoration
 after reload, clamping across tokens, empty traits/templates, filtering with
 unabridged values, muted link focus/hover, loading/retry, resize and preview scale.
+It also follows an empty summary's `customize` link to the template editor anchor,
+checks the example reference, and saves a template before reopening the preview.
 It preserves screenshots and diagnostics for every run under
 `tmp/preview-traits-playwright/`. Media and control geometry are checked across
 the complete trait cycle; rendered screenshots still require visual review.

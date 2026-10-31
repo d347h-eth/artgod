@@ -289,6 +289,66 @@ describe('token-preview-controller', () => {
 		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
 	});
 
+	it('reads a saved template instead of reusing an empty cached summary', async () => {
+		getTokenPreviewMock
+			.mockResolvedValueOnce(tokenResponse({ media: snapshotMedia(), traitSummary: null }))
+			.mockResolvedValueOnce(
+				tokenResponse({ media: snapshotMedia(), traitSummary: 'Blue / Circle' })
+			);
+		const controller = createTokenPreviewController();
+		await openSnapshot(controller);
+		controller.closeTokenPreview();
+		controller.invalidateTokenPreviewCache();
+		await openSnapshot(controller);
+		expect(get(controller.state).traitSummary).toBe('Blue / Circle');
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
+		controller.closeTokenPreview();
+		await openSnapshot(controller);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('prevents old prefetches from replacing or evicting a request made after a template save', async () => {
+		const oldPrefetch = createDeferred<TokenPreviewApiResponse>();
+		const freshRead = createDeferred<TokenPreviewApiResponse>();
+		getTokenPreviewMock
+			.mockResolvedValueOnce(tokenResponse({ media: snapshotMedia() }))
+			.mockReturnValueOnce(oldPrefetch.promise)
+			.mockReturnValueOnce(freshRead.promise);
+		const controller = createTokenPreviewController();
+		await controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'collection',
+			tokenId: '1',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableMediaModes: SOURCE_OPTIONS,
+			adjacentTokenResolver: adjacentPair
+		});
+		await flush();
+		controller.closeTokenPreview();
+		controller.invalidateTokenPreviewCache();
+		const params = {
+			chainRef: 'ethereum',
+			collectionRef: 'collection',
+			tokenId: '2',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableMediaModes: SOURCE_OPTIONS
+		};
+		const firstOpen = controller.openTokenPreview(params);
+		oldPrefetch.resolve(
+			tokenResponse({ media: snapshotMedia(), tokenId: '2', traitSummary: 'old' })
+		);
+		await flush();
+		const repeatedOpen = controller.openTokenPreview(params);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
+		freshRead.resolve(tokenResponse({ media: snapshotMedia(), tokenId: '2', traitSummary: 'new' }));
+		await Promise.all([firstOpen, repeatedOpen]);
+		expect(get(controller.state).traitSummary).toBe('new');
+		controller.closeTokenPreview();
+		await controller.openTokenPreview(params);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
+		expect(get(controller.state).traitSummary).toBe('new');
+	});
+
 	it('keeps current media visible while a source switch is in flight', async () => {
 		const deferred = createDeferred<TokenPreviewApiResponse>();
 		getTokenPreviewMock

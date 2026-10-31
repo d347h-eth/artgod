@@ -213,7 +213,10 @@ previews keep this trait control at the right edge alongside their existing
 centered media controls. Activity-event previews retain their media-only controls.
 
 The initial output uses the effective token-card trait summary template, including
-its line breaks. An empty template produces no summary. Clicking `traits` cycles
+its line breaks. When that summary has no text, local deployments show a muted
+`customize` link to the token-card template section of collection customization.
+That editor provides compact examples of the supported template syntax. Public
+deployments omit the link because they do not expose the editor. Clicking `traits` cycles
 through the normalized traits in pages of at most 20 key/value pairs, then no
 output, then the summary again. Tokens without traits skip the key/value pages.
 
@@ -223,6 +226,10 @@ stays on one line. Only values in these pages link to matching collection tokens
 using the complete key/value and current media selection. Values that cannot
 round-trip through the existing trait-filter query grammar remain plain text.
 The template summary has no filter links.
+
+The intentional hidden mode stays completely empty. Saving customization clears
+the frontend preview cache, including pending prefetches, so the next preview
+uses the saved template.
 
 The text uses smaller muted type with no panel, border, background, or row chrome.
 It floats above the button within a fixed width and viewport-bounded height,

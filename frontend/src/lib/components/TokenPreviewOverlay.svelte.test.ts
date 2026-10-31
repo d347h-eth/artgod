@@ -25,6 +25,7 @@ vi.mock('$lib/components/token-preview-controller', async (importOriginal) => {
 
 import TokenPreviewOverlay from './TokenPreviewOverlay.svelte';
 import { TOKEN_PREVIEW_TRAITS_MODE } from '$lib/token-preview-traits';
+import { COLLECTION_CUSTOMIZATION_SECTION } from '$lib/customization-query';
 
 const TEST_MEDIA_VARIANT = {
 	Artifact: { key: 'test-artifact', label: 'test artifact' }
@@ -119,6 +120,28 @@ describe('TokenPreviewOverlay', () => {
 		expect(body).not.toContain('<a ');
 	});
 
+	it('links an empty summary to its collection template editor while hidden stays empty', () => {
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(previewState({ traitSummary: null }))
+		);
+		const summary = render(TokenPreviewOverlay).body;
+		expect(summary).toContain('>customize</a>');
+		expect(summary).toContain(
+			`/ethereum/terraforms/customization?media_mode=snapshot#${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}`
+		);
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(
+				previewState({
+					traitSummary: null,
+					traitDisplay: { mode: TOKEN_PREVIEW_TRAITS_MODE.Hidden }
+				})
+			)
+		);
+		const hidden = render(TokenPreviewOverlay).body;
+		expect(hidden).not.toContain('>customize</a>');
+		expect(hidden).not.toContain('aria-label="Token traits"');
+	});
+
 	it('clips trait text without changing the full filter identity or rendering metadata HTML', () => {
 		getTokenPreviewControllerMock.mockReturnValue(
 			previewController(
@@ -174,6 +197,7 @@ function previewController(state: TokenPreviewState): TokenPreviewController {
 		cycleTokenPreviewMediaMode: vi.fn(),
 		cycleTokenPreviewMediaVariant: vi.fn(),
 		cycleTokenPreviewTraits: vi.fn(),
+		invalidateTokenPreviewCache: vi.fn(),
 		retryTokenPreview: vi.fn(),
 		navigatePreviousTokenPreview: vi.fn(),
 		navigateNextTokenPreview: vi.fn(),

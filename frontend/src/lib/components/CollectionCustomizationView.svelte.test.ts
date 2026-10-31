@@ -8,6 +8,7 @@ import {
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_MEDIA_SOURCE, defaultMediaPurposePolicyConfig } from '@artgod/shared/types';
 import CollectionCustomizationView from './CollectionCustomizationView.svelte';
+import { COLLECTION_CUSTOMIZATION_SECTION } from '$lib/customization-query';
 
 describe('CollectionCustomizationView', () => {
 	it('renders trait presentation and summary-template controls', () => {
@@ -94,6 +95,10 @@ describe('CollectionCustomizationView', () => {
 		expect(body).toContain('image cache policy');
 		expect(body).toContain('media purpose policy');
 		expect(body).toContain('token card trait summary template');
+		expect(body).toContain(
+			`id="${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}"`
+		);
+		expect(body).toContain('aria-label="Trait summary template examples"');
 		expect(body).toContain('activity row trait summary template');
 		expect(body).toContain('user-defined');
 		expect(body).toContain('extension-defined');
