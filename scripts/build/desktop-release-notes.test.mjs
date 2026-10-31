@@ -32,6 +32,16 @@ test("extracts only the selected version's summary, including wrapped bullets", 
     }
 });
 
+test("accepts a dated pre-release heading without changing the exported summary", () => {
+    const markedEntry = entry.replace(
+        releaseHeading,
+        `${releaseHeading} (pre-release)`,
+    );
+    for (const source of [markedEntry, markedEntry.replace(/\n/g, "\r\n")]) {
+        assert.equal(extractReleaseSummary(source, version), summary);
+    }
+});
+
 test("rejects missing, duplicate, undated, and empty release sections", () => {
     for (const [source, error] of [
         [
@@ -40,6 +50,17 @@ test("rejects missing, duplicate, undated, and empty release sections", () => {
         ],
         [`${entry}\n${entry}`, /exactly one section.*found 2/],
         [entry.replace(" - 2026-10-01", ""), /YYYY-MM-DD/],
+        [
+            entry.replace(releaseHeading, `${releaseHeading} (preview)`),
+            /YYYY-MM-DD/,
+        ],
+        [
+            entry.replace(
+                releaseHeading,
+                `${releaseHeading} (pre-release) (pre-release)`,
+            ),
+            /YYYY-MM-DD/,
+        ],
         [releaseHeading, /exactly one .*Release summary.*found 0/],
         [
             `${releaseHeading}\n\n${RELEASE_SUMMARY_HEADING}\n`,

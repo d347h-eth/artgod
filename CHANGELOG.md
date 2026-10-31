@@ -7,7 +7,7 @@ Earlier releases are available in
 
 ## Unreleased
 
-## 0.1.3-alpha - 2026-10-06
+## 0.1.3-alpha - 2026-10-31 (pre-release)
 
 Changes since
 [v0.1.1-alpha.3](https://github.com/d347h-eth/artgod/releases/tag/v0.1.1-alpha.3).
@@ -20,6 +20,8 @@ Changes since
 - Collections automatically recover missing history and refresh all collection data
   after app shutdown and relaunch.
 - More reliable market data, bidding, and desktop startup.
+- Fixed the eMudhra certificate trust issue and other security vulnerabilities
+  reported in October 2026.
 
 ### Upgrade notes
 

@@ -520,9 +520,9 @@ or benefit from, and combine related changes into one concise feature entry.
 For release preparation:
 
 1. Move the accumulated notes into a newest-first section headed
-   `## <version> - YYYY-MM-DD`, leaving a fresh `Unreleased` section. Use the
-   actual publication date; an entry prepared in advance must remain marked
-   publication pending until its date and notes are finalized before tagging.
+   `## <version> - YYYY-MM-DD`, leaving a fresh `Unreleased` section. While the
+   version has only preview tags, append `(pre-release)` after the date. Finalize
+   the actual publication date and remove that marker for the official release.
 2. Describe changes since the preceding published application release. Add
    prominent `Upgrade notes` for required operator actions, data loss, or
    configuration/API compatibility changes.
