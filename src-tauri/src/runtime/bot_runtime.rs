@@ -5,7 +5,6 @@ use crate::wallet::domain::{BotKind, WalletId, WalletPrivateKey};
 
 const SECRET_ENVELOPE_MAGIC: &[u8; 8] = b"AGBOTKEY";
 const SECRET_ENVELOPE_VERSION: u8 = 3;
-const SECRET_KEY_LENGTH_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,7 +108,7 @@ pub fn build_trading_secret_envelope(
     let metadata_json = serde_json::to_vec(&metadata)
         .map_err(|error| format!("metadata serialize failed: {error}"))?;
     let mut payload = Vec::with_capacity(
-        SECRET_ENVELOPE_MAGIC.len() + 1 + 4 + metadata_json.len() + SECRET_KEY_LENGTH_BYTES,
+        SECRET_ENVELOPE_MAGIC.len() + 1 + 4 + metadata_json.len() + WalletPrivateKey::BYTE_LENGTH,
     );
     payload.extend_from_slice(SECRET_ENVELOPE_MAGIC);
     payload.push(SECRET_ENVELOPE_VERSION);
@@ -152,7 +151,11 @@ mod tests {
     #[test]
     fn trading_secret_envelope_binary_layout_is_stable() {
         let wallet_id = WalletId::parse("11111111-1111-4111-8111-111111111111").unwrap();
-        let private_key = WalletPrivateKey::new([7_u8; 32]);
+        let private_key = WalletPrivateKey::from_bytes(zeroize::Zeroizing::new(vec![
+            7_u8;
+            WalletPrivateKey::BYTE_LENGTH
+        ]))
+        .unwrap();
         let payload = build_trading_secret_envelope(
             &wallet_id,
             "0x1111111111111111111111111111111111111111",
@@ -171,7 +174,7 @@ mod tests {
         let metadata: Value = serde_json::from_slice(&payload[13..metadata_end]).unwrap();
         assert_eq!(metadata["walletId"], "11111111-1111-4111-8111-111111111111");
         assert_eq!(metadata["botKind"], "bidding");
-        assert_eq!(payload.len() - metadata_end, SECRET_KEY_LENGTH_BYTES);
+        assert_eq!(payload.len() - metadata_end, WalletPrivateKey::BYTE_LENGTH);
     }
 
     #[test]
@@ -179,7 +182,8 @@ mod tests {
         let fixture = load_fixture();
         let wallet_id = WalletId::parse(fixture.wallet_id.as_str()).unwrap();
         let private_key_bytes = hex::decode(fixture.private_key_hex).unwrap();
-        let private_key = WalletPrivateKey::new(private_key_bytes.try_into().unwrap());
+        let private_key =
+            WalletPrivateKey::from_bytes(zeroize::Zeroizing::new(private_key_bytes)).unwrap();
         let bot_kind = match fixture.bot_kind.as_str() {
             "bidding" => BotKind::Bidding,
             "sniping" => BotKind::Sniping,
