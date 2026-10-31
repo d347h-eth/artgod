@@ -2,7 +2,10 @@ import { goto } from '$app/navigation';
 import { buildCollectionChartHref } from '$lib/price-chart/routing';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import type { ActivityFeedFilterKind } from '@artgod/shared/types';
+import type {
+	CollectionBiddingBidBookPriceTierFilter,
+	ActivityFeedFilterKind
+} from '@artgod/shared/types';
 import {
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_KIND_QUERY_PARAM,
@@ -61,6 +64,7 @@ export type CollectionNavigationState = {
 		maker?: string | null;
 		ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 		ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+		priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 		showMuted?: boolean;
 	};
 	blockspace?: {
@@ -147,6 +151,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		maker: state.bidding?.maker,
 		ownershipFilter: state.bidding?.ownershipFilter,
 		ownStateFilter: state.bidding?.ownStateFilter,
+		priceTierFilter: state.bidding?.priceTierFilter,
 		showMuted: state.bidding?.showMuted
 	});
 

@@ -4,6 +4,7 @@ import { ReadModelBadRequestError } from '@artgod/shared/read-models/errors';
 import { assertBidScopeSupportsOwnStateFilter } from '@artgod/shared/trading/bid-book-own-state';
 import {
 	parseBidBookOwnStateFilter,
+	parseBidBookPriceTierFilter,
 	parseCollectionBiddingBidScopeFilter
 } from '$lib/bidding-query';
 import type { PageLoad } from './$types';
@@ -47,7 +48,10 @@ export const load: PageLoad = ({ url }) => {
 	}
 	// Reuse production scope validation before rendering synthetic bid-book data.
 	// The harness maps domain failure to the same HTTP error as the backend read.
-	if (parseBidBookOwnStateFilter(url.searchParams)) {
+	if (
+		parseBidBookOwnStateFilter(url.searchParams) ||
+		parseBidBookPriceTierFilter(url.searchParams)
+	) {
 		try {
 			assertBidScopeSupportsOwnStateFilter(parseCollectionBiddingBidScopeFilter(url.searchParams));
 		} catch (cause) {

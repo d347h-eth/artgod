@@ -1,3 +1,7 @@
+import {
+	BIDDING_E2E_SCENARIO,
+	BIDDING_E2E_SCENARIO_QUERY_PARAM
+} from '../src/lib/e2e/bidding-automation-fixtures';
 import { expect, test, type Page } from 'playwright/test';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TEST_IDS } from '../src/lib/test-ids';
@@ -30,6 +34,28 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bidding automation public read-only guardrails', () => {
+	test('hides private pricing filters when tier-attributed jobs exist', async ({ page }) => {
+		for (const scope of [
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+			COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+		]) {
+			await openHarnessPage(
+				page,
+				`${BIDDING_PATH}?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope}=${scope}&${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.PriceTierFilters}`
+			);
+			await expect(page.locator('.bid-book-meta')).toBeVisible();
+			await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.PriceTier })).toHaveCount(
+				0
+			);
+			await expect(page.getByRole('group', { name: BID_BOOK_FILTER_LABEL.OwnState })).toHaveCount(
+				0
+			);
+			expect(
+				new URL(page.url()).searchParams.has(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier)
+			).toBe(false);
+		}
+	});
+
 	test('opens an unfiltered direct Offers URL without private defaults', async ({ page }) => {
 		await openHarnessPage(
 			page,

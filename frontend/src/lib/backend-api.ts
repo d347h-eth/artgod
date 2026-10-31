@@ -1,3 +1,4 @@
+import type { CollectionBiddingBidBookPriceTierFilter } from '@artgod/shared/types';
 import {
 	buildCompetitionPresetsPath,
 	buildCompetitionPresetReapplyPreviewPath,
@@ -614,6 +615,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 			makerAddress?: string | null;
 			ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 			ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+			priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 	  };
 
 export async function lookupBatchTokenBiddingJobs(

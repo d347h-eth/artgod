@@ -46,8 +46,8 @@ import {
 	isTradingNumericTraitRange
 } from '@artgod/shared/types';
 import {
-	countBiddingBidBookOwnStates,
-	filterBiddingBidBookRowsByOwnState
+	countBiddingBidBookOwnFilters,
+	filterBiddingBidBookRowsByOwnFilters
 } from '@artgod/shared/trading/bid-book-own-state';
 import { biddingBidBookGroupKey } from '@artgod/shared/trading/bid-book-groups';
 import { bidBookOwnStateSignals } from '$lib/bidding-bid-book-own-status';
@@ -80,6 +80,7 @@ import {
 	parseBidBookMakerFilter,
 	parseBidBookOwnershipFilter,
 	parseBidBookOwnStateFilter,
+	parseBidBookPriceTierFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook
@@ -136,6 +137,9 @@ export const BIDDING_E2E_SCENARIO = {
 	UnconfirmedBidCancelled: 'unconfirmed_bid_cancelled',
 	FirstRunIntent: 'first_run_intent',
 	OwnBidStates: 'own_bid_states',
+	PriceTierFilters: 'price_tier_filters',
+	PriceTierFiltersUpdated: 'price_tier_filters_updated',
+	PriceTierLongNames: 'price_tier_long_names',
 	OwnBidStatesUpdated: 'own_bid_states_updated',
 	OwnBidStatesPaused: 'own_bid_states_paused',
 	OwnBidStatesOnlyPaused: 'own_bid_states_only_paused',
@@ -144,6 +148,16 @@ export const BIDDING_E2E_SCENARIO = {
 } as const;
 
 export type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+export const BIDDING_E2E_LONG_TIER_NAME =
+	'CollectionPricingTierWithAnUnbrokenNameThatMustFitInsideTheFilterRow';
+function isPricingFilterScenario(scenario: string | null): boolean {
+	return (
+		scenario === BIDDING_E2E_SCENARIO.PriceTierFilters ||
+		scenario === BIDDING_E2E_SCENARIO.PriceTierFiltersUpdated ||
+		scenario === BIDDING_E2E_SCENARIO.PriceTierLongNames
+	);
+}
 
 // One owner for punctuation scopes used by fixture rows, token metadata and UI tests.
 export const BIDDING_E2E_TRAIT_TEXT_SCOPES: ReadonlyArray<{
@@ -897,6 +911,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	const makerFilter = parseBidBookMakerFilter(searchParams);
 	const ownershipFilter = parseBidBookOwnershipFilter(searchParams);
 	const ownStateFilter = parseBidBookOwnStateFilter(searchParams);
+	const priceTierFilter = parseBidBookPriceTierFilter(searchParams);
 	const scenario = parseBiddingE2eScenario(searchParams);
 	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const bidBook = buildBidBook({
@@ -915,16 +930,30 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		ownershipFilter,
 		scenario
 	});
-	const ownBidStateCounts = countBiddingBidBookOwnStates(
-		(bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+	const allRows =
+		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
 			? tokenOfferCardsBeforeState.flatMap((card) => card.offers)
-			: bidBook.bids
-		).map(bidBookOwnStateSignals)
+			: bidBook.bids;
+	const filters = { ownStateFilter, priceTierFilter };
+	const tierScenario = isPricingFilterScenario(scenario);
+	const tiers = tierScenario
+		? BIDDING_E2E_PRICE_TIERS.map((tier) =>
+				tier.parentTierId
+					? { ...tier, status: TRADING_JOB_STATUS.Archived }
+					: scenario === BIDDING_E2E_SCENARIO.PriceTierLongNames
+						? { ...tier, name: BIDDING_E2E_LONG_TIER_NAME }
+						: tier
+			)
+		: [];
+	const { ownBidStateCounts, ownPriceTierCounts } = countBiddingBidBookOwnFilters(
+		allRows.map(bidBookOwnStateSignals),
+		filters,
+		tiers
 	);
 	const selectState = (bids: ApiBiddingBidBookRow[]) =>
-		filterBiddingBidBookRowsByOwnState(
+		filterBiddingBidBookRowsByOwnFilters(
 			bids.map((bid) => ({ ...bidBookOwnStateSignals(bid), bid })),
-			ownStateFilter,
+			filters,
 			({ bid }) => biddingBidBookGroupKey(bid.scope)
 		).map(({ bid }) => bid);
 	const tokenOfferCards = paginateTokenOfferCards(
@@ -960,6 +989,8 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		makerFilter,
 		ownershipFilter,
 		ownStateFilter,
+		priceTierFilter,
+		ownPriceTierCounts,
 		ownBidStateCounts,
 		mediaMode: media.selectedMode,
 		requestCursor: searchParams.get('cursor')
@@ -995,6 +1026,8 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 
 // Includes legacy tier data that must be corrected before creating another tier-backed job.
 export function biddingE2ePriceTiersForScenario(scenario: string | null): ApiBiddingPriceTier[] {
+	if (isPricingFilterScenario(scenario))
+		return BIDDING_E2E_PRICE_TIERS.filter((tier) => tier.parentTierId === null);
 	if (scenario !== BIDDING_E2E_SCENARIO.IncompatibleTierDelta) return BIDDING_E2E_PRICE_TIERS;
 	return BIDDING_E2E_PRICE_TIERS.map((tier) =>
 		tier.parentTierId === null
@@ -1167,6 +1200,85 @@ export function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	if (isPricingFilterScenario(scenario)) {
+		return [TRADING_BIDDING_BID_SCOPE_KIND.Token, TRADING_BIDDING_BID_SCOPE_KIND.Trait].flatMap(
+			(scopeKind) => {
+				const own = (
+					index: number,
+					tierId: string | null,
+					position:
+						| typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+						| typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+						| null
+				) => {
+					const jobId = `pricing-${scopeKind}-${index}`;
+					return {
+						...bidRow({
+							orderId: jobId,
+							jobId,
+							scopeKind,
+							tokenId:
+								scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token
+									? TOKEN_CARDS[index % TOKEN_CARDS.length].tokenId
+									: undefined,
+							traits:
+								scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
+									? [{ type: 'Mode', value: 'Terrain' }]
+									: [],
+							priceEth: '0.300',
+							phase: position
+								? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+								: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
+							status: position ? TRADING_JOB_STATUS.Enabled : TRADING_JOB_STATUS.Paused,
+							ownStatus: position
+								? {
+										position,
+										constraints: [],
+										job: { jobId, revision: 1, status: TRADING_JOB_STATUS.Enabled }
+									}
+								: null
+						}),
+						ownJob: { jobId, priceTierId: tierId }
+					};
+				};
+				return [
+					own(
+						0,
+						scenario === BIDDING_E2E_SCENARIO.PriceTierFiltersUpdated
+							? null
+							: BIDDING_E2E_PRICE_TIERS[0].tierId,
+						TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+					),
+					own(
+						1,
+						BIDDING_E2E_PRICE_TIERS[0].tierId,
+						TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning
+					),
+					own(
+						2,
+						BIDDING_E2E_PRICE_TIERS[1].tierId,
+						TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+					),
+					own(3, null, TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing),
+					own(4, BIDDING_E2E_PRICE_TIERS[0].tierId, null),
+					bidRow({
+						orderId: `pricing-opponent-${scopeKind}`,
+						scopeKind,
+						tokenId:
+							scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token
+								? TOKEN_CARDS[0].tokenId
+								: undefined,
+						traits:
+							scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait
+								? [{ type: 'Mode', value: 'Terrain' }]
+								: [],
+						priceEth: '0.350',
+						maker: MARKET_ADDRESS_A
+					})
+				];
+			}
+		);
+	}
 	const traitTextScope = BIDDING_E2E_TRAIT_TEXT_SCOPES.find((scope) => scope.scenario === scenario);
 	if (traitTextScope) {
 		return [
@@ -1827,6 +1939,7 @@ function bidRow(params: MarketBidRowParams | OwnJobIntentRowParams): ApiBiddingB
 	if (params.jobId !== undefined) {
 		return {
 			...row,
+			ownJob: { jobId: params.jobId, priceTierId: null },
 			materialization: {
 				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
 				jobId: params.jobId,

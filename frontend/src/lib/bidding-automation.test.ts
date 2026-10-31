@@ -608,7 +608,8 @@ describe('buildBiddingAutomationTokenFilterSnapshot', () => {
 			ownerAddress: null,
 			makerAddress: null,
 			ownershipFilter: null,
-			ownStateFilter: null
+			ownStateFilter: null,
+			priceTierFilter: null
 		});
 	});
 });

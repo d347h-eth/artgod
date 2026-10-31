@@ -706,7 +706,7 @@ Scope rules:
 Own-state filters:
 
 - private collection bidding in token and trait scope shows a centered secondary row with `active` and every own-bid state that has matching rows; the selected tab remains visible at zero, while other zero-count tabs are hidden
-- each count is an own bid row within the current scope and trait/bidder filters, across all pages and before the own-state filter; overlapping position and constraint badges count in each matching tab
+- each count is an own bid row within the current scope and trait/bidder filters, across all pages under the selected pricing tier and before the own-state filter; overlapping position and constraint badges count in each matching tab
 - `active` includes every own row outside the `paused` filter; their counts partition all own rows, while individual badge filters can overlap; the aggregate adds no row badge
 - lifecycle phases have their own matching tabs; `paused` also matches declared paused status during other phases, and `unknown` covers own rows without current state evidence
 - an empty selected state stays in the URL and the results remain empty; its selected tab shows a zero count without automatic navigation, and the user can choose another state or reset manually
@@ -717,6 +717,17 @@ Own-state filters:
 - collection scope temporarily omits `own_state` from URLs and reads; the existing navigation preference retains the last selection, and scope buttons restore it when returning to token or trait scope, including a selected zero-count state; an explicit reset remains cleared; direct collection URLs with `own_state` fail validation
 - counts and results update together through the existing bid-book refresh; public read-only views do not expose own-state controls or counts
 - token-offer batch selections use the token cards' existing trait matching rule: OR within a key and AND across keys; the trait-discovery OR/AND control does not change token-offer matching
+
+Pricing-tier filters:
+
+- private token and trait Offers views place a second centered secondary row below the own-state row, reusing `BidBookFilterTabs`, its 67rem width cap, wrapping, active text and pink reset controls
+- `manual` is first, then attributed tiers in configured order; include archived tiers with an `(archived)` suffix, and retain choices at zero while filtering; clip long tier labels with the full label available on hover, keeping counts visible
+- show the row when the collection has tier-attributed jobs or a selected pricing filter; a known manual job has no tier, while an own market bid without a job is not manual
+- selecting a tier combines with own state using AND on the same own row, preserving opponent context in its token or trait group when ownership permits it
+- each row's counts apply the other row's selection across all pages; counts measure own bid rows rather than distinct jobs, and both summaries update with results
+- each reset clears only its row's filter and restarts pagination; selected empty combinations remain visible and require an explicit reset or another selection
+- pricing is URL-owned, including pagination, token-detail return links, live refresh and filtered batch selection; scope buttons temporarily suspend it in collection scope within the browser document and restore it only for that collection, without changing global Offers defaults
+- public read-only views expose neither pricing controls nor private count summaries
 
 Muted and collapsed rows:
 

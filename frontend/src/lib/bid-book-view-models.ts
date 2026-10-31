@@ -53,6 +53,8 @@ export const BID_BOOK_FILTER_ALL_LABEL = 'All';
 export const BID_BOOK_FILTER_LABEL = {
 	Traits: 'Bid trait buckets',
 	OwnState: 'Own bid state filter',
+	PriceTier: 'Job pricing filter',
+	ResetPriceTier: 'reset',
 	AllBids: 'all bids',
 	OwnBids: 'my bids',
 	ResetOwnState: 'reset'

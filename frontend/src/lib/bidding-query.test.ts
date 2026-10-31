@@ -20,6 +20,7 @@ import {
 	parseBidBookMakerFilter,
 	parseBidBookOwnershipFilter,
 	parseBidBookOwnStateFilter,
+	parseBidBookPriceTierFilter,
 	nextCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode
@@ -227,4 +228,35 @@ describe('parseCollectionBiddingTraitFilterJoinMode', () => {
 			'or'
 		);
 	});
+});
+
+it('keeps tier selection through query changes and resets only the requested facet', () => {
+	const current: CollectionBiddingQueryParams = {
+		selectedTraits: [],
+		selectedTraitRanges: [],
+		bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+		ownStateFilter: COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active,
+		priceTierFilter: 'tier-a'
+	};
+	expect(parseBidBookPriceTierFilter(buildCollectionBiddingQuery(current))).toBe('tier-a');
+	expect(
+		buildCollectionBiddingQuery(current, { ownStateFilter: null }).get(
+			COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier
+		)
+	).toBe('tier-a');
+	const cleared = buildCollectionBiddingQuery(current, { priceTierFilter: null });
+	expect(cleared.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier)).toBeNull();
+	expect(cleared.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.OwnState)).toBe(
+		COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTER.Active
+	);
+	expect(
+		buildCollectionBiddingQuery(current, {
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection
+		}).get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier)
+	).toBeNull();
+	expect(
+		buildCollectionBiddingQuery(current, { cursor: 'next', limit: 1 }).get(
+			COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.PriceTier
+		)
+	).toBe('tier-a');
 });

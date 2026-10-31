@@ -8,6 +8,9 @@ import {
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	resolveTradingBiddingAuthorizationJobPhase,
 	TRADING_JOB_STATUS,
+	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+	type CollectionBiddingBidBookPriceTierFilter,
+	type TradingBiddingBidBookPriceTierCounts,
 	type CollectionBiddingBidBookOwnStateFilter,
 	type TradingBiddingBidBookOwnState,
 	type TradingBiddingBidBookOwnStateCounts
@@ -91,7 +94,12 @@ export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusB
 
 // Map the API ownership envelope to the shared state contract at the frontend boundary.
 export function bidBookOwnStateSignals(bid: ApiBiddingBidBookRow): BiddingBidBookOwnStateSignals {
-	return { isOwn: bid.maker.isOwn, ownStatus: bid.ownStatus, materialization: bid.materialization };
+	return {
+		isOwn: bid.maker.isOwn,
+		ownStatus: bid.ownStatus,
+		ownJob: bid.ownJob,
+		materialization: bid.materialization
+	};
 }
 
 function ownBidStateLabel(kind: TradingBiddingBidBookOwnState): string {
@@ -163,4 +171,25 @@ export function ownBiddingJobStateBadges(
 	}
 
 	return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued)];
+}
+
+// Tier inventory is collection-wide so state changes do not remove choices.
+export function ownBidPriceTierFilterTabs(
+	counts: TradingBiddingBidBookPriceTierCounts,
+	selected: CollectionBiddingBidBookPriceTierFilter | null
+): BidBookFilterTab<string>[] {
+	return [
+		{
+			key: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+			label: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+			count: counts.manual,
+			active: selected === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual
+		},
+		...counts.tiers.map((tier) => ({
+			key: tier.tierId,
+			label: tier.status === TRADING_JOB_STATUS.Archived ? `${tier.name} (archived)` : tier.name,
+			count: tier.count,
+			active: selected === tier.tierId
+		}))
+	];
 }

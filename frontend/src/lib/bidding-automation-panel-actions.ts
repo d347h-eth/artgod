@@ -396,7 +396,8 @@ function batchTokenSelectionRequestFromFilteredDraft(
 			traitJoinMode: draft.source.filter.traitJoinMode,
 			makerAddress: draft.source.filter.makerAddress,
 			ownershipFilter: draft.source.filter.ownershipFilter,
-			ownStateFilter: draft.source.filter.ownStateFilter
+			ownStateFilter: draft.source.filter.ownStateFilter,
+			priceTierFilter: draft.source.filter.priceTierFilter
 		};
 	}
 	const tokenStatus = draft.source.filter.tokenStatus;
