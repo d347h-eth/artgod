@@ -982,7 +982,8 @@ Desktop release artifacts are built publicly in GitHub Actions.
 
 - Main release workflow: `.github/workflows/tauri-release.yml`
 - Reproducibility workflow: `.github/workflows/tauri-repro-check.yml`, unsigned
-  Linux parity.
+  Linux parity, temporarily disabled while byte-for-byte reproducible builds are
+  deferred. Both tag-triggered and manual runs skip the parity job.
 - Trigger: push a GitHub-verified OpenPGP annotated tag that exactly matches
   `v<root-package-version>` or appends the dry-run suffix `-test.N`, where `N`
   is a positive integer.

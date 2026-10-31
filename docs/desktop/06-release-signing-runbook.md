@@ -95,7 +95,7 @@ Workflow policy:
   runtime operations. It adds both Rust release compilations to the PR lane;
   signing/notarization and runtime probes on both native architectures remain
   release gates.
-- Build, release, and reproducibility lanes run
+- Build and release lanes run
   `yarn test:desktop:listener-boundaries` before packaging. After staging, they
   run `yarn check:desktop-runtime-resources`. The first gate executes exact Rust
   listener-configuration and NATS launch-argument tests plus the real backend
@@ -103,6 +103,8 @@ Workflow policy:
   ports file and initial client `INFO` frame to agree on the exact numeric IPv4
   loopback listener and valid port before accepting a live connection, in
   addition to the bundled Node/native-dependency smoke tests.
+- The reproducibility lane retains those listener gates but is temporarily
+  disabled while byte-for-byte reproducible builds are deferred.
 - The mounted-DMG verifier reuses that same NATS listener proof against the
   packaged binary and starts the native secret prompt through silent stdin
   owner loss, before any prompt UI can open. Finalized-DMG jobs repeat those
