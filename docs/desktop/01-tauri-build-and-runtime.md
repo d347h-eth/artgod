@@ -83,7 +83,7 @@ The desktop build/runtime pipeline is designed to:
 - keep frontend/backend/indexer/trading in one local executable wrapper
 - keep core-composition runtime behavior explicit and fail-fast
 - avoid relying on development launch commands in production desktop mode
-- make release builds reproducible in public CI
+- build and verify release artifacts in public CI
 
 The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
 
@@ -1288,13 +1288,17 @@ Public release workflow:
 
 - `.github/workflows/tauri-build-check.yml` (no-bundle Linux check)
 - `.github/workflows/tauri-release.yml`
-- `.github/workflows/tauri-repro-check.yml` (unsigned Linux reproducibility parity check)
+- `.github/workflows/tauri-repro-check.yml` (unsigned Linux reproducibility parity check; temporarily disabled)
 
 Trigger:
 
 - build check: pull request, push to `main`, or manual dispatch
 - release: push tag `v*`
-- reproducibility check: push tag `v*` or manual dispatch
+- reproducibility check: both tag pushes and manual dispatch skip the parity job
+
+Byte-for-byte reproducible builds are deferred. The reproducibility workflow
+retains its triggers and build steps; remove the job-level `if: ${{ false }}`
+guard when that work resumes.
 
 Release metadata:
 

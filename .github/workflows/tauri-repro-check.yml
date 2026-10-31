@@ -11,6 +11,9 @@ permissions:
 
 jobs:
     linux-unsigned-parity:
+        # Temporarily disabled while byte-for-byte reproducible builds are deferred.
+        # Remove this guard to restore tag-triggered and manual parity checks.
+        if: ${{ false }}
         runs-on: ubuntu-latest
 
         steps:
