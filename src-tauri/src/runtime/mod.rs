@@ -6,6 +6,7 @@ mod bot_lifecycle;
 mod bot_runtime;
 mod config;
 mod env_keys;
+mod http_client;
 mod http_fetch_resilience;
 mod http_routes;
 mod log_files;
@@ -41,6 +42,7 @@ pub use bot_runtime::{
 pub(crate) use config::BotRuntimeLaunchConfig;
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
 pub(crate) use env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
+pub(crate) use http_client::native_http_client_builder;
 pub(crate) use http_routes::runtime_api_routes;
 pub(crate) use log_files::ensure_runtime_log_files;
 pub use nats_store::run_preparation_child;

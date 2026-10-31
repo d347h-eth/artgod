@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { ACTIVITY_KIND } from '@artgod/shared/types';
 	import type {
@@ -544,8 +544,7 @@
 		activeTraitRanges = nextRanges;
 		await goto(filterHref(filterKind, null, nextTraits, nextRanges), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -588,8 +587,7 @@
 			}),
 			{
 				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
+				reset: false
 			}
 		);
 	}
@@ -605,8 +603,7 @@
 			}),
 			{
 				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
+				reset: false
 			}
 		);
 	}
@@ -614,8 +611,7 @@
 	async function onApplyActivityFilterPatch(filters: ActivityExtensionFilterPatch): Promise<void> {
 		await goto(activityFilterHref(filters), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 
@@ -633,8 +629,7 @@
 			}),
 			{
 				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
+				reset: false
 			}
 		);
 	}

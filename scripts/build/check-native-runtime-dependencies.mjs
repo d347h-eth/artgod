@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES } from "./native-runtime-dependencies.mjs";
+import { verifySqliteRuntimeSecurity } from "./sqlite-runtime-security.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,7 @@ const nativeRuntimeDependencyChecks = [
                     `${packageName} did not load a Database constructor`,
                 );
             }
+            verifySqliteRuntimeSecurity(loaded);
         },
     },
     {

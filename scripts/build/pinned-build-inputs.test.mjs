@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+    assertPinnedInputAge,
     materializePinnedInput,
     verifyGithubReleaseInputProvenance,
 } from "./pinned-build-inputs.mjs";
@@ -25,6 +26,81 @@ const input = {
     sizeBytes: content.length,
     sha256: createHash("sha256").update(content).digest("hex"),
 };
+
+test("a fresh security exception admits only its exact input until expiry", () => {
+    const now = new Date("2026-10-29T00:00:00Z");
+    const fresh = {
+        ...input,
+        name: "node",
+        version: "24.22.1",
+        publishedAt: "2026-10-21T00:00:00Z",
+    };
+    const exceptions = [
+        {
+            name: fresh.name,
+            version: fresh.version,
+            reason: "October TLS and Brotli security fixes",
+            expiresOn: "2026-11-30",
+        },
+    ];
+    assert.throws(() => assertPinnedInputAge(fresh, 30, now), /age gate/);
+    assert.doesNotThrow(() => assertPinnedInputAge(fresh, 30, now, exceptions));
+    for (const changed of [{ name: "nats" }, { version: "24.22.2" }]) {
+        assert.throws(
+            () =>
+                assertPinnedInputAge(
+                    { ...fresh, ...changed },
+                    30,
+                    now,
+                    exceptions,
+                ),
+            /age gate/,
+        );
+    }
+    assert.throws(
+        () =>
+            assertPinnedInputAge(fresh, 30, now, [
+                { ...exceptions[0], expiresOn: "2026-10-28" },
+            ]),
+        /age gate/,
+    );
+    assert.throws(
+        () =>
+            assertPinnedInputAge(
+                { ...fresh, publishedAt: "invalid" },
+                30,
+                now,
+                exceptions,
+            ),
+        /publication timestamp/,
+    );
+    assert.throws(
+        () => assertPinnedInputAge(fresh, 0, now, exceptions),
+        /minimum age/,
+    );
+    for (const changed of [
+        { expiresOn: "2026-02-30" },
+        { reason: "" },
+        { version: "24.*" },
+        { expiresOn: "invalid" },
+    ]) {
+        assert.throws(
+            () =>
+                assertPinnedInputAge(fresh, 30, now, [
+                    { ...exceptions[0], ...changed },
+                ]),
+            /exceptions require/,
+        );
+    }
+    assert.throws(
+        () =>
+            assertPinnedInputAge(fresh, 30, now, [
+                ...exceptions,
+                ...exceptions,
+            ]),
+        /Duplicate/,
+    );
+});
 
 async function fixture() {
     await mkdir(scratchRoot, { recursive: true });

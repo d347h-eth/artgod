@@ -78,7 +78,7 @@ impl HttpFetchResilienceConfig {
 impl HttpFetchClient {
     /// Builds a client whose timeout covers headers and complete response-body consumption.
     pub(crate) fn new(config: &HttpFetchResilienceConfig) -> Result<Self, String> {
-        let client = Client::builder()
+        let client = super::native_http_client_builder()?
             .timeout(Duration::from_millis(config.request_timeout_ms))
             .retry(reqwest::retry::never())
             .build()

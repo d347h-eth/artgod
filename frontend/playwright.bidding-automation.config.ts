@@ -31,7 +31,7 @@ export default defineConfig({
 			use: {
 				browserName: 'chromium',
 				viewport: { width: 1920, height: 1080 },
-				screen: { width: 1920, height: 1080 }
+				contextOptions: { screen: { width: 1920, height: 1080 } }
 			}
 		},
 		{

@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import {
 	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
 	QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME,
@@ -24,9 +24,7 @@ export function forwardQueryCacheResponseHeaders(
 }
 
 // Extract only the stable cache-debug headers from a backend response.
-export function extractQueryCacheResponseHeaders(
-	responseHeaders: Headers
-): Record<string, string> {
+export function extractQueryCacheResponseHeaders(responseHeaders: Headers): Record<string, string> {
 	const headers: Record<string, string> = {};
 	for (const headerName of QUERY_CACHE_DEBUG_HEADER_NAMES) {
 		const value = responseHeaders.get(headerName);
@@ -37,7 +35,9 @@ export function extractQueryCacheResponseHeaders(
 	return headers;
 }
 
-export function aggregateQueryCacheResponseHeaders(responseHeaders: Headers[]): Record<string, string> {
+export function aggregateQueryCacheResponseHeaders(
+	responseHeaders: Headers[]
+): Record<string, string> {
 	const entries = responseHeaders
 		.map(extractQueryCacheResponseHeaders)
 		.filter((headers) => headers[QUERY_CACHE_DEBUG_HEADER_NAME]);
@@ -45,7 +45,9 @@ export function aggregateQueryCacheResponseHeaders(responseHeaders: Headers[]): 
 
 	const statuses = new Set(entries.map((headers) => headers[QUERY_CACHE_DEBUG_HEADER_NAME]));
 	const status =
-		statuses.size === 1 ? entries[0][QUERY_CACHE_DEBUG_HEADER_NAME] : QUERY_CACHE_DEBUG_STATUSES.Mixed;
+		statuses.size === 1
+			? entries[0][QUERY_CACHE_DEBUG_HEADER_NAME]
+			: QUERY_CACHE_DEBUG_STATUSES.Mixed;
 	const eventCount = entries.reduce((sum, headers) => {
 		return sum + (parseOptionalInteger(headers[QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME]) ?? 1);
 	}, 0);

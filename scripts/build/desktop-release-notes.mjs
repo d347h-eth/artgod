@@ -4,6 +4,7 @@ import path from "node:path";
 export const RELEASE_CHANGELOG_PATH = "CHANGELOG.md";
 export const RELEASE_SUMMARY_HEADING = "### Release summary";
 export const ENV_DESKTOP_RELEASE_NOTES_PATH = "DESKTOP_RELEASE_NOTES_PATH";
+const PRE_RELEASE_HEADING_SUFFIX = " (pre-release)";
 
 // The changelog contract uses literal, dated H2 release headings and H3 summaries.
 export function extractReleaseSummary(changelog, projectVersion) {
@@ -22,10 +23,13 @@ export function extractReleaseSummary(changelog, projectVersion) {
     }
 
     const target = matches[0];
-    const date = target[0].slice(releaseHeading.length);
+    const headingSuffix = target[0].slice(releaseHeading.length);
+    const date = headingSuffix.endsWith(PRE_RELEASE_HEADING_SUFFIX)
+        ? headingSuffix.slice(0, -PRE_RELEASE_HEADING_SUFFIX.length)
+        : headingSuffix;
     if (!/^ - \d{4}-\d{2}-\d{2}$/.test(date)) {
         throw new Error(
-            `Release heading must be ${releaseHeading} - YYYY-MM-DD.`,
+            `Release heading must be ${releaseHeading} - YYYY-MM-DD, optionally followed by${PRE_RELEASE_HEADING_SUFFIX}.`,
         );
     }
     const next = headings[headings.indexOf(target) + 1];

@@ -1,4 +1,4 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import { error } from '@sveltejs/kit';
 import { load as loadBlockspace } from '../../[chain_ref]/blockspace/+page';
 import type { PageLoad } from './$types';

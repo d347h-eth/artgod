@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import {
 		getDefaultBlockExplorerConfig,
@@ -206,8 +206,7 @@
 		pagingPending = true;
 		await goto(loadNextHref(), {
 			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
+			reset: false
 		});
 	}
 

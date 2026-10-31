@@ -243,8 +243,7 @@ export function handleCollectionSectionShortcut(
 	event.preventDefault();
 	void goto(href, {
 		invalidateAll: true,
-		keepFocus: true,
-		noScroll: true
+		reset: false
 	});
 	return true;
 }

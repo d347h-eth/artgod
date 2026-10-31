@@ -172,7 +172,7 @@
 				: []
 	);
 	let routeStackNavigation = $derived(
-		resolveRouteStackNavigation(page.url, includeCollectionQueryParam ? null : selectedCollection)
+		resolveRouteStackNavigation(new URL(page.url.href), includeCollectionQueryParam ? null : selectedCollection)
 	);
 	let rangeDetailsLiveVersion = $state(0);
 	let rangeDetailsLiveKey = $derived(String(rangeDetailsLiveVersion));

@@ -6,9 +6,16 @@ local development workflow notes here.
 
 ## Quick Start
 
+After selecting the Node version required by `package.json`, enable Corepack
+for that installation. With NVM, repeat this after switching Node installations:
+the Yarn command belongs to the selected Node installation. Corepack uses the
+repository's `packageManager` field to select the pinned Yarn version.
+
 Local web/indexer development:
 
 ```sh
+corepack enable yarn
+
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
 
@@ -22,6 +29,8 @@ yarn dev
 Desktop dev from a clean checkout:
 
 ```sh
+corepack enable yarn
+
 # Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
 yarn install --immutable
 
@@ -102,7 +111,7 @@ instead of downloading GitHub Release artifacts.
 
 Prerequisites:
 
-- Node `24.3.0` with Corepack enabled.
+- Node `24.22.1` with Corepack enabled.
 - Yarn `4.12.0` from the checked-in `packageManager` field.
 - Rust toolchain matching `rust-toolchain.toml`.
 - Linux: Tauri WebKit/GTK dependencies plus `libfuse2`, `libssl-dev`,
@@ -511,9 +520,9 @@ or benefit from, and combine related changes into one concise feature entry.
 For release preparation:
 
 1. Move the accumulated notes into a newest-first section headed
-   `## <version> - YYYY-MM-DD`, leaving a fresh `Unreleased` section. Use the
-   actual publication date; an entry prepared in advance must remain marked
-   publication pending until its date and notes are finalized before tagging.
+   `## <version> - YYYY-MM-DD`, leaving a fresh `Unreleased` section. While the
+   version has only preview tags, append `(pre-release)` after the date. Finalize
+   the actual publication date and remove that marker for the official release.
 2. Describe changes since the preceding published application release. Add
    prominent `Upgrade notes` for required operator actions, data loss, or
    configuration/API compatibility changes.
@@ -542,7 +551,8 @@ release or authorize replacing existing artifacts.
 
 Yarn dependency updates keep install scripts disabled and use the checked-in
 30-day npm age gate. For dependency-update review and release verification, run
-the hardened lockfile metadata check and high-or-critical advisory audit:
+the hardened lockfile metadata check, local security patch tests, and advisory
+audit at every severity:
 
 ```sh
 yarn security:yarn:verify-lockfile
@@ -555,8 +565,13 @@ yarn security:yarn:verify
   lockfile fixed while forcing Yarn to validate package metadata and resolution
   coherence against the registry.
 - `yarn security:yarn:audit` runs the npm advisory audit across all workspaces
-  and transitive dependencies at `high` severity and above.
-- `yarn security:yarn:verify` runs both checks in sequence and is the default
+  and transitive dependencies, including low-severity issues. Deprecation notices
+  are separate from vulnerability findings.
+- `yarn security:yarn:test-patches` tests the actual patched dependency used by
+  the Svelte build plugin. The exact deepmerge advisory exclusion in `.yarnrc.yml`
+  is justified by that regression test and its committed Yarn patch; it does not
+  exclude other packages or advisories.
+- `yarn security:yarn:verify` runs these checks in sequence and is the default
   local command before committing broad Node/Yarn lockfile updates.
 - `.github/workflows/dependency-security-check.yml` runs these checks for
   dependency-touching pull requests and `main` pushes. The release workflow also
@@ -644,7 +659,9 @@ require a separately controlled archive of the reviewed bytes.
 sizes and publication evidence for every concrete desktop target. Node pins
 must match canonical `package.json` `engines.node`; NATS version changes
 require a manifest update and cannot bypass review through
-`DESKTOP_NATS_VERSION`. Admission enforces 30 days before inspecting caches.
+`DESKTOP_NATS_VERSION`. Admission enforces 30 days before inspecting caches, except for exact, expiring
+security entries in the manifest's `freshVersionExceptions` list. Those exceptions
+waive age only; checksum, size, target and publication checks remain required.
 Every cached archive is rehashed; staging freshly extracts only the declared
 executable and recreates macOS universal assemblies. Extracted/assembled caches
 from earlier builds are ignored.
@@ -683,10 +700,31 @@ packaging/runtime pins do not establish complete supply-chain lockdown.
 | Windows source bundles (official releases are deferred)        | The pinned Tauri bundler's WebView bootstrapper/offline-installer paths use moving Microsoft redirect URLs and accept an existing cached installer without checking an ArtGod-owned digest. Its NSIS/plugin downloads have fixed versions but use SHA-1 and have no ArtGod age gate. | Pin and verify Windows packaging inputs and a fixed WebView runtime before qualifying that lane under the same policy.                                                  |
 | Browser test provisioning                                      | The locked Playwright package selects browser revisions, but its browser-archive downloader checks response length and an installation marker without an ArtGod-owned archive digest. Browser binaries are separate from the Yarn-verified package.                                  | Pin browser archive integrity/publication evidence and control browser provisioning alongside the test framework.                                                       |
 
-All eight directly referenced Action commits and the attestation Action's two
-nested Action references were checked: they use full SHAs. The eight direct
-commits were older than 30 days on October 1, 2026. This observation does not
-enforce the age of a future Action upgrade or its external tool downloads.
+The desktop workflows' JavaScript Actions now use their reviewed Node 24
+generation at full commit SHAs. The October 29 review admits `setup-node` 7.1.0
+(October 8), `upload-artifact` 7.0.2 and `download-artifact` 8.0.2 (October 7)
+as exact fresh security inputs. Their runtime generation replaces the older
+Node 20 Actions; setup-node's automatic package-manager cache is disabled so
+the explicit Yarn cache remains authoritative. Checkout 7.0.1, cache 5.1.0,
+attest-build-provenance 4.2.2 and action-gh-release 3.0.3 were already 30 days
+old. Direct references and the attestation Action's nested references use full
+SHAs. There is no automated Action publication-age gate; this admission does
+not cover future upgrades, runner-provided Node patch versions or external
+tool downloads.
+
+## Native SQLite Security Admission
+
+The desktop binding is `better-sqlite3` 12.11.1 with SQLite 3.53.2. It includes
+the [FTS5 memory-safety fixes](https://sqlite.org/cves.html) for CVE-2026-11822
+and CVE-2026-11824. Those issues require arbitrary SQL with defensive mode
+disabled; the update removes the affected native code regardless of that
+configuration.
+
+Both the workspace native check and each staged desktop runtime execute
+`sqlite_version()` and require the fixed version or newer. The check is owned
+by `scripts/build/sqlite-runtime-security.mjs`, so an old cached native binding
+cannot pass solely because its npm package metadata changed. The maintained
+runtime-packaging suite also tests rejection of a pre-fix staged library.
 
 ## GLib Advisory Exception
 
@@ -705,6 +743,26 @@ also ignores this advisory.
 This exception accepts the affected dependency; it does not claim a fix or
 disable other security checks. Reassess it when desktop dependencies change,
 the affected iterator gains a caller, or new exposure evidence appears.
+
+## Rust Security Patches
+
+Wallet validation now uses `k256` 0.14 directly, including the fixed
+`crypto-bigint` 0.7 arithmetic. Keystore compatibility, scalar rejection and
+known Ethereum address vectors are covered by the wallet tests. The optional
+`alloy-primitives/k256` feature still resolves legacy `crypto-bigint` 0.5.5 in
+the lockfile, but it is absent from the compiled graph, including all targets.
+Do not enable that optional feature without resolving
+[RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html).
+
+The older `block-buffer` 0.10.4 used by keystore hashing has a separate cursor
+field. It does not use the inline cursor described by
+[GHSA-qwgh-2vcv-g2f7](https://github.com/RustCrypto/utils/security/advisories/GHSA-qwgh-2vcv-g2f7).
+The consuming regression catches a compression callback panic, then checks
+cursor safety and subsequent block contents. The newer 0.12 branch is updated
+to 0.12.1. This is a version-specific source assessment, not a general advisory
+ignore. Unmaintained transitive crates such as `derivative`, `paste`,
+`proc-macro-error` and `unic-*` remain maintenance warnings without patched
+compatible releases.
 
 ## Local Infrastructure
 

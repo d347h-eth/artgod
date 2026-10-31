@@ -81,7 +81,7 @@ import type {
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import type {
 	PriceHistoryRequest,
 	PriceHistory,
