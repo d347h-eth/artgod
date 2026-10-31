@@ -30,10 +30,13 @@ impl AlloyKeystore {
     ) -> Result<ValidatedWalletSecret, AlloyKeystoreError> {
         let normalized = private_key.trim();
         let normalized = normalized.strip_prefix("0x").unwrap_or(normalized);
-        let raw_key = hex::decode_to_array::<_, 32>(normalized)
+        let mut raw_key = Zeroizing::new(vec![0_u8; WalletPrivateKey::BYTE_LENGTH]);
+        hex::decode_to_slice(normalized, raw_key.as_mut_slice())
             .map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
-        let key =
-            SecretKey::from_slice(&raw_key).map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
+        let raw_key = WalletPrivateKey::from_bytes(raw_key)
+            .map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
+        let key = SecretKey::from_slice(raw_key.as_bytes())
+            .map_err(|_| AlloyKeystoreError::InvalidPrivateKey)?;
         Ok(ValidatedWalletSecret::new(wallet_address(&key), raw_key))
     }
 
@@ -112,18 +115,19 @@ fn decrypt_wallet_key(
     let private_key = eth_keystore::decrypt_key(&wallet.keystore_path, passphrase.as_bytes())
         .map(Zeroizing::new)
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
-    let key = SecretKey::from_slice(private_key.as_slice())
+    let private_key = WalletPrivateKey::from_bytes(private_key)
+        .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
+    let key = SecretKey::from_slice(private_key.as_bytes())
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
 
-    // Erase the decrypted allocation once the zeroizing scalar has validated and copied it.
-    drop(private_key);
     let decrypted_address = wallet_address(&key);
 
     // Bind decrypted key material to the canonical wallet identity before returning it.
     if !wallet.metadata.matches_address(&decrypted_address) {
         return Err(AlloyKeystoreError::WalletAddressMismatch);
     }
-    Ok(WalletPrivateKey::new(key.to_bytes().into()))
+    // Return the original protected allocation; serializing the scalar would create another copy.
+    Ok(private_key)
 }
 
 impl ImportWalletKeystorePort for AlloyKeystore {
@@ -212,6 +216,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scalar_owner_zeroizes_on_drop() {
+        fn require_zeroizing_drop<T: zeroize::ZeroizeOnDrop>() {}
+        require_zeroizing_drop::<SecretKey>();
+    }
+
+    #[test]
     fn validates_ethereum_scalars_and_derives_known_addresses() {
         for (scalar, address) in [
             (1_u8, "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"),
@@ -229,12 +239,22 @@ mod tests {
             "00".repeat(32),
             "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141".to_owned(),
             "ff".repeat(32),
+            "11".repeat(WalletPrivateKey::BYTE_LENGTH - 1),
+            "11".repeat(WalletPrivateKey::BYTE_LENGTH + 1),
+            format!("{}gg", "11".repeat(WalletPrivateKey::BYTE_LENGTH - 1)),
         ] {
             assert!(matches!(
                 AlloyKeystore.validate_private_key(Zeroizing::new(key)),
                 Err(AlloyKeystoreError::InvalidPrivateKey)
             ));
         }
+        assert!(
+            AlloyKeystore
+                .validate_private_key(Zeroizing::new(
+                    "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140".to_owned()
+                ))
+                .is_ok()
+        );
     }
 
     const FOUNDRY_FIXTURE_PASSWORD: &str = "keystorepassword";
@@ -252,7 +272,7 @@ mod tests {
         adapter
             .write_keystore(
                 &path,
-                &WalletPrivateKey::new(TEST_PRIVATE_KEY),
+                &WalletPrivateKey::from_bytes(Zeroizing::new(TEST_PRIVATE_KEY.to_vec())).unwrap(),
                 &Zeroizing::new(TEST_PASSWORD.to_owned()),
             )
             .expect("keystore should be written");
@@ -326,6 +346,44 @@ mod tests {
             .expect_err("mismatched wallet identity should be rejected");
 
         assert!(matches!(error, AlloyKeystoreError::WalletAddressMismatch));
+    }
+
+    #[test]
+    fn malformed_and_oversized_files_return_unlock_rejection_without_mutation() {
+        let document: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/foundry-keystore-v3.json")).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("wallet.json");
+        let record = test_wallet_record(path.clone());
+        let password = Zeroizing::new(FOUNDRY_FIXTURE_PASSWORD.to_owned());
+        for (pointer, value) in [
+            ("/crypto/kdfparams/dklen", serde_json::json!(16)),
+            ("/crypto/cipherparams/iv", serde_json::json!("")),
+            ("/crypto/kdfparams/n", serde_json::json!(u32::MAX)),
+        ] {
+            let mut changed = document.clone();
+            *changed.pointer_mut(pointer).unwrap() = value;
+            let bytes = serde_json::to_vec(&changed).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            assert!(matches!(
+                AlloyKeystore.decrypt_wallet(&record, &password),
+                Err(AlloyKeystoreError::UnlockRejected)
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+
+        // Bound the stream itself, rather than trusting a preceding file-size check.
+        let mut bytes = serde_json::to_vec(&document).unwrap();
+        bytes.resize(eth_keystore::MAX_KEYSTORE_FILE_BYTES, b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(AlloyKeystore.decrypt_wallet(&record, &password).is_ok());
+        bytes.push(b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            AlloyKeystore.decrypt_wallet(&record, &password),
+            Err(AlloyKeystoreError::UnlockRejected)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     fn test_wallet_record(path: std::path::PathBuf) -> WalletRecord {

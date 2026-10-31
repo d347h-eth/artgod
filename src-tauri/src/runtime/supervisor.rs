@@ -3972,7 +3972,7 @@ mod tests {
             BotKind::Sniping,
             PRODUCTION_CONTAINMENT_TEST_CHAIN_ID,
             None,
-            &WalletPrivateKey::new(private_key_bytes),
+            &WalletPrivateKey::from_bytes(Zeroizing::new(private_key_bytes.to_vec())).unwrap(),
         )
         .expect("production test secret envelope is valid")
     }

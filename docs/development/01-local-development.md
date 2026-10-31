@@ -756,6 +756,38 @@ the lockfile, but it is absent from the compiled graph, including all targets.
 Do not enable that optional feature without resolving
 [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html).
 
+Run `yarn cargo:crypto-check` to enforce the `crypto-bigint >= 0.7.6` fixed
+floor and the `aes/zeroize` feature. The check uses `cargo tree --locked
+--target all` for each maintained Cargo root, with both default and all root
+features, including build and development dependencies. It also checks each
+native desktop target separately so features combined across platforms cannot
+hide a missing AES feature on one platform. It examines enabled edges;
+lockfile entries and `cargo metadata` resolution edges alone include
+inactive optional dependencies. CI runs this guard for dependency changes and
+before release builds. Use `--offline` after fetching the locked dependencies
+for every target.
+
+The wallet owns plaintext in zeroizing heap buffers; the bounded V3 reader
+checks document shape and KDF resource budgets before derivation and uses
+constant-time MAC comparison. See the
+[wallet cryptography requirements](../desktop/03-wallet-keystore-and-bot-unlock.md#cryptography-requirements)
+and [vendored patch record](../../src-tauri/vendor/eth-keystore/ARTGOD-PATCH.md)
+for the accepted file limits and the remaining unwiped scrypt working buffers.
+
+After the documented native build prerequisites are available, run:
+
+```sh
+yarn build:desktop-sidecars --profile debug
+yarn test:desktop:wallet-crypto
+yarn cargo:crypto-check
+```
+
+The wallet command runs the vendored reader tests and the desktop wallet
+suite. It covers public scrypt/PBKDF2 fixtures, scalar boundaries, malformed
+and oversized documents, resource limits, wrong passphrases, tampered MACs,
+wallet identity binding, protected allocation ownership and export formatting.
+The guard's own regression tests run in `yarn test:desktop:release-inputs`.
+
 The older `block-buffer` 0.10.4 used by keystore hashing has a separate cursor
 field. It does not use the inline cursor described by
 [GHSA-qwgh-2vcv-g2f7](https://github.com/RustCrypto/utils/security/advisories/GHSA-qwgh-2vcv-g2f7).

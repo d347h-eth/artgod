@@ -52,7 +52,7 @@ tauri = { version = "2.11.6", features = ["test"] }
 tempfile = "3.20"
 
 [patch.crates-io]
-# Use the source-pinned parameterized writer until upstream exposes KDF work settings.
+# Source-pinned writer, bounded reader and memory hardening; see vendor/eth-keystore/ARTGOD-PATCH.md.
 eth-keystore = { path = "vendor/eth-keystore" }
 
 [profile.dev.package.scrypt]

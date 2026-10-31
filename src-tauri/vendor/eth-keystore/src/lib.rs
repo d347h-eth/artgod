@@ -11,9 +11,10 @@ use digest::{Digest, Update};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{CryptoRng, Rng};
-use scrypt::{scrypt, Params as RustCryptoScryptParams};
+use scrypt::scrypt;
 use sha2::Sha256;
 use sha3::Keccak256;
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -26,16 +27,23 @@ use std::{
 mod error;
 mod keystore;
 mod utils;
+mod validation;
 
 #[cfg(feature = "geth-compat")]
 use utils::geth_compat::address_from_pk;
 
 pub use error::KeystoreError;
 pub use keystore::{CipherparamsJson, CryptoJson, EthKeystore, KdfType, KdfparamsType};
+use validation::{validate_keystore, validated_scrypt_params, ETHEREUM_V3_VERSION};
+pub use validation::{
+    MAX_KDF_SALT_BYTES, MAX_KEYSTORE_FILE_BYTES, MAX_PBKDF2_BLOCK_ITERATIONS,
+    MAX_SCRYPT_MEMORY_BYTES, MAX_SCRYPT_WORK,
+};
 
 const DEFAULT_CIPHER: &str = "aes-128-ctr";
 const DEFAULT_KEY_SIZE: usize = 32usize;
 const DEFAULT_IV_SIZE: usize = 16usize;
+const AES_KEY_SIZE: usize = 16;
 
 /// Derived-key length required by the Ethereum V3 AES and MAC construction.
 pub const ETHEREUM_V3_DERIVED_KEY_LENGTH: u8 = 32u8;
@@ -124,11 +132,21 @@ where
     P: AsRef<Path>,
     S: AsRef<[u8]>,
 {
-    // Read the file contents as string and deserialize it.
-    let mut file = File::open(path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    let keystore: EthKeystore = serde_json::from_str(&contents)?;
+    // Bound the actual read, including a growing file, before JSON or hex decoding allocates.
+    let file = File::open(path)?;
+    let mut contents = Vec::new();
+    file.take((MAX_KEYSTORE_FILE_BYTES + 1) as u64)
+        .read_to_end(&mut contents)?;
+    if contents.len() > MAX_KEYSTORE_FILE_BYTES {
+        return Err(KeystoreError::DocumentTooLarge);
+    }
+    let keystore: EthKeystore = serde_json::from_slice(&contents)?;
+    decrypt_keystore(keystore, password.as_ref())
+}
+
+fn decrypt_keystore(keystore: EthKeystore, password: &[u8]) -> Result<Vec<u8>, KeystoreError> {
+    // All metadata, lengths and resource limits must pass before any KDF runs.
+    validate_keystore(&keystore)?;
 
     // Derive the key.
     let key = match keystore.crypto.kdfparams {
@@ -139,7 +157,7 @@ where
             salt,
         } => {
             let mut key = Zeroizing::new(vec![0u8; dklen as usize]);
-            pbkdf2::<Hmac<Sha256>>(password.as_ref(), &salt, c, key.as_mut_slice());
+            pbkdf2::<Hmac<Sha256>>(password, &salt, c, key.as_mut_slice());
             key
         }
         KdfparamsType::Scrypt {
@@ -150,26 +168,24 @@ where
             salt,
         } => {
             let mut key = Zeroizing::new(vec![0u8; dklen as usize]);
-            let log_n = (n as f32).log2() as u8;
-            let scrypt_params = RustCryptoScryptParams::new(log_n, r, p)?;
-            scrypt(password.as_ref(), &salt, &scrypt_params, key.as_mut_slice())?;
+            let scrypt_params = validated_scrypt_params(n, r, p)?;
+            scrypt(password, &salt, &scrypt_params, key.as_mut_slice())?;
             key
         }
     };
 
     // Derive the MAC from the derived key and ciphertext.
     let derived_mac = Keccak256::new()
-        .chain(&key[16..32])
+        .chain(&key[AES_KEY_SIZE..usize::from(ETHEREUM_V3_DERIVED_KEY_LENGTH)])
         .chain(&keystore.crypto.ciphertext)
         .finalize();
 
-    if derived_mac.as_slice() != keystore.crypto.mac.as_slice() {
+    if !bool::from(derived_mac.as_slice().ct_eq(keystore.crypto.mac.as_slice())) {
         return Err(KeystoreError::MacMismatch);
     }
 
     // Decrypt the private key bytes using AES-128-CTR
-    let decryptor =
-        Aes128Ctr::new(&key[..16], &keystore.crypto.cipherparams.iv[..16]).expect("invalid length");
+    let decryptor = Aes128Ctr::new(&key[..AES_KEY_SIZE], &keystore.crypto.cipherparams.iv)?;
 
     let mut pk = keystore.crypto.ciphertext;
     decryptor.apply_keystream(&mut pk);
@@ -242,9 +258,12 @@ where
     B: AsRef<[u8]>,
     S: AsRef<[u8]>,
 {
-    if !scrypt_params.n.is_power_of_two() {
-        return Err(KeystoreError::ScryptInvalidN(scrypt_params.n));
+    let pk = pk.as_ref();
+    if pk.len() != DEFAULT_KEY_SIZE {
+        return Err(KeystoreError::InvalidKeystore("invalid private-key length"));
     }
+    let rust_crypto_params =
+        validated_scrypt_params(scrypt_params.n, scrypt_params.r, scrypt_params.p)?;
 
     // Generate a random salt for this keystore artifact.
     let mut salt = vec![0u8; DEFAULT_KEY_SIZE];
@@ -252,8 +271,6 @@ where
 
     // Derive the encryption and MAC key with the caller-owned work policy.
     let mut key = Zeroizing::new(vec![0u8; ETHEREUM_V3_DERIVED_KEY_LENGTH as usize]);
-    let log_n = scrypt_params.n.trailing_zeros() as u8;
-    let rust_crypto_params = RustCryptoScryptParams::new(log_n, scrypt_params.r, scrypt_params.p)?;
     scrypt(
         password.as_ref(),
         &salt,
@@ -264,20 +281,19 @@ where
     // Encrypt the private key using the Ethereum V3 AES-128-CTR construction.
     let mut iv = vec![0u8; DEFAULT_IV_SIZE];
     rng.fill_bytes(iv.as_mut_slice());
-    let encryptor = Aes128Ctr::new(&key[..16], &iv[..16]).expect("invalid length");
-    let pk = pk.as_ref();
+    let encryptor = Aes128Ctr::new(&key[..AES_KEY_SIZE], &iv)?;
     let mut ciphertext = pk.to_vec();
     encryptor.apply_keystream(&mut ciphertext);
 
     // Authenticate the ciphertext with the Ethereum V3 Keccak MAC construction.
     let mac = Keccak256::new()
-        .chain(&key[16..32])
+        .chain(&key[AES_KEY_SIZE..usize::from(ETHEREUM_V3_DERIVED_KEY_LENGTH)])
         .chain(&ciphertext)
         .finalize();
 
     Ok(EthKeystore {
         id: Uuid::new_v4(),
-        version: 3,
+        version: ETHEREUM_V3_VERSION,
         crypto: CryptoJson {
             cipher: String::from(DEFAULT_CIPHER),
             cipherparams: CipherparamsJson { iv },
@@ -303,8 +319,8 @@ struct Aes128Ctr {
 
 impl Aes128Ctr {
     fn new(key: &[u8], iv: &[u8]) -> Result<Self, cipher::InvalidLength> {
-        let cipher = aes::Aes128::new_from_slice(key).unwrap();
-        let inner = ctr::CtrCore::inner_iv_slice_init(cipher, iv).unwrap();
+        let cipher = aes::Aes128::new_from_slice(key)?;
+        let inner = ctr::CtrCore::inner_iv_slice_init(cipher, iv)?;
         Ok(Self { inner })
     }
 
@@ -312,6 +328,9 @@ impl Aes128Ctr {
         self.inner.apply_keystream_partial(buf.into());
     }
 }
+
+#[cfg(test)]
+mod security_tests;
 
 #[cfg(test)]
 mod explicit_scrypt_tests {

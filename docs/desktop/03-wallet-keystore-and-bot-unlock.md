@@ -66,7 +66,7 @@ Current implementation:
 
 - use standard Ethereum keystore JSON for secret storage
 - use the source-pinned `eth-keystore` primitive for decrypt operations and immediately wrap its returned plaintext allocation in `Zeroizing`
-- use Alloy for private-key validation and address derivation
+- use k256 `SecretKey` for scalar validation and public-key derivation, then Alloy's public-key address helper
 - use the same underlying `eth-keystore` construction through a narrow, source-pinned explicit-parameter writer
 - own the production scrypt work policy in the source-pinned writer rather than in Admin or environment configuration
 - keep an ArtGod-owned metadata index for label, assignment, and status
@@ -333,7 +333,7 @@ Responsibilities:
 - export wallets
 - remove wallets
 - unlock a wallet for bot startup
-- call the source-pinned `eth-keystore` implementation for encryption and decryption, then use Alloy to validate recovered key material
+- call the source-pinned `eth-keystore` implementation for encryption and decryption, then use k256 to validate recovered key material and Alloy to derive its address from the public key
 - own all plaintext key handling inside the main app process
 
 This is the core business service for wallet custody inside the desktop app.
@@ -514,23 +514,74 @@ The keystore service must:
 
 - validate private keys in Rust
 - derive the wallet address in Rust
-- use Alloy/`eth-keystore` keystore encryption and decryption primitives
+- use the source-pinned `eth-keystore` encryption and decryption primitives
 - emit the exact ArtGod-owned scrypt work policy on every new import
 - reject decrypted key material unless its derived address matches the stored wallet metadata
 - zeroize passphrase and plaintext key buffers after use
 - zeroize derived KDF key buffers after encryption and decryption
+- enable zeroizing drop for the AES key schedule
+- validate document shape and resource limits before running a KDF
+- compare equal-length MACs with `subtle::ConstantTimeEq`
 
 Current baseline:
 
 - standard Ethereum keystore JSON
-- the Foundry-compatible Ethereum V3 format and shared Alloy/`eth-keystore` primitives
+- the Foundry-compatible Ethereum V3 format and RustCrypto primitives inside `eth-keystore`
 - passphrase confirmation on import
 - strict tamper detection on decrypt
 - decrypted private-key binding to the canonical stored wallet address
 
 The implementation treats the Ethereum V3 format and the pinned
-Alloy/`eth-keystore` primitives as the source of truth for the file crypto path.
-ArtGod owns wallet orchestration, metadata, runtime boundaries, and the work-factor policy, not a custom encryption scheme.
+`eth-keystore` primitives as the source of truth for the file crypto path.
+ArtGod owns wallet orchestration, metadata, runtime boundaries, and the work-factor policy.
+
+### Private-Key Ownership and Memory Limits
+
+`WalletPrivateKey` owns one exact-length `Zeroizing<Vec<u8>>` allocation.
+Import decodes directly into that protected allocation. Decrypt immediately
+wraps the library's returned allocation, validates the borrowed bytes through
+k256 `SecretKey`, checks the wallet address, and returns the same protected
+allocation. Native export formats directly into a preallocated
+`Zeroizing<String>`, avoiding an intermediate plaintext hex string.
+
+k256 owns and erases its scalar on drop. Alloy receives only public-key bytes;
+its optional `k256` feature must remain disabled while it would enable the
+vulnerable legacy arithmetic. `yarn cargo:crypto-check` checks the enabled
+dependency graphs and the AES `zeroize` feature; see
+[Rust security verification](../development/01-local-development.md#rust-security-patches).
+
+These controls reduce secret copies and erase the buffers they own. They do
+not guarantee that all process memory is erased: the unmodified scrypt 0.10
+implementation leaves internal working buffers unwiped, and compiler spills
+and dependency intermediates are outside these ownership guarantees. The
+running Node bot also retains signing material for its lifetime. The
+[vendored patch record](../../src-tauri/vendor/eth-keystore/ARTGOD-PATCH.md#bounded-reader-and-secret-memory-hardening)
+records the dependency limitation and the exact hardening scope.
+
+### Bounded Ethereum V3 Reader
+
+The source-pinned reader validates the document before deriving a key. Its
+policy is owned by `vendor/eth-keystore/src/validation.rs`:
+
+| Input                 | Accepted limit                                                         |
+| --------------------- | ---------------------------------------------------------------------- |
+| File                  | At most 16 KiB, bounded during the read before JSON/hex decoding       |
+| Format                | Version 3, `aes-128-ctr`, matching KDF label and parameters            |
+| IV / ciphertext / MAC | Exactly 16 / 32 / 32 bytes                                             |
+| Derived key / salt    | 32–255 / 1–64 bytes                                                    |
+| PBKDF2                | `hmac-sha256`, `c >= 1`, `c * ceil(dklen / 32) <= 1,000,000`           |
+| Scrypt                | Power-of-two `N >= 2`, valid RustCrypto parameters, both budgets below |
+| Scrypt working memory | `128 * r * (N + p + 1) <= 268,437,504` bytes                           |
+| Scrypt work           | `N * r * p <= 2,097,152`                                               |
+
+The two scrypt budgets derive from the production writer profile, include its
+scratch allocations, and also bound the parameterized writer. Checked integer
+arithmetic rejects overflow. Unknown or ambiguous KDF parameter fields,
+unsupported values and excessive costs fail without changing the keystore.
+Files within these limits retain Ethereum V3 interoperability, including the
+Foundry scrypt fixture and the published Ethereum PBKDF2 vector. A V3 file with
+a higher work factor or larger salt/document is deliberately rejected by this
+desktop reader.
 
 ### Scrypt Work Policy
 
@@ -1442,8 +1493,13 @@ Rules:
 - private-key validation
 - address derivation
 - exact scrypt parameters on every newly written keystore
-- Alloy's compatibility writer uses the same strong policy
+- the `eth-keystore` compatibility writer uses the same strong policy
 - Foundry-compatible keystore decrypt without file mutation
+- published Ethereum PBKDF2 vector decryption
+- malformed fields, ambiguous KDF parameters and excessive KDF costs rejected before derivation
+- bounded file reads and rejected-file preservation
+- protected key ownership across validation and direct export formatting
+- k256 scalar and AES key-schedule zeroizing-drop contracts
 - mismatched keystore and wallet-metadata addresses fail closed
 - tamper detection
 - wrong-passphrase rejection
@@ -1458,6 +1514,11 @@ Rules:
 - exact key-bearing Node arguments and disabled signal-started inspection
 - isolated current-process core-limit and Linux nondumpability controls
 - sensitive-child inherited core limits
+
+Run the wallet and vendored-keystore suites with
+`yarn test:desktop:wallet-crypto` after preparing the desktop sidecars. The
+Linux build prerequisite lane and desktop release builds run this command.
+The dependency-security and release gates also run `yarn cargo:crypto-check`.
 
 ### Rust Integration Tests
 
