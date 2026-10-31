@@ -45,13 +45,17 @@ The Geth comparison also highlighted its decrypted-key address binding. ArtGod's
 desktop adapter now performs the same identity check before returning key
 material to export, remove verification, or bot-unlock callers. That adapter
 also takes immediate zeroizing ownership of the plaintext allocation returned by
-`decrypt_key` before constructing the zeroizing k256 scalar. Those adapter changes are
+`decrypt_key` before constructing the zeroizing k256 scalar. It retains that
+protected heap allocation when returning the validated key, and native export
+formats directly into its protected string. Those adapter/domain changes are
 outside this vendored crate.
 
 ## Archive-to-Vendor Inventory
 
-The runtime library files come from the checksummed archive. ArtGod's Rust
-source changes are limited to `src/lib.rs` and `src/error.rs`.
+The runtime library files originate in the checksummed archive. ArtGod changes
+`src/lib.rs`, `src/error.rs`, and `src/keystore.rs`, and adds
+`src/validation.rs` for the bounded reader policy. Both Cargo manifests enable
+`aes/zeroize` and add `subtle` for constant-time MAC comparison.
 
 Intentional non-runtime layout differences are:
 
@@ -63,6 +67,9 @@ Intentional non-runtime layout differences are:
   coverage in the desktop and vendored-library suites
 - `.gitignore` also excludes the standalone vendored-crate `Cargo.lock`
 - this `ARTGOD-PATCH.md` provenance record is added
+- `src/security_tests.rs` adds malformed-input, MAC, resource-policy and AES
+  zeroizing-drop checks; `tests/fixtures/ethereum-pbkdf2-v3.json` extracts the
+  existing upstream PBKDF2 vector so parsing and decryption share one fixture
 
 ## Before This Patch
 
@@ -101,7 +108,7 @@ The patch adds:
 - `ETHEREUM_V3_DERIVED_KEY_LENGTH`, the owned format constant
 - `encrypt_key_to_keystore`, an in-memory writer that requires explicit scrypt
   parameters
-- validation that `N` is a non-zero power of two
+- validation that `N` is a power of two greater than one
 - the `zeroize` dependency in both Cargo manifests
 - zeroizing wrappers for derived encryption and MAC key buffers
 
@@ -109,6 +116,37 @@ The existing compatibility writer now consumes `ARTGOD_SCRYPT_KDF_PARAMS` too.
 This prevents Alloy's convenience API from bypassing the production policy,
 while ArtGod's production adapter calls the explicit in-memory writer and owns
 atomic private-file persistence.
+
+## Bounded Reader and Secret-Memory Hardening
+
+The reader limits the actual input stream to 16 KiB before JSON and hex
+decoding, including a file that grows during the read. It validates all fields
+before running either KDF:
+
+- version 3 and `aes-128-ctr`, with a 16-byte IV, 32-byte ciphertext and 32-byte
+  MAC;
+- matching KDF labels and parameter variants, rejecting unknown or ambiguous
+  KDF parameter fields;
+- 32–255 derived bytes and a 1–64-byte salt;
+- PBKDF2 `hmac-sha256`, with `c >= 1` and
+  `c * ceil(dklen / 32) <= 1,000,000`;
+- scrypt `N >= 2`, an integer power of two, valid RustCrypto parameters,
+  `128 * r * (N + p + 1) <= 268,437,504` working-buffer bytes and
+  `N * r * p <= 2,097,152` work units.
+
+`src/validation.rs` owns these limits. The scrypt limits derive from the
+production writer policy and also apply to the explicit-parameter writer.
+Checked integer arithmetic rejects overflow before allocation. Unsupported,
+oversized or malformed documents return errors without rewriting the file;
+both the Foundry scrypt fixture and Ethereum PBKDF2 vector remain readable.
+
+MAC verification uses `subtle::ConstantTimeEq` after checking the tag length.
+The AES key schedule uses the upstream `zeroize` feature, and the KDF output
+already has a `Zeroizing` owner. These are bounded memory-hygiene guarantees:
+the unmodified [scrypt 0.10 implementation](https://github.com/RustCrypto/password-hashes/blob/scrypt-v0.10.0/scrypt/src/lib.rs)
+does not erase its internal working buffers. Wiping ArtGod's output does not
+wipe those buffers, compiler spills, or every intermediate inside dependencies.
+This patch does not introduce a second scrypt implementation.
 
 ## Deliberately Unchanged
 
@@ -119,7 +157,7 @@ The patch does not change:
 - Keccak MAC construction
 - salt, IV, or UUID generation
 - PBKDF2 and scrypt derivation algorithms
-- PBKDF2 and scrypt decryption behavior
+- decryption of supported, bounded Ethereum V3 files
 
 There is no legacy-file migration code. No persisted desktop ArtGod keystores
 exist that require preservation, so unlock and export remain decrypt-only

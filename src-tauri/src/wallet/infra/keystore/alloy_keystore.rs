@@ -216,6 +216,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scalar_owner_zeroizes_on_drop() {
+        fn require_zeroizing_drop<T: zeroize::ZeroizeOnDrop>() {}
+        require_zeroizing_drop::<SecretKey>();
+    }
+
+    #[test]
     fn validates_ethereum_scalars_and_derives_known_addresses() {
         for (scalar, address) in [
             (1_u8, "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"),
@@ -340,6 +346,44 @@ mod tests {
             .expect_err("mismatched wallet identity should be rejected");
 
         assert!(matches!(error, AlloyKeystoreError::WalletAddressMismatch));
+    }
+
+    #[test]
+    fn malformed_and_oversized_files_return_unlock_rejection_without_mutation() {
+        let document: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/foundry-keystore-v3.json")).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("wallet.json");
+        let record = test_wallet_record(path.clone());
+        let password = Zeroizing::new(FOUNDRY_FIXTURE_PASSWORD.to_owned());
+        for (pointer, value) in [
+            ("/crypto/kdfparams/dklen", serde_json::json!(16)),
+            ("/crypto/cipherparams/iv", serde_json::json!("")),
+            ("/crypto/kdfparams/n", serde_json::json!(u32::MAX)),
+        ] {
+            let mut changed = document.clone();
+            *changed.pointer_mut(pointer).unwrap() = value;
+            let bytes = serde_json::to_vec(&changed).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            assert!(matches!(
+                AlloyKeystore.decrypt_wallet(&record, &password),
+                Err(AlloyKeystoreError::UnlockRejected)
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+
+        // Bound the stream itself, rather than trusting a preceding file-size check.
+        let mut bytes = serde_json::to_vec(&document).unwrap();
+        bytes.resize(eth_keystore::MAX_KEYSTORE_FILE_BYTES, b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(AlloyKeystore.decrypt_wallet(&record, &password).is_ok());
+        bytes.push(b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            AlloyKeystore.decrypt_wallet(&record, &password),
+            Err(AlloyKeystoreError::UnlockRejected)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     fn test_wallet_record(path: std::path::PathBuf) -> WalletRecord {

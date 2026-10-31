@@ -17,6 +17,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -1574,6 +1575,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sha3 0.10.9",
+ "subtle",
  "thiserror 1.0.69",
  "uuid 0.8.2",
  "zeroize",
