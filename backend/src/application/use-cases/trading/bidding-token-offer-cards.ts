@@ -3,8 +3,7 @@ import {
     renderTraitSummaryTemplate,
     TRADING_BIDDING_BID_SCOPE_KIND,
     type CollectionBiddingTraitFilterJoinMode,
-    type CollectionBiddingBidBookOwnStateFilter,
-    type TradingBiddingBidBookOwnStateCounts,
+    type TradingBiddingBidBookPriceTier,
     type TokenAttribute,
     type TokenCard,
 } from "@artgod/shared/types";
@@ -14,8 +13,9 @@ import type {
 } from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
 import {
-    filterBiddingBidBookRowsByOwnState,
-    countBiddingBidBookOwnStates,
+    filterBiddingBidBookRowsByOwnFilters,
+    countBiddingBidBookOwnFilters,
+    type BiddingBidBookOwnFilters,
 } from "@artgod/shared/trading/bid-book-own-state";
 import { persistedBidBookRowEffectiveWei } from "./bidding-bid-book.js";
 import {
@@ -57,17 +57,17 @@ export function sortTokenIdsByTopOffer(
         .map(([tokenId]) => tokenId);
 }
 
-// Filter offers before token ranking and pagination, also used by all-results bidding selection.
-export function filterTokenOfferGroupsByOwnState(
+// Display and all-results selection share the same combined own-row predicate.
+export function filterTokenOfferGroupsByOwnFilters(
     groups: Map<string, PersistedBiddingBidBookRow[]>,
-    state: CollectionBiddingBidBookOwnStateFilter | null,
+    filters: BiddingBidBookOwnFilters,
 ): Map<string, PersistedBiddingBidBookRow[]> {
-    if (state === null) return groups;
+    if (!filters.ownStateFilter && !filters.priceTierFilter) return groups;
     const matched = new Map<string, PersistedBiddingBidBookRow[]>();
     for (const [tokenId, offers] of groups) {
-        const matches = filterBiddingBidBookRowsByOwnState(
+        const matches = filterBiddingBidBookRowsByOwnFilters(
             offers,
-            state,
+            filters,
             () => tokenId,
         );
         if (matches.length > 0) matched.set(tokenId, matches);
@@ -75,15 +75,17 @@ export function filterTokenOfferGroupsByOwnState(
     return matched;
 }
 
-// Stream all matching tokens' rows so counts are independent of the loaded page and selected state.
-export function countTokenOfferOwnStates(
+// Stream all matching tokens' rows before either facet's selection or pagination.
+export function countTokenOfferOwnFilters(
     groups: Map<string, PersistedBiddingBidBookRow[]>,
+    filters: BiddingBidBookOwnFilters,
+    tiers: readonly TradingBiddingBidBookPriceTier[],
     tokenIds: Iterable<string> = groups.keys(),
-): TradingBiddingBidBookOwnStateCounts {
+) {
     function* rows(): Generator<PersistedBiddingBidBookRow> {
         for (const tokenId of tokenIds) yield* groups.get(tokenId) ?? [];
     }
-    return countBiddingBidBookOwnStates(rows());
+    return countBiddingBidBookOwnFilters(rows(), filters, tiers);
 }
 
 // Builds reusable token-offer cards from hydrated tokens and grouped bid rows.

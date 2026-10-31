@@ -3,6 +3,7 @@ import { assertBidScopeSupportsOwnStateFilter } from "@artgod/shared/trading/bid
 import type {
     CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingBidBookOwnStateFilter,
+    CollectionBiddingBidBookPriceTierFilter,
     CollectionBiddingBidScopeFilter,
 } from "@artgod/shared/types";
 
@@ -13,6 +14,7 @@ export function assertBiddingBidBookFiltersAllowed(params: {
     makerAddress?: string | null;
     ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+    priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
 }): void {
     if (params.makerAddress?.trim() && params.ownershipFilter) {
         throw new ReadModelBadRequestError(
@@ -20,14 +22,16 @@ export function assertBiddingBidBookFiltersAllowed(params: {
         );
     }
     if (
-        (params.ownershipFilter || params.ownStateFilter) &&
+        (params.ownershipFilter ||
+            params.ownStateFilter ||
+            params.priceTierFilter) &&
         !params.includeOwnJobContext
     ) {
         throw new ReadModelBadRequestError(
             "Own bids are unavailable in public bid-book reads",
         );
     }
-    if (params.ownStateFilter) {
+    if (params.ownStateFilter || params.priceTierFilter) {
         assertBidScopeSupportsOwnStateFilter(params.scopeFilter);
     }
 }

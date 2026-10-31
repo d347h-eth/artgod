@@ -124,6 +124,69 @@ describe("SqliteBiddingBidBookRepository", () => {
         vi.useRealTimers();
     });
 
+    it("reads tier attribution for stopped-bot intent and preserves collection-wide ids under filters", () => {
+        const jobs = new SqliteBiddingJobsRepository();
+        const tierJob = jobs.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "777",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100",
+            ceilingWei: "200",
+            deltaWei: "1",
+            priceTierId: "tier-base",
+            pricingSource: null,
+        });
+        const manualJob = jobs.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "778",
+            status: TRADING_JOB_STATUS.Paused,
+            floorWei: "100",
+            ceilingWei: "200",
+            deltaWei: "1",
+            priceTierId: null,
+            pricingSource: null,
+        });
+        const repository = new SqliteBiddingBidBookRepository();
+        const input = {
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        };
+        const book = repository.listCollectionBidBook(input);
+        assert.deepEqual(book.attributedPriceTierIds, ["tier-base"]);
+        assert.deepEqual(
+            book.bids.find(
+                (row) => row.materialization.jobId === tierJob.job.jobId,
+            )?.ownJob,
+            { jobId: tierJob.job.jobId, priceTierId: "tier-base" },
+        );
+        assert.deepEqual(
+            book.bids.find(
+                (row) => row.materialization.jobId === manualJob.job.jobId,
+            )?.ownJob,
+            { jobId: manualJob.job.jobId, priceTierId: null },
+        );
+        assert.deepEqual(
+            repository.listCollectionBidBook({
+                ...input,
+                makerAddress: BIDDING_MAKER_ADDRESS,
+            }).attributedPriceTierIds,
+            ["tier-base"],
+        );
+        const publicBook = repository.listCollectionBidBook({
+            ...input,
+            includeOwnJobContext: false,
+        });
+        assert.deepEqual(publicBook.attributedPriceTierIds, []);
+        assert.ok(publicBook.bids.every((row) => !row.ownJob));
+    });
+
     for (const source of [
         TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
         TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
@@ -2593,6 +2656,14 @@ describe("SqliteBiddingBidBookRepository", () => {
             floorEth: "0.00000000000000012",
             ceilingWei: "180",
             ceilingEth: "0.00000000000000018",
+        });
+        assert.deepEqual(queuedOwnBid?.ownJob, {
+            jobId: created.job.jobId,
+            priceTierId: "tier-base",
+        });
+        assert.deepEqual(oldOwnBid?.ownJob, {
+            jobId: created.job.jobId,
+            priceTierId: "tier-base",
         });
         assert.equal(queuedOwnBid?.placedAt, null);
         assert.equal(queuedOwnBid?.ownStatus, null);

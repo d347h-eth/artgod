@@ -1,3 +1,4 @@
+import { parseBiddingBidBookPriceTierFilter } from "@artgod/shared/trading/bid-book-own-state";
 import type { FastifyRequest } from "fastify";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
@@ -136,6 +137,9 @@ export function parseBatchTokenBiddingJobSelection(
                 record.ownershipFilter,
             ),
             ownStateFilter: parseOptionalOwnStateFilter(record.ownStateFilter),
+            priceTierFilter: parseBiddingBidBookPriceTierFilter(
+                record.priceTierFilter,
+            ),
         };
     }
     throw new ReadModelBadRequestError("selection.type is invalid");

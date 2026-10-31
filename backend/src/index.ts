@@ -601,6 +601,7 @@ export function createBackendApp(
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
             biddingBidBookRepository,
+            biddingPriceTiersRepository,
             backendObservability.apm,
         );
     const listCollectionBiddingPriceTiersUseCase =

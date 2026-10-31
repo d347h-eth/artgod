@@ -153,6 +153,7 @@ type BiddingJobSignalRow = {
     token_id: string | null;
     floor_wei: string;
     ceiling_wei: string;
+    price_tier_id: string | null;
     revision: number;
     target_traits_json: string | null;
     quantity: number | null;
@@ -177,6 +178,7 @@ type BiddingJobSignal = {
     tokenId: string | null;
     floorWei: string;
     ceilingWei: string;
+    priceTierId: string | null;
     revision: number;
     targetTraits: TradingTraitCriterion[];
     quantity: number | null;
@@ -275,7 +277,7 @@ const OWN_JOB_INTENT_ORDER_ID_PREFIX = "job-intent";
 // Selects cancellation rows with the job/runtime fields needed to render own order lifecycle state.
 const OWN_CANCELLATION_SIGNAL_SELECT_SQL =
     "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
-    "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
+    "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.price_tier_id, s.quantity, s.target_traits_json, " +
     "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, " +
     "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at, " +
     "c.order_id AS cancellation_order_id, c.job_revision AS cancellation_job_revision, c.price_wei AS cancellation_price_wei, " +
@@ -499,7 +501,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             archivedStatus: typeof TRADING_JOB_STATUS.Archived;
         }>(
             "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
-                "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
+                "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.price_tier_id, s.quantity, s.target_traits_json, " +
                 "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, " +
                 "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at " +
                 "FROM trading_jobs j " +
@@ -728,6 +730,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             biddingAuthorization: bidBook.biddingAuthorization,
             ownMakerAddress: bidBook.ownMakerAddress,
             bids: finalBids,
+            attributedPriceTierIds: [
+                ...new Set(
+                    jobs.flatMap((job) =>
+                        job.priceTierId ? [job.priceTierId] : [],
+                    ),
+                ),
+            ],
         };
     }
 
@@ -1459,6 +1468,7 @@ function mapBiddingJobSignalRow(
         tokenId: row.token_id,
         floorWei: row.floor_wei,
         ceilingWei: row.ceiling_wei,
+        priceTierId: row.price_tier_id,
         revision: row.revision,
         targetTraits: parseTraitArray(row.target_traits_json),
         quantity: row.quantity,
@@ -2068,7 +2078,30 @@ function attachOwnBidRuntimeSignals(
     jobs: BiddingJobSignal[],
     source: TradingBiddingBidBookSource,
 ): PersistedBiddingBidBookRow[] {
-    return bids.map((bid) => {
+    const jobsById = new Map(jobs.map((job) => [job.jobId, job]));
+    const jobsByOrder = new Map(
+        jobs.flatMap((job) =>
+            job.activeOrder?.activeOrderId
+                ? [[job.activeOrder.activeOrderId, job] as const]
+                : [],
+        ),
+    );
+    return bids.map((rawBid) => {
+        const declaredJob = rawBid.isOwn
+            ? rawBid.materialization.kind ===
+              TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+                ? jobsById.get(rawBid.materialization.jobId)
+                : jobsByOrder.get(rawBid.orderId)
+            : undefined;
+        const bid = {
+            ...rawBid,
+            ownJob: declaredJob
+                ? {
+                      jobId: declaredJob.jobId,
+                      priceTierId: declaredJob.priceTierId,
+                  }
+                : null,
+        };
         if (!bid.isOwn || !canAttachRuntimeDecision(source, bid)) {
             return {
                 ...bid,

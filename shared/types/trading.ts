@@ -422,6 +422,7 @@ export const COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS = {
     Maker: "maker",
     Ownership: "ownership",
     OwnState: "own_state",
+    PriceTier: "price_tier",
     ShowMuted: "show_muted",
 } as const;
 
@@ -547,10 +548,32 @@ export const COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS = [
 export type CollectionBiddingBidBookOwnStateFilter =
     (typeof COLLECTION_BIDDING_BID_BOOK_OWN_STATE_FILTERS)[number];
 
-// Counts own rows in the current scope and trait filters before the state filter or pagination.
+// Counts own rows under the selected tier, before state selection or pagination.
 export type TradingBiddingBidBookOwnStateCounts = {
     total: number;
     states: Record<CollectionBiddingBidBookOwnStateFilter, number>;
+};
+
+// The manual sentinel or a persisted collection price-tier id; null means no filter.
+export type CollectionBiddingBidBookPriceTierFilter = string;
+
+// Declared pricing attribution is independent of fresh bot decision evidence.
+export type TradingBiddingBidBookOwnJob = {
+    jobId: string;
+    priceTierId: string | null;
+};
+
+export type TradingBiddingBidBookPriceTier = {
+    tierId: string;
+    name: string;
+    status: TradingBiddingPriceTierStatus;
+    sortOrder: number;
+};
+
+// Counts own rows after the selected state, before tier selection or pagination.
+export type TradingBiddingBidBookPriceTierCounts = {
+    manual: number;
+    tiers: Array<TradingBiddingBidBookPriceTier & { count: number }>;
 };
 
 export function isCollectionBiddingBidBookOwnStateFilter(

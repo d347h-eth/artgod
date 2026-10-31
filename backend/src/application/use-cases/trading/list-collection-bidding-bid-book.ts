@@ -7,12 +7,18 @@ import type {
     CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingBidBookOwnStateFilter,
     TradingBiddingBidBookOwnStateCounts,
+    TradingBiddingBidBookPriceTier,
+    TradingBiddingBidBookPriceTierCounts,
+    CollectionBiddingBidBookPriceTierFilter,
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
-import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "@artgod/shared/types";
 import {
-    countBiddingBidBookOwnStates,
-    filterBiddingBidBookRowsByOwnState,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+} from "@artgod/shared/types";
+import {
+    countBiddingBidBookOwnFilters,
+    filterBiddingBidBookRowsByOwnFilters,
 } from "@artgod/shared/trading/bid-book-own-state";
 import { biddingBidBookGroupKey } from "@artgod/shared/trading/bid-book-groups";
 import {
@@ -46,12 +52,13 @@ import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import {
     buildPersistedTokenOfferCards,
     buildTokenOfferGroups,
-    countTokenOfferOwnStates,
-    filterTokenOfferGroupsByOwnState,
+    countTokenOfferOwnFilters,
+    filterTokenOfferGroupsByOwnFilters,
     sortTokenIdsByTopOffer,
     type PersistedTokenOfferCard,
 } from "./bidding-token-offer-cards.js";
 import { filterBidBookRowsByCollectionBidFloor } from "./bidding-bid-book-low-signal.js";
+import type { BiddingPriceTiersRepositoryPort } from "./bidding-price-tier-ports.js";
 import { assertBiddingBidBookFiltersAllowed } from "./bidding-bid-book-filter-validation.js";
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
@@ -67,6 +74,7 @@ export type ListCollectionBiddingBidBookInput = {
     makerAddress?: string | null;
     ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     ownStateFilter?: CollectionBiddingBidBookOwnStateFilter | null;
+    priceTierFilter?: CollectionBiddingBidBookPriceTierFilter | null;
     mediaMode?: string;
     mediaPreference?: CollectionMediaPreferenceValue;
     limit: number;
@@ -135,6 +143,13 @@ export class ListCollectionBiddingBidBookUseCase {
             };
         },
         readonly bidBookRepositoryPort: BiddingBidBookRepositoryPort,
+        readonly priceTiersReadPort: {
+            listCollectionPriceTiers(
+                params: Parameters<
+                    BiddingPriceTiersRepositoryPort["listCollectionPriceTiers"]
+                >[0],
+            ): TradingBiddingBidBookPriceTier[];
+        },
         readonly apm: ApmPort = NOOP_APM,
     ) {}
 
@@ -260,11 +275,55 @@ export class ListCollectionBiddingBidBookUseCase {
                       collectionBids: collectionFloorBidBook.bids,
                   })
                 : persistedBidBook.bids;
-        let ownBidStateCounts =
-            input.includeOwnJobContext &&
-            input.scopeFilter !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
-                ? countBiddingBidBookOwnStates(scopedRows)
-                : null;
+        // Inventory includes archived tiers, without resolving or changing their prices.
+        const inventory = input.includeOwnJobContext
+            ? this.priceTiersReadPort.listCollectionPriceTiers({
+                  chainId: chain.publicChainId,
+                  collectionId: collection.collectionId,
+                  includeArchived: true,
+              })
+            : [];
+        if (
+            input.priceTierFilter &&
+            input.priceTierFilter !==
+                TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual &&
+            !inventory.some((tier) => tier.tierId === input.priceTierFilter)
+        ) {
+            throw new ReadModelBadRequestError(
+                "price tier was not found in this collection",
+            );
+        }
+        const attributedIds = new Set(
+            persistedBidBook.attributedPriceTierIds ??
+                scopedRows.flatMap((row) =>
+                    row.ownJob?.priceTierId ? [row.ownJob.priceTierId] : [],
+                ),
+        );
+        const priceTiers = inventory
+            .filter(
+                (tier) =>
+                    attributedIds.has(tier.tierId) ||
+                    tier.tierId === input.priceTierFilter,
+            )
+            .map(({ tierId, name, status, sortOrder }) => ({
+                tierId,
+                name,
+                status,
+                sortOrder,
+            }));
+        const counts = countBiddingBidBookOwnFilters(
+            input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                ? []
+                : scopedRows,
+            input,
+            priceTiers,
+        );
+        let ownBidStateCounts = input.includeOwnJobContext
+            ? counts.ownBidStateCounts
+            : null;
+        let ownPriceTierCounts = input.includeOwnJobContext
+            ? counts.ownPriceTierCounts
+            : null;
         let tokenOfferCardsPage = emptyTokenOfferCardsPage(input.limit);
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
             const tokenOfferResult = this.apm.withSyncSpan(
@@ -291,11 +350,16 @@ export class ListCollectionBiddingBidBookUseCase {
                         limit: input.limit,
                         cursor: input.cursor ?? null,
                         ownStateFilter: input.ownStateFilter ?? null,
+                        priceTierFilter: input.priceTierFilter ?? null,
+                        priceTiers,
                     }),
             );
             tokenOfferCardsPage = tokenOfferResult.page;
             ownBidStateCounts = input.includeOwnJobContext
                 ? tokenOfferResult.ownBidStateCounts
+                : null;
+            ownPriceTierCounts = input.includeOwnJobContext
+                ? tokenOfferResult.ownPriceTierCounts
                 : null;
         }
         const pageCards =
@@ -305,10 +369,10 @@ export class ListCollectionBiddingBidBookUseCase {
         let visibleBidRows = scopedRows;
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
             visibleBidRows = pageCards.flatMap((card) => card.persistedOffers);
-        } else if (input.ownStateFilter) {
-            visibleBidRows = filterBiddingBidBookRowsByOwnState(
+        } else if (input.ownStateFilter || input.priceTierFilter) {
+            visibleBidRows = filterBiddingBidBookRowsByOwnFilters(
                 scopedRows,
-                input.ownStateFilter,
+                input,
                 (bid) =>
                     biddingBidBookGroupKey({
                         kind: bid.scopeKind,
@@ -363,6 +427,7 @@ export class ListCollectionBiddingBidBookUseCase {
             bidBook: view.bidBook,
             tokenOfferCards: view.tokenOfferCards,
             ownBidStateCounts,
+            ownPriceTierCounts,
         };
     }
 
@@ -411,9 +476,12 @@ export class ListCollectionBiddingBidBookUseCase {
         limit: number;
         cursor: string | null;
         ownStateFilter: CollectionBiddingBidBookOwnStateFilter | null;
+        priceTierFilter: CollectionBiddingBidBookPriceTierFilter | null;
+        priceTiers: TradingBiddingBidBookPriceTier[];
     }): {
         page: PersistedTokenOfferCardsPage;
         ownBidStateCounts: TradingBiddingBidBookOwnStateCounts;
+        ownPriceTierCounts: TradingBiddingBidBookPriceTierCounts;
     } {
         const attributes = {
             [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
@@ -451,18 +519,22 @@ export class ListCollectionBiddingBidBookUseCase {
         if (tokenIds.length === 0) {
             return {
                 page: emptyTokenOfferCardsPage(params.limit),
-                ownBidStateCounts: countBiddingBidBookOwnStates([]),
+                ...countBiddingBidBookOwnFilters([], params, params.priceTiers),
             };
         }
 
         if (!hasTokenOfferCardTraitFilters(params)) {
-            const ownBidStateCounts = countTokenOfferOwnStates(offersByTokenId);
-            const matchedOffers = filterTokenOfferGroupsByOwnState(
+            const counts = countTokenOfferOwnFilters(
                 offersByTokenId,
-                params.ownStateFilter,
+                params,
+                params.priceTiers,
+            );
+            const matchedOffers = filterTokenOfferGroupsByOwnFilters(
+                offersByTokenId,
+                params,
             );
             const matchedTokenIds =
-                params.ownStateFilter === null
+                !params.ownStateFilter && !params.priceTierFilter
                     ? tokenIds
                     : sortTokenIdsByTopOffer(matchedOffers);
             const marketplaceBiddingSupportedTotalItems =
@@ -494,7 +566,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     }),
             );
             return {
-                ownBidStateCounts,
+                ...counts,
                 page: {
                     ...tokenIdPage,
                     items: this.hydrateTokenOfferCards({
@@ -515,16 +587,18 @@ export class ListCollectionBiddingBidBookUseCase {
             offersByTokenId,
             tokenOfferGroupsCount: tokenIds.length,
         });
-        const ownBidStateCounts = countTokenOfferOwnStates(
+        const counts = countTokenOfferOwnFilters(
             offersByTokenId,
+            params,
+            params.priceTiers,
             tokenOfferCards.map((card) => card.token.tokenId),
         );
-        const matchedOffers = filterTokenOfferGroupsByOwnState(
+        const matchedOffers = filterTokenOfferGroupsByOwnFilters(
             offersByTokenId,
-            params.ownStateFilter,
+            params,
         );
         const matchedCards =
-            params.ownStateFilter === null
+            !params.ownStateFilter && !params.priceTierFilter
                 ? tokenOfferCards
                 : reorderTokenOfferCards(tokenOfferCards, matchedOffers);
         const page = this.apm.withSyncSpan(
@@ -548,7 +622,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     cursor: params.cursor,
                 }),
         );
-        return { page, ownBidStateCounts };
+        return { page, ...counts };
     }
 
     private hydrateTokenOfferCards(params: {
