@@ -6,6 +6,8 @@ export const LOCAL_STORAGE_KEYS = {
 	traitFacetPanelCollapsed: 'artgod.traitFacetPanel.collapsed',
 	// Remembers the token preview modal zoom/scale percentage.
 	tokenPreviewScalePercent: 'artgod.tokenBrowser.previewScalePercent',
+	// Remembers summary, an exact trait page, or hidden output across token previews.
+	tokenPreviewTraitDisplay: 'artgod.tokenPreview.traitDisplay.v1',
 	// Remembers that the mobile preview swipe hint has been dismissed.
 	tokenPreviewSwipeHintDismissed: 'artgod.tokenPreview.swipeHintDismissed'
 } as const;

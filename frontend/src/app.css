@@ -3197,6 +3197,59 @@ a.bid-book-own-status:focus-visible {
 	pointer-events: none;
 }
 
+.token-preview-traits {
+	position: relative;
+	flex: none;
+}
+
+/* Float outside the control stack so traits never size or displace the media. */
+.token-preview-traits-output {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + 0.3rem);
+	width: min(26ch, var(--token-preview-available-width));
+	max-height: max(
+		0px,
+		calc(var(--token-preview-available-height) - 4 * (var(--token-preview-control-height) + 0.3rem))
+	);
+	margin: 0;
+	overflow: hidden;
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	font-size: 0.55rem;
+	line-height: 1.1;
+	text-align: right;
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+}
+
+.token-preview-trait-row {
+	display: grid;
+	grid-template-columns: minmax(0, 10ch) minmax(0, 15ch);
+	column-gap: 1ch;
+	white-space: nowrap;
+}
+
+.token-preview-trait-row dt,
+.token-preview-trait-row dd {
+	margin: 0;
+	overflow: hidden;
+}
+
+.token-preview-trait-row dd {
+	text-align: left;
+}
+
+.token-preview-trait-row a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.token-preview-trait-row a:hover,
+.token-preview-trait-row a:focus-visible {
+	color: var(--c-yellow);
+	outline: none;
+}
+
 .token-preview-navigation-buttons,
 .token-preview-media-mode-buttons {
 	display: inline-flex;

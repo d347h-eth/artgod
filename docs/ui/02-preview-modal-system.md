@@ -173,9 +173,10 @@ The current preview system has these responsibilities:
 Backend/read-contract notes:
 
 - the preview modal uses a dedicated lightweight backend read contract, not the full token-detail endpoint
-- the token payload contains only `tokenId`, `image`, and `animationUrl`; the
-  response also carries collection source/preference state and token-local
-  variant state
+- the token payload contains `tokenId`, `image`, `animationUrl`, normalized
+  `attributes`, and `traitSummary` rendered with the effective token-card
+  template; it does not read detail-page market or rarity data. The response
+  also carries collection source/preference state and token-local variant state
 - activity-event preview keeps its separate extension render-mode contract
 - only snapshot token previews are eligible for preview caching
 - request-time live media must bypass backend/frontend preview caches and
@@ -204,6 +205,38 @@ Activity-event previews are a distinct flow. Their extension-provided render
 modes remain one flat row and must not be presented as token source/variant
 choices.
 
+## Trait Controls
+
+Token previews show `traits` above the navigation arrows in the bottom-right
+control corner, including when a token has no source or version choices. Touch
+previews keep this trait control at the right edge alongside their existing
+centered media controls. Activity-event previews retain their media-only controls.
+
+The initial output uses the effective token-card trait summary template, including
+its line breaks. An empty template produces no summary. Clicking `traits` cycles
+through the normalized traits in pages of at most 20 key/value pairs, then no
+output, then the summary again. Tokens without traits skip the key/value pages.
+
+The key/value text is one compact column. Keys are cut to 10 Unicode code points
+and values to 15, without ellipses or masks; whitespace within a key or value
+stays on one line. Only values in these pages link to matching collection tokens,
+using the complete key/value and current media selection. Values that cannot
+round-trip through the existing trait-filter query grammar remain plain text.
+The template summary has no filter links.
+
+The text uses smaller muted type with no panel, border, background, or row chrome.
+It floats above the button within a fixed width and viewport-bounded height,
+outside the control stack's layout. Neither long traits nor template text can
+resize or reposition the centered media or its controls. Trait links inherit the
+muted text color and use the normal yellow hover/focus treatment.
+
+The display mode and exact zero-based trait page are a global browser preference,
+registered in `local-storage-keys.ts`. Opening another token restores that
+preference and clamps a remembered page to the token's last available page;
+with no trait pages it becomes hidden. Clamping waits for a successful response,
+so loading and request errors do not erase the remembered choice. Storage
+failures leave the in-memory preference usable.
+
 ## Current UX Behavior
 
 - open onto a dimmed backdrop
@@ -231,6 +264,9 @@ choices.
 - `frontend/src/routes/+layout.svelte` owns the single shared modal host.
 - `frontend/src/lib/components/TokenPreviewOverlay.svelte` owns overlay layout,
   controls, focus, scroll lock, touch gestures, and visible request states.
+- `frontend/src/lib/components/TokenPreviewTraits.svelte` renders the compact
+  floating summary and trait pages. `token-preview-traits.ts` owns the display
+  cycle and limits; `token-preview-traits-browser.ts` owns persistence and links.
 - `frontend/src/lib/components/token-preview-controller.ts` owns requests,
   adjacent navigation, source/variant state, cache eligibility, retry, and
   shortcuts.

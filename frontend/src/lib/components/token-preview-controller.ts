@@ -9,6 +9,7 @@ import type {
 	ApiCollectionMediaPreference,
 	ApiTokenMediaVariantOption,
 	ApiTokenMediaState,
+	ApiTokenAttribute,
 	TokenPreviewApiResponse
 } from '$lib/api-types';
 import { getActivityEventPreview, getTokenPreview } from '$lib/backend-api';
@@ -20,6 +21,15 @@ import {
 	type TokenMediaIframeSource
 } from '$lib/token-media';
 import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
+import {
+	clampTokenPreviewTraitDisplay,
+	nextTokenPreviewTraitDisplay,
+	type TokenPreviewTraitDisplay
+} from '$lib/token-preview-traits';
+import {
+	persistTokenPreviewTraitDisplay,
+	readTokenPreviewTraitDisplay
+} from '$lib/token-preview-traits-browser';
 
 const DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
@@ -90,6 +100,9 @@ export type TokenPreviewState = {
 	requestedMediaVariant: string | null;
 	previewContext: TokenPreviewContext | null;
 	scalePercent: number;
+	attributes: ApiTokenAttribute[];
+	traitSummary: string | null;
+	traitDisplay: TokenPreviewTraitDisplay;
 	aspectRatio: number | null;
 	errorMessage: string | null;
 	canNavigatePrevious: boolean;
@@ -113,6 +126,7 @@ export type TokenPreviewController = {
 	setTokenPreviewMediaVariant(nextVariant: string): Promise<void>;
 	cycleTokenPreviewMediaMode(): Promise<void>;
 	cycleTokenPreviewMediaVariant(): Promise<void>;
+	cycleTokenPreviewTraits(): void;
 	retryTokenPreview(): Promise<void>;
 	navigatePreviousTokenPreview(): Promise<void>;
 	navigateNextTokenPreview(): Promise<void>;
@@ -138,6 +152,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 		requestedMediaVariant: null,
 		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
+		attributes: [],
+		traitSummary: null,
+		traitDisplay: readTokenPreviewTraitDisplay(),
 		aspectRatio: null,
 		errorMessage: null,
 		canNavigatePrevious: false,
@@ -192,6 +209,11 @@ export function createTokenPreviewController(): TokenPreviewController {
 				...current,
 				open: true,
 				status: TOKEN_PREVIEW_STATUS.Loading,
+				traitDisplay: current.open
+					? current.traitDisplay
+					: readTokenPreviewTraitDisplay(current.traitDisplay),
+				attributes: keepDisplayedMedia ? current.attributes : [],
+				traitSummary: keepDisplayedMedia ? current.traitSummary : null,
 				tokenId: keepDisplayedMedia ? current.tokenId : tokenId,
 				chainRef,
 				collectionRef,
@@ -225,23 +247,35 @@ export function createTokenPreviewController(): TokenPreviewController {
 			}
 			const tokenMedia = previewContext ? null : (preview.response.media as ApiTokenMediaState);
 
-			state.update((current) => ({
-				...current,
-				open: true,
-				status: TOKEN_PREVIEW_STATUS.Ready,
-				iframeSource: preview.iframeSource,
-				tokenId: preview.response.token.tokenId,
-				selectedMediaMode: preview.response.media.selectedMode,
-				availableMediaModes: preview.response.media.availableModes,
-				mediaPreference: tokenMedia?.preference ?? null,
-				selectedMediaVariant: tokenMedia?.selectedVariant ?? null,
-				defaultMediaVariant: tokenMedia?.defaultVariant ?? null,
-				availableMediaVariants: tokenMedia?.availableVariants ?? [],
-				requestedMediaVariant: mediaVariant,
-				previewContext,
-				...resolveAdjacentAvailability(preview.response.token.tokenId),
-				errorMessage: null
-			}));
+			const token = preview.response.token;
+			const attributes = 'attributes' in token ? token.attributes : [];
+			const traitSummary = 'traitSummary' in token ? token.traitSummary : null;
+			state.update((current) => {
+				const traitDisplay = previewContext
+					? current.traitDisplay
+					: clampTokenPreviewTraitDisplay(current.traitDisplay, attributes.length);
+				if (traitDisplay !== current.traitDisplay) persistTokenPreviewTraitDisplay(traitDisplay);
+				return {
+					...current,
+					open: true,
+					status: TOKEN_PREVIEW_STATUS.Ready,
+					iframeSource: preview.iframeSource,
+					tokenId: preview.response.token.tokenId,
+					selectedMediaMode: preview.response.media.selectedMode,
+					availableMediaModes: preview.response.media.availableModes,
+					mediaPreference: tokenMedia?.preference ?? null,
+					selectedMediaVariant: tokenMedia?.selectedVariant ?? null,
+					defaultMediaVariant: tokenMedia?.defaultVariant ?? null,
+					availableMediaVariants: tokenMedia?.availableVariants ?? [],
+					requestedMediaVariant: mediaVariant,
+					previewContext,
+					attributes,
+					traitSummary,
+					traitDisplay,
+					...resolveAdjacentAvailability(preview.response.token.tokenId),
+					errorMessage: null
+				};
+			});
 			prefetchAdjacentNeighbors({
 				...request,
 				tokenId: preview.response.token.tokenId,
@@ -376,6 +410,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 			availableMediaVariants: [],
 			requestedMediaVariant: null,
 			previewContext: null,
+			attributes: [],
+			traitSummary: null,
 			aspectRatio: null,
 			errorMessage: null,
 			canNavigatePrevious: false,
@@ -440,6 +476,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 			open: true,
 			status: TOKEN_PREVIEW_STATUS.Error,
 			iframeSource: null,
+			attributes: [],
+			traitSummary: null,
 			errorMessage: message
 		}));
 	}
@@ -482,6 +520,18 @@ export function createTokenPreviewController(): TokenPreviewController {
 		setScalePercent(get(state).scalePercent + delta);
 	}
 
+	function cycleTokenPreviewTraits(): void {
+		const current = get(state);
+		if (!current.open || current.previewContext || current.status !== TOKEN_PREVIEW_STATUS.Ready)
+			return;
+		const traitDisplay = nextTokenPreviewTraitDisplay(
+			current.traitDisplay,
+			current.attributes.length
+		);
+		persistTokenPreviewTraitDisplay(traitDisplay);
+		state.update((value) => ({ ...value, traitDisplay }));
+	}
+
 	function setScalePercent(value: number): void {
 		const next = clampTokenPreviewScalePercent(value);
 		persistScalePercent(next);
@@ -515,6 +565,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		setTokenPreviewMediaVariant,
 		cycleTokenPreviewMediaMode,
 		cycleTokenPreviewMediaVariant,
+		cycleTokenPreviewTraits,
 		retryTokenPreview,
 		navigatePreviousTokenPreview,
 		navigateNextTokenPreview,

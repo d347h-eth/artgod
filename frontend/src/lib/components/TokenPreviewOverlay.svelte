@@ -2,6 +2,9 @@
 	import { browser } from '$app/env';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import TokenPreviewTraits from '$lib/components/TokenPreviewTraits.svelte';
+	import type { ApiTokenAttribute } from '$lib/api-types';
+	import { buildTokenPreviewTraitHref } from '$lib/token-preview-traits-browser';
 	import { resolvePreviewBackdropGesture } from '$lib/preview-backdrop-gesture';
 	import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 	import {
@@ -32,6 +35,18 @@
 	let swipeHintDismissed = $state(false);
 	let touchModeButtonsFit = $state(false);
 	let wasOpen = $state(false);
+	const TRAITS_CONTROL_ID = 'traits';
+
+	function traitHref(trait: ApiTokenAttribute): string | null {
+		if (!$tokenPreviewState.chainRef || !$tokenPreviewState.collectionRef) return null;
+		return buildTokenPreviewTraitHref({
+			chainRef: $tokenPreviewState.chainRef,
+			collectionRef: $tokenPreviewState.collectionRef,
+			trait,
+			mediaMode: $tokenPreviewState.selectedMediaMode,
+			mediaPreference: $tokenPreviewState.mediaPreference
+		});
+	}
 
 	function onBackdropClick(event: MouseEvent): void {
 		if (event.target !== event.currentTarget) return;
@@ -283,13 +298,14 @@
 		return !$tokenPreviewState.previewContext && $tokenPreviewState.availableMediaVariants.length > 0;
 	}
 
-	function shouldRenderDesktopControls(): boolean {
+	function shouldRenderCornerControls(): boolean {
 		return (
-			!isTouchLikePreviewEnvironment &&
-			($tokenPreviewState.canNavigatePrevious ||
-				$tokenPreviewState.canNavigateNext ||
-				hasSourceModeControls() ||
-				hasVariantControls())
+			!$tokenPreviewState.previewContext ||
+			(!isTouchLikePreviewEnvironment &&
+				($tokenPreviewState.canNavigatePrevious ||
+					$tokenPreviewState.canNavigateNext ||
+					hasSourceModeControls() ||
+					hasVariantControls()))
 		);
 	}
 
@@ -426,9 +442,20 @@
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeydown}
 	>
-		{#if shouldRenderDesktopControls()}
+		{#if shouldRenderCornerControls()}
 			<div class="token-preview-controls">
-				{#if $tokenPreviewState.canNavigatePrevious || $tokenPreviewState.canNavigateNext}
+				{#if !$tokenPreviewState.previewContext}
+					<TokenPreviewTraits
+						state={$tokenPreviewState}
+						{traitHref}
+						onCycle={() => tokenPreview.cycleTokenPreviewTraits()}
+						onNavigate={() => tokenPreview.closeTokenPreview()}
+						hovered={hoveredPreviewControl === TRAITS_CONTROL_ID}
+						onpointerenter={(event) => onPreviewControlPointerenter(TRAITS_CONTROL_ID, event)}
+						onpointerleave={() => onPreviewControlPointerleave(TRAITS_CONTROL_ID)}
+					/>
+				{/if}
+				{#if !isTouchLikePreviewEnvironment && ($tokenPreviewState.canNavigatePrevious || $tokenPreviewState.canNavigateNext)}
 					<div class="token-preview-navigation-buttons" aria-label="Preview navigation">
 						<button
 							type="button"
@@ -457,7 +484,7 @@
 					</div>
 				{/if}
 
-				{#if hasSourceModeControls()}
+				{#if !isTouchLikePreviewEnvironment && hasSourceModeControls()}
 					<div
 						class="token-preview-media-mode-buttons"
 						aria-label={$tokenPreviewState.previewContext
@@ -486,7 +513,7 @@
 					</div>
 				{/if}
 
-				{#if hasVariantControls()}
+				{#if !isTouchLikePreviewEnvironment && hasVariantControls()}
 					<div class="token-preview-media-mode-buttons" aria-label="Preview media version">
 						{#each $tokenPreviewState.availableMediaVariants as variant}
 							<button
