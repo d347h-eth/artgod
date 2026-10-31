@@ -568,7 +568,9 @@ yarn security:yarn:verify
   and transitive dependencies, including low-severity issues. Deprecation notices
   are separate from vulnerability findings.
 - `yarn security:yarn:test-patches` tests the actual patched dependency used by
-  the Svelte build plugin. The exact deepmerge advisory exclusion in `.yarnrc.yml`
+  the Svelte build plugin, glob cancellation, minimatch expansion limits, and
+  compatibility of the security overrides with ESLint and Testcontainers' Archiver.
+  The exact deepmerge advisory exclusion in `.yarnrc.yml`
   is justified by that regression test and its committed Yarn patch; it does not
   exclude other packages or advisories.
 - `yarn security:yarn:verify` runs these checks in sequence and is the default
