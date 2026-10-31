@@ -3568,7 +3568,7 @@ describe("backend api routes", () => {
         ).toEqual([]);
     });
 
-    it("returns token preview with only media payload needed by the modal", async () => {
+    it("returns lightweight token preview media and the token-card trait presentation", async () => {
         const result = await resolve(
             "GET",
             "/api/ethereum/terraforms/7710/preview",
@@ -3602,10 +3602,14 @@ describe("backend api routes", () => {
             TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain,
             TERRAFORMS_MEDIA_VARIANT_OPTIONS.V0,
         ]);
+        const card = await resolve("GET", "/api/ethereum/terraforms/7710/card");
+        expect(card.statusCode).toBe(200);
         expect(result.payload.token).toEqual({
             tokenId: "7710",
             image: "data:image/svg+xml;base64,terraforms-v2-image",
             animationUrl: `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
+            attributes: card.payload.token.attributes,
+            traitSummary: card.payload.token.traitSummary,
         });
     });
 
@@ -5203,6 +5207,12 @@ describe("backend api routes", () => {
         );
         expect(card.statusCode).toBe(200);
         expect(card.payload.token.traitSummary).toBe("P7");
+        const preview = await resolve("GET", "/api/ethereum/milady/1/preview");
+        expect(preview.statusCode).toBe(200);
+        expect(preview.payload.token.traitSummary).toBe("P7");
+        expect(preview.payload.token.attributes).toEqual(
+            card.payload.token.attributes,
+        );
 
         const activity = await resolve(
             "GET",

@@ -3,12 +3,17 @@ import { appendCollectionMediaParams, type CollectionMediaPreferenceInput } from
 import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
+export const COLLECTION_CUSTOMIZATION_SECTION = {
+	TokenCardTraitSummaryTemplate: 'token-card-trait-summary-template'
+} as const;
+
 export function buildCollectionCustomizationHref(params: {
 	basePath: string;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
+	section?: (typeof COLLECTION_CUSTOMIZATION_SECTION)[keyof typeof COLLECTION_CUSTOMIZATION_SECTION];
 }): string {
 	const query = new URLSearchParams();
 	appendCollectionMediaParams(query, {
@@ -17,5 +22,6 @@ export function buildCollectionCustomizationHref(params: {
 	});
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
-	return withQuery(joinPath(params.basePath, 'customization'), query);
+	const href = withQuery(joinPath(params.basePath, 'customization'), query);
+	return params.section ? `${href}#${params.section}` : href;
 }

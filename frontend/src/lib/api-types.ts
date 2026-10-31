@@ -345,7 +345,7 @@ export type ApiTokenDetail = {
 	metadataUpdatedAt: string | null;
 };
 
-export type ApiTokenPreview = Pick<ApiTokenDetail, 'tokenId' | 'image' | 'animationUrl'>;
+export type ApiTokenPreview = import('@artgod/shared/types/browse').TokenPreview;
 
 export type ApiTokensPage = {
 	items: ApiTokenCard[];
@@ -884,7 +884,7 @@ export type TokenCardApiResponse = {
 
 export type ActivityEventPreviewApiResponse = {
 	media: ApiCollectionMediaState;
-	token: ApiTokenPreview;
+	token: Pick<ApiTokenDetail, 'tokenId' | 'image' | 'animationUrl'>;
 };
 
 export type TokenActivitiesApiResponse = {

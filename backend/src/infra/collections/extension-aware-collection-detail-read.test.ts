@@ -10,7 +10,7 @@ import {
 import type {
     CollectionListItem,
     TokenCard,
-    TokenMediaPreview,
+    TokenPreview,
     TokenBrowserStatus,
     TraitCatalogFacet,
     TraitFacet,
@@ -353,12 +353,14 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         const readModel = new ExtensionAwareCollectionDetailRead(
             {
                 ...createBaseReadPort(),
-                getCollectionTokenPreview(): TokenMediaPreview {
+                getCollectionTokenPreview(): TokenPreview {
                     basePreviewReads += 1;
                     return {
                         tokenId: "7710",
                         image: "canonical-image",
                         animationUrl: "snapshot-animation",
+                        attributes: [{ key: "Mode", value: "Terrain" }],
+                        traitSummary: null,
                     };
                 },
             },
@@ -422,6 +424,9 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             TERRAFORMS_MEDIA_VARIANTS.V2,
         );
         expect(presentation.token.image).toBe("canonical-image");
+        expect(presentation.token.attributes).toEqual([
+            { key: "Mode", value: "Terrain" },
+        ]);
         expect(
             Buffer.from(
                 presentation.token.animationUrl!.split(",")[1]!,

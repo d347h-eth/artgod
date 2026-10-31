@@ -387,6 +387,8 @@ async function installMediaApiMock(page: Page): Promise<MediaApiMock> {
 				media,
 				token: {
 					tokenId,
+					attributes: [],
+					traitSummary: null,
 					image: null,
 					animationUrl: mediaDocumentUrl(media.selectedMode, media.selectedVariant)
 				}

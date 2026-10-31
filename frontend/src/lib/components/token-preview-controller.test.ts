@@ -29,6 +29,7 @@ import {
 	TOKEN_PREVIEW_STATUS,
 	tokenPreviewStyle
 } from './token-preview-controller';
+import { TOKEN_PREVIEW_TRAITS_MODE } from '$lib/token-preview-traits';
 
 // Test-owned extension vocabulary exercises the generic controller boundary.
 const TEST_MEDIA = {
@@ -75,6 +76,57 @@ describe('token-preview-controller', () => {
 	beforeEach(() => {
 		getActivityEventPreviewMock.mockReset();
 		getTokenPreviewMock.mockReset();
+	});
+
+	it('retains trait mode while loading, clamps its page on the next token, and preserves hidden output', async () => {
+		const attributes = Array.from({ length: 41 }, (_, index) => ({
+			key: `Trait ${index}`,
+			value: `${index}`
+		}));
+		getTokenPreviewMock.mockResolvedValueOnce(
+			tokenResponse({ media: snapshotMedia(), attributes, traitSummary: 'All traits' })
+		);
+		const controller = createTokenPreviewController();
+		await openSnapshot(controller);
+		expect(get(controller.state).traitSummary).toBe('All traits');
+		controller.cycleTokenPreviewTraits();
+		controller.cycleTokenPreviewTraits();
+		controller.cycleTokenPreviewTraits();
+		expect(get(controller.state).traitDisplay).toEqual({
+			mode: TOKEN_PREVIEW_TRAITS_MODE.Page,
+			page: 2
+		});
+		controller.closeTokenPreview();
+
+		const pending = createDeferred<TokenPreviewApiResponse>();
+		getTokenPreviewMock.mockReturnValueOnce(pending.promise);
+		const opening = controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			tokenId: '2',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableMediaModes: SOURCE_OPTIONS
+		});
+		controller.cycleTokenPreviewTraits();
+		expect(get(controller.state).traitDisplay).toEqual({
+			mode: TOKEN_PREVIEW_TRAITS_MODE.Page,
+			page: 2
+		});
+		pending.resolve(
+			tokenResponse({ media: snapshotMedia(), tokenId: '2', attributes: attributes.slice(0, 21) })
+		);
+		await opening;
+		expect(get(controller.state).traitDisplay).toEqual({
+			mode: TOKEN_PREVIEW_TRAITS_MODE.Page,
+			page: 1
+		});
+		controller.cycleTokenPreviewTraits();
+		expect(get(controller.state).traitDisplay.mode).toBe(TOKEN_PREVIEW_TRAITS_MODE.Hidden);
+		controller.closeTokenPreview();
+		await openSnapshot(controller);
+		expect(get(controller.state).traitDisplay.mode).toBe(TOKEN_PREVIEW_TRAITS_MODE.Hidden);
+		controller.cycleTokenPreviewTraits();
+		expect(get(controller.state).traitDisplay.mode).toBe(TOKEN_PREVIEW_TRAITS_MODE.Summary);
 	});
 
 	it('adopts token-local media versions and omits the default preference query value', async () => {
@@ -235,6 +287,66 @@ describe('token-preview-controller', () => {
 		await controller.setTokenPreviewMediaVariant(TEST_MEDIA.Variant.ModernAlternate);
 
 		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('reads a saved template instead of reusing an empty cached summary', async () => {
+		getTokenPreviewMock
+			.mockResolvedValueOnce(tokenResponse({ media: snapshotMedia(), traitSummary: null }))
+			.mockResolvedValueOnce(
+				tokenResponse({ media: snapshotMedia(), traitSummary: 'Blue / Circle' })
+			);
+		const controller = createTokenPreviewController();
+		await openSnapshot(controller);
+		controller.closeTokenPreview();
+		controller.invalidateTokenPreviewCache();
+		await openSnapshot(controller);
+		expect(get(controller.state).traitSummary).toBe('Blue / Circle');
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
+		controller.closeTokenPreview();
+		await openSnapshot(controller);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('prevents old prefetches from replacing or evicting a request made after a template save', async () => {
+		const oldPrefetch = createDeferred<TokenPreviewApiResponse>();
+		const freshRead = createDeferred<TokenPreviewApiResponse>();
+		getTokenPreviewMock
+			.mockResolvedValueOnce(tokenResponse({ media: snapshotMedia() }))
+			.mockReturnValueOnce(oldPrefetch.promise)
+			.mockReturnValueOnce(freshRead.promise);
+		const controller = createTokenPreviewController();
+		await controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'collection',
+			tokenId: '1',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableMediaModes: SOURCE_OPTIONS,
+			adjacentTokenResolver: adjacentPair
+		});
+		await flush();
+		controller.closeTokenPreview();
+		controller.invalidateTokenPreviewCache();
+		const params = {
+			chainRef: 'ethereum',
+			collectionRef: 'collection',
+			tokenId: '2',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableMediaModes: SOURCE_OPTIONS
+		};
+		const firstOpen = controller.openTokenPreview(params);
+		oldPrefetch.resolve(
+			tokenResponse({ media: snapshotMedia(), tokenId: '2', traitSummary: 'old' })
+		);
+		await flush();
+		const repeatedOpen = controller.openTokenPreview(params);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
+		freshRead.resolve(tokenResponse({ media: snapshotMedia(), tokenId: '2', traitSummary: 'new' }));
+		await Promise.all([firstOpen, repeatedOpen]);
+		expect(get(controller.state).traitSummary).toBe('new');
+		controller.closeTokenPreview();
+		await controller.openTokenPreview(params);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(3);
+		expect(get(controller.state).traitSummary).toBe('new');
 	});
 
 	it('keeps current media visible while a source switch is in flight', async () => {
@@ -539,10 +651,14 @@ function tokenResponse(input: {
 	tokenId?: string;
 	image?: string | null;
 	animationUrl?: string | null;
+	attributes?: TokenPreviewApiResponse['token']['attributes'];
+	traitSummary?: string | null;
 }): TokenPreviewApiResponse {
 	return {
 		token: {
 			tokenId: input.tokenId ?? '1',
+			attributes: input.attributes ?? [],
+			traitSummary: input.traitSummary ?? null,
 			image: input.image ?? null,
 			animationUrl:
 				input.animationUrl === undefined ? 'https://example.com/1.html' : input.animationUrl

@@ -24,6 +24,8 @@ vi.mock('$lib/components/token-preview-controller', async (importOriginal) => {
 });
 
 import TokenPreviewOverlay from './TokenPreviewOverlay.svelte';
+import { TOKEN_PREVIEW_TRAITS_MODE } from '$lib/token-preview-traits';
+import { COLLECTION_CUSTOMIZATION_SECTION } from '$lib/customization-query';
 
 const TEST_MEDIA_VARIANT = {
 	Artifact: { key: 'test-artifact', label: 'test artifact' }
@@ -99,6 +101,62 @@ describe('TokenPreviewOverlay', () => {
 		expect(body).toContain('aria-label="Preview event mode"');
 		expect(body).not.toContain('aria-label="Preview source"');
 		expect(body).not.toContain('aria-label="Preview media version"');
+		expect(body).not.toContain('token-preview-traits-output');
+	});
+
+	it('renders the configured summary above traits and navigation without filter links', () => {
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(
+				previewState({
+					traitSummary: 'Terrain / 7\nForest',
+					canNavigateNext: true
+				})
+			)
+		);
+		const { body } = render(TokenPreviewOverlay);
+		expect(body).toContain('Terrain / 7\nForest');
+		expect(body.indexOf('Token traits')).toBeLessThan(body.indexOf('>traits</button>'));
+		expect(body.indexOf('>traits</button>')).toBeLessThan(body.indexOf('Preview navigation'));
+		expect(body).not.toContain('<a ');
+	});
+
+	it('links an empty summary to its collection template editor while hidden stays empty', () => {
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(previewState({ traitSummary: null }))
+		);
+		const summary = render(TokenPreviewOverlay).body;
+		expect(summary).toContain('>customize</a>');
+		expect(summary).toContain(
+			`/ethereum/terraforms/customization?media_mode=snapshot#${COLLECTION_CUSTOMIZATION_SECTION.TokenCardTraitSummaryTemplate}`
+		);
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(
+				previewState({
+					traitSummary: null,
+					traitDisplay: { mode: TOKEN_PREVIEW_TRAITS_MODE.Hidden }
+				})
+			)
+		);
+		const hidden = render(TokenPreviewOverlay).body;
+		expect(hidden).not.toContain('>customize</a>');
+		expect(hidden).not.toContain('aria-label="Token traits"');
+	});
+
+	it('clips trait text without changing the full filter identity or rendering metadata HTML', () => {
+		getTokenPreviewControllerMock.mockReturnValue(
+			previewController(
+				previewState({
+					traitDisplay: { mode: TOKEN_PREVIEW_TRAITS_MODE.Page, page: 0 },
+					attributes: [{ key: 'Long trait label', value: '<script>some very long value</script>' }]
+				})
+			)
+		);
+		const { body } = render(TokenPreviewOverlay);
+		expect(body).toContain('Long trait');
+		expect(body).toContain('&lt;script>some ve');
+		expect(body).toContain('Long+trait+label%3A%3Cscript%3Esome+very+long+value%3C%2Fscript%3E');
+		expect(body).not.toContain('<script>');
+		expect(body).not.toContain('…');
 	});
 });
 
@@ -119,6 +177,9 @@ function previewState(overrides: Partial<TokenPreviewState>): TokenPreviewState 
 		requestedMediaVariant: null,
 		previewContext: null,
 		scalePercent: 100,
+		attributes: [],
+		traitSummary: null,
+		traitDisplay: { mode: TOKEN_PREVIEW_TRAITS_MODE.Summary },
 		aspectRatio: 1,
 		errorMessage: null,
 		canNavigatePrevious: false,
@@ -135,6 +196,8 @@ function previewController(state: TokenPreviewState): TokenPreviewController {
 		setTokenPreviewMediaVariant: vi.fn(),
 		cycleTokenPreviewMediaMode: vi.fn(),
 		cycleTokenPreviewMediaVariant: vi.fn(),
+		cycleTokenPreviewTraits: vi.fn(),
+		invalidateTokenPreviewCache: vi.fn(),
 		retryTokenPreview: vi.fn(),
 		navigatePreviousTokenPreview: vi.fn(),
 		navigateNextTokenPreview: vi.fn(),

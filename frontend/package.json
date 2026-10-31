@@ -20,6 +20,7 @@
 		"test:unit": "vitest",
 		"test": "vitest --run",
 		"test:preview:attached": "yarn prepare && playwright test -c playwright.attached.config.ts",
+		"test:preview:traits": "yarn prepare && playwright test -c playwright.preview-traits.config.ts",
 		"test:preview:attached:headed": "yarn prepare && playwright test -c playwright.attached.config.ts --headed",
 		"test:preview:attached:artifacts": "yarn prepare && ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts",
 		"test:preview:attached:headed:artifacts": "yarn prepare && ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts --headed",

@@ -72,21 +72,22 @@ export function isOpenSeaStreamIngestionStatus(
 ): status is OpenSeaStreamIngestionStatus {
     return Boolean(
         status &&
-            OPENSEA_STREAM_INGESTION_STATUSES.includes(
-                status as OpenSeaStreamIngestionStatus,
-            ),
+        OPENSEA_STREAM_INGESTION_STATUSES.includes(
+            status as OpenSeaStreamIngestionStatus,
+        ),
     );
 }
 
 // OpenSea statuses that represent an in-flight collection sync.
-export const ACTIVE_OPENSEA_COLLECTION_STATUSES: readonly OpenSeaCollectionStatus[] = [
-    OPENSEA_COLLECTION_STATUS.Pending,
-    OPENSEA_COLLECTION_STATUS.IdentityRunning,
-    OPENSEA_COLLECTION_STATUS.Subscribing,
-    OPENSEA_COLLECTION_STATUS.SnapshotPending,
-    OPENSEA_COLLECTION_STATUS.SnapshotRunning,
-    OPENSEA_COLLECTION_STATUS.Retrying,
-];
+export const ACTIVE_OPENSEA_COLLECTION_STATUSES: readonly OpenSeaCollectionStatus[] =
+    [
+        OPENSEA_COLLECTION_STATUS.Pending,
+        OPENSEA_COLLECTION_STATUS.IdentityRunning,
+        OPENSEA_COLLECTION_STATUS.Subscribing,
+        OPENSEA_COLLECTION_STATUS.SnapshotPending,
+        OPENSEA_COLLECTION_STATUS.SnapshotRunning,
+        OPENSEA_COLLECTION_STATUS.Retrying,
+    ];
 
 // Keeps backend guards and frontend actions aligned for OpenSea sync availability.
 export function isOpenSeaCollectionSyncActive(
@@ -249,6 +250,12 @@ export type TokenMediaPreview = {
     tokenId: string;
     image: string | null;
     animationUrl: string | null;
+};
+
+// Fullscreen token inspection adds normalized traits without detail-page market reads.
+export type TokenPreview = TokenMediaPreview & {
+    attributes: TokenAttribute[];
+    traitSummary: string | null;
 };
 
 export type TokenDetail = TokenMarketplaceBiddingSupport & {

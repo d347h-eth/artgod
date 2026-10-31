@@ -1,7 +1,7 @@
 import type {
     ChainRecord,
     CollectionListItem,
-    TokenMediaPreview,
+    TokenPreview,
     TokenMediaState,
 } from "@artgod/shared/types/browse";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@artgod/shared/extensions";
 import {
     COLLECTION_MEDIA_PURPOSE,
+    renderTraitSummaryTemplate,
     type MediaPurposePolicyFeatureState,
 } from "@artgod/shared/types";
 import { applyMediaPurposePolicyToTokenMedia } from "./media-purpose-policy.js";
@@ -24,8 +25,6 @@ export type GetTokenPreviewInput = {
     mediaPreference?: CollectionMediaPreferenceValue;
     mediaVariant?: string;
 };
-
-export type TokenPreview = TokenMediaPreview;
 
 export type GetTokenPreviewOutput = {
     media: TokenMediaState;
@@ -52,7 +51,7 @@ type CollectionDetailReadPort = {
         mediaVariant?: string;
     }): MaybePromise<{
         media: TokenMediaState;
-        token: TokenMediaPreview;
+        token: TokenPreview;
     }>;
 };
 
@@ -71,6 +70,10 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 chainId: number;
                 collectionId: number;
             }): MediaPurposePolicyFeatureState;
+            getTokenCardTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): { effectiveConfig: { template: string } };
         },
     ) {}
 
@@ -110,6 +113,11 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                       purpose: COLLECTION_MEDIA_PURPOSE.FullscreenPreview,
                   })
                 : token;
+        const template =
+            this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            }).effectiveConfig.template;
 
         return {
             media,
@@ -117,6 +125,11 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
                 tokenId: presentedToken.tokenId,
                 image: presentedToken.image,
                 animationUrl: presentedToken.animationUrl,
+                attributes: token.attributes,
+                traitSummary: renderTraitSummaryTemplate(
+                    template,
+                    token.attributes,
+                ),
             },
         };
     }

@@ -692,7 +692,13 @@ test('chart links and fullscreen preview reuse media preferences and modal short
 					selectedMode: TERRAFORMS_MEDIA_MODES.Live,
 					preference: { ...BIDDING_E2E_TOKEN_MEDIA.preference!, enabled: false }
 				},
-				token: { tokenId: url.pathname.split('/').at(-2)!, image: IMAGE, animationUrl: null }
+				token: {
+					tokenId: url.pathname.split('/').at(-2)!,
+					image: IMAGE,
+					animationUrl: null,
+					attributes: [],
+					traitSummary: null
+				}
 			}
 		});
 	});

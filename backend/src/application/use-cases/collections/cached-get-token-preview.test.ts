@@ -272,6 +272,8 @@ describe("CachedGetTokenPreview", () => {
                         tokenId: input.tokenRef,
                         image: `https://example.com/${input.tokenRef}.png`,
                         animationUrl: `https://example.com/${input.tokenRef}.html`,
+                        attributes: [],
+                        traitSummary: null,
                     },
                 }),
             ),
@@ -393,6 +395,8 @@ function createPreviewOutput(
         },
         token: {
             tokenId: "7710",
+            attributes: [],
+            traitSummary: null,
             image: "data:image/svg+xml;base64,terraforms-v2-image",
             animationUrl:
                 "data:text/html;base64,PGh0bWw+PGJvZHk+dGVycmFmb3Jtcy12MjwvYm9keT48L2h0bWw+",
