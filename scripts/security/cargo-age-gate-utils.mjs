@@ -514,7 +514,8 @@ function isCargoCaretCompatible(current, candidate) {
     );
 }
 
-function compareSemver(leftVersion, rightVersion) {
+// Shared by dependency admission and the enabled-crypto regression gate.
+export function compareSemver(leftVersion, rightVersion) {
     const left = parseSemver(leftVersion);
     const right = parseSemver(rightVersion);
 

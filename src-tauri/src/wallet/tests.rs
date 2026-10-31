@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use alloy_primitives::hex;
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -78,7 +77,7 @@ fn keystore_roundtrip_and_list_flow_work() {
         metadata.address.as_str()
     );
     assert_eq!(
-        format!("0x{}", hex::encode(exported.private_key.as_bytes())),
+        exported.private_key.to_prefixed_hex().as_str(),
         TEST_PRIVATE_KEY_ONE
     );
 }
@@ -252,7 +251,7 @@ fn unlock_for_bot_start_returns_secret_once() {
 
     assert_eq!(unlocked.bot_kind, BotKind::Bidding);
     assert_eq!(
-        format!("0x{}", hex::encode(unlocked.private_key.as_bytes())),
+        unlocked.private_key.to_prefixed_hex().as_str(),
         TEST_PRIVATE_KEY_TWO
     );
 }

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Write};
 use std::path::{Path, PathBuf};
 
 use alloy_primitives::Address;
@@ -250,23 +250,38 @@ impl WalletRecord {
     }
 }
 
-/// Redacted wrapper around raw 32-byte private key material.
-pub struct WalletPrivateKey(Zeroizing<[u8; 32]>);
+/// Redacted, fixed-length private key whose protected heap allocation survives ownership moves.
+pub struct WalletPrivateKey(Zeroizing<Vec<u8>>);
 
 impl WalletPrivateKey {
-    /// Creates a private key wrapper from raw key bytes.
-    pub fn new(bytes: [u8; 32]) -> Self {
-        Self(Zeroizing::new(bytes))
+    /// Width of an Ethereum private key, including leading zero bytes.
+    pub const BYTE_LENGTH: usize = 32;
+
+    /// Takes ownership without copying plaintext through an unprotected array.
+    /// Scalar validity is checked by the keystore adapter before use.
+    pub fn from_bytes(bytes: Zeroizing<Vec<u8>>) -> Result<Self, WalletDomainError> {
+        if bytes.len() != Self::BYTE_LENGTH {
+            return Err(WalletDomainError::InvalidPrivateKeyLength);
+        }
+        Ok(Self(bytes))
     }
 
     /// Returns a borrowed view of the raw key bytes.
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// Consumes the wrapper and returns the owned zeroizing buffer.
-    pub fn into_zeroizing_bytes(self) -> Zeroizing<[u8; 32]> {
-        self.0
+    /// Encodes a native export directly into its final protected allocation.
+    pub fn to_prefixed_hex(&self) -> Zeroizing<String> {
+        const PREFIX: &str = "0x";
+        let hex_length = Self::BYTE_LENGTH * 2;
+        let mut encoded = Zeroizing::new(String::with_capacity(PREFIX.len() + hex_length));
+        encoded.push_str(PREFIX);
+        // Capacity is fixed before writing secrets; formatting directly avoids temporary hex strings.
+        for byte in self.as_bytes() {
+            write!(&mut *encoded, "{byte:02x}").expect("writing to a String is infallible");
+        }
+        encoded
     }
 }
 
@@ -286,17 +301,19 @@ pub struct ValidatedWalletSecret {
 }
 
 impl ValidatedWalletSecret {
-    /// Creates validated secret material from address and raw key bytes.
-    pub fn new(address: WalletAddress, private_key: [u8; 32]) -> Self {
+    /// Pairs the derived identity with its already-protected key owner.
+    pub fn new(address: WalletAddress, private_key: WalletPrivateKey) -> Self {
         Self {
             address,
-            private_key: WalletPrivateKey::new(private_key),
+            private_key,
         }
     }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalletDomainError {
+    #[error("Wallet private key must contain exactly 32 bytes")]
+    InvalidPrivateKeyLength,
     #[error("Wallet id is invalid")]
     InvalidWalletId,
     #[error("Wallet label is required")]
@@ -310,4 +327,49 @@ pub enum WalletDomainError {
 /// Resolves the wallet record path from a wallet directory.
 pub fn keystore_path_for(wallet_dir: &Path, wallet_id: &WalletId) -> PathBuf {
     wallet_dir.join(wallet_id.keystore_file_name())
+}
+
+#[cfg(test)]
+mod private_key_tests {
+    use super::*;
+
+    #[test]
+    fn taking_key_ownership_preserves_the_protected_allocation() {
+        let bytes = Zeroizing::new(vec![0xa5; WalletPrivateKey::BYTE_LENGTH]);
+        let allocation = bytes.as_ptr();
+        let key = WalletPrivateKey::from_bytes(bytes).unwrap();
+        let validated = ValidatedWalletSecret::new(
+            WalletAddress::parse("0x0000000000000000000000000000000000000001").unwrap(),
+            key,
+        );
+        assert_eq!(validated.private_key.as_bytes().as_ptr(), allocation);
+        assert!(!format!("{validated:?}").contains(&"a5".repeat(WalletPrivateKey::BYTE_LENGTH)));
+    }
+
+    #[test]
+    fn export_preserves_prefix_width_and_leading_zeros() {
+        let mut bytes = Zeroizing::new(vec![0; WalletPrivateKey::BYTE_LENGTH]);
+        bytes[WalletPrivateKey::BYTE_LENGTH - 1] = 1;
+        let key = WalletPrivateKey::from_bytes(bytes).unwrap();
+        assert_eq!(
+            key.to_prefixed_hex().as_str(),
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
+        assert_eq!(key.as_bytes()[WalletPrivateKey::BYTE_LENGTH - 1], 1);
+    }
+
+    #[test]
+    fn key_owners_reject_noncanonical_byte_lengths() {
+        for length in [
+            0,
+            24,
+            WalletPrivateKey::BYTE_LENGTH - 1,
+            WalletPrivateKey::BYTE_LENGTH + 1,
+        ] {
+            assert_eq!(
+                WalletPrivateKey::from_bytes(Zeroizing::new(vec![1; length])).unwrap_err(),
+                WalletDomainError::InvalidPrivateKeyLength
+            );
+        }
+    }
 }

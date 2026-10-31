@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use alloy_primitives::hex;
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use zeroize::Zeroizing;
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::DesktopWalletConfig;
@@ -266,10 +264,7 @@ impl WalletCommandState {
                 sanitize_export_wallet_error(error)
             })?;
 
-        let private_key = Zeroizing::new(format!(
-            "0x{}",
-            hex::encode(exported_wallet.private_key.as_bytes())
-        ));
+        let private_key = exported_wallet.private_key.to_prefixed_hex();
         self.prompt
             .reveal_exported_private_key(
                 app,

@@ -4,6 +4,15 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 /// An error thrown when interacting with the eth-keystore crate.
 pub enum KeystoreError {
+    /// A wallet file exceeded the bounded reader's allocation budget.
+    #[error("Keystore document exceeds the size limit")]
+    DocumentTooLarge,
+    /// Unsupported or inconsistent Ethereum V3 fields. Never contains secret input.
+    #[error("Invalid keystore: {0}")]
+    InvalidKeystore(&'static str),
+    /// KDF parameters exceed the locally supported memory or CPU budget.
+    #[error("Keystore KDF exceeds the work limit")]
+    KdfWorkLimitExceeded,
     /// An error thrown while decrypting an encrypted JSON keystore if the calculated MAC does not
     /// match the MAC declared in the keystore.
     #[error("Mac Mismatch")]
@@ -20,8 +29,8 @@ pub enum KeystoreError {
     /// Invalid scrypt output length
     #[error("scrypt {0:?}")]
     ScryptInvalidOuputLen(scrypt::errors::InvalidOutputLen),
-    /// Scrypt's CPU and memory cost must be represented by a non-zero power of two.
-    #[error("scrypt N must be a non-zero power of two: {0}")]
+    /// Scrypt's CPU and memory cost must be a power of two greater than one.
+    #[error("scrypt N must be a power of two greater than one: {0}")]
     ScryptInvalidN(u32),
     /// Invalid aes key nonce length
     #[error("aes {0:?}")]
