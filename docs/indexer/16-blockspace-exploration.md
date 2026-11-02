@@ -184,124 +184,107 @@ drill-down behavior.
 
 ## Public Single-Collection Cache
 
-The public cache is implemented by
-`backend/src/infra/sync-backfill/public-collection-blockspace-cache.ts`.
+`CachedGetPublicBlockspace` in the backend application layer owns demand and
+response reuse. `SqlitePublicBlockspaceCoverage` owns the private coverage read;
+`GetSyncBackfillStateUseCase` continues to own geometry, markers, totals,
+validation, head fallback and timestamps.
 
-It is enabled only when all of these are true:
+The cache is enabled only for `public_single_collection` with a configured chain
+and collection and a query-cache provider other than `disabled`. Standard
+private/desktop reads use `SqliteSyncBackfillRepository` directly.
 
-- `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
-- `PUBLIC_APP_CHAIN_REF` and `PUBLIC_APP_COLLECTION_REF` resolve to a collection
-- `BACKEND_QUERY_CACHE_PROVIDER` is not `disabled`
+### Demand and Freshness
 
-The cache wraps the `SyncBackfillReadPort` used by the public blockspace read
-use case. Standard desktop/userland blockspace reads continue to use the normal
-repository path.
+The first request loads the configured collection's full coverage. Concurrent
+cold callers share that build. Construction, listener startup and idle time do
+not load or refresh blockspace.
 
-The cache is deliberately simple:
+`BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` is the single freshness setting;
+its default remains 60 seconds. Age starts when coverage finishes loading.
+Hits and navigation do not reset it. Once it expires, the next request starts
+one full rebuild while callers continue using the last successful generation.
+There is no refresh timer. Restarting discards the in-memory cache.
 
-- it fully rebuilds a snapshot at startup
-- it fully rebuilds again on `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`
-- it does not perform incremental mutation or fine-grained invalidation
-- stale data is acceptable for public web because desktop/self-hosted users are
-  the realtime-first path
+A completed replacement swaps coverage and its response store together.
+Temporary refresh failures retain the previous success; another demand can retry
+after the same refresh interval measured from the last attempt. A missing or
+ineligible collection retires cached success when detected. Later demand can
+reload a restored or recreated collection at that same retry cadence.
 
-The default refresh interval is 60 seconds.
+Only requested pages and explicit range summaries are saved, including their
+head/tip fields and timestamps. Root has its own identity; deeper pages use
+`page_start` and `bucket_size`, and range summaries use their endpoints. Head
+changes do not create new keys. A bucket size of 1 spans 1,024 blocks per page;
+a bucket size of 1,024 spans 1,048,576 blocks per page.
 
-### Snapshot Contents
+The existing RPC head result, including failure and indexed fallback, is shared
+within a generation. Endpoint timestamps retain the ordinary DB/RPC fallback;
+a saved complete response reuses its resolved timestamps.
 
-The snapshot is scoped to one chain and one collection:
+### Coherent Coverage and Representation
 
-- collection id and slug
-- effective range from deployment block, or `0` when deployment block is unknown
-- current highest synced block
-- total synced block count
-- compact synced intervals as typed arrays
-- prefix counts before each interval
-- 1024-block bucket counts in a `Uint16Array`
-- snapshot `storedAt`
+The reader opens a separate read-only SQLite connection with no native busy
+wait, begins one read transaction, and resolves eligibility, collection identity,
+metadata, indexed tip and membership within that view. It closes the connection
+before returning copied coverage, also on cancellation or failure. No read
+transaction stays open for the cache lifetime.
 
-It does not store one object per block.
+Coverage means exact unique membership in `collection_sync_blocks`. Each refresh
+recounts the full canonical history, so historical gap fills, same-count moves,
+rollback, retained-header resets and purge/recreation are detected without
+indexer write hooks. Global headers and ownership snapshots do not establish
+collection coverage. Public cached counts clip to deployment through indexed
+tip; the raw private/disabled repository retains its existing predeployment
+count behavior. `summary.syncedBlockCount` remains part of the response.
 
-The interval representation is built from `collection_sync_blocks` by grouping
-contiguous synced block numbers into islands. For example, three dense spans
-become three interval entries rather than thousands of block entries.
+The reader counts at most 65,536 blocks per SQL step. A full count proves a dense
+range; an empty count needs no extraction. Partial ranges read ordered members
+in steps of at most 16,384 blocks. Explicit event-loop yields target four-ms work
+turns, with a 30-second read budget. Native calls can exceed that turn target;
+these bounds are tuning choices, not latency guarantees.
 
-### Lookup Paths
+Consecutive members are stored as intervals with prefix counts. When interval
+storage approaches bitmap cost, the same read view converts to one bit per
+block, with prefix counts every 1,024 blocks. Conversion and prefix construction
+also yield. Arbitrary inclusive ranges and markers remain exact across both
+representations. Each rebuild chooses its representation anew, including after
+coverage is cleared. Numeric storage uses bounded intervals and a bitmap capped
+at 32 MiB, plus its prefix array.
 
-The cache answers the `SyncBackfillReadPort` count methods:
+### Admission, Shutdown and Errors
 
-- `countSyncedBlocks`
-- `countSyncedBlocksInRange`
-- `countSyncedBlocksByRange`
+One build serves the configured scope. The current generation retains at most
+64 complete responses. The cache admits at most 64 concurrent requests and permits at most eight
+distinct response builds across current and replaced generations. Matching
+in-flight response requests coalesce; overload rejects without an unbounded
+work queue. Refresh waits while response admission is saturated, bounding work
+behind slow foreign RPC calls while saved responses remain available.
 
-Aligned 1024-block ranges use the bucket-count array. This is the fast path for
-level 1 to level 2 drill-down pages and most visible grid aggregation.
+Fastify's `preClose` stops admission and cancels owned SQLite reads before
+waiting for active requests. Late work cannot publish cache entries after
+shutdown. Foreign RPC calls keep their existing timeout contract; shutdown
+releases HTTP callers without waiting for those calls.
 
-Arbitrary selected ranges and single-block lookups use binary search over the
-interval arrays, then count overlap against the first and last touched
-intervals. This makes selected range summaries precise without one DB query per
-selection.
-
-The cache does not own:
-
-- collection option listing
-- highest synced block lookup
-- block timestamp lookup
-- JSON-RPC fallback
-
-Those calls still pass through the inner read/RPC ports. Cache headers therefore
-describe query-cache coverage-count behavior, not every piece of data used by
-the response.
+Existing parsing, route guards and validation errors remain in their HTTP
+adapters. Operational cold-load failure, overload and shutdown return 503 with
+`blockspace_unavailable` and an actionable retry message. Missing scope returns 404. An invalid page or range does not retire valid scope coverage.
 
 ### Cache Diagnostics
 
-When the public cache serves a count from the snapshot, it marks the current
-request as a cache hit and records age/ttl. When no snapshot is loaded yet, it
-marks a miss and falls back to the inner repository. When the request is for a
-different chain/context, it marks a bypass and falls back.
+A saved complete response marks a hit; building a requested response marks a
+miss. Hit age measures time since the coverage generation was published,
+including when stale success is served. A miss reports age zero under the shared
+diagnostic contract. TTL always reports the configured refresh interval; these
+headers do not create a separate response freshness clock. The query-cache
+storage and debug contracts are shared with other backend caches.
 
 Response/debug surfaces:
 
-- backend response headers:
-    - `X-ArtGod-Query-Cache`
-    - `X-ArtGod-Query-Cache-Age-Ms`
-    - `X-ArtGod-Query-Cache-Ttl-Ms`
-    - `X-ArtGod-Query-Cache-Events`
-- backend Loki logs:
-    - `component=BackendApi`
-    - `action=query_cache_response`
-- frontend SSR Loki logs:
-    - `component=FrontendSSR`
-    - `action=backend_api_response`
-- page response headers in SSR:
-    - aggregate cache state across all backend calls used by that page load
+- backend headers: `X-ArtGod-Query-Cache`, `X-ArtGod-Query-Cache-Age-Ms`,
+  `X-ArtGod-Query-Cache-Ttl-Ms`, and `X-ArtGod-Query-Cache-Events`
+- backend logs: `component=BackendApi`, `action=query_cache_response`
+- SSR logs: `component=FrontendSSR`, `action=backend_api_response`
+- SSR page headers: aggregate cache state across the backend calls in that load
 
-For the full SSR/backend observability path and focused tests, see
-`docs/indexer/10-observability-and-metrics.md`.
-
-## Tests
-
-The normal workspace test suites include the blockspace and observability tests.
-Focused commands for this feature:
-
-```sh
-yarn workspace @artgod/backend test src/application/use-cases/sync-backfill/get-sync-backfill-state.test.ts src/infra/sync-backfill/sqlite-sync-backfill-repository.test.ts src/infra/sync-backfill/public-collection-blockspace-cache.test.ts
-yarn workspace @artgod/frontend test src/lib/blockspace-page-stack.test.ts src/lib/blockspace-isometric-levels.test.ts src/lib/blockspace-live-refresh.test.ts src/lib/blockspace-page-load.test.ts
-yarn workspace @artgod/frontend check
-yarn tsc -b
-```
-
-Focused commands for SSR/backend cache diagnostics:
-
-```sh
-yarn workspace @artgod/shared test observability/http.test.ts
-yarn workspace @artgod/backend test src/http/common/observability.test.ts src/utils/query-cache-debug.test.ts
-yarn workspace @artgod/frontend test src/lib/backend-api.test.ts src/lib/backend-api-browser.test.ts src/lib/query-cache-response-headers.test.ts src/lib/blockspace-page-load.test.ts
-```
-
-Runtime smoke check for Grafana/Loki ingestion after starting the observability
-stack and triggering an SSR blockspace page:
-
-```sh
-./scripts/check-observability-log-ingestion.sh
-```
+See [observability](10-observability-and-metrics.md) for the shared diagnostic
+path and its focused tests.

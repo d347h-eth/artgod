@@ -42,7 +42,7 @@ Route guards enforce:
 - chain-scoped reads must match `PUBLIC_APP_CHAIN_REF`;
 - collection-scoped reads must also match `PUBLIC_APP_COLLECTION_REF`;
 - blockspace is fixed to the configured collection and uses its cached read
-  port when the backend query-cache provider is enabled;
+  coverage and complete responses when the backend query-cache provider is enabled;
 - private bidding context is omitted from collection and token bid-book
   responses.
 
