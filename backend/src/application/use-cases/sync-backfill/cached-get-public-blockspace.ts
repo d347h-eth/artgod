@@ -230,7 +230,15 @@ export class CachedGetPublicBlockspace {
     }
 
     private beginRefresh(chain: ChainRecord): void {
-        if (this.loading || Date.now() < this.nextAttemptAt) return;
+        // Saturated responses may be waiting on foreign RPC. Creating more
+        // generations then would start head calls outside response admission.
+        if (
+            this.loading ||
+            Date.now() < this.nextAttemptAt ||
+            this.pendingResponses >=
+                PUBLIC_BLOCKSPACE_CACHE_LIMITS.maxPendingResponses
+        )
+            return;
         this.nextAttemptAt = Date.now() + this.refreshMs;
         this.loading = Promise.resolve()
             .then(async () => {

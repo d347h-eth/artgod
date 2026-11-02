@@ -1428,8 +1428,12 @@ describe("backend api routes", () => {
         );
         expect(state.statusCode).toBe(200);
         expect(state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
-            "hit",
+            "miss",
         );
+        const stateHit = await resolveCached("GET", "/api/ethereum/blockspace");
+        expect(
+            stateHit.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
         expect(
             state.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");
@@ -1446,8 +1450,15 @@ describe("backend api routes", () => {
         );
         expect(range.statusCode).toBe(200);
         expect(range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
-            "hit",
+            "miss",
         );
+        const rangeHit = await resolveCached(
+            "GET",
+            "/api/ethereum/blockspace/range?from_block=0&to_block=0",
+        );
+        expect(
+            rangeHit.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
         expect(
             range.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");

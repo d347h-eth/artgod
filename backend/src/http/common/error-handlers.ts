@@ -12,6 +12,10 @@ import { TradingValidationError } from "../../application/use-cases/trading/type
 import { logger } from "@artgod/shared/utils";
 import { toErrorMessage } from "../../utils/error-message.js";
 import { BootstrapImageCacheEstimateError } from "../../application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
+import {
+    PublicBlockspaceUnavailableError,
+    PUBLIC_BLOCKSPACE_UNAVAILABLE_ERROR,
+} from "../../application/use-cases/sync-backfill/public-blockspace-coverage.js";
 
 export function registerApiErrorHandlers(app: FastifyInstance): void {
     app.setNotFoundHandler((_request, reply) => {
@@ -36,6 +40,13 @@ export function mapApiError(
     error: string;
     message: string;
 } {
+    if (error instanceof PublicBlockspaceUnavailableError) {
+        return {
+            statusCode: 503,
+            error: PUBLIC_BLOCKSPACE_UNAVAILABLE_ERROR,
+            message: error.message,
+        };
+    }
     if (error instanceof BootstrapImageCacheEstimateError) {
         logger.warn("Bootstrap image cache estimate failed", {
             component: "BackendApi",

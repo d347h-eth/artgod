@@ -335,6 +335,27 @@ describe("demand-loaded public blockspace responses", () => {
         expect(updated.summary.headSource).toBe("rpc");
     });
 
+    it("revalidates saved geometry after head shrink and recovers an invalid stale page through its pending refresh", async () => {
+        const wide = { ...input, pageStartBlock: 0, bucketSize: 1024 };
+        await cache.getState(wide);
+        head = 50;
+        vi.setSystemTime(Date.now() + REFRESH_MS);
+        await cache.getState(input);
+        await vi.waitFor(() =>
+            expect(rpc.getCurrentBlockNumber).toHaveBeenCalledTimes(2),
+        );
+        expect((await cache.getState(input)).summary.headBlock).toBe(50);
+        await expect(cache.getState(wide)).rejects.toBeInstanceOf(
+            ReadModelBadRequestError,
+        );
+        head = 210_000;
+        vi.setSystemTime(Date.now() + REFRESH_MS);
+        const restored = await cache.getState(wide);
+        expect(restored.summary.headBlock).toBe(head);
+        expect(restored.range.bucketSize).toBe(1024);
+        expect(load).toHaveBeenCalledTimes(3);
+    });
+
     it("fences a late old response after a refresh detects scope retirement", async () => {
         await cache.getState(input);
         const held = gate();
@@ -362,7 +383,7 @@ describe("demand-loaded public blockspace responses", () => {
     });
 
     it("bounds distinct pending response work and cancels callers without waiting for foreign RPC", async () => {
-        await cache.getState(input);
+        const root = await cache.getState(input);
         const held = gate();
         rpc.getBlockTimestamp.mockImplementation(async (block) => {
             await held.promise;
@@ -383,6 +404,13 @@ describe("demand-loaded public blockspace responses", () => {
         await expect(
             cache.getRangeSummary({ ...input, fromBlock: 2000, toBlock: 2000 }),
         ).rejects.toBeInstanceOf(PublicBlockspaceUnavailableError);
+        // Saturation cannot keep starting coverage/head work behind slow RPC.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            vi.setSystemTime(Date.now() + REFRESH_MS);
+            expect(await cache.getState(input)).toBe(root);
+        }
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(rpc.getCurrentBlockNumber).toHaveBeenCalledTimes(1);
         await cache.stop();
         expect(
             (await settled).every(

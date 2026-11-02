@@ -160,6 +160,75 @@ describe("private coherent public coverage reads", () => {
         ]);
     });
 
+    it("rebuilds bitmap, empty, intervals, and bitmap at an unchanged indexed maximum", async () => {
+        const fragmented = Array.from(
+            { length: 90_000 },
+            (_, index) => 18 + index * 2,
+        );
+        fixture.seedCoverage(fragmented);
+        const first = await loader.load(
+            fixture.scope,
+            new AbortController().signal,
+        );
+        expect(first.countSyncedBlocks(1, fixture.context)).toBe(
+            fragmented.length,
+        );
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE collection_id=?",
+        ).run(fixture.collectionId);
+        const empty = await loader.load(
+            fixture.scope,
+            new AbortController().signal,
+        );
+        expect(empty.countSyncedBlocks(1, fixture.context)).toBe(0);
+        fixture.seedCoverage([17, 18, 19, 100]);
+        const intervals = await loader.load(
+            fixture.scope,
+            new AbortController().signal,
+        );
+        expect(intervals.countSyncedBlocks(1, fixture.context)).toBe(4);
+        db.prepare(
+            "DELETE FROM collection_sync_blocks WHERE collection_id=?",
+        ).run(fixture.collectionId);
+        fixture.seedCoverage(fragmented);
+        const last = await loader.load(
+            fixture.scope,
+            new AbortController().signal,
+        );
+        expect(last.countSyncedBlocks(1, fixture.context)).toBe(
+            fragmented.length,
+        );
+        expect(last.getHighestSyncedBlock(1)).toBe(
+            first.getHighestSyncedBlock(1),
+        );
+        expect(first.countSyncedBlocks(1, fixture.context)).toBe(
+            fragmented.length,
+        );
+        expect(empty.countSyncedBlocks(1, fixture.context)).toBe(0);
+    });
+
+    it("loads more than one million fragmented intervals through the actual SQLite adapter", async () => {
+        fixture.seedHead(2_300_000);
+        db.prepare(
+            "WITH RECURSIVE n(block) AS (SELECT 17 UNION ALL SELECT block+2 FROM n WHERE block<2200017) " +
+                "INSERT INTO collection_sync_blocks(chain_id, collection_id, block_number) SELECT 1, ?, block FROM n",
+        ).run(fixture.collectionId);
+        const snapshot = await loader.load(
+            fixture.scope,
+            new AbortController().signal,
+        );
+        expect(snapshot.countSyncedBlocks(1, fixture.context)).toBe(1_100_001);
+        expect(
+            snapshot.countSyncedBlocksInRange(1, fixture.context, {
+                fromBlock: 17,
+                toBlock: 1040,
+            }),
+        ).toBe(512);
+        expect(db.raw.pragma("wal_checkpoint(TRUNCATE)")).toEqual([
+            { busy: 0, log: 0, checkpointed: 0 },
+        ]);
+    }, 15_000);
+
     it("closes views on cancellation, missing scope, and read budget failure", async () => {
         const controller = new AbortController();
         const pending = loader.load(fixture.scope, controller.signal);
@@ -172,9 +241,20 @@ describe("private coherent public coverage reads", () => {
             ),
         ).rejects.toBeInstanceOf(PublicBlockspaceScopeNotFoundError);
         let now = 0;
-        vi.spyOn(performance, "now").mockImplementation(
-            () => (now += PUBLIC_BLOCKSPACE_READ_POLICY.readBudgetMs),
-        );
+        vi.spyOn(performance, "now").mockImplementation(() => now);
+        const original =
+            SqliteSyncBackfillRepository.prototype.countSyncedBlocksInRange;
+        vi.spyOn(
+            SqliteSyncBackfillRepository.prototype,
+            "countSyncedBlocksInRange",
+        ).mockImplementation(function (
+            this: SqliteSyncBackfillRepository,
+            ...args
+        ) {
+            const count = original.apply(this, args);
+            now += PUBLIC_BLOCKSPACE_READ_POLICY.readBudgetMs;
+            return count;
+        });
         await expect(
             loader.load(fixture.scope, new AbortController().signal),
         ).rejects.toBeInstanceOf(PublicBlockspaceUnavailableError);
