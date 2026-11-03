@@ -22,6 +22,23 @@ import {
 } from '$lib/token-browser-query';
 
 export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
+	// Admin owns runtime startup and must not load Userland data before it is ready.
+	if (IS_ADMIN_FRONTEND_TARGET) {
+		return {
+			mode: 'collections' as const,
+			chain: null,
+			page: {
+				items: [],
+				nextCursor: null,
+				limit: DEFAULT_PAGE_LIMIT
+			},
+			status: '',
+			basePath: '/',
+			deferred: false,
+			openseaIntegration: null
+		};
+	}
+
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
@@ -64,21 +81,6 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 	}
 
 	const params = normalizeCollectionsParams(url.searchParams);
-	if (IS_ADMIN_FRONTEND_TARGET) {
-		return {
-			mode: 'collections' as const,
-			chain: null,
-			page: {
-				items: [],
-				nextCursor: null,
-				limit: DEFAULT_PAGE_LIMIT
-			},
-			status: '',
-			basePath: '/',
-			deferred: false,
-			openseaIntegration: null
-		};
-	}
 	if (await shouldDeferInitialBackendLoad()) {
 		return {
 			mode: 'collections' as const,

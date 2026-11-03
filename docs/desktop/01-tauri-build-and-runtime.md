@@ -1179,10 +1179,13 @@ stack and immediate cause, request/probe stage, frontend and backend origins,
 frontend build target and deployment mode, public collection scope, request target,
 elapsed time and remaining retry budget. Final diagnostics retain
 the preceding attempt's error when the final request times out. Endpoint-resolution
-diagnostics identify pending, cached and rejected resolver state, the first
-resolution time and number of actual lookups. Native endpoint commands also log
-their own success or failure, including lookups before manual Start. This is
-instrumentation: it does not change endpoint caching or readiness retry policy.
+diagnostics identify pending, cached and rejected resolver state, the latest
+resolution time and number of actual lookups. Concurrent callers share a pending
+lookup and successful origins are cached. Failed lookups are released so the next
+readiness probe can retry after runtime initialization. The Admin root loader
+does not request Userland data, including when public collection mode is enabled.
+Native endpoint commands also log their own success or failure, including lookups
+before manual Start.
 Frontend deployment settings are compiled into bundled assets by Vite, so the
 recorded deployment mode may reflect the build environment even when the machine
 running an AppImage has no project `.env` file.
