@@ -85,9 +85,13 @@ test('renders token detail media within the viewport without horizontal overflow
 		const expectedAspectRatio = await readImageNaturalAspectRatio(
 			tokenCard.locator('.token-grid-thumb')
 		);
-		await tokenCard.locator('a.token-grid-id').click();
+		const tokenLink = tokenCard.locator('a.token-grid-id');
+		const tokenHref = await tokenLink.getAttribute('href');
+		if (!tokenHref) throw new Error('Token card is missing its detail link');
+		const tokenUrl = new URL(tokenHref, page.url());
+		await tokenLink.click();
 
-		await expect(page).toHaveURL(/\/ethereum\/terraforms\/\d+/);
+		await expect(page).toHaveURL(tokenUrl.href);
 
 		const mediaBox = page.locator('.token-detail-media-wrap');
 		const mediaFrame = page.locator('.token-detail-media-frame');

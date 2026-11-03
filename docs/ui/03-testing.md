@@ -155,6 +155,18 @@ yarn test:preview:attached
 yarn test:bidding:attached
 ```
 
+For a running public single-collection composition with the memory cache enabled,
+set its `PUBLIC_APP_*` scope in `.env.yarn` and run the attached blockspace smoke:
+
+```sh
+ARTGOD_E2E_BASE_URL=http://127.0.0.1:42710 yarn workspace @artgod/frontend exec playwright test \
+  -c playwright.public-blockspace-attached.config.ts --project desktop-1080p
+```
+
+This verifies public scope, hydration, the rendered grid, and a cache hit after
+reload against the existing backend. It performs reads only. Cold-build
+deduplication, refresh coherence, and cancellation have separate backend tests.
+
 Headed and artifact variants are exposed by the corresponding package scripts.
 Do not expand attached smoke into a duplicate of deterministic coverage.
 
