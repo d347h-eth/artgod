@@ -9,6 +9,7 @@ import {
     type MockInstance,
 } from "vitest";
 import { db } from "@artgod/shared/database";
+import { logger } from "@artgod/shared/utils";
 import { SqliteChainsReadModel } from "@artgod/shared/read-models/chains";
 import {
     ReadModelBadRequestError,
@@ -101,6 +102,51 @@ describe("demand-loaded public blockspace responses", () => {
         vi.clearAllMocks();
         fixture.close();
     });
+
+    it.each([false, true])(
+        "times one shared refresh with a monotonic clock despite wall-clock changes (failure: %s)",
+        async (fails) => {
+            const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+            const error = vi
+                .spyOn(logger, "error")
+                .mockImplementation(() => {});
+            let clock = 1_000;
+            vi.spyOn(performance, "now").mockImplementation(() => clock);
+            const held = gate();
+            load.mockImplementationOnce(async (scope, signal) => {
+                await held.promise;
+                if (fails) throw new Error("coverage read failed");
+                return SqlitePublicBlockspaceCoverage.prototype.load.call(
+                    loader,
+                    scope,
+                    signal,
+                );
+            });
+
+            const responses = Promise.allSettled([
+                cache.getState(input),
+                cache.getState(input),
+            ]);
+            await setImmediate();
+            expect(load).toHaveBeenCalledTimes(1);
+            expect(info).not.toHaveBeenCalled();
+            expect(error).not.toHaveBeenCalled();
+
+            clock += 125.5;
+            vi.setSystemTime(Date.now() - REFRESH_MS);
+            held.release();
+            const results = await responses;
+            expect(results.map((result) => result.status)).toEqual(
+                Array(2).fill(fails ? "rejected" : "fulfilled"),
+            );
+            const completion = fails ? error : info;
+            expect(completion).toHaveBeenCalledExactlyOnceWith(
+                expect.any(String),
+                expect.objectContaining({ durationMs: 125.5 }),
+            );
+            expect(fails ? info : error).not.toHaveBeenCalled();
+        },
+    );
 
     it("does no startup/idle work, coalesces cold callers, and polls without resetting age", async () => {
         await setImmediate();

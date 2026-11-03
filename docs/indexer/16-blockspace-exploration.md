@@ -205,6 +205,11 @@ Hits and navigation do not reset it. Once it expires, the next request starts
 one full rebuild while callers continue using the last successful generation.
 There is no refresh timer. Restarting discards the in-memory cache.
 
+Refresh success and failure logs include `durationMs`, measured with a monotonic
+clock from the start of an admitted refresh attempt until publication or failure.
+It covers building and publishing the shared coverage generation, excluding the
+freshness interval and subsequent page-response or RPC work.
+
 A completed replacement swaps coverage and its response store together.
 Temporary refresh failures retain the previous success; another demand can retry
 after the same refresh interval measured from the last attempt. A missing or

@@ -239,6 +239,7 @@ export class CachedGetPublicBlockspace {
                 PUBLIC_BLOCKSPACE_CACHE_LIMITS.maxPendingResponses
         )
             return;
+        const startedAtMs = performance.now();
         this.nextAttemptAt = Date.now() + this.refreshMs;
         this.loading = Promise.resolve()
             .then(async () => {
@@ -276,6 +277,7 @@ export class CachedGetPublicBlockspace {
                     action: CACHE_REFRESH_ACTION,
                     chainId: this.scope.chainId,
                     collectionRef: this.scope.collectionRef,
+                    durationMs: performance.now() - startedAtMs,
                 });
                 return generation;
             })
@@ -294,6 +296,7 @@ export class CachedGetPublicBlockspace {
                         action: CACHE_REFRESH_ACTION,
                         chainId: this.scope.chainId,
                         collectionRef: this.scope.collectionRef,
+                        durationMs: performance.now() - startedAtMs,
                         error: String(error),
                     });
                 throw this.lastFailure;
