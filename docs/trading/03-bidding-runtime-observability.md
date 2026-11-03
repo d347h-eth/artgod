@@ -63,15 +63,17 @@ continues bidding without the endpoint. Free the port and restart the bidding
 bot to retry. Disabling the toggle and restarting the bot removes the optional
 listener.
 
-The repository Prometheus target is `127.0.0.1:42753`. If an operator chooses a
-different valid port, they must update the `artgod-trading` target in
-`observability/prometheus/prometheus.yml` to the same loopback port. A later
-`yarn observability:up` uses the edited target. If the stack is already running,
-restart that collector:
+The default Prometheus target is `127.0.0.1:42753`. If an operator chooses a
+different port in Admin, match it when starting or updating the collector:
 
 ```sh
-docker compose --profile observability restart prometheus
+yarn observability:up --metrics-port bidding-bot=42754
 ```
+
+Save `ARTGOD_OBSERVABILITY_METRICS_PORTS=bidding-bot=42754` in the ignored
+`.env.observability` file to keep that target for later starts. See
+[local infrastructure](../development/01-local-development.md#local-infrastructure)
+for collector port overrides, desktop logs and the separate Compose project.
 
 ## Start the Local Dashboard
 

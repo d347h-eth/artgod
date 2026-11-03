@@ -4,6 +4,12 @@ ArtGod-owned development, desktop, deploy, and observability ports live in the `
 
 The runtime env defaults are sourced from `config/settings.manifest.toml` and generated into `.env.example` plus `shared/config/generated-settings-defaults.ts`. Docker/container listeners are declared in the compose and observability config files listed below.
 
+Local collector ports can be overridden with repeatable
+`yarn observability:up --port NAME=PORT` arguments. Local scrape ports use
+`--metrics-port RUNTIME=PORT`, matching the exporter configured in the app.
+See [local infrastructure](../development/01-local-development.md#local-infrastructure)
+and `.env.observability.example`. The tables below list default ports.
+
 ## Installed Desktop Binding Scope
 
 The installed desktop composition owns two persistent inbound TCP listeners:

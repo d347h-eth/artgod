@@ -134,7 +134,7 @@ Files:
 - `indexer/src/config/observability-env.ts` (`metrics.ports.*` map)
 - `config/settings.manifest.toml` (source for matching `INDEXER_METRICS_PORT_*` vars)
 - `.env.example` and `shared/config/generated-settings-defaults.ts` (generated from the settings manifest)
-- `observability/prometheus/prometheus.yml` (static scrape targets + runtime labels)
+- `observability/prometheus/targets.json` (scrape targets + job/runtime labels)
 
 What is explicit here:
 
@@ -181,7 +181,7 @@ When adding a new indexer runtime (example `foo-worker`):
    : Add env var parse and default port.
 
 8. Wire observability scrape target.
-   : Add target in `observability/prometheus/prometheus.yml` with `runtime: "foo-worker"` label.
+   : Add a target group in `observability/prometheus/targets.json` with the matching `job` and `runtime` labels.
 
 9. Sync docs.
    : Update runtime lists/commands in `README.md`.
@@ -260,7 +260,7 @@ rg -n "start_worker" scripts/indexer-dev.sh
 rg -n "entryPoints|worker" scripts/build/build-runtime-artifacts.mjs
 rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/process_registry.rs
 rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-env.ts config/settings.manifest.toml .env.example
-rg -n "runtime:|946" observability/prometheus/prometheus.yml
+rg -n '"runtime"|427' observability/prometheus/targets.json
 ```
 
 `yarn config:check` guards generated settings artifacts; `yarn check:runtime-registry` is the canonical automated guard for runtime topology and is also run in CI (`.github/workflows/tauri-build-check.yml`).
