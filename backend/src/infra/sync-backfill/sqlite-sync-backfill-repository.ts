@@ -1,4 +1,4 @@
-import { db } from "@artgod/shared/database";
+import { db, type BetterSqlite3Database } from "@artgod/shared/database";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
 import type {
@@ -52,94 +52,157 @@ const COLLECTION_COLUMNS =
     "chain_id, collection_id, slug, address, status, deployment_block, bootstrap_anchor_block, bootstrap_last_synced_block";
 
 export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
-    private selectBlockspaceCollections = db.prepare<{
-        chainId: number;
-        liveStatus: CollectionStatus;
-        bootstrappingStatus: CollectionStatus;
-    }>(
-        `SELECT ${COLLECTION_COLUMNS} ` +
-            "FROM collections " +
-            "WHERE chain_id = @chainId " +
-            "AND status IN (@liveStatus, @bootstrappingStatus) " +
-            "AND bootstrap_anchor_block IS NOT NULL " +
-            "ORDER BY slug ASC",
-    );
-    private selectMaxSyncedBlock = db.prepare<{ chainId: number }>(
-        "SELECT MAX(block_number) AS max_block_number FROM blocks WHERE chain_id = @chainId",
-    );
-    private selectBlockTimestamp = db.prepare<{
-        chainId: number;
-        blockNumber: number;
-    }>(
-        "SELECT timestamp FROM blocks " +
-            "WHERE chain_id = @chainId AND block_number = @blockNumber",
-    );
-    private countAnySyncedBlocksStmt = db.prepare<{ chainId: number }>(
-        "SELECT COUNT(1) AS count FROM blocks WHERE chain_id = @chainId",
-    );
-    private countCollectionSyncedBlocksStmt = db.prepare<{
-        chainId: number;
-        collectionId: number;
-    }>(
-        "SELECT COUNT(1) AS count FROM collection_sync_blocks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
-    );
-    private countAnySyncedBlocksInRangeStmt = db.prepare<{
-        chainId: number;
-        fromBlock: number;
-        toBlock: number;
-    }>(
-        "SELECT COUNT(1) AS count FROM blocks " +
-            "WHERE chain_id = @chainId AND block_number BETWEEN @fromBlock AND @toBlock",
-    );
-    private countCollectionSyncedBlocksInRangeStmt = db.prepare<{
-        chainId: number;
-        collectionId: number;
-        fromBlock: number;
-        toBlock: number;
-    }>(
-        "SELECT COUNT(1) AS count FROM collection_sync_blocks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND block_number BETWEEN @fromBlock AND @toBlock",
-    );
-    private countAnySyncedBlocksByBucketStmt = db.prepare<{
-        chainId: number;
-        fromBlock: number;
-        toBlock: number;
-        bucketSize: number;
-    }>(
-        "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
-            "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
-            "UNION ALL " +
-            "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
-            "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
-            ") " +
-            "SELECT bucket_index, " +
-            "(SELECT COUNT(1) FROM blocks " +
-            "WHERE chain_id = @chainId AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
-            "FROM bucket",
-    );
-    private countCollectionSyncedBlocksByBucketStmt = db.prepare<{
-        chainId: number;
-        collectionId: number;
-        fromBlock: number;
-        toBlock: number;
-        bucketSize: number;
-    }>(
-        "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
-            "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
-            "UNION ALL " +
-            "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
-            "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
-            ") " +
-            "SELECT bucket_index, " +
-            "(SELECT COUNT(1) FROM collection_sync_blocks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
-            "FROM bucket",
-    );
+    private selectBlockspaceCollections;
+    private selectMaxSyncedBlock;
+    private selectBlockTimestamp;
+    private countAnySyncedBlocksStmt;
+    private countCollectionSyncedBlocksStmt;
+    private countAnySyncedBlocksInRangeStmt;
+    private countCollectionSyncedBlocksInRangeStmt;
+    private countAnySyncedBlocksByBucketStmt;
+    private countCollectionSyncedBlocksByBucketStmt;
 
-    constructor(private readonly apm: ApmPort = NOOP_APM) {}
+    constructor(
+        private readonly apm: ApmPort = NOOP_APM,
+        private readonly connection: Pick<
+            BetterSqlite3Database,
+            "prepare"
+        > = db,
+    ) {
+        this.selectBlockspaceCollections = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    liveStatus: CollectionStatus;
+                    bootstrappingStatus: CollectionStatus;
+                },
+            ]
+        >(
+            `SELECT ${COLLECTION_COLUMNS} ` +
+                "FROM collections " +
+                "WHERE chain_id = @chainId " +
+                "AND status IN (@liveStatus, @bootstrappingStatus) " +
+                "AND bootstrap_anchor_block IS NOT NULL " +
+                "ORDER BY slug ASC",
+        );
+        this.selectMaxSyncedBlock = connection.prepare<[{ chainId: number }]>(
+            "SELECT MAX(block_number) AS max_block_number FROM blocks WHERE chain_id = @chainId",
+        );
+        this.selectBlockTimestamp = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    blockNumber: number;
+                },
+            ]
+        >(
+            "SELECT timestamp FROM blocks " +
+                "WHERE chain_id = @chainId AND block_number = @blockNumber",
+        );
+        this.countAnySyncedBlocksStmt = connection.prepare<
+            [{ chainId: number }]
+        >("SELECT COUNT(1) AS count FROM blocks WHERE chain_id = @chainId");
+        this.countCollectionSyncedBlocksStmt = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    collectionId: number;
+                },
+            ]
+        >(
+            "SELECT COUNT(1) AS count FROM collection_sync_blocks " +
+                "WHERE chain_id = @chainId AND collection_id = @collectionId",
+        );
+        this.countAnySyncedBlocksInRangeStmt = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    fromBlock: number;
+                    toBlock: number;
+                },
+            ]
+        >(
+            "SELECT COUNT(1) AS count FROM blocks " +
+                "WHERE chain_id = @chainId AND block_number BETWEEN @fromBlock AND @toBlock",
+        );
+        this.countCollectionSyncedBlocksInRangeStmt = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    collectionId: number;
+                    fromBlock: number;
+                    toBlock: number;
+                },
+            ]
+        >(
+            "SELECT COUNT(1) AS count FROM collection_sync_blocks " +
+                "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+                "AND block_number BETWEEN @fromBlock AND @toBlock",
+        );
+        this.countAnySyncedBlocksByBucketStmt = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    fromBlock: number;
+                    toBlock: number;
+                    bucketSize: number;
+                },
+            ]
+        >(
+            "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
+                "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
+                "UNION ALL " +
+                "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
+                "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
+                ") " +
+                "SELECT bucket_index, " +
+                "(SELECT COUNT(1) FROM blocks " +
+                "WHERE chain_id = @chainId AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
+                "FROM bucket",
+        );
+        this.countCollectionSyncedBlocksByBucketStmt = connection.prepare<
+            [
+                {
+                    chainId: number;
+                    collectionId: number;
+                    fromBlock: number;
+                    toBlock: number;
+                    bucketSize: number;
+                },
+            ]
+        >(
+            "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
+                "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
+                "UNION ALL " +
+                "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
+                "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
+                ") " +
+                "SELECT bucket_index, " +
+                "(SELECT COUNT(1) FROM collection_sync_blocks " +
+                "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+                "AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
+                "FROM bucket",
+        );
+    }
+
+    /** Exact ordered membership for a bounded partial coverage batch. */
+    getCollectionSyncedBlocksInRange(
+        chainId: number,
+        collectionId: number,
+        range: SyncBackfillCoverageRange,
+    ): number[] {
+        return this.connection
+            .prepare<
+                [number, number, number, number],
+                { block_number: number }
+            >(
+                "SELECT block_number FROM collection_sync_blocks " +
+                    "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ? " +
+                    "ORDER BY block_number",
+            )
+            .all(chainId, collectionId, range.fromBlock, range.toBlock)
+            .map((row) => row.block_number);
+    }
 
     listBlockspaceCollections(chainId: number): SyncBackfillCollectionOption[] {
         return this.apm.withSyncSpan(

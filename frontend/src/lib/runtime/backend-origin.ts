@@ -36,10 +36,11 @@ let resolutionState: string = ORIGIN_RESOLUTION_STATES.idle;
 let resolutionStartedAtIso = '';
 let resolutionError: LifecycleEventMeta = {};
 
-/** Observes the existing cache, including a retained rejected promise, without retrying it. */
+/** Observes the last lookup or cached origin without starting another lookup. */
 export function backendOriginDiagnostics(): LifecycleEventMeta {
 	return {
-		originResolutionState: cachedOrigin ? ORIGIN_RESOLUTION_STATES.cached : resolutionState,
+		originResolutionState:
+			cachedOrigin !== null ? ORIGIN_RESOLUTION_STATES.cached : resolutionState,
 		originResolutionAttempts: resolutionAttempts,
 		originResolutionStartedAtIso: resolutionStartedAtIso,
 		originResolutionError: resolutionError.errorMessage ?? '',
@@ -52,27 +53,33 @@ export async function resolveBackendOrigin(): Promise<string> {
 	if (!browser) {
 		return resolveServerBackendOrigin();
 	}
-	if (cachedOrigin) {
+	if (cachedOrigin !== null) {
 		return cachedOrigin;
 	}
 	if (!inflightOrigin) {
 		resolutionAttempts += 1;
 		resolutionState = ORIGIN_RESOLUTION_STATES.pending;
 		resolutionStartedAtIso = new Date().toISOString();
-		inflightOrigin = resolveDesktopOrDefault().then(
-			(origin) => {
-				resolutionState = ORIGIN_RESOLUTION_STATES.resolved;
-				return origin;
-			},
-			(error: unknown) => {
-				resolutionState = ORIGIN_RESOLUTION_STATES.rejected;
-				resolutionError = diagnosticError(error);
-				throw error;
-			}
-		);
+		resolutionError = {};
+		inflightOrigin = resolveDesktopOrDefault()
+			.then(
+				(origin) => {
+					cachedOrigin = origin;
+					resolutionState = ORIGIN_RESOLUTION_STATES.resolved;
+					return origin;
+				},
+				(error: unknown) => {
+					resolutionState = ORIGIN_RESOLUTION_STATES.rejected;
+					resolutionError = diagnosticError(error);
+					throw error;
+				}
+			)
+			.finally(() => {
+				// A lookup before runtime initialization can fail; the next readiness probe must retry.
+				inflightOrigin = null;
+			});
 	}
-	cachedOrigin = await inflightOrigin;
-	return cachedOrigin;
+	return inflightOrigin;
 }
 
 async function resolveDesktopOrDefault(): Promise<string> {

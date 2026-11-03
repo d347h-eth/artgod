@@ -348,7 +348,11 @@ mutations that are intentionally absent from the public mode.
   still see the cached snapshot until expiry. Desktop chart reads are uncached.
   Trait-filtered chart requests bypass the snapshot and match current token attributes.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
-- `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls how often the backend fully rebuilds the compact public blockspace cache for the configured single collection. The blockspace feature and cache internals are documented in `docs/indexer/16-blockspace-exploration.md`.
+- `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls the shared freshness of
+  coverage and saved blockspace responses for the configured collection. The
+  first request loads coverage; the first request after expiry starts a full
+  refresh while previous success remains available. Idle time does no work.
+  See [blockspace caching](../indexer/16-blockspace-exploration.md#public-single-collection-cache).
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.
 - `INDEXER_METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `BACKEND_METRICS_ENABLED=true` starts the backend API Prometheus endpoint on `BACKEND_METRICS_PORT` (`42740` by default).
 - `INDEXER_METRICS_HOST=0.0.0.0` and `BACKEND_METRICS_HOST=0.0.0.0` are required so Prometheus can scrape across the compose network.

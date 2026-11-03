@@ -11,10 +11,7 @@ import {
     ReadModelBadRequestError,
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
-import {
-    NOOP_APM,
-    type ApmPort,
-} from "@artgod/shared/observability/apm";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import {
     SYNC_BACKFILL_SPAN_ATTRIBUTE,
     syncBackfillContextSpanAttributes,
@@ -150,7 +147,7 @@ export type SyncBackfillCoverageCount = SyncBackfillCoverageRange & {
     syncedBlockCount: number;
 };
 
-type ChainRefResolverPort = {
+export type ChainRefResolverPort = {
     resolveChainRef(
         chainRef: string | undefined,
         defaultPublicChainId: number,
@@ -177,7 +174,7 @@ export type SyncBackfillReadPort = {
     ): SyncBackfillCoverageCount[];
 };
 
-type ChainHeadPort = {
+export type ChainHeadPort = {
     getCurrentBlockNumber(): Promise<number>;
     getBlockTimestamp(blockNumber: number): Promise<number>;
 };
@@ -606,7 +603,7 @@ function visibleContextCollections(
     );
 }
 
-function resolveCoverageContext(
+export function resolveCoverageContext(
     collectionRef: string | null | undefined,
     collections: SyncBackfillCollectionOption[],
 ): SyncBackfillCoverageContext {
@@ -936,12 +933,12 @@ function requestSpanAttributes(
     >,
 ) {
     return {
-        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]:
-            Boolean(input.collectionRef?.trim()),
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]: Boolean(
+            input.collectionRef?.trim(),
+        ),
         [SYNC_BACKFILL_SPAN_ATTRIBUTE.PageStartPresent]:
             input.pageStartBlock !== null && input.pageStartBlock !== undefined,
-        ...(input.pageStartBlock !== null &&
-        input.pageStartBlock !== undefined
+        ...(input.pageStartBlock !== null && input.pageStartBlock !== undefined
             ? {
                   [SYNC_BACKFILL_SPAN_ATTRIBUTE.PageStartBlock]:
                       input.pageStartBlock,
@@ -949,8 +946,7 @@ function requestSpanAttributes(
             : {}),
         ...(input.bucketSize !== null && input.bucketSize !== undefined
             ? {
-                  [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]:
-                      input.bucketSize,
+                  [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]: input.bucketSize,
               }
             : {}),
     };
@@ -963,8 +959,9 @@ function explicitRangeRequestSpanAttributes(
     >,
 ) {
     return {
-        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]:
-            Boolean(input.collectionRef?.trim()),
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]: Boolean(
+            input.collectionRef?.trim(),
+        ),
         [SYNC_BACKFILL_SPAN_ATTRIBUTE.FromBlock]: input.fromBlock,
         [SYNC_BACKFILL_SPAN_ATTRIBUTE.ToBlock]: input.toBlock,
         [SYNC_BACKFILL_SPAN_ATTRIBUTE.BlockCount]:

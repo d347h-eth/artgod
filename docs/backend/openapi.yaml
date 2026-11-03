@@ -291,6 +291,8 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "503":
+                    $ref: "#/components/responses/BlockspaceUnavailable"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -331,6 +333,8 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "503":
+                    $ref: "#/components/responses/BlockspaceUnavailable"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -2493,6 +2497,15 @@ components:
                     example:
                         error: validation_error
                         message: floorEth must be <= ceilingEth
+        BlockspaceUnavailable:
+            description: Public blockspace coverage cannot currently be loaded, admission is full, or the backend is shutting down
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: blockspace_unavailable
+                        message: Blockspace is temporarily unavailable. Try again shortly.
         InternalError:
             description: Internal server error
             content:

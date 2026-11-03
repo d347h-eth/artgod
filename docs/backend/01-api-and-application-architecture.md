@@ -53,8 +53,9 @@ for the runtime call flow and layer boundaries together.
 5. In `backend/src/http-app.ts`, construct the route-specific HTTP adapters,
    register common hooks and API routes, then add cached-media and optional
    Userland static routes.
-6. Start cache lifecycles around Fastify listener startup and stop them when the
-   app closes.
+6. Start collection-detail cache maintenance around listener startup. Public
+   blockspace loads on demand and stops admission/owned reads in `preClose`;
+   other cache and queue cleanup completes when the app closes.
 
 Grouped dependency containers are intentionally absent. A new route should make
 its dependency path visible rather than expanding a general-purpose object.
@@ -165,7 +166,8 @@ single-collection composition can additionally maintain:
 - a periodically refreshed collection-detail snapshot;
 - bounded token-preview entries with stale-while-refresh behavior and warmup
   concurrency;
-- a periodically refreshed collection-scoped blockspace snapshot.
+- demand-loaded collection coverage and bounded complete blockspace responses,
+  refreshed on the first request after their shared refresh interval expires.
 
 Cache values are derived from local read models. A cache miss or refresh does
 not change domain state. Debug response headers are emitted only when a query
