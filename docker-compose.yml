@@ -17,7 +17,7 @@ services:
         profiles: ["observability"]
         command: ["-config.file=/etc/loki/config.yaml"]
         ports:
-            - "127.0.0.1:42730:42730"
+            - "127.0.0.1:${ARTGOD_OBSERVABILITY_LOKI_PORT:-42730}:42730"
         volumes:
             - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
             - loki-data:/loki
@@ -27,8 +27,8 @@ services:
         profiles: ["observability"]
         command: ["-config.file=/etc/tempo/config.yaml"]
         ports:
-            - "127.0.0.1:42731:42731"
-            - "127.0.0.1:42732:42732"
+            - "127.0.0.1:${ARTGOD_OBSERVABILITY_TEMPO_PORT:-42731}:42731"
+            - "127.0.0.1:${ARTGOD_OBSERVABILITY_OTLP_PORT:-42732}:42732"
         volumes:
             - ./observability/tempo/tempo-config.yaml:/etc/tempo/config.yaml:ro
             - tempo-data:/var/tempo
@@ -38,7 +38,7 @@ services:
         profiles: ["observability"]
         command: ["-server.http-listen-port=42733"]
         ports:
-            - "127.0.0.1:42733:42733"
+            - "127.0.0.1:${ARTGOD_OBSERVABILITY_PYROSCOPE_PORT:-42733}:42733"
         volumes:
             - pyroscope-data:/var/lib/pyroscope
 
@@ -49,13 +49,20 @@ services:
             [
                 "run",
                 "--server.http.listen-addr=0.0.0.0:42736",
+                "--storage.path=/var/lib/alloy/data",
                 "/etc/alloy/config.alloy",
             ]
         depends_on:
             - loki
         volumes:
             - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
-            - ./tmp/logs:/var/log/artgod:ro
+            - type: bind
+              source: ${ARTGOD_OBSERVABILITY_LOGS_DIR:-./tmp/logs}
+              target: /var/log/artgod
+              read_only: true
+              bind:
+                  create_host_path: false
+            - alloy-data:/var/lib/alloy/data
 
     prometheus:
         image: prom/prometheus:v2.54.1
@@ -64,10 +71,16 @@ services:
         command:
             [
                 "--config.file=/etc/prometheus/prometheus.yml",
-                "--web.listen-address=127.0.0.1:42734",
+                "--web.listen-address=127.0.0.1:${ARTGOD_OBSERVABILITY_PROMETHEUS_PORT:-42734}",
             ]
         volumes:
             - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - type: bind
+              source: ${ARTGOD_OBSERVABILITY_TARGETS_FILE:-./observability/prometheus/targets.json}
+              target: /etc/prometheus/targets.json
+              read_only: true
+              bind:
+                  create_host_path: false
             - ./observability/prometheus/bidding-runtime-alerts.json:/etc/prometheus/bidding-runtime-alerts.json:ro
             - prometheus-data:/prometheus
 
@@ -82,10 +95,14 @@ services:
             - pyroscope
         environment:
             GF_SERVER_HTTP_ADDR: 127.0.0.1
-            GF_SERVER_HTTP_PORT: "42735"
+            GF_SERVER_HTTP_PORT: ${ARTGOD_OBSERVABILITY_GRAFANA_PORT:-42735}
             GF_SECURITY_ADMIN_USER: admin
             GF_SECURITY_ADMIN_PASSWORD: admin
             GF_USERS_ALLOW_SIGN_UP: "false"
+            ARTGOD_OBSERVABILITY_LOKI_URL: http://127.0.0.1:${ARTGOD_OBSERVABILITY_LOKI_PORT:-42730}
+            ARTGOD_OBSERVABILITY_TEMPO_URL: http://127.0.0.1:${ARTGOD_OBSERVABILITY_TEMPO_PORT:-42731}
+            ARTGOD_OBSERVABILITY_PYROSCOPE_URL: http://127.0.0.1:${ARTGOD_OBSERVABILITY_PYROSCOPE_PORT:-42733}
+            ARTGOD_OBSERVABILITY_PROMETHEUS_URL: http://127.0.0.1:${ARTGOD_OBSERVABILITY_PROMETHEUS_PORT:-42734}
         volumes:
             - grafana-data:/var/lib/grafana
             - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -95,5 +112,6 @@ volumes:
     loki-data:
     tempo-data:
     pyroscope-data:
+    alloy-data:
     prometheus-data:
     grafana-data:
