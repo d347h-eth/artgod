@@ -275,10 +275,11 @@ UID do not hide the Apple certificate subject.
   `spctl` child-process environment; authenticated values reach `notarytool`
   only through its required arguments.
 - `scripts/build/macos-notarization.mjs` redacts exact credentials, common
-  serialized forms, private-key payload fragments, authorization headers, and
-  JWT-shaped derived credentials before writing child output to the runner's
-  stdout/stderr. The same redactor covers thrown command errors and every
-  persisted notarization diagnostic.
+  serialized forms, private-key payload fragments, plain/JSON authorization
+  headers, JWTs, URL user information, and signed-URL query credentials before
+  writing child output to the runner's stdout/stderr. Split UTF-8 characters are
+  decoded before matching. The same redactor covers thrown command errors and
+  every persisted notarization diagnostic.
 - Redaction tests inject sentinel credentials into split stdout chunks, stderr,
   failed command arguments, exception inspection, diagnostic files, and the
   command-scoped API-key lifecycle. Run the complete release security suite
