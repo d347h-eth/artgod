@@ -6,7 +6,8 @@ logging {
 local.file_match "artgod_backend_logs" {
   path_targets = [
     {
-      __path__ = "/var/log/artgod/backend-api*.log",
+      // Standalone launchers use backend-api.log; desktop uses backend[-DATE].log.
+      __path__ = "/var/log/artgod/backend*.log",
       app      = "artgod",
       runtime  = "backend-api",
       host     = "local-dev",
@@ -51,6 +52,39 @@ local.file_match "artgod_trading_logs" {
   sync_period = "5s"
 }
 
+local.file_match "artgod_desktop_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/log/artgod/desktop-app*.log",
+      app      = "artgod",
+      runtime  = "desktop-app",
+      host     = "local-dev",
+    },
+    {
+      __path__ = "/var/log/artgod/desktop-supervisor*.log",
+      app      = "artgod",
+      runtime  = "desktop-supervisor",
+      host     = "local-dev",
+    },
+  ]
+  sync_period = "5s"
+}
+
+local.file_match "artgod_nats_logs" {
+  path_targets = [
+    {
+      // Includes the short-lived nats-store-preparation startup process.
+      __path__ = "/var/log/artgod/nats*.log",
+      app      = "artgod",
+      runtime  = "nats",
+      host     = "local-dev",
+    },
+  ]
+  sync_period = "5s"
+}
+
+// Start newly discovered files at the end to avoid importing existing logs.
+// Saved positions in alloy-data take precedence for files already collected.
 loki.source.file "artgod_backend" {
   targets = local.file_match.artgod_backend_logs.targets
 
@@ -79,6 +113,20 @@ loki.source.file "artgod_trading" {
   targets = local.file_match.artgod_trading_logs.targets
 
   // Trading bot logs are exposed through the shared local log root.
+  forward_to    = [loki.process.artgod_runtime.receiver]
+  tail_from_end = true
+}
+
+loki.source.file "artgod_desktop" {
+  targets = local.file_match.artgod_desktop_logs.targets
+
+  forward_to    = [loki.process.artgod_runtime.receiver]
+  tail_from_end = true
+}
+
+loki.source.file "artgod_nats" {
+  targets = local.file_match.artgod_nats_logs.targets
+
   forward_to    = [loki.process.artgod_runtime.receiver]
   tail_from_end = true
 }

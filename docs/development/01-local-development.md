@@ -873,8 +873,12 @@ changes the collector's scrape target, so configure the matching exporter port
 in the app separately. Missing directories, unknown names and invalid or
 duplicate port assignments fail before Docker starts. Only the default
 `tmp/logs` directory is created automatically; selected app logs are mounted
-read-only. Alloy persists file positions in its own named volume and tails new
-lines rather than importing historical logs on first start.
+read-only. Alloy collects standalone and desktop backend logs, indexer and
+trading logs, native app/lifecycle and supervisor logs, and NATS logs including
+store preparation. Newly discovered files start at the end, intentionally
+skipping existing contents to avoid large historical imports. Alloy periodically
+checkpoints read positions in its named volume and resumes from those saved
+positions for files already collected after a restart.
 
 Save repeated options locally:
 
@@ -905,6 +909,29 @@ yarn observability:test
 The configuration check prepares local mount inputs under `tmp/observability/`
 and validates the log path. The tests need Node and Docker Compose, but do not
 contact the Docker daemon. `up --pull never` uses only already cached images.
+
+Verify log collection with real Alloy and Loki using disposable containers and
+cached images:
+
+```sh
+yarn observability:test:logs
+```
+
+This check derives desktop filenames from their Rust owners and standalone
+filenames from the dev launchers, then verifies that existing contents are
+skipped, newly appended output is collected, and file rotation, labels,
+timestamps and restart offsets work. It uses
+separate ports and volumes; its evidence stays under `tmp/observability-log-test-*`.
+It requires a local Docker daemon, host port access and cached `grafana/alloy`
+and `grafana/loki` images matching `docker-compose.yml`.
+
+After editing the Alloy configuration, restart that collector to load it:
+
+```sh
+docker compose --project-name artgod-observability --profile observability restart alloy
+```
+
+Use the configured project name if you selected another one.
 
 Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 

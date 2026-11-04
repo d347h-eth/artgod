@@ -98,6 +98,7 @@
         "observability:down": "node ./scripts/observability/compose.mjs down",
         "observability:config": "node ./scripts/observability/compose.mjs config",
         "observability:test": "node --test ./scripts/observability/compose.test.mjs",
+        "observability:test:logs": "node --test ./scripts/observability/log-ingestion.test.mjs",
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
         "check:version": "node ./scripts/build/sync-version.mjs --check",
         "debug:ethereum-node": "node ./scripts/debug/ethereum-node-probe.mjs",

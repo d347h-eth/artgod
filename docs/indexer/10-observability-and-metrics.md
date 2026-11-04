@@ -253,13 +253,39 @@ for arguments, machine-local defaults and host-networking requirements.
   Alloy through its read-only `/var/log/artgod` mount. No symlink is required.
   Known desktop runtime log files are provisioned when the app-data log
   directory is initialized and during periodic maintenance, without truncating
-  existing files, so Alloy can tail late-started wallet-bound bot logs while
-  still using `tail_from_end`.
-- Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api*.log`, `/var/log/artgod/frontend-web*.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
-    - `loki.source.file` tails from end.
-    - JSON parsing extracts `t`, `level`, `component`, `action`.
-    - Loki labels include `level`, `component`, `action`.
+  existing files.
+
+Alloy's file discovery in `observability/alloy/config.alloy` covers these paths
+under the selected logs directory:
+
+| Filename pattern                                                   | Loki `runtime` label |
+| ------------------------------------------------------------------ | -------------------- |
+| `backend*.log` (standalone `backend-api`, desktop `backend`)       | `backend-api`        |
+| `frontend-web*.log`                                                | `frontend-web`       |
+| `indexer-*.log` (workers and startup maintenance)                  | `indexer`            |
+| `trading-*.log`                                                    | `trading-bot`        |
+| `desktop-app*.log` (includes native/WebView lifecycle diagnostics) | `desktop-app`        |
+| `desktop-supervisor*.log`                                          | `desktop-supervisor` |
+| `nats*.log` (includes store preparation)                           | `nats`               |
+
+The patterns cover both legacy undated and current daily files. Each
+`loki.source.file` reader starts newly discovered files at the end, avoiding
+potentially large historical imports. Records written before first discovery
+are intentionally skipped. Readers resume from saved positions in `alloy-data`
+for files already collected on restart. See
+[Alloy file positions](https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.file/#component-behavior).
+
+JSON parsing preserves the original `t` timestamp and extracts `level`,
+`component`, and `action` as labels. Diagnostic payloads remain in the JSON
+body. Native lifecycle records can be queried with:
+
+```logql
+{app="artgod",runtime="desktop-app",component="DesktopLifecycle"}
+```
+
+`yarn observability:test:logs` exercises these file families through disposable
+Alloy and Loki containers, including skipped history, new output, rotation, and restart offsets;
+see [local infrastructure](../development/01-local-development.md#local-infrastructure).
 
 The shared `observability/loki/loki-config.yaml` enables Compactor retention:
 `level=debug` streams keep 72 hours; `info`, `warn`, `error` and other streams
