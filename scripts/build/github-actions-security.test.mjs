@@ -388,6 +388,53 @@ test("admits signed mainline tags before initial or resumed release work", async
     );
 });
 
+test("suppresses keychain attributes while retaining setup errors and failure status", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const setup = extractWorkflowStep(
+        extractWorkflowJob(workflow, "build"),
+        "Prepare macOS signing keychain",
+    );
+    const partitionCommands = [
+        ...setup.matchAll(/^\s*security set-key-partition-list[^\n]*$/gm),
+    ];
+    assert.equal(partitionCommands.length, 1);
+    // Execute the workflow's actual redirection with a shell fixture. Never
+    // invoke the host security tool or operate on an actual signing keychain.
+    const script = [
+        "set -euo pipefail",
+        "security() {",
+        "  printf '%s\\n' 'keychain attribute fixture'",
+        "  printf '%s\\n' 'keychain diagnostic fixture' >&2",
+        '  return "$SECURITY_STATUS_FIXTURE"',
+        "}",
+        partitionCommands[0][0].trim(),
+        "printf '%s\\n' 'setup continued'",
+    ].join("\n");
+
+    for (const status of [0, 23]) {
+        const result = spawnSync(
+            "bash",
+            ["--noprofile", "--norc", "-c", script],
+            {
+                env: {
+                    SECURITY_STATUS_FIXTURE: String(status),
+                    KEYCHAIN_PASSWORD: "keychain-password-fixture",
+                    KEYCHAIN_PATH: "/fixture/keychain",
+                },
+                encoding: "utf8",
+                timeout: 5000,
+            },
+        );
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, status);
+        assert.equal(result.stdout, status === 0 ? "setup continued\n" : "");
+        assert.equal(result.stderr, "keychain diagnostic fixture\n");
+    }
+});
+
 test("publishes only after successful release assembly", async () => {
     const releaseWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-release.yml"),

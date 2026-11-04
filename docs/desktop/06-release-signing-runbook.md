@@ -267,6 +267,8 @@ UID do not hide the Apple certificate subject.
 - The temporary `.p12` uses mode `0600` and is deleted immediately after import.
   The temporary keychain is deleted and explicitly unlinked as soon as the
   signed Tauri build returns, before artifact upload Actions run.
+- The keychain partition-list update discards its attribute dump on stdout.
+  Error diagnostics and a failing exit status remain visible to the runner.
 - Each submit, poll, or resume command independently decodes the `.p8` into a
   mode-`0600` file under a unique mode-`0700` directory. The helper removes that
   directory before returning, so artifact Actions never run while the API key
