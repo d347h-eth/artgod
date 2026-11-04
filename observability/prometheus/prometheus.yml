@@ -6,53 +6,9 @@ rule_files:
     - bidding-runtime-alerts.json
 
 scrape_configs:
-    - job_name: "artgod-backend"
-      static_configs:
-          - targets: ["127.0.0.1:42740"]
-            labels:
-                runtime: "backend-api"
-
-    - job_name: "artgod-indexer"
-      static_configs:
-          - targets: ["127.0.0.1:42741"]
-            labels:
-                runtime: "scheduler-worker"
-          - targets: ["127.0.0.1:42742"]
-            labels:
-                runtime: "sync-worker"
-          - targets: ["127.0.0.1:42743"]
-            labels:
-                runtime: "reorg-worker"
-          - targets: ["127.0.0.1:42744"]
-            labels:
-                runtime: "domain-worker"
-          - targets: ["127.0.0.1:42745"]
-            labels:
-                runtime: "offchain-ingest-worker"
-          - targets: ["127.0.0.1:42746"]
-            labels:
-                runtime: "opensea-stream-worker"
-          - targets: ["127.0.0.1:42749"]
-            labels:
-                runtime: "opensea-bootstrap-worker"
-          - targets: ["127.0.0.1:42750"]
-            labels:
-                runtime: "opensea-reconcile-worker"
-          - targets: ["127.0.0.1:42751"]
-            labels:
-                runtime: "opensea-reconcile-scheduler-worker"
-          - targets: ["127.0.0.1:42747"]
-            labels:
-                runtime: "bootstrap-worker"
-          - targets: ["127.0.0.1:42752"]
-            labels:
-                runtime: "collection-extension-worker"
-          - targets: ["127.0.0.1:42748"]
-            labels:
-                runtime: "dead-letter-worker"
-
-    - job_name: "artgod-trading"
-      static_configs:
-          - targets: ["127.0.0.1:42753"]
-            labels:
-                runtime: "bidding-bot"
+    # Target groups retain the existing job/runtime labels used by dashboards.
+    # JSON file discovery also permits local port overrides without rewriting YAML.
+    - job_name: "artgod-runtime"
+      file_sd_configs:
+          - files: ["targets.json"]
+            refresh_interval: 5s

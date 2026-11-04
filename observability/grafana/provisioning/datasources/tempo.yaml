@@ -5,7 +5,7 @@ datasources:
       uid: tempo
       type: tempo
       access: proxy
-      url: http://127.0.0.1:42731
+      url: $ARTGOD_OBSERVABILITY_TEMPO_URL
       isDefault: false
       editable: true
       jsonData:

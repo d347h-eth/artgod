@@ -36,11 +36,11 @@ const BOT_RUNTIME_PATH = path.join(
 const TAURI_CONFIG_PATH = path.join(rootDir, "src-tauri", "tauri.conf.json");
 const INDEXER_PACKAGE_JSON_PATH = path.join(rootDir, "indexer", "package.json");
 const INDEXER_DEV_SCRIPT_PATH = path.join(rootDir, "scripts", "indexer-dev.sh");
-const PROMETHEUS_CONFIG_PATH = path.join(
+const PROMETHEUS_TARGETS_PATH = path.join(
     rootDir,
     "observability",
     "prometheus",
-    "prometheus.yml",
+    "targets.json",
 );
 const INDEXER_OBSERVABILITY_CONFIG_PATH = path.join(
     rootDir,
@@ -249,15 +249,8 @@ async function parseDevLauncherWorkers() {
 }
 
 async function parsePrometheusRuntimes() {
-    const source = await readFile(PROMETHEUS_CONFIG_PATH, "utf8");
-    const runtimes = new Set();
-    const pattern = /runtime:\s*"([a-z0-9-]+)"/g;
-
-    for (const match of source.matchAll(pattern)) {
-        runtimes.add(match[1]);
-    }
-
-    return runtimes;
+    const source = await readFile(PROMETHEUS_TARGETS_PATH, "utf8");
+    return new Set(JSON.parse(source).map((group) => group.labels.runtime));
 }
 
 async function parseMetricsConfigKeys() {

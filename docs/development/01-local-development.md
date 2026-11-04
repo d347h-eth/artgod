@@ -336,10 +336,18 @@ Metrics use the existing scrape ports `42740`–`42753` and bind to `127.0.0.1`.
 Metrics appear for processes that are running; bidding metrics start with the
 operator-started bidding runtime.
 
-Run `yarn observability:up` from the checkout that owns your existing Compose
-project. The desktop build does not start collectors. Alloy's `tmp/logs` mount
-in that checkout must resolve to the desktop app-data logs; a new worktree
-does not inherit another checkout's log symlink.
+The desktop build does not start collectors. Start them from your regular
+checkout and pass the desktop app-data log directory directly:
+
+```sh
+yarn observability:up --logs-dir "${XDG_DATA_HOME:-$HOME/.local/share}/network.artgod.desktop/logs"
+```
+
+This example uses Linux's default data directory unless `XDG_DATA_HOME` is set.
+Use the exact logs directory for your app installation on other platforms.
+No log symlink is needed. See
+[Local Infrastructure](#local-infrastructure) for port overrides and saved
+machine-local defaults.
 
 Optional local bundling uses the same path. On Linux:
 
@@ -826,9 +834,104 @@ yarn observability:up
 
 Use `yarn observability:stop` to stop those containers and
 `yarn observability:down` to remove only those observability service containers.
+Both preserve collector volumes. These shortcuts use the stable Compose
+project `artgod-observability`, separate from the app's NATS project; switching
+checkouts no longer creates another stack. Running `up` from another checkout
+updates that project's configuration mounts to the invoking checkout. Use one
+checkout as its regular home. Existing projects named after old worktrees are
+independent; stop them before starting a stack on the same ports.
 
-Open Grafana at `http://localhost:42735` with the default `admin` / `admin`
-credentials.
+On a fresh Grafana volume, open `http://127.0.0.1:42735` with `admin` / `admin`.
+All published collector ports bind to numeric IPv4 loopback. Grafana and
+Prometheus retain host networking so Prometheus can scrape desktop exporters
+bound to `127.0.0.1`. This requires Docker Engine on Linux, or Linux containers
+on Docker Desktop 4.34+ with host networking enabled; it does not support a
+remote Docker host. See [Docker host networking](https://docs.docker.com/engine/network/drivers/host/).
+
+Override conflicting collector ports and select the app's existing log directory:
+
+```sh
+yarn observability:up --port grafana=42755 --port prometheus=42834 --logs-dir "$HOME/.local/share/network.artgod.desktop/logs"
+```
+
+Repeat `--port NAME=PORT` for `grafana`, `prometheus`, `loki`, `tempo` (query
+API), `otlp` (trace ingestion), or `pyroscope`. Container ports and Alloy's
+internal Loki destination stay fixed; Grafana's data-source URLs follow the
+host overrides automatically. Alloy's internal diagnostics port is not
+published. If `otlp` or `pyroscope` changes, update the app's trace or profile
+exporter URL to the printed URL, save and restart the affected runtimes. The
+launcher does not modify app settings.
+
+Match custom app metrics ports with repeatable `--metrics-port RUNTIME=PORT`:
+
+```sh
+yarn observability:up --port grafana=42755 --metrics-port bidding-bot=42754 --logs-dir "$HOME/.local/share/network.artgod.desktop/logs"
+```
+
+Runtime names come from `observability/prometheus/targets.json`. Each override
+changes the collector's scrape target, so configure the matching exporter port
+in the app separately. Missing directories, unknown names and invalid or
+duplicate port assignments fail before Docker starts. Only the default
+`tmp/logs` directory is created automatically; selected app logs are mounted
+read-only. Alloy collects standalone and desktop backend logs, indexer and
+trading logs, native app/lifecycle and supervisor logs, and NATS logs including
+store preparation. Newly discovered files start at the end, intentionally
+skipping existing contents to avoid large historical imports. Alloy periodically
+checkpoints read positions in its named volume and resumes from those saved
+positions for files already collected after a restart.
+
+Save repeated options locally:
+
+```sh
+cp .env.observability.example .env.observability
+# Edit the copied file, then use the ordinary shortcuts.
+yarn observability:up
+yarn observability:stop
+```
+
+`.env.observability` is ignored by Git. CLI arguments override shell environment
+variables, then this file, then repository defaults. Relative paths resolve
+from the invoking checkout, including paths in an explicit `--env-file PATH`;
+`~/` is supported, but env-file values do not perform shell expansion. The
+app's `.env` and ambient Compose file/project selections do not select this
+stack. Use `--project-name NAME` consistently on all commands for an additional
+isolated stack, with different ports. The shortcuts select the repository's
+Compose file explicitly; arbitrary Compose override files are not loaded.
+
+Inspect the resolved configuration without starting containers, or show help:
+
+```sh
+yarn observability:config --port grafana=42755
+yarn observability:up --help
+yarn observability:test
+```
+
+The configuration check prepares local mount inputs under `tmp/observability/`
+and validates the log path. The tests need Node and Docker Compose, but do not
+contact the Docker daemon. `up --pull never` uses only already cached images.
+
+Verify log collection with real Alloy and Loki using disposable containers and
+cached images:
+
+```sh
+yarn observability:test:logs
+```
+
+This check derives desktop filenames from their Rust owners and standalone
+filenames from the dev launchers, then verifies that existing contents are
+skipped, newly appended output is collected, and file rotation, labels,
+timestamps and restart offsets work. It uses
+separate ports and volumes; its evidence stays under `tmp/observability-log-test-*`.
+It requires a local Docker daemon, host port access and cached `grafana/alloy`
+and `grafana/loki` images matching `docker-compose.yml`.
+
+After editing the Alloy configuration, restart that collector to load it:
+
+```sh
+docker compose --project-name artgod-observability --profile observability restart alloy
+```
+
+Use the configured project name if you selected another one.
 
 Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 

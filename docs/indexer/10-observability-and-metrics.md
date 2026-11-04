@@ -14,7 +14,9 @@ It also records known limitations and what is still missing for complete trace-t
 
 Current setup is local-first and split by signal type:
 
-- Logs: local backend API, frontend SSR, indexer, and trading bot runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
+- Logs: standalone local launchers write JSON log files to `tmp/logs/*.log`;
+  desktop runtimes use the app-data logs directory selected with `--logs-dir`.
+  Deploy containers are discovered by Alloy through Docker labels.
 - Metrics: backend API, indexer runtimes, and the bidding bot expose `/metrics`
   over HTTP when enabled; Prometheus scrapes them and Grafana reads Prometheus.
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:42732`), and Grafana reads Tempo.
@@ -217,11 +219,18 @@ ingestion or rendered Grafana panels.
 `docker-compose.yml` defines:
 
 - `loki` (log store), bound to `127.0.0.1:42730`.
-- `alloy` (log shipper/processor), reads `./tmp/logs` as read-only.
+- `alloy` (log shipper/processor), reads the selected logs directory as read-only
+  (default `./tmp/logs`) and persists file positions in `alloy-data`.
 - `prometheus` (metrics scraping), host network mode for host runtime scrape.
 - `tempo` (trace ingest/query), OTLP HTTP on `127.0.0.1:42732`, API on `127.0.0.1:42731`.
 - `pyroscope` (profiles), bound to `127.0.0.1:42733`.
 - `grafana` (UI), host network mode, bound to `127.0.0.1:42735`.
+
+These are default ports. The local launcher uses the stable Compose project
+`artgod-observability`, supports collector and metrics-target port overrides,
+and updates Grafana's data-source URLs to match. See
+[local infrastructure](../development/01-local-development.md#local-infrastructure)
+for arguments, machine-local defaults and host-networking requirements.
 
 `docker-compose.deploy.yml` defines the same signal stores behind its own `observability` profile, but uses deploy-specific wiring:
 
@@ -239,19 +248,44 @@ ingestion or rendered Grafana panels.
   `DESKTOP_LOG_RETENTION_HOURS`. They also use JSON Lines: structured
   backend/indexer/trading payloads stay parseable at line start, and plain
   child-process output is wrapped before it is written.
-  The local observability setup expects the app-data log path to be exposed
-  through the shared `tmp/logs` root, so trading bot files such as
-  `trading-bidding-bot-YYYY-MM-DD.log` are visible to Alloy without a separate
-  mount.
+  Start local observability with `--logs-dir` pointing to that directory so
+  trading bot files such as `trading-bidding-bot-YYYY-MM-DD.log` are visible to
+  Alloy through its read-only `/var/log/artgod` mount. No symlink is required.
   Known desktop runtime log files are provisioned when the app-data log
   directory is initialized and during periodic maintenance, without truncating
-  existing files, so Alloy can tail late-started wallet-bound bot logs while
-  still using `tail_from_end`.
-- Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api*.log`, `/var/log/artgod/frontend-web*.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
-    - `loki.source.file` tails from end.
-    - JSON parsing extracts `t`, `level`, `component`, `action`.
-    - Loki labels include `level`, `component`, `action`.
+  existing files.
+
+Alloy's file discovery in `observability/alloy/config.alloy` covers these paths
+under the selected logs directory:
+
+| Filename pattern                                                   | Loki `runtime` label |
+| ------------------------------------------------------------------ | -------------------- |
+| `backend*.log` (standalone `backend-api`, desktop `backend`)       | `backend-api`        |
+| `frontend-web*.log`                                                | `frontend-web`       |
+| `indexer-*.log` (workers and startup maintenance)                  | `indexer`            |
+| `trading-*.log`                                                    | `trading-bot`        |
+| `desktop-app*.log` (includes native/WebView lifecycle diagnostics) | `desktop-app`        |
+| `desktop-supervisor*.log`                                          | `desktop-supervisor` |
+| `nats*.log` (includes store preparation)                           | `nats`               |
+
+The patterns cover both legacy undated and current daily files. Each
+`loki.source.file` reader starts newly discovered files at the end, avoiding
+potentially large historical imports. Records written before first discovery
+are intentionally skipped. Readers resume from saved positions in `alloy-data`
+for files already collected on restart. See
+[Alloy file positions](https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.file/#component-behavior).
+
+JSON parsing preserves the original `t` timestamp and extracts `level`,
+`component`, and `action` as labels. Diagnostic payloads remain in the JSON
+body. Native lifecycle records can be queried with:
+
+```logql
+{app="artgod",runtime="desktop-app",component="DesktopLifecycle"}
+```
+
+`yarn observability:test:logs` exercises these file families through disposable
+Alloy and Loki containers, including skipped history, new output, rotation, and restart offsets;
+see [local infrastructure](../development/01-local-development.md#local-infrastructure).
 
 The shared `observability/loki/loki-config.yaml` enables Compactor retention:
 `level=debug` streams keep 72 hours; `info`, `warn`, `error` and other streams
@@ -282,7 +316,9 @@ and heights stay in JSON fields rather than indexed labels.
 
 ### Metrics Pipeline
 
-- Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
+- Prometheus config in `observability/prometheus/prometheus.yml` discovers the
+  loopback targets in `observability/prometheus/targets.json`, preserving the
+  `artgod-backend`, `artgod-indexer`, and `artgod-trading` job labels. Defaults:
     - `42740` backend-api
     - `42741` scheduler-worker
     - `42742` sync-worker
