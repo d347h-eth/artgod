@@ -2,6 +2,12 @@
 
 This document describes the current indexer test layout and the environment assumptions behind it.
 
+For proposed unified sync/reorg/orderbook verification, read the
+[current-state discovery](../development/05-deterministic-system-testing-discovery.md),
+[strategy and tool comparison](../development/06-deterministic-system-testing-strategy.md)
+and [property/scenario catalog](../development/07-deterministic-system-testing-scenarios.md).
+Those documents scope future work; they do not add a runner or CI gate.
+
 Primary files:
 
 - `indexer/tests/*`
