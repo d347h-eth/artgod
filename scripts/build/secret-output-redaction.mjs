@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
+import { StringDecoder } from "node:string_decoder";
 
 const REDACTED_VALUE = "[REDACTED]";
 const MINIMUM_REDACTION_VALUE_LENGTH = 4;
@@ -7,7 +8,23 @@ const DEFAULT_COMMAND_TERMINATION_GRACE_MS = 5 * 1000;
 const BROKEN_PIPE_ERROR_CODE = "EPIPE";
 const DERIVED_CREDENTIAL_REDACTIONS = [
     {
-        pattern: /(authorization[\t ]*:[\t ]*)[^\r\n]+/gi,
+        // Keep diagnostic JSON valid while removing generated header values.
+        pattern:
+            /("(?:proxy-)?authorization"[\t ]*:[\t ]*")((?:\\.|[^"\\\r\n])*)(")/gi,
+        replacement: `$1${REDACTED_VALUE}$3`,
+    },
+    {
+        pattern: /((?:proxy-)?authorization[\t ]*:[\t ]*)[^\r\n]+/gi,
+        replacement: `$1${REDACTED_VALUE}`,
+    },
+    {
+        pattern: /\b(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi,
+        replacement: `$1${REDACTED_VALUE}@`,
+    },
+    {
+        // Upload tools can mint signed URLs absent from the configured secrets.
+        pattern:
+            /([?&](?:x-amz-(?:credential|signature|security-token)|x-goog-(?:credential|signature)|awsaccesskeyid|googleaccessid|signature|sig|access_token|token|api[_-]?key|password|secret)=)[^&\s"'<>#\\)]+/gi,
         replacement: `$1${REDACTED_VALUE}`,
     },
     {
@@ -90,6 +107,7 @@ export function collectSensitivePayloadFragments(value, windowLength) {
 
 // Streams text only after derived and exact credentials have been removed.
 export function createRedactedOutputWriter(target, redactor) {
+    const decoder = new StringDecoder("utf8");
     let linePending = "";
     let exactPending = "";
 
@@ -137,10 +155,12 @@ export function createRedactedOutputWriter(target, redactor) {
 
     return {
         write(chunk) {
-            linePending += chunk.toString();
+            linePending +=
+                typeof chunk === "string" ? chunk : decoder.write(chunk);
             flushCompleteLines();
         },
         end() {
+            linePending += decoder.end();
             exactPending += redactor.redactDerivedCredentials(linePending);
             linePending = "";
             drainExactValues(true);
@@ -214,14 +234,15 @@ export async function runRedactedCommand(command, args, options = {}) {
             stdoutWriter?.end();
             stderrWriter?.end();
         };
-        child.stdout.on("data", (chunk) => {
-            const output = chunk.toString();
+        // Decode across pipe chunks before either retaining or redacting text.
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (output) => {
             stdout += output;
             combinedOutput += output;
             stdoutWriter?.write(output);
         });
-        child.stderr.on("data", (chunk) => {
-            const output = chunk.toString();
+        child.stderr.on("data", (output) => {
             stderr += output;
             combinedOutput += output;
             stderrWriter?.write(output);

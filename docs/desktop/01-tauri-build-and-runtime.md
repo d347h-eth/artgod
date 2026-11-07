@@ -659,7 +659,9 @@ Responsibilities:
 Responsibilities:
 
 - keeps raw signing-tool output internal while streaming only credential-redacted text
-- redacts exact, serialized, multiline payload, authorization-header, and JWT-shaped credential forms
+- decodes UTF-8 across pipe chunks before matching secret values
+- redacts exact, serialized, multiline payload, plain/JSON authorization-header,
+  JWT-shaped, URL user-information, and signed-URL query credential forms
 - sanitizes child-process failures and diagnostic files through the same boundary
 
 ### `scripts/build/linux-gpg-signing.mjs`

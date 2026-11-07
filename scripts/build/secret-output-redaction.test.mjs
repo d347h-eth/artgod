@@ -13,6 +13,47 @@ import {
 } from "./secret-output-redaction.mjs";
 
 const secretSentinel = "signing-secret-sentinel-7F4C9A2E";
+const derivedCredentialCases = [
+    {
+        name: "JSON authorization headers",
+        value: JSON.stringify({
+            Authorization: "Basic Zml4dHVyZTpwYXNzd29yZA==",
+            "Proxy-Authorization": "AWS4-HMAC-SHA256 Credential=upload-session",
+            status: "upload failed",
+        }),
+        expected: JSON.stringify({
+            Authorization: "[REDACTED]",
+            "Proxy-Authorization": "[REDACTED]",
+            status: "upload failed",
+        }),
+    },
+    {
+        name: "URL user information",
+        value: "https://upload-user:upload-password@upload.invalid/bundle.dmg",
+        expected: "https://[REDACTED]@upload.invalid/bundle.dmg",
+    },
+    ...[
+        "X-Amz-Credential",
+        "X-Amz-Signature",
+        "X-Amz-Security-Token",
+        "X-Goog-Credential",
+        "X-Goog-Signature",
+        "AWSAccessKeyId",
+        "Signature",
+        "GoogleAccessId",
+        "sig",
+        "access_token",
+        "token",
+        "api_key",
+        "api-key",
+        "password",
+        "secret",
+    ].map((key) => ({
+        name: `${key} URL query credential`,
+        value: `https://upload.invalid/bundle.dmg?part=1&${key}=derived%2Bupload%2Fcredential%3D&retry=2`,
+        expected: `https://upload.invalid/bundle.dmg?part=1&${key}=[REDACTED]&retry=2`,
+    })),
+];
 
 function createMemoryOutput() {
     let value = "";
@@ -73,6 +114,37 @@ test("redacts derived authorization credentials before streaming", () => {
 
     assert.equal(output.read(), "jwt:[REDACTED]\nAuthorization: [REDACTED]\n");
     assert.doesNotMatch(output.read(), /derived-access-token|eyJhbGci/);
+});
+
+for (const { name, value, expected } of derivedCredentialCases) {
+    test(`redacts ${name} without configured secrets`, () => {
+        const redactor = createSecretRedactor([]);
+        assert.equal(redactor.redact(value), expected);
+
+        for (let splitIndex = 1; splitIndex < value.length; splitIndex += 1) {
+            const output = createMemoryOutput();
+            const writer = createRedactedOutputWriter(output.target, redactor);
+            writer.write(value.slice(0, splitIndex));
+            writer.write(`${value.slice(splitIndex)}\n`);
+            writer.end();
+            assert.equal(output.read(), `${expected}\n`);
+        }
+    });
+}
+
+test("decodes split UTF-8 before matching a streamed secret", () => {
+    const value = "release-🔑-pässphrase";
+    const bytes = Buffer.from(`before ${value} after\n`, "utf8");
+    const redactor = createSecretRedactor([value]);
+
+    for (let splitIndex = 1; splitIndex < bytes.length; splitIndex += 1) {
+        const output = createMemoryOutput();
+        const writer = createRedactedOutputWriter(output.target, redactor);
+        writer.write(bytes.subarray(0, splitIndex));
+        writer.write(bytes.subarray(splitIndex));
+        writer.end();
+        assert.equal(output.read(), "before [REDACTED] after\n");
+    }
 });
 
 test("redacts serialized secret variants", () => {
@@ -138,6 +210,76 @@ test("redacts child stdout, stderr, and failed-command errors before emission", 
     assert.match(commandError.message, /\[REDACTED\]/);
 });
 
+test("redacts generated credentials in child output and failure details", async () => {
+    const stdout = createMemoryOutput();
+    const stderr = createMemoryOutput();
+    const value = derivedCredentialCases.map(({ value }) => value).join("\n");
+    const expected = derivedCredentialCases
+        .map(({ expected }) => expected)
+        .join("\n");
+    const childScript = [
+        'const fs = require("node:fs")',
+        "fs.writeSync(1, process.env.OUTPUT_FIXTURE)",
+        "fs.writeSync(2, process.env.OUTPUT_FIXTURE)",
+        "process.exitCode = 7",
+    ].join(";");
+    let commandError;
+    try {
+        await runRedactedCommand(process.execPath, ["-e", childScript], {
+            env: { OUTPUT_FIXTURE: value },
+            stream: true,
+            stdoutTarget: stdout.target,
+            stderrTarget: stderr.target,
+        });
+    } catch (error) {
+        commandError = error;
+    }
+
+    assert.ok(commandError instanceof Error);
+    assert.equal(stdout.read(), expected);
+    assert.equal(stderr.read(), expected);
+    assert.ok(commandError.message.endsWith(expected));
+    for (const publicOutput of [
+        commandError.stack,
+        JSON.stringify(commandError),
+        inspect(commandError, { showHidden: true }),
+    ]) {
+        assert.doesNotMatch(
+            publicOutput,
+            /Zml4dHVyZTpwYXNzd29yZA|upload-session|upload-password|derived%2Bupload/,
+        );
+    }
+});
+
+test("retains complete UTF-8 internally while redacting both child pipes", async () => {
+    const value = "release-🔑-pässphrase";
+    const stdout = createMemoryOutput();
+    const stderr = createMemoryOutput();
+    const childScript = [
+        'const fs = require("node:fs")',
+        "const bytes = Buffer.from(process.env.OUTPUT_FIXTURE)",
+        "fs.writeSync(1, bytes.subarray(0, 9))",
+        "fs.writeSync(2, bytes.subarray(0, 9))",
+        "setTimeout(() => { fs.writeSync(1, bytes.subarray(9)); fs.writeSync(2, bytes.subarray(9)); }, 20)",
+    ].join(";");
+    const result = await runRedactedCommand(
+        process.execPath,
+        ["-e", childScript],
+        {
+            env: { OUTPUT_FIXTURE: value },
+            redactor: createSecretRedactor([value]),
+            stream: true,
+            stdoutTarget: stdout.target,
+            stderrTarget: stderr.target,
+        },
+    );
+
+    assert.equal(result.stdout, value);
+    assert.equal(result.stderr, value);
+    assert.equal(stdout.read(), "[REDACTED]");
+    assert.equal(stderr.read(), "[REDACTED]");
+});
+
 test("redacts secrets before writing diagnostic artifacts", async () => {
     const temporaryDirectory = await mkdtemp(
         path.join(os.tmpdir(), "artgod-signing-redaction-"),
@@ -148,11 +290,20 @@ test("redacts secrets before writing diagnostic artifacts", async () => {
     try {
         await writeRedactedTextFile(
             diagnosticPath,
-            `diagnostic:${secretSentinel}`,
+            [
+                `diagnostic:${secretSentinel}`,
+                ...derivedCredentialCases.map(({ value }) => value),
+            ].join("\n"),
             redactor,
         );
         const diagnostic = await readFile(diagnosticPath, "utf8");
-        assert.equal(diagnostic, "diagnostic:[REDACTED]");
+        assert.equal(
+            diagnostic,
+            [
+                "diagnostic:[REDACTED]",
+                ...derivedCredentialCases.map(({ expected }) => expected),
+            ].join("\n"),
+        );
         assert.doesNotMatch(diagnostic, new RegExp(secretSentinel));
     } finally {
         await rm(temporaryDirectory, { recursive: true, force: true });
