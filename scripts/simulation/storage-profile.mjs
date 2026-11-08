@@ -28,7 +28,7 @@ export function storageProfile(value) {
         // mutable pages before submission, isolating host AIO from later writes.
         return {
             ...virtio,
-            rootController: `${virtio.rootController},iommu_platform=on`,
+            rootController: `${virtio.rootController},iommu_platform=on,disable-legacy=on`,
             kernelOptions: ["iommu=soft", "swiotlb=force"],
         };
     }

@@ -303,7 +303,7 @@ test("explicit PIO and virtio storage profiles pin devices while absent profiles
             STORAGE_PROFILE.VirtioBounce,
             "/dev/vda",
             "/dev/vdb",
-            "virtio-blk-pci,drive=replay-disk,ioeventfd=off,iommu_platform=on",
+            "virtio-blk-pci,drive=replay-disk,ioeventfd=off,iommu_platform=on,disable-legacy=on",
         ],
     ]) {
         const manifest = validateManifest(
