@@ -2,11 +2,13 @@
 
 This document describes the current indexer test layout and the environment assumptions behind it.
 
-For proposed unified sync/reorg/orderbook verification, read the
+For unified production-runtime sync/reorg/orderbook simulation, read the
 [current-state discovery](../development/05-deterministic-system-testing-discovery.md),
 [strategy and tool comparison](../development/06-deterministic-system-testing-strategy.md)
 and [property/scenario catalog](../development/07-deterministic-system-testing-scenarios.md).
-Those documents scope future work; they do not add a runner or CI gate.
+The [execution guide](../development/08-simulation-workbench-execution.md) describes
+the whole-machine workbench currently being implemented. Existing tests below
+remain supporting evidence; their results do not qualify a system simulation.
 
 Primary files:
 

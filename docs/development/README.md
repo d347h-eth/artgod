@@ -12,10 +12,12 @@
   analysis, recovery benchmarks and their limitations.
 - [System testing discovery](05-deterministic-system-testing-discovery.md)
   inventories current sync, reorg, orderbook and CI coverage and reusable harnesses.
-- [Proposed system testing strategy](06-deterministic-system-testing-strategy.md)
-  compares tools and scopes deterministic execution, process acceptance, CI and
-  staged implementation. This is a proposal, not an implemented framework.
-- [Proposed properties and scenarios](07-deterministic-system-testing-scenarios.md)
-  defines the bounded first journey and longer-term interaction coverage.
+- [Production simulation workbench](06-deterministic-system-testing-strategy.md)
+  defines the authorized production-runtime boundary, whole-machine replay,
+  provider disagreement, oracle and implementation milestones.
+- [Properties and scenarios](07-deterministic-system-testing-scenarios.md)
+  defines deliberate distributed-system histories and required evidence.
+- [Workbench execution](08-simulation-workbench-execution.md) covers explicit
+  guest inputs, build, preflight, record/replay and qualification limits.
 
 Remaining work is tracked in the [unified backlog](../planning/01-unified-backlog.md).

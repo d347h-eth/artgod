@@ -1,172 +1,185 @@
-# Deterministic System Testing: Proposed Properties and Scenarios
+# Production Simulation: Properties and Scenario Catalog
 
-Status: proposed acceptance catalog, 2026-11-07, source baseline `24cff044`.
-None of the unified scenarios below has been implemented or executed by this
-discovery. Existing mechanism-level coverage is linked from
-[discovery](05-deterministic-system-testing-discovery.md). The
-[strategy](06-deterministic-system-testing-strategy.md) defines lanes,
-oracle independence, milestones and evidence limits.
+Updated 2026-11-08. This catalog defines intended coverage for the authorized
+[workbench](06-deterministic-system-testing-strategy.md), not a claim that the
+scenarios have passed. Initial source inspection used `24cff044`;
+[discovery](05-deterministic-system-testing-discovery.md) records existing
+mechanism-level tests. [Execution](08-simulation-workbench-execution.md) owns
+local commands and the qualification boundary.
 
-## Property Catalog
+## Properties
 
-These are test requirements derived from current contracts. A failing scenario
-requires diagnosis; these rows are not assertions that all combinations already
-work. Check safety at stable committed observation points, never halfway through
-an atomic writer. Use the current public domain constants in implementation.
+Assertions observe committed state and explicit external boundaries. Production
+runtime entrypoints, real NATS and real SQLite remain inside the system under
+test. Only external services are faked.
 
-| ID  | Required property and observation                                                                                                                                                                                                                                                  | Owning contract                                                                                                                                               |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | Committed acquisition has matching facts, per-collection coverage, balances, required downstream intent and acquisition progress. Injected transaction failure advances none. Duplicate delivery has no duplicate business effect.                                                 | [Sync](../indexer/04-sync-pipeline.md), [commit port](../../indexer/src/ports/sync-range-commit.ts)                                                           |
-| P2  | Parent-linked canonical acquisition and proof are required. A committed rollback fences previously acquired data and validation; failed/unknown RPC leaves recoverable obligations rather than fabricated facts or invalid orders.                                                 | [Reorg](../indexer/06-reorg-handling.md), [validation](../indexer/07-domain-orders.md#coalesced-ordinary-validation)                                          |
-| P3  | Recovery removes attributable orphan facts, ownership/activity/coverage and event-specific hints. Fork-hash ownership and ERC1155 reversal reconstruct canonical state; independent source evidence, operator declarations and unrelated chain/collection state survive.           | [Rollback](../indexer/06-reorg-handling.md#rollback-strategy), [order retention tests](../../indexer/tests/reorg-order-retention.test.ts)                     |
-| P4  | Canonical upsert and validation demand commit together. Old order revision, demand generation, chain checkpoint or lease cannot discharge newer work or overwrite newer lifecycle state. No writer spans external RPC.                                                             | [Orders](../indexer/07-domain-orders.md), [processing ports](../indexer/12-ports-and-adapters.md#order-processing-ports)                                      |
-| P5  | Source observation, protocol state, chain evidence and receipt cleanup keep their declared meanings. Delayed create/repeated delivery cannot defeat terminal replay rules; independent source cancellation survives orphan-chain rollback.                                         | [Orders](../indexer/07-domain-orders.md), [OpenSea sync](../../indexer/src/application/offchain/opensea-orderbook-sync.ts)                                    |
-| P6  | After closed inputs, restored dependencies and fair execution, all declared eligible obligations complete and ownership, canonical history, asks and selected HTTP responses equal independent expected answers. Legitimate pending checks/blocked work are explicitly enumerated. | [Recovery progress](../indexer/18-order-queue-recovery.md#failure-and-progress-interpretation), [current asks](../../shared/database/current-asks.ts)         |
-| P7  | Lifecycle updates can progress while validation permits/RPC are blocked; bounded foreground/background and maker scheduling eventually progress under their documented admission policy.                                                                                           | [Processing](../indexer/07-domain-orders.md#processing-ownership-and-retained-state), [RPC allocation tests](../../indexer/tests/rpc-work-allocation.test.ts) |
-| P8  | A known unsupported proof/finality condition retains the correct pending/refusal state without unsafe rollback, false success or unrelated deletion.                                                                                                                               | [Fork search](../indexer/06-reorg-handling.md#fork-point-search), [bootstrap](../indexer/14-collection-bootstrap.md)                                          |
-| P9  | Backend ask/history and bid-book source selection agree with their production read contracts. Indexed order state cannot become the bot's competition/placement input by accident.                                                                                                 | [Market authority](../trading/03-market-data-and-scaling.md#authority-model), [HTTP lifecycle fixture](../../backend/integration/order-lifecycle.test.ts)     |
+| ID  | Required property                                                                                                                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | Acquisition commits facts, collection coverage, balances, required downstream intent and acquisition progress atomically. Failure or duplicate delivery cannot advance a partial state or duplicate a business effect.                                      |
+| P2  | Canonical acquisition, fork proof and validation evidence respect their identity requirements across actual provider selection/retry. Unavailable or conflicting evidence cannot become invented ownership, token absence or a definitive protocol failure. |
+| P3  | Actual recovery removes attributable orphan facts, ownership/activity/coverage and event-specific hints; restores fork ownership/ERC1155 deltas; preserves independent source cancellation, operator declarations and unrelated state.                      |
+| P4  | Upsert and demand admission remain durable; stale order revision, generation, chain checkpoint or lease cannot overwrite newer lifecycle state or discharge newer work. Each guard needs its own actually reached checkpoint.                               |
+| P5  | Source observation, protocol state, onchain evidence, retirement and receipts retain their distinct meanings. Delayed creation/replay cannot defeat terminal precedence.                                                                                    |
+| P6  | After a finite input prefix and explicit healing/fair execution, eligible durable work and canonical owner/history/order/HTTP projections converge to independent expected answers. Expected deferred work is enumerated.                                   |
+| P7  | Independent lifecycle work can progress while validation/RPC is blocked; documented foreground/background and maker policies make progress under their declared availability/fairness assumptions.                                                          |
+| P8  | Persistent disagreement, missing proof and unsupported recovery produce the specified refusal/pending state and diagnostics, without false success or unrelated deletion.                                                                                   |
+| P9  | Backend asks/history/bid-book source selection follow production contracts. Indexed-order fallback cannot become the bot's bidding decision authority.                                                                                                      |
 
-P3 preserves declarations through automatic recovery. It does not change the
-explicit purge operation. P6 does not require unvalidated asks to be hidden:
-current optimistic upsert/ask behavior is an intentional separate checkpoint.
-P9's trading authority assertion needs a trading boundary test beyond M1's
-backend reads.
+The owning contracts remain [sync](../indexer/04-sync-pipeline.md),
+[reorg](../indexer/06-reorg-handling.md), [orders](../indexer/07-domain-orders.md),
+[processing ports](../indexer/12-ports-and-adapters.md#order-processing-ports),
+[progress](../indexer/18-order-queue-recovery.md#failure-and-progress-interpretation)
+and [market authority](../trading/03-market-data-and-scaling.md#authority-model).
 
-Rollback does not globally clear validation timestamps or hide all surviving
-asks. At P2/P4's stale-completion checkpoint, assert that the rejected completion
-cannot change order results or cover current demand; independently assert the
-allowed visibility of surviving source/optimistic rows.
+Provisional observations are allowed where the product contract allows them.
+Current optimistic asks need not be hidden until validation; rollback need not
+clear every surviving timestamp. Assert stale-result refusal separately from
+those visibility rules. The independent oracle knows the eventual winning fork,
+but cannot require ArtGod to know it before sufficient evidence is available.
 
-## First Joined Journey
+## M0: Qualify Execution Before Product Claims
 
-Use a synthetic ERC721 collection with an established bootstrap anchor, two
-tokens and a short fork strictly above the anchor. The sell order on token 1 is
-the fill/re-admission target; the still-eligible maker buy on token 2 is the held
-validation target, exercising WETH approval/balance validation. World RPC
-serves coherent headers/logs/receipts and pinned protocol reads for branches A/B.
-Use existing signed payload/receipt fixtures where compatible; record any
-fixture limitations. All amounts and token identifiers remain exact integers.
+The first workload verifies actual Node/native-SQLite and NATS execution inside
+the pinned guest: WAL, competing writers, reopen, durable broker restart,
+redelivery after an application commit, and guest entropy/clock behavior.
+Record and replay must both report their declared checks and produce identical
+raw serial bytes with a nonempty event log, equal guest-visible disk capacity
+and identical complete disk contents. An exit-zero emulator process is
+insufficient. These checks qualify the execution substrate and selected dependency
+contracts; they are not chain/orderbook verification.
 
-SC-01 must pass a serial baseline before SC-02 explores concurrency:
+## M1: Small System, Adversarial Histories
 
-1. Establish the trusted initial fixture: collection definition, anchor, token
-   identity/metadata and anchored ownership snapshot/checkpoint. This setup does
-   not prove bootstrap orchestration. Deliver listing and offer via production
-   OpenSea normalization/admission. Observe optimistic upsert and durable demand;
-   complete full pinned validation.
-2. Acquire branch A's transfer/fill through the real range pipeline and drain
-   canonical downstream effects. Observe actual owner, sale history and asks
-   through backend use cases/HTTP handlers.
-3. Admit a fresh requirement for the still-eligible token-2 buy order and start
-   validation. In one schedule, hold a pinned RPC response. In a second schedule,
-   let the real snapshot's `finish()` successfully verify A, then hold its
-   returned continuation before the demand store's result transaction. Keep
-   captured identities and the unmet requirement in the trace.
-4. Switch the fixture's canonical branch to B, advance head enough for the
-   selected check, detect the mismatch through `RecoverChainReorg`, prove the
-   fork, commit actual rollback and execute retained resync. No direct revision
-   mutation or final-row seeding substitutes for these operations.
-5. Release the old completion. In the first schedule, the real snapshot proof
-   must reject A. In the second, require an actual attempted result/coverage
-   commit and assert that the store rejects the old chain revision. Deliver a
-   current observation and validate the current order at B where required.
-6. Close producers and execute eligible work fairly. Check the exact surviving
-   source evidence, canonical owner/history/coverage, pending/retained work and
-   HTTP asks. Choose a mature endpoint or list the expected recent pending
-   canonical checks.
+Use two tokens in a small ERC721 collection, one sell listing and one still-
+eligible buy order, a bounded fork above the bootstrap anchor and at least two
+fake RPC endpoints. Each endpoint serves coherent responses for its own branch
+and tip. Start production runtime processes with their real polling, admission,
+weighted transport, database and broker behavior.
 
-Do not expect an order retired after a fill to reappear without an input or
-recovery contract that reconstructs it. Distinguish preservation of cancellation
-evidence, deletion of orphan retirement evidence, and re-admission of a current
-source observation.
+The simple serial journey provides a reference outcome:
 
-The second schedule isolates the persistence fence: a stale RPC read alone can
-fail earlier in `finish()` and never exercise that fence. A test-owned decorator
-can delay the continuation after calling the real `finish()`; it must not
-replace proof or validation. A deliberate stale-result mutation must reach its
-targeted commit path before it counts as detected coverage.
+1. Establish the explicitly declared setup boundary. Submit marketplace and
+   chain inputs through actual external-service adapters; acquire, normalize,
+   persist and validate through production runtimes.
+2. Acquire branch A's transfer/fill and observe owner, sale history and asks
+   through real backend HTTP. The sell is the fill/re-admission target; use the
+   still-eligible buy for an outstanding validation requirement.
+3. Release different provider views to sync and validation. Hold selected wire
+   responses; advance/change each provider separately. Do not globally switch
+   a single injected RPC object or replace the production selector.
+4. Let the real canonical checker detect disagreement, prove a fork, roll back
+   and resume retained resync. Observe genuine revision/coverage transitions;
+   no direct revision mutation or final outcome seeding substitutes for them.
+5. Deliver old responses and queued source/event observations around recovery.
+   Assert the allowed intermediate effects and which rejection guards actually
+   ran. Independently reobserve/revalidate current source state where required.
+6. Heal provider views, close finite producers, mature selected pending checks
+   and allow fair execution. Assert canonical owner/history/coverage/order/HTTP
+   state plus every relevant durable obligation.
 
-For SC-02 prepare three held external completions: V, the successful old
-validation's returned continuation; S, a delayed marketplace observation; E, a
-duplicate old event-envelope delivery. Add R, the actual rollback commit. Prepare
-proof/work before these events, and enumerate all causally legal orders of
-V/S/E/R (at most 24 before constraints), including the six with R first. Use a
-fixed history and declared source timestamps. Generate the expected legal list
-independently and report any rejected order with its causal constraint. R must
-be a real production commit, not a model-only revision change.
+M1 includes a fixed missing-proof/refusal history. It does not require every
+larger property clause such as ERC1155 or other-chain preservation; mark those
+unexecuted until their own fixtures run.
 
-Assert each order's specified intermediate result: a pre-rollback event may
-apply and subsequently be rolled back; an orphan event first admitted after R
-must have no effect. Require final semantics to agree where precedence permits.
-Keep one isolated R→V→S→E case so source revisions cannot mask the chain fence.
-The earlier pinned-RPC/proof-refusal case is a separate fixed schedule and does
-not count toward the V/S/E/R enumeration. Record every reached guard separately.
+The combined weighted-provider fork history must retain different endpoint
+views concurrently, observe actual completed non-prefix header reads from both,
+and record explicit healing before final convergence. Weighted routing with a
+global simultaneous view change alone does not establish that boundary. The
+ordinary four-command campaign retains its own narrower declared model.
 
-## Scenario Families and Rollout
+Fair recovery requires a sufficiently fresh external chain. An enabled
+`headProgress` fixture publishes a finite, timestamp-driven canonical tail after
+the deliberate fault window. Existing header timestamps never change; the
+authored fork window through block 107 remains intact, while a declared slower
+tail can support long runs with the default RPC budget. The producer has an
+explicit maximum head and stops at a drained, fully covered cut before exact
+final assertions. An aged stationary tip must not be mistaken for healed
+dependencies, nor repaired by changing application freshness rules or dropping
+durable work from the oracle.
 
-Every row needs a manifest, named checkpoints, exact expected intermediate
-states, completion/refusal endpoint and property mapping. The milestone column
-is proposed rollout, not current status. Existing tests are reusable evidence
-for individual mechanisms, not an executed version of these joined scenarios.
+Final acquisition assertions compare exact ERC721 ownership and post-anchor
+transfer facts against the independent ledger. Fill assertions compare execution
+headers, raw protocol items and collection attributions without parent joins
+that could hide orphan children. The initial fill truth table covers the
+authored one-ERC721/WETH sale; other payment shapes and extension-owned facts
+require their own independent fixtures.
 
-| ID    | History or controlled interaction                                                                                                                                                  | Properties          | Milestone / lane                               |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------------- |
-| SC-01 | Marketplace admission → full validation → branch-A transfer/fill → detected fork → rollback/resync B → current observation → HTTP convergence.                                     | P1–P6               | M1 deterministic                               |
-| SC-02 | Hold old validation both before proof and after successful proof, source observation and orphan event delivery; explore legal release orders and before/after-rollback boundaries. | P2, P4–P6           | M1 deterministic                               |
-| SC-03 | Kill after state commit before broker ACK, then redeliver after restart and after dedupe expiry.                                                                                   | P1, P4, P6          | M2 process                                     |
-| SC-04 | Publication accepted with lost reply; fail partway through required fanout; reopen broker/store and workers. No RPC reacquisition after durable acquisition.                       | P1, P3, P6          | M2 process                                     |
-| SC-05 | Crash during maker cursor/demand handoff; lease expiry/replacement and competing SQLite writer during recovery.                                                                    | P1, P4, P6          | M2 process                                     |
-| SC-06 | REST snapshot and stream duplicate creation, out-of-order source timestamps, chain fill before/after marketplace sale; delayed create after terminal evidence.                     | P4–P6               | M3 deterministic                               |
-| SC-07 | REST absence while newer stream observation lands between source-update batches; failed/repeated-cursor pagination.                                                                | P5, P6              | M3 deterministic + adapter                     |
-| SC-08 | Independent source cancellation before/after chain fill, payload retirement and orphan rollback; stale REST re-admission.                                                          | P3, P5, P6          | M3 deterministic                               |
-| SC-09 | Validation starts before source cancellation, canonical material change or new generation; release after replacement/expired lease.                                                | P4–P6               | M3 deterministic                               |
-| SC-10 | RPC timeout, wrong hash/height, conflicting providers, unavailable EIP-1898 snapshot and unknown revert at acquisition/proof/validation. Restore a coherent provider.              | P1, P2, P6, P8      | M3 deterministic + adapter                     |
-| SC-11 | Stationary/regressed head, sparse ancestors, missing coverage and bootstrap checkpoint; incomplete proof safely waits, then supplied history permits recovery.                     | P2, P3, P6, P8      | M3 deterministic                               |
-| SC-12 | Deep fork/no ancestor or fork crossing the bootstrap anchor; unavailable required ownership proof. Assert the exact supported refusal state.                                       | P2, P3, P8          | M1 one refusal; M3 variants                    |
-| SC-13 | Overlapping manual, bootstrap, realtime and automatic ranges; pre-anchor facts versus post-anchor ownership/order maintenance.                                                     | P1–P4, P6           | M3 deterministic                               |
-| SC-14 | Reorg while realtime acquisition is in flight; newer mismatch during resync; token scope changes while rollback proof is awaited.                                                  | P1–P3, P6           | M3 deterministic + process                     |
-| SC-15 | Both validation permits stalled while lifecycle fills/cancels arrive; many-maker scans and gap load compete; recovery at default/low/unlimited policies.                           | P4, P6, P7          | M3 deterministic + process                     |
-| SC-16 | ERC721 burn/mint/out-of-order transfers and ERC1155 duplicate/batched delta reversal across the fork.                                                                              | P1–P3, P6           | M2 small fixture; M3 variants                  |
-| SC-17 | Same maker/contract/token identifiers on different collections/chains; recover one while the others have queued work and operator declarations.                                    | P3, P4, P6          | M2 sentinels; M3 generated                     |
-| SC-18 | Expiry and retention boundaries (before/at/after); maintenance overlaps validation, retirement and delayed replay. Keep required receipts/own-order records.                       | P3–P6               | M3 deterministic                               |
-| SC-19 | Independent source and onchain readiness, bootstrap pause/retry/reopen, then transition into live sync and observation.                                                            | P1, P4, P6, P8      | M4 after known bootstrap contracts are decided |
-| SC-20 | Bid-book indexed fallback, fresh bot projection and unavailable/partial direct snapshot; indexed data cannot authorize competitiveness.                                            | P6, P9              | M4 trading/backend                             |
-| SC-21 | Actual runtime entrypoints with scheduler, budget owner, outbox, demand polling and maintenance; stop/start with retained work.                                                    | P1–P9 as applicable | M4 process composition                         |
-| SC-22 | Real wire encoding/decoding with captured OpenSea and RPC fixtures; optional local EVM contract/receipt/reorg cases.                                                               | P1, P2, P5, P6      | M4 adapter                                     |
+No application-level barrier can stand in for an unobserved race. In particular,
+an old RPC response may fail snapshot verification before the database commit
+is attempted. That tests snapshot refusal, not the later checkpoint fence.
+Holding a decorated `finish()` continuation is outside the workbench boundary.
+Record/replay and guest process control can reproduce genuine runtime schedules;
+only a trace showing the relevant cut earns that coverage.
 
-## Contract Decisions and Deferred Families
+## Deliberate Scenario Families
 
-The following are explicit discovery items, not automatically passing scenarios:
+Each family needs authored initial world/provider states, named external events,
+expected intermediate states, healing/refusal endpoint and explicit bounds.
+The milestone column is rollout intent; it is not execution status.
 
-| Area                                                             | Decision needed before defining a passing oracle                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Collection/source replacement, purge and reimport during a crawl | Accepted producer identity, generation/admission and settlement semantics. Current existence check does not establish source-generation fencing. See [purge limitations](../backend/01-api-and-application-architecture.md#collection-lifecycle-controls-and-purge). |
-| Partial fills                                                    | Remaining quantity and source/protocol lifecycle semantics; current order state is not a full exchange ledger.                                                                                                                                                       |
-| Multiple orderbook sources / P2P                                 | Same signed order identity versus independent source evidence, cancellation authority, absence semantics, reconnect/duplicate rules.                                                                                                                                 |
-| Cross-chain beyond current EVM model                             | Identity/routing and chain-specific fork/finality capabilities; see `BKL-025` in the [backlog](../planning/01-unified-backlog.md).                                                                                                                                   |
-| Extension/metadata side lanes                                    | Select which canonical-trigger/rollback/projection effects enter the joined oracle; image/rendering correctness remains a separate suite.                                                                                                                            |
+| ID    | History and interaction                                                                                                                                           | Properties          | Milestone                     |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------------------- |
+| SC-01 | Production marketplace admission → validation → branch-A transfer/fill → detected fork → rollback/resync → current observation → HTTP convergence.                | P1–P6               | M1                            |
+| SC-02 | Old validation response, delayed source observation and old event delivery overlap actual rollback; record observed before/after admission and commit cuts.       | P2, P4–P6           | M1 foundation; expand M3      |
+| SC-03 | Sync receives branch A while validation receives branch B at the same height. Neither provider individually returns malformed data. Heal to the chosen branch.    | P2, P4, P6, P8      | M1                            |
+| SC-04 | Sync RPC head ahead of validation head, and reverse; WS heads ahead/behind HTTP, stationary/regressed heads and delayed tips.                                     | P2, P6–P8           | M2                            |
+| SC-05 | Header A → numeric state read on coherent B → final header A within one validation/acquisition history. Test actual per-request routing and failover.             | P2, P4, P6          | M2, provider model present M1 |
+| SC-06 | Requested block hash unavailable at the next endpoint; pruning/archive gap, unsupported selector, recognized absence versus unknown revert.                       | P2, P6, P8          | M2                            |
+| SC-07 | Provider changes branch between calls, retries choose another view, timeout/circuit recovery reintroduces a stale endpoint, disagreeing log/receipt/header views. | P1, P2, P6, P8      | M2                            |
+| SC-08 | Sustained provider disagreement or partition. Assert retained obligations and permitted independent progress; heal explicitly and require convergence.            | P2, P6–P8           | M2                            |
+| SC-09 | Kill after state commit before broker ACK; redelivery after restart and after dedupe expiry.                                                                      | P1, P4, P6          | M2                            |
+| SC-10 | Publication accepted with lost reply, partial required fanout and broker restart. Durable acquisition must not be repeated merely to republish.                   | P1, P3, P6          | M2                            |
+| SC-11 | Crash during maker cursor/demand handoff, expiry/replacement of a lease, competing SQLite writers during recovery.                                                | P1, P4, P6          | M2                            |
+| SC-12 | REST/stream duplicate creation, old source timestamps, chain fill before/after marketplace sale and delayed create after terminal evidence.                       | P4–P6               | M3                            |
+| SC-13 | REST absence while newer stream evidence arrives between update batches; failed/incomplete/repeated-cursor traversal.                                             | P5, P6              | M3                            |
+| SC-14 | Independent source cancellation before/after orphan fill, payload retirement and actual rollback; stale REST re-admission.                                        | P3, P5, P6          | M3                            |
+| SC-15 | Validation overlaps source cancellation, material canonical change, a new requirement or lease replacement. Distinguish each reached guard.                       | P4–P6               | M3                            |
+| SC-16 | Sparse ancestry, missing collection coverage and stationary head; insufficient proof waits, then supported repair enables recovery.                               | P2, P3, P6, P8      | M1 refusal; M3 variants       |
+| SC-17 | Fork/check before, at and after configured REORG_DEPTH; deep/out-of-window or anchor-crossing divergence follows the supported refusal/recovery contract.         | P2, P3, P8          | M2/M3                         |
+| SC-18 | Manual/bootstrap/realtime/gap ranges overlap; pre-anchor facts versus current ownership/order maintenance.                                                        | P1–P4, P6           | M3                            |
+| SC-19 | Reorg while realtime acquisition is in flight; another mismatch during resync; affected scope changes during proof.                                               | P1–P3, P6           | M3                            |
+| SC-20 | Validation slots/RPC stall while lifecycle events and maker/gap work compete, then recover at documented allocation policies.                                     | P4, P6, P7          | M3                            |
+| SC-21 | ERC721 mint/burn/late transfer, ERC1155 duplicate/batched deltas and fork reversal; unaffected collection/chain sentinels.                                        | P1–P3, P6           | M3                            |
+| SC-22 | Expiry/retention boundaries overlap validation, retirement and late replay; required receipts, own-order records and declarations survive.                        | P3–P6               | M3                            |
+| SC-23 | Bootstrap pause/retry/reopen and independent source/onchain readiness transition into live sync.                                                                  | P1, P4, P6, P8      | M4                            |
+| SC-24 | Indexed fallback versus fresh bot projection and incomplete direct snapshot; canonical orders cannot authorize competitiveness.                                   | P6, P9              | M4                            |
+| SC-25 | Startup/shutdown/maintenance and extension-triggered side lanes overlap chain/order recovery without bypassing runtime composition.                               | P1–P9 as applicable | M4                            |
 
-Known limitations such as bootstrap crash recovery/fencing must be linked to
-the current backlog and reported distinctly. New harness failures cannot be
-silently marked expected or fixed by weakening the oracle. Resolve whether the
-contract, fixture, harness or production behavior is wrong before changing it.
+SC-05 is deliberately a candidate problem-finding case. Source inspection found
+numeric block reads within the current validation path; that is not a reproduced
+system failure or an instruction to fix production code. The workbench must
+show the actual routing, result and violated contract before classifying it.
+Do not make a bad result an expected pass to complete the milestone.
 
-## Measurable Exploration Envelope
+## Exploration and Completion
 
-For the first exhaustive schedule claim, fix one chain, one collection, two
-tokens, two branches, a fork depth of at most two, one held validation, three
-named external completions and a rollback commit. Report the exact setup and
-legal orders of those four events;
-this claim covers those completions only, not all JavaScript, SQLite or NATS
-executions. SC-12's refusal has a separate fixed fixture.
+Bounds belong to a specific history: provider count/views, fork depth, tokens,
+orders, actor failures, outstanding requests and chosen release points. Enumerate
+legal causal orders where those boundaries are controllable and observable.
+Do not reuse the former application-only “24 permutations” count as evidence
+of complete runtime schedule coverage.
 
-Later generated campaigns vary small collection counts, bounded token/order
-sets, fork depths within/outside the configured proof window, command histories,
-delivery order, duplicate counts and faults. Include both safety under continuing
-input and convergence after a finite prefix. Recovery fairness is explicit:
-healthy eligible actors cannot be postponed forever by the test driver.
+The current whole-machine campaign also enumerates 24 orders of four external
+coordinator commands: canonical switch (E), inventory restoration (R), stream
+publication (S) and reply-gate release (V). These are command-order cases.
+V acknowledges release of a fixture gate; it does not acknowledge HTTP delivery
+or production validation completion. Record those actual boundaries separately
+before assigning response-order or stale-commit coverage. Repeated command
+orders may reach the same runtime interleaving.
 
-Keep a machine-readable coverage ledger during implementation mapping property
-→ scenario → reached checkpoint → assertion → lane → source SHA/result. Report
-unreached transitions, illegal/precondition-filtered commands and deliberately
-unmodeled cases. No line in this discovery catalog counts as tested coverage.
+Progress from fixed authored histories to bounded combinations, including
+failure before/after commits and healing before/after deferred work becomes
+eligible. Report which schedules were recorded, replayed, asserted, unreached
+or unsupported. Changing source code requires a new recording; replaying the
+old recording is a debugging action.
+
+Liveness assumes explicit dependency recovery and fair execution. Persistent
+disagreement may correctly remain pending. REORG_DEPTH alone does not establish
+provider agreement or protocol finality. Do not assert immediate global equality
+while a provider still reports a competing tip.
+
+Keep the coverage ledger and failure corpus versioned. New unsupported
+interactions are findings to model and triage, not silent skips or permission
+to alter product guarantees. P2P, multiple-source evidence aggregation, remaining
+partial-fill quantity, purge/reimport identity and non-EVM behavior need their
+own domain decisions before defining a passing oracle.

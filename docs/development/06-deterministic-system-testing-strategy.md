@@ -1,328 +1,267 @@
-# Deterministic System Testing: Proposed Strategy
+# Production Runtime Simulation Workbench
 
-Status: discovery proposal, 2026-11-07. No framework, runtime behavior, new CI
-gate or dependency has been implemented by this proposal. The source baseline
-is `24cff044`. Read the [current-state discovery](05-deterministic-system-testing-discovery.md)
-and [scenario catalog](07-deterministic-system-testing-scenarios.md) alongside it.
-Current executable contracts remain in the owning domains and source.
+Design updated 2026-11-08. The user authorized the full workbench direction and
+its milestones. Implementation is in progress; this document is not evidence
+that those milestones have passed. The initial architecture inventory remains
+at source baseline `24cff044` in [discovery](05-deterministic-system-testing-discovery.md).
+See the [scenario catalog](07-deterministic-system-testing-scenarios.md) and
+[execution guide](08-simulation-workbench-execution.md) for acceptance and commands.
 
-## Recommendation and Outcome
+## North Star and Boundary
 
-Build an ArtGod-owned scenario harness on the existing Vitest, migrated SQLite,
-RPC fixtures and maintained worker/NATS helpers. Add `fast-check` for generated
-command sequences and shrinking after one vertical scenario proves the harness.
-Keep deterministic application execution and real-process acceptance as separate
-lanes sharing scenarios and assertions.
+Build a reusable workbench that runs ArtGod's production headless data plane
+inside a controlled machine and deliberately exposes it to inconsistent views,
+failures, delayed effects and eventual recovery. Its purpose is to discover and
+reproduce failures across the whole system before release, and retain those
+histories as continuously executed regressions.
 
-The outcome is a repeatable answer to: after marketplace observations, chain
-changes, reordered work and recoverable failures, do the persisted facts,
-unfinished obligations and user-visible orderbook agree with the declared
-contracts? Every failure should identify a violated property, provide a short
-event trace, and have a local reproduction path.
+The system under test includes actual production runtime entrypoints,
+configuration, weighted RPC selection and retries, scheduler/budget ownership,
+sync/reorg/validation loops, OpenSea ingestion/reconciliation, backend HTTP,
+real NATS JetStream, real SQLite and their production native dependencies.
+Replace external systems only: blockchain RPC/WS providers, marketplace HTTP/WS,
+and metadata/media inputs needed by the selected journey.
 
-This is an engineering recommendation from source inspection and the research
-below; candidate tools have not been installed or benchmarked. No surveyed tool
-supplies ArtGod's domain oracle or joins its existing owners automatically.
+The previous proposal's application-use-case simulation and separate process
+acceptance lanes are superseded as the workbench architecture. Existing unit,
+adapter and integration tests remain useful supporting evidence. A test-owned
+composition, fake broker/database, direct use-case invocation or seeded final
+projection cannot substitute for this system boundary.
 
-## What the Research Supports
+The initial product boundary is the production headless data plane. It does not
+claim the Tauri GUI, wallet custody, real marketplace transactions, package
+execution or native rendered behavior. Those retain their existing tests.
 
-Primary sources were checked on 2026-11-07. Fit judgments are specific to the
-current TypeScript/SQLite/NATS architecture. Recheck versions and capabilities
-when adopting a dependency.
+## Execution Substrate and Research Decision
 
-| Approach                                                                                                                                                | Useful capability                                                                                          | ArtGod fit and decision                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Vitest timers](https://vitest.dev/guide/mocking/timers) plus existing fixtures                                                                         | Control timer advancement in tests.                                                                        | Retain the installed runner. Explicit clocks and effect barriers still need to cover all behavior under test; timers do not control other processes.                                                                                                                |
-| [fast-check model commands](https://fast-check.dev/docs/advanced/model-based-testing/)                                                                  | Generate legal operation sequences, shrink failures, replay with seed/path and command replay information. | Preferred local exploration library. Small reference model, domain commands and meaningful assertions remain ArtGod work.                                                                                                                                           |
-| [fast-check scheduler](https://fast-check.dev/docs/advanced/race-conditions/)                                                                           | Explore controlled promise completion orders.                                                              | Use around controlled ports. Wrapping a promise delays its result, while its body starts immediately; defer the effect itself when modeling delayed writes or reads. It cannot schedule an unwrapped broker or native database.                                     |
-| [Antithesis](https://antithesis.com/docs/introduction/how_antithesis_works/)                                                                            | Vendor-provided deterministic system exploration and replay.                                               | Strong candidate for later deeper process campaigns. Account, service access and a packaged synthetic environment are additional dependencies. Keep baseline CI locally runnable.                                                                                   |
-| [Antithesis setup](https://antithesis.com/docs/setup/overview/) and [JavaScript integration](https://antithesis.com/docs/reference/sdk/javascript_sdk/) | Hermetic Linux containers; transpiled Node/TypeScript instrumentation.                                     | Packaging needs fixture RPC/marketplace services. Confirm ESM/PnP, native SQLite, SDK access and commercial/OSS terms in a separate evaluation; public docs ask users to contact the vendor for JavaScript SDK availability. No account or pricing assumption here. |
-| [Anvil API](https://foundry-rs.github.io/foundry/anvil/eth/api/struct.EthApi.html)                                                                      | Local EVM execution, snapshots and explicit chain reorganization.                                          | Useful later for real contract/RPC translation and receipts. Does not control ArtGod worker order, marketplace observations or its convergence oracle. Optional adapter lane, no live-mainnet fork requirement.                                                     |
-| [Testcontainers/Toxiproxy](https://node.testcontainers.org/modules/toxiproxy/)                                                                          | Service lifecycle and network fault injection.                                                             | Testcontainers already exists for smoke testing. Reuse private NATS helpers first; network chaos is supplementary and not a deterministic scheduler. Avoid adding Docker as a requirement for offline scenarios.                                                    |
-| [Jepsen](https://github.com/jepsen-io/jepsen)                                                                                                           | Workloads, fault injection and history checking against running systems.                                   | Borrow the history/checker discipline. Its Clojure/control-node architecture adds substantial machinery for a local desktop system; no direct adoption in the first milestone.                                                                                      |
-| [TLC](https://docs.tlapl.us/using%3Atlc%3Astart) / [Stateright](https://github.com/stateright/stateright)                                               | Explore a finite specification/state model.                                                                | Consider a small ownership/fencing protocol when bounded exploration becomes difficult. A separate specification needs an implementation correspondence argument; Stateright's Rust actor model is not the current Node execution model.                            |
-| [FoundationDB simulation](https://www.foundationdb.org/files/fdb-paper.pdf) / [MadSim](https://github.com/madsim-rs/madsim)                             | Demonstrate controlled execution, fault injection and recovery properties.                                 | Adopt the method. FoundationDB's Flow runtime and MadSim's Rust runtime are not reusable schedulers for the existing TypeScript application. A runtime rewrite is unjustified.                                                                                      |
+Use a complete Linux guest under QEMU software emulation, containing the real
+runtime closure, real broker/database, scenario coordinator and fake external
+services. QEMU's documented [record/replay](https://www.qemu.org/docs/master/system/replay.html)
+and [instruction-counted execution](https://www.qemu.org/docs/master/devel/replay.html)
+cover whole-machine execution, including device input, clocks, interrupts,
+network and block operations. A pinned initial image and event log can reproduce
+the recorded execution without replacing ArtGod internals.
 
-The [fast-check license](https://github.com/dubzzz/fast-check/blob/main/packages/packaged/LICENSE)
-is MIT. Pin an eligible version through normal Yarn/lockfile and age-gate
-procedures during implementation. The proposal does not select a moving latest
-version. Test fixture payloads also need recorded origins and redistribution
-conditions before being added.
+Two capabilities must remain distinct:
 
-The FoundationDB paper's most relevant lessons are to execute production
-behavior under controlled boundaries, check both local invariants and recovery,
-measure whether difficult states were reached, and keep external-system tests.
-Its simulation limitations are a reason to retain adapter/process qualification.
+- **Deterministic replay:** reproduce one recorded machine execution from its
+  pinned initial inputs. Completion, exact serial parity and equal guest-visible
+  disk capacity/bytes qualify a specific run; they do not establish all
+  schedules or product correctness.
+- **Scenario exploration:** deliberately vary provider visibility, response
+  timing, availability, source observations, process failures and legal causal
+  schedules. Each resulting execution needs its own assertions and replay
+  artifact. A recorded happy path is not an exploration campaign.
 
-## Scope and Consistency Contract
+The preferred saved tool image reports QEMU `8.2.2`; the portable input profile
+selects `pc-i440fx-8.2`, qboot direct Linux boot and a modern virtio device with
+observed Linux DMA bounce buffering. Three M0 pairs and the production baseline
+passed locally with exact serial and complete disk parity. Legacy host-QEMU
+`10.1.5` runs retain their separate provenance. Retained reports distinguish
+replay from scenario properties; actual adversarial journeys qualify separately.
+The saved tool-container image now pins the emulator's complete userspace as
+well as its executables. Legacy host-only manifests retain their original
+limits. The host kernel remains external, so portability across hosts must
+still be qualified rather than assumed.
 
-First protect the existing EVM indexing/order pipeline: realtime and historical
-acquisition, gap repair, canonical checks, rollback/resync, OpenSea observation
-and normalization, lifecycle updates, durable validation/maker work, and backend
-read models. ArtGod services and state remain local.
+Primary-source comparisons, checked during discovery:
 
-The initial acceptance boundary ends at read-only HTTP responses produced by
-the real backend use cases/handlers. Browser rendering, wallet custody,
-marketplace placement/cancellation, release packaging, extension/media fidelity
-and performance qualification keep their existing independent tests. Later
-scenario families can reuse the harness when they cross this boundary.
+| Approach                                                                                                                                         | Relevant capability                                                             | Decision for this boundary                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [QEMU record/replay](https://www.qemu.org/docs/master/system/replay.html)                                                                        | Whole-machine execution and replay with explicit disk/network recording.        | Local baseline. Build authored faults and domain assertions around it; prove guest replay before claiming a working substrate.                                                                                                                                                                                                       |
+| [Antithesis](https://antithesis.com/docs/configuration/the_antithesis_environment/)                                                              | Simulated x86-64 machine with hermetic containers and system fault exploration. | Strong later alternative if campaigns outgrow the local engine. [Setup](https://antithesis.com/docs/setup/overview/) requires service access and uploaded images; none is implied by local work. [JavaScript integration](https://antithesis.com/docs/reference/sdk/javascript_sdk/) has vendor-specific availability/configuration. |
+| [Hermit](https://github.com/facebookexperimental/hermit)                                                                                         | Controls Linux execution through syscall/thread/input determinization.          | Compatibility trial would need namespace/ptrace/seccomp and possibly PMU support, plus complete Node/Go/native-SQLite workload qualification. It is not an assumed replacement for the QEMU baseline.                                                                                                                                |
+| [DetTrace](https://github.com/dettrace/dettrace) / [rr](https://rr-project.org/)                                                                 | Reproducible containers or process record/replay.                               | Useful research/debugging alternatives. Their own supported environments and captured-process boundaries need qualification; no tool was provisioned for this work.                                                                                                                                                                  |
+| [FoundationDB](https://www.foundationdb.org/files/fdb-paper.pdf) / [MadSim](https://github.com/madsim-rs/madsim)                                 | Controlled simulation, fault injection and recovery properties.                 | Adopt the testing discipline. Their language runtimes do not execute this existing TypeScript/Go/native closure.                                                                                                                                                                                                                     |
+| [fast-check](https://fast-check.dev/docs/advanced/model-based-testing/) / [TLC](https://docs.tlapl.us/using%3Atlc%3Astart)                       | Generate/shrink domain histories or explore a finite specification.             | Possible campaign/specification helpers later. Neither controls the complete production runtime or supplies ArtGod's oracle.                                                                                                                                                                                                         |
+| [Anvil](https://foundry-rs.github.io/foundry/anvil/eth/api/struct.EthApi.html) / [Toxiproxy](https://node.testcontainers.org/modules/toxiproxy/) | EVM behavior and network failures.                                              | Supplementary external-system fidelity tools when justified. A local EVM alone does not simulate disagreeing providers, ArtGod process scheduling or durable recovery.                                                                                                                                                               |
 
-Define three types of claims:
+These fit judgments are engineering conclusions, not benchmark results. Tools,
+images and fixtures must follow existing pinned-input/dependency workflows.
 
-- **Safety:** at each observable committed boundary, no forbidden write or
-  loss of obligation has occurred. A failed attempt must leave the state allowed
-  by its atomic transaction contract.
-- **Convergence:** after a finite input history, restored dependencies and fair
-  execution of eligible work, specified projections reach the expected state
-  within a scenario step/time budget.
-- **Safe refusal:** when ancestry, snapshot proof or required input is
-  unavailable, retain the correct obligation and diagnostic state. Deliberately
-  blocked work is an expected outcome for that scenario.
-
-Do not demand global instantaneous consistency. A fork can remain locally
-unknown until verification; downstream jobs may lag an acquisition commit.
-Assert protections relative to captured identities, committed rollback and
-admission boundaries, then assert final agreement after convergence. The oracle
-must distinguish RPC head, stored headers, collection coverage, ownership
-checkpoint, validation snapshot and source observation time.
-
-Current contracts that the oracle must preserve:
-
-- Source activity and protocol fillability are independent. A missing REST
-  observation is not proof of an onchain cancellation.
-- Upserts optimistically start fillable/active; current asks do not require
-  `validated_at`. Testing “never display an unvalidated ask” would introduce a
-  new product policy. Assert the documented intermediate state and eventual
-  correction instead. See [orders](../indexer/07-domain-orders.md#upsert-flow).
-- Source-run completion, broker ACK, acquisition progress, and full validation
-  completion are distinct. Retained completion receipts are not pending work.
-- Indexed orders are the passive bid-book fallback. Direct OpenSea snapshots
-  drive bidding decisions. See [market authority](../trading/03-market-data-and-scaling.md#authority-model).
-- Rollback advances the chain revision and removes attributable orphan state;
-  it does not globally clear every surviving order's `validated_at` or hide all
-  asks. Check refusal of stale result/coverage writes separately from visibility
-  of surviving source observations and optimistic order rows.
-- A single order row currently has one source identity/status. Multiple-source
-  evidence aggregation, P2P propagation and non-EVM finality are future domain
-  design, not existing generic capabilities.
-
-Source/collection replacement during a crawl, purge with in-flight work,
-bootstrap ownership fencing, and remaining partial-fill quantity require
-explicit policy decisions. Characterize and link known limitations; never turn
-an incidental current result into a passing correctness oracle. Keep these
-decisions outside the initial supported scenario family.
-
-## Harness Architecture and Ownership
+## Architecture
 
 ```mermaid
 flowchart TB
-    Scenario[Versioned scenario and fault schedule]
-    World[Independent chain and source world]
-    Driver[Controlled commands, time and effect barriers]
-    Production[Production application owners and adapters]
-    DB[Real migrated disposable SQLite]
-    Read[Production read models and HTTP handlers]
-    Oracle[Safety, obligation and convergence checks]
-    Trace[Trace and replay artifact]
-
-    Scenario --> World
-    Scenario --> Driver
-    World --> Driver
-    Driver --> Production
-    Production --> DB
-    DB --> Read
-    World --> Oracle
-    DB --> Oracle
-    Read --> Oracle
-    Driver --> Trace
-    Oracle --> Trace
+    Manifest[Pinned image, engine and scenario inputs]
+    Engine[Whole-machine record and replay]
+    subgraph Guest[Isolated Linux guest]
+        Scenario[Scenario coordinator and independent world]
+        Providers[Separate fake RPC and WS provider views]
+        Sources[Fake marketplace and other external inputs]
+        Runtime[Production ArtGod runtime entrypoints]
+        State[Real SQLite and NATS JetStream]
+        API[Production backend HTTP]
+        Oracle[Safety, recovery and convergence assertions]
+        Scenario --> Providers
+        Scenario --> Sources
+        Providers --> Runtime
+        Sources --> Runtime
+        Runtime --> State
+        State --> API
+        API --> Oracle
+        State --> Oracle
+        Scenario --> Oracle
+    end
+    Manifest --> Engine
+    Engine --> Guest
+    Oracle --> Artifact[Recorded execution, traces and state diffs]
 ```
 
-Start in `indexer/tests/` with the existing recovery and order-queue fixtures.
-Extend/consolidate their owning helpers; do not duplicate recovery composition
-or business policy in a new framework. Promote neutral scenario/trace contracts
-to `shared/testing/` only when a second package consumes them. Indexer-specific
-workers, RPC ports and commands stay in indexer; backend mapping stays backend.
+Guest services communicate over real sockets. No host network or filesystem is
+mounted into the running guest. Dependencies are prepared before execution;
+scenario execution must not reach the public internet or discover an operator
+store from ambient configuration.
 
-The system under test must execute production normalization, canonical job
-admission, sync commit, fork recovery, validation snapshot factory, demand/maker
-orchestration and read models. Testing a direct domain call alone can bypass
-orphan-envelope rejection; a fake validator can bypass proof correctness.
-Extract narrow production composition factories only where reuse is concretely
-needed, with runtime and tests consuming the same factory in that change.
+Run the actual runtime entrypoints and production composition vocabulary.
+Keep scenario/control code outside those processes. Observe through external
+request traces, production HTTP, logs, broker state and read-only persisted
+state. The driver can delay responses, change provider views and stop/restart
+guest processes. It cannot decorate a validator, substitute a port result
+inside ArtGod, call `completeBatch()` directly, or advance a chain revision in
+place of a real detected rollback.
 
-Keep these responsibilities small:
+The initial fixture may establish declared collection identity, anchor and
+operator inputs at a documented boundary. Every ownership, sale, validation,
+rollback and read-model outcome claimed by a scenario must then be produced by
+the production path being tested. Where setup bypasses bootstrap orchestration,
+the evidence must explicitly exclude bootstrap correctness.
 
-1. **World:** a forkable graph of parent-linked blocks; token ownership,
-   balances/approvals and protocol state at explicit hashes; independently
-   scheduled source observations, pages and cursors. Unknown RPC requests fail
-   explicitly. Start with a small supported Seaport/ERC721 fixture vocabulary.
-2. **Driver:** issue commands, hold/release external effects and run bounded
-   production passes. A logical clock owns wall-time decisions; chain timestamp
-   remains a separate input. Stable IDs or recorded injected identifiers control
-   UUID/randomness where they affect behavior or replay.
-3. **Oracle:** derive expected canonical ownership/history from scripted world
-   facts and simple ledger arithmetic, then assert documented order policy with
-   small independent truth tables. Read actual stored state and public responses.
-   Never use production reducers/eligibility SQL to calculate their own expected
-   answer. Consuming public status constants does not duplicate the algorithm.
-4. **Trace:** record command, actor, causal origin, effect start/result,
-   transaction checkpoint, simulated time and assertion. Persist the actual
-   executed schedule, including ignored/blocked commands.
+## Provider Views Are First-Class Inputs
 
-The trusted initial fixture may contain the collection definition, established
-anchor, token identity/metadata, anchored ownership snapshot/checkpoint and
-operator declarations. It does not prove bootstrap orchestration. Independently
-prepare chain/source inputs, then produce all post-anchor owners, sales,
-validation and recovery outcomes through the system under test. Do not seed an
-outcome row or revision that the scenario is intended to prove.
+Model three distinct kinds of state from M1 onward:
 
-### Two Execution Lanes
+1. **World history:** a graph of branches and immutable state at each block
+   hash; the scenario eventually selects which branch survives.
+2. **Provider views:** each endpoint's current branch/tip, retained history,
+   capability, latency and availability. A provider can be internally coherent
+   while disagreeing with another at the same height.
+3. **Actual observations:** endpoint, request, block selector, response identity
+   and delivery order seen by each production runtime and each retry.
 
-| Lane                             | Real behavior                                                                                                          | Controlled boundary                                                                                | Evidence limit                                                                                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deterministic application system | Production use cases, adapters, migrations, SQLite, normalization/validation and HTTP handlers                         | External port effects, queue delivery, logical time, identity/randomness, explicit pass scheduling | Repeatable declared schedule; synchronous SQLite/native/OS internals are outside explored interleavings. One DB singleton and one active scenario per test process. |
-| Process acceptance               | Selected production worker compositions, real private NATS, multiple SQLite connections, restart and competing writers | Fixture RPC/source servers or ports, maintained IPC barriers, recorded fault plan                  | Reproducible input/fault plan and contract outcomes; OS/broker timing is real and exact global replay is not claimed.                                               |
+Do not use a single fake RPC that switches all consumers together. Exercise
+production routing through multiple endpoints, including a different endpoint
+on the next call of one operation. Height and block identity are separate.
+Cover header A → numeric state read on B → final header A, alongside simple
+A→B changes, lagging heads, WS/HTTP disagreement and unavailable exact hashes.
 
-Use existing `IsolatedNats` and child-worker bundling. Add thin wire-fixture
-acceptance for real RPC/OpenSea adapters as needed. A later complete runtime
-composition test must start the production entrypoints, scheduler, budget owner
-and maintenance paths; existing test-owned child compositions do not prove
-those entrypoints are wired correctly.
+The oracle knows the scenario's full history; ArtGod only knows observations.
+Before the relevant evidence arrives, do not require it to identify the future
+winning fork. Check the documented provisional state and retained obligations.
+After providers heal, require canonical convergence. Under continued conflict,
+specify the safe waiting/refusal state and any permitted independent progress.
 
-Inventory every behavior-affecting clock, timer, UUID, random choice, I/O and
-iteration order in the chosen slice. Use injected `now` where available; prefer
-small owner-specific effect/clock seams to pervasive test switches. Do not put a
-transaction across an await, reorder effects that production makes atomic, or
-change retries/fairness to make a test settle. Broad refactoring waits for
-evidence from the first slice.
+`REORG_DEPTH` is the application's configured checking/repair policy. It is
+not consensus finality or an agreement guarantee across free RPC providers.
+Exercise before/at/after its boundary, and explicitly test out-of-window
+disagreement against the recovery/refusal contract that actually exists.
 
-### Completion and Recovery
+## Properties and Independent Oracle
 
-After closing finite producers, remove injected faults and permit fair execution.
-Inspect all relevant obligations: required unsent outbox rows, admitted/in-flight
-deliveries, due/future pending validation demand, unfinished maker scans,
-canonical checks, retained recovery/resync, expected collection coverage and
-selected projections. Distinguish a deferred retry from a retained receipt.
+The [property catalog](07-deterministic-system-testing-scenarios.md#properties)
+defines the assertions. Keep three kinds of result distinct:
 
-Recent canonical checks may legitimately await a later head. A convergence
-scenario must explicitly advance the fixture head to their maturity, or declare
-those exact pending checks as its expected endpoint. Idle/no-progress is never
-automatic success. Exceeding a hard step bound reports unmet obligations and
-the next eligible time; a real-time watchdog catches harness hangs separately.
+- **Safety:** no forbidden committed effect, cross-fork proof, lost obligation
+  or unrelated deletion at the relevant observation boundary.
+- **Recovery/convergence:** after a finite input prefix, restored dependencies
+  and fair execution, the expected canonical owner/history/order/read state and
+  eligible durable work converge within the declared budget.
+- **Safe refusal:** when required evidence stays unavailable or the scenario
+  exceeds supported recovery, retain the specified obligation and diagnostics.
 
-Do not require every intermediate state to match a serial final result. Compare
-semantic final projections only where histories are equivalent under the
-domain's precedence rules; source timestamps, cancellations and replay policy
-can make different input histories intentionally different.
+Expected answers come from independently scripted world facts, ledger arithmetic
+and small reviewed policy truth tables. Do not calculate expected ownership or
+ask selection using the production reducer/query being tested. Public constants
+and schemas can still be shared.
 
-## Exploration and Evidence
+Preserve current semantics: source status and protocol fillability differ;
+upserts/asks currently permit optimistic unvalidated state; rollback does not
+globally hide every surviving ask; source completion and broker ACK do not mean
+validation completed. Direct OpenSea snapshots drive bidding decisions while
+indexed orders are passive display fallback. See the owning
+[orders](../indexer/07-domain-orders.md) and
+[market authority](../trading/03-market-data-and-scaling.md#authority-model) contracts.
 
-“Every possible interaction” is unbounded. Use three complementary methods:
-named historical/race regressions; exhaustive legal schedules within declared
-small bounds; and larger generated command sequences with shrinking. Declare
-actors, entities, fork bounds, commands, fault count and scheduling points for
-every finite exploration claim. Do not call seed counts exhaustive coverage.
+Convergence examines pending demand, unfinished maker work, required outbox
+publication, retained canonical checks/recovery/resync, coverage and selected
+projections. Mature recent checks explicitly or list them as an expected
+endpoint. Queue emptiness, inactivity or a guest exit code alone cannot pass.
 
-First enumerate legal orders of three prepared completions and a committed
-rollback in one small world (at most 24 permutations before causal constraints).
-Independently
-enumerate the expected schedule list and require every member to complete;
-report precondition rejection and unreachable states. Expand to fault-pair and
-command-pair coverage, then `fast-check` generation. Preserve causal preconditions
-when shrinking a fork/receipt/claim sequence. Store seed, property path, command
-replay path where used, and the minimized explicit trace. Pinning seed alone
-does not promise replay across code/library changes.
+## Milestones and Required Evidence
 
-Record per-run scenario/property IDs, visited transitions, reached fault
-boundaries, legal schedule counts, executed/blocked commands, command pairs,
-state diffs, unresolved obligations, duration and peak memory where practical.
-Coverage maps must distinguish specified, implemented, executed and passed;
-line coverage is supplementary. Validate the oracle using deliberate test-only
-mutations such as accepting stale validation or dropping required publication
-intent; each must fail the appropriate property. Avoid carrying production
-fault switches for this purpose.
+All milestones below are authorized direction. Their state remains unqualified
+until actual evidence is recorded; test scaffolding or document text is not a
+completed milestone.
 
-Each bug gets a minimized fixed regression before its fix. If the harness
-cannot represent it, extend the owning seam/model and document the fidelity
-limit. Keep an explicit list of unmodeled contracts.
+| Milestone                           | Work product                                                                                                                                                                                                                                                              | Required evidence                                                                                                                                                                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M0: execution qualification         | Build a pinned standalone Linux guest with the real Node/NATS/native-SQLite closure; qualify clocks/entropy, competing writers, reopen, broker persistence and redelivery under whole-machine record/replay.                                                              | Validated input pins, real guest execution, nonempty replay/serial logs, explicit guest check completion, exact serial parity and equal complete guest-visible disk capacity/bytes. Report host-environment limits. This does not prove sync/order behavior. |
+| M1: production system foundation    | Start production headless runtime entrypoints with fake external HTTP/WS. Two tokens, small collection, marketplace input, validation, actual acquisition/fork recovery/resync and backend reads. Include independently coherent provider views and a refused-proof case. | Expected effects produced through production paths; actual endpoint/request trace; safety and post-heal convergence; replay artifacts. Report which stale-result guards and causal cuts were actually reached.                                               |
+| M2: deliberate distributed failures | Divergent/lagging providers, per-request failover, A/B/A mixed reads, partial outages, WS/HTTP skew, process death, uncertain publication, restart and competing database writers.                                                                                        | Named fault histories, genuine required refusal/retry behavior, no lost/duplicate business effects, and convergence after healing. Record product failures without silently fixing or accepting them.                                                        |
+| M3: authored exploration and CI     | Enumerate bounded legal schedules over domain fault families; maintain an independent coverage ledger and minimized reproductions. Add required short campaigns plus broader scheduled/manual runs.                                                                       | Every declared schedule accounted for; no undiscovered/skipped tests; measured runtime/resource budgets; replay and artifact retention; actual hosted execution before a CI qualification claim.                                                             |
+| M4: broaden current system coverage | Cover remaining current actors, maintenance, bootstrap, trading read-authority and extension-trigger interactions using the same workbench.                                                                                                                               | New independent assertions, fixtures and reached-state evidence. Future P2P/multisource/non-EVM behavior needs its own domain contract and is not implemented by this milestone.                                                                             |
 
-## Implementation Sequence and Acceptance
+The authored startup-maintenance journey checks the backend's passive indexed
+bid-book fallback before and after a real source cancellation, and preservation
+of the separately declared paused job. It starts no bidder and supplies no bot
+authority. This does not qualify bot decision inputs, live bot snapshots or
+trading authorization enforcement; those need separate runtime journeys.
 
-The following milestones are proposed work. Stop after this discovery for scope
-review; the first implementation authorization should cover M1 and its named
-seams/checks, not an open-ended simulator rewrite.
+No production hardening is implicit in a failed test. Preserve the failing
+history, identify the violated or missing contract, and record the finding.
+Fixes require their own justified scope, except a concrete blocker preventing
+the authorized workbench from running. Never weaken the oracle, disable a retry
+or replace a production actor merely to obtain a green run.
 
-| Milestone                        | Concrete deliverable                                                                                                                                                                                                                                                                                                        | Acceptance / stopping rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1: prove one joined journey     | Extend the existing fixture to run SC-01 and SC-02 from the catalog: marketplace admission, validation, real fork recovery/resync and HTTP observation, plus one separate SC-12 unavailable-proof refusal. Use one chain, one small ERC721 collection, two tokens, exact-token sell/buy orders and a fork above its anchor. | No seeded outcome rows; M1-relevant clauses of P1–P6 plus one P8 refusal observed at specified boundaries; independent expected answers; both stale-snapshot refusal and post-proof revision-fence rejection reached; all legal orders of three named completions plus rollback; replay artifact; 20 local replays of one selected fixed schedule agree semantically; deliberate stale-result/publication faults are detected. ERC1155 and unrelated-chain clauses remain unexecuted until M2. Surface unsupported contracts before expanding. |
-| M2: durable process recovery     | Reuse private NATS/children for SC-03, SC-04 and SC-05; add unaffected collection/chain sentinels, ERC1155 and actual independent SQLite contention.                                                                                                                                                                        | Survive commit-before-ACK, uncertain publication and restart; no duplicate business effects or lost obligation; existing reorg/order/reconcile suites still pass. No claim of exact process scheduling.                                                                                                                                                                                                                                                                                                                                        |
-| M3: generated exploration and CI | Adopt pinned fast-check; command generators and shrinking; explicit offline and broker scripts; add a dedicated data-consistency workflow using existing CI security conventions.                                                                                                                                           | Short minimized failures replay; measured runtime/resource budgets; required PR corpus includes M1/M2 and fixed seeds; missing required inputs fail; artifact allowlist; workflow actually executed.                                                                                                                                                                                                                                                                                                                                           |
-| M4: broaden intentionally        | Remaining catalog families, production entrypoint acceptance and wire fixtures; optional Anvil/vendor trial with a bounded evaluation.                                                                                                                                                                                      | Extend coverage ledger based on risks and discoveries. Separate adapter, UI, native/release, performance and live-provider evidence.                                                                                                                                                                                                                                                                                                                                                                                                           |
+## Campaigns, Coverage and Replay
 
-M1 does not require a second orderbook implementation, a new chain abstraction,
-containers, a local EVM or an external testing account. Runtime/test seams are
-implementation work to review alongside their first scenario.
+Start with authored histories of realistic disagreement, not undirected random
+payloads. Expand each into bounded causal schedules: which provider is visible
+when, which response is released first, which actor fails, and when healing
+occurs. Larger generation may select these meaningful histories later.
 
-### Proposed CI and QA Routine
+Declare the bounds of every exhaustive claim. Track property → history → reached
+checkpoint/guard → assertion → source/image/engine → result. Report unreachable
+or precondition-rejected schedules and unsupported cases. Capturing a snapshot
+failure does not establish that the later database revision fence was exercised.
+The old proposal's post-`finish()` decorator is outside this runtime boundary;
+a genuine system execution must reach that race before it earns coverage.
 
-- PR: affected workspace tests **including shared contracts**, fixed named
-  offline scenarios and a small fixed generated corpus; selected real-broker
-  crash/recovery regressions. Run the explicit existing integration commands
-  documented in [discovery](05-deterministic-system-testing-discovery.md).
-- Nightly/manual: rotating recorded seeds, longer histories and additional
-  fault combinations; retain the failure corpus and promote important failures
-  to PR regressions. Scheduled failures need an owner and triage, not silent
-  retries until green.
-- Before release: production entrypoint acceptance and existing desktop/UI/
-  adapter gates. Credentialed live API checks can reveal provider drift but
-  remain separate from deterministic required gates.
+The current four-command planner varies canonical-provider switching (E), source
+inventory restoration (R), stream publication (S) and reply-gate release (V).
+Its 24 legal orders describe these coordinator commands; selected causal edges
+reduce that set. V records releasing the fixture's held reply gate. Actual HTTP
+delivery, production validation completion and database writes require their
+own observed boundaries. Different command orders can produce the same runtime
+interleaving, and command counts alone establish no additional guard coverage.
 
-Set initial pilot budget targets of five minutes for the offline lane and ten
-for the selected broker lane on the chosen CI runner. These are design targets,
-not measurements. Report p50/p95, replay success and reached-state coverage
-before selecting seed/step counts or making checks required. Keep correctness
-assertions fixed when adjusting campaign size. Validate runner discovery and
-isolation first; a green command that discovers zero intended tests is failure.
+Retain source and fixture provenance, engine/image pins, external request trace,
+fault plan, replay log, guest completion, read-state diffs and unresolved durable
+work. A minimized authored scenario and a replayed recording are different
+artifacts: replay reconstructs its recorded execution, while retesting changed
+code requires recording a new execution of the scenario.
 
-Use explicit synthetic configuration and worktree-local `tmp/` stores. Do not
-implicitly load `.env.test` or application targets. Required local binaries are
-preflighted against the repository pin; no test provisions infrastructure.
-CI can prepare its pinned inputs through reviewed repository workflows.
+A completed product failure must also be replayed. Record replay success and
+property failure independently, keep the overall result failed, and retain the
+counterexample. Protocol loss, emulator failure and hangs are different engine
+or harness outcomes; they cannot stand in for a reproduced product finding.
 
-Retain a versioned manifest (source SHA, dependency/fixture versions, seed and
-schedule), structured state diff, bounded trace and exact replay command.
-Artifact uploads allow only synthetic outputs. Keep raw environment dumps,
-credentials, wallets, live payloads and unrestricted databases out; reuse the
-existing redaction owner for logs. Preserve local task artifacts under `tmp/`.
-No hosted result or branch-protection claim follows from a local run.
+A failed scenario can instead expose a fixture, prerequisite or assertion
+defect. For example, a stationary synthetic chain that ages beyond the real
+validator's freshness policy does not supply fair recovery. Preserve the failed
+run and correct the external model; do not assign an application defect from
+the failed status alone or change production policy to obtain a pass.
 
-## Growth Without Premature Generalization
+CI partitions the complete named corpus into independent, disjoint jobs;
+scheduled/manual exploration adds a job per authored fault model. Each campaign
+job owns its six declared causal orders. Failures do not cancel other lanes or
+convert missing cases into passes. Choose limits from measured performance
+rather than invented seed counts. Hosted runtime remains unqualified until the
+workflow actually runs. Existing workspace/integration checks still run
+alongside system campaigns; [discovery](05-deterministic-system-testing-discovery.md)
+records their current runner/CI gaps.
 
-Carry chain identity, collection identity, protocol identity, order identity
-and observation-source identity separately in scenario data. Exercise same
-addresses/token IDs across unaffected EVM chains early. Keep fork proof and
-finality capabilities explicit rather than assuming every chain has EVM blocks,
-Seaport or rollback semantics.
-
-Source fixtures should describe capabilities: complete inventory versus event
-hints, ordering/duplication, cancellation authority, cursors and availability.
-A future P2P source may have no authoritative absence snapshot. Reuse the
-scenario driver and evidence format, then define that source's domain contract
-before adding an adapter. Same signed order arriving from two sources needs a
-decision about deduplication and independent source evidence; today's single
-`source_status` cannot express that automatically.
-
-After M1, review measured seam cost, reproduction fidelity, oracle independence
-and actual races reached. Those results decide whether the lightweight approach
-is sufficient or whether a tightly scoped Antithesis/formal-model pilot adds
-value. This keeps the long-term verification strategy extensible while securing
-the current system first.
-
-## Discovery Qualification
-
-The documentation verifier passed for 81 Markdown files; its 15 regression tests
-passed, and Prettier 3.8.3 checked all five changed Markdown files. Application
-tests, broker/RPC scenarios, runtime benchmarks and hosted CI were not run for
-this documentation change. Existing test coverage above is source-inspected;
-the proposed scenarios and budget targets have no execution evidence yet.
+This remains a growing workbench: unexplained results and unmodeled interactions
+are discovery outputs. Add the missing model/fixture/observability deliberately,
+retain the failure corpus, and keep the distinction between platform execution,
+system correctness and unverified behavior visible in every report.
