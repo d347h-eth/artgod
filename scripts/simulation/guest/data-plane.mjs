@@ -6,6 +6,12 @@ import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { isRuntimeReadyLog } from "../../../shared/runtime/readiness.ts";
 import { RUNTIME_PROCESS } from "./runtime-manifest.mjs";
+import { createHeadProgress } from "./head-progress.mjs";
+import {
+    executeSplitProviderFork,
+    SPLIT_PROVIDER_EVENT,
+} from "./split-provider-fork.mjs";
+import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import { ORDER_SEAPORT_DATA_SOURCE_KIND } from "../../../indexer/src/domain/orders.ts";
 import {
     PROVIDER_DISAGREEMENT_PHASE as DISAGREEMENT_PHASE,
@@ -293,6 +299,23 @@ async function runOneShot(spec, { root, output, env, stopProcess }) {
 function observe(database, collectionId) {
     return database
         .transaction(() => ({
+            collectionId,
+            fillExecutions: database
+                .prepare(
+                    "SELECT id,chain_id,kind,protocol_address,tx_hash,log_index,block_number,block_hash,block_timestamp,price_exclusion,total_price,currency,nft_quantity FROM fill_executions WHERE chain_id=1 ORDER BY id",
+                )
+                .all(),
+            // Do not join through parents: orphan items are part of the oracle.
+            fillItems: database
+                .prepare(
+                    "SELECT execution_id,item_index,side,item_type,contract_address,identifier,amount,recipient,unit_offset FROM fill_execution_items ORDER BY execution_id,item_index",
+                )
+                .all(),
+            fillAttributions: database
+                .prepare(
+                    "SELECT chain_id,collection_id,execution_id,item_index,kind,order_id,order_side,maker,taker,contract_address,token_id,amount,block_number,block_hash,block_timestamp,tx_hash,log_index FROM fills WHERE chain_id=1 ORDER BY execution_id,item_index,collection_id",
+                )
+                .all(),
             owners: database
                 .prepare(
                     "SELECT token_id,owner,amount,last_block_number FROM nft_balances WHERE chain_id=1 AND collection_id=? ORDER BY token_id,owner",
@@ -450,12 +473,20 @@ export async function runDataPlane(
     let broker;
     let observer;
     let collectionId;
+    let headProgress;
     const checkpoints = [];
     const checks = {};
     const expectedSourceStatuses = {};
     let providerDisagreementReached = false;
     let activeCheck = CHECK.RuntimeEntrypoints;
     try {
+        if (scenario.headProgress)
+            headProgress = createHeadProgress({
+                world: server.world,
+                ledger,
+                maximumHead: scenario.headProgress.maximumHead,
+                providers: Object.keys(server.rpcUrls),
+            });
         checks[activeCheck] = false;
         // Setup creates declared collection identity/anchor only. Ownership, token
         // metadata, order outcomes, facts and recovery revisions come from runtime work.
@@ -516,6 +547,7 @@ export async function runDataPlane(
             );
         checks[CHECK.RuntimeEntrypoints] = true;
         const alive = () => {
+            headProgress?.assertHealthy();
             for (const process of processes)
                 if (!process.intentionallyStopped) process.assertAlive();
         };
@@ -671,6 +703,7 @@ export async function runDataPlane(
                 onCreated: ({ collectionId: id }) => {
                     collectionId = id;
                 },
+                onAnchored: () => headProgress?.start(),
             });
             checks[activeCheck] = true;
             checkpoints.push({ name: CHECK.CollectionBootstrap, bootstrap });
@@ -771,6 +804,14 @@ export async function runDataPlane(
             state: snapshot(),
             http: initialHttp,
         });
+        if (
+            headProgress &&
+            ![
+                DATA_PLANE_JOURNEY.Fork,
+                DATA_PLANE_JOURNEY.CollectionBootstrap,
+            ].includes(scenario.journey)
+        )
+            headProgress.start();
         if (scenario.journey === DATA_PLANE_JOURNEY.RefusedProof) {
             activeCheck = CHECK.SafeRefusal;
             checks[activeCheck] = false;
@@ -905,6 +946,12 @@ export async function runDataPlane(
                     (activity) => activity.kind === ACTIVITY_KIND.Sale,
                 ),
             );
+            assertCanonicalFillFacts({
+                snapshot: snapshot(),
+                ledger,
+                branch: "A",
+                head: 104,
+            });
             checkpoints.push({
                 name: "branch-a-sale",
                 state: snapshot(),
@@ -925,6 +972,24 @@ export async function runDataPlane(
                 "No actual validation reached the requested external response barrier",
                 120_000,
             );
+            if (scenario.splitProviderFork) {
+                const split = await executeSplitProviderFork(
+                    scenario.splitProviderFork,
+                    {
+                        world: server.world,
+                        ledger,
+                        rpcProviders: scenario.rpcProviders,
+                        barrierName: "old-validation",
+                        observe: snapshot,
+                        eventually,
+                        assertAlive: alive,
+                    },
+                );
+                checkpoints.push({
+                    name: SPLIT_PROVIDER_EVENT.Healed,
+                    splitProviderFork: split,
+                });
+            }
             for (const action of scenario.schedule ?? DEFAULT_FORK_SCHEDULE) {
                 let detail = {};
                 switch (action) {
@@ -1010,6 +1075,7 @@ export async function runDataPlane(
                 server.world.recordAction(action, detail);
             }
             server.world.setPhase("canonical-b");
+            headProgress?.start();
             await eventually(
                 () => {
                     const current = snapshot();
@@ -1235,6 +1301,7 @@ export async function runDataPlane(
         // then require retained internal work to settle without more source inputs.
         await closeSources();
         const manager = await broker.connection.jetstreamManager();
+        let progressStopped = false;
         await eventually(
             async () => {
                 const current = snapshot();
@@ -1242,7 +1309,7 @@ export async function runDataPlane(
                     resolveNatsJobStreamName(env.NATS_STREAM_PREFIX),
                 );
                 const head = server.world.providerView("default").head;
-                return (
+                const settled =
                     current.pendingDemand.length === 0 &&
                     current.pendingOutbox.length === 0 &&
                     current.unfinishedMaker.length === 0 &&
@@ -1250,8 +1317,21 @@ export async function runDataPlane(
                     current.canonicalChecks.every(
                         (check) => check.block_number > head - 2,
                     ) &&
-                    stream.state.messages === 0
-                );
+                    stream.state.messages === 0 &&
+                    current.coverage.filter(
+                        (row) =>
+                            row.block_number > acquisitionLedger.anchorBlock,
+                    ).length ===
+                        head - acquisitionLedger.anchorBlock &&
+                    current.headers.some((row) => row.block_number === head);
+                if (settled && headProgress && !progressStopped) {
+                    headProgress.stop();
+                    progressStopped = true;
+                    // Observe durable obligations once more with the external
+                    // producer stopped, inside the same bounded wait.
+                    return false;
+                }
+                return settled;
             },
             "closed-producer durable obligation convergence",
             180_000,
@@ -1338,6 +1418,7 @@ export async function runDataPlane(
                 world: server.world.snapshot(),
                 runtimeProfile:
                     scenario.runtimeProfile ?? RUNTIME_PROFILE.Unrestricted,
+                headProgress: headProgress?.evidence(),
                 ...scheduleEvidence(server.world),
             },
         };
@@ -1433,9 +1514,11 @@ export async function runDataPlane(
             logTails,
             processStates,
             brokerState,
+            headProgress: headProgress?.evidence(),
         };
         throw error;
     } finally {
+        headProgress?.stop();
         await writeFile(
             path.join(output, "world-trace.json"),
             `${JSON.stringify(server.world.trace, null, 2)}\n`,

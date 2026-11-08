@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { REORG_RECOVERY_PHASE } from "../../../indexer/src/domain/reorg-recovery.ts";
 import { assertCanonicalAcquisition } from "./oracle.mjs";
+import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 
 /** Unsupported deep-fork endpoint: retain work, never invent an ancestor/rollback. */
 export async function verifyRefusedProof({
@@ -21,10 +22,11 @@ export async function verifyRefusedProof({
     );
     world.setPhase("refusal-retained-a");
     world.advanceHead(acquiredHead);
+    let before;
     await eventually(
         () => {
             const state = observe();
-            return (
+            const acquired =
                 state.coverage.filter(
                     (row) =>
                         row.block_number > ledger.anchorBlock &&
@@ -34,19 +36,24 @@ export async function verifyRefusedProof({
                 state.canonicalChecks.every(
                     (row) => row.block_number > acquiredHead - reorgDepth + 1,
                 ) &&
-                state.recovery.length === 0
-            );
+                state.recovery.length === 0;
+            if (!acquired) return false;
+            try {
+                assertCanonicalAcquisition({
+                    snapshot: state,
+                    ledger,
+                    branch: "A",
+                    head: acquiredHead,
+                });
+                before = state;
+                return true;
+            } catch {
+                return false;
+            }
         },
         "actual A history acquisition and all mature A checks before the deep fork",
         120_000,
     );
-    const before = observe();
-    assertCanonicalAcquisition({
-        snapshot: before,
-        ledger,
-        branch: "A",
-        head: acquiredHead,
-    });
     world.setPhase("refusal-requested-b");
     world.switchBranch("B", { head: replacementHead });
     let after;
@@ -100,6 +107,12 @@ export async function verifyRefusedProof({
         before.transfers,
         "Unsupported recovery cannot delete retained transfer facts",
     );
+    assertCanonicalFillFacts({
+        snapshot: after,
+        ledger,
+        branch: "A",
+        head: acquiredHead,
+    });
     // Activity projection runs independently of acquisition. A legitimate A
     // job may append history after the retained snapshot; existing facts must
     // survive the unsupported fork, without requiring those queues to stop.

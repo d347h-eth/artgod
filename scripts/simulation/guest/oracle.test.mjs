@@ -12,6 +12,7 @@ import {
 import { createBaselineLedger } from "../world/ledger.mjs";
 import { ZERO_ADDRESS } from "../world/wire.mjs";
 import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
+import { baselineFillFacts } from "./fixtures/fill-facts.mjs";
 
 const ledger = createBaselineLedger({ epochSeconds: 1_000_000 });
 // Reviewed fixture truth table: two mints and one A-only transfer. This does not
@@ -36,6 +37,7 @@ const transfer = (branch, number, tokenId, from, to) => {
     };
 };
 const snapshot = ({ branch = "B", head = 102 } = {}) => ({
+    ...baselineFillFacts(ledger, { branch, head }),
     revision: 2,
     coverage: Array.from({ length: head - 99 }, (_, index) => ({
         block_number: 100 + index,

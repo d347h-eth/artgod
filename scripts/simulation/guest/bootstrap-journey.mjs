@@ -96,6 +96,7 @@ export async function executeCollectionBootstrap(
         eventually,
         observeBootstrap,
         onCreated = () => {},
+        onAnchored = () => {},
         fetchFn = fetch,
     } = context;
     for (const [name, callback] of Object.entries({
@@ -104,6 +105,7 @@ export async function executeCollectionBootstrap(
         eventually,
         observeBootstrap,
         onCreated,
+        onAnchored,
     }))
         assert.equal(
             typeof callback,
@@ -253,6 +255,11 @@ export async function executeCollectionBootstrap(
             pausedDetail.run.anchorBlockHash,
             world.ledger.blockAt("B", 102).hash,
         );
+        await onAnchored({
+            runId,
+            collectionId,
+            anchorBlock: pausedDetail.run.anchorBlock,
+        });
         world.release(BOOTSTRAP_METADATA_BARRIER);
         released = true;
         await eventually(
@@ -318,7 +325,18 @@ export async function executeCollectionBootstrap(
             firstLive.metadataTasks.pending + firstLive.metadataTasks.retry,
             0,
         );
-        assertSnapshot(await observe(), world, 102);
+        await eventually(
+            async () => {
+                try {
+                    assertSnapshot(await observe(), world, 102);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            "anchored bootstrap ownership and coverage reach the published head",
+            timeoutMs,
+        );
         evidence.reached.bestEffortLive = true;
         checkpoint("bootstrap-live-with-metadata-failures", {
             runId,
@@ -367,7 +385,19 @@ export async function executeCollectionBootstrap(
             "retried metadata stored by actual production bootstrap",
             timeoutMs,
         );
-        assertSnapshot(recovered, world, 102);
+        await eventually(
+            async () => {
+                recovered = await observe();
+                try {
+                    assertSnapshot(recovered, world, 102);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            "repaired metadata retains anchored ownership and current coverage",
+            timeoutMs,
+        );
         assert.ok(
             recovered.events.some(
                 (event) =>

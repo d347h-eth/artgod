@@ -4,7 +4,11 @@ import {
     DATA_PLANE_CHECKS,
 } from "../qualification-protocol.mjs";
 import { PROCESS_FAULT_KIND } from "./process-faults.mjs";
-import { METADATA_TRANSPORT } from "../world/contract.mjs";
+import { validateSplitProviderSelection } from "./split-provider-fork.mjs";
+import {
+    METADATA_TRANSPORT,
+    tailBlockIntervalSeconds,
+} from "../world/contract.mjs";
 
 export const SCENARIO_KIND = Object.freeze({
     Qualification: "qualification",
@@ -84,6 +88,8 @@ export function validateScenario(value) {
         "rpcProviders",
         "runtimeProfile",
         "validationRelease",
+        "headProgress",
+        "splitProviderFork",
     ];
     for (const key of Object.keys(value))
         if (!allowed.includes(key))
@@ -139,10 +145,13 @@ export function validateScenario(value) {
             "scripts",
             "transferOnly",
             "metadataTransport",
+            "tailBlockIntervalSeconds",
         ];
         for (const key of Object.keys(value.world))
             if (!worldFields.includes(key))
                 throw new Error(`Unknown external world field ${key}`);
+        if (value.world.tailBlockIntervalSeconds !== undefined)
+            tailBlockIntervalSeconds(value.world.tailBlockIntervalSeconds);
         if (
             value.world.metadataTransport !== undefined &&
             !Object.values(METADATA_TRANSPORT).includes(
@@ -214,6 +223,61 @@ export function validateScenario(value) {
         )
             throw new Error(
                 "A before-rollback validation witness requires release before the canonical switch",
+            );
+    }
+    if (value.splitProviderFork !== undefined) {
+        if (
+            value.journey !== DATA_PLANE_JOURNEY.Fork ||
+            value.runtimeProfile !== RUNTIME_PROFILE.Default
+        )
+            throw new Error(
+                "Split-provider fork requires the fork journey with actual default runtime budgets",
+            );
+        validateSplitProviderSelection(
+            value.splitProviderFork,
+            value.rpcProviders,
+        );
+        if (
+            ![
+                value.splitProviderFork.canonicalProvider,
+                value.splitProviderFork.retainedProvider,
+            ].every((provider) => value.world?.providers?.[provider])
+        )
+            throw new Error(
+                "Split-provider fork must explicitly declare both external provider views",
+            );
+        if (value.validationRelease === VALIDATION_RELEASE.BeforeRollback)
+            throw new Error(
+                "A split-provider prologue heals before release and cannot claim A validation committed before rollback",
+            );
+    }
+    if (value.headProgress !== undefined) {
+        if (
+            value.kind !== SCENARIO_KIND.DataPlane ||
+            [
+                DATA_PLANE_JOURNEY.ProviderDisagreement,
+                DATA_PLANE_JOURNEY.RefusedProof,
+            ].includes(value.journey) ||
+            !value.headProgress ||
+            typeof value.headProgress !== "object" ||
+            Array.isArray(value.headProgress) ||
+            Object.keys(value.headProgress).join(",") !== "maximumHead" ||
+            !Number.isSafeInteger(value.headProgress.maximumHead) ||
+            value.headProgress.maximumHead < 107 ||
+            value.headProgress.maximumHead > 10_000
+        )
+            throw new Error(
+                "Head progress requires an explicit bounded ceiling for a supported fair-recovery journey",
+            );
+        if (
+            value.journey !== DATA_PLANE_JOURNEY.Fork &&
+            (!value.world?.providers?.default ||
+                Object.values(value.world.providers).some(
+                    (provider) => provider.branch !== "B",
+                ))
+        )
+            throw new Error(
+                "Non-fork head progress requires explicitly declared quiet branch B providers",
             );
     }
     return structuredClone(value);

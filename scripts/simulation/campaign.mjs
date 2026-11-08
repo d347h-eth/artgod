@@ -56,9 +56,13 @@ export const FORK_EVENT_MODEL = Object.freeze({
         tokens: 2,
         branches: 2,
         externalEvents: 4,
+        canonicalTail: {
+            maximumHead: forkScenario.headProgress.maximumHead,
+            blockIntervalSeconds: forkScenario.world.tailBlockIntervalSeconds,
+        },
     },
     evidenceLimit:
-        "Orders of these four external commands only; V releases a fixture reply gate without acknowledging runtime validation completion; no claim of all RPC, OS, SQLite, broker or JavaScript schedules",
+        "Orders of these four external commands only, followed by the common bounded canonical tail; V releases a fixture reply gate without acknowledging runtime validation completion; no claim of all RPC, OS, SQLite, broker or JavaScript schedules",
 });
 
 export const FORK_FAULT_MODELS = Object.freeze([

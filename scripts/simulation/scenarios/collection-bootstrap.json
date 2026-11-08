@@ -6,9 +6,18 @@
     "world": {
         "metadataTransport": "http",
         "providers": {
-            "default": { "branch": "B", "head": 105 },
-            "a": { "branch": "B", "head": 105 },
-            "b": { "branch": "B", "head": 105 }
+            "default": {
+                "branch": "B",
+                "head": 105
+            },
+            "a": {
+                "branch": "B",
+                "head": 105
+            },
+            "b": {
+                "branch": "B",
+                "head": 105
+            }
         },
         "scripts": [
             {
@@ -18,9 +27,13 @@
                     "functionName": "tokenURI",
                     "occurrence": 1
                 },
-                "before": { "barrier": "bootstrap-metadata-request" }
+                "before": {
+                    "barrier": "bootstrap-metadata-request"
+                }
             }
-        ]
+        ],
+        "maximumBlock": 140,
+        "tailBlockIntervalSeconds": 12
     },
     "expectedChecks": [
         "runtime-entrypoints",
@@ -29,5 +42,8 @@
         "order-validation",
         "http-projection",
         "collection-bootstrap"
-    ]
+    ],
+    "headProgress": {
+        "maximumHead": 140
+    }
 }

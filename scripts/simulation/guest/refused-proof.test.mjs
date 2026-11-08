@@ -4,6 +4,8 @@ import { verifyRefusedProof } from "./refused-proof.mjs";
 import { createBaselineLedger } from "../world/ledger.mjs";
 import { ZERO_ADDRESS } from "../world/wire.mjs";
 import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
+import { baselineFillFacts } from "./fixtures/fill-facts.mjs";
+import { FILL_STORAGE_PROPERTY } from "./fill-oracle.mjs";
 import { REORG_RECOVERY_PHASE } from "../../../indexer/src/domain/reorg-recovery.ts";
 
 // Oracle guards only. Actual acquisition/proof/refusal requires the authored VM.
@@ -11,6 +13,7 @@ function fixture({
     deleteHistory = false,
     appendAnchorHeader = false,
     headerFault,
+    fillFault,
 } = {}) {
     const ledger = createBaselineLedger({ epochSeconds: 1_000_000 });
     const header = (number) => ({
@@ -37,6 +40,7 @@ function fixture({
         };
     };
     const before = {
+        ...baselineFillFacts(ledger, { branch: "A", head: 108 }),
         revision: 0,
         recovery: [],
         canonicalChecks: [],
@@ -59,6 +63,7 @@ function fixture({
         headers: Array.from({ length: 8 }, (_, i) => header(101 + i)),
     };
     const after = structuredClone(before);
+    if (fillFault) after[fillFault] = [];
     if (appendAnchorHeader) after.headers.unshift(header(100));
     if (headerFault === "hash") after.headers[1].block_hash = "B:102";
     if (headerFault === "parent") after.headers[1].parent_hash = "B:101";
@@ -134,4 +139,15 @@ test("new headers never excuse mutation or deletion of a previously verified has
             ),
             /retained fork headers/,
         );
+});
+
+test("unproved ancestry cannot delete retained fill executions, items or collection attributions", async () => {
+    for (const [fillFault, property] of [
+        ["fillExecutions", FILL_STORAGE_PROPERTY.Executions],
+        ["fillItems", FILL_STORAGE_PROPERTY.Items],
+        ["fillAttributions", FILL_STORAGE_PROPERTY.Attributions],
+    ])
+        await assert.rejects(verifyRefusedProof(fixture({ fillFault })), {
+            property,
+        });
 });

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import { COLLECTION_STANDARD } from "../../../shared/types/browse.ts";
 import { TRANSFER_ABI } from "../world/wire.mjs";
+import { assertSimulationProperty as property } from "./oracle-assertions.mjs";
+import { assertCanonicalFillFacts } from "./fill-oracle.mjs";
 import {
     ORDER_STATUS,
     ORDER_SOURCE_STATUS,
@@ -15,15 +17,6 @@ export const SIMULATION_PROPERTY = Object.freeze({
     SellValidation: "current-sell-validation",
     BuyValidation: "current-buy-validation",
 });
-
-function property(name, assertion) {
-    try {
-        assertion();
-    } catch (error) {
-        error.property = name;
-        throw error;
-    }
-}
 
 const TRANSFER_TOPIC = encodeEventTopics({
     abi: TRANSFER_ABI,
@@ -165,6 +158,7 @@ export function assertCanonicalAcquisition({ snapshot, ledger, branch, head }) {
             "Stored post-anchor transfer facts must equal the canonical external logs exactly, with no missing, duplicate or orphan facts",
         );
     });
+    assertCanonicalFillFacts({ snapshot, ledger, branch, head });
 }
 
 /** Active orders need a current full proof; source cancellation is independent. */
