@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPinnedInputBytesContract } from "../build/pinned-build-inputs.mjs";
 import {
     hashFile as digest,
+    pinFile,
     createArtifactRunDirectory,
 } from "./artifacts.mjs";
 import {
@@ -18,6 +19,9 @@ import {
     QUALIFICATION_STATUS,
     QUALIFICATION_CHECKS,
 } from "./qualification-protocol.mjs";
+
+import { compareGuestDisks } from "./image-artifacts.mjs";
+import { storageProfile, SCENARIO_DEVICE_ENV } from "./storage-profile.mjs";
 
 export const QUALIFICATION_PROTOCOL = QUALIFICATION_PROTOCOL_PREFIX;
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -36,8 +40,26 @@ export const QEMU_ENVIRONMENT = Object.freeze({
     LC_ALL: "C",
     TZ: "UTC",
 });
+export const EXECUTION_INTERRUPTED_CODE = "ARTGOD_SIMULATION_INTERRUPTED";
+
+/** Cleanup wrappers retain causes; interruption must still stop outer schedulers. */
+export function isExecutionInterrupted(error) {
+    const seen = new Set();
+    const visit = (value) => {
+        if (!value || typeof value !== "object" || seen.has(value))
+            return false;
+        seen.add(value);
+        return (
+            value.code === EXECUTION_INTERRUPTED_CODE ||
+            visit(value.cause) ||
+            (Array.isArray(value.errors) && value.errors.some(visit))
+        );
+    };
+    return visit(error);
+}
 const ENVIRONMENT = QEMU_ENVIRONMENT;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+const GUEST_MEMORY_MIB = 2048;
 
 function objectKeys(value, expected, label) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -49,6 +71,12 @@ function objectKeys(value, expected, label) {
 
 /** No arbitrary QEMU options, host mounts or implicit tool/image discovery. */
 export function validateManifest(value, manifestPath) {
+    const pins = [
+        ...PIN_NAMES,
+        ...(value && typeof value === "object" && "toolCapsule" in value
+            ? ["toolCapsule"]
+            : []),
+    ];
     objectKeys(
         value,
         [
@@ -59,11 +87,15 @@ export function validateManifest(value, manifestPath) {
             "machine",
             "epoch",
             "timeoutSeconds",
-            ...PIN_NAMES,
+            ...pins,
+            ...(value && typeof value === "object" && "storageProfile" in value
+                ? ["storageProfile"]
+                : []),
         ],
         "Manifest",
     );
     if (value.version !== 1) throw new Error("Unsupported manifest version");
+    if ("storageProfile" in value) storageProfile(value.storageProfile);
     if (!/^[a-f0-9]{40}$/.test(value.sourceSha ?? ""))
         throw new Error("sourceSha must be an explicit full source commit SHA");
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value.qualificationId ?? ""))
@@ -102,7 +134,7 @@ export function validateManifest(value, manifestPath) {
     )
         throw new Error("timeoutSeconds must be between 1 and 3600");
     const result = { ...value, expectedChecks: [...value.expectedChecks] };
-    for (const name of PIN_NAMES) {
+    for (const name of pins) {
         const pin = value[name];
         objectKeys(
             pin,
@@ -138,16 +170,16 @@ export function validateManifest(value, manifestPath) {
             path: path.resolve(path.dirname(manifestPath), pin.path),
         };
     }
-    if (
-        new Set(PIN_NAMES.map((name) => result[name].path)).size !==
-        PIN_NAMES.length
-    )
+    if (new Set(pins.map((name) => result[name].path)).size !== pins.length)
         throw new Error("Each pinned input must have a distinct path");
     return result;
 }
 
 async function assertPins(manifest) {
-    for (const name of PIN_NAMES) {
+    for (const name of [
+        ...PIN_NAMES,
+        ...(manifest.toolCapsule ? ["toolCapsule"] : []),
+    ]) {
         const pin = manifest[name];
         const metadata = await stat(pin.path).catch((error) => {
             throw new Error(`Cannot read ${name}: ${error.message}`);
@@ -231,14 +263,23 @@ export async function preflight(
     );
     const manifestSha256 = await digest(absolute);
     await assertPins(manifest);
+    const engineExecute = manifest.toolCapsule
+        ? await (
+              await import("./tool-capsule.mjs")
+          ).createToolCapsuleExecutor({
+              filename: manifest.toolCapsule.path,
+              manifest,
+              execute,
+          })
+        : execute;
     for (const name of ["qemu", "qemuImg"]) {
-        const result = await successful(execute, manifest[name].path, [
+        const result = await successful(engineExecute, manifest[name].path, [
             "--version",
         ]);
         if (result.stdout.split(/\r?\n/, 1)[0] !== manifest[name].version)
             throw new Error(`Pinned ${name} version output does not match`);
     }
-    const machines = await successful(execute, manifest.qemu.path, [
+    const machines = await successful(engineExecute, manifest.qemu.path, [
         "-machine",
         "help",
     ]);
@@ -248,7 +289,7 @@ export async function preflight(
             .some((line) => line.trim().split(/\s+/, 1)[0] === manifest.machine)
     )
         throw new Error(`Pinned QEMU does not provide ${manifest.machine}`);
-    const image = await successful(execute, manifest.qemuImg.path, [
+    const image = await successful(engineExecute, manifest.qemuImg.path, [
         "info",
         "--output=json",
         manifest.guest.path,
@@ -257,12 +298,31 @@ export async function preflight(
     await assertPins(manifest);
     if ((await digest(absolute)) !== manifestSha256)
         throw new Error("Manifest changed during preflight");
-    return { manifest, manifestPath: absolute, manifestSha256 };
+    return {
+        manifest,
+        manifestPath: absolute,
+        manifestSha256,
+        execute: engineExecute,
+    };
 }
 
 export function qemuArguments(manifest, overlay, replayLog, mode) {
     if (!["record", "replay"].includes(mode))
         throw new Error("Unknown replay mode");
+    const storage =
+        "storageProfile" in manifest
+            ? storageProfile(manifest.storageProfile)
+            : undefined;
+    const kernelArguments = storage
+        ? [
+              KERNEL_ARGUMENTS.replace(
+                  "root=/dev/vda",
+                  `root=${storage.rootDevice}`,
+              ),
+              ...storage.kernelOptions,
+              `${SCENARIO_DEVICE_ENV}=${storage.scenarioDevice}`,
+          ].join(" ")
+        : KERNEL_ARGUMENTS;
     // Replay's documented drive stack creates BlockBackends for both the image
     // and replay filter; comma escaping preserves literal filenames in QemuOpts.
     return [
@@ -277,13 +337,13 @@ export function qemuArguments(manifest, overlay, replayLog, mode) {
         "-smp",
         "1",
         "-m",
-        "2048",
+        String(GUEST_MEMORY_MIB),
         "-bios",
         manifest.firmware.path,
         "-kernel",
         manifest.kernel.path,
         "-append",
-        KERNEL_ARGUMENTS,
+        kernelArguments,
         "-display",
         "none",
         "-monitor",
@@ -306,7 +366,8 @@ export function qemuArguments(manifest, overlay, replayLog, mode) {
         "-drive",
         "driver=blkreplay,if=none,image=image,id=replay-disk",
         "-device",
-        "virtio-blk-pci,drive=replay-disk,ioeventfd=off",
+        storage?.rootController ??
+            "virtio-blk-pci,drive=replay-disk,ioeventfd=off",
         "-drive",
         `file=${manifest.scenario.path.replaceAll(",", ",,")},format=raw,if=none,readonly=on,id=scenario`,
         "-drive",
@@ -395,8 +456,10 @@ export async function qualify(
         outputRoot = path.join(ROOT, "tmp", "simulation-qemu"),
     } = {},
 ) {
+    const startedAt = performance.now();
     const admitted = await preflight(manifestPath, { execute });
     const { manifest } = admitted;
+    const engineExecute = admitted.execute;
     const directory = await createArtifactRunDirectory(outputRoot);
     const replayLog = path.join(directory, "replay.bin");
     const report = {
@@ -405,11 +468,17 @@ export async function qualify(
         qualificationId: manifest.qualificationId,
         status: "failed",
         engineReplayStatus: "unqualified",
+        guestDiskParityStatus: "not-run",
         propertyStatus: "unqualified",
         substrateQualificationStatus: "not-run",
         evidence: "whole-machine-record-replay",
         manifestSha256: admitted.manifestSha256,
         directory,
+        metrics: {
+            phases: [],
+            configuredGuestMemoryMiB: GUEST_MEMORY_MIB,
+            maxSimultaneousGuestsInPair: 1,
+        },
     };
     const assertUnchanged = async () => {
         if ((await digest(admitted.manifestPath)) !== admitted.manifestSha256)
@@ -429,7 +498,7 @@ export async function qualify(
             await assertUnchanged();
             const overlay = path.join(directory, `${mode}.qcow2`);
             await successful(
-                execute,
+                engineExecute,
                 manifest.qemuImg.path,
                 [
                     "create",
@@ -453,12 +522,31 @@ export async function qualify(
                 ),
             );
             const stdoutPath = path.join(directory, `${mode}-serial.log`);
-            await successful(execute, manifest.qemu.path, args, {
-                cwd: directory,
-                timeoutMs: manifest.timeoutSeconds * 1000,
-                stdoutPath,
-                stderrPath: path.join(directory, `${mode}-qemu.log`),
-            });
+            const phaseStartedAt = performance.now();
+            const phase = { mode };
+            report.metrics.phases.push(phase);
+            try {
+                await successful(engineExecute, manifest.qemu.path, args, {
+                    cwd: directory,
+                    timeoutMs: manifest.timeoutSeconds * 1000,
+                    stdoutPath,
+                    stderrPath: path.join(directory, `${mode}-qemu.log`),
+                });
+            } finally {
+                phase.hostElapsedMs = Math.round(
+                    performance.now() - phaseStartedAt,
+                );
+                for (const [key, filename] of Object.entries({
+                    serialBytes: stdoutPath,
+                    overlayBytes: overlay,
+                    eventLogBytes: replayLog,
+                })) {
+                    const metadata = await stat(filename).catch(
+                        () => undefined,
+                    );
+                    if (metadata) phase[key] = metadata.size;
+                }
+            }
             if (!(await stat(stdoutPath)).size)
                 throw new Error(`${mode} serial output is empty`);
             completions[mode] = await assertGuestProtocol(stdoutPath, manifest);
@@ -478,6 +566,23 @@ export async function qualify(
             (await digest(path.join(directory, "replay-serial.log")))
         )
             throw new Error("Record/replay serial bytes differ");
+        // Guest output can omit state. Compare visible disk bytes after both
+        // machines close; qcow2 allocation/metadata differences are immaterial.
+        report.guestDiskParityStatus = "failed";
+        await compareGuestDisks({
+            run: (args, options) =>
+                successful(engineExecute, manifest.qemuImg.path, args, options),
+            first: path.join(directory, "record.qcow2"),
+            second: path.join(directory, "replay.qcow2"),
+            guestPath: manifest.guest.path,
+            cwd: directory,
+        });
+        report.guestDiskParityStatus = "passed";
+        report.recordOverlay = await pinFile(
+            path.join(directory, "record.qcow2"),
+            directory,
+        );
+        await assertUnchanged();
         report.engineReplayStatus = "passed";
         report.propertyStatus = completions.record.status;
         report.status = report.propertyStatus;
@@ -488,13 +593,17 @@ export async function qualify(
         )
             report.substrateQualificationStatus = report.propertyStatus;
         report.limitations = [
-            "Host QEMU shared libraries/kernel are not fully pinned",
+            manifest.toolCapsule
+                ? "QEMU userspace is pinned by the retained OCI capsule; the host kernel remains external"
+                : "Host QEMU shared libraries/kernel are not fully pinned",
             "Guest assertions require separate review",
             "No claim of unexplored schedules or ArtGod correctness",
         ];
         return report;
     } catch (error) {
         report.engineReplayStatus = "failed";
+        if (isExecutionInterrupted(error))
+            report.errorCode = EXECUTION_INTERRUPTED_CODE;
         report.error = error.message;
         const failure = new Error(
             `${error.message}; retained artifacts: ${directory}`,
@@ -504,8 +613,12 @@ export async function qualify(
         );
         failure.report = report;
         failure.directory = directory;
+        if (report.errorCode) failure.code = report.errorCode;
         throw failure;
     } finally {
+        report.metrics.hostElapsedMs = Math.round(
+            performance.now() - startedAt,
+        );
         await writeFile(
             path.join(directory, "report.json"),
             JSON.stringify(report, null, 2),
@@ -544,16 +657,21 @@ export async function executeCommand(file, args, options = {}) {
             kill("SIGTERM");
             forceTimer ??= setTimeout(() => kill("SIGKILL"), 1000);
         };
-        const interrupt = () => {
-            failure ??= new Error("Execution interrupted");
+        const interrupt = (signal) => {
+            failure ??= Object.assign(
+                new Error(`Execution interrupted by ${signal}`),
+                { code: EXECUTION_INTERRUPTED_CODE, signal },
+            );
             stop();
         };
+        const onSigint = () => interrupt("SIGINT");
+        const onSigterm = () => interrupt("SIGTERM");
         const timer = setTimeout(() => {
             timedOut = true;
             stop();
         }, options.timeoutMs ?? 15_000);
-        process.once("SIGINT", interrupt);
-        process.once("SIGTERM", interrupt);
+        process.once("SIGINT", onSigint);
+        process.once("SIGTERM", onSigterm);
         [child.stdout, child.stderr].forEach((source, index) => {
             outputs[index]?.on("error", (error) => {
                 failure ??= error;
@@ -583,8 +701,8 @@ export async function executeCommand(file, args, options = {}) {
         child.once("close", async (code, signal) => {
             clearTimeout(timer);
             clearTimeout(forceTimer);
-            process.removeListener("SIGINT", interrupt);
-            process.removeListener("SIGTERM", interrupt);
+            process.removeListener("SIGINT", onSigint);
+            process.removeListener("SIGTERM", onSigterm);
             try {
                 await Promise.all(
                     outputs.filter(Boolean).map((output) => {

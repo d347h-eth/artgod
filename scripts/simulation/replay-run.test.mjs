@@ -94,8 +94,19 @@ async function completedFixture(passed = true) {
         if (args[0] === "-machine") return okay("pc-i440fx-9.2 fixture\n");
         if (args[0] === "info")
             return okay(
-                JSON.stringify({ format: "qcow2", "virtual-size": 8388608 }),
+                JSON.stringify({
+                    format: "qcow2",
+                    "virtual-size": 8388608,
+                    ...(/(?:record|replay)\.qcow2$/.test(args.at(-1))
+                        ? {
+                              "backing-filename": pins.guest.path,
+                              "full-backing-filename": pins.guest.path,
+                              "backing-filename-format": "qcow2",
+                          }
+                        : {}),
+                }),
             );
+        if (args[0] === "compare") return okay();
         if (args[0] === "create") {
             await writeFile(args.at(-1), "synthetic overlay");
             return okay();
@@ -178,6 +189,35 @@ test("arbitrary recorded arguments or changed clock profile are refused before a
         );
         assert.equal(f.modes.length, 2);
         assert.ok(!(await readdir(f.directory)).includes("refused"));
+    }
+});
+
+test("exact replay rejects changed pinned final disks and unexpected backing images", async () => {
+    for (const change of ["bytes", "backing"]) {
+        const f = await completedFixture();
+        if (change === "bytes")
+            await writeFile(
+                path.join(f.report.directory, "record.qcow2"),
+                "changed disk",
+            );
+        const execute = (file, args, options) =>
+            change === "backing" &&
+            args[0] === "info" &&
+            /(?:record|replay)\.qcow2$/.test(args.at(-1))
+                ? okay(
+                      JSON.stringify({
+                          format: "qcow2",
+                          "backing-filename-format": "qcow2",
+                          "backing-filename": "/unexpected/base",
+                          "full-backing-filename": "/unexpected/base",
+                      }),
+                  )
+                : f.execute(file, args, options);
+        await assert.rejects(
+            replayRun({ runDirectory: f.report.directory, execute }),
+            /overlay changed|unexpected backing/,
+        );
+        assert.equal(f.modes.length, 2);
     }
 });
 

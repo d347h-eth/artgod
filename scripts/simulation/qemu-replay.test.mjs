@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
     mkdir,
@@ -19,8 +20,11 @@ import {
     qemuArguments,
     qualify,
     validateManifest,
+    EXECUTION_INTERRUPTED_CODE,
+    isExecutionInterrupted,
 } from "./qemu-replay.mjs";
 import { QUALIFICATION_CHECKS } from "./qualification-protocol.mjs";
+import { STORAGE_PROFILE, SCENARIO_DEVICE_ENV } from "./storage-profile.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TEST_ROOT = path.join(ROOT, "tmp", "simulation-qemu-tests");
@@ -100,7 +104,20 @@ async function fixture() {
             );
         if (args[0] === "-machine")
             return okay("Supported machines are:\npc-i440fx-9.2 Standard PC\n");
-        if (args[0] === "info") return okay(JSON.stringify(image()));
+        if (args[0] === "info")
+            return okay(
+                JSON.stringify({
+                    ...image(),
+                    ...(/(?:record|replay)\.qcow2$/.test(args.at(-1))
+                        ? {
+                              "backing-filename": pins.guest.path,
+                              "full-backing-filename": pins.guest.path,
+                              "backing-filename-format": "qcow2",
+                          }
+                        : {}),
+                }),
+            );
+        if (args[0] === "compare") return okay();
         if (args[0] === "create") {
             await writeFile(args.at(-1), "synthetic overlay");
             return okay();
@@ -263,11 +280,77 @@ test("VM arguments enclose all devices, use fixed CPU/time, replay every disk an
     );
 });
 
+test("explicit PIO and virtio storage profiles pin devices while absent profiles retain the recorded legacy layout", async () => {
+    const f = await fixture();
+    const legacy = qemuArguments(f.manifest, "overlay", "log", "record");
+    assert.ok(
+        !legacy[legacy.indexOf("-append") + 1].includes(SCENARIO_DEVICE_ENV),
+    );
+    for (const [profile, root, scenario, controller] of [
+        [
+            STORAGE_PROFILE.Virtio,
+            "/dev/vda",
+            "/dev/vdb",
+            "virtio-blk-pci,drive=replay-disk,ioeventfd=off",
+        ],
+        [
+            STORAGE_PROFILE.IdePio,
+            "/dev/sda",
+            "/dev/vda",
+            "ide-hd,drive=replay-disk,bus=ide.0,unit=0",
+        ],
+        [
+            STORAGE_PROFILE.VirtioBounce,
+            "/dev/vda",
+            "/dev/vdb",
+            "virtio-blk-pci,drive=replay-disk,ioeventfd=off,iommu_platform=on",
+        ],
+    ]) {
+        const manifest = validateManifest(
+            { ...f.manifest, storageProfile: profile },
+            f.manifestPath,
+        );
+        const args = qemuArguments(manifest, "overlay", "log", "record");
+        const command = args[args.indexOf("-append") + 1];
+        assert.ok(command.includes(`root=${root}`));
+        assert.ok(command.includes(`${SCENARIO_DEVICE_ENV}=${scenario}`));
+        assert.equal(
+            command.includes("libata.dma=0"),
+            profile === STORAGE_PROFILE.IdePio,
+        );
+        assert.equal(
+            command.includes("iommu=soft"),
+            profile === STORAGE_PROFILE.VirtioBounce,
+        );
+        assert.equal(
+            command.includes("swiotlb=force"),
+            profile === STORAGE_PROFILE.VirtioBounce,
+        );
+        assert.ok(args.includes(controller));
+        assert.ok(
+            args.includes("virtio-blk-pci,drive=scenario-replay,ioeventfd=off"),
+        );
+        assert.equal(
+            args[args.indexOf("-icount") + 1],
+            legacy[legacy.indexOf("-icount") + 1],
+        );
+    }
+    assert.throws(
+        () =>
+            validateManifest(
+                { ...f.manifest, storageProfile: "automatic" },
+                f.manifestPath,
+            ),
+        /explicit supported/,
+    );
+});
+
 test("qualification keeps distinct overlays and records narrow evidence with exact raw serial parity", async () => {
     const f = await fixture();
     const report = await qualify(f.manifestPath, f);
     assert.equal(report.status, "passed");
     assert.equal(report.engineReplayStatus, "passed");
+    assert.equal(report.guestDiskParityStatus, "passed");
     assert.equal(report.propertyStatus, "passed");
     assert.equal(report.substrateQualificationStatus, "not-run");
     assert.equal(report.evidence, "whole-machine-record-replay");
@@ -285,6 +368,108 @@ test("qualification keeps distinct overlays and records narrow evidence with exa
         "passed",
     );
     assert.ok((await stat(path.join(report.directory, "replay.bin"))).size > 0);
+});
+
+test("identical serial output cannot qualify divergent final guest disk state", async () => {
+    const f = await fixture();
+    await assert.rejects(
+        qualify(f.manifestPath, {
+            ...f,
+            execute: (file, args, options) =>
+                args[0] === "compare"
+                    ? { ...okay(), code: 1 }
+                    : f.execute(file, args, options),
+        }),
+        (error) => {
+            assert.equal(error.report.guestDiskParityStatus, "failed");
+            assert.equal(error.report.engineReplayStatus, "failed");
+            return /failed/.test(error.message);
+        },
+    );
+});
+
+test("zero-only trailing sectors cannot hide a changed guest-visible disk size", async () => {
+    const f = await fixture();
+    await assert.rejects(
+        qualify(f.manifestPath, {
+            ...f,
+            execute: async (file, args, options) => {
+                const result = await f.execute(file, args, options);
+                if (
+                    args[0] === "info" &&
+                    args.at(-1).endsWith("replay.qcow2")
+                ) {
+                    const info = JSON.parse(result.stdout);
+                    info["virtual-size"] += 512;
+                    return okay(JSON.stringify(info));
+                }
+                return result;
+            },
+        }),
+        /guest-visible disk sizes differ/,
+    );
+    assert.ok(!f.calls.some(({ args }) => args[0] === "compare"));
+});
+
+test("interruption survives cleanup causes into the retained run report while timeouts remain ordinary failures", async () => {
+    const f = await fixture();
+    const interrupted = Object.assign(new Error("synthetic interrupt"), {
+        code: EXECUTION_INTERRUPTED_CODE,
+        signal: "SIGTERM",
+    });
+    const wrapped = new AggregateError([
+        new Error("cleanup error"),
+        new Error("container stopped", { cause: interrupted }),
+    ]);
+    assert.ok(isExecutionInterrupted(wrapped));
+    await assert.rejects(
+        qualify(f.manifestPath, {
+            ...f,
+            execute: (file, args, options) => {
+                if (args.includes("-icount")) throw wrapped;
+                return f.execute(file, args, options);
+            },
+        }),
+        (error) => {
+            assert.equal(error.code, EXECUTION_INTERRUPTED_CODE);
+            assert.equal(error.report.errorCode, EXECUTION_INTERRUPTED_CODE);
+            return isExecutionInterrupted(error);
+        },
+    );
+    assert.equal(isExecutionInterrupted(new Error("timeout")), false);
+});
+
+test("real SIGINT and SIGTERM cancellation produce the shared interruption code", async () => {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+        const source = `import {executeCommand} from ${JSON.stringify(new URL("./qemu-replay.mjs", import.meta.url).href)}; const run=executeCommand(process.execPath,["-e","setTimeout(()=>process.exit(0),3000)"],{timeoutMs:5000}); console.log("ready"); try {await run; process.exitCode=2;} catch(error) {console.log(JSON.stringify({code:error.code,signal:error.signal}));}`;
+        const child = spawn(
+            process.execPath,
+            ["--input-type=module", "--eval", source],
+            { stdio: ["ignore", "pipe", "pipe"] },
+        );
+        let stdout = "";
+        let stderr = "";
+        const timer = setTimeout(() => child.kill("SIGKILL"), 6000);
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => {
+            stdout += chunk;
+            if (stdout === "ready\n") child.kill(signal);
+        });
+        child.stderr.on("data", (chunk) => {
+            stderr += chunk;
+        });
+        const code = await new Promise((resolve, reject) => {
+            child.once("error", reject);
+            child.once("exit", resolve);
+        });
+        clearTimeout(timer);
+        assert.equal(code, 0, stderr);
+        assert.deepEqual(JSON.parse(stdout.trim().split("\n").at(-1)), {
+            code: EXECUTION_INTERRUPTED_CODE,
+            signal,
+        });
+    }
 });
 
 test("exit zero cannot pass without complete, unique and correctly identified guest protocol", async () => {

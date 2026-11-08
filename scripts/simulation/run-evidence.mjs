@@ -8,6 +8,7 @@ import {
     QUALIFICATION_PROTOCOL_PREFIX,
     QUALIFICATION_EVENT,
     SIMULATION_EVIDENCE_PREFIX,
+    SIMULATION_EVIDENCE_EVENT,
 } from "./qualification-protocol.mjs";
 
 const MAX_SERIAL_BYTES = 64 * 1024 * 1024;
@@ -87,6 +88,8 @@ export async function readRunEvidence(runDirectory) {
     }
     const before = serialPath ? await hashFile(serialPath) : undefined;
     const events = {};
+    const processReady = [];
+    const generations = new Map();
     let completion;
     for await (const line of serialPath ? serialLines(serialPath) : []) {
         if (line.startsWith(SIMULATION_EVIDENCE_PREFIX)) {
@@ -95,8 +98,35 @@ export async function readRunEvidence(runDirectory) {
             );
             const keys = Object.keys(event);
             if (
+                keys.length === 1 &&
+                keys[0] === SIMULATION_EVIDENCE_EVENT.ProcessReady
+            ) {
+                const frame = event[SIMULATION_EVIDENCE_EVENT.ProcessReady];
+                if (
+                    !frame ||
+                    Object.keys(frame).sort().join(",") !==
+                        "generation,id,pid" ||
+                    !/^[a-z][a-z0-9-]{0,79}$/.test(frame.id ?? "") ||
+                    !Number.isSafeInteger(frame.pid) ||
+                    frame.pid < 2 ||
+                    frame.generation !==
+                        (generations.get(frame.id) ?? -1) + 1 ||
+                    processReady.length >= 128
+                )
+                    throw new Error(
+                        "Guest readiness evidence has invalid identity or generation",
+                    );
+                generations.set(frame.id, frame.generation);
+                processReady.push(frame);
+                continue;
+            }
+            if (
                 keys.length !== 1 ||
-                !["probe", "result", "failure"].includes(keys[0]) ||
+                ![
+                    SIMULATION_EVIDENCE_EVENT.Probe,
+                    SIMULATION_EVIDENCE_EVENT.Result,
+                    SIMULATION_EVIDENCE_EVENT.Failure,
+                ].includes(keys[0]) ||
                 events[keys[0]]
             )
                 throw new Error(
@@ -212,6 +242,7 @@ export async function readRunEvidence(runDirectory) {
     return {
         report,
         ...events,
+        processReady,
         evidence,
         checks,
         coverage,

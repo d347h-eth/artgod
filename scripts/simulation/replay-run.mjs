@@ -7,15 +7,23 @@ import {
     assertWorktreeTemporaryPath,
     createArtifactRunDirectory,
     hashFile,
+    pinFile,
 } from "./artifacts.mjs";
+import {
+    assertExpectedOverlay,
+    compareGuestDisks,
+} from "./image-artifacts.mjs";
 import { assertBoundedFile, readArtifactJson } from "./run-evidence.mjs";
 import {
     assertGuestProtocol,
     executeCommand,
     executeSuccessfulCommand,
     preflight,
+    validateManifest,
     qemuArguments,
     QEMU_ENVIRONMENT,
+    EXECUTION_INTERRUPTED_CODE,
+    isExecutionInterrupted,
 } from "./qemu-replay.mjs";
 import { QUALIFICATION_CHECKS } from "./qualification-protocol.mjs";
 
@@ -50,6 +58,7 @@ export function assertRecordedProfile(command, manifest, originalDirectory) {
 /** Replay an existing completed execution; this function never enters record mode. */
 export async function replayRun({
     runDirectory,
+    relocationFile,
     outputRoot = path.join(ROOT, "tmp", "simulation-replays"),
     execute = executeCommand,
 }) {
@@ -78,6 +87,23 @@ export async function replayRun({
         throw new Error(
             "Exact replay requires a completed original record/replay pair with explicit property and digest evidence",
         );
+    if (original.recordOverlay) {
+        if (
+            original.guestDiskParityStatus !== "passed" ||
+            original.recordOverlay.path !== "record.qcow2" ||
+            Object.keys(original.recordOverlay).sort().join(",") !==
+                "path,sha256,sizeBytes"
+        )
+            throw new Error("Original final-disk evidence is incoherent");
+        files["record.qcow2"] = path.join(source, "record.qcow2");
+        await assertBoundedFile(files["record.qcow2"], Number.MAX_SAFE_INTEGER);
+        const actual = await pinFile(files["record.qcow2"]);
+        if (
+            actual.sha256 !== original.recordOverlay.sha256 ||
+            actual.sizeBytes !== original.recordOverlay.sizeBytes
+        )
+            throw new Error("Original record overlay changed after execution");
+    }
     await assertBoundedFile(files["replay.bin"], Number.MAX_SAFE_INTEGER);
     for (const name of ["record-serial.log", "replay-serial.log"])
         await assertBoundedFile(files[name], 64 * 1024 * 1024);
@@ -97,9 +123,27 @@ export async function replayRun({
         original.inputManifestSha256 !== inputManifestSha256
     )
         throw new Error("Original normalized input manifest changed");
-    const admitted = await preflight(files["input-manifest.json"], { execute });
+    const originalManifest = validateManifest(
+        await readArtifactJson(files["input-manifest.json"]),
+        files["input-manifest.json"],
+    );
     const command = await readArtifactJson(files["replay-command.json"]);
-    assertRecordedProfile(command, admitted.manifest, original.directory);
+    assertRecordedProfile(command, originalManifest, original.directory);
+    const relocation = relocationFile
+        ? await (
+              await import("./portable-run.mjs")
+          ).materializeReplayRelocation({
+              relocationFile,
+              originalManifest,
+              originalReportSha256: await hashFile(files["report.json"]),
+              originalManifestSha256: inputManifestSha256,
+          })
+        : undefined;
+    const admitted = await preflight(
+        relocation?.manifestPath ?? files["input-manifest.json"],
+        { execute },
+    );
+    const engineExecute = admitted.execute;
     const fingerprints = Object.fromEntries(
         await Promise.all(
             Object.entries(files).map(async ([name, filename]) => [
@@ -112,7 +156,11 @@ export async function replayRun({
         for (const [name, filename] of Object.entries(files))
             if ((await hashFile(filename)) !== fingerprints[name])
                 throw new Error(`Original artifact changed: ${name}`);
-        await preflight(files["input-manifest.json"], { execute });
+        await relocation?.assertUnchanged();
+        await preflight(
+            relocation?.manifestPath ?? files["input-manifest.json"],
+            { execute },
+        );
     };
     const directory = await createArtifactRunDirectory(outputRoot, "replay-");
     const report = {
@@ -125,9 +173,16 @@ export async function replayRun({
         mode: "replay-only",
         status: "failed",
         engineReplayStatus: "unqualified",
+        guestDiskParityStatus: "unqualified",
         propertyStatus: "unqualified",
         substrateQualificationStatus: "not-run",
         sourceReportSha256: fingerprints["report.json"],
+        ...(relocation
+            ? {
+                  relocation: relocation.provenance,
+                  recordedOriginalRunDirectory: original.directory,
+              }
+            : {}),
         replayLogSha256: original.replayLogSha256,
         manifestSha256: admitted.manifestSha256,
         limitations: [
@@ -157,8 +212,55 @@ export async function replayRun({
         if ((await hashFile(replayLog)) !== original.replayLogSha256)
             throw new Error("Copied original event log changed before replay");
         const overlay = path.join(directory, "replay.qcow2");
+        let reference;
+        if (original.recordOverlay) {
+            const info = await executeSuccessfulCommand(
+                engineExecute,
+                admitted.manifest.qemuImg.path,
+                ["info", "--output=json", files["record.qcow2"]],
+            );
+            assertExpectedOverlay(
+                JSON.parse(info.stdout),
+                originalManifest.guest.path,
+                original.directory,
+            );
+            reference = path.join(directory, "reference-record.qcow2");
+            await copyFile(files["record.qcow2"], reference);
+            if ((await hashFile(reference)) !== original.recordOverlay.sha256)
+                throw new Error("Copied final-disk reference changed");
+            if (relocation) {
+                // Unsafe rebase is confined to this new copy. Its backing bytes
+                // are identical to the original guest, admitted by role hash.
+                await executeSuccessfulCommand(
+                    engineExecute,
+                    admitted.manifest.qemuImg.path,
+                    [
+                        "rebase",
+                        "-u",
+                        "-f",
+                        "qcow2",
+                        "-F",
+                        "qcow2",
+                        "-b",
+                        admitted.manifest.guest.path,
+                        reference,
+                    ],
+                    { cwd: directory },
+                );
+                const relocatedInfo = await executeSuccessfulCommand(
+                    engineExecute,
+                    admitted.manifest.qemuImg.path,
+                    ["info", "--output=json", reference],
+                );
+                assertExpectedOverlay(
+                    JSON.parse(relocatedInfo.stdout),
+                    admitted.manifest.guest.path,
+                    directory,
+                );
+            }
+        }
         await executeSuccessfulCommand(
-            execute,
+            engineExecute,
             admitted.manifest.qemuImg.path,
             [
                 "create",
@@ -192,7 +294,7 @@ export async function replayRun({
         );
         const serial = path.join(directory, "replay-serial.log");
         await executeSuccessfulCommand(
-            execute,
+            engineExecute,
             admitted.manifest.qemu.path,
             args,
             {
@@ -219,6 +321,24 @@ export async function replayRun({
             throw new Error(
                 "Repeated replay modified the original event log copy",
             );
+        if (reference) {
+            report.guestDiskParityStatus = "failed";
+            await compareGuestDisks({
+                run: (args, options) =>
+                    executeSuccessfulCommand(
+                        engineExecute,
+                        admitted.manifest.qemuImg.path,
+                        args,
+                        options,
+                    ),
+                first: reference,
+                second: overlay,
+                guestPath: admitted.manifest.guest.path,
+                cwd: directory,
+            });
+            report.guestDiskParityStatus = "passed";
+            report.sourceRecordOverlaySha256 = original.recordOverlay.sha256;
+        }
         await unchanged();
         report.engineReplayStatus = "passed";
         report.status = report.propertyStatus;
@@ -232,6 +352,8 @@ export async function replayRun({
         return report;
     } catch (error) {
         report.engineReplayStatus = "failed";
+        if (isExecutionInterrupted(error))
+            report.errorCode = EXECUTION_INTERRUPTED_CODE;
         report.error = error.message;
         const failure = new Error(
             `${error.message}; replay artifacts: ${directory}`,
@@ -239,6 +361,7 @@ export async function replayRun({
         );
         failure.report = report;
         failure.directory = directory;
+        if (report.errorCode) failure.code = report.errorCode;
         throw failure;
     } finally {
         await writeFile(
