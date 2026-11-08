@@ -3,7 +3,10 @@ import {
     isStaleResultCutRuntimeFailure,
     isStaleResultCutUnreached,
 } from "./stale-result-cut.mjs";
-import { findRuntimeProcessExit } from "./runtime-process.mjs";
+import {
+    findRuntimeProcessExit,
+    RUNTIME_PROCESS_PROPERTY,
+} from "./runtime-process.mjs";
 
 /** Attribute a cut's actor death to runtime execution, preserving oracle reach. */
 export function recordDataPlaneFailureChecks(
@@ -12,10 +15,11 @@ export function recordDataPlaneFailureChecks(
     activeCheck,
     expectedChecks,
 ) {
-    if (
-        findRuntimeProcessExit(error) ||
-        isStaleResultCutRuntimeFailure(error)
-    ) {
+    const exit = findRuntimeProcessExit(error);
+    if (exit || isStaleResultCutRuntimeFailure(error)) {
+        // An oracle wrapper may have overwritten the outer error or typed
+        // cause label. Normalize from the lifecycle owner's constant.
+        if (exit) error.property = RUNTIME_PROCESS_PROPERTY.Liveness;
         checks[DATA_PLANE_CHECK.RuntimeEntrypoints] = false;
         // False marks an active, unfinished stage. Preserve prior passed work;
         // actor death does not establish a failure of the stage's safety oracle.

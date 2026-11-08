@@ -3,6 +3,9 @@ import test from "node:test";
 import { DATA_PLANE_CHECK as CHECK } from "../qualification-protocol.mjs";
 import { formatFailureEvidence } from "./failure-evidence.mjs";
 import { recordDataPlaneFailureChecks } from "./data-plane-failure.mjs";
+import { assertSimulationProperty } from "./oracle-assertions.mjs";
+import { SIMULATION_PROPERTY } from "./oracle.mjs";
+import { RUNTIME_PROCESS } from "./runtime-manifest.mjs";
 import {
     RuntimeProcessExit,
     RUNTIME_PROCESS_PROPERTY,
@@ -177,5 +180,146 @@ test("the stale cut's explicit liveness wrapper retains log or startup failures 
     assert.deepEqual(formatFailureEvidence(error, selected).coverage, [
         { check: CHECK.RuntimeEntrypoints, status: "failed" },
         { check: CHECK.StaleResultSafetyCut, status: "unreached" },
+    ]);
+});
+
+test("a real oracle wrapper cannot serialize a direct typed actor exit as canonical safety", () => {
+    const selected = [CHECK.RuntimeEntrypoints, CHECK.ReorgRecovery];
+    const checks = {
+        [CHECK.RuntimeEntrypoints]: true,
+        [CHECK.ReorgRecovery]: false,
+    };
+    const exit = new RuntimeProcessExit({
+        actorId: RUNTIME_PROCESS.Domain,
+        pid: 154,
+        signal: "SIGSEGV",
+    });
+    const originalStack = exit.stack;
+    let error;
+    assert.throws(
+        () =>
+            assertSimulationProperty(
+                SIMULATION_PROPERTY.CanonicalOwnership,
+                () => {
+                    throw exit;
+                },
+            ),
+        (caught) => {
+            error = caught;
+            return true;
+        },
+    );
+    const failedCheck = recordDataPlaneFailureChecks(
+        error,
+        checks,
+        CHECK.ReorgRecovery,
+        selected,
+    );
+    // The production driver serializes the outer error's normalized property.
+    error.simulation = { checks, failedCheck, failedProperty: error.property };
+    const frame = formatFailureEvidence(error, selected);
+    assert.equal(error, exit);
+    assert.equal(error.stack, originalStack);
+    assert.equal(exit.actorId, RUNTIME_PROCESS.Domain);
+    assert.equal(exit.pid, 154);
+    assert.equal(exit.signal, "SIGSEGV");
+    assert.equal(frame.failedCheck, CHECK.RuntimeEntrypoints);
+    assert.equal(frame.failedProperty, RUNTIME_PROCESS_PROPERTY.Liveness);
+    assert.deepEqual(frame.coverage, [
+        { check: CHECK.RuntimeEntrypoints, status: "failed" },
+        { check: CHECK.ReorgRecovery, status: "unreached" },
+    ]);
+});
+
+test("normalizing a real wrapped actor exit preserves its original outer error and typed cause", () => {
+    const selected = [CHECK.RuntimeEntrypoints, CHECK.ReorgRecovery];
+    const checks = {
+        [CHECK.RuntimeEntrypoints]: true,
+        [CHECK.ReorgRecovery]: false,
+    };
+    const exit = new RuntimeProcessExit({
+        actorId: RUNTIME_PROCESS.Domain,
+        pid: 156,
+        signal: "SIGSEGV",
+    });
+    const wrapper = new Error("Observed actor exit", { cause: exit });
+    let error;
+    assert.throws(
+        () =>
+            assertSimulationProperty(
+                SIMULATION_PROPERTY.CanonicalHeaders,
+                () => {
+                    throw wrapper;
+                },
+            ),
+        (caught) => {
+            error = caught;
+            return true;
+        },
+    );
+    const failedCheck = recordDataPlaneFailureChecks(
+        error,
+        checks,
+        CHECK.ReorgRecovery,
+        selected,
+    );
+    error.simulation = { checks, failedCheck, failedProperty: error.property };
+    const frame = formatFailureEvidence(error, selected);
+    assert.equal(error, wrapper);
+    assert.equal(error.cause, exit);
+    assert.equal(exit.actorId, RUNTIME_PROCESS.Domain);
+    assert.equal(exit.pid, 156);
+    assert.equal(exit.signal, "SIGSEGV");
+    assert.equal(frame.error, wrapper.message);
+    assert.equal(frame.failedCheck, CHECK.RuntimeEntrypoints);
+    assert.equal(frame.failedProperty, RUNTIME_PROCESS_PROPERTY.Liveness);
+    assert.deepEqual(frame.coverage, [
+        { check: CHECK.RuntimeEntrypoints, status: "failed" },
+        { check: CHECK.ReorgRecovery, status: "unreached" },
+    ]);
+});
+
+test("a real canonical assertion keeps its safety identity alongside a diagnostic SIGSEGV observation", () => {
+    const selected = [CHECK.RuntimeEntrypoints, CHECK.ReorgRecovery];
+    const checks = {
+        [CHECK.RuntimeEntrypoints]: true,
+        [CHECK.ReorgRecovery]: false,
+    };
+    let error;
+    assert.throws(
+        () =>
+            assertSimulationProperty(
+                SIMULATION_PROPERTY.CanonicalOwnership,
+                () => {
+                    assert.deepEqual({ owner: "buyer" }, { owner: "seller" });
+                },
+            ),
+        (caught) => {
+            error = caught;
+            return true;
+        },
+    );
+    assert.ok(error instanceof assert.AssertionError);
+    error.simulation = {
+        processStates: [{ id: RUNTIME_PROCESS.Domain, signalCode: "SIGSEGV" }],
+    };
+    const failedCheck = recordDataPlaneFailureChecks(
+        error,
+        checks,
+        CHECK.ReorgRecovery,
+        selected,
+    );
+    error.simulation = {
+        ...error.simulation,
+        checks,
+        failedCheck,
+        failedProperty: error.property,
+    };
+    const frame = formatFailureEvidence(error, selected);
+    assert.equal(frame.failedCheck, CHECK.ReorgRecovery);
+    assert.equal(frame.failedProperty, SIMULATION_PROPERTY.CanonicalOwnership);
+    assert.deepEqual(frame.coverage, [
+        { check: CHECK.RuntimeEntrypoints, status: "passed" },
+        { check: CHECK.ReorgRecovery, status: "failed" },
     ]);
 });
