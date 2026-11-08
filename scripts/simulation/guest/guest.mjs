@@ -15,6 +15,7 @@ import {
 } from "nats";
 import { resolveRuntimeLayout } from "./runtime-manifest.mjs";
 import { inspectStorage } from "./storage-probe.mjs";
+import { formatFailureEvidence } from "./failure-evidence.mjs";
 import { validateScenario, SCENARIO_KIND } from "./scenario-contract.mjs";
 import {
     QUALIFICATION_PROTOCOL_PREFIX,
@@ -475,25 +476,11 @@ if (process.argv[2] === CHILD_MODE) {
 } else {
     main().catch(async (error) => {
         for (const child of activeChildren) await stopProcess(child, "SIGKILL");
-        const checks = Object.fromEntries(
-            (activeScenario?.expectedChecks ?? []).map((check) => [
-                check,
-                error.simulation?.checks?.[check] === true,
-            ]),
+        const evidence = formatFailureEvidence(
+            error,
+            activeScenario?.expectedChecks ?? [],
         );
-        const evidence = {
-            error: error.message,
-            stack: error.stack,
-            ...(error.simulation ?? {}),
-            coverage: (activeScenario?.expectedChecks ?? []).map((check) => ({
-                check,
-                status: checks[check]
-                    ? "passed"
-                    : Object.hasOwn(error.simulation?.checks ?? {}, check)
-                      ? "failed"
-                      : "unreached",
-            })),
-        };
+        const { checks } = evidence;
         process.stdout.write(
             `${SIMULATION_EVIDENCE_PREFIX}${JSON.stringify({ [SIMULATION_EVIDENCE_EVENT.Failure]: evidence })}\n`,
         );

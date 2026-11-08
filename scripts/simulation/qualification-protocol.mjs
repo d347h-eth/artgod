@@ -16,6 +16,12 @@ export const QUALIFICATION_STATUS = Object.freeze({
     Passed: "passed",
     Failed: "failed",
 });
+/** Reached-state vocabulary shared by emitted guest evidence and host ledgers. */
+export const CHECK_COVERAGE_STATUS = Object.freeze({
+    Passed: QUALIFICATION_STATUS.Passed,
+    Failed: QUALIFICATION_STATUS.Failed,
+    Unreached: "unreached",
+});
 export const QUALIFICATION_CHECK = Object.freeze({
     SqliteWal: "sqlite-wal",
     SqliteCompetingWriters: "sqlite-competing-writers",

@@ -9,6 +9,7 @@ import {
     QUALIFICATION_EVENT,
     SIMULATION_EVIDENCE_PREFIX,
     SIMULATION_EVIDENCE_EVENT,
+    CHECK_COVERAGE_STATUS,
 } from "./qualification-protocol.mjs";
 
 const MAX_SERIAL_BYTES = 64 * 1024 * 1024;
@@ -212,10 +213,11 @@ export async function readRunEvidence(runDirectory) {
                 covered.some(
                     (entry) =>
                         !Object.hasOwn(checks, entry.check) ||
-                        !["passed", "failed", "unreached"].includes(
+                        !Object.values(CHECK_COVERAGE_STATUS).includes(
                             entry.status,
                         ) ||
-                        (entry.status === "passed") !== checks[entry.check],
+                        (entry.status === CHECK_COVERAGE_STATUS.Passed) !==
+                            checks[entry.check],
                 )
             )
                 throw new Error(
@@ -229,7 +231,10 @@ export async function readRunEvidence(runDirectory) {
         ? explicitCoverage
         : Object.entries(checks).map(([check, passed]) => ({
               check,
-              status: passed === true ? "passed" : "unreached",
+              status:
+                  passed === true
+                      ? CHECK_COVERAGE_STATUS.Passed
+                      : CHECK_COVERAGE_STATUS.Unreached,
           }));
     const coverageGaps = Array.isArray(explicitCoverage)
         ? []
