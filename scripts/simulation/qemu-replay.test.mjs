@@ -25,6 +25,7 @@ import {
 } from "./qemu-replay.mjs";
 import { QUALIFICATION_CHECKS } from "./qualification-protocol.mjs";
 import { STORAGE_PROFILE, SCENARIO_DEVICE_ENV } from "./storage-profile.mjs";
+import { CPU_MODEL } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TEST_ROOT = path.join(ROOT, "tmp", "simulation-qemu-tests");
@@ -280,6 +281,39 @@ test("VM arguments enclose all devices, use fixed CPU/time, replay every disk an
     );
 });
 
+test("explicit CPU pins change only the model while legacy manifests retain exact Nehalem arguments", async () => {
+    const f = await fixture();
+    const legacy = validateManifest(f.manifest, f.manifestPath);
+    assert.equal(Object.hasOwn(legacy, "cpu"), false);
+    for (const mode of ["record", "replay"]) {
+        const original = qemuArguments(legacy, "overlay", "log", mode);
+        const index = original.indexOf("-cpu") + 1;
+        assert.equal(original[index], CPU_MODEL.Nehalem);
+        for (const cpu of Object.values(CPU_MODEL)) {
+            const manifest = validateManifest(
+                { ...legacy, cpu },
+                f.manifestPath,
+            );
+            const args = qemuArguments(manifest, "overlay", "log", mode);
+            const expected = [...original];
+            expected[index] = cpu;
+            assert.deepEqual(args, expected);
+            assert.equal(args[args.indexOf("-accel") + 1], "tcg,thread=single");
+        }
+    }
+    for (const cpu of ["host", "max,+bmi2", "", null, undefined, {}]) {
+        assert.throws(
+            () => validateManifest({ ...legacy, cpu }, f.manifestPath),
+            /cpu model/,
+        );
+        assert.throws(
+            () => qemuArguments({ ...legacy, cpu }, "overlay", "log", "record"),
+            /cpu model/,
+        );
+    }
+    assert.equal(Object.hasOwn(f.manifest, "cpu"), false);
+});
+
 test("explicit PIO and virtio storage profiles pin devices while absent profiles retain the recorded legacy layout", async () => {
     const f = await fixture();
     const legacy = qemuArguments(f.manifest, "overlay", "log", "record");
@@ -517,7 +551,7 @@ test("a completed product failure is replayed and preserved independently of eng
     assert.ok((await stat(path.join(report.directory, "replay.bin"))).size > 0);
 });
 
-test("the substrate qualification claim requires all six owned checks to pass", async () => {
+test("the substrate qualification claim requires every current owned check to pass", async () => {
     for (const pass of [true, false]) {
         const f = await fixture();
         f.manifest.expectedChecks = [...QUALIFICATION_CHECKS];

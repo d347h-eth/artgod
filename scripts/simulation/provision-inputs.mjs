@@ -148,6 +148,7 @@ export async function provisionInputs({
         qemuImg: relative(tools.qemuImg),
         machine: pins.machine,
         storageProfile: pins.storageProfile,
+        cpu: pins.cpu,
         epoch: pins.epoch,
         scenarioFile: relative(tools.scenarioFile),
     });

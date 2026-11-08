@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertImageReference } from "./docker.mjs";
 import { storageProfile } from "./storage-profile.mjs";
+import { cpuModel } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -24,6 +25,7 @@ export function validateBuildConfiguration(value) {
         "epoch",
         "scenarioFile",
         "storageProfile",
+        "cpu",
     ];
     if (
         Object.keys(value).some(
@@ -37,6 +39,7 @@ export function validateBuildConfiguration(value) {
     for (const key of ["runtimeImage", "builderImage", "busyboxImage"])
         assertImageReference(value[key]);
     storageProfile(value.storageProfile);
+    cpuModel(value.cpu);
     for (const key of [
         "kernel",
         "firmware",
@@ -95,6 +98,7 @@ export function validateInputPins(value) {
             "machine",
             "epoch",
             "storageProfile",
+            "cpu",
         ],
         "Simulation input pins",
     );
@@ -137,6 +141,7 @@ export function validateInputPins(value) {
         machine: value.machine,
         epoch: value.epoch,
         storageProfile: value.storageProfile,
+        cpu: value.cpu,
     });
     return structuredClone(value);
 }

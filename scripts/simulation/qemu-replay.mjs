@@ -22,6 +22,7 @@ import {
 
 import { compareGuestDisks } from "./image-artifacts.mjs";
 import { storageProfile, SCENARIO_DEVICE_ENV } from "./storage-profile.mjs";
+import { cpuModel, CPU_MODEL } from "./cpu-model.mjs";
 
 export const QUALIFICATION_PROTOCOL = QUALIFICATION_PROTOCOL_PREFIX;
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -91,11 +92,15 @@ export function validateManifest(value, manifestPath) {
             ...(value && typeof value === "object" && "storageProfile" in value
                 ? ["storageProfile"]
                 : []),
+            ...(value && typeof value === "object" && "cpu" in value
+                ? ["cpu"]
+                : []),
         ],
         "Manifest",
     );
     if (value.version !== 1) throw new Error("Unsupported manifest version");
     if ("storageProfile" in value) storageProfile(value.storageProfile);
+    if ("cpu" in value) cpuModel(value.cpu);
     if (!/^[a-f0-9]{40}$/.test(value.sourceSha ?? ""))
         throw new Error("sourceSha must be an explicit full source commit SHA");
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value.qualificationId ?? ""))
@@ -333,7 +338,8 @@ export function qemuArguments(manifest, overlay, replayLog, mode) {
         "-accel",
         "tcg,thread=single",
         "-cpu",
-        "Nehalem",
+        // Legacy recordings omit cpu and must retain their exact old arguments.
+        "cpu" in manifest ? cpuModel(manifest.cpu) : CPU_MODEL.Nehalem,
         "-smp",
         "1",
         "-m",

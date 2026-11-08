@@ -4,11 +4,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readInputPins, validateBuildConfiguration } from "./input-pins.mjs";
+import { CPU_MODEL } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 test("shared input reads validate the current profile and do not share mutable state", async () => {
     const pins = await readInputPins();
+    assert.equal(pins.cpu, CPU_MODEL.Max);
     pins.kernel.path = "/changed";
     assert.notEqual((await readInputPins()).kernel.path, "/changed");
     const parent = path.join(ROOT, "tmp/simulation-input-pin-tests");
@@ -38,10 +40,18 @@ test("guest build inputs use the same machine, epoch and immutable image contrac
         qemuImg: "qemu-img",
         machine: pins.machine,
         storageProfile: pins.storageProfile,
+        cpu: pins.cpu,
         epoch: pins.epoch,
         scenarioFile: "scenario.json",
     };
     assert.deepEqual(validateBuildConfiguration(input), input);
+    const { cpu, ...withoutCpu } = input;
+    assert.throws(() => validateBuildConfiguration(withoutCpu), /exactly/);
+    for (const cpu of ["host", "max,+bmi2", null, undefined])
+        assert.throws(
+            () => validateBuildConfiguration({ ...input, cpu }),
+            /cpu model/,
+        );
     assert.throws(
         () =>
             validateBuildConfiguration({

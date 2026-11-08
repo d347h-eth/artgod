@@ -127,6 +127,12 @@ test("portable pin owner rejects mutable images, ambiguous extraction and unknow
         /versioned/,
     );
     assert.throws(
+        () => validateInputPins({ ...pins, cpu: "host" }),
+        /cpu model/,
+    );
+    const { cpu, ...missingCpu } = pins;
+    assert.throws(() => validateInputPins(missingCpu), /exactly/);
+    assert.throws(
         () => validateInputPins({ ...pins, architecture: "arm64" }),
         /amd64/,
     );
@@ -169,6 +175,7 @@ test("provisioning uses only pinned images and fresh stopped containers, then em
         f.commands.filter((command) => command[0] === "pull").length,
         5,
     );
+    assert.equal(result.buildConfig.cpu, pins.cpu);
     assert.equal(
         f.commands.filter((command) => command[0] === "create").length,
         2,

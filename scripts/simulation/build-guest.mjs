@@ -353,6 +353,7 @@ export async function buildGuest(configurationPath) {
         expectedChecks: scenario.expectedChecks,
         machine: config.machine,
         storageProfile: config.storageProfile,
+        cpu: config.cpu,
         epoch: config.epoch,
         // TCG executes the complete multi-process runtime much more slowly than
         // native execution. This host watchdog does not alter guest deadlines.

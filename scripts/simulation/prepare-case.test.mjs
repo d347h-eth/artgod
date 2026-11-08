@@ -17,6 +17,7 @@ import {
     assertWorktreeTemporaryPath,
 } from "./artifacts.mjs";
 import { executeCommand } from "./qemu-replay.mjs";
+import { CPU_MODEL } from "./cpu-model.mjs";
 import {
     prepareCase,
     prepareScenarioDisk,
@@ -68,6 +69,7 @@ async function fixture() {
         qualificationId: "old-qualification",
         expectedChecks: ["old-check"],
         machine: "pc-i440fx-9.2",
+        cpu: CPU_MODEL.Max,
         epoch: "2026-11-08T00:00:00Z",
         timeoutSeconds: 30,
         ...pins,
@@ -140,6 +142,7 @@ test("case manifests reuse admitted runtime pins and replace only the explicit c
     for (const name of ["qemu", "qemuImg", "firmware", "kernel", "guest"])
         assert.deepEqual(prepared.manifest[name], f.base[name]);
     assert.equal(prepared.manifest.sourceSha, f.base.sourceSha);
+    assert.equal(prepared.manifest.cpu, f.base.cpu);
     assert.equal(prepared.manifest.qualificationId, f.scenario.qualificationId);
     assert.deepEqual(
         prepared.manifest.expectedChecks,

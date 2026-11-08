@@ -18,6 +18,7 @@ import {
 } from "./portable-run.mjs";
 import { replayRun } from "./replay-run.mjs";
 import { restoreToolCapsule } from "./tool-capsule.mjs";
+import { CPU_MODEL } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const IMAGE = `sha256:${"a".repeat(64)}`;
@@ -74,6 +75,7 @@ async function completedFixture() {
         qualificationId: "portable-fixture",
         expectedChecks: ["synthetic-check"],
         machine: "pc-i440fx-8.2",
+        cpu: CPU_MODEL.Max,
         epoch: "2026-11-08T00:00:00Z",
         timeoutSeconds: 1,
         ...pins,
@@ -231,6 +233,20 @@ test("portable export preserves original evidence and replays only relocated pin
     assert.equal(report.replayLogSha256, f.report.replayLogSha256);
     assert.equal(report.serialSha256, f.report.serialSha256);
     assert.equal(report.relocation.imageId, IMAGE);
+    const relocated = JSON.parse(
+        await readFile(
+            path.join(report.directory, "input-manifest.json"),
+            "utf8",
+        ),
+    );
+    const command = JSON.parse(
+        await readFile(
+            path.join(report.directory, "replay-command.json"),
+            "utf8",
+        ),
+    );
+    assert.equal(relocated.cpu, CPU_MODEL.Max);
+    assert.equal(command.args[command.args.indexOf("-cpu") + 1], CPU_MODEL.Max);
     assert.equal(
         report.sourceReportSha256,
         await hashFile(path.join(f.report.directory, "report.json")),

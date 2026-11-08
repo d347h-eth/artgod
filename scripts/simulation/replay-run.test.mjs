@@ -11,6 +11,7 @@ import {
 } from "./qualification-protocol.mjs";
 import { replayRun } from "./replay-run.mjs";
 import { readRunEvidence } from "./run-evidence.mjs";
+import { CPU_MODEL } from "./cpu-model.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const okay = (stdout = "") => ({
@@ -21,7 +22,7 @@ const okay = (stdout = "") => ({
     stderr: "",
 });
 
-async function completedFixture(passed = true) {
+async function completedFixture(passed = true, cpu) {
     const parent = path.join(ROOT, "tmp", "simulation-exact-replay-tests");
     await mkdir(parent, { recursive: true });
     const directory = await mkdtemp(path.join(parent, "run-"));
@@ -49,6 +50,7 @@ async function completedFixture(passed = true) {
         qualificationId: "exact-replay-case",
         expectedChecks: ["synthetic-check"],
         machine: "pc-i440fx-9.2",
+        ...(cpu === undefined ? {} : { cpu }),
         epoch: "2026-11-08T00:00:00Z",
         timeoutSeconds: 1,
         ...pins,
@@ -173,6 +175,9 @@ test("arbitrary recorded arguments or changed clock profile are refused before a
         (command) => {
             command.env.EXTRA = "unapproved";
         },
+        (command) => {
+            command.args[command.args.indexOf("-cpu") + 1] = CPU_MODEL.Max;
+        },
     ]) {
         const f = await completedFixture();
         const filename = path.join(f.report.directory, "replay-command.json");
@@ -190,6 +195,30 @@ test("arbitrary recorded arguments or changed clock profile are refused before a
         assert.equal(f.modes.length, 2);
         assert.ok(!(await readdir(f.directory)).includes("refused"));
     }
+});
+
+test("exact replay preserves an explicit CPU pin through saved manifests and generated arguments", async () => {
+    const f = await completedFixture(true, CPU_MODEL.Max);
+    const report = await replayRun({
+        runDirectory: f.report.directory,
+        execute: f.execute,
+        outputRoot: path.join(f.directory, "repeated"),
+    });
+    const saved = JSON.parse(
+        await readFile(
+            path.join(report.directory, "input-manifest.json"),
+            "utf8",
+        ),
+    );
+    const command = JSON.parse(
+        await readFile(
+            path.join(report.directory, "replay-command.json"),
+            "utf8",
+        ),
+    );
+    assert.equal(saved.cpu, CPU_MODEL.Max);
+    assert.equal(command.args[command.args.indexOf("-cpu") + 1], CPU_MODEL.Max);
+    assert.deepEqual(f.modes, ["record", "replay", "replay"]);
 });
 
 test("exact replay rejects changed pinned final disks and unexpected backing images", async () => {
