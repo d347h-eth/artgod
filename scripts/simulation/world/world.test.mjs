@@ -9,6 +9,8 @@ import {
     encodeEventTopics,
 } from "viem";
 import { createSimulationWorld } from "./world.mjs";
+import { startWorldServer } from "./server.mjs";
+import { METADATA_TRANSPORT } from "./contract.mjs";
 import {
     CONTRACT_ABI,
     FULFILLED_ABI,
@@ -83,6 +85,145 @@ test("independent providers expose authentic fork history, receipt and ownership
         false,
     ]);
     assert.deepEqual(commonA, commonB);
+});
+
+test("actual viem deployless multicall decodes two order statuses from one coherent provider block", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    world.advanceHead(107);
+    const contracts = Object.values(world.ledger.orders).map((order) => ({
+        address: world.ledger.addresses.seaport,
+        abi: CONTRACT_ABI,
+        functionName: "getOrderStatus",
+        args: [order.orderHash],
+    }));
+    const client = (provider) =>
+        createPublicClient({
+            transport: custom({
+                request: ({ method, params }) =>
+                    rpc(world, provider, method, params),
+            }),
+        });
+    const batch = async (provider, number) =>
+        client(provider).multicall({
+            contracts,
+            blockNumber: BigInt(number),
+            deployless: true,
+            batchSize: 0,
+            allowFailure: true,
+        });
+    assert.deepEqual(await batch("a", 103), [
+        { status: "success", result: [false, false, 0n, 1n] },
+        { status: "success", result: [false, false, 0n, 1n] },
+    ]);
+    assert.deepEqual(await batch("a", 104), [
+        { status: "success", result: [true, false, 1n, 1n] },
+        { status: "success", result: [false, false, 0n, 1n] },
+    ]);
+    assert.deepEqual(await batch("b", 104), [
+        { status: "success", result: [false, false, 0n, 1n] },
+        { status: "success", result: [false, false, 0n, 1n] },
+    ]);
+    const requests = world.trace.filter((entry) => entry.type === "request");
+    assert.equal(requests.length, 3);
+    assert.ok(
+        requests.every(
+            (entry) =>
+                entry.method === "eth_call" &&
+                !entry.params[0].to &&
+                entry.functionName === "aggregate3",
+        ),
+    );
+    const reads = world.trace.filter((entry) => entry.type === "read");
+    assert.ok(
+        reads.every(
+            (entry) =>
+                entry.aggregateCalls.length === 2 &&
+                entry.aggregateCalls.every(
+                    (call) =>
+                        call.success && call.functionName === "getOrderStatus",
+                ),
+        ),
+    );
+    assert.equal(reads[1].blockHash, world.ledger.blockAt("A", 104).hash);
+    assert.equal(reads[2].blockHash, world.ledger.blockAt("B", 104).hash);
+});
+
+test("deployless batches distinguish modeled subcall reverts from unknown fixture inputs", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    let captured;
+    const client = createPublicClient({
+        transport: custom({
+            request: ({ method, params }) => {
+                captured = params;
+                return rpc(world, "default", method, params);
+            },
+        }),
+    });
+    const results = await client.multicall({
+        deployless: true,
+        batchSize: 0,
+        allowFailure: true,
+        blockNumber: 103n,
+        contracts: [
+            {
+                address: world.ledger.addresses.nft,
+                abi: CONTRACT_ABI,
+                functionName: "totalSupply",
+            },
+            {
+                address: world.ledger.addresses.nft,
+                abi: CONTRACT_ABI,
+                functionName: "ownerOf",
+                args: [999n],
+            },
+        ],
+    });
+    assert.equal(results[0].status, "success");
+    assert.equal(results[0].result, 2n);
+    assert.equal(results[1].status, "failure");
+    await assert.rejects(
+        rpc(world, "default", "eth_call", [
+            { ...captured[0], data: `0x61${captured[0].data.slice(4)}` },
+            captured[1],
+        ]),
+        (error) => error.code === -32602 && /deployless/.test(error.message),
+    );
+    await assert.rejects(
+        rpc(world, "default", "eth_call", [
+            { ...captured[0], data: `${captured[0].data}00` },
+            captured[1],
+        ]),
+        (error) => error.code === -32602 && /malformed/.test(error.message),
+    );
+    const unsupported = await client.multicall({
+        deployless: true,
+        batchSize: 0,
+        allowFailure: true,
+        blockNumber: 103n,
+        contracts: [
+            {
+                address: world.ledger.addresses.nft,
+                abi: [
+                    {
+                        type: "function",
+                        name: "unknownFixtureFunction",
+                        stateMutability: "view",
+                        inputs: [],
+                        outputs: [{ type: "uint256" }],
+                    },
+                ],
+                functionName: "unknownFixtureFunction",
+            },
+        ],
+    });
+    assert.equal(unsupported[0].status, "failure");
+    assert.ok(
+        world.trace.some(
+            (entry) =>
+                entry.type === "error" &&
+                /Unknown aggregate contract selector/.test(entry.message),
+        ),
+    );
 });
 
 test("log filtering honors range, addresses and positional OR topics", async () => {
@@ -287,7 +428,7 @@ test("unknown wire work fails closed and contract state is not generic zero data
     );
     await assert.rejects(
         rpc(world, "a", "eth_call", [{ data: "0x00" }, "latest"]),
-        /deployless EVM execution unavailable/,
+        (error) => error.code === -32602,
     );
 });
 
@@ -383,5 +524,104 @@ test("fault coverage requires actual injection rather than a matched request blo
     assert.equal(
         applied.trace.find((event) => event.type === "fault-injected").fault,
         "header-error",
+    );
+});
+
+test("HTTP metadata repair changes only the external document, never historical tokenURI", async () => {
+    const server = await startWorldServer({
+        scenario: {
+            epochSeconds,
+            metadataTransport: METADATA_TRANSPORT.Http,
+        },
+    });
+    try {
+        const world = server.world;
+        const originalBlock = structuredClone(world.ledger.blockAt("A", 102));
+        const uri = await call(
+            world,
+            "default",
+            world.ledger.addresses.nft,
+            "tokenURI",
+            [1n],
+            "0x66",
+        );
+        assert.equal(uri, `${server.url}/metadata/1`);
+        const original = await (await fetch(uri)).text();
+        assert.equal(JSON.parse(original).name, "Simulation token 1");
+        world.setTokenMetadataDocument("1", "{");
+        assert.equal(await (await fetch(uri)).text(), "{");
+        assert.equal(
+            await call(
+                world,
+                "default",
+                world.ledger.addresses.nft,
+                "tokenURI",
+                [1n],
+                "0x66",
+            ),
+            uri,
+        );
+        world.setTokenMetadataDocument("1", original);
+        assert.equal(await (await fetch(uri)).text(), original);
+        assert.equal(
+            await call(
+                world,
+                "default",
+                world.ledger.addresses.nft,
+                "tokenURI",
+                [1n],
+                "0x66",
+            ),
+            uri,
+        );
+        assert.deepEqual(world.ledger.blockAt("A", 102), originalBlock);
+        assert.equal(
+            world.trace.filter(
+                (entry) =>
+                    entry.type === "http-request" &&
+                    entry.path === "/metadata/1",
+            ).length,
+            3,
+        );
+        assert.throws(
+            () => world.publishMetadataAt(server.url),
+            /before the first/,
+        );
+        assert.throws(
+            () => world.setTokenMetadataDocument("3", "{}"),
+            /known token/,
+        );
+    } finally {
+        await server.close();
+    }
+    const unchanged = createSimulationWorld({ epochSeconds });
+    const uri = await call(
+        unchanged,
+        "default",
+        unchanged.ledger.addresses.nft,
+        "tokenURI",
+        [1n],
+        "0x66",
+    );
+    assert.ok(uri.startsWith("data:application/json;base64,"));
+    assert.throws(
+        () => unchanged.setTokenMetadataDocument("1", "{"),
+        /stable external HTTP tokenURI/,
+    );
+    const secure = createSimulationWorld({
+        epochSeconds,
+        metadataTransport: METADATA_TRANSPORT.Http,
+    });
+    secure.publishMetadataAt("https://api.opensea.io:443");
+    assert.equal(
+        await call(
+            secure,
+            "default",
+            secure.ledger.addresses.nft,
+            "tokenURI",
+            [1n],
+            "0x66",
+        ),
+        "https://api.opensea.io/metadata/1",
     );
 });

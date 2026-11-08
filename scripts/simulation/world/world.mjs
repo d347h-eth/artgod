@@ -1,4 +1,5 @@
 import { createBaselineLedger, blockToWire } from "./ledger.mjs";
+import { METADATA_TRANSPORT } from "./contract.mjs";
 import {
     ZERO_ADDRESS,
     decodeCall,
@@ -6,7 +7,11 @@ import {
     jsonSafe,
     wireQuantity,
     marketStreamEvent,
+    marketCancellationEvent,
     signMarketOrder,
+    DEPLOYLESS_MULTICALL3,
+    decodeDeploylessMulticall,
+    encodeDeploylessMulticallResult,
 } from "./wire.mjs";
 
 export class WorldRpcError extends Error {
@@ -27,6 +32,11 @@ const lower = (value) => String(value).toLowerCase();
  * even if earlier header reads observed another hash at the same height.
  */
 export function createSimulationWorld(scenario = {}) {
+    if (
+        scenario.metadataTransport !== undefined &&
+        !Object.values(METADATA_TRANSPORT).includes(scenario.metadataTransport)
+    )
+        throw new Error("Unknown external metadata transport");
     const ledger = createBaselineLedger(scenario);
     const providers = new Map(
         Object.entries(
@@ -48,6 +58,16 @@ export function createSimulationWorld(scenario = {}) {
         listings: [ledger.orders.listing.raw],
         offers: [ledger.orders.bid.raw],
     };
+    const metadataDocuments = new Map(
+        ["1", "2"].map((tokenId) => [
+            tokenId,
+            JSON.stringify({
+                name: `Simulation token ${tokenId}`,
+                attributes: [],
+            }),
+        ]),
+    );
+    let metadataOrigin;
     let requestIndex = 0;
     let sequence = 0;
     let phase = "initial";
@@ -149,13 +169,71 @@ export function createSimulationWorld(scenario = {}) {
         return ledger.blockAt(view.branch, number);
     }
 
-    function callContract(view, tx, selector) {
+    function callContract(view, tx, selector, decodedAggregate) {
         if (!tx || typeof tx !== "object") throw invalid("Missing call object");
-        if (!tx.to)
-            throw new WorldRpcError(
-                -32000,
-                "Fixture capability: deployless EVM execution unavailable; use production fallback",
-            );
+        if (!tx.to) {
+            let calls;
+            try {
+                calls =
+                    decodedAggregate ??
+                    decodeDeploylessMulticall(tx.data ?? tx.input);
+            } catch (error) {
+                throw invalid(
+                    `Unsupported deployless external call: ${error.message}`,
+                );
+            }
+            const block = resolveBlock(view, selector);
+            const results = [];
+            const aggregateCalls = [];
+            for (const item of calls) {
+                let name;
+                try {
+                    name = decodeCall(item.callData).functionName;
+                } catch {
+                    throw invalid("Unknown aggregate contract selector");
+                }
+                try {
+                    const response = callContract(
+                        view,
+                        { to: item.target, data: item.callData },
+                        selector,
+                    );
+                    results.push({
+                        success: true,
+                        returnData: response.result,
+                    });
+                    aggregateCalls.push({
+                        target: item.target,
+                        functionName: name,
+                        success: true,
+                    });
+                } catch (error) {
+                    // Only modeled EVM reverts become per-call failures. Unknown
+                    // contracts/selectors and fixture gaps fail the entire RPC.
+                    if (!(error instanceof WorldRpcError) || error.code !== 3)
+                        throw error;
+                    if (!item.allowFailure)
+                        throw new WorldRpcError(
+                            3,
+                            "execution reverted: Multicall3 call failed",
+                        );
+                    results.push({
+                        success: false,
+                        returnData: error.data ?? "0x",
+                    });
+                    aggregateCalls.push({
+                        target: item.target,
+                        functionName: name,
+                        success: false,
+                    });
+                }
+            }
+            return {
+                result: encodeDeploylessMulticallResult(results),
+                block,
+                aggregateCalls,
+            };
+        }
         const address = lower(tx.to);
         const known = Object.values(ledger.addresses).map(lower);
         if (!known.includes(address)) throw invalid("Unknown contract address");
@@ -281,7 +359,9 @@ export function createSimulationWorld(scenario = {}) {
                 requireContract(a.nft);
                 if (!state.owners.has(String(args[0])))
                     throw invalid("Unknown metadata token");
-                result = `data:application/json;base64,${Buffer.from(JSON.stringify({ name: `Simulation token ${args[0]}`, attributes: [] })).toString("base64")}`;
+                result = metadataOrigin
+                    ? `${metadataOrigin}/metadata/${args[0]}`
+                    : `data:application/json;base64,${Buffer.from(metadataDocuments.get(String(args[0]))).toString("base64")}`;
                 break;
             default:
                 throw invalid(`Unknown contract function ${name}`);
@@ -289,11 +369,12 @@ export function createSimulationWorld(scenario = {}) {
         return { result: encodeResult(name, result), block };
     }
 
-    function execute(provider, request) {
+    function execute(provider, request, decodedAggregate) {
         const view = { ...providerView(provider) };
         const p = request.params ?? [];
         let block;
         let result;
+        let aggregateCalls;
         switch (request.method) {
             case "eth_chainId":
                 result = wireQuantity(ledger.chainId);
@@ -319,9 +400,15 @@ export function createSimulationWorld(scenario = {}) {
                 result = blockToWire(block, p[1] === true, ledger.transactions);
                 break;
             case "eth_call": {
-                const response = callContract(view, p[0], p[1]);
+                const response = callContract(
+                    view,
+                    p[0],
+                    p[1],
+                    decodedAggregate,
+                );
                 block = response.block;
                 result = response.result;
+                aggregateCalls = response.aggregateCalls;
                 break;
             }
             case "eth_getBalance":
@@ -415,7 +502,7 @@ export function createSimulationWorld(scenario = {}) {
                     `Unsupported external RPC method ${request.method}`,
                 );
         }
-        return { result, view, block };
+        return { result, view, block, aggregateCalls };
     }
 
     async function handleRpc(provider, request) {
@@ -429,11 +516,15 @@ export function createSimulationWorld(scenario = {}) {
             throw invalid("Malformed JSON-RPC request");
         const index = ++requestIndex;
         let call;
+        let decodedAggregate;
         if (request.method === "eth_call") {
             try {
-                call = decodeCall(
-                    request.params?.[0]?.data ?? request.params?.[0]?.input,
-                );
+                const transaction = request.params?.[0];
+                const data = transaction?.data ?? transaction?.input;
+                if (transaction && !transaction.to) {
+                    decodedAggregate = decodeDeploylessMulticall(data);
+                    call = { functionName: DEPLOYLESS_MULTICALL3.functionName };
+                } else call = decodeCall(data);
             } catch {
                 /* Unknown wire input is rejected by execute. */
             }
@@ -482,13 +573,16 @@ export function createSimulationWorld(scenario = {}) {
             }
             // Resolve only after before-effect barriers; result barriers retain
             // the encoded old response while later requests see the changed view.
-            const response = execute(provider, request);
+            const response = execute(provider, request, decodedAggregate);
             addTrace({
                 type: "read",
                 ...context,
                 view: response.view,
                 blockHash: response.block?.hash,
                 blockNumber: response.block?.number,
+                ...(response.aggregateCalls
+                    ? { aggregateCalls: response.aggregateCalls }
+                    : {}),
             });
             for (const script of selected) await effect(script.after, context);
             addTrace({ type: "response", ...context, view: response.view });
@@ -508,6 +602,58 @@ export function createSimulationWorld(scenario = {}) {
         ledger,
         market,
         trace,
+        publishMetadataAt(origin) {
+            if (scenario.metadataTransport !== METADATA_TRANSPORT.Http)
+                throw new Error(
+                    "Mutable HTTP metadata must be explicitly authored",
+                );
+            if (metadataOrigin || requestIndex > 0)
+                throw new Error(
+                    "Metadata origin must be fixed before the first provider request",
+                );
+            const url = new URL(origin);
+            if (
+                !["http:", "https:"].includes(url.protocol) ||
+                url.pathname !== "/" ||
+                url.search ||
+                url.hash ||
+                url.username ||
+                url.password
+            )
+                throw new Error(
+                    "External metadata requires an explicit HTTP origin",
+                );
+            // Explicit default ports are equivalent origins. In particular the
+            // guest server binds443 while URL.origin omits that default port.
+            metadataOrigin = url.origin;
+        },
+        tokenMetadataUri(tokenId) {
+            if (!metadataDocuments.has(String(tokenId)))
+                throw new Error(`Unknown external metadata token ${tokenId}`);
+            return metadataOrigin
+                ? `${metadataOrigin}/metadata/${tokenId}`
+                : null;
+        },
+        tokenMetadataDocument(tokenId) {
+            if (!metadataDocuments.has(String(tokenId)))
+                throw new Error(`Unknown external metadata token ${tokenId}`);
+            return metadataDocuments.get(String(tokenId));
+        },
+        setTokenMetadataDocument(tokenId, text) {
+            tokenId = String(tokenId);
+            if (!metadataDocuments.has(tokenId) || typeof text !== "string")
+                throw new Error(
+                    "External metadata requires a known token and raw document text",
+                );
+            if (!metadataOrigin)
+                throw new Error(
+                    "Mutable metadata documents require a stable external HTTP tokenURI",
+                );
+            // Malformed JSON is a valid external failure input. The production
+            // metadata parser, not this provider, decides whether to accept it.
+            metadataDocuments.set(tokenId, text);
+            addTrace({ type: "metadata-document", tokenId, text });
+        },
         recordExternal(event) {
             addTrace({ ...event, boundary: "external-wire" });
         },
@@ -547,6 +693,18 @@ export function createSimulationWorld(scenario = {}) {
                 observedAt,
             );
         },
+        cancellationEventFor(name, { observedAt = ledger.epochSeconds } = {}) {
+            const order = ledger.orders[name];
+            if (!order) throw new Error(`Unknown fixture order ${name}`);
+            if (!Number.isSafeInteger(observedAt) || observedAt < 1)
+                throw new Error("Cancellation requires epoch seconds");
+            return marketCancellationEvent(
+                order,
+                ledger.addresses,
+                ledger.collectionSlug,
+                observedAt,
+            );
+        },
         handleRpc,
         setProviderView,
         providerView: (id) => ({ ...providerView(id) }),
@@ -580,6 +738,7 @@ export function createSimulationWorld(scenario = {}) {
                 addresses: ledger.addresses,
                 collectionSlug: ledger.collectionSlug,
                 orders: ledger.orders,
+                metadataDocuments: Object.fromEntries(metadataDocuments),
                 providers: Object.fromEntries(providers),
                 barriers: [...barriers].map(([name, b]) => ({
                     name,

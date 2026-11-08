@@ -3,6 +3,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { WebSocketServer } from "ws";
 import { createSimulationWorld } from "./world.mjs";
 import { jsonSafe } from "./wire.mjs";
+import { METADATA_TRANSPORT } from "./contract.mjs";
 
 const MAX_REQUEST_BYTES = 1_048_576;
 
@@ -54,6 +55,14 @@ export async function startWorldServer({
                 query: [...url.searchParams],
             });
             const rpcMatch = /^\/rpc\/([a-z0-9_-]+)$/i.exec(url.pathname);
+            const metadataMatch = /^\/metadata\/(1|2)$/.exec(url.pathname);
+            if (request.method === "GET" && metadataMatch) {
+                // The onchain URI stays fixed at every historical block. Only
+                // the external HTTP document changes during metadata recovery.
+                response.writeHead(200, { "content-type": "application/json" });
+                response.end(world.tokenMetadataDocument(metadataMatch[1]));
+                return;
+            }
             if (request.method === "POST" && rpcMatch) {
                 const chunks = [];
                 let size = 0;
@@ -273,6 +282,8 @@ export async function startWorldServer({
     const scheme = tls ? "https" : "http";
     const hostname = urlHostname ?? (host === "::1" ? "[::1]" : host);
     const url = `${scheme}://${hostname}:${actualPort}`;
+    if (scenario.metadataTransport === METADATA_TRANSPORT.Http)
+        world.publishMetadataAt(url);
     return {
         url,
         rpcUrl: `${url}/rpc/default`,

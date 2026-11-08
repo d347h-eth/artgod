@@ -1,5 +1,9 @@
 import {
     decodeFunctionData,
+    decodeDeployData,
+    deploylessCallViaBytecodeBytecode,
+    encodeDeployData,
+    encodeFunctionData,
     encodeAbiParameters,
     encodeEventTopics,
     encodeFunctionResult,
@@ -8,6 +12,7 @@ import {
     parseAbi,
     stringToHex,
     toHex,
+    multicall3Abi,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -103,6 +108,79 @@ export function decodeCall(data) {
 
 export function encodeResult(functionName, result) {
     return encodeFunctionResult({ abi: CONTRACT_ABI, functionName, result });
+}
+
+// Boundary fixture for the installed viem 2.54.6 Multicall3 creation code. The
+// wrapper constant is public SDK input; the nested bytecode is not exported.
+// Unknown code must expose a missing fixture capability, not execute as zeroes.
+export const DEPLOYLESS_MULTICALL3 = Object.freeze({
+    functionName: "aggregate3",
+    creationCodeHash:
+        "0x0388a0d41a63e5bbe5b1005f52975ef622c77817a483f36849c5447365555071",
+    maximumCalls: 64,
+});
+const DEPLOYLESS_CONSTRUCTOR = parseAbi(["constructor(bytes,bytes)"]);
+
+export function decodeDeploylessMulticall(data) {
+    if (
+        typeof data !== "string" ||
+        !/^0x[0-9a-f]+$/i.test(data) ||
+        !data
+            .toLowerCase()
+            .startsWith(deploylessCallViaBytecodeBytecode.toLowerCase())
+    )
+        throw new Error("Unknown deployless constructor bytecode");
+    const normalized = data.toLowerCase();
+    const decoded = decodeDeployData({
+        abi: DEPLOYLESS_CONSTRUCTOR,
+        bytecode: deploylessCallViaBytecodeBytecode,
+        data: normalized,
+    });
+    const [code, calldata] = decoded.args;
+    if (
+        keccak256(code) !== DEPLOYLESS_MULTICALL3.creationCodeHash ||
+        encodeDeployData({
+            abi: DEPLOYLESS_CONSTRUCTOR,
+            bytecode: deploylessCallViaBytecodeBytecode,
+            args: decoded.args,
+        }).toLowerCase() !== normalized
+    )
+        throw new Error(
+            "Unsupported or malformed deployless Multicall3 creation code",
+        );
+    const aggregate = decodeFunctionData({
+        abi: multicall3Abi,
+        data: calldata,
+    });
+    if (
+        aggregate.functionName !== DEPLOYLESS_MULTICALL3.functionName ||
+        encodeFunctionData({
+            abi: multicall3Abi,
+            functionName: aggregate.functionName,
+            args: aggregate.args,
+        }).toLowerCase() !== calldata.toLowerCase()
+    )
+        throw new Error(
+            "Unsupported or malformed deployless aggregate function",
+        );
+    const calls = aggregate.args[0];
+    if (
+        !Array.isArray(calls) ||
+        calls.length < 1 ||
+        calls.length > DEPLOYLESS_MULTICALL3.maximumCalls
+    )
+        throw new Error(
+            "Deployless aggregate exceeds the explicit fixture call bound",
+        );
+    return calls;
+}
+
+export function encodeDeploylessMulticallResult(results) {
+    return encodeFunctionResult({
+        abi: multicall3Abi,
+        functionName: DEPLOYLESS_MULTICALL3.functionName,
+        result: results,
+    });
 }
 
 /** Construct independently prepared marketplace inputs using EIP-712 wire types. */
@@ -234,6 +312,24 @@ export function marketStreamEvent(
             },
         },
     };
+}
+
+/** Explicit marketplace cancellation, separate from protocol fill/cancel state. */
+export function marketCancellationEvent(
+    order,
+    addresses,
+    collectionSlug,
+    epochSeconds,
+) {
+    const event = marketStreamEvent(
+        order,
+        addresses,
+        collectionSlug,
+        epochSeconds,
+    );
+    event.eventType = "item_cancelled";
+    event.payload.event_type = event.eventType;
+    return event;
 }
 
 export function transferLog({ from, to, tokenId, address }) {

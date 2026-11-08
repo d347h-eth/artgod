@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { encodeFunctionData, decodeFunctionResult } from "viem";
 import { normalizeOpenSeaRestOrder } from "../../../indexer/src/application/offchain/opensea-rest-normalize.ts";
-import { normalizeOpenSeaEvent } from "../../../indexer/src/application/offchain/opensea-normalize.ts";
+import {
+    normalizeOpenSeaEvent,
+    normalizeOpenSeaOrderUpdate,
+} from "../../../indexer/src/application/offchain/opensea-normalize.ts";
 import { createSeaportOrderValidationFactory } from "../../../indexer/src/application/offchain/seaport-validation-batch.ts";
 import { OPENSEA_REST_EVENT_TYPE } from "../../../indexer/src/domain/offchain-jobs.ts";
-import { ORDER_STATUS } from "../../../indexer/src/domain/orders.ts";
+import {
+    ORDER_STATUS,
+    ORDER_SOURCE_STATUS,
+} from "../../../indexer/src/domain/orders.ts";
 import { createSimulationWorld } from "./world.mjs";
 import { wireQuantity } from "./wire.mjs";
 
@@ -34,6 +40,21 @@ test("signed REST and Phoenix payloads pass owning production normalizers", asyn
             assert.equal(normalized.seaportData.signature.length, 132);
         }
     }
+});
+
+test("the cancellation fixture reaches the production lifecycle normalizer without fabricating protocol state", () => {
+    const world = createSimulationWorld({ epochSeconds: 1_800_000_000 });
+    const event = world.cancellationEventFor("bid", {
+        observedAt: 1_800_000_001,
+    });
+    const result = normalizeOpenSeaOrderUpdate(event.payload);
+    assert.equal(result.orderId, world.ledger.orders.bid.orderHash);
+    assert.equal(result.sourceStatus, ORDER_SOURCE_STATUS.Cancelled);
+    assert.equal(result.validUntil, 1_800_086_400);
+    assert.equal(
+        world.ledger.stateAt("A", 103).statuses.has(result.orderId),
+        false,
+    );
 });
 
 test("actual full snapshot validates both signed fixture orders and rejects corrupt signature", async () => {
