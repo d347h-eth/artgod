@@ -293,6 +293,7 @@ export async function minimizeCampaignCase({
     caseId,
     maxEvaluations = 16,
     runCase = executeScenario,
+    outputRoot = path.join(ROOT, "tmp/simulation-minimization"),
 }) {
     const plan = JSON.parse(
         await readFile(path.join(campaignDirectory, "plan.json"), "utf8"),
@@ -300,10 +301,7 @@ export async function minimizeCampaignCase({
     const original = plan.cases.find((item) => item.id === caseId);
     if (!original)
         throw new Error("Case must belong to the saved campaign plan");
-    const directory = await createArtifactRunDirectory(
-        path.join(ROOT, "tmp/simulation-minimization"),
-        "minimize-",
-    );
+    const directory = await createArtifactRunDirectory(outputRoot, "minimize-");
     const executions = [];
     let interruptedExecution;
     const finishInterrupted = async () => {

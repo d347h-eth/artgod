@@ -23,13 +23,15 @@ import { EXECUTION_INTERRUPTED_CODE } from "./qemu-replay.mjs";
 import { createArtifactRunDirectory } from "./artifacts.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const TEST_ROOT = path.join(ROOT, "tmp/simulation-ci-tests");
 const readJson = async (filename) =>
     JSON.parse(await readFile(filename, "utf8"));
-const outputRoot = () =>
-    createArtifactRunDirectory(
-        path.join(ROOT, "tmp/simulation-ci-tests"),
-        "run-",
-    );
+const outputRoot = () => createArtifactRunDirectory(TEST_ROOT, "run-");
+function assertFixturePaths(report) {
+    for (const name of ["ciDirectory", "directory"])
+        if (report[name])
+            assert.ok(report[name].startsWith(`${TEST_ROOT}${path.sep}`));
+}
 
 // Fake machine results test scheduling/accounting only, never ArtGod behavior.
 function passedScenario(scenario) {
@@ -188,6 +190,7 @@ test("regression shard retains global scope and failed cases while later declare
         matrix,
         lane,
         outputRoot: await outputRoot(),
+        artifactRoot: await outputRoot(),
         regressions: async (options) => {
             assert.deepEqual(
                 options.corpus.map((entry) => entry.scenario.qualificationId),
@@ -203,6 +206,7 @@ test("regression shard retains global scope and failed cases while later declare
             return delegated;
         },
     });
+    assertFixturePaths(report);
     assert.equal(executed, lane.caseIds.length);
     assert.equal(report.propertyStatus, "failed");
     assert.equal(ciLanePassed(report), false);
@@ -231,6 +235,7 @@ test("campaign lane runs its entire selected fault plan and retains failed prope
         matrix,
         lane,
         outputRoot: await outputRoot(),
+        artifactRoot: await outputRoot(),
         campaign: (options) => {
             assert.deepEqual(options.plan.selectedFaultModels, [
                 lane.faultModelId,
@@ -244,6 +249,7 @@ test("campaign lane runs its entire selected fault plan and retains failed prope
             });
         },
     });
+    assertFixturePaths(report);
     assert.equal(executed, 6);
     assert.equal(report.counts.failed, 1);
     assert.equal(report.counts.passed, 5);
@@ -259,6 +265,7 @@ test("interrupted lane retains missing cases rather than claiming complete cover
         matrix,
         lane,
         outputRoot: await outputRoot(),
+        artifactRoot: await outputRoot(),
         regressions: (options) =>
             runRegressions({
                 ...options,
@@ -269,6 +276,7 @@ test("interrupted lane retains missing cases rather than claiming complete cover
                 }),
             }),
     });
+    assertFixturePaths(report);
     assert.equal(report.executed, 1);
     assert.equal(report.missing, lane.caseIds.length - 1);
     assert.equal(report.propertyStatus, "incomplete");
@@ -286,6 +294,7 @@ test("a fully observed campaign lane can pass without weakening case evidence re
         matrix,
         lane,
         outputRoot: await outputRoot(),
+        artifactRoot: await outputRoot(),
         campaign: (options) =>
             runCampaign({
                 ...options,
@@ -293,6 +302,7 @@ test("a fully observed campaign lane can pass without weakening case evidence re
                     passedScenario(await readJson(scenarioFile)),
             }),
     });
+    assertFixturePaths(report);
     assert.equal(report.counts.passed, lane.caseIds.length);
     assert.equal(ciLanePassed(report), true);
 });
@@ -353,6 +363,7 @@ test("blocked lanes retain their full missing scope without a manifest or proces
         [CI_BLOCKED_ENV.Matrix]: JSON.stringify(matrix),
         [CI_BLOCKED_ENV.Blocker]:
             "Guest build failed before substrate qualification",
+        FIXTURE_ARTIFACT_ROOT: await outputRoot(),
     };
     delete env.NODE_OPTIONS;
     delete env.NODE_PATH;
@@ -365,8 +376,12 @@ test("blocked lanes retain their full missing scope without a manifest or proces
                 "--permission",
                 "--allow-fs-read=*",
                 `--allow-fs-write=${path.join(ROOT, "tmp")}`,
-                "scripts/simulation/ci.mjs",
-                "blocked",
+                "--input-type=module",
+                "-e",
+                `import { recordBlockedCiLane, readCiBlockedEnvironment, ciLanePassed } from './scripts/simulation/ci.mjs';
+                 const report = await recordBlockedCiLane({ ...readCiBlockedEnvironment(), artifactRoot: process.env.FIXTURE_ARTIFACT_ROOT });
+                 process.stdout.write(JSON.stringify(report));
+                 if (!ciLanePassed(report)) process.exitCode = 1;`,
             ],
             { cwd: ROOT, env, encoding: "utf8" },
         );
@@ -383,8 +398,10 @@ test("blocked lanes retain their full missing scope without a manifest or proces
         lane: campaignLane,
         matrix,
         blocker: "Substrate qualification did not pass",
+        artifactRoot: await outputRoot(),
     });
     for (const report of [regression, campaign]) {
+        assertFixturePaths(report);
         assert.equal(report.executed, 0);
         assert.equal(report.missing, report.ciLane.caseIds.length);
         assert.equal(report.specified, report.missing);

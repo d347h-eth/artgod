@@ -6,10 +6,10 @@ import test from "node:test";
 import { createCampaignPlan } from "./campaign.mjs";
 import {
     executeScenario,
-    runCampaign,
-    runRegressions,
+    runCampaign as runCampaignOwner,
+    runRegressions as runRegressionsOwner,
     ORDER_PROFILE,
-    minimizeCampaignCase,
+    minimizeCampaignCase as minimizeCampaignCaseOwner,
 } from "./workbench.mjs";
 import { EXTERNAL_ACTION } from "./guest/scenario-contract.mjs";
 import { createArtifactRunDirectory } from "./artifacts.mjs";
@@ -29,6 +29,14 @@ const testOutput = () =>
         path.join(ROOT, "tmp/workbench-tests"),
         "suite-",
     );
+// Scheduling doubles remain supporting unit evidence; never put their invented
+// machine results beside actual runtime artifacts retained by CI.
+const runCampaign = async (options) =>
+    runCampaignOwner({ outputRoot: await testOutput(), ...options });
+const runRegressions = async (options) =>
+    runRegressionsOwner({ outputRoot: await testOutput(), ...options });
+const minimizeCampaignCase = async (options) =>
+    minimizeCampaignCaseOwner({ outputRoot: await testOutput(), ...options });
 const readJson = async (filename) =>
     JSON.parse(await readFile(filename, "utf8"));
 function passedCase(scenario) {
