@@ -14,6 +14,7 @@ import { createArtifactRunDirectory, hashFile, pinFile } from "./artifacts.mjs";
 import { executeCommand, validateManifest } from "./qemu-replay.mjs";
 import {
     assertCoordinatorOnlySourceChanges,
+    bundleCoordinator,
     rebuildGuestCoordinator,
 } from "./build-guest.mjs";
 import { CPU_MODEL } from "./cpu-model.mjs";
@@ -276,6 +277,35 @@ async function assertUnpublishedFailure(error) {
     assert.equal(failure.qualified, false);
     assert.equal(failure.error, error.message);
 }
+
+test("historical onLoad overrides preserve ordinary mjs strict semantics and exact lazy-wrapper bytes", async () => {
+    const directory = await createArtifactRunDirectory(
+        path.join(ROOT, "tmp/simulation-builder-tests"),
+        "compiler-",
+    );
+    const entryPoint = path.join(directory, "entry.mjs");
+    const lazy = path.join(directory, "lazy.mjs");
+    await writeFile(
+        entryPoint,
+        'export const load = () => import("./lazy.mjs");\n',
+    );
+    const contents = "export function receiver() { return this; }\n";
+    await writeFile(lazy, contents);
+    const original = await pinFile(lazy);
+    const ordinary = path.join(directory, "ordinary.mjs");
+    const overridden = path.join(directory, "overridden.mjs");
+    await bundleCoordinator({ entryPoint, outfile: ordinary });
+    await bundleCoordinator({
+        entryPoint,
+        outfile: overridden,
+        overrides: new Map([[lazy, { contents, pin: original }]]),
+    });
+    const bytes = await readFile(ordinary);
+    assert.match(bytes.toString(), /__esm\(/);
+    assert.match(bytes.toString(), /"use strict";/);
+    assert.deepEqual(await readFile(overridden), bytes);
+    assert.deepEqual(await pinFile(lazy), original);
+});
 
 test("runtime reuse rejects production, configuration, dependency and init deltas while admitting simulation mjs changes", () => {
     const pin = (name, sha = "a") => ({

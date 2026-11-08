@@ -103,10 +103,14 @@ export function assertCoordinatorOnlySourceChanges(previous, current) {
 }
 
 /** One compilation owner for full builds, compatibility controls and coordinator updates. */
-async function bundleCoordinator({ outfile, overrides = new Map() }) {
+export async function bundleCoordinator({
+    outfile,
+    overrides = new Map(),
+    entryPoint = "scripts/simulation/guest/guest.mjs",
+}) {
     return build({
         absWorkingDir: ROOT,
-        entryPoints: ["scripts/simulation/guest/guest.mjs"],
+        entryPoints: [entryPoint],
         outfile,
         bundle: true,
         format: "esm",
@@ -135,7 +139,11 @@ async function bundleCoordinator({ outfile, overrides = new Map() }) {
                               const admitted = overrides.get(args.path);
                               if (admitted)
                                   return {
-                                      contents: admitted.contents,
+                                      // esbuild's custom onLoad path does not
+                                      // inherit .mjs's implicit strict mode.
+                                      // Restore that input semantic explicitly;
+                                      // historical source bytes stay pinned raw.
+                                      contents: `"use strict";\n${admitted.contents}`,
                                       loader: "js",
                                       resolveDir: path.dirname(args.path),
                                   };
