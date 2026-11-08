@@ -15,5 +15,5 @@
     "machine": "pc-i440fx-8.2",
     "epoch": "2026-11-08T00:00:00Z",
     "toolBaseImage": "ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
-    "storageProfile": "virtio-v1"
+    "storageProfile": "virtio-bounce-v1"
 }
