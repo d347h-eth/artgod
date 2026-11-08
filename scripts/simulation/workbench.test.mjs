@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { chmod, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -225,6 +225,72 @@ test("unreadable evidence cannot become a passing regression summary", async () 
     });
     assert.equal(report.engineReplayStatus, "passed");
     assert.equal(report.propertyStatus, "incomplete");
+});
+
+test("a regression cohort consumes captured descriptor bytes when original source files change", async () => {
+    const originals = await testOutput();
+    const selected = [];
+    for (const [index, entry] of corpus.slice(0, 2).entries()) {
+        const scenarioFile = path.join(originals, `original-${index}.json`);
+        await writeFile(scenarioFile, await readFile(entry.scenarioFile));
+        selected.push({ name: entry.name, scenarioFile });
+    }
+    const expectedIds = await Promise.all(
+        selected.map(
+            async (entry) =>
+                (await readJson(entry.scenarioFile)).qualificationId,
+        ),
+    );
+    const observed = [];
+    const report = await runRegressions({
+        baseManifestPath: "unused.json",
+        outputRoot: await testOutput(),
+        corpus: selected,
+        runCase: async ({ scenarioFile }) => {
+            const scenario = await readJson(scenarioFile);
+            observed.push(scenario.qualificationId);
+            if (observed.length === 1)
+                await writeFile(
+                    selected[1].scenarioFile,
+                    "source edited after planning",
+                );
+            return {
+                caseId: scenario.qualificationId,
+                engineReplayStatus: "passed",
+                propertyStatus: "passed",
+            };
+        },
+    });
+    assert.deepEqual(observed, expectedIds);
+    assert.equal(report.propertyStatus, "passed");
+    assert.equal(report.cases[1].sourceScenarioFile, selected[1].scenarioFile);
+    assert.notEqual(report.cases[1].scenarioFile, selected[1].scenarioFile);
+    assert.match(report.cases[1].scenarioPin.sha256, /^[a-f0-9]{64}$/);
+});
+
+test("a modified captured regression descriptor cannot start its VM", async () => {
+    let executions = 0;
+    const report = await runRegressions({
+        baseManifestPath: "unused.json",
+        outputRoot: await testOutput(),
+        corpus: corpus.slice(0, 2),
+        runCase: async ({ scenarioFile }) => {
+            executions++;
+            const plan = await readJson(
+                path.join(path.dirname(scenarioFile), "plan.json"),
+            );
+            await chmod(plan.cases[1].scenarioFile, 0o644);
+            await writeFile(
+                plan.cases[1].scenarioFile,
+                "modified captured input",
+            );
+            return { engineReplayStatus: "passed", propertyStatus: "passed" };
+        },
+    });
+    assert.equal(executions, 1);
+    assert.equal(report.executed, 2);
+    assert.equal(report.cases[1].status, "unqualified");
+    assert.match(report.cases[1].error, /planned byte pin/);
 });
 
 test("interrupted preparation preserves its marker and preparation artifacts without inventing a VM run", async () => {

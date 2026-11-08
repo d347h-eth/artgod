@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createArtifactRunDirectory } from "./artifacts.mjs";
+import { createArtifactRunDirectory, pinFile } from "./artifacts.mjs";
 import {
     createCampaignPlan,
     renderCase,
@@ -180,17 +180,31 @@ export async function runRegressions({
     const selected = corpus ?? (await discoverRegressionCorpus());
     if (!selected.length)
         throw new Error("An explicit regression corpus cannot be empty");
-    const planned = [];
+    const inputs = [];
     for (const entry of selected) {
-        const scenario = validateScenario(
-            JSON.parse(await readFile(entry.scenarioFile, "utf8")),
-        );
-        planned.push({ ...entry, caseId: scenario.qualificationId });
+        const payload = await readFile(entry.scenarioFile, "utf8");
+        const scenario = validateScenario(JSON.parse(payload));
+        inputs.push({ entry, payload, scenario });
     }
     const directory = await createArtifactRunDirectory(
         outputRoot,
         "regressions-",
     );
+    // A long cohort consumes this captured plan, even while authors edit the
+    // original corpus. Keep exact descriptor bytes and admit each pin again.
+    const planned = [];
+    for (const [index, { entry, payload, scenario }] of inputs.entries()) {
+        const scenarioFile = path.join(directory, `scenario-${index}.json`);
+        await writeFile(scenarioFile, payload, { flag: "wx", mode: 0o444 });
+        planned.push({
+            ...entry,
+            sourceScenarioFile: path.resolve(entry.scenarioFile),
+            scenarioFile,
+            scenario,
+            scenarioPin: await pinFile(scenarioFile, directory),
+            caseId: scenario.qualificationId,
+        });
+    }
     await persist(path.join(directory, "plan.json"), {
         version: 1,
         baseManifestPath,
@@ -241,6 +255,13 @@ export async function runRegressions({
         if (interruption.stopped) break;
         let result;
         try {
+            if (
+                JSON.stringify(await pinFile(entry.scenarioFile, directory)) !==
+                JSON.stringify(entry.scenarioPin)
+            )
+                throw new Error(
+                    "Captured regression scenario no longer matches its planned byte pin",
+                );
             result = await runCase({
                 baseManifestPath,
                 scenarioFile: entry.scenarioFile,
