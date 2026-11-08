@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { build } from "esbuild";
 import { createArtifactRunDirectory, hashFile } from "../artifacts.mjs";
 import { readRunEvidence } from "../run-evidence.mjs";
 import {
@@ -14,14 +15,7 @@ import {
     SIMULATION_EVIDENCE_PREFIX,
     SIMULATION_EVIDENCE_EVENT,
 } from "../qualification-protocol.mjs";
-import {
-    formatFailureEvidence,
-    recordDataPlaneFailureChecks,
-} from "./failure-evidence.mjs";
-import {
-    STALE_RESULT_PROPERTY,
-    STALE_RESULT_CUT_UNREACHED_CODE,
-} from "./stale-result-cut.mjs";
+import { formatFailureEvidence } from "./failure-evidence.mjs";
 
 const expected = [
     CHECK.RuntimeEntrypoints,
@@ -44,6 +38,27 @@ function failure() {
     });
 }
 
+test("the M0 failure formatter's bundle closure remains protocol-only", async () => {
+    const result = await build({
+        absWorkingDir: fileURLToPath(new URL("../../../", import.meta.url)),
+        entryPoints: ["scripts/simulation/guest/failure-evidence.mjs"],
+        bundle: true,
+        platform: "node",
+        format: "esm",
+        metafile: true,
+        write: false,
+        logLevel: "silent",
+    });
+    assert.deepEqual(
+        Object.keys(result.metafile.inputs).sort(),
+        [
+            "scripts/simulation/guest/failure-evidence.mjs",
+            "scripts/simulation/qualification-protocol.mjs",
+        ],
+        "Generic M0 failure reporting must not initialize data-plane domains, provider worlds or cryptography",
+    );
+});
+
 test("declared failure checks replace intermediate scopes while preserving reached-state coverage and diagnostics", () => {
     const error = failure();
     const evidence = formatFailureEvidence(error, expected);
@@ -56,82 +71,6 @@ test("declared failure checks replace intermediate scopes while preserving reach
     assert.equal(evidence.failedProperty, "retained-history");
     assert.deepEqual(evidence.checkpoints, error.simulation.checkpoints);
     assert.equal(error.simulation.checks[CHECK.SourceIngestion], true);
-});
-
-test("native liveness failure fails runtime execution while the stale-result oracle remains unreached", () => {
-    const selected = [CHECK.RuntimeEntrypoints, CHECK.StaleResultSafetyCut];
-    const checks = {
-        [CHECK.RuntimeEntrypoints]: true,
-        [CHECK.StaleResultSafetyCut]: false,
-    };
-    const cause = new Error("Native exit observation");
-    const error = Object.assign(
-        new Error("Production domain exited (SIGSEGV)", { cause }),
-        { property: STALE_RESULT_PROPERTY.Runtime },
-    );
-    const failedCheck = recordDataPlaneFailureChecks(
-        error,
-        checks,
-        CHECK.StaleResultSafetyCut,
-        selected,
-    );
-    assert.equal(failedCheck, CHECK.RuntimeEntrypoints);
-    assert.equal(error.cause, cause);
-    error.simulation = { checks, failedCheck };
-    const result = formatFailureEvidence(error, selected);
-    assert.equal(result.error, "Production domain exited (SIGSEGV)");
-    assert.deepEqual(result.coverage, [
-        { check: CHECK.RuntimeEntrypoints, status: "failed" },
-        { check: CHECK.StaleResultSafetyCut, status: "unreached" },
-    ]);
-});
-
-test("ordinary stale mutation assertions stay failed even alongside native diagnostic observations", () => {
-    const selected = [CHECK.RuntimeEntrypoints, CHECK.StaleResultSafetyCut];
-    const checks = {
-        [CHECK.RuntimeEntrypoints]: true,
-        [CHECK.StaleResultSafetyCut]: false,
-    };
-    const error = Object.assign(new Error("Old proof was applied"), {
-        property: STALE_RESULT_PROPERTY.Projection,
-        simulation: { processStates: [{ signalCode: "SIGSEGV" }] },
-    });
-    assert.equal(
-        recordDataPlaneFailureChecks(
-            error,
-            checks,
-            CHECK.StaleResultSafetyCut,
-            selected,
-        ),
-        CHECK.StaleResultSafetyCut,
-    );
-    error.simulation.checks = checks;
-    assert.deepEqual(formatFailureEvidence(error, selected).coverage, [
-        { check: CHECK.RuntimeEntrypoints, status: "passed" },
-        { check: CHECK.StaleResultSafetyCut, status: "failed" },
-    ]);
-});
-
-test("expired or unproved cut keeps healthy runtime evidence without inventing rejection coverage", () => {
-    const selected = [CHECK.RuntimeEntrypoints, CHECK.StaleResultSafetyCut];
-    const checks = {
-        [CHECK.RuntimeEntrypoints]: true,
-        [CHECK.StaleResultSafetyCut]: false,
-    };
-    const error = Object.assign(new Error("Captured attempt expired"), {
-        code: STALE_RESULT_CUT_UNREACHED_CODE,
-    });
-    recordDataPlaneFailureChecks(
-        error,
-        checks,
-        CHECK.StaleResultSafetyCut,
-        selected,
-    );
-    error.simulation = { checks };
-    assert.deepEqual(formatFailureEvidence(error, selected).coverage, [
-        { check: CHECK.RuntimeEntrypoints, status: "passed" },
-        { check: CHECK.StaleResultSafetyCut, status: "unreached" },
-    ]);
 });
 
 test("a narrow failed journey with extra intermediate observations satisfies the actual host wire parser", async () => {

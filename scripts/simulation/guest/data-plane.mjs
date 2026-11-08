@@ -19,7 +19,7 @@ import {
     STALE_RESULT_GATE,
     STALE_RESULT_PROPERTY,
 } from "./stale-result-cut.mjs";
-import { recordDataPlaneFailureChecks } from "./failure-evidence.mjs";
+import { recordDataPlaneFailureChecks } from "./data-plane-failure.mjs";
 import {
     captureGuestNativeFailure,
     NATIVE_FAILURE_ARTIFACT,
