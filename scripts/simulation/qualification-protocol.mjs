@@ -29,6 +29,8 @@ export const QUALIFICATION_CHECK = Object.freeze({
     NatsPersistentRestart: "nats-persistent-restart",
     NatsRedeliveryAfterCommit: "nats-redelivery-after-commit",
     GuestEntropyClock: "guest-entropy-clock",
+    RuntimeBigInt: "runtime-bigint-known-answers",
+    FixtureCrypto: "fixture-crypto-known-answers",
 });
 export const QUALIFICATION_CHECKS = Object.freeze(
     Object.values(QUALIFICATION_CHECK),

@@ -22,7 +22,7 @@ import {
     QUALIFICATION_PROTOCOL_VERSION,
     QUALIFICATION_EVENT,
     QUALIFICATION_STATUS,
-    QUALIFICATION_CHECKS,
+    QUALIFICATION_CHECK as CHECK,
     SIMULATION_EVIDENCE_PREFIX,
     SIMULATION_EVIDENCE_EVENT,
 } from "../qualification-protocol.mjs";
@@ -267,6 +267,40 @@ async function qualification() {
     await mkdir(output, { recursive: true });
     const databasePath = path.join(state, "qualification.sqlite");
     const database = sqlite(databasePath);
+    let knownAnswers;
+    try {
+        // The stage owner and SDK load only after ready/probe. An initialization
+        // fault must remain a named substrate failure with prior evidence.
+        const { qualifyRuntimeKnownAnswers } =
+            await import("./runtime-known-answers.mjs");
+        knownAnswers = await qualifyRuntimeKnownAnswers(database);
+        const native = await qualifyNativeQueues(database, databasePath);
+        return {
+            evidence: { ...native, runtimeKnownAnswers: knownAnswers.evidence },
+            checks: {
+                ...knownAnswers.checks,
+                [CHECK.SqliteWal]: true,
+                [CHECK.SqliteCompetingWriters]: true,
+                [CHECK.SqliteReopen]: true,
+                [CHECK.NatsPersistentRestart]: true,
+                [CHECK.NatsRedeliveryAfterCommit]: true,
+                [CHECK.GuestEntropyClock]: true,
+            },
+        };
+    } catch (error) {
+        if (knownAnswers)
+            error.simulation = {
+                ...(error.simulation ?? {}),
+                checks: { ...knownAnswers.checks, ...error.simulation?.checks },
+                runtimeKnownAnswers: knownAnswers.evidence,
+            };
+        throw error;
+    } finally {
+        if (database.open) database.close();
+    }
+}
+
+async function qualifyNativeQueues(database, databasePath) {
     assert.equal(
         database.pragma("journal_mode = WAL", { simple: true }),
         "wal",
@@ -432,12 +466,7 @@ async function main() {
               stopBroker,
               stopProcess,
           })
-        : {
-              evidence: await qualification(),
-              checks: Object.fromEntries(
-                  QUALIFICATION_CHECKS.map((check) => [check, true]),
-              ),
-          };
+        : await qualification();
     const { evidence } = result;
     evidence.storage = { before: probe.storage, after: await inspectStorage() };
     const checks = Object.fromEntries(
