@@ -1,5 +1,9 @@
 import { createBaselineLedger, blockToWire } from "./ledger.mjs";
-import { METADATA_TRANSPORT } from "./contract.mjs";
+import {
+    METADATA_TRANSPORT,
+    RESPONSE_GATE_FUNCTION,
+    RESPONSE_GATE_EVENT,
+} from "./contract.mjs";
 import {
     ZERO_ADDRESS,
     decodeCall,
@@ -49,6 +53,7 @@ export function createSimulationWorld(scenario = {}) {
     );
     const trace = [];
     const barriers = new Map();
+    const responseGates = new Map();
     const scripts = (scenario.scripts ?? []).map((script) => ({
         ...script,
         used: false,
@@ -76,6 +81,7 @@ export function createSimulationWorld(scenario = {}) {
         const event = jsonSafe({ sequence: ++sequence, phase, ...entry });
         trace.push(event);
         scenario.onTrace?.(event);
+        return event;
     };
 
     function providerView(id) {
@@ -112,6 +118,177 @@ export function createSimulationWorld(scenario = {}) {
             });
         }
         return barriers.get(name);
+    }
+
+    const responseGate = (name) => {
+        const gate = responseGates.get(name);
+        if (!gate) throw invalid(`Unknown external response gate ${name}`);
+        return gate;
+    };
+    const gateSnapshot = (gate) =>
+        jsonSafe({
+            name: gate.name,
+            functionName: gate.functionName,
+            argument: gate.argument,
+            released: gate.released,
+            aborted: gate.aborted,
+            pending: gate.captures.filter((capture) => capture.pending).length,
+            captures: gate.captures,
+            events: gate.events,
+        });
+    function gateEvent(gate, type, detail = {}) {
+        const event = addTrace({ type, name: gate.name, ...detail });
+        gate.events.push(event);
+        return event.sequence;
+    }
+    function armResponseGate(options) {
+        if (closed) throw unavailable("World is closed");
+        if (
+            !options ||
+            typeof options !== "object" ||
+            Array.isArray(options) ||
+            Object.keys(options).some(
+                (key) => !["name", "functionName", "argument"].includes(key),
+            ) ||
+            !/^[a-z][a-z0-9-]{0,79}$/.test(options.name ?? "") ||
+            !Object.values(RESPONSE_GATE_FUNCTION).includes(
+                options.functionName,
+            )
+        )
+            throw invalid(
+                "An explicit named counter or status response gate is required",
+            );
+        const { name, functionName } = options;
+        const argument =
+            options.argument === undefined ? null : options.argument;
+        const format =
+            functionName === RESPONSE_GATE_FUNCTION.Counter
+                ? /^0x[0-9a-f]{40}$/i
+                : /^0x[0-9a-f]{64}$/i;
+        if (
+            !(
+                argument === null &&
+                functionName === RESPONSE_GATE_FUNCTION.OrderStatus
+            ) &&
+            (typeof argument !== "string" || !format.test(argument))
+        )
+            throw invalid(
+                "Response gate argument must be a maker address or order hash",
+            );
+        if (responseGates.has(name))
+            throw invalid("External response gate names cannot be reused");
+        let arrived;
+        let release;
+        const gate = {
+            name,
+            functionName,
+            argument: argument === null ? null : lower(argument),
+            released: false,
+            aborted: false,
+            captures: [],
+            events: [],
+            arrival: new Promise((resolve) => {
+                arrived = resolve;
+            }),
+            completion: new Promise((resolve) => {
+                release = resolve;
+            }),
+            arrive: () => arrived(),
+            resolve: () => release(),
+        };
+        responseGates.set(name, gate);
+        gateEvent(gate, RESPONSE_GATE_EVENT.Armed, {
+            functionName,
+            argument: gate.argument,
+        });
+        return gateSnapshot(gate);
+    }
+    function releaseResponseGate(name) {
+        const gate = responseGate(name);
+        if (gate.released || gate.aborted)
+            throw invalid(
+                "External response gate is already released or aborted",
+            );
+        gate.released = true;
+        gateEvent(gate, RESPONSE_GATE_EVENT.Released, {
+            requestIndexes: gate.captures.map(
+                (capture) => capture.requestIndex,
+            ),
+        });
+        gate.arrive();
+        gate.resolve();
+    }
+    function abortResponseGate(name) {
+        const gate = responseGate(name);
+        if (gate.released || gate.aborted)
+            throw invalid(
+                "External response gate is already released or aborted",
+            );
+        gate.aborted = true;
+        gateEvent(gate, RESPONSE_GATE_EVENT.Aborted, {
+            requestIndexes: gate.captures.map(
+                (capture) => capture.requestIndex,
+            ),
+        });
+        gate.arrive();
+        gate.resolve();
+    }
+    async function holdResponse(request, context, response, calls) {
+        // Match once at capture: gates armed later cannot retroactively hold an
+        // already encoded reply. Numeric selectors retain their provider view.
+        const held = [];
+        for (const gate of responseGates.values()) {
+            if (gate.released || gate.aborted) continue;
+            const matchingCalls = calls.filter(
+                (call) =>
+                    lower(call.target) === lower(ledger.addresses.seaport) &&
+                    call.functionName === gate.functionName &&
+                    (gate.argument === null ||
+                        lower(call.args?.[0]) === gate.argument),
+            );
+            if (!matchingCalls.length) continue;
+            const capture = jsonSafe({
+                requestIndex: context.requestIndex,
+                requestId: request.id ?? null,
+                provider: context.provider,
+                selector: request.params?.[1] ?? "latest",
+                view: response.view,
+                blockNumber: response.block?.number,
+                blockHash: response.block?.hash,
+                result: response.result,
+                matchingCalls,
+                pending: true,
+                delivered: false,
+                aborted: false,
+            });
+            gate.captures.push(capture);
+            capture.capturedAt = gateEvent(gate, RESPONSE_GATE_EVENT.Captured, {
+                requestIndex: capture.requestIndex,
+                provider: capture.provider,
+            });
+            held.push({ gate, capture });
+            gate.arrive();
+        }
+        if (!held.length) return held;
+        let aborted = false;
+        try {
+            await Promise.all(
+                held.map(async ({ gate }) => {
+                    await gate.completion;
+                    if (closed || gate.aborted)
+                        throw unavailable("External response gate aborted");
+                }),
+            );
+        } catch {
+            aborted = true;
+        }
+        for (const { capture } of held) {
+            capture.pending = false;
+            capture.aborted = aborted;
+        }
+        if (aborted)
+            throw unavailable("External response gate aborted before delivery");
+        return held;
     }
 
     async function effect(action, context) {
@@ -187,8 +364,11 @@ export function createSimulationWorld(scenario = {}) {
             const aggregateCalls = [];
             for (const item of calls) {
                 let name;
+                let args;
                 try {
-                    name = decodeCall(item.callData).functionName;
+                    const decoded = decodeCall(item.callData);
+                    name = decoded.functionName;
+                    args = decoded.args ?? [];
                 } catch {
                     throw invalid("Unknown aggregate contract selector");
                 }
@@ -206,6 +386,9 @@ export function createSimulationWorld(scenario = {}) {
                         target: item.target,
                         functionName: name,
                         success: true,
+                        args,
+                        result: response.decodedResult,
+                        encodedResult: response.result,
                     });
                 } catch (error) {
                     // Only modeled EVM reverts become per-call failures. Unknown
@@ -225,6 +408,9 @@ export function createSimulationWorld(scenario = {}) {
                         target: item.target,
                         functionName: name,
                         success: false,
+                        args,
+                        result: null,
+                        encodedResult: error.data ?? "0x",
                     });
                 }
             }
@@ -366,7 +552,11 @@ export function createSimulationWorld(scenario = {}) {
             default:
                 throw invalid(`Unknown contract function ${name}`);
         }
-        return { result: encodeResult(name, result), block };
+        return {
+            result: encodeResult(name, result),
+            decodedResult: result,
+            block,
+        };
     }
 
     function execute(provider, request, decodedAggregate) {
@@ -375,6 +565,7 @@ export function createSimulationWorld(scenario = {}) {
         let block;
         let result;
         let aggregateCalls;
+        let decodedResult;
         switch (request.method) {
             case "eth_chainId":
                 result = wireQuantity(ledger.chainId);
@@ -409,6 +600,7 @@ export function createSimulationWorld(scenario = {}) {
                 block = response.block;
                 result = response.result;
                 aggregateCalls = response.aggregateCalls;
+                decodedResult = response.decodedResult;
                 break;
             }
             case "eth_getBalance":
@@ -502,7 +694,7 @@ export function createSimulationWorld(scenario = {}) {
                     `Unsupported external RPC method ${request.method}`,
                 );
         }
-        return { result, view, block, aggregateCalls };
+        return { result, view, block, aggregateCalls, decodedResult };
     }
 
     async function handleRpc(provider, request) {
@@ -554,6 +746,7 @@ export function createSimulationWorld(scenario = {}) {
             params: request.params,
             view: { ...providerView(provider) },
         });
+        let held = [];
         try {
             for (const script of selected) await effect(script.before, context);
             const faultScript = selected.find((script) => script.fault);
@@ -584,10 +777,38 @@ export function createSimulationWorld(scenario = {}) {
                     ? { aggregateCalls: response.aggregateCalls }
                     : {}),
             });
+            if (request.method === "eth_call" && responseGates.size)
+                held = await holdResponse(
+                    request,
+                    context,
+                    response,
+                    response.aggregateCalls ?? [
+                        {
+                            target: request.params?.[0]?.to,
+                            functionName: call?.functionName,
+                            args: call?.args ?? [],
+                            success: true,
+                            result: response.decodedResult,
+                            encodedResult: response.result,
+                        },
+                    ],
+                );
             for (const script of selected) await effect(script.after, context);
+            // This marks handoff to the RPC transport, not client receipt.
+            for (const { gate, capture } of held) {
+                capture.delivered = true;
+                capture.deliveredAt = gateEvent(
+                    gate,
+                    RESPONSE_GATE_EVENT.Delivered,
+                    {
+                        requestIndex: capture.requestIndex,
+                    },
+                );
+            }
             addTrace({ type: "response", ...context, view: response.view });
             return response.result;
         } catch (error) {
+            for (const { capture } of held) capture.aborted = true;
             addTrace({
                 type: "error",
                 ...context,
@@ -706,6 +927,20 @@ export function createSimulationWorld(scenario = {}) {
             );
         },
         handleRpc,
+        armResponseGate,
+        releaseResponseGate,
+        abortResponseGate,
+        async waitForResponseGate(name) {
+            const gate = responseGate(name);
+            await gate.arrival;
+            if (gate.aborted)
+                throw unavailable("External response gate aborted");
+            if (!gate.captures.length)
+                throw unavailable(
+                    "External response gate released before capture",
+                );
+            return gateSnapshot(gate);
+        },
         setProviderView,
         providerView: (id) => ({ ...providerView(id) }),
         advanceHead(head, { provider } = {}) {
@@ -756,11 +991,15 @@ export function createSimulationWorld(scenario = {}) {
                         : {}),
                 })),
                 requests: requestIndex,
+                responseGates: [...responseGates.values()].map(gateSnapshot),
             });
         },
         close() {
             closed = true;
             for (const barrier of barriers.values()) barrier.release();
+            for (const gate of responseGates.values())
+                if (!gate.released && !gate.aborted)
+                    abortResponseGate(gate.name);
         },
     };
 }

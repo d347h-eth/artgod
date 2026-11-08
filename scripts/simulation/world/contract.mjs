@@ -6,6 +6,19 @@ export const METADATA_TRANSPORT = Object.freeze({
 
 export const SCRIPTED_CHAIN_END_BLOCK = 107;
 
+/** External reply gates hold encoded bytes; they never substitute runtime work. */
+export const RESPONSE_GATE_FUNCTION = Object.freeze({
+    Counter: "getCounter",
+    OrderStatus: "getOrderStatus",
+});
+export const RESPONSE_GATE_EVENT = Object.freeze({
+    Armed: "response-gate-armed",
+    Captured: "response-gate-captured",
+    Released: "response-gate-released",
+    Delivered: "response-gate-delivered",
+    Aborted: "response-gate-aborted",
+});
+
 /** Optional immutable tail cadence; existing fixtures retain one-second blocks. */
 export function tailBlockIntervalSeconds(value = 1) {
     if (!Number.isSafeInteger(value) || value < 1 || value > 60)

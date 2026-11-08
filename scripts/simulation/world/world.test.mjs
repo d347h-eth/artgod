@@ -10,7 +10,11 @@ import {
 } from "viem";
 import { createSimulationWorld } from "./world.mjs";
 import { startWorldServer } from "./server.mjs";
-import { METADATA_TRANSPORT } from "./contract.mjs";
+import {
+    METADATA_TRANSPORT,
+    RESPONSE_GATE_FUNCTION as GATE_FUNCTION,
+    RESPONSE_GATE_EVENT as GATE_EVENT,
+} from "./contract.mjs";
 import {
     CONTRACT_ABI,
     FULFILLED_ABI,
@@ -382,6 +386,267 @@ test("request barriers defer the actual external read and closing releases pendi
     await closed.waitForBarrier("stopped");
     closed.close();
     await assert.rejects(held, /World closed/);
+});
+
+test("repeatable status gates exclude the captured old counter and preserve original response evidence", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    world.advanceHead(107);
+    const a = world.ledger.addresses;
+    world.armResponseGate({
+        name: "old-counter",
+        functionName: GATE_FUNCTION.Counter,
+        argument: a.bidder,
+    });
+    const old = call(
+        world,
+        "a",
+        a.seaport,
+        GATE_FUNCTION.Counter,
+        [a.bidder],
+        "0x69",
+    );
+    const captured = await world.waitForResponseGate("old-counter");
+    assert.equal(captured.captures.length, 1);
+    const oldCapture = captured.captures[0];
+    assert.equal(oldCapture.matchingCalls[0].result, "1");
+    assert.equal(oldCapture.selector, "0x69");
+    assert.equal(oldCapture.view.branch, "A");
+    assert.equal(oldCapture.blockHash, world.ledger.blockAt("A", 105).hash);
+    assert.equal(
+        decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: GATE_FUNCTION.Counter,
+            data: oldCapture.result,
+        }),
+        1n,
+    );
+    world.armResponseGate({
+        name: "fresh-status",
+        functionName: GATE_FUNCTION.OrderStatus,
+        argument: world.ledger.orders.bid.orderHash,
+    });
+    world.switchBranch("B");
+    const fresh = [105, 107].map((block) =>
+        call(
+            world,
+            "a",
+            a.seaport,
+            GATE_FUNCTION.OrderStatus,
+            [world.ledger.orders.bid.orderHash],
+            wireQuantity(block),
+        ),
+    );
+    await world.waitForResponseGate("fresh-status");
+    assert.equal(world.snapshot().responseGates[1].pending, 2);
+    assert.equal(
+        (await rpc(world, "a", "eth_getBlockByNumber", ["0x69", false])).hash,
+        world.ledger.blockAt("B", 105).hash,
+    );
+    await rpc(world, "a", "eth_getLogs", [
+        { fromBlock: "0x65", toBlock: "0x69" },
+    ]);
+    assert.equal(
+        (await call(world, "a", a.nft, "ownerOf", [1n], "0x69")).toLowerCase(),
+        a.seller,
+    );
+    world.releaseResponseGate("old-counter");
+    assert.equal(await old, 1n);
+    assert.equal(world.snapshot().responseGates[1].pending, 2);
+    world.releaseResponseGate("fresh-status");
+    assert.deepEqual(await Promise.all(fresh), [
+        [false, false, 0n, 1n],
+        [false, false, 0n, 1n],
+    ]);
+    const final = world.snapshot().responseGates;
+    assert.equal(final[0].captures.length, 1);
+    assert.equal(final[0].captures[0].result, oldCapture.result);
+    assert.ok(
+        final.every(
+            (gate) =>
+                gate.pending === 0 &&
+                gate.captures.every(
+                    (capture) => capture.delivered && !capture.aborted,
+                ),
+        ),
+    );
+    assert.ok(
+        final[1].captures.every((capture) => capture.view.branch === "B"),
+    );
+    const released = final[1].events.find(
+        (event) => event.type === GATE_EVENT.Released,
+    );
+    assert.deepEqual(
+        released.requestIndexes,
+        final[1].captures.map((capture) => capture.requestIndex),
+    );
+    assert.ok(
+        final[1].events
+            .filter((event) => event.type === GATE_EVENT.Delivered)
+            .every((event) =>
+                released.requestIndexes.includes(event.requestIndex),
+            ),
+    );
+    final[0].captures[0].result = "corrupted diagnostic copy";
+    assert.equal(
+        world.snapshot().responseGates[0].captures[0].result,
+        oldCapture.result,
+    );
+});
+
+test("actual deployless status aggregates are held but ownership-only aggregates stay free", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    world.advanceHead(107);
+    world.switchBranch("B");
+    const a = world.ledger.addresses;
+    const client = createPublicClient({
+        transport: custom({
+            request: ({ method, params }) => rpc(world, "a", method, params),
+        }),
+    });
+    const ownership = {
+        address: a.nft,
+        abi: CONTRACT_ABI,
+        functionName: "ownerOf",
+        args: [1n],
+    };
+    world.armResponseGate({
+        name: "bid-status",
+        functionName: GATE_FUNCTION.OrderStatus,
+        argument: world.ledger.orders.bid.orderHash,
+    });
+    const batch = (contracts) =>
+        client.multicall({
+            contracts,
+            blockNumber: 105n,
+            deployless: true,
+            batchSize: 0,
+            allowFailure: false,
+        });
+    assert.equal((await batch([ownership]))[0].toLowerCase(), a.seller);
+    assert.equal(world.snapshot().responseGates[0].captures.length, 0);
+    const pending = batch([
+        ownership,
+        {
+            address: a.seaport,
+            abi: CONTRACT_ABI,
+            functionName: GATE_FUNCTION.OrderStatus,
+            args: [world.ledger.orders.bid.orderHash],
+        },
+    ]);
+    const gate = await world.waitForResponseGate("bid-status");
+    assert.equal(gate.captures[0].matchingCalls.length, 1);
+    assert.deepEqual(gate.captures[0].matchingCalls[0].result, [
+        false,
+        false,
+        "0",
+        "1",
+    ]);
+    assert.equal(gate.captures[0].selector, "0x69");
+    assert.equal(gate.captures[0].view.branch, "B");
+    assert.equal(gate.captures[0].blockNumber, 105);
+    assert.ok(gate.captures[0].result.startsWith("0x"));
+    world.switchBranch("A");
+    assert.equal((await batch([ownership]))[0].toLowerCase(), a.buyer);
+    world.releaseResponseGate("bid-status");
+    const result = await pending;
+    assert.equal(result[0].toLowerCase(), a.seller);
+    assert.deepEqual(result[1], [false, false, 0n, 1n]);
+    assert.equal(world.snapshot().responseGates[0].captures.length, 1);
+});
+
+test("wildcard status gates and explicit aborts cannot leave overlapping replies or empty waiters hanging", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    world.armResponseGate({
+        name: "all-status",
+        functionName: GATE_FUNCTION.OrderStatus,
+    });
+    world.armResponseGate({
+        name: "bid-only",
+        functionName: GATE_FUNCTION.OrderStatus,
+        argument: world.ledger.orders.bid.orderHash,
+    });
+    const pending = call(
+        world,
+        "a",
+        world.ledger.addresses.seaport,
+        GATE_FUNCTION.OrderStatus,
+        [world.ledger.orders.bid.orderHash],
+        "0x67",
+    );
+    await world.waitForResponseGate("bid-only");
+    world.abortResponseGate("bid-only");
+    await assert.rejects(pending, /response gate aborted before delivery/);
+    const gates = world.snapshot().responseGates;
+    assert.equal(gates[0].released, false);
+    assert.ok(
+        gates.every(
+            (gate) =>
+                gate.pending === 0 &&
+                gate.captures[0].aborted &&
+                !gate.captures[0].delivered,
+        ),
+    );
+    world.armResponseGate({
+        name: "empty-counter",
+        functionName: GATE_FUNCTION.Counter,
+        argument: world.ledger.addresses.bidder,
+    });
+    const empty = world.waitForResponseGate("empty-counter");
+    world.close();
+    await assert.rejects(empty, /response gate aborted/);
+    assert.ok(world.snapshot().responseGates.every((gate) => gate.aborted));
+});
+
+test("response gates reject ambiguous names, malformed arguments and repeated terminal actions", async () => {
+    const world = createSimulationWorld({ epochSeconds });
+    for (const options of [
+        { name: "unknown-function", functionName: "ownerOf" },
+        { name: "missing-maker", functionName: GATE_FUNCTION.Counter },
+        {
+            name: "wrong-hash",
+            functionName: GATE_FUNCTION.OrderStatus,
+            argument: world.ledger.addresses.bidder,
+        },
+        {
+            name: "extra",
+            functionName: GATE_FUNCTION.OrderStatus,
+            before: true,
+        },
+    ])
+        assert.throws(
+            () => world.armResponseGate(options),
+            /response gate|Response gate/,
+        );
+    world.armResponseGate({
+        name: "valid",
+        functionName: GATE_FUNCTION.OrderStatus,
+    });
+    const empty = world.waitForResponseGate("valid");
+    assert.throws(
+        () =>
+            world.armResponseGate({
+                name: "valid",
+                functionName: GATE_FUNCTION.OrderStatus,
+            }),
+        /cannot be reused/,
+    );
+    assert.throws(
+        () => world.releaseResponseGate("unknown"),
+        /Unknown external response gate/,
+    );
+    world.releaseResponseGate("valid");
+    await assert.rejects(empty, /released before capture/);
+    assert.throws(() => world.releaseResponseGate("valid"), /already released/);
+    assert.throws(() => world.abortResponseGate("valid"), /already released/);
+    world.close();
+    assert.throws(
+        () =>
+            world.armResponseGate({
+                name: "closed",
+                functionName: GATE_FUNCTION.OrderStatus,
+            }),
+        /World is closed/,
+    );
 });
 
 test("unknown wire work fails closed and contract state is not generic zero data", async () => {
